@@ -1616,6 +1616,20 @@ ssize_t net_ioctl_arglen(int cmd)
             return sizeof(struct btreq_s);
           }
 #  endif
+
+#  ifdef CONFIG_NETDEV_MODEM_LTE_IOCTL
+        if (_LTEIOCVALID(cmd))
+          {
+            switch (cmd)
+              {
+                case SIOCLTECMD:
+                  return sizeof(struct lte_ioctl_data_s);
+
+                default:
+                  return sizeof(struct lte_smsreq_s);
+              }
+          }
+#  endif
 #endif
 
         return -ENOTTY;
