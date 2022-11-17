@@ -788,8 +788,7 @@ static int wizdev_irq(int irq, FAR void *context, FAR void *arg)
   if (dev->pfd)
     {
       ninfo("== interrupted : post\n");
-      dev->pfd->revents |= POLLIN;
-      nxsem_post(dev->pfd->sem);
+      poll_notify(&dev->pfd, 1, POLLIN);
     }
 
   dev->lower->enable(false);
