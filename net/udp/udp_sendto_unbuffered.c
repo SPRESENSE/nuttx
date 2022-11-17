@@ -132,7 +132,6 @@ static inline void sendto_ipselect(FAR struct net_driver_s *dev,
  *
  * Input Parameters:
  *   dev        The structure of the network driver that caused the event
- *   conn       An instance of the UDP connection structure cast to void *
  *   pvpriv     An instance of struct sendto_s cast to void*
  *   flags      Set of events describing why the callback was invoked
  *
@@ -145,10 +144,9 @@ static inline void sendto_ipselect(FAR struct net_driver_s *dev,
  ****************************************************************************/
 
 static uint16_t sendto_eventhandler(FAR struct net_driver_s *dev,
-                                    FAR void *conn, FAR void *pvpriv,
-                                    uint16_t flags)
+                                    FAR void *pvpriv, uint16_t flags)
 {
-  FAR struct sendto_s *pstate = (FAR struct sendto_s *)pvpriv;
+  FAR struct sendto_s *pstate = pvpriv;
 
   DEBUGASSERT(pstate != NULL && pstate->st_dev != NULL);
   if (pstate != NULL)
@@ -398,13 +396,7 @@ ssize_t psock_udp_sendto(FAR struct socket *psock, FAR const void *buf,
 
   net_lock();
   memset(&state, 0, sizeof(struct sendto_s));
-
-  /* This semaphore is used for signaling and, hence, should not have
-   * priority inheritance enabled.
-   */
-
   nxsem_init(&state.st_sem, 0, 0);
-  nxsem_set_protocol(&state.st_sem, SEM_PRIO_NONE);
 
   state.st_buflen = len;
   state.st_buffer = buf;

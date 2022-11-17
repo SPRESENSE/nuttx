@@ -43,16 +43,6 @@
 #include "socket/socket.h"
 
 /****************************************************************************
- * Pre-processor Definitions
- ****************************************************************************/
-
-#define IPv4BUF    ((FAR struct ipv4_hdr_s *)&dev->d_buf[NET_LL_HDRLEN(dev)])
-#define IPv6BUF    ((FAR struct ipv6_hdr_s *)&dev->d_buf[NET_LL_HDRLEN(dev)])
-
-#define TCPIPv4BUF ((FAR struct tcp_hdr_s *)&dev->d_buf[NET_LL_HDRLEN(dev) + IPv4_HDRLEN])
-#define TCPIPv6BUF ((FAR struct tcp_hdr_s *)&dev->d_buf[NET_LL_HDRLEN(dev) + IPv6_HDRLEN])
-
-/****************************************************************************
  * Private Types
  ****************************************************************************/
 
@@ -270,7 +260,7 @@ static inline void tcp_readahead(struct tcp_recvfrom_s *pstate)
         {
           /* Free free the I/O buffer chain */
 
-          iob_free_chain(iob, IOBUSER_NET_TCP_READAHEAD);
+          iob_free_chain(iob);
           conn->readahead = NULL;
         }
       else
@@ -279,8 +269,7 @@ static inline void tcp_readahead(struct tcp_recvfrom_s *pstate)
            * buffer chain.
            */
 
-          conn->readahead = iob_trimhead(iob, recvlen,
-                                         IOBUSER_NET_TCP_READAHEAD);
+          conn->readahead = iob_trimhead(iob, recvlen);
         }
     }
 }
@@ -364,7 +353,7 @@ static inline void tcp_sender(FAR struct net_driver_s *dev,
  *
  * Input Parameters:
  *   dev      The structure of the network driver that generated the event.
- *   pvconn   The connection structure associated with the socket
+ *   pvpriv   An instance of struct tcp_recvfrom_s cast to void*
  *   flags    Set of events describing why the callback was invoked
  *
  * Returned Value:
@@ -376,24 +365,9 @@ static inline void tcp_sender(FAR struct net_driver_s *dev,
  ****************************************************************************/
 
 static uint16_t tcp_recvhandler(FAR struct net_driver_s *dev,
-                                FAR void *pvconn, FAR void *pvpriv,
-                                uint16_t flags)
+                                FAR void *pvpriv, uint16_t flags)
 {
-  FAR struct tcp_recvfrom_s *pstate = (struct tcp_recvfrom_s *)pvpriv;
-
-#if 0 /* REVISIT: The assertion fires.  Why? */
-  FAR struct tcp_conn_s *conn = (FAR struct tcp_conn_s *)pvconn;
-
-  /* The TCP socket is connected and, hence, should be bound to a device.
-   * Make sure that the polling device is the own that we are bound to.
-   */
-
-  DEBUGASSERT(conn->dev == NULL || conn->dev == dev);
-  if (conn->dev != NULL && conn->dev != dev)
-    {
-      return flags;
-    }
-#endif
+  FAR struct tcp_recvfrom_s *pstate = pvpriv;
 
   ninfo("flags: %04x\n", flags);
 
@@ -428,7 +402,8 @@ static uint16_t tcp_recvhandler(FAR struct net_driver_s *dev,
            * next receive is performed.
            */
 
-          if (pstate->ir_recvlen > 0)
+          if ((pstate->ir_recvlen > 0 && (flags & TCP_WAITALL) == 0) ||
+              pstate->ir_buflen == 0)
             {
               ninfo("TCP resume\n");
 
@@ -529,13 +504,7 @@ static void tcp_recvfrom_initialize(FAR struct tcp_conn_s *conn,
   /* Initialize the state structure. */
 
   memset(pstate, 0, sizeof(struct tcp_recvfrom_s));
-
-  /* This semaphore is used for signaling and, hence, should not have
-   * priority inheritance enabled.
-   */
-
   nxsem_init(&pstate->ir_sem, 0, 0); /* Doesn't really fail */
-  nxsem_set_protocol(&pstate->ir_sem, SEM_PRIO_NONE);
 
   pstate->ir_buflen    = len;
   pstate->ir_buffer    = buf;
@@ -572,30 +541,20 @@ static void tcp_recvfrom_initialize(FAR struct tcp_conn_s *conn,
 
 static ssize_t tcp_recvfrom_result(int result, struct tcp_recvfrom_s *pstate)
 {
-  /* Check for a error/timeout detected by the event handler.  Errors are
-   * signaled by negative errno values for the rcv length
+  /* Check if any data were received. If so, then return their length and
+   * ignore any error codes.
    */
 
-  if (pstate->ir_result < 0)
+  if (pstate->ir_recvlen > 0)
     {
-      /* This might return EAGAIN on a timeout or ENOTCONN on loss of
-       * connection (TCP only)
-       */
-
-      return pstate->ir_result;
+      return pstate->ir_recvlen;
     }
 
-  /* If net_timedwait failed, then we were probably reawakened by a signal.
-   * In this case, net_timedwait will have returned negated errno
-   * appropriately.
+  /* If no data were received, return the error code instead. The event
+   * handler error is prioritized over any previous error.
    */
 
-  if (result < 0)
-    {
-      return result;
-    }
-
-  return pstate->ir_recvlen;
+  return (pstate->ir_result <= 0) ? pstate->ir_result : result;
 }
 
 /****************************************************************************
@@ -610,11 +569,8 @@ static ssize_t tcp_recvfrom_result(int result, struct tcp_recvfrom_s *pstate)
  *
  * Input Parameters:
  *   psock    Pointer to the socket structure for the SOCK_DRAM socket
- *   buf      Buffer to receive data
- *   len      Length of buffer
+ *   msg      Receive info and buffer for receive data
  *   flags    Receive flags
- *   from     INET address of source (may be NULL)
- *   fromlen  The length of the address structure
  *
  * Returned Value:
  *   On success, returns the number of characters received.  On  error,
@@ -624,10 +580,13 @@ static ssize_t tcp_recvfrom_result(int result, struct tcp_recvfrom_s *pstate)
  *
  ****************************************************************************/
 
-ssize_t psock_tcp_recvfrom(FAR struct socket *psock, FAR void *buf,
-                           size_t len, int flags, FAR struct sockaddr *from,
-                           FAR socklen_t *fromlen)
+ssize_t psock_tcp_recvfrom(FAR struct socket *psock, FAR struct msghdr *msg,
+                           int flags)
 {
+  FAR struct sockaddr   *from    = msg->msg_name;
+  FAR socklen_t         *fromlen = &msg->msg_namelen;
+  FAR void              *buf     = msg->msg_iov->iov_base;
+  size_t                 len     = msg->msg_iov->iov_len;
   struct tcp_recvfrom_s  state;
   FAR struct tcp_conn_s *conn;
   int                    ret;
@@ -714,15 +673,18 @@ ssize_t psock_tcp_recvfrom(FAR struct socket *psock, FAR void *buf,
   /* We get here when we we decide that we need to setup the wait for
    * incoming TCP/IP data.  Just a few more conditions to check:
    *
-   * 1) Make sure thet there is buffer space to receive additional data
+   * 1) Make sure that there is buffer space to receive additional data
    *    (state.ir_buflen > 0).  This could be zero, for example,  we filled
    *    the user buffer with data from the read-ahead buffers.  And
    * 2) then we not want to wait if we already obtained some data from the
    *    read-ahead buffer.  In that case, return now with what we have (don't
    *    want for more because there may be no timeout).
+   * 3) If however MSG_WAITALL flag is set, block here till all requested
+   *    data are received (or there is a timeout / error).
    */
 
-  if (state.ir_recvlen == 0 && state.ir_buflen > 0)
+  if (((flags & MSG_WAITALL) != 0 || state.ir_recvlen == 0) &&
+      state.ir_buflen > 0)
     {
       /* Set up the callback in the connection */
 
@@ -730,16 +692,17 @@ ssize_t psock_tcp_recvfrom(FAR struct socket *psock, FAR void *buf,
       if (state.ir_cb)
         {
           state.ir_cb->flags   = (TCP_NEWDATA | TCP_DISCONN_EVENTS);
+          state.ir_cb->flags  |= (flags & MSG_WAITALL) ? TCP_WAITALL : 0;
           state.ir_cb->priv    = (FAR void *)&state;
           state.ir_cb->event   = tcp_recvhandler;
 
           /* Wait for either the receive to complete or for an error/timeout
-           * to occur.  net_timedwait will also terminate if a signal isi
+           * to occur.  net_timedwait will also terminate if a signal is
            * received.
            */
 
           ret = net_timedwait(&state.ir_sem,
-                              _SO_TIMEOUT(conn->sconn.s_rcvtimeo));
+                               _SO_TIMEOUT(conn->sconn.s_rcvtimeo));
           if (ret == -ETIMEDOUT)
             {
               ret = -EAGAIN;
@@ -750,7 +713,7 @@ ssize_t psock_tcp_recvfrom(FAR struct socket *psock, FAR void *buf,
           tcp_callback_free(conn, state.ir_cb);
           ret = tcp_recvfrom_result(ret, &state);
         }
-      else
+      else if (ret <= 0)
         {
           ret = -EBUSY;
         }

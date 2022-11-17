@@ -27,6 +27,7 @@
 SYSCALL_LOOKUP1(_exit,                     1)
 SYSCALL_LOOKUP(getpid,                     0)
 SYSCALL_LOOKUP(gettid,                     0)
+SYSCALL_LOOKUP(prctl,                      2)
 
 #ifdef CONFIG_SCHED_HAVE_PARENT
   SYSCALL_LOOKUP(getppid,                  0)
@@ -226,23 +227,17 @@ SYSCALL_LOOKUP(pwrite,                     4)
 
 /* The following are defined if file descriptors are enabled */
 
-SYSCALL_LOOKUP(closedir,                   1)
 SYSCALL_LOOKUP(dup,                        1)
 SYSCALL_LOOKUP(dup2,                       2)
 SYSCALL_LOOKUP(fcntl,                      3)
 SYSCALL_LOOKUP(lseek,                      3)
 SYSCALL_LOOKUP(mmap,                       6)
 SYSCALL_LOOKUP(open,                       3)
-SYSCALL_LOOKUP(opendir,                    1)
-SYSCALL_LOOKUP(readdir,                    1)
-SYSCALL_LOOKUP(rewinddir,                  1)
-SYSCALL_LOOKUP(seekdir,                    2)
 SYSCALL_LOOKUP(stat,                       2)
 SYSCALL_LOOKUP(lstat,                      2)
 SYSCALL_LOOKUP(fstat,                      2)
 SYSCALL_LOOKUP(statfs,                     2)
 SYSCALL_LOOKUP(fstatfs,                    2)
-SYSCALL_LOOKUP(telldir,                    1)
 SYSCALL_LOOKUP(sendfile,                   4)
 SYSCALL_LOOKUP(chmod,                      2)
 SYSCALL_LOOKUP(lchmod,                     2)
@@ -264,7 +259,7 @@ SYSCALL_LOOKUP(futimens,                   2)
 #endif
 
 #if defined(CONFIG_PIPES) && CONFIG_DEV_PIPE_SIZE > 0
-  SYSCALL_LOOKUP(nx_pipe,                  3)
+  SYSCALL_LOOKUP(pipe2,                    2)
 #endif
 
 #if defined(CONFIG_PIPES) && CONFIG_DEV_FIFO_SIZE > 0
@@ -372,12 +367,6 @@ SYSCALL_LOOKUP(futimens,                   2)
   SYSCALL_LOOKUP(setsockopt,               5)
   SYSCALL_LOOKUP(socket,                   3)
   SYSCALL_LOOKUP(socketpair,               4)
-#endif
-
-/* The following is defined only if CONFIG_TASK_NAME_SIZE > 0 */
-
-#if CONFIG_TASK_NAME_SIZE > 0
-  SYSCALL_LOOKUP(prctl,                    2)
 #endif
 
 /* The following is defined only if entropy pool random number generator

@@ -166,7 +166,7 @@ uint16_t tcp_callback(FAR struct net_driver_s *dev,
    *                 not set, then dev->d_len should also be cleared).
    */
 
-  flags = devif_conn_event(dev, conn, flags, conn->sconn.list);
+  flags = devif_conn_event(dev, flags, conn->sconn.list);
 
   /* There may be no new data handler in place at them moment that the new
    * incoming data is received.  If the new incoming data was not handled,
@@ -190,7 +190,7 @@ uint16_t tcp_callback(FAR struct net_driver_s *dev,
     {
       /* Perform the callback disconnect callbacks */
 
-      flags = devif_conn_event(dev, conn, flags, conn->connevents);
+      flags = devif_conn_event(dev, flags, conn->connevents);
     }
 
 #ifdef CONFIG_NET_TCP_NOTIFIER
@@ -264,7 +264,7 @@ uint16_t tcp_datahandler(FAR struct tcp_conn_s *conn, FAR uint8_t *buffer,
 
       if (iob == NULL)
         {
-          iob = iob_tryalloc(throttled, IOBUSER_NET_TCP_READAHEAD);
+          iob = iob_tryalloc(throttled);
           if (iob == NULL)
             {
               continue;
@@ -278,8 +278,7 @@ uint16_t tcp_datahandler(FAR struct tcp_conn_s *conn, FAR uint8_t *buffer,
           uint32_t olen = iob->io_pktlen;
 
           ret = iob_trycopyin(iob, buffer + copied, buflen - copied,
-                              olen, throttled,
-                              IOBUSER_NET_TCP_READAHEAD);
+                              olen, throttled);
           copied += iob->io_pktlen - olen;
           if (ret < 0)
             {

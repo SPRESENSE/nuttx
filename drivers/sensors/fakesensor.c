@@ -183,8 +183,10 @@ static inline void fakesensor_read_gps(FAR struct fakesensor_s *sensor)
   float hoop;
   float altitude;
   char raw[150];
+
   memset(&gps, 0, sizeof(struct sensor_gps));
-  read:
+
+read:
   fakesensor_read_csv_line(
           &sensor->data, raw, sizeof(raw), sensor->raw_start);
   FAR char *pos = strstr(raw, "GGA");
@@ -359,7 +361,7 @@ static int fakesensor_thread(int argc, char** argv)
  * Name: fakesensor_init
  *
  * Description:
- *   This function generates a sensor node under /dev/sensor/. And then
+ *   This function generates a sensor node under /dev/uorb/. And then
  *   report the data from csv file.
  *
  * Input Parameters:
@@ -401,7 +403,6 @@ int fakesensor_init(int type, FAR const char *file_name,
   sensor->file_path = file_name;
 
   nxsem_init(&sensor->wakeup, 0, 0);
-  nxsem_set_protocol(&sensor->wakeup, SEM_PRIO_NONE);
 
   /* Create thread for sensor */
 

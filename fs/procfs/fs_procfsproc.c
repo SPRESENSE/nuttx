@@ -51,7 +51,6 @@
 #include <nuttx/fs/fs.h>
 #include <nuttx/fs/procfs.h>
 #include <nuttx/fs/ioctl.h>
-#include <nuttx/fs/dirent.h>
 #include <nuttx/mm/mm.h>
 
 #if defined(CONFIG_SCHED_CPULOAD) || defined(CONFIG_SCHED_CRITMONITOR)
@@ -223,9 +222,10 @@ static int     proc_dup(FAR const struct file *oldp,
                  FAR struct file *newp);
 
 static int     proc_opendir(const char *relpath,
-                 FAR struct fs_dirent_s *dir);
+                 FAR struct fs_dirent_s **dir);
 static int     proc_closedir(FAR struct fs_dirent_s *dir);
-static int     proc_readdir(FAR struct fs_dirent_s *dir);
+static int     proc_readdir(FAR struct fs_dirent_s *dir,
+                            FAR struct dirent *entry);
 static int     proc_rewinddir(FAR struct fs_dirent_s *dir);
 
 static int     proc_stat(FAR const char *relpath, FAR struct stat *buf);
@@ -411,7 +411,7 @@ static FAR const char * const g_statenames[] =
   "Inactive",
   "Waiting,Semaphore",
   "Waiting,Signal"
-#ifndef CONFIG_DISABLE_MQUEUE
+#if !defined(CONFIG_DISABLE_MQUEUE) && !defined(CONFIG_DISABLE_MQUEUE_SYSV)
   , "Waiting,MQ empty"
   , "Waiting,MQ full"
 #endif
@@ -493,7 +493,6 @@ static ssize_t proc_status(FAR struct proc_file_s *procfile,
                            FAR struct tcb_s *tcb, FAR char *buffer,
                            size_t buflen, off_t offset)
 {
-  FAR struct task_group_s *group;
   FAR const char *policy;
   FAR const char *name;
   size_t remaining;
@@ -543,12 +542,9 @@ static ssize_t proc_status(FAR struct proc_file_s *procfile,
       return totalsize;
     }
 
-  group = tcb->group;
-  DEBUGASSERT(group != NULL);
-
   linesize   = procfs_snprintf(procfile->line, STATUS_LINELEN,
-                               "%-12s%d\n",
-                               "Group:", group->tg_pid);
+                               "%-12s%d\n", "Group:",
+                               tcb->group ? tcb->group->tg_pid : -1);
   copysize   = procfs_memcpy(procfile->line, linesize, buffer, remaining,
                              &offset);
 
@@ -993,7 +989,7 @@ static ssize_t proc_heapcheck(FAR struct proc_file_s *procfile,
       heapcheck = 1;
     }
 
-  linesize = procfs_snprintf(procfile->line, STATUS_LINELEN, "%-12s%d\n",
+  linesize = procfs_snprintf(procfile->line, STATUS_LINELEN, "%-12s%zu\n",
                              "HeapCheck:", heapcheck);
 
   copysize = procfs_memcpy(procfile->line, linesize, buffer, remaining,
@@ -1770,7 +1766,8 @@ static int proc_dup(FAR const struct file *oldp, FAR struct file *newp)
  *
  ****************************************************************************/
 
-static int proc_opendir(FAR const char *relpath, FAR struct fs_dirent_s *dir)
+static int proc_opendir(FAR const char *relpath,
+                        FAR struct fs_dirent_s **dir)
 {
   FAR struct proc_dir_s *procdir;
   FAR const struct proc_node_s *node;
@@ -1780,7 +1777,7 @@ static int proc_opendir(FAR const char *relpath, FAR struct fs_dirent_s *dir)
   pid_t pid;
 
   finfo("relpath: \"%s\"\n", relpath ? relpath : "NULL");
-  DEBUGASSERT(relpath != NULL && dir != NULL && dir->u.procfs == NULL);
+  DEBUGASSERT(relpath != NULL);
 
   /* The relative must be either:
    *
@@ -1886,7 +1883,7 @@ static int proc_opendir(FAR const char *relpath, FAR struct fs_dirent_s *dir)
     }
 
   procdir->pid  = pid;
-  dir->u.procfs = (FAR void *)procdir;
+  *dir = (FAR struct fs_dirent_s *)procdir;
   return OK;
 }
 
@@ -1899,17 +1896,8 @@ static int proc_opendir(FAR const char *relpath, FAR struct fs_dirent_s *dir)
 
 static int proc_closedir(FAR struct fs_dirent_s *dir)
 {
-  FAR struct proc_dir_s *priv;
-
-  DEBUGASSERT(dir != NULL && dir->u.procfs != NULL);
-  priv = dir->u.procfs;
-
-  if (priv)
-    {
-      kmm_free(priv);
-    }
-
-  dir->u.procfs = NULL;
+  DEBUGASSERT(dir != NULL);
+  kmm_free(dir);
   return OK;
 }
 
@@ -1920,7 +1908,8 @@ static int proc_closedir(FAR struct fs_dirent_s *dir)
  *
  ****************************************************************************/
 
-static int proc_readdir(struct fs_dirent_s *dir)
+static int proc_readdir(FAR struct fs_dirent_s *dir,
+                        FAR struct dirent *entry)
 {
   FAR struct proc_dir_s *procdir;
   FAR const struct proc_node_s *node = NULL;
@@ -1929,8 +1918,8 @@ static int proc_readdir(struct fs_dirent_s *dir)
   pid_t pid;
   int ret;
 
-  DEBUGASSERT(dir != NULL && dir->u.procfs != NULL);
-  procdir = dir->u.procfs;
+  DEBUGASSERT(dir != NULL);
+  procdir = (FAR struct proc_dir_s *)dir;
 
   /* Have we reached the end of the directory */
 
@@ -1984,8 +1973,8 @@ static int proc_readdir(struct fs_dirent_s *dir)
 
       /* Save the filename and file type */
 
-      dir->fd_dir.d_type = node->dtype;
-      strlcpy(dir->fd_dir.d_name, node->name, sizeof(dir->fd_dir.d_name));
+      entry->d_type = node->dtype;
+      strlcpy(entry->d_name, node->name, sizeof(entry->d_name));
 
       /* Set up the next directory entry offset.  NOTE that we could use the
        * standard f_pos instead of our own private index.
@@ -2009,8 +1998,8 @@ static int proc_rewinddir(struct fs_dirent_s *dir)
 {
   FAR struct proc_dir_s *priv;
 
-  DEBUGASSERT(dir != NULL && dir->u.procfs != NULL);
-  priv = dir->u.procfs;
+  DEBUGASSERT(dir != NULL);
+  priv = (FAR struct proc_dir_s *)dir;
 
   priv->base.index = 0;
   return OK;

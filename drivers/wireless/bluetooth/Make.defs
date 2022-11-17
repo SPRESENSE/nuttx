@@ -40,6 +40,10 @@ CSRCS += bt_uart_bcm4343x.c
 endif
 endif
 
+ifeq ($(CONFIG_BLUETOOTH_BRIDGE),y)
+CSRCS += bt_bridge.c
+endif
+
 ifeq ($(CONFIG_BLUETOOTH_NULL),y)
 CSRCS += bt_null.c
 endif
@@ -48,6 +52,6 @@ endif
 
 DEPPATH += --dep-path wireless$(DELIM)bluetooth
 VPATH += :wireless$(DELIM)bluetooth
-CFLAGS += ${shell $(INCDIR) "$(CC)" $(TOPDIR)$(DELIM)drivers$(DELIM)wireless$(DELIM)bluetooth}
+CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)drivers$(DELIM)wireless$(DELIM)bluetooth
 
 endif # CONFIG_DRIVERS_BLUETOOTH

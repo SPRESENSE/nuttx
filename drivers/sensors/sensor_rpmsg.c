@@ -357,7 +357,6 @@ static int sensor_rpmsg_ioctl(FAR struct sensor_rpmsg_dev_s *dev,
       cookie.data   = (FAR void *)(uintptr_t)arg;
       cookie.result = -ENXIO;
       nxsem_init(&cookie.sem, 0, 0);
-      nxsem_set_protocol(&cookie.sem, SEM_PRIO_NONE);
     }
 
   /* All control is always send to own proxy(remote advertisers),
@@ -1273,7 +1272,7 @@ static void sensor_rpmsg_device_created(FAR struct rpmsg_device *rdev,
  *
  * Input Parameters:
  *   lower - The instance of lower half sensor driver.
- *   path  - The path of character node, ex: /dev/sensor/xxx.
+ *   path  - The path of character node, ex: /dev/uorb/xxx.
  *
  * Returned Value:
  *   The takeover rpmsg lowerhalf returned on success, NULL on failure.

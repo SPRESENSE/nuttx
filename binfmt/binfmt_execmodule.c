@@ -120,6 +120,7 @@ int exec_module(FAR const struct binary_s *binp,
   save_addrenv_t oldenv;
   FAR void *vheap;
 #endif
+  FAR void *stackaddr = NULL;
   pid_t pid;
   int ret;
 
@@ -142,26 +143,23 @@ int exec_module(FAR const struct binary_s *binp,
       return -ENOMEM;
     }
 
-  if (argv)
+  ret = binfmt_copyargv(&argv, argv);
+  if (ret < 0)
     {
-      argv = binfmt_copyargv(argv);
-      if (!argv)
-        {
-          ret = -ENOMEM;
-          goto errout_with_tcb;
-        }
+      goto errout_with_tcb;
     }
 
   /* Make a copy of the environment here */
 
-  if (envp || (envp = environ))
+  if (envp == NULL)
     {
-      envp = binfmt_copyenv(envp);
-      if (!envp)
-        {
-          ret = -ENOMEM;
-          goto errout_with_args;
-        }
+      envp = environ;
+    }
+
+  ret = binfmt_copyenv(&envp, envp);
+  if (ret < 0)
+    {
+      goto errout_with_args;
     }
 
 #if defined(CONFIG_ARCH_ADDRENV) && defined(CONFIG_BUILD_KERNEL)
@@ -192,14 +190,18 @@ int exec_module(FAR const struct binary_s *binp,
 
   /* Initialize the task */
 
+#ifndef CONFIG_BUILD_KERNEL
+  stackaddr = binp->stackaddr;
+#endif
+
   if (argv && argv[0])
     {
-      ret = nxtask_init(tcb, argv[0], binp->priority, NULL,
+      ret = nxtask_init(tcb, argv[0], binp->priority, stackaddr,
                         binp->stacksize, binp->entrypt, &argv[1], envp);
     }
   else
     {
-      ret = nxtask_init(tcb, filename, binp->priority, NULL,
+      ret = nxtask_init(tcb, filename, binp->priority, stackaddr,
                         binp->stacksize, binp->entrypt, argv, envp);
     }
 

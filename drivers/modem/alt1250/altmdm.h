@@ -18,8 +18,8 @@
  *
  ****************************************************************************/
 
-#ifndef __DRIVERS_MODEM_ALT1250_ALTMDM_H__
-#define __DRIVERS_MODEM_ALT1250_ALTMDM_H__
+#ifndef __DRIVERS_MODEM_ALT1250_ALTMDM_H
+#define __DRIVERS_MODEM_ALT1250_ALTMDM_H
 
 /****************************************************************************
  * Included Files
@@ -237,4 +237,4 @@ uint32_t altmdm_get_reset_reason(void);
 
 uint8_t altmdm_get_protoversion(void);
 
-#endif  /* __DRIVERS_MODEM_ALT1250_ALTMDM_H__ */
+#endif  /* __DRIVERS_MODEM_ALT1250_ALTMDM_H */

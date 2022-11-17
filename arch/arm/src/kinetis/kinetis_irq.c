@@ -58,28 +58,6 @@
 #define NVIC_CLRENA_OFFSET (NVIC_IRQ0_31_CLEAR - NVIC_IRQ0_31_ENABLE)
 
 /****************************************************************************
- * Public Data
- ****************************************************************************/
-
-/* g_current_regs[] holds a references to the current interrupt level
- * register storage structure.  If is non-NULL only during interrupt
- * processing.  Access to g_current_regs[] must be through the macro
- * CURRENT_REGS for portability.
- */
-
-volatile uint32_t *g_current_regs[1];
-
-/* This is the address of the  exception vector table (determined by the
- * linker script).
- */
-
-extern uint32_t _vectors[];
-
-/****************************************************************************
- * Private Data
- ****************************************************************************/
-
-/****************************************************************************
  * Private Functions
  ****************************************************************************/
 
@@ -166,7 +144,7 @@ static void kinetis_dumpnvic(const char *msg, int irq)
 #endif
 
 /****************************************************************************
- * Name: kinetis_nmi, kinetis_busfault, kinetis_usagefault, kinetis_pendsv,
+ * Name: kinetis_nmi, kinetis_pendsv,
  *       kinetis_dbgmonitor, kinetis_pendsv, kinetis_reserved
  *
  * Description:
@@ -181,22 +159,6 @@ static int kinetis_nmi(int irq, void *context, void *arg)
 {
   up_irq_save();
   _err("PANIC!!! NMI received\n");
-  PANIC();
-  return 0;
-}
-
-static int kinetis_busfault(int irq, void *context, void *arg)
-{
-  up_irq_save();
-  _err("PANIC!!! Bus fault received\n");
-  PANIC();
-  return 0;
-}
-
-static int kinetis_usagefault(int irq, void *context, void *arg)
-{
-  up_irq_save();
-  _err("PANIC!!! Usage fault received\n");
   PANIC();
   return 0;
 }
@@ -395,10 +357,6 @@ void up_irqinitialize(void)
       putreg32(DEFPRIORITY32, regaddr);
     }
 
-  /* currents_regs is non-NULL only while processing an interrupt */
-
-  CURRENT_REGS = NULL;
-
   /* Attach the SVCall and Hard Fault exception handlers.  The SVCall
    * exception is used for performing context switches; The Hard Fault
    * must also be caught because a SVCall may show up as a Hard Fault
@@ -430,8 +388,8 @@ void up_irqinitialize(void)
 #ifndef CONFIG_ARM_MPU
   irq_attach(KINETIS_IRQ_MEMFAULT, arm_memfault, NULL);
 #endif
-  irq_attach(KINETIS_IRQ_BUSFAULT, kinetis_busfault, NULL);
-  irq_attach(KINETIS_IRQ_USAGEFAULT, kinetis_usagefault, NULL);
+  irq_attach(KINETIS_IRQ_BUSFAULT, arm_busfault, NULL);
+  irq_attach(KINETIS_IRQ_USAGEFAULT, arm_usagefault, NULL);
   irq_attach(KINETIS_IRQ_PENDSV, kinetis_pendsv, NULL);
   irq_attach(KINETIS_IRQ_DBGMONITOR, kinetis_dbgmonitor, NULL);
   irq_attach(KINETIS_IRQ_RESERVED, kinetis_reserved, NULL);

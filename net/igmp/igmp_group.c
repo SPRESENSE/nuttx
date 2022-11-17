@@ -50,7 +50,6 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include <queue.h>
 #include <assert.h>
 #include <debug.h>
 
@@ -59,6 +58,7 @@
 #include <nuttx/arch.h>
 #include <nuttx/wdog.h>
 #include <nuttx/kmalloc.h>
+#include <nuttx/queue.h>
 #include <nuttx/semaphore.h>
 #include <nuttx/net/net.h>
 #include <nuttx/net/ip.h>
@@ -121,13 +121,7 @@ FAR struct igmp_group_s *igmp_grpalloc(FAR struct net_driver_s *dev,
       /* Initialize the non-zero elements of the group structure */
 
       net_ipv4addr_copy(group->grpaddr, *addr);
-
-      /* This semaphore is used for signaling and, hence, should not have
-       * priority inheritance enabled.
-       */
-
       nxsem_init(&group->sem, 0, 0);
-      nxsem_set_protocol(&group->sem, SEM_PRIO_NONE);
 
       /* Save the interface index */
 

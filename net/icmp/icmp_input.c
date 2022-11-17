@@ -68,8 +68,6 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-#define IPv4BUF      ((FAR struct ipv4_hdr_s *)&dev->d_buf[NET_LL_HDRLEN(dev)])
-#define ICMPBUF(hl)  ((FAR struct icmp_hdr_s *)&dev->d_buf[NET_LL_HDRLEN(dev) + (hl)])
 #define ICMPSIZE(hl) ((dev)->d_len - (hl))
 
 /****************************************************************************
@@ -113,7 +111,7 @@ static uint16_t icmp_datahandler(FAR struct net_driver_s *dev,
    * packet.
    */
 
-  iob = iob_tryalloc(true, IOBUSER_NET_SOCK_ICMP);
+  iob = iob_tryalloc(true);
   if (iob == NULL)
     {
       nerr("ERROR: Failed to create new I/O buffer chain\n");
@@ -137,8 +135,7 @@ static uint16_t icmp_datahandler(FAR struct net_driver_s *dev,
    */
 
   addrsize = sizeof(struct sockaddr_in);
-  ret      = iob_trycopyin(iob, &addrsize, sizeof(uint8_t), 0, true,
-                           IOBUSER_NET_SOCK_ICMP);
+  ret      = iob_trycopyin(iob, &addrsize, sizeof(uint8_t), 0, true);
   if (ret < 0)
     {
       /* On a failure, iob_trycopyin return a negated error value but does
@@ -152,8 +149,7 @@ static uint16_t icmp_datahandler(FAR struct net_driver_s *dev,
   offset = sizeof(uint8_t);
 
   ret = iob_trycopyin(iob, (FAR const uint8_t *)&inaddr,
-                      sizeof(struct sockaddr_in), offset, true,
-                      IOBUSER_NET_SOCK_ICMP);
+                      sizeof(struct sockaddr_in), offset, true);
   if (ret < 0)
     {
       /* On a failure, iob_trycopyin return a negated error value but does
@@ -174,8 +170,7 @@ static uint16_t icmp_datahandler(FAR struct net_driver_s *dev,
   /* Copy the new ICMP reply into the I/O buffer chain (without waiting) */
 
   buflen = ICMPSIZE(iphdrlen);
-  ret = iob_trycopyin(iob, (FAR uint8_t *)ICMPBUF(iphdrlen), buflen, offset,
-                      true, IOBUSER_NET_SOCK_ICMP);
+  ret = iob_trycopyin(iob, IPBUF(iphdrlen), buflen, offset, true);
   if (ret < 0)
     {
       /* On a failure, iob_copyin return a negated error value but does
@@ -202,7 +197,7 @@ static uint16_t icmp_datahandler(FAR struct net_driver_s *dev,
   return buflen;
 
 drop_with_chain:
-  iob_free_chain(iob, IOBUSER_NET_SOCK_ICMP);
+  iob_free_chain(iob);
 
 drop:
   dev->d_len = 0;
@@ -248,7 +243,7 @@ void icmp_input(FAR struct net_driver_s *dev)
 
   /* The ICMP header immediately follows the IP header */
 
-  icmp = ICMPBUF(iphdrlen);
+  icmp = IPBUF(iphdrlen);
 
   /* ICMP echo (i.e., ping) processing. This is simple, we only change the
    * ICMP type from ECHO to ECHO_REPLY and adjust the ICMP checksum before
@@ -332,7 +327,7 @@ void icmp_input(FAR struct net_driver_s *dev)
           goto drop;
         }
 
-      flags = devif_conn_event(dev, conn, ICMP_NEWDATA, conn->sconn.list);
+      flags = devif_conn_event(dev, ICMP_NEWDATA, conn->sconn.list);
       if ((flags & ICMP_NEWDATA) != 0)
         {
           uint16_t nbuffered;
@@ -363,7 +358,6 @@ void icmp_input(FAR struct net_driver_s *dev)
   return;
 
 typeerr:
-
 #ifdef CONFIG_NET_STATISTICS
   g_netstats.icmp.typeerr++;
 #endif
@@ -371,7 +365,6 @@ typeerr:
 #ifdef CONFIG_NET_ICMP_SOCKET
 drop:
 #endif
-
 #ifdef CONFIG_NET_STATISTICS
   g_netstats.icmp.drop++;
 #endif

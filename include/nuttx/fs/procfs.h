@@ -48,7 +48,7 @@ struct procfs_operations
                   int oflags, mode_t mode);
 
   /* The following methods must be identical in signature and position
-   * because the struct file_operations and struct mountp_operations are
+   * because the struct file_operations and struct mountpt_operations are
    * treated like unions.
    */
 
@@ -73,9 +73,9 @@ struct procfs_operations
   /* Directory operations */
 
   int     (*opendir)(FAR const char *relpath,
-                     FAR struct fs_dirent_s *dir);
+                     FAR struct fs_dirent_s **dir);
   int     (*closedir)(FAR struct fs_dirent_s *dir);
-  int     (*readdir)(FAR struct fs_dirent_s *dir);
+  int     (*readdir)(FAR struct fs_dirent_s *dir, FAR struct dirent *entry);
   int     (*rewinddir)(FAR struct fs_dirent_s *dir);
 
   /* Operations on paths */
@@ -119,6 +119,7 @@ struct procfs_file_s
 
 struct procfs_dir_priv_s
 {
+  struct fs_dirent_s dir;                       /* VFS directory structure */
   uint8_t level;                                /* Directory level.  Currently 0 or 1 */
   uint16_t index;                               /* Index to the next directory entry */
   uint16_t nentries;                            /* Number of directory entries */

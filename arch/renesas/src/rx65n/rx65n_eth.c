@@ -33,13 +33,13 @@
 #include <string.h>
 #include <assert.h>
 #include <debug.h>
-#include <queue.h>
 #include <errno.h>
 
 #include <arpa/inet.h>
 
 #include <nuttx/arch.h>
 #include <nuttx/irq.h>
+#include <nuttx/queue.h>
 #include <nuttx/wqueue.h>
 #include <nuttx/net/phy.h>
 #include <nuttx/net/mii.h>
@@ -1886,8 +1886,8 @@ static void rx65n_interrupt_work(FAR void *arg)
 
           if (phylinknotification.phandler != NULL)
             {
-              phylinknotification.phandler(irqno, (FAR void *)NULL,
-              (FAR void *)phylinknotification.pclient);
+              phylinknotification.phandler(irqno, NULL,
+                                           phylinknotification.pclient);
               priv->prevlinkstatus = regval;
             }
         }
@@ -3400,8 +3400,7 @@ static int rx65n_phyinit(FAR struct rx65n_ethmac_s *priv)
 
   if (count > ETHER_CFG_PHY_DELAY_RESET)
     {
-      ret = -ETIMEDOUT;
-      goto error_with_reset_timeout;
+      return -ETIMEDOUT;
     }
 
   priv->mbps100 = 0;
@@ -3434,8 +3433,7 @@ static int rx65n_phyinit(FAR struct rx65n_ethmac_s *priv)
 
   if (count > ETHER_PHY_STATUS_CHECK_DELAY)
     {
-      ret = -ETIMEDOUT;
-      goto error_with_auto_neg_timeout;
+      return -ETIMEDOUT;
     }
 
 #ifdef CONFIG_RX65N_EMAC0_PHYSR_ALTCONFIG
@@ -3463,11 +3461,9 @@ static int rx65n_phyinit(FAR struct rx65n_ethmac_s *priv)
         priv->mbps100 = 1;
         break;
     }
+#endif
+#endif
 
-#endif
-#endif
-  error_with_reset_timeout:
-  error_with_auto_neg_timeout:
   return ret;
 }
 

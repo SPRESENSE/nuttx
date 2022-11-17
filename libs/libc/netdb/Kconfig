@@ -4,13 +4,14 @@
 #
 
 config LIBC_NETDB
-	bool
+	bool "netdb support"
 	default n
 
 menu "NETDB Support"
 
 config LIBC_GAISTRERROR
 	bool "Enable gai_strerror"
+	depends on LIBC_NETDB
 	default n
 	---help---
 		The gai_strerror() function shall return a text string describing an error
@@ -20,12 +21,14 @@ config LIBC_GAISTRERROR
 
 config NETDB_BUFSIZE
 	int "gethostbyname/gethostbyaddr buffer size"
+	depends on LIBC_NETDB
 	default 256
 
 if NET_IPv4
 
 config NETDB_MAX_IPv4ADDR
 	int "Max number of IPv4 addresses per host"
+	depends on LIBC_NETDB
 	default 1
 	---help---
 		This setting determines the maximum number of IPv4 addresses
@@ -37,6 +40,7 @@ if NET_IPv6
 
 config NETDB_MAX_IPv6ADDR
 	int "Max number of IPv6 addresses per host"
+	depends on LIBC_NETDB
 	default 1
 	---help---
 		This setting determines the maximum number of IPv6 addresses

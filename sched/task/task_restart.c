@@ -133,9 +133,9 @@ int nxtask_restart(pid_t pid)
    */
 
 #ifdef CONFIG_SMP
-  tasklist = TLIST_HEAD(tcb->cmn.task_state, tcb->cmn.cpu);
+  tasklist = TLIST_HEAD(&tcb->cmn, tcb->cmn.cpu);
 #else
-  tasklist = TLIST_HEAD(tcb->cmn.task_state);
+  tasklist = TLIST_HEAD(&tcb->cmn);
 #endif
 
   dq_rem((FAR dq_entry_t *)tcb, tasklist);
@@ -165,9 +165,7 @@ int nxtask_restart(pid_t pid)
 
 #ifdef CONFIG_PRIORITY_INHERITANCE
   tcb->cmn.base_priority = tcb->cmn.init_priority;
-#  if CONFIG_SEM_NNESTPRIO > 0
-  tcb->cmn.npend_reprio = 0;
-#  endif
+  tcb->cmn.boost_priority = 0;
 #endif
 
   /* Re-initialize the processor-specific portion of the TCB.  This will
@@ -178,7 +176,7 @@ int nxtask_restart(pid_t pid)
 
   /* Add the task to the inactive task list */
 
-  dq_addfirst((FAR dq_entry_t *)tcb, (FAR dq_queue_t *)&g_inactivetasks);
+  dq_addfirst((FAR dq_entry_t *)tcb, &g_inactivetasks);
   tcb->cmn.task_state = TSTATE_TASK_INACTIVE;
 
 #ifdef CONFIG_SMP

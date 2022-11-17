@@ -25,8 +25,9 @@
 #include <nuttx/config.h>
 
 #include <stdbool.h>
-#include <queue.h>
 #include <assert.h>
+
+#include <nuttx/queue.h>
 #include <nuttx/sched_note.h>
 
 #include "irq/irq.h"
@@ -86,7 +87,7 @@ bool nxsched_remove_readytorun(FAR struct tcb_s *rtcb)
    * is always the g_readytorun list.
    */
 
-  dq_rem((FAR dq_entry_t *)rtcb, (FAR dq_queue_t *)&g_readytorun);
+  dq_rem((FAR dq_entry_t *)rtcb, &g_readytorun);
 
   /* Since the TCB is not in any list, it is now invalid */
 
@@ -129,7 +130,7 @@ bool nxsched_remove_readytorun(FAR struct tcb_s *rtcb)
    */
 
   cpu      = rtcb->cpu;
-  tasklist = TLIST_HEAD(rtcb->task_state, cpu);
+  tasklist = TLIST_HEAD(rtcb, cpu);
 
   /* Check if the TCB to be removed is at the head of a ready-to-run list.
    * For the case of SMP, there are two lists involved:  (1) the
@@ -214,7 +215,7 @@ bool nxsched_remove_readytorun(FAR struct tcb_s *rtcb)
            * list and add to the head of the g_assignedtasks[cpu] list.
            */
 
-          dq_rem((FAR dq_entry_t *)rtrtcb, (FAR dq_queue_t *)&g_readytorun);
+          dq_rem((FAR dq_entry_t *)rtrtcb, &g_readytorun);
           dq_addfirst((FAR dq_entry_t *)rtrtcb, tasklist);
 
           rtrtcb->cpu = cpu;

@@ -133,7 +133,8 @@ static int     part_procfs_dup(FAR const struct file *oldp,
 static int     part_procfs_opendir(const char *relpath,
                  FAR struct fs_dirent_s *dir);
 static int     part_procfs_closedir(FAR struct fs_dirent_s *dir);
-static int     part_procfs_readdir(FAR struct fs_dirent_s *dir);
+static int     part_procfs_readdir(FAR struct fs_dirent_s *dir,
+                                   FAR struct dirent *entry);
 static int     part_procfs_rewinddir(FAR struct fs_dirent_s *dir);
 #endif
 
@@ -424,7 +425,8 @@ static int part_ioctl(FAR struct mtd_dev_s *dev, int cmd, unsigned long arg)
               info->sectorsize  = priv->blocksize;
               info->startsector = priv->firstblock;
 
-              strncpy(info->parent, priv->parent->name, NAME_MAX);
+              strlcpy(info->parent, priv->parent->name,
+                      sizeof(info->parent));
 
               ret = OK;
           }

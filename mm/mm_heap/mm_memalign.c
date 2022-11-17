@@ -78,7 +78,9 @@ FAR void *mm_memalign(FAR struct mm_heap_s *heap, size_t alignment,
 
   if (alignment <= MM_MIN_CHUNK)
     {
-      return mm_malloc(heap, size);
+      FAR void *ptr = mm_malloc(heap, size);
+      DEBUGASSERT(ptr == NULL || ((uintptr_t)ptr) % alignment == 0);
+      return ptr;
     }
 
   /* Adjust the size to account for (1) the size of the allocated node, (2)
@@ -114,11 +116,11 @@ FAR void *mm_memalign(FAR struct mm_heap_s *heap, size_t alignment,
 
   kasan_poison((FAR void *)rawchunk, mm_malloc_size((FAR void *)rawchunk));
 
-  /* We need to hold the MM semaphore while we muck with the chunks and
+  /* We need to hold the MM mutex while we muck with the chunks and
    * nodelist.
    */
 
-  DEBUGVERIFY(mm_takesemaphore(heap));
+  DEBUGVERIFY(mm_lock(heap));
 
   /* Get the node associated with the allocation and the next node after
    * the allocation.
@@ -182,7 +184,7 @@ FAR void *mm_memalign(FAR struct mm_heap_s *heap, size_t alignment,
       /* Reduce the size of the original chunk and mark it not allocated, */
 
       node->size = precedingsize;
-      node->preceding &= ~MM_ALLOC_BIT;
+      node->preceding &= ~MM_MASK_BIT;
 
       /* Fix the preceding size of the next node */
 
@@ -221,12 +223,13 @@ FAR void *mm_memalign(FAR struct mm_heap_s *heap, size_t alignment,
       mm_shrinkchunk(heap, node, size);
     }
 
-  mm_givesemaphore(heap);
+  mm_unlock(heap);
 
   MM_ADD_BACKTRACE(heap, node);
 
   kasan_unpoison((FAR void *)alignedchunk,
                  mm_malloc_size((FAR void *)alignedchunk));
 
+  DEBUGASSERT(alignedchunk % alignment == 0);
   return (FAR void *)alignedchunk;
 }

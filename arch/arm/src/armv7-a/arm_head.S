@@ -172,6 +172,32 @@
 	.type	__start, #function
 
 __start:
+#if defined(CONFIG_SMP) && CONFIG_SMP_NCPUS > 1
+	/* Get cpuindex, cpu0 continue boot, others wait event from cpu0 */
+
+	mrc		CP15_MPIDR(r0)
+	and		r0, r0, #0x3
+	cmp		r0, #0
+	beq		__cpu0_start
+	wfe
+	cmp		r0, #1
+	beq		__cpu1_start
+#  if CONFIG_SMP_NCPUS > 2
+	cmp		r0, #2
+	beq		__cpu2_start
+#  endif
+#  if CONFIG_SMP_NCPUS > 3
+	cmp		r0, #3
+	beq		__cpu3_start
+#  endif
+#  if CONFIG_SMP_NCPUS > 4
+	cmp		r0, #4
+	beq		__cpu4_start
+#  endif
+
+__cpu0_start:
+#endif
+
 	/* Make sure that we are in SYS mode with IRQs and FIQs disabled */
 
 	cpsid		if, #PSR_MODE_SYS
@@ -182,6 +208,7 @@ __start:
 	bic		r0, r0, #(SCTLR_M | SCTLR_C)
 	bic		r0, r0, #(SCTLR_I)
 	mcr		CP15_SCTLR(r0)
+	isb
 
 	/* Clear the 16K level 1 page table */
 
@@ -338,6 +365,8 @@ __start:
 	mcr		CP15_ICIALLU(r0)	/* Invalidate I-cache */
 #endif
 
+	isb
+
 	/* Load the page table address.
 	 *
 	 * NOTES:
@@ -409,6 +438,7 @@ __start:
 	bic		r0, r0, #(SCTLR_SW | SCTLR_I   | SCTLR_V   | SCTLR_RR | SCTLR_HA)
 	bic		r0, r0, #(SCTLR_EE | SCTLR_TRE | SCTLR_AFE | SCTLR_TE)
 
+#ifndef CONFIG_SMP
 	/* Set bits to enable the MMU
 	 *
 	 *   SCTLR_M     Bit 0:  Enable the MMU
@@ -416,6 +446,8 @@ __start:
 	 */
 
 	orr		r0, r0, #(SCTLR_M)
+#endif
+
 #ifndef CONFIG_ARCH_CORTEXA5
 	orr		r0, r0, #(SCTLR_Z)
 #endif
@@ -452,7 +484,7 @@ __start:
 	orr		r0, r0, #(SCTLR_C)
 #endif
 
-#ifndef CPU_ICACHE_DISABLE
+#if !defined(CPU_ICACHE_DISABLE) && !defined(CONFIG_SMP)
 	/* Icache enable
 	 *
 	 *   SCTLR_I    Bit 12: ICache enable
@@ -494,6 +526,7 @@ __start:
 	/* Then write the configured control register */
 
 	mcr		CP15_SCTLR(r0)			/* Write control reg */
+	isb
 	.rept		12				/* Cortex A8 wants lots of NOPs here */
 	nop
 	.endr

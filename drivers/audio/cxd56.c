@@ -27,13 +27,13 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <math.h>
-#include <queue.h>
 #include <string.h>
 #include <inttypes.h>
 
 #include <nuttx/arch.h>
 #include <nuttx/config.h>
 #include <nuttx/irq.h>
+#include <nuttx/queue.h>
 #include <nuttx/spinlock.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/mqueue.h>
@@ -207,15 +207,6 @@ enum cxd56_dma_int_e
   CXD56_DMA_INT_ERR  = 0x02,
   CXD56_DMA_INT_SMP  = 0x10,
   CXD56_DMA_INT_CMB  = 0x20
-};
-
-/* Volume setting IDs */
-
-enum cxd56_vol_id_e
-{
-  CXD56_VOL_ID_MIXER_IN1,  /* SDIN1_VOL */
-  CXD56_VOL_ID_MIXER_IN2,  /* SDIN2_VOL */
-  CXD56_VOL_ID_MIXER_OUT   /* DAC_VOL */
 };
 
 enum cxd56_pulco_ser_mode_id_e
@@ -418,7 +409,7 @@ static void cxd56_set_dma_running(cxd56_dmahandle_t handle, bool running);
 static void cxd56_set_mic_gains(uint8_t gain,
                                 struct cxd56_aca_pwinput_param_s *param);
 static void cxd56_set_mic_out_channel(FAR struct cxd56_dev_s *dev);
-static int cxd56_set_volume(enum cxd56_vol_id_e id, int16_t vol);
+static int cxd56_set_volume(enum cxd56_audio_volid_e id, int16_t vol);
 static void cxd56_swap_buffer_rl(uint32_t addr, uint16_t size);
 static void *cxd56_workerthread(pthread_addr_t pvarg);
 
@@ -1584,7 +1575,7 @@ static void cxd56_enable_irq(bool enable)
     }
 }
 
-static int cxd56_set_volume(enum cxd56_vol_id_e id, int16_t vol)
+static int cxd56_set_volume(enum cxd56_audio_volid_e id, int16_t vol)
 {
   int ret;
 
@@ -1599,13 +1590,13 @@ static int cxd56_set_volume(enum cxd56_vol_id_e id, int16_t vol)
 
   switch (id)
     {
-      case CXD56_VOL_ID_MIXER_IN1:
+      case CXD56_AUDIO_VOLID_MIXER_IN1:
         write_reg(REG_AC_SDIN1_VOL, vol);
         break;
-      case CXD56_VOL_ID_MIXER_IN2:
+      case CXD56_AUDIO_VOLID_MIXER_IN2:
         write_reg(REG_AC_SDIN2_VOL, vol);
         break;
-      case CXD56_VOL_ID_MIXER_OUT:
+      case CXD56_AUDIO_VOLID_MIXER_OUT:
         write_reg(REG_AC_DAC_VOL, vol);
         break;
     }
@@ -1819,7 +1810,7 @@ static int cxd56_power_on_aca(uint32_t samplerate)
   uint8_t mic_sel;
   uint8_t i;
 
-  if (fw_as_acacontrol(CXD56_ACA_CTL_CHECK_ID, (uint32_t)NULL) != 0)
+  if (fw_as_acacontrol(CXD56_ACA_CTL_CHECK_ID, 0) != 0)
     {
       return -ENXIO;
     }
@@ -2047,7 +2038,7 @@ static int cxd56_power_on_micbias(FAR struct cxd56_dev_s *dev)
 {
   struct timespec start;
 
-  if (fw_as_acacontrol(CXD56_ACA_CTL_POWER_ON_MICBIAS, (uint32_t)NULL) != 0)
+  if (fw_as_acacontrol(CXD56_ACA_CTL_POWER_ON_MICBIAS, 0) != 0)
     {
       return -EBUSY;
     }
@@ -2535,7 +2526,7 @@ static int cxd56_power_off(FAR struct cxd56_dev_s *dev)
 
   cxd56_audio_clock_disable();
 
-  if (fw_as_acacontrol(CXD56_ACA_CTL_POWER_OFF_COMMON, (uint32_t)NULL) != 0)
+  if (fw_as_acacontrol(CXD56_ACA_CTL_POWER_OFF_COMMON, 0) != 0)
     {
       return -EBUSY;
     }
@@ -2979,7 +2970,7 @@ static int cxd56_stop_dma(FAR struct cxd56_dev_s *priv)
           /* Disable input */
 
           if (fw_as_acacontrol(CXD56_ACA_CTL_POWER_OFF_INPUT,
-                             (uint32_t)NULL) != 0)
+                             0) != 0)
             {
               return -EBUSY;
             }
@@ -3003,7 +2994,7 @@ static int cxd56_stop_dma(FAR struct cxd56_dev_s *priv)
           write_reg(REG_AC_PDN_SMSTR, 1);
 
           if (fw_as_acacontrol(CXD56_ACA_CTL_POWER_OFF_OUTPUT,
-                               (uint32_t)NULL) != 0)
+                               0) != 0)
             {
               return -EBUSY;
             }
@@ -3727,7 +3718,6 @@ struct audio_lowerhalf_s *cxd56_initialize(
       priv->lower   = lower;
       priv->state   = CXD56_DEV_STATE_OFF;
 
-      nxsem_init(&priv->pendsem, 0, 1);
       dq_init(&priv->up_pendq);
       dq_init(&priv->up_runq);
 #ifdef CONFIG_AUDIO_CXD56_SRC

@@ -63,18 +63,6 @@
  * Public Data
  ****************************************************************************/
 
-/* g_current_regs[] holds a references to the current interrupt level
- * register storage structure.  If is non-NULL only during interrupt
- * processing.  Access to g_current_regs[] must be through the macro
- * CURRENT_REGS for portability.
- */
-
-/* For the case of configurations with multiple CPUs, then there must be one
- * such value for each processor that can receive an interrupt.
- */
-
-volatile uint32_t *g_current_regs[CONFIG_SMP_NCPUS];
-
 #ifdef CONFIG_SMP
 static volatile int8_t g_cpu_for_irq[CXD56_IRQ_NIRQS];
 extern void up_send_irqreq(int idx, int irq, int cpu);
@@ -109,16 +97,6 @@ const uint32_t g_cpu_intstack_top[CONFIG_SMP_NCPUS] =
 #endif /* CONFIG_SMP_NCPUS > 1 */
 };
 #endif /* defined(CONFIG_SMP) && CONFIG_ARCH_INTERRUPTSTACK > 7 */
-
-/* This is the address of the  exception vector table (determined by the
- * linker script).
- */
-
-extern uint32_t _vectors[];
-
-/****************************************************************************
- * Private Data
- ****************************************************************************/
 
 /****************************************************************************
  * Private Functions
@@ -173,7 +151,7 @@ static void cxd56_dumpnvic(const char *msg, int irq)
 #endif
 
 /****************************************************************************
- * Name: cxd56_nmi, cxd56_busfault, cxd56_usagefault, cxd56_pendsv,
+ * Name: cxd56_nmi, cxd56_pendsv,
  *       cxd56_dbgmonitor, cxd56_pendsv, cxd56_reserved
  *
  * Description:
@@ -188,22 +166,6 @@ static int cxd56_nmi(int irq, void *context, void *arg)
 {
   up_irq_save();
   _err("PANIC!!! NMI received\n");
-  PANIC();
-  return 0;
-}
-
-static int cxd56_busfault(int irq, void *context, void *arg)
-{
-  up_irq_save();
-  _err("PANIC!!! Bus fault received\n");
-  PANIC();
-  return 0;
-}
-
-static int cxd56_usagefault(int irq, void *context, void *arg)
-{
-  up_irq_save();
-  _err("PANIC!!! Usage fault received\n");
   PANIC();
   return 0;
 }
@@ -361,10 +323,6 @@ void up_irqinitialize(void)
       regaddr += 4;
     }
 
-  /* currents_regs is non-NULL only while processing an interrupt */
-
-  CURRENT_REGS = NULL;
-
   /* Attach the SVCall and Hard Fault exception handlers.  The SVCall
    * exception is used for performing context switches; The Hard Fault
    * must also be caught because a SVCall may show up as a Hard Fault
@@ -402,8 +360,8 @@ void up_irqinitialize(void)
 #  ifndef CONFIG_ARM_MPU
   irq_attach(CXD56_IRQ_MEMFAULT, arm_memfault, NULL);
 #  endif
-  irq_attach(CXD56_IRQ_BUSFAULT, cxd56_busfault, NULL);
-  irq_attach(CXD56_IRQ_USAGEFAULT, cxd56_usagefault, NULL);
+  irq_attach(CXD56_IRQ_BUSFAULT, arm_busfault, NULL);
+  irq_attach(CXD56_IRQ_USAGEFAULT, arm_usagefault, NULL);
   irq_attach(CXD56_IRQ_PENDSV, cxd56_pendsv, NULL);
   irq_attach(CXD56_IRQ_DBGMONITOR, cxd56_dbgmonitor, NULL);
   irq_attach(CXD56_IRQ_RESERVED, cxd56_reserved, NULL);

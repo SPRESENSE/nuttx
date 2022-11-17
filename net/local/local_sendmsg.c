@@ -196,7 +196,16 @@ static ssize_t local_send(FAR struct socket *psock,
 
           /* Send the packet */
 
+          ret = nxmutex_lock(&peer->lc_sendlock);
+          if (ret < 0)
+            {
+              /* May fail because the task was canceled. */
+
+              return ret;
+            }
+
           ret = local_send_packet(&peer->lc_outfile, buf, len, false);
+          nxmutex_unlock(&peer->lc_sendlock);
         }
         break;
 #endif /* CONFIG_NET_LOCAL_STREAM */
@@ -334,6 +343,16 @@ static ssize_t local_sendto(FAR struct socket *psock,
       goto errout_with_halfduplex;
     }
 
+  /* Make sure that dgram is sent safely */
+
+  ret = nxmutex_lock(&conn->lc_sendlock);
+  if (ret < 0)
+    {
+      /* May fail because the task was canceled. */
+
+      goto errout_with_sender;
+    }
+
   /* Send the packet */
 
   ret = local_send_packet(&conn->lc_outfile, buf, len, true);
@@ -341,6 +360,10 @@ static ssize_t local_sendto(FAR struct socket *psock,
     {
       nerr("ERROR: Failed to send the packet: %zd\n", ret);
     }
+
+  nxmutex_unlock(&conn->lc_sendlock);
+
+errout_with_sender:
 
   /* Now we can close the write-only socket descriptor */
 
@@ -352,7 +375,6 @@ errout_with_halfduplex:
   /* Release our reference to the half duplex FIFO */
 
   local_release_halfduplex(conn);
-
   return ret;
 #else
   return -EISCONN;

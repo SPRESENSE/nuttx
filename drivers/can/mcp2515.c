@@ -38,6 +38,7 @@
 #include <nuttx/irq.h>
 #include <nuttx/arch.h>
 #include <nuttx/signal.h>
+#include <nuttx/mutex.h>
 #include <nuttx/semaphore.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/spi/spi.h>
@@ -195,26 +196,27 @@ enum can_state_s
 
 struct mcp2515_can_s
 {
-  struct mcp2515_config_s *config; /* The constant configuration */
-  uint8_t state;                   /* See enum can_state_s */
-  uint8_t nalloc;                  /* Number of allocated filters */
-  sem_t locksem;                   /* Enforces mutually exclusive access */
-  sem_t txfsem;                    /* Used to wait for TX FIFO availability */
-  uint32_t btp;                    /* Current bit timing */
-  uint8_t rxints;                  /* Configured RX interrupts */
-  uint8_t txints;                  /* Configured TX interrupts */
+  FAR struct mcp2515_config_s *config; /* The constant configuration */
+
+  uint8_t state;               /* See enum can_state_s */
+  uint8_t nalloc;              /* Number of allocated filters */
+  mutex_t lock;                /* Enforces mutually exclusive access */
+  sem_t txfsem;                /* Used to wait for TX FIFO availability */
+  uint32_t btp;                /* Current bit timing */
+  uint8_t rxints;              /* Configured RX interrupts */
+  uint8_t txints;              /* Configured TX interrupts */
 #ifdef CONFIG_CAN_ERRORS
-  uint32_t olderrors;              /* Used to detect the changes in error states */
+  uint32_t olderrors;          /* Used to detect the changes in error states */
 #endif
-  uint8_t filters;                 /* Standard/Extende filter bit allocator. */
-  uint8_t txbuffers;               /* TX Buffers bit allocator. */
+  uint8_t filters;             /* Standard/Extende filter bit allocator. */
+  uint8_t txbuffers;           /* TX Buffers bit allocator. */
 
   FAR uint8_t *spi_txbuf;
   FAR uint8_t *spi_rxbuf;
 #ifdef CONFIG_MCP2515_REGDEBUG
-  uintptr_t regaddr;               /* Last register address read */
-  uint32_t regval;                 /* Last value read from the register */
-  unsigned int count;              /* Number of times that the value was read */
+  uintptr_t regaddr;           /* Last register address read */
+  uint32_t regval;             /* Last value read from the register */
+  unsigned int count;          /* Number of times that the value was read */
 #endif
 };
 
@@ -237,11 +239,6 @@ static void mcp2515_dumpregs(FAR struct mcp2515_can_s *priv,
 #else
 #  define mcp2515_dumpregs(priv,msg)
 #endif
-
-/* Semaphore helpers */
-
-static int mcp2515_dev_lock(FAR struct mcp2515_can_s *priv);
-#define mcp2515_dev_unlock(priv) nxsem_post(&priv->locksem)
 
 /* MCP2515 helpers */
 
@@ -516,26 +513,6 @@ static void mcp2515_dumpregs(FAR struct mcp2515_can_s *priv,
 #endif
 
 /****************************************************************************
- * Name: mcp2515_dev_lock
- *
- * Description:
- *   Take the semaphore that enforces mutually exclusive access to device
- *   structures, handling any exceptional conditions
- *
- * Input Parameters:
- *   priv - A reference to the MCP2515 peripheral state
- *
- * Returned Value:
- *  None
- *
- ****************************************************************************/
-
-static int mcp2515_dev_lock(FAR struct mcp2515_can_s *priv)
-{
-  return nxsem_wait(&priv->locksem);
-}
-
-/****************************************************************************
  * Name: mcp2515_add_extfilter
  *
  * Description:
@@ -567,7 +544,7 @@ static int mcp2515_add_extfilter(FAR struct mcp2515_can_s *priv,
 
   /* Get exclusive excess to the MCP2515 hardware */
 
-  ret = mcp2515_dev_lock(priv);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
@@ -764,12 +741,12 @@ static int mcp2515_add_extfilter(FAR struct mcp2515_can_s *priv,
           regval = (regval & ~CANCTRL_REQOP_MASK) | (CANCTRL_REQOP_NORMAL);
           mcp2515_writeregs(priv, MCP2515_CANCTRL, &regval, 1);
 
-          mcp2515_dev_unlock(priv);
+          nxmutex_unlock(&priv->lock);
           return ndx;
         }
     }
 
-  mcp2515_dev_unlock(priv);
+  nxmutex_unlock(&priv->lock);
   return -EAGAIN;
 }
 #endif
@@ -815,7 +792,7 @@ static int mcp2515_del_extfilter(FAR struct mcp2515_can_s *priv, int ndx)
 
   /* Get exclusive excess to the MCP2515 hardware */
 
-  ret = mcp2515_dev_lock(priv);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
@@ -827,7 +804,7 @@ static int mcp2515_del_extfilter(FAR struct mcp2515_can_s *priv, int ndx)
     {
       /* No, error out */
 
-      mcp2515_dev_unlock(priv);
+      nxmutex_unlock(&priv->lock);
       return -ENOENT;
     }
 
@@ -874,7 +851,7 @@ static int mcp2515_del_extfilter(FAR struct mcp2515_can_s *priv, int ndx)
   regval = (regval & ~CANCTRL_REQOP_MASK) | (CANCTRL_REQOP_NORMAL);
   mcp2515_writeregs(priv, MCP2515_CANCTRL, &regval, 1);
 
-  mcp2515_dev_unlock(priv);
+  nxmutex_unlock(&priv->lock);
   return OK;
 }
 #endif
@@ -910,7 +887,7 @@ static int mcp2515_add_stdfilter(FAR struct mcp2515_can_s *priv,
 
   /* Get exclusive excess to the MCP2515 hardware */
 
-  ret = mcp2515_dev_lock(priv);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
@@ -1051,12 +1028,12 @@ static int mcp2515_add_stdfilter(FAR struct mcp2515_can_s *priv,
           regval = (regval & ~CANCTRL_REQOP_MASK) | (CANCTRL_REQOP_NORMAL);
           mcp2515_writeregs(priv, MCP2515_CANCTRL, &regval, 1);
 
-          mcp2515_dev_unlock(priv);
+          nxmutex_unlock(&priv->lock);
           return ndx;
         }
     }
 
-  mcp2515_dev_unlock(priv);
+  nxmutex_unlock(&priv->lock);
   return -EAGAIN;
 }
 
@@ -1100,7 +1077,7 @@ static int mcp2515_del_stdfilter(FAR struct mcp2515_can_s *priv, int ndx)
 
   /* Get exclusive excess to the MCP2515 hardware */
 
-  ret = mcp2515_dev_lock(priv);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
@@ -1112,7 +1089,7 @@ static int mcp2515_del_stdfilter(FAR struct mcp2515_can_s *priv, int ndx)
     {
       /* No, error out */
 
-      mcp2515_dev_unlock(priv);
+      nxmutex_unlock(&priv->lock);
       return -ENOENT;
     }
 
@@ -1157,7 +1134,7 @@ static int mcp2515_del_stdfilter(FAR struct mcp2515_can_s *priv, int ndx)
   regval = (regval & ~CANCTRL_REQOP_MASK) | (CANCTRL_REQOP_NORMAL);
   mcp2515_writeregs(priv, MCP2515_CANCTRL, &regval, 1);
 
-  mcp2515_dev_unlock(priv);
+  nxmutex_unlock(&priv->lock);
   return OK;
 }
 
@@ -1189,7 +1166,7 @@ static void mcp2515_reset_lowlevel(FAR struct mcp2515_can_s *priv)
 
   /* Get exclusive access to the MCP2515 peripheral */
 
-  ret = mcp2515_dev_lock(priv);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return;
@@ -1206,20 +1183,15 @@ static void mcp2515_reset_lowlevel(FAR struct mcp2515_can_s *priv)
 
   nxsig_usleep(1000);
 
-  /* Make sure that all buffers are released.
-   *
-   * REVISIT: What if a thread is waiting for a buffer?  The following
-   * will not wake up any waiting threads.
-   */
+  /* Make sure that all buffers are released. */
 
-  nxsem_destroy(&priv->txfsem);
-  nxsem_init(&priv->txfsem, 0, MCP2515_NUM_TX_BUFFERS);
+  nxsem_reset(&priv->txfsem, MCP2515_NUM_TX_BUFFERS);
   priv->txbuffers = 0b111;
 
   /* Define the current state and unlock */
 
   priv->state = MCP2515_STATE_RESET;
-  mcp2515_dev_unlock(priv);
+  nxmutex_unlock(&priv->lock);
 }
 
 /****************************************************************************
@@ -1281,7 +1253,7 @@ static int mcp2515_setup(FAR struct can_dev_s *dev)
 
   /* Get exclusive access to the MCP2515 peripheral */
 
-  ret = mcp2515_dev_lock(priv);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
@@ -1312,7 +1284,7 @@ static int mcp2515_setup(FAR struct can_dev_s *dev)
   priv->state = MCP2515_STATE_SETUP;
   mcp2515_rxint(dev, true);
 
-  mcp2515_dev_unlock(priv);
+  nxmutex_unlock(&priv->lock);
   return OK;
 }
 
@@ -1752,7 +1724,7 @@ static int mcp2515_send(FAR struct can_dev_s *dev, FAR struct can_msg_s *msg)
 
   /* Get exclusive access to the MCP2515 peripheral */
 
-  ret = mcp2515_dev_lock(priv);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
@@ -1763,7 +1735,7 @@ static int mcp2515_send(FAR struct can_dev_s *dev, FAR struct can_msg_s *msg)
   ret = nxsem_wait(&priv->txfsem);
   if (ret < 0)
     {
-      mcp2515_dev_unlock(priv);
+      nxmutex_unlock(&priv->lock);
       return ret;
     }
 
@@ -1850,7 +1822,7 @@ static int mcp2515_send(FAR struct can_dev_s *dev, FAR struct can_msg_s *msg)
   priv->spi_txbuf[0] = MCP2515_RTS(txbuf);
   mcp2515_transfer(priv, 1);
 
-  mcp2515_dev_unlock(priv);
+  nxmutex_unlock(&priv->lock);
 
   /* Report that the TX transfer is complete to the upper half logic.  Of
    * course, the transfer is not complete, but this early notification
@@ -2160,7 +2132,7 @@ static void mcp2515_receive(FAR struct can_dev_s *dev, uint8_t offset)
 
   /* Save the message data */
 
-  ret = can_receive(dev, &hdr, (FAR uint8_t *) & RXREGVAL(MCP2515_RXB0D0));
+  ret = can_receive(dev, &hdr, (FAR uint8_t *)&RXREGVAL(MCP2515_RXB0D0));
 
   if (ret < 0)
     {
@@ -2545,9 +2517,9 @@ FAR struct mcp2515_can_s *
    * due to IOCTL command processing.
    */
 
-  /* Initialize semaphores */
+  /* Initialize mutex & semaphores */
 
-  nxsem_init(&priv->locksem, 0, 1);
+  nxmutex_init(&priv->lock);
   nxsem_init(&priv->txfsem, 0, MCP2515_NUM_TX_BUFFERS);
 
   /* Initialize bitmask */
@@ -2565,6 +2537,8 @@ FAR struct mcp2515_can_s *
   if (canctrl != DEFAULT_CANCTRL_CONFMODE)
     {
       canerr("ERROR: CANCTRL = 0x%02X ! It should be 0x87\n", canctrl);
+      nxmutex_destroy(&priv->lock);
+      kmm_free(priv);
       return NULL;
     }
 

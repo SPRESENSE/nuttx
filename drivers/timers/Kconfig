@@ -75,6 +75,7 @@ config TIMER_ARCH
 	select ARCH_HAVE_TICKLESS
 	select ARCH_HAVE_TIMEKEEPING
 	select SCHED_TICKLESS_LIMIT_MAX_SLEEP if SCHED_TICKLESS
+	select SCHED_TICKLESS_TICK_ARGUMENT if SCHED_TICKLESS
 	---help---
 		Implement timer arch API on top of timer driver interface.
 
@@ -96,6 +97,7 @@ config ALARM_ARCH
 	select ARCH_HAVE_TIMEKEEPING
 	select SCHED_TICKLESS_ALARM if SCHED_TICKLESS
 	select SCHED_TICKLESS_LIMIT_MAX_SLEEP if SCHED_TICKLESS
+	select SCHED_TICKLESS_TICK_ARGUMENT if SCHED_TICKLESS
 	---help---
 		Implement alarm arch API on top of oneshot driver interface.
 
@@ -366,21 +368,41 @@ if WATCHDOG_AUTOMONITOR
 
 choice
 	prompt "Auto-monitor keepalive by"
-	default WATCHDOG_AUTOMONITOR_BY_TIMER
+	default WATCHDOG_AUTOMONITOR_BY_WDOG
 
 config WATCHDOG_AUTOMONITOR_BY_CAPTURE
 	bool "Capture callback"
+	---help---
+		Feed watchdog through watchdog_ops_s::capture callback periodically
+
+config WATCHDOG_AUTOMONITOR_BY_ONESHOT
+	bool "Oneshot callback"
+	depends on ONESHOT
+	---help---
+		Feed watchdog through oneshot_lowerhalf_s functions periodically
 
 config WATCHDOG_AUTOMONITOR_BY_TIMER
 	bool "Timer callback"
+	depends on TIMER
+	---help---
+		Feed watchdog through timer_lowerhalf_s functions periodically
+
+config WATCHDOG_AUTOMONITOR_BY_WDOG
+	bool "Wdog callback"
+	---help---
+		Feed watchdog through wdog functions periodically
 
 config WATCHDOG_AUTOMONITOR_BY_WORKER
 	bool "Worker callback"
 	depends on SCHED_WORKQUEUE
+	---help---
+		Feed watchdog through wqueue functions periodically
 
 config WATCHDOG_AUTOMONITOR_BY_IDLE
 	bool "Idle callback"
 	depends on PM
+	---help---
+		Feed watchdog before idle through pm_callback_s::notify callback
 
 endchoice
 
@@ -388,19 +410,18 @@ config WATCHDOG_AUTOMONITOR_TIMEOUT
 	int "Auto-monitor reset timeout(second)"
 	default 60
 
-if WATCHDOG_AUTOMONITOR_BY_TIMER || WATCHDOG_AUTOMONITOR_BY_WORKER
+if !WATCHDOG_AUTOMONITOR_BY_CAPTURE && !WATCHDOG_AUTOMONITOR_BY_IDLE
 
 config WATCHDOG_AUTOMONITOR_PING_INTERVAL
 	int "Auto-monitor keep a live interval"
-	default WATCHDOG_AUTOMONITOR_TIMEOUT
-	range 1 WATCHDOG_AUTOMONITOR_TIMEOUT
+	range 0 WATCHDOG_AUTOMONITOR_TIMEOUT
+	default 0
 	---help---
-		If the interval is same as WATCHDOG_AUTOMONITOR_TIMEOUT
-		the default value will change to (WATCHDOG_AUTOMONITOR_TIMEOUT / 2).
-		This interval will only be used by auto-monitor by Worker callback
-		or by Timer callback.
+		If the interval is 0, it will change to (WATCHDOG_AUTOMONITOR_TIMEOUT / 2).
+		This interval will only be used by auto-monitor in oneshot, timer, wdog or
+		worker case.
 
-endif # WATCHDOG_AUTOMONITOR_BY_TIMER || WATCHDOG_AUTOMONITOR_BY_WORKER
+endif # !WATCHDOG_AUTOMONITOR_BY_CAPTURE && !WATCHDOG_AUTOMONITOR_BY_IDLE
 
 endif # WATCHDOG_AUTOMONITOR
 

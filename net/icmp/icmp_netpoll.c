@@ -49,7 +49,7 @@
  *
  * Input Parameters:
  *   dev      The structure of the network driver that caused the event
- *   conn     The connection structure associated with the socket
+ *   pvpriv   An instance of struct icmp_poll_s cast to void*
  *   flags    Set of events describing why the callback was invoked
  *
  * Returned Value:
@@ -61,10 +61,9 @@
  ****************************************************************************/
 
 static uint16_t icmp_poll_eventhandler(FAR struct net_driver_s *dev,
-                                       FAR void *pvconn,
                                        FAR void *pvpriv, uint16_t flags)
 {
-  FAR struct icmp_poll_s *info = (FAR struct icmp_poll_s *)pvpriv;
+  FAR struct icmp_poll_s *info = pvpriv;
   FAR struct icmp_conn_s *conn;
   FAR struct socket *psock;
   pollevent_t eventset;
@@ -98,7 +97,7 @@ static uint16_t icmp_poll_eventhandler(FAR struct net_driver_s *dev,
       eventset = 0;
       if ((flags & ICMP_NEWDATA) != 0)
         {
-          eventset |= (POLLIN & info->fds->events);
+          eventset |= POLLIN;
         }
 
       /* Check for loss of connection events. */
@@ -110,11 +109,7 @@ static uint16_t icmp_poll_eventhandler(FAR struct net_driver_s *dev,
 
       /* Awaken the caller of poll() is requested event occurred. */
 
-      if (eventset)
-        {
-          info->fds->revents |= eventset;
-          nxsem_post(info->fds->sem);
-        }
+      poll_notify(&info->fds, 1, eventset);
     }
 
   return flags;
@@ -145,6 +140,7 @@ int icmp_pollsetup(FAR struct socket *psock, FAR struct pollfd *fds)
   FAR struct icmp_conn_s *conn;
   FAR struct icmp_poll_s *info;
   FAR struct devif_callback_s *cb;
+  pollevent_t eventset = 0;
   int ret = OK;
 
   /* Some of the following must be atomic */
@@ -214,23 +210,18 @@ int icmp_pollsetup(FAR struct socket *psock, FAR struct pollfd *fds)
     {
       /* Normal data may be read without blocking. */
 
-      fds->revents |= (POLLRDNORM & fds->events);
+      eventset |= POLLRDNORM;
     }
 
   /* Always report POLLWRNORM if caller request it because we don't utilize
    * IOB buffer for sending.
    */
 
-  fds->revents |= (POLLWRNORM & fds->events);
+  eventset |= POLLWRNORM;
 
   /* Check if any requested events are already in effect */
 
-  if (fds->revents != 0)
-    {
-      /* Yes.. then signal the poll logic */
-
-      nxsem_post(fds->sem);
-    }
+  poll_notify(&fds, 1, eventset);
 
 errout_with_lock:
   net_unlock();

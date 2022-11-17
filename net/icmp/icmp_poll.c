@@ -66,13 +66,13 @@ void icmp_poll(FAR struct net_driver_s *dev, FAR struct icmp_conn_s *conn)
 
   /* Setup for the application callback */
 
-  dev->d_appdata = &dev->d_buf[NET_LL_HDRLEN(dev) + IPICMP_HDRLEN];
+  dev->d_appdata = IPBUF(IPICMP_HDRLEN);
   dev->d_len     = 0;
   dev->d_sndlen  = 0;
 
   /* Perform the application callback */
 
-  devif_conn_event(dev, conn, ICMP_POLL, conn->sconn.list);
+  devif_conn_event(dev, ICMP_POLL, conn->sconn.list);
 }
 
 #endif /* CONFIG_NET && CONFIG_NET_ICMP && CONFIG_NET_ICMP_SOCKET */

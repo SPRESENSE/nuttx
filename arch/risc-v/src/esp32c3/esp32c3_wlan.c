@@ -26,16 +26,16 @@
 
 #ifdef CONFIG_ESP32C3_WIFI
 
-#include <queue.h>
 #include <assert.h>
 #include <errno.h>
 #include <debug.h>
-#include <crc64.h>
+#include <nuttx/crc64.h>
 #include <arpa/inet.h>
 
 #include <nuttx/nuttx.h>
 #include <nuttx/arch.h>
 #include <nuttx/irq.h>
+#include <nuttx/queue.h>
 #include <nuttx/wdog.h>
 #include <nuttx/wqueue.h>
 #include <nuttx/net/arp.h>

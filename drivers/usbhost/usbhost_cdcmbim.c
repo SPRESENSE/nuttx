@@ -40,6 +40,7 @@
 #include <nuttx/irq.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/kthread.h>
+#include <nuttx/mutex.h>
 #include <nuttx/fs/fs.h>
 #include <nuttx/wqueue.h>
 #include <nuttx/signal.h>
@@ -195,7 +196,7 @@ struct usbhost_cdcmbim_s
   uint16_t                ctrlif;       /* Control interface number */
   uint16_t                dataif;       /* Data interface number */
   int16_t                 crefs;        /* Reference count on the driver instance */
-  sem_t                   exclsem;      /* Used to maintain mutual exclusive access */
+  mutex_t                 lock;         /* Used to maintain mutual exclusive access */
   struct work_s           ntwork;       /* Notification work */
   struct work_s           comm_rxwork;  /* Communication interface RX work */
   struct work_s           bulk_rxwork;
@@ -235,15 +236,6 @@ struct usbhost_cdcmbim_s
 /****************************************************************************
  * Private Function Prototypes
  ****************************************************************************/
-
-/* Semaphores */
-
-static void usbhost_takesem(sem_t *sem);
-#define usbhost_givesem(s) nxsem_post(s);
-
-/* Polling support */
-
-static void usbhost_pollnotify(FAR struct usbhost_cdcmbim_s *priv);
 
 /* Memory allocation services */
 
@@ -399,29 +391,6 @@ static int usbhost_ctrl_cmd(FAR struct usbhost_cdcmbim_s *priv,
   return ret;
 }
 
-/****************************************************************************
- * Name: usbhost_pollnotify
- ****************************************************************************/
-
-static void usbhost_pollnotify(FAR struct usbhost_cdcmbim_s *priv)
-{
-  int i;
-
-  for (i = 0; i < CONFIG_USBHOST_CDCMBIM_NPOLLWAITERS; i++)
-    {
-      struct pollfd *fds = priv->fds[i];
-      if (fds)
-        {
-          fds->revents |= (fds->events & POLLIN);
-          if (fds->revents != 0)
-            {
-              uinfo("Report events: %08" PRIx32 "\n", fds->revents);
-              nxsem_post(fds->sem);
-            }
-        }
-    }
-}
-
 static ssize_t usbhost_readmessage(FAR struct usbhost_cdcmbim_s *priv,
                                    FAR char *buffer, size_t buflen)
 {
@@ -462,7 +431,7 @@ static ssize_t cdcwdm_read(FAR struct file *filep, FAR char *buffer,
   inode = filep->f_inode;
   priv  = inode->i_private;
 
-  usbhost_takesem(&priv->exclsem);
+  nxmutex_lock(&priv->lock);
 
   if (priv->disconnected)
     {
@@ -503,7 +472,7 @@ static ssize_t cdcwdm_read(FAR struct file *filep, FAR char *buffer,
     }
 
 errout:
-  usbhost_givesem(&priv->exclsem);
+  nxmutex_unlock(&priv->lock);
   return ret;
 }
 
@@ -532,7 +501,7 @@ static ssize_t cdcwdm_write(FAR struct file *filep, FAR const char *buffer,
    * open and actively trying to interact with the class driver.
    */
 
-  usbhost_takesem(&priv->exclsem);
+  nxmutex_lock(&priv->lock);
 
   ret = usbhost_ctrl_cmd(priv,
                          USB_REQ_DIR_OUT | USB_REQ_TYPE_CLASS |
@@ -540,7 +509,7 @@ static ssize_t cdcwdm_write(FAR struct file *filep, FAR const char *buffer,
                          USB_CDC_SEND_ENCAPSULATED_COMMAND,
                          0, priv->ctrlif, (uint8_t *)buffer, buflen);
 
-  usbhost_givesem(&priv->exclsem);
+  nxmutex_unlock(&priv->lock);
 
   if (ret)
     {
@@ -575,7 +544,7 @@ static int cdcwdm_poll(FAR struct file *filep, FAR struct pollfd *fds,
   /* Make sure that we have exclusive access to the private data structure */
 
   DEBUGASSERT(priv);
-  usbhost_takesem(&priv->exclsem);
+  nxmutex_lock(&priv->lock);
 
   if (priv->disconnected)
     {
@@ -614,7 +583,8 @@ static int cdcwdm_poll(FAR struct file *filep, FAR struct pollfd *fds,
 
       if (priv->comm_rxlen > 0)
         {
-          usbhost_pollnotify(priv);
+          poll_notify(priv->fds, CONFIG_USBHOST_CDCMBIM_NPOLLWAITERS,
+                      POLLIN);
         }
     }
   else
@@ -631,36 +601,8 @@ static int cdcwdm_poll(FAR struct file *filep, FAR struct pollfd *fds,
     }
 
 errout:
-  nxsem_post(&priv->exclsem);
+  nxmutex_unlock(&priv->lock);
   return ret;
-}
-
-/****************************************************************************
- * Name: usbhost_takesem
- *
- * Description:
- *   This is just a wrapper to handle the annoying behavior of semaphore
- *   waits that return due to the receipt of a signal.
- *
- ****************************************************************************/
-
-static void usbhost_takesem(sem_t *sem)
-{
-  int ret;
-
-  do
-    {
-      /* Take the semaphore (perhaps waiting) */
-
-      ret = nxsem_wait(sem);
-
-      /* The only case that an error should occur here is if the wait was
-       * awakened by a signal.
-       */
-
-      DEBUGASSERT(ret == OK || ret == -EINTR);
-    }
-  while (ret == -EINTR);
 }
 
 /****************************************************************************
@@ -819,7 +761,7 @@ static void usbhost_bulkin_work(FAR void *arg)
       return;
     }
 
-  usbhost_takesem(&priv->exclsem);
+  nxmutex_lock(&priv->lock);
 
   if (priv->bulkinbytes < (int16_t)(sizeof(struct usb_cdc_ncm_nth16_s) +
                                     sizeof(struct usb_cdc_ncm_ndp16_s)))
@@ -881,7 +823,7 @@ out:
     DRVR_ASYNCH(hport->drvr, priv->bulkin,
                 (uint8_t *)priv->rxnetbuf, CDCMBIM_NETBUF_SIZE,
                 usbhost_bulkin_callback, priv);
-    usbhost_givesem(&priv->exclsem);
+    nxmutex_unlock(&priv->lock);
 }
 
 /****************************************************************************
@@ -926,7 +868,7 @@ static void usbhost_rxdata_work(FAR void *arg)
       return;
     }
 
-  usbhost_takesem(&priv->exclsem);
+  nxmutex_lock(&priv->lock);
 
   ret = usbhost_ctrl_cmd(priv,
                          USB_REQ_DIR_IN | USB_REQ_TYPE_CLASS |
@@ -956,10 +898,10 @@ static void usbhost_rxdata_work(FAR void *arg)
 
   /* Notify any poll waiters we have data */
 
-  usbhost_pollnotify(priv);
+  poll_notify(priv->fds, CONFIG_USBHOST_CDCMBIM_NPOLLWAITERS, POLLIN);
 
 errout:
-  usbhost_givesem(&priv->exclsem);
+  nxmutex_unlock(&priv->lock);
 }
 
 /****************************************************************************
@@ -1671,7 +1613,7 @@ static inline int usbhost_devinit(FAR struct usbhost_cdcmbim_s *priv)
 
   if (ret >= 0)
     {
-      usbhost_takesem(&priv->exclsem);
+      nxmutex_lock(&priv->lock);
       DEBUGASSERT(priv->crefs >= 2);
 
       /* Handle a corner case where (1) open() has been called so the
@@ -1694,7 +1636,7 @@ static inline int usbhost_devinit(FAR struct usbhost_cdcmbim_s *priv)
 
           uinfo("Successfully initialized\n");
           priv->crefs--;
-          usbhost_givesem(&priv->exclsem);
+          nxmutex_unlock(&priv->lock);
         }
     }
 
@@ -1980,9 +1922,9 @@ static FAR struct usbhost_class_s
 
           priv->crefs = 1;
 
-          /* Initialize semaphores (this works in the interrupt context) */
+          /* Initialize mutex (this works in the interrupt context) */
 
-          nxsem_init(&priv->exclsem, 0, 1);
+          nxmutex_init(&priv->lock);
 
           /* Return the instance of the USB class driver */
 
@@ -2333,7 +2275,7 @@ static int cdcmbim_txpoll(struct net_driver_s *dev)
 
   DEBUGASSERT(priv->netdev.d_buf == (FAR uint8_t *)priv->txpktbuf);
 
-  usbhost_takesem(&priv->exclsem);
+  nxmutex_lock(&priv->lock);
 
   if (priv->netdev.d_len > 0)
     {
@@ -2345,7 +2287,7 @@ static int cdcmbim_txpoll(struct net_driver_s *dev)
         }
     }
 
-  usbhost_givesem(&priv->exclsem);
+  nxmutex_unlock(&priv->lock);
 
   return 0;
 }

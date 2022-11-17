@@ -382,14 +382,11 @@ struct stm32_sampleregs_s
 
 /* Low-level helpers ********************************************************/
 
-static int  stm32_takesem(struct stm32_dev_s *priv);
-#define     stm32_givesem(priv) (nxsem_post(&priv->waitsem))
 static inline void stm32_setclkcr(uint32_t clkcr);
 static void stm32_configwaitints(struct stm32_dev_s *priv, uint32_t waitmask,
               sdio_eventset_t waitevents, sdio_eventset_t wkupevents);
 static void stm32_configxfrints(struct stm32_dev_s *priv, uint32_t xfrmask);
 static void stm32_setpwrctrl(uint32_t pwrctrl);
-static inline uint32_t stm32_getpwrctrl(void);
 
 /* DMA Helpers **************************************************************/
 
@@ -565,27 +562,6 @@ static struct stm32_sampleregs_s g_sampleregs[DEBUG_NSAMPLES];
  ****************************************************************************/
 
 /****************************************************************************
- * Name: stm32_takesem
- *
- * Description:
- *   Take the wait semaphore (handling false alarm wakeups due to the receipt
- *   of signals).
- *
- * Input Parameters:
- *   dev - Instance of the SDIO device driver state structure.
- *
- * Returned Value:
- *   Normally OK, but may return -ECANCELED in the rare event that the task
- *   has been canceled.
- *
- ****************************************************************************/
-
-static int stm32_takesem(struct stm32_dev_s *priv)
-{
-  return nxsem_wait_uninterruptible(&priv->waitsem);
-}
-
-/****************************************************************************
  * Name: stm32_setclkcr
  *
  * Description:
@@ -751,27 +727,6 @@ static void stm32_setpwrctrl(uint32_t pwrctrl)
   regval &= ~SDIO_POWER_PWRCTRL_MASK;
   regval |= pwrctrl;
   putreg32(regval, STM32_SDIO_POWER);
-}
-
-/****************************************************************************
- * Name: stm32_getpwrctrl
- *
- * Description:
- *   Return the current value of the  the PWRCTRL field of the SDIO POWER
- *   register.  This function can be used to see if the SDIO is powered ON
- *   or OFF
- *
- * Input Parameters:
- *   None
- *
- * Returned Value:
- *   The current value of the  the PWRCTRL field of the SDIO POWER register.
- *
- ****************************************************************************/
-
-static inline uint32_t stm32_getpwrctrl(void)
-{
-  return getreg32(STM32_SDIO_POWER) & SDIO_POWER_PWRCTRL_MASK;
 }
 
 /****************************************************************************
@@ -1277,7 +1232,7 @@ static void stm32_endwait(struct stm32_dev_s *priv,
 
   /* Wake up the waiting thread */
 
-  stm32_givesem(priv);
+  nxsem_post(&priv->waitsem);
 }
 
 /****************************************************************************
@@ -2617,7 +2572,7 @@ static sdio_eventset_t stm32_eventwait(struct sdio_dev_s *dev)
        * incremented and there will be no wait.
        */
 
-      ret = stm32_takesem(priv);
+      ret = nxsem_wait_uninterruptible(&priv->waitsem);
       if (ret < 0)
         {
           /* Task canceled.  Cancel the wdog (assuming it was started) and
@@ -2647,7 +2602,6 @@ static sdio_eventset_t stm32_eventwait(struct sdio_dev_s *dev)
   /* Disable event-related interrupts */
 
 errout_with_waitints:
-
   stm32_configwaitints(priv, 0, 0, 0);
 #ifdef CONFIG_STM32_SDIO_DMA
   priv->xfrflags   = 0;
@@ -3070,12 +3024,6 @@ struct sdio_dev_s *sdio_initialize(int slotno)
   /* Initialize semaphores */
 
   nxsem_init(&priv->waitsem, 0, 0);
-
-  /* The waitsem semaphore is used for signaling and, hence, should not have
-   * priority inheritance enabled.
-   */
-
-  nxsem_set_protocol(&priv->waitsem, SEM_PRIO_NONE);
 
   /* Allocate a DMA channel */
 

@@ -74,9 +74,6 @@
 #  define NEED_IPDOMAIN_SUPPORT 1
 #endif
 
-#define UDPIPv4BUF ((FAR struct udp_hdr_s *)&dev->d_buf[NET_LL_HDRLEN(dev) + IPv4_HDRLEN])
-#define UDPIPv6BUF ((FAR struct udp_hdr_s *)&dev->d_buf[NET_LL_HDRLEN(dev) + IPv6_HDRLEN])
-
 /* Debug */
 
 #ifdef CONFIG_NET_UDP_WRBUFFER_DUMP
@@ -97,8 +94,7 @@ static inline void sendto_ipselect(FAR struct net_driver_s *dev,
 #endif
 static int sendto_next_transfer(FAR struct udp_conn_s *conn);
 static uint16_t sendto_eventhandler(FAR struct net_driver_s *dev,
-                                    FAR void *pvconn, FAR void *pvpriv,
-                                    uint16_t flags);
+                                    FAR void *pvpriv, uint16_t flags);
 
 /****************************************************************************
  * Private Functions
@@ -352,10 +348,9 @@ static int sendto_next_transfer(FAR struct udp_conn_s *conn)
  ****************************************************************************/
 
 static uint16_t sendto_eventhandler(FAR struct net_driver_s *dev,
-                                    FAR void *pvconn, FAR void *pvpriv,
-                                    uint16_t flags)
+                                    FAR void *pvpriv, uint16_t flags)
 {
-  FAR struct udp_conn_s *conn = (FAR struct udp_conn_s *)pvpriv;
+  FAR struct udp_conn_s *conn = pvpriv;
 
   DEBUGASSERT(dev != NULL && conn != NULL);
 
@@ -749,8 +744,8 @@ ssize_t psock_udp_sendto(FAR struct socket *psock, FAR const void *buf,
 
       if (nonblock)
         {
-          ret = iob_trycopyin(wrb->wb_iob, (FAR uint8_t *)buf, len, 0, false,
-                              IOBUSER_NET_SOCK_UDP);
+          ret = iob_trycopyin(wrb->wb_iob, (FAR uint8_t *)buf,
+                              len, 0, false);
         }
       else
         {
@@ -763,8 +758,7 @@ ssize_t psock_udp_sendto(FAR struct socket *psock, FAR const void *buf,
            */
 
           blresult = net_breaklock(&count);
-          ret = iob_copyin(wrb->wb_iob, (FAR uint8_t *)buf, len, 0, false,
-                           IOBUSER_NET_SOCK_UDP);
+          ret = iob_copyin(wrb->wb_iob, (FAR uint8_t *)buf, len, 0, false);
           if (blresult >= 0)
             {
               net_restorelock(count);

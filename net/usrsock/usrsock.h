@@ -31,7 +31,6 @@
 
 #include <sys/types.h>
 #include <sys/uio.h>
-#include <queue.h>
 
 #include <nuttx/semaphore.h>
 
@@ -41,10 +40,6 @@
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
-
-#ifndef ARRAY_SIZE
-#  define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
-#endif
 
 /* Internal socket type/domain for marking usrsock sockets */
 
@@ -62,8 +57,6 @@
  * Public Type Definitions
  ****************************************************************************/
 
-struct usrsockdev_s;
-
 enum usrsock_conn_state_e
 {
   USRSOCK_CONN_STATE_UNINITIALIZED = 0,
@@ -74,7 +67,7 @@ enum usrsock_conn_state_e
 
 struct usrsock_poll_s
 {
-  FAR struct socket *psock;        /* Needed to handle loss of connection */
+  FAR struct usrsock_conn_s *conn; /* Needed to handle loss of connection */
   struct pollfd *fds;              /* Needed to handle poll events */
   FAR struct devif_callback_s *cb; /* Needed to teardown the poll */
 };
@@ -94,16 +87,16 @@ struct usrsock_conn_s
   int8_t        type;                /* Socket type (SOCK_STREAM, etc) */
   int16_t       usockid;             /* Connection number used for kernel<->daemon */
   uint16_t      flags;               /* Socket state flags */
-  struct usrsockdev_s *dev;          /* Device node used for this conn */
 
   struct
   {
     sem_t    sem;               /* Request semaphore (only one outstanding request) */
-    uint64_t xid;               /* Expected message exchange id */
+    uint32_t xid;               /* Expected message exchange id */
     bool     inprogress;        /* Request was received but daemon is still processing */
     uint16_t valuelen;          /* Length of value from daemon */
     uint16_t valuelen_nontrunc; /* Actual length of value at daemon */
     int      result;            /* Result for request */
+    uint16_t events;            /* Response events for the request */
 
     struct
     {
@@ -266,24 +259,19 @@ void usrsock_setup_datain(FAR struct usrsock_conn_s *conn,
  *
  ****************************************************************************/
 
-int usrsock_event(FAR struct usrsock_conn_s *conn, uint16_t events);
+int usrsock_event(FAR struct usrsock_conn_s *conn);
 
 /****************************************************************************
- * Name: usrsockdev_do_request
- ****************************************************************************/
-
-int usrsockdev_do_request(FAR struct usrsock_conn_s *conn,
-                          FAR struct iovec *iov, unsigned int iovcnt);
-
-/****************************************************************************
- * Name: usrsockdev_register
+ * Name: usrsock_do_request
  *
  * Description:
- *   Register /dev/usrsock
+ *   The usrsock_do_request() function will send usrsock request message
+ *   to the usrsock network interface driver
  *
  ****************************************************************************/
 
-void usrsockdev_register(void);
+int usrsock_do_request(FAR struct usrsock_conn_s *conn,
+                       FAR struct iovec *iov, unsigned int iovcnt);
 
 /****************************************************************************
  * Name: usrsock_socket
@@ -657,12 +645,10 @@ int usrsock_getpeername(FAR struct socket *psock,
  *   psock    A reference to the socket structure of the socket
  *   cmd      The ioctl command
  *   arg      The argument of the ioctl cmd
- *   arglen   The length of 'arg'
  *
  ****************************************************************************/
 
-int usrsock_ioctl(FAR struct socket *psock, int cmd, FAR void *arg,
-                  size_t arglen);
+int usrsock_ioctl(FAR struct socket *psock, int cmd, unsigned long arg);
 
 #undef EXTERN
 #ifdef __cplusplus

@@ -68,10 +68,16 @@ from board-to-board. Follow the links for the details:
        - :ref:`introduction/detailed_support:RISC-V` (2)
 
          - :ref:`introduction/detailed_support:LiteX on Arty A7` (1)
+         - :ref:`introduction/detailed_support:ESP32-C3` (1)
 
        - Xtensa LX6:
 
          - :ref:`introduction/detailed_support:ESP32 (Dual Xtensa LX6)` (1)
+
+       - Xtensa LX7:
+
+         - :ref:`introduction/detailed_support:ESP32-S2 (Single Xtensa LX7)` (1)
+         - :ref:`introduction/detailed_support:ESP32-S3 (Dual Xtensa LX7)` (1)
 
        - ZiLOG
 
@@ -103,6 +109,9 @@ MCU. Follow the links for the details:
        - Espressif
 
          - :ref:`introduction/detailed_support:Xtensa LX6 ESP32` (Dual Xtensa LX6)
+         - :ref:`introduction/detailed_support:Xtensa LX7 ESP32-S2` (Single Xtensa LX7)
+         - :ref:`introduction/detailed_support:Xtensa LX7 ESP32-S3` (Dual Xtensa LX7)
+         - :ref:`introduction/detailed_support:ESP32-C3` (RISC-V)
 
        - Host PC based simulations
 
@@ -268,6 +277,7 @@ MCU. Follow the links for the details:
          - :ref:`introduction/detailed_support:TI/Stellaris LM4F120x` (ARM Cortex-M4)
          - :ref:`introduction/detailed_support:TI/Tiva TM4C123G` (ARM Cortex-M4)
          - :ref:`introduction/detailed_support:TI/Tiva TM4C1294` (ARM Cortex-M4)
+         - :ref:`introduction/detailed_support:TI/Tiva TM4C129E` (ARM Cortex-M4)
          - :ref:`introduction/detailed_support:TI/Tiva TM4C129X` (ARM Cortex-M4)
          - :ref:`introduction/detailed_support:TI/SimpleLink CC13x2` (ARM Cortex-M4)
          - :ref:`introduction/detailed_support:TI/Hercules TMS570LS04xx` (ARM Cortex-R4)

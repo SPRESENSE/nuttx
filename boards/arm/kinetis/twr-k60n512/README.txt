@@ -35,7 +35,7 @@ Kinetis TWR-K60N512 Features:
   o Touch TWRPI Socket adds support for various capacitive touch boards
     (e.g. keypads, rotary dials, sliders, etc.)
   o Tower connectivity for access to USB, Ethernet, RS232/RS485, CAN, SPI,
-    I²C, Flexbus, etc.
+    IÂ²C, Flexbus, etc.
   o Plus: Potentiometer, 4 LEDs, 2 pushbuttons, infrared port
 
 Kinetis TWR-K60N512 Pin Configuration
@@ -467,8 +467,8 @@ Where <subdir> is one of the following:
     2. Default platform/toolchain:
 
        CONFIG_HOST_LINUX=y                 : Linux (Cygwin under Windows okay too).
-       CONFIG_ARMV7M_TOOLCHAIN_BUILDROOT=y : Buildroot (arm-nuttx-elf-gcc)
-       CONFIG_ARMV7M_OABI_TOOLCHAIN=y      : The older OABI version
+       CONFIG_ARM_TOOLCHAIN_BUILDROOT=y : Buildroot (arm-nuttx-elf-gcc)
+       CONFIG_ARM_TOOLCHAIN_BUILDROOT_OABI=y      : The older OABI version
        CONFIG_RAW_BINARY=y                 : Output formats: ELF and raw binary
 
     3. An SDHC driver is under work and can be enabled in the NSH configuration

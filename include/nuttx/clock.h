@@ -240,16 +240,29 @@ extern "C"
  */
 
 #ifdef __HAVE_KERNEL_GLOBALS
-EXTERN volatile clock_t g_system_timer;
+EXTERN volatile clock_t g_system_ticks;
 
-#ifndef CONFIG_SYSTEM_TIME64
-#  define clock_systime_ticks() g_system_timer
-#endif
+#  ifndef CONFIG_SYSTEM_TIME64
+#    define clock_systime_ticks() g_system_ticks
+#  endif
 #endif
 
 /****************************************************************************
  * Public Function Prototypes
  ****************************************************************************/
+
+#define timespec_from_tick(ts, tick) \
+  do \
+    { \
+      clock_t _tick = (tick); \
+      (ts)->tv_sec = _tick / TICK_PER_SEC; \
+      _tick -= (clock_t)(ts)->tv_sec * TICK_PER_SEC; \
+      (ts)->tv_nsec = _tick * NSEC_PER_TICK; \
+    } \
+  while (0)
+
+#define timespec_to_tick(ts) \
+  ((clock_t)(ts)->tv_sec * TICK_PER_SEC + (ts)->tv_nsec / NSEC_PER_TICK)
 
 /****************************************************************************
  * Name: clock_timespec_compare

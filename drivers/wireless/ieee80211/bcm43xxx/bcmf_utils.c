@@ -44,7 +44,7 @@
  * Name: bcmf_hexdump
  ****************************************************************************/
 
-void bcmf_hexdump(uint8_t *data, unsigned int len, unsigned long offset)
+void bcmf_hexdump(FAR uint8_t *data, unsigned int len, unsigned long offset)
 {
   unsigned int i;
   unsigned int char_count = 0;
@@ -76,13 +76,4 @@ void bcmf_hexdump(uint8_t *data, unsigned int len, unsigned long offset)
       hex_line[3 * LINE_LEN] = 0;
       wlinfo("%08lx: %s%s\n", offset + i - char_count, hex_line, char_line);
     }
-}
-
-/****************************************************************************
- * Name: bcmf_sem_wait
- ****************************************************************************/
-
-int bcmf_sem_wait(sem_t *sem, unsigned int timeout_ms)
-{
-  return nxsem_tickwait_uninterruptible(sem, MSEC2TICK(timeout_ms));
 }

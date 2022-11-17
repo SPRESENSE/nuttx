@@ -34,7 +34,9 @@
 #include <nuttx/mtd/mtd.h>
 #include <nuttx/fs/fs.h>
 #include <nuttx/fs/nxffs.h>
-#include <nuttx/fs/rpmsgfs.h>
+#include <nuttx/drivers/ramdisk.h>
+#include <nuttx/drivers/rpmsgdev.h>
+#include <nuttx/drivers/rpmsgblk.h>
 #include <nuttx/i2c/i2c_master.h>
 #include <nuttx/spi/spi_transfer.h>
 #include <nuttx/rc/lirc_dev.h>
@@ -43,7 +45,6 @@
 #include <nuttx/sensors/mpu60x0.h>
 #include <nuttx/sensors/wtgahrs2.h>
 #include <nuttx/serial/uart_rpmsg.h>
-#include <nuttx/syslog/syslog_rpmsg.h>
 #include <nuttx/timers/oneshot.h>
 #include <nuttx/video/fb.h>
 #include <nuttx/timers/oneshot.h>
@@ -93,6 +94,9 @@ int sim_bringup(void)
 #endif
 #ifdef CONFIG_RAMMTD
   uint8_t *ramstart;
+#endif
+#if !defined(CONFIG_DISABLE_MOUNTPOINT) && defined(CONFIG_BLK_RPMSG_SERVER)
+  uint8_t *ramdiskstart;
 #endif
 #ifdef CONFIG_SIM_I2CBUS
   struct i2c_master_s *i2cbus;
@@ -177,14 +181,6 @@ int sim_bringup(void)
               syslog(LOG_ERR, "ERROR: IOCTL MTDIOC_BULKERASE failed\n");
             }
 
-#if defined(CONFIG_MTD_SMART) && defined(CONFIG_FS_SMARTFS)
-          /* Initialize a SMART Flash block device and bind it to the MTD
-           * device.
-           */
-
-          smart_initialize(0, mtd, NULL);
-
-#elif defined(CONFIG_FS_SPIFFS)
           /* Register the MTD driver so that it can be accessed from the
            * VFS.
            */
@@ -196,6 +192,14 @@ int sim_bringup(void)
                      ret);
             }
 
+#if defined(CONFIG_MTD_SMART) && defined(CONFIG_FS_SMARTFS)
+          /* Initialize a SMART Flash block device and bind it to the MTD
+           * device.
+           */
+
+          smart_initialize(0, mtd, NULL);
+
+#elif defined(CONFIG_FS_SPIFFS)
           /* Mount the SPIFFS file system */
 
           ret = nx_mount("/dev/rammtd", "/mnt/spiffs", "spiffs", 0, NULL);
@@ -207,17 +211,6 @@ int sim_bringup(void)
             }
 
 #elif defined(CONFIG_FS_LITTLEFS)
-          /* Register the MTD driver so that it can be accessed from the
-           * VFS.
-           */
-
-          ret = register_mtddriver("/dev/rammtd", mtd, 0755, NULL);
-          if (ret < 0)
-            {
-              syslog(LOG_ERR, "ERROR: Failed to register MTD driver: %d\n",
-                     ret);
-            }
-
           /* Mount the LittleFS file system */
 
           ret = nx_mount("/dev/rammtd", "/mnt/lfs", "littlefs", 0,
@@ -240,6 +233,16 @@ int sim_bringup(void)
             }
 #endif
         }
+    }
+#endif
+
+#if !defined(CONFIG_DISABLE_MOUNTPOINT) && defined(CONFIG_BLK_RPMSG_SERVER)
+  ramdiskstart = (uint8_t *)kmm_malloc(512 * 2048);
+  ret = ramdisk_register(1, ramdiskstart, 2048, 512,
+                         RDFLAG_WRENABLED | RDFLAG_FUNLINK);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: Failed to register ramdisk: %d\n", ret);
     }
 #endif
 
@@ -449,12 +452,18 @@ int sim_bringup(void)
   up_rptun_init("server-proxy", "server", false);
 #endif
 
-#ifdef CONFIG_SYSLOG_RPMSG_SERVER
-  syslog_rpmsg_server_init();
+#ifdef CONFIG_DEV_RPMSG
+  rpmsgdev_register("server", "/dev/console", "/dev/server-console");
+  rpmsgdev_register("server", "/dev/null", "/dev/server-null");
+  rpmsgdev_register("server", "/dev/ttyUSB0", "/dev/ttyUSB0");
 #endif
 
-#if defined(CONFIG_FS_RPMSGFS) && defined(CONFIG_SIM_RPTUN_MASTER)
-  rpmsgfs_server_init();
+#ifdef CONFIG_BLK_RPMSG
+  rpmsgblk_register("server", "/dev/ram1", NULL);
+#endif
+
+#ifdef CONFIG_RPMSGMTD
+  rpmsgmtd_register("server", "/dev/rammtd", NULL);
 #endif
 #endif
 

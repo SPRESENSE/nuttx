@@ -5,8 +5,7 @@
 
 menuconfig NETDEVICES
 	bool "Network Device/PHY Support"
-	default n if !ARCH_HAVE_PHY
-	default y if ARCH_HAVE_PHY
+	default y
 	depends on NET
 	---help---
 		Network interface driver and PHY selections.  This options enables
@@ -81,14 +80,6 @@ config TELNET_CHARACTER_MODE
 		The Telnet daemon works in character mode. In this case, the daemon
 		will echo a character which telnet client sent. By default, it works
 		in line mode.
-
-config TELNET_IOTHREAD_PRIORITY
-	int "I/O thread priority"
-	default 100
-
-config TELNET_IOTHREAD_STACKSIZE
-	int "I/O thread stack size"
-	default 1024
 
 config TELNET_SUPPORT_NAWS
 	bool "Support NAWS (Negotiate About Window Size)"
@@ -350,6 +341,23 @@ menuconfig NET_LAN91C111
 
 if NET_LAN91C111
 endif # NET_LAN91C111
+
+menuconfig NET_SKELETON
+	bool "Skeleton network support"
+	default n
+	select ARCH_HAVE_NETDEV_STATISTICS
+	---help---
+		NuttX skeleton network driver
+
+if NET_SKELETON
+config NET_SKELETON_IRQ
+	int "Skeleton IRQ number"
+	default 0
+
+config NET_SKELETON_NINTERFACES
+	int "Number of physical skeleton devices"
+	default 1
+endif
 
 source "drivers/net/wiznet/Kconfig"
 

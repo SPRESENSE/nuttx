@@ -32,7 +32,7 @@
 #include <nuttx/arch.h>
 #include <nuttx/irq.h>
 #include <nuttx/sensors/qencoder.h>
-#include <nuttx/semaphore.h>
+#include <nuttx/mutex.h>
 
 #include "chip.h"
 #include "arm_internal.h"
@@ -80,6 +80,10 @@
 # define CONFIG_ENC1_HNE 0
 #endif
 
+#ifndef CONFIG_ENC1_XIE
+#  define CONFIG_ENC1_XIE 0
+#endif
+
 #ifndef CONFIG_ENC1_XIP
 #  define CONFIG_ENC1_XIP 0
 #endif
@@ -119,6 +123,10 @@
 
 #ifndef CONFIG_ENC2_HNE
 # define CONFIG_ENC2_HNE 0
+#endif
+
+#ifndef CONFIG_ENC2_XIE
+#  define CONFIG_ENC2_XIE 0
 #endif
 
 #ifndef CONFIG_ENC2_XIP
@@ -162,6 +170,10 @@
 # define CONFIG_ENC3_HNE 0
 #endif
 
+#ifndef CONFIG_ENC3_XIE
+#  define CONFIG_ENC3_XIE 0
+#endif
+
 #ifndef CONFIG_ENC3_XIP
 #  define CONFIG_ENC3_XIP 0
 #endif
@@ -203,6 +215,10 @@
 # define CONFIG_ENC4_HNE 0
 #endif
 
+#ifndef CONFIG_ENC4_XIE
+#  define CONFIG_ENC4_XIE 0
+#endif
+
 #ifndef CONFIG_ENC4_XIP
 #  define CONFIG_ENC4_XIP 0
 #endif
@@ -236,6 +252,7 @@
 #define XNE_SHIFT (3)
 #define REV_SHIFT (4)
 #define MOD_SHIFT (5)
+#define XIE_SHIFT (6)
 
 /****************************************************************************
  * Private Types
@@ -246,6 +263,7 @@
 struct imxrt_qeconfig_s
 {
   uint32_t  base;           /* Register base address */
+  uint32_t  irq;            /* Encoder interrupt */
   uint32_t  init_val;       /* Value to initialize position counters to */
   uint32_t  modulus;        /* Modulus to use when modulo counting is enabled */
   uint16_t  in_filt_per;    /* Period for input filter sampling in # of periph
@@ -258,11 +276,16 @@ struct imxrt_qeconfig_s
                              * will reinitialize the position counter. Bits 4-0:
                              * [MOD, REV, XNE, XIP, HNE, HIP]
                              */
-
 #ifdef CONFIG_DEBUG_SENSORS
   bool      tst_dir_adv;    /* Whether to generate down/up test signals */
   uint8_t   tst_period;     /* Period of PHASE pulses in # of periph clock cycles */
 #endif
+};
+
+struct imxrt_qedata_s
+{
+  int32_t  index_pos;      /* Last position of index occurance */
+  uint32_t index_cnt;      /* Number of index occurance */
 };
 
 /* ENC Device Private Data */
@@ -278,7 +301,8 @@ struct imxrt_enc_lowerhalf_s
   /* IMXRT driver-specific fields: */
 
   const struct imxrt_qeconfig_s *config;  /* static configuration */
-  sem_t sem_excl;                         /* Mutual exclusion semaphore to
+  struct qe_index_s *data;
+  mutex_t lock;                           /* Mutual exclusion mutex to
                                            * ensure atomic 32-bit reads.
                                            */
 };
@@ -300,10 +324,6 @@ static inline void imxrt_enc_modifyreg16
 static void imxrt_enc_clock_enable (uint32_t base);
 static void imxrt_enc_clock_disable (uint32_t base);
 
-static inline int imxrt_enc_sem_wait(struct imxrt_enc_lowerhalf_s *priv);
-static inline void imxrt_enc_sem_post
-                    (struct imxrt_enc_lowerhalf_s *priv);
-
 static int imxrt_enc_reconfig(struct imxrt_enc_lowerhalf_s *priv,
                               uint16_t args);
 static void imxrt_enc_set_initial_val(struct imxrt_enc_lowerhalf_s *priv,
@@ -311,6 +331,8 @@ static void imxrt_enc_set_initial_val(struct imxrt_enc_lowerhalf_s *priv,
 static void imxrt_enc_modulo_enable(struct imxrt_enc_lowerhalf_s *priv,
                                     uint32_t modulus);
 static void imxrt_enc_modulo_disable(struct imxrt_enc_lowerhalf_s *priv);
+
+static int imxrt_enc_index(int irq, void *context, void *arg);
 
 #ifdef CONFIG_DEBUG_SENSORS
 static int imxrt_enc_test_gen(struct imxrt_enc_lowerhalf_s *priv,
@@ -350,12 +372,14 @@ static const struct qe_ops_s g_qecallbacks =
 static const struct imxrt_qeconfig_s imxrt_enc1_config =
 {
   .base        = IMXRT_ENC1_BASE,
+  .irq         = IMXRT_IRQ_ENC1,
   .init_val    = CONFIG_ENC1_INITVAL,
   .modulus     = CONFIG_ENC1_MODULUS,
   .in_filt_per = CONFIG_ENC1_FILTPER,
   .in_filt_cnt = CONFIG_ENC1_FILTCNT,
   .init_flags  = CONFIG_ENC1_HIP << HIP_SHIFT |
                  CONFIG_ENC1_HNE << HNE_SHIFT |
+                 CONFIG_ENC1_XIE << XIE_SHIFT |
                  CONFIG_ENC1_XIP << XIP_SHIFT |
                  CONFIG_ENC1_XNE << XNE_SHIFT |
                  CONFIG_ENC1_DIR << REV_SHIFT |
@@ -367,10 +391,18 @@ static const struct imxrt_qeconfig_s imxrt_enc1_config =
 #endif
 };
 
+static struct qe_index_s imxrt_enc1_data =
+{
+  .qenc_pos = 0,
+  .indx_pos = 0,
+  .indx_cnt = 0,
+};
+
 static struct imxrt_enc_lowerhalf_s imxrt_enc1_priv =
 {
-  .ops = &g_qecallbacks,
+  .ops    = &g_qecallbacks,
   .config = &imxrt_enc1_config,
+  .data   = &imxrt_enc1_data,
 };
 #endif
 
@@ -378,12 +410,14 @@ static struct imxrt_enc_lowerhalf_s imxrt_enc1_priv =
 static const struct imxrt_qeconfig_s imxrt_enc2_config =
 {
   .base        = IMXRT_ENC2_BASE,
+  .irq         = IMXRT_IRQ_ENC2,
   .init_val    = CONFIG_ENC2_INITVAL,
   .modulus     = CONFIG_ENC2_MODULUS,
   .in_filt_per = CONFIG_ENC2_FILTPER,
   .in_filt_cnt = CONFIG_ENC2_FILTCNT,
   .init_flags  = CONFIG_ENC2_HIP << HIP_SHIFT |
                  CONFIG_ENC2_HNE << HNE_SHIFT |
+                 CONFIG_ENC2_XIE << XIE_SHIFT |
                  CONFIG_ENC2_XIP << XIP_SHIFT |
                  CONFIG_ENC2_XNE << XNE_SHIFT |
                  CONFIG_ENC2_DIR << REV_SHIFT |
@@ -395,10 +429,18 @@ static const struct imxrt_qeconfig_s imxrt_enc2_config =
 #endif
 };
 
+static struct qe_index_s imxrt_enc2_data =
+{
+  .qenc_pos = 0,
+  .indx_pos = 0,
+  .indx_cnt = 0,
+};
+
 static struct imxrt_enc_lowerhalf_s imxrt_enc2_priv =
 {
   .ops    = &g_qecallbacks,
   .config = &imxrt_enc2_config,
+  .data   = &imxrt_enc2_data,
 };
 #endif
 
@@ -406,12 +448,14 @@ static struct imxrt_enc_lowerhalf_s imxrt_enc2_priv =
 static const struct imxrt_qeconfig_s imxrt_enc3_config =
 {
   .base        = IMXRT_ENC3_BASE,
+  .irq         = IMXRT_IRQ_ENC3,
   .init_val    = CONFIG_ENC3_INITVAL,
   .modulus     = CONFIG_ENC3_MODULUS,
   .in_filt_per = CONFIG_ENC3_FILTPER,
   .in_filt_cnt = CONFIG_ENC3_FILTCNT,
   .init_flags  = CONFIG_ENC3_HIP << HIP_SHIFT |
                  CONFIG_ENC3_HNE << HNE_SHIFT |
+                 CONFIG_ENC3_XIE << XIE_SHIFT |
                  CONFIG_ENC3_XIP << XIP_SHIFT |
                  CONFIG_ENC3_XNE << XNE_SHIFT |
                  CONFIG_ENC3_DIR << REV_SHIFT |
@@ -423,10 +467,18 @@ static const struct imxrt_qeconfig_s imxrt_enc3_config =
 #endif
 };
 
+static struct qe_index_s imxrt_enc3_data =
+{
+  .qenc_pos = 0,
+  .indx_pos = 0,
+  .indx_cnt = 0,
+};
+
 static struct imxrt_enc_lowerhalf_s imxrt_enc3_priv =
 {
   .ops    = &g_qecallbacks,
   .config = &imxrt_enc3_config,
+  .data   = &imxrt_enc3_data,
 };
 #endif
 
@@ -434,12 +486,14 @@ static struct imxrt_enc_lowerhalf_s imxrt_enc3_priv =
 static const struct imxrt_qeconfig_s imxrt_enc4_config =
 {
   .base        = IMXRT_ENC4_BASE,
+  .irq         = IMXRT_IRQ_ENC4,
   .init_val    = CONFIG_ENC4_INITVAL,
   .modulus     = CONFIG_ENC4_MODULUS,
   .in_filt_per = CONFIG_ENC4_FILTPER,
   .in_filt_cnt = CONFIG_ENC4_FILTCNT,
   .init_flags  = CONFIG_ENC4_HIP << HIP_SHIFT |
                  CONFIG_ENC4_HNE << HNE_SHIFT |
+                 CONFIG_ENC4_XIE << XIE_SHIFT |
                  CONFIG_ENC4_XIP << XIP_SHIFT |
                  CONFIG_ENC4_XNE << XNE_SHIFT |
                  CONFIG_ENC4_DIR << REV_SHIFT |
@@ -451,10 +505,18 @@ static const struct imxrt_qeconfig_s imxrt_enc4_config =
 #endif
 };
 
+static struct qe_index_s imxrt_enc4_data =
+{
+  .qenc_pos = 0,
+  .indx_pos = 0,
+  .indx_cnt = 0,
+};
+
 static struct imxrt_enc_lowerhalf_s imxrt_enc4_priv =
 {
   .ops    = &g_qecallbacks,
   .config = &imxrt_enc4_config,
+  .data   = &imxrt_enc4_data,
 };
 #endif
 
@@ -570,32 +632,6 @@ void imxrt_enc_clock_disable(uint32_t base)
 }
 
 /****************************************************************************
- * Name: imxrt_enc_sem_wait
- *
- * Description:
- *   Take exclusive access to the position register, waiting as necessary
- *
- ****************************************************************************/
-
-static inline int imxrt_enc_sem_wait(struct imxrt_enc_lowerhalf_s *priv)
-{
-  return nxsem_wait_uninterruptible(&priv->sem_excl);
-}
-
-/****************************************************************************
- * Name: imxrt_enc_sem_post
- *
- * Description:
- *   Release the mutual exclusion semaphore
- *
- ****************************************************************************/
-
-static inline void imxrt_enc_sem_post(struct imxrt_enc_lowerhalf_s *priv)
-{
-  nxsem_post(&priv->sem_excl);
-}
-
-/****************************************************************************
  * Name: imxrt_enc_reconfig
  *
  * Description:
@@ -638,6 +674,15 @@ static int imxrt_enc_reconfig(struct imxrt_enc_lowerhalf_s *priv,
   else
     {
       clear |= ENC_CTRL_HNE;
+    }
+
+  if ((args >> XIE_SHIFT) & 1)
+    {
+      set |= ENC_CTRL_XIE;
+    }
+  else
+    {
+      clear |= ENC_CTRL_XIE;
     }
 
   if ((args >> XIP_SHIFT) & 1)
@@ -752,6 +797,41 @@ static void imxrt_enc_modulo_disable(struct imxrt_enc_lowerhalf_s *priv)
   imxrt_enc_modifyreg16(priv, IMXRT_ENC_CTRL2_OFFSET, ENC_CTRL2_MOD, 0);
 }
 
+/****************************************************************************
+ * Name: imxrt_enc_index
+ *
+ * Description:
+ *   Get the index position and increments index count.
+ *
+ ****************************************************************************/
+
+static int imxrt_enc_index(int irq, void *context, void *arg)
+{
+  struct imxrt_enc_lowerhalf_s *priv =
+    (struct imxrt_enc_lowerhalf_s *)arg;
+  const struct imxrt_qeconfig_s *config = priv->config;
+  struct qe_index_s *data = priv->data;
+  uint16_t regval = getreg16(config->base + IMXRT_ENC_CTRL_OFFSET);
+
+  if ((regval & ENC_CTRL_XIRQ) != 0)
+    {
+      /* Clear the interrupt */
+
+      regval |= ENC_CTRL_XIRQ;
+      putreg16(regval, config->base + IMXRT_ENC_CTRL_OFFSET);
+
+      /* Get index position */
+
+      imxrt_position(arg, &data->indx_pos);
+
+      /* Increment index count */
+
+      priv->data->indx_cnt += 1;
+    }
+
+  return OK;
+}
+
 #ifdef CONFIG_DEBUG_SENSORS
 
 /****************************************************************************
@@ -829,7 +909,7 @@ static int imxrt_setup(struct qe_lowerhalf_s *lower)
   uint32_t regval;
   int ret;
 
-  ret = imxrt_enc_sem_wait(priv);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
@@ -867,6 +947,18 @@ static int imxrt_setup(struct qe_lowerhalf_s *lower)
   imxrt_enc_putreg16(priv, IMXRT_ENC_TST_OFFSET, regval);
 #endif
 
+  if ((config->init_flags && XIE_SHIFT) == 1)
+    {
+      ret = irq_attach(config->irq, imxrt_enc_index, priv);
+      if (ret < 0)
+        {
+          snerr("ERROR: irq_attach failed: %d\n", ret);
+          return ret;
+        }
+
+      up_enable_irq(config->irq);
+    }
+
   /* Control and Control 2 register */
 
   regval = ENC_CTRL_SWIP;
@@ -874,14 +966,14 @@ static int imxrt_setup(struct qe_lowerhalf_s *lower)
   regval |= ((config->init_flags >> HIP_SHIFT) & 1) ? ENC_CTRL_HIP : 0;
   regval |= ((config->init_flags >> HNE_SHIFT) & 1) ? ENC_CTRL_HNE : 0;
   regval |= ((config->init_flags >> XIP_SHIFT) & 1) ? ENC_CTRL_XIP : 0;
+  regval |= ((config->init_flags >> XIE_SHIFT) & 1) ? ENC_CTRL_XIE : 0;
   regval |= ((config->init_flags >> XNE_SHIFT) & 1) ? ENC_CTRL_XNE : 0;
   imxrt_enc_putreg16(priv, IMXRT_ENC_CTRL_OFFSET, regval);
 
   regval = ((config->init_flags >> MOD_SHIFT) & 1) ? ENC_CTRL2_MOD : 0;
   imxrt_enc_putreg16(priv, IMXRT_ENC_CTRL2_OFFSET, regval);
 
-  imxrt_enc_sem_post(priv);
-
+  nxmutex_unlock(&priv->lock);
   return OK;
 }
 
@@ -903,7 +995,7 @@ static int imxrt_shutdown(struct qe_lowerhalf_s *lower)
 
   /* Ensure any in-progress operations are done. */
 
-  ret = imxrt_enc_sem_wait(priv);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
@@ -912,6 +1004,15 @@ static int imxrt_shutdown(struct qe_lowerhalf_s *lower)
 #ifdef CONFIG_DEBUG_SENSORS
   imxrt_enc_putreg16(priv, IMXRT_ENC_TST_OFFSET, 0);
 #endif
+
+  /* Disable interrupts if used */
+
+  if ((priv->config->init_flags && XIE_SHIFT) == 1)
+    {
+      up_disable_irq(priv->config->irq);
+
+      irq_detach(priv->config->irq);
+    }
 
   imxrt_enc_putreg16(priv, IMXRT_ENC_FILT_OFFSET, 0);
   imxrt_enc_putreg16(priv, IMXRT_ENC_LINIT_OFFSET, 0);
@@ -927,7 +1028,7 @@ static int imxrt_shutdown(struct qe_lowerhalf_s *lower)
 
   imxrt_enc_clock_disable(priv->config->base);
 
-  imxrt_enc_sem_post(priv);
+  nxmutex_unlock(&priv->lock);
   return OK;
 }
 
@@ -948,7 +1049,7 @@ static int imxrt_position(struct qe_lowerhalf_s *lower, int32_t *pos)
   int i;
   int ret;
 
-  ret = imxrt_enc_sem_wait(priv);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
@@ -975,13 +1076,13 @@ static int imxrt_position(struct qe_lowerhalf_s *lower, int32_t *pos)
 
   if (lpos != imxrt_enc_getreg16(priv, IMXRT_ENC_LPOSH_OFFSET))
     {
-      imxrt_enc_sem_post(priv);
+      nxmutex_unlock(&priv->lock);
       return -EAGAIN;
     }
 
   upos = imxrt_enc_getreg16(priv, IMXRT_ENC_UPOSH_OFFSET);
 
-  imxrt_enc_sem_post(priv);
+  nxmutex_unlock(&priv->lock);
 
   *pos = (int32_t)((upos << 16) | lpos);
   return OK;
@@ -1003,14 +1104,14 @@ static int imxrt_reset(struct qe_lowerhalf_s *lower)
 
   /* Write a 1 to the SWIP bit to load UINIT and LINIT into UPOS and LPOS */
 
-  ret = imxrt_enc_sem_wait(priv);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
     }
 
   imxrt_enc_modifyreg16(priv, IMXRT_ENC_CTRL_OFFSET, 0, ENC_CTRL_SWIP);
-  imxrt_enc_sem_post(priv);
+  nxmutex_unlock(&priv->lock);
 
   return OK;
 }
@@ -1027,6 +1128,7 @@ static int imxrt_ioctl(struct qe_lowerhalf_s *lower, int cmd,
                        unsigned long arg)
 {
   struct imxrt_enc_lowerhalf_s *priv = (struct imxrt_enc_lowerhalf_s *)lower;
+  struct qe_index_s *data = priv->data;
   switch (cmd)
     {
       /* QEIOC_POSDIFF:
@@ -1054,6 +1156,10 @@ static int imxrt_ioctl(struct qe_lowerhalf_s *lower, int cmd,
         break;
       case QEIOC_RESETATMAX:
         imxrt_enc_modulo_disable(priv);
+        break;
+      case QEIOC_GETINDEX:
+        imxrt_position(lower, &data->qenc_pos);
+        *((struct qe_index_s *)arg) = *data;
         break;
 
 #ifdef CONFIG_DEBUG_SENSORS
@@ -1121,7 +1227,7 @@ int imxrt_qeinitialize(const char *devpath, int enc)
 
   /* Initialize private data */
 
-  nxsem_init(&priv->sem_excl, 0, 1);
+  nxmutex_init(&priv->lock);
 
   /* Register the upper-half driver */
 

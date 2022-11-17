@@ -24,6 +24,7 @@
 
 #include <nuttx/fs/fs.h>
 #include <nuttx/kmalloc.h>
+#include <nuttx/mutex.h>
 #include <nuttx/semaphore.h>
 #include <nuttx/mm/circbuf.h>
 
@@ -49,7 +50,7 @@ union bt_hdr_u
 
 struct uart_bth4_s
 {
-  FAR struct bt_driver_s  *drv;
+  FAR struct bt_driver_s *drv;
 
   FAR struct circbuf_s    circbuf;
 
@@ -57,9 +58,9 @@ struct uart_bth4_s
 
   uint8_t                 sendbuf[CONFIG_UART_BTH4_TXBUFSIZE];
   size_t                  sendlen;
-  sem_t                   sendlock;
+  mutex_t                 sendlock;
 
-  FAR struct pollfd       *fds[CONFIG_UART_BTH4_NPOLLWAITERS];
+  FAR struct pollfd      *fds[CONFIG_UART_BTH4_NPOLLWAITERS];
 };
 
 /****************************************************************************
@@ -113,22 +114,7 @@ static inline void uart_bth4_post(FAR sem_t *sem)
 static void uart_bth4_pollnotify(FAR struct uart_bth4_s *dev,
                                  pollevent_t eventset)
 {
-  int i;
-
-  for (i = 0; i < CONFIG_UART_BTH4_NPOLLWAITERS; i++)
-    {
-      FAR struct pollfd *fds = dev->fds[i];
-
-      if (fds)
-        {
-          fds->revents |= (fds->events & eventset);
-
-          if (fds->revents != 0)
-            {
-              uart_bth4_post(fds->sem);
-            }
-        }
-    }
+  poll_notify(dev->fds, CONFIG_UART_BTH4_NPOLLWAITERS, eventset);
 
   if ((eventset & POLLIN) != 0)
     {
@@ -254,7 +240,7 @@ static ssize_t uart_bth4_write(FAR struct file *filep,
   size_t hdrlen;
   int ret;
 
-  ret = nxsem_wait_uninterruptible(&dev->sendlock);
+  ret = nxmutex_lock(&dev->sendlock);
   if (ret < 0)
     {
       return ret;
@@ -344,14 +330,22 @@ static ssize_t uart_bth4_write(FAR struct file *filep,
 err:
   dev->sendlen = 0;
 out:
-  nxsem_post(&dev->sendlock);
+  nxmutex_unlock(&dev->sendlock);
   return ret < 0 ? ret : buflen;
 }
 
 static int uart_bth4_ioctl(FAR struct file *filep, int cmd,
                            unsigned long arg)
 {
-  return OK;
+  FAR struct inode *inode = filep->f_inode;
+  FAR struct uart_bth4_s *dev = inode->i_private;
+
+  if (!dev->drv->ioctl)
+    {
+      return -ENOTTY;
+    }
+
+  return dev->drv->ioctl(dev->drv, cmd, arg);
 }
 
 static int uart_bth4_poll(FAR struct file *filep, FAR struct pollfd *fds,
@@ -390,15 +384,12 @@ static int uart_bth4_poll(FAR struct file *filep, FAR struct pollfd *fds,
 
       if (!circbuf_is_empty(&dev->circbuf))
         {
-          eventset |= (fds->events & POLLIN);
+          eventset |= POLLIN;
         }
 
-      eventset |= (fds->events & POLLOUT);
+      eventset |= POLLOUT;
 
-      if (eventset)
-        {
-          uart_bth4_pollnotify(dev, eventset);
-        }
+      uart_bth4_pollnotify(dev, eventset);
     }
   else if (fds->priv != NULL)
     {
@@ -445,15 +436,13 @@ int uart_bth4_register(FAR const char *path, FAR struct bt_driver_s *drv)
   drv->receive = uart_bth4_receive;
   drv->priv    = dev;
 
-  nxsem_init(&dev->sendlock, 0, 1);
-  nxsem_init(&dev->recvsem,  0, 0);
-
-  nxsem_set_protocol(&dev->recvsem, SEM_PRIO_NONE);
+  nxmutex_init(&dev->sendlock);
+  nxsem_init(&dev->recvsem, 0, 0);
 
   ret = register_driver(path, &g_uart_bth4_ops, 0666, dev);
   if (ret < 0)
     {
-      nxsem_destroy(&dev->sendlock);
+      nxmutex_destroy(&dev->sendlock);
       nxsem_destroy(&dev->recvsem);
       circbuf_uninit(&dev->circbuf);
       kmm_free(dev);

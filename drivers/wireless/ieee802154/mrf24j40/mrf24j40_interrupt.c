@@ -134,9 +134,9 @@ static void mrf24j40_irqwork_txnorm(FAR struct mrf24j40_radio_s *dev)
 
       /* Must unlock the radio before calling poll */
 
-      nxsem_post(&dev->exclsem);
+      nxmutex_unlock(&dev->lock);
       mrf24j40_dopoll_csma(dev);
-      while (nxsem_wait(&dev->exclsem) < 0)
+      while (nxmutex_lock(&dev->lock) < 0)
         {
         }
     }
@@ -230,7 +230,7 @@ static void mrf24j40_irqwork_rx(FAR struct mrf24j40_radio_s *dev)
 
   /* Allocate an IOB to put the frame into */
 
-  ind->frame = iob_alloc(false, IOBUSER_WIRELESS_RAD802154);
+  ind->frame = iob_alloc(false);
   ind->frame->io_flink = NULL;
   ind->frame->io_len = 0;
   ind->frame->io_pktlen = 0;
@@ -261,7 +261,6 @@ static void mrf24j40_irqwork_rx(FAR struct mrf24j40_radio_s *dev)
   dev->radiocb->rxframe(dev->radiocb, ind);
 
 done:
-
   /* Enable reception of next packet by flushing the fifo.
    * This is an MRF24J40 errata (no. 1).
    */
@@ -314,7 +313,7 @@ void mrf24j40_irqworker(FAR void *arg)
 
   /* Get exclusive access to the driver */
 
-  while (nxsem_wait(&dev->exclsem) < 0)
+  while (nxmutex_lock(&dev->lock) < 0)
     {
     }
 
@@ -400,7 +399,7 @@ void mrf24j40_irqworker(FAR void *arg)
 
   /* Unlock the radio device */
 
-  nxsem_post(&dev->exclsem);
+  nxmutex_unlock(&dev->lock);
 
   /* Re-enable GPIO interrupts */
 

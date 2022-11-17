@@ -123,7 +123,8 @@ static FAR const char *findscanset(FAR const char *fmt,
     {
       set[c / 8] |= (1 << (c % 8));     /* Take character c */
 
-    doswitch:n = fmt_char(fmt++);       /* Examine the next */
+doswitch:
+      n = fmt_char(fmt++);       /* Examine the next */
       switch (n)
         {
         case 0:                /* Format ended too soon */
@@ -337,8 +338,7 @@ int lib_vscanf(FAR struct lib_instream_s *obj, FAR int *lastc,
                 {
                   for (tc = fmt; isdigit(fmt_char(fmt)); fmt++)
                     ;
-                  strncpy(tmp, tc, fmt - tc);
-                  tmp[fmt - tc] = '\0';
+                  strlcpy(tmp, tc, fmt - tc + 1);
                   width = atoi(tmp);
                   fmt--;
                 }

@@ -127,18 +127,15 @@ static int nxmq_file_poll(FAR struct file *filep,
 
       if (msgq->nmsgs < msgq->maxmsgs)
         {
-          eventset |= (fds->events & POLLOUT);
+          eventset |= POLLOUT;
         }
 
       if (msgq->nmsgs)
         {
-          eventset |= (fds->events & POLLIN);
+          eventset |= POLLIN;
         }
 
-      if (eventset)
-        {
-          nxmq_pollnotify(msgq, eventset);
-        }
+      nxmq_pollnotify(msgq, eventset);
     }
   else if (fds->priv != NULL)
     {
@@ -279,14 +276,14 @@ static int file_mq_vopen(FAR struct file *mq, FAR const char *mq_name,
 
       /* Create an inode in the pseudo-filesystem at this path */
 
-      ret = inode_semtake();
+      ret = inode_lock();
       if (ret < 0)
         {
           goto errout_with_lock;
         }
 
       ret = inode_reserve(fullpath, mode, &inode);
-      inode_semgive();
+      inode_unlock();
 
       if (ret < 0)
         {
@@ -352,11 +349,11 @@ static mqd_t nxmq_vopen(FAR const char *mq_name, int oflags, va_list ap)
       return ret;
     }
 
-  ret = files_allocate(mq.f_inode, mq.f_oflags, mq.f_pos, mq.f_priv, 0);
+  ret = file_allocate(mq.f_inode, mq.f_oflags,
+                      mq.f_pos, mq.f_priv, 0, false);
   if (ret < 0)
     {
       file_mq_close(&mq);
-
       if (created)
         {
           file_mq_unlink(mq_name);
@@ -369,34 +366,6 @@ static mqd_t nxmq_vopen(FAR const char *mq_name, int oflags, va_list ap)
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
-
-#if CONFIG_FS_MQUEUE_NPOLLWAITERS > 0
-void nxmq_pollnotify(FAR struct mqueue_inode_s *msgq, pollevent_t eventset)
-{
-  int i;
-
-  for (i = 0; i < CONFIG_FS_MQUEUE_NPOLLWAITERS; i++)
-    {
-      FAR struct pollfd *fds = msgq->fds[i];
-
-      if (fds)
-        {
-          fds->revents |= (fds->events & eventset);
-
-          if (fds->revents != 0)
-            {
-              int semcount;
-
-              nxsem_get_value(fds->sem, &semcount);
-              if (semcount < 1)
-                {
-                  nxsem_post(fds->sem);
-                }
-            }
-        }
-    }
-}
-#endif
 
 /****************************************************************************
  * Name: file_mq_open

@@ -71,7 +71,12 @@
 
 static inline int is_real(long double x)
 {
-  const long double infinite = 1.0L / 0.0L;
+  /* NOTE: Windows MSVC restrictions, MSVC doesn't allow division through a
+   * zero literal, but allows it through non-const variable set to zero
+   */
+
+  const long double divzero = 0.0L;
+  const long double infinite = 1.0L / divzero;
   return (x < infinite) && (x >= -infinite);
 }
 
@@ -79,11 +84,15 @@ static inline int is_real(long double x)
  * Public Functions
  ****************************************************************************/
 
-/***************************************************(************************
+/****************************************************************************
  * Name: strtold
  *
  * Description:
  *   Convert a string to a long double value
+ *
+ *   NOTE: This implementation is limited as compared to POSIX:
+ *   - Hexadecimal input is not supported
+ *   - INF, INFINITY, NAN, and NAN(...) are not supported
  *
  ****************************************************************************/
 
@@ -97,7 +106,13 @@ long double strtold(FAR const char *str, FAR char **endptr)
   int n;
   int num_digits;
   int num_decimals;
-  const long double infinite = 1.0L / 0.0L;
+
+  /* NOTE: Windows MSVC restrictions, MSVC doesn't allow division through a
+   * zero literal, but allows it through non-const variable set to zero
+   */
+
+  const long double divzero = 0.0L;
+  const long double infinite = 1.0L / divzero;
 
   /* Skip leading whitespace */
 
@@ -160,6 +175,7 @@ long double strtold(FAR const char *str, FAR char **endptr)
     {
       set_errno(ERANGE);
       number = 0.0L;
+      p = (FAR char *)str;
       goto errout;
     }
 
@@ -194,6 +210,14 @@ long double strtold(FAR const char *str, FAR char **endptr)
         }
 
       /* Process string of digits */
+
+      if (!isdigit(*p))
+        {
+          set_errno(ERANGE);
+          number = 0.0L;
+          p = (FAR char *)str;
+          goto errout;
+        }
 
       n = 0;
       while (isdigit(*p))

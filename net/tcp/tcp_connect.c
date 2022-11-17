@@ -43,6 +43,7 @@
 #include "devif/devif.h"
 #include "netdev/netdev.h"
 #include "socket/socket.h"
+#include "inet/inet.h"
 #include "tcp/tcp.h"
 
 #ifdef NET_TCP_HAVE_STACK
@@ -68,7 +69,6 @@ static inline int psock_setup_callbacks(FAR struct socket *psock,
 static void psock_teardown_callbacks(FAR struct tcp_connect_s *pstate,
                                      int status);
 static uint16_t psock_connect_eventhandler(FAR struct net_driver_s *dev,
-                                           FAR void *pvconn,
                                            FAR void *pvpriv, uint16_t flags);
 
 /****************************************************************************
@@ -87,12 +87,7 @@ static inline int psock_setup_callbacks(FAR struct socket *psock,
 
   /* Initialize the TCP state structure */
 
-  /* This semaphore is used for signaling and, hence, should not have
-   * priority inheritance enabled.
-   */
-
   nxsem_init(&pstate->tc_sem, 0, 0); /* Doesn't really fail */
-  nxsem_set_protocol(&pstate->tc_sem, SEM_PRIO_NONE);
 
   pstate->tc_conn   = conn;
   pstate->tc_result = -EAGAIN;
@@ -149,7 +144,7 @@ static void psock_teardown_callbacks(FAR struct tcp_connect_s *pstate,
  *
  * Input Parameters:
  *   dev      The structure of the network driver that reported the event
- *   pvconn   The connection structure associated with the socket
+ *   pvpriv   An instance of struct tcp_connect_s cast to void*
  *   flags    Set of events describing why the callback was invoked
  *
  * Returned Value:
@@ -161,10 +156,9 @@ static void psock_teardown_callbacks(FAR struct tcp_connect_s *pstate,
  ****************************************************************************/
 
 static uint16_t psock_connect_eventhandler(FAR struct net_driver_s *dev,
-                                           FAR void *pvconn,
                                            FAR void *pvpriv, uint16_t flags)
 {
-  struct tcp_connect_s *pstate = (struct tcp_connect_s *)pvpriv;
+  struct tcp_connect_s *pstate = pvpriv;
   FAR struct tcp_conn_s *conn = pstate->tc_conn;
 
   ninfo("flags: %04x\n", flags);
@@ -317,6 +311,32 @@ int psock_tcp_connect(FAR struct socket *psock,
 
   if (ret >= 0)
     {
+      /* Update laddr to device addr */
+
+#ifdef CONFIG_NET_IPv6
+#ifdef CONFIG_NET_IPv4
+      if (conn->domain == PF_INET6)
+        {
+#endif
+          if (net_ipv6addr_cmp(conn->u.ipv6.laddr, g_ipv6_unspecaddr))
+            {
+              net_ipv6addr_copy(conn->u.ipv6.laddr, conn->dev->d_ipv6addr);
+            }
+#endif /* CONFIG_NET_IPv6 */
+
+#ifdef CONFIG_NET_IPv4
+#ifdef CONFIG_NET_IPv6
+        }
+      else
+#endif
+        {
+          if (net_ipv4addr_cmp(conn->u.ipv4.laddr, INADDR_ANY))
+            {
+              net_ipv4addr_copy(conn->u.ipv4.laddr, conn->dev->d_ipaddr);
+            }
+        }
+#endif /* CONFIG_NET_IPv4 */
+
       /* Notify the device driver that new connection is available. */
 
       netdev_txnotify_dev(conn->dev);

@@ -10,7 +10,7 @@
   $ make
   $ sudo make install
 
-3. Configure and build NuttX
+3.1. Configure and build NuttX for BUILD_FLAT
 
   $ mkdir ./nuttx; cd ./nuttx
   $ git clone https://github.com/apache/incubator-nuttx.git nuttx
@@ -18,15 +18,30 @@
   $ cd nuttx
   $ make distclean
   $ ./tools/configure.sh rv-virt:nsh
-  $ make
+  $ make V=1 -j7
+
+3.2 Configure and build NuttX for BUILD_KERNEL
+
+  $ mkdir ./nuttx; cd ./nuttx
+  $ git clone https://github.com/apache/incubator-nuttx.git nuttx
+  $ git clone https://github.com/apache/incubator-nuttx-apps.git apps
+  $ cd nuttx
+  $ make distclean
+  $ ./tools/configure.sh rv-virt:knsh64
+  $ make V=1 -j7
+  $ make export V=1
+  $ cd ../apps
+  $ ./tools/mkimport.sh -z -x ../nuttx/nuttx-export-*.tar.gz
+  $ make import V=1
+  $ cd ../nuttx
 
 4. Run the nuttx with qemu
 
-  $ qemu-system-riscv32 -semihosting -M virt -cpu rv32 -smp 8 -bios none -kernel nuttx -nographic
+  $ qemu-system-riscv32 -semihosting -M virt,aclint=on -cpu rv32 -smp 8 -bios none -kernel nuttx -nographic
 
   or
 
-  $ qemu-system-riscv64 -semihosting -M virt -cpu rv64 -smp 8 -bios none -kernel nuttx -nographic
+  $ qemu-system-riscv64 -semihosting -M virt,aclint=on -cpu rv64 -smp 8 -bios none -kernel nuttx -nographic
 
   NuttShell (NSH) NuttX-10.3.0-RC1
   nsh> mount -t hostfs -o fs=. /host

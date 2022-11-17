@@ -31,9 +31,9 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <assert.h>
-#include <queue.h>
 #include <debug.h>
 
+#include <nuttx/queue.h>
 #include <nuttx/wqueue.h>
 #include <nuttx/kthread.h>
 #include <nuttx/semaphore.h>
@@ -79,8 +79,8 @@
 
 struct hp_wqueue_s g_hpwork =
 {
-  {},
-  NXSEM_INITIALIZER(0, PRIOINHERIT_FLAGS_DISABLE),
+  {NULL, NULL},
+  SEM_INITIALIZER(0),
 };
 
 #endif /* CONFIG_SCHED_HPWORK */
@@ -90,8 +90,8 @@ struct hp_wqueue_s g_hpwork =
 
 struct lp_wqueue_s g_lpwork =
 {
-  {},
-  NXSEM_INITIALIZER(0, PRIOINHERIT_FLAGS_DISABLE),
+  {NULL, NULL},
+  SEM_INITIALIZER(0),
 };
 
 #endif /* CONFIG_SCHED_LPWORK */
@@ -153,7 +153,7 @@ static int work_thread(int argc, FAR char *argv[])
 
       /* Remove the ready-to-execute work from the list */
 
-      work = (FAR struct work_s *)sq_remfirst(&wqueue->q);
+      work = (FAR struct work_s *)dq_remfirst(&wqueue->q);
       if (work && work->worker)
         {
           /* Extract the work description from the entry (in case the work
@@ -226,7 +226,7 @@ static int work_thread_create(FAR const char *name, int priority,
   for (wndx = 0; wndx < nthread; wndx++)
     {
       pid = kthread_create(name, priority, stack_size,
-                           (main_t)work_thread, argv);
+                           work_thread, argv);
 
       DEBUGASSERT(pid > 0);
       if (pid < 0)

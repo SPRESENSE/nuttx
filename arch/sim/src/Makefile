@@ -22,9 +22,9 @@
 
 ARCH_SRCDIR = $(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src
 
-INCLUDES += ${shell $(INCDIR) "$(CC)" $(ARCH_SRCDIR)}
-INCLUDES += ${shell $(INCDIR) "$(CC)" $(ARCH_SRCDIR)$(DELIM)chip}
-INCLUDES += ${shell $(INCDIR) "$(CC)" $(TOPDIR)$(DELIM)sched}
+INCLUDES += ${INCDIR_PREFIX}$(ARCH_SRCDIR)
+INCLUDES += ${INCDIR_PREFIX}$(ARCH_SRCDIR)$(DELIM)chip
+INCLUDES += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)sched
 
 CPPFLAGS += $(INCLUDES)
 CFLAGS += $(INCLUDES)
@@ -75,13 +75,21 @@ CSRCS += up_vfork.c
 endif
 endif
 
-VPATH = sim
+VPATH = :sim
+ifeq ($(CONFIG_WINDOWS_NATIVE),y)
+  VPATH += :sim/win
+else
+  VPATH += :sim/posix
+endif
 DEPPATH = $(patsubst %,--dep-path %,$(subst :, ,$(VPATH)))
 
+CFLAGS += -fvisibility=default
 HOSTCFLAGS = $(ARCHWARNINGS) $(ARCHOPTIMIZATION) \
-   $(ARCHCFLAGS) $(HOSTINCLUDES) $(EXTRAFLAGS) -D__SIM__ -pipe
+   $(ARCHCFLAGS) $(HOSTINCLUDES) $(EXTRAFLAGS) -D__SIM__ -pipe \
+   -fvisibility=default
 
-HOSTCFLAGS += ${shell $(INCDIR) "$(CC)" $(ARCH_SRCDIR)}
+HOSTCFLAGS += ${INCDIR_PREFIX}$(ARCH_SRCDIR)
+HOSTCFLAGS += ${INCDIR_PREFIX}$(ARCH_SRCDIR)$(DELIM)chip
 ifeq ($(CONFIG_HOST_MACOS),y)
   HOSTCFLAGS += -Wno-deprecated-declarations
 endif
@@ -109,7 +117,6 @@ endif
 
 ifeq ($(CONFIG_SMP),y)
   CSRCS += up_smpsignal.c up_cpuidlestack.c
-  REQUIREDOBJS += up_smpsignal$(OBJEXT)
   HOSTSRCS += up_simsmp.c
 endif
 
@@ -132,7 +139,6 @@ ifeq ($(CONFIG_SIM_X11FB),y)
   STDLIBS += -lX11 -lXext
 ifeq ($(CONFIG_SIM_TOUCHSCREEN),y)
   CSRCS += up_touchscreen.c
-  REQUIREDOBJS += up_touchscreen$(OBJEXT)
   HOSTSRCS += up_x11eventloop.c
 else ifeq ($(CONFIG_SIM_AJOYSTICK),y)
   CSRCS += up_ajoystick.c
@@ -294,7 +300,9 @@ nuttx-names.dat: nuttx-names.in
 	$(call PREPROCESS, nuttx-names.in, nuttx-names.dat)
 
 define LINK_ALLSYMS
-	$(Q) $(TOPDIR)/tools/mkallsyms.sh noconst $(NUTTX) $(CROSSDEV) > allsyms.tmp
+	$(if $(CONFIG_HOST_MACOS), \
+	$(Q) $(TOPDIR)/tools/mkallsyms.sh noconst $(NUTTX) $(CROSSDEV) > allsyms.tmp, \
+	$(Q) $(TOPDIR)/tools/mkallsyms.py $(NUTTX) allsyms.tmp)
 	$(Q) $(call COMPILE, -x c allsyms.tmp, allsyms$(OBJEXT))
 	$(if $(CONFIG_HAVE_CXX),\
 	$(Q) "$(CXX)" $(CFLAGS) $(LDFLAGS) -o $(NUTTX) \

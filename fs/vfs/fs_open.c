@@ -47,6 +47,29 @@
  * Name: file_vopen
  ****************************************************************************/
 
+/****************************************************************************
+ * Name: file_vopen
+ *
+ * Description:
+ *   file_vopen() is similar to the standard 'open' interface except that it
+ *   populates an instance of 'struct file' rather than return a file
+ *   descriptor.  It also is not a cancellation point and does not modify
+ *   the errno variable.
+ *
+ * Input Parameters:
+ *   filep  - The caller provided location in which to return the 'struct
+ *            file' instance.
+ *   path   - The full path to the file to be opened.
+ *   oflags - open flags.
+ *   umask  - File mode creation mask. Overrides the open flags.
+ *   ap     - Variable argument list, may include 'mode_t mode'
+ *
+ * Returned Value:
+ *   Zero (OK) is returned on success.  On failure, a negated errno value is
+ *   returned.
+ *
+ ****************************************************************************/
+
 static int file_vopen(FAR struct file *filep, FAR const char *path,
                       int oflags, mode_t umask, va_list ap)
 {
@@ -116,24 +139,7 @@ static int file_vopen(FAR struct file *filep, FAR const char *path,
 
       return block_proxy(filep, path, oflags);
     }
-  else
 #endif
-
-  /* Verify that the inode is either a "normal" character driver or a
-   * mountpoint.  We specifically "special" inodes (semaphores, message
-   * queues, shared memory).
-   */
-
-#ifndef CONFIG_DISABLE_MOUNTPOINT
-  if ((!INODE_IS_DRIVER(inode) && !INODE_IS_MOUNTPT(inode)) ||
-      !inode->u.i_ops)
-#else
-  if (!INODE_IS_DRIVER(inode) || !inode->u.i_ops)
-#endif
-    {
-      ret = -ENXIO;
-      goto errout_with_inode;
-    }
 
   /* Make sure that the inode supports the requested access */
 
@@ -151,23 +157,38 @@ static int file_vopen(FAR struct file *filep, FAR const char *path,
   filep->f_priv   = NULL;
 
   /* Perform the driver open operation.  NOTE that the open method may be
-   * called many times.  The driver/mountpoint logic should handled this
+   * called many times.  The driver/mountpoint logic should handle this
    * because it may also be closed that many times.
    */
 
-  ret = OK;
-  if (inode->u.i_ops->open)
+  if (oflags & O_DIRECTORY)
     {
+      ret = dir_allocate(filep, desc.relpath);
+    }
 #ifndef CONFIG_DISABLE_MOUNTPOINT
-      if (INODE_IS_MOUNTPT(inode))
+  else if (INODE_IS_MOUNTPT(inode))
+    {
+      if (inode->u.i_mops->open != NULL)
         {
           ret = inode->u.i_mops->open(filep, desc.relpath, oflags, mode);
         }
-      else
+    }
 #endif
+  else if (INODE_IS_DRIVER(inode))
+    {
+      if (inode->u.i_ops->open != NULL)
         {
           ret = inode->u.i_ops->open(filep);
         }
+    }
+  else
+    {
+      ret = -ENXIO;
+    }
+
+  if (ret == -EISDIR)
+    {
+      ret = dir_allocate(filep, desc.relpath);
     }
 
   if (ret < 0)
@@ -189,6 +210,23 @@ errout_with_search:
 
 /****************************************************************************
  * Name: nx_vopen
+ *
+ * Description:
+ *   nx_vopen() is similar to the standard 'open' interface except that it
+ *   is not a cancellation point and it does not modify the errno variable.
+ *
+ *   nx_open() is an internal NuttX interface and should not be called from
+ *   applications.
+ *
+ * Input Parameters:
+ *   path   - The full path to the file to be opened.
+ *   oflags - open flags.
+ *   ap     - Variable argument list, may include 'mode_t mode'
+ *
+ * Returned Value:
+ *   The new file descriptor is returned on success; a negated errno value is
+ *   returned on any failure.
+ *
  ****************************************************************************/
 
 static int nx_vopen(FAR const char *path, int oflags, va_list ap)
@@ -207,8 +245,8 @@ static int nx_vopen(FAR const char *path, int oflags, va_list ap)
 
   /* Allocate a new file descriptor for the inode */
 
-  fd = files_allocate(filep.f_inode, filep.f_oflags,
-                      filep.f_pos, filep.f_priv, 0);
+  fd = file_allocate(filep.f_inode, filep.f_oflags,
+                     filep.f_pos, filep.f_priv, 0, false);
   if (fd < 0)
     {
       file_close(&filep);
@@ -228,10 +266,31 @@ static int nx_vopen(FAR const char *path, int oflags, va_list ap)
  * Description:
  *   Check if the access described by 'oflags' is supported on 'inode'
  *
+ *   inode_checkflags() is an internal NuttX interface and should not be
+ *   called from applications.
+ *
+ * Input Parameters:
+ *   inode  - The inode to check
+ *   oflags - open flags.
+ *
+ * Returned Value:
+ *   Zero (OK) is returned on success.  On failure, a negated errno value is
+ *   returned.
+ *
  ****************************************************************************/
 
 int inode_checkflags(FAR struct inode *inode, int oflags)
 {
+  if (INODE_IS_PSEUDODIR(inode))
+    {
+      return OK;
+    }
+
+  if (inode->u.i_ops == NULL)
+    {
+      return -ENXIO;
+    }
+
   if (((oflags & O_RDOK) != 0 && !inode->u.i_ops->read) ||
       ((oflags & O_WROK) != 0 && !inode->u.i_ops->write))
     {
@@ -248,14 +307,15 @@ int inode_checkflags(FAR struct inode *inode, int oflags)
  *
  * Description:
  *   file_open() is similar to the standard 'open' interface except that it
- *   returns an instance of 'struct file' rather than a file descriptor.  It
- *   also is not a cancellation point and does not modify the errno variable.
+ *   populates an instance of 'struct file' rather than return a file
+ *   descriptor.  It also is not a cancellation point and does not modify
+ *   the errno variable.
  *
  * Input Parameters:
  *   filep  - The caller provided location in which to return the 'struct
  *            file' instance.
- *   path   - The full path to the file to be open.
- *   oflags - open flags
+ *   path   - The full path to the file to be opened.
+ *   oflags - open flags.
  *   ...    - Variable number of arguments, may include 'mode_t mode'
  *
  * Returned Value:
@@ -280,11 +340,16 @@ int file_open(FAR struct file *filep, FAR const char *path, int oflags, ...)
  * Name: nx_open
  *
  * Description:
- *   nx_open() is similar to the standard 'open' interface except that is is
+ *   nx_open() is similar to the standard 'open' interface except that it is
  *   not a cancellation point and it does not modify the errno variable.
  *
  *   nx_open() is an internal NuttX interface and should not be called from
  *   applications.
+ *
+ * Input Parameters:
+ *   path   - The full path to the file to be opened.
+ *   oflags - open flags.
+ *   ...    - Variable number of arguments, may include 'mode_t mode'
  *
  * Returned Value:
  *   The new file descriptor is returned on success; a negated errno value is
@@ -314,7 +379,7 @@ int nx_open(FAR const char *path, int oflags, ...)
  *
  * Returned Value:
  *   The new file descriptor is returned on success; -1 (ERROR) is returned
- *   on any failure the errno value set appropriately.
+ *   on any failure with the errno value set appropriately.
  *
  ****************************************************************************/
 

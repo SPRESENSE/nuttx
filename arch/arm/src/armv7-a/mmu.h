@@ -19,10 +19,10 @@
  ****************************************************************************/
 
 /* References:
- *  "Cortex-A5™ MPCore, Technical Reference Manual", Revision: r0p1,
- *   Copyright © 2010 ARM. All rights reserved. ARM DDI 0434B (ID101810)
- *  "ARM® Architecture Reference Manual, ARMv7-A and ARMv7-R edition",
- *   Copyright © 1996-1998, 2000, 2004-2012 ARM.
+ *  "Cortex-A5â„¢ MPCore, Technical Reference Manual", Revision: r0p1,
+ *   Copyright Â© 2010 ARM. All rights reserved. ARM DDI 0434B (ID101810)
+ *  "ARMÂ® Architecture Reference Manual, ARMv7-A and ARMv7-R edition",
+ *   Copyright Â© 1996-1998, 2000, 2004-2012 ARM.
  *   All rights reserved. ARM DDI 0406C.b (ID072512)
  */
 
@@ -35,10 +35,12 @@
 
 #include <nuttx/config.h>
 #include <sys/types.h>
+#include "sctlr.h"
 
 #ifndef __ASSEMBLY__
 #  include <stdint.h>
 #  include "chip.h"
+#  include "barriers.h"
 #endif /* __ASSEMBLY__ */
 
 /****************************************************************************
@@ -60,7 +62,7 @@
 
 /* MMU CP15 Register Bit Definitions ****************************************/
 
-/* Reference: Cortex-A5™ MPCore
+/* Reference: Cortex-A5â„¢ MPCore
  * Paragraph 6.7, "MMU software accessible registers."
  */
 
@@ -603,10 +605,17 @@
 #endif
 
 #define MMU_L1_DATAFLAGS      (PMD_TYPE_PTE | PMD_PTE_PXN | PMD_PTE_DOM(0))
-#define MMU_L2_UDATAFLAGS     (PTE_TYPE_SMALL | PTE_WRITE_BACK | PTE_AP_RW01)
-#define MMU_L2_KDATAFLAGS     (PTE_TYPE_SMALL | PTE_WRITE_BACK | PTE_AP_RW1)
-#define MMU_L2_UALLOCFLAGS    (PTE_TYPE_SMALL | PTE_WRITE_BACK | PTE_AP_RW01)
-#define MMU_L2_KALLOCFLAGS    (PTE_TYPE_SMALL | PTE_WRITE_BACK | PTE_AP_RW1)
+#ifndef CONFIG_SMP
+#  define MMU_L2_UDATAFLAGS   (PTE_TYPE_SMALL | PTE_WRITE_BACK | PTE_AP_RW01)
+#  define MMU_L2_KDATAFLAGS   (PTE_TYPE_SMALL | PTE_WRITE_BACK | PTE_AP_RW1)
+#  define MMU_L2_UALLOCFLAGS  (PTE_TYPE_SMALL | PTE_WRITE_BACK | PTE_AP_RW01)
+#  define MMU_L2_KALLOCFLAGS  (PTE_TYPE_SMALL | PTE_WRITE_BACK | PTE_AP_RW1)
+#else
+#  define MMU_L2_UDATAFLAGS   (PTE_TYPE_SMALL | PTE_WRITE_BACK | PTE_S | PTE_AP_RW01)
+#  define MMU_L2_KDATAFLAGS   (PTE_TYPE_SMALL | PTE_WRITE_BACK | PTE_S | PTE_AP_RW1)
+#  define MMU_L2_UALLOCFLAGS  (PTE_TYPE_SMALL | PTE_WRITE_BACK | PTE_S | PTE_AP_RW01)
+#  define MMU_L2_KALLOCFLAGS  (PTE_TYPE_SMALL | PTE_WRITE_BACK | PTE_S | PTE_AP_RW1)
+#endif
 
 #define MMU_L2_IOFLAGS        (PTE_TYPE_SMALL | PTE_DEVICE | PTE_AP_RW1)
 #define MMU_L2_STRONGLY_ORDER (PTE_TYPE_SMALL | PTE_STRONGLY_ORDER | PTE_AP_RW1)
@@ -905,6 +914,21 @@ struct section_mapping_s
   uint32_t mmuflags;   /* MMU settings for the region (e.g., cache-able) */
   uint32_t nsections;  /* Number of mappings in the region */
 };
+
+struct page_entry_s
+{
+  uint32_t physbase;        /* Physical address of the region to be mapped */
+  uint32_t virtbase;        /* Virtual address of the region to be mapped */
+  uint32_t mmuflags;        /* MMU settings for the region (e.g., cache-able) */
+  uint32_t npages;          /* Number of mappings in the region */
+};
+
+struct page_mapping_s
+{
+  uint32_t l2table;                 /* Virtual address of l2 table */
+  uint32_t entrynum;                /* Page entry number */
+  const struct page_entry_s *entry; /* Page entry */
+};
 #endif
 
 /****************************************************************************
@@ -1195,15 +1219,11 @@ struct section_mapping_s
 
 static inline void cp15_disable_mmu(void)
 {
-  __asm__ __volatile__
-    (
-      "\tmrc p15, 0, r0, c1, c0, 0\n"
-      "\tbic r0, r0, #1\n"
-      "\tmcr p15, 0, r0, c1, c0, 0\n"
-      :
-      :
-      : "r0", "memory"
-    );
+  uint32_t sctlr;
+
+  sctlr = CP15_GET(SCTLR);
+  sctlr &= ~SCTLR_M;
+  CP15_SET(SCTLR, sctlr);
 }
 
 /****************************************************************************
@@ -1225,22 +1245,16 @@ static inline void cp15_disable_mmu(void)
 
 static inline void cp15_invalidate_tlbs(void)
 {
-  __asm__ __volatile__
-    (
-      "\tdsb\n"
+  ARM_DSB();
 #ifdef CONFIG_ARM_HAVE_MPCORE
-      "\tmcr p15, 0, r0, c8, c3, 0\n" /* TLBIALLIS */
-      "\tmcr p15, 0, r0, c7, c1, 6\n" /* BPIALLIS */
+  CP15_SET(TLBIALLIS, 0);
+  CP15_SET(BPIALLIS, 0);
 #else
-      "\tmcr p15, 0, r0, c8, c7, 0\n" /* TLBIALL */
-      "\tmcr p15, 0, r0, c7, c5, 6\n" /* BPIALL */
+  CP15_SET2(TLBIALL, c7, 0);
+  CP15_SET(BPIALL, 0);
 #endif
-      "\tdsb\n"
-      "\tisb\n"
-      :
-      :
-      : "r0", "memory"
-    );
+  ARM_DSB();
+  ARM_ISB();
 }
 
 /****************************************************************************
@@ -1256,22 +1270,16 @@ static inline void cp15_invalidate_tlbs(void)
 
 static inline void cp15_invalidate_tlb_bymva(uint32_t vaddr)
 {
-  __asm__ __volatile__
-    (
-      "\tdsb\n"
+  ARM_DSB();
 #ifdef CONFIG_ARM_HAVE_MPCORE
-      "\tmcr p15, 0, %0, c8, c3, 3\n" /* TLBIMVAAIS */
-      "\tmcr p15, 0, r0, c7, c1, 6\n" /* BPIALLIS */
+  CP15_SET(TLBIMVAAIS, vaddr);
+  CP15_SET(BPIALLIS, 0);
 #else
-      "\tmcr p15, 0, %0, c8, c7, 1\n" /* TLBIMVA */
-      "\tmcr p15, 0, r0, c7, c5, 6\n" /* BPIALL */
+  CP15_SET2(TLBIMVA, c7, vaddr);
+  CP15_SET(BPIALL, 0);
 #endif
-      "\tdsb\n"
-      "\tisb\n"
-      :
-      : "r" (vaddr)
-      : "r1", "memory"
-    );
+  ARM_DSB();
+  ARM_ISB();
 }
 
 /****************************************************************************
@@ -1287,21 +1295,15 @@ static inline void cp15_invalidate_tlb_bymva(uint32_t vaddr)
 
 static inline void cp15_wrdacr(unsigned int dacr)
 {
-  __asm__ __volatile__
-    (
-      "\tmcr p15, 0, %0, c3, c0, 0\n"
-      "\tnop\n"
-      "\tnop\n"
-      "\tnop\n"
-      "\tnop\n"
-      "\tnop\n"
-      "\tnop\n"
-      "\tnop\n"
-      "\tnop\n"
-      :
-      : "r" (dacr)
-      : "memory"
-    );
+  CP15_SET(DACR, dacr);
+  ARM_NOP();
+  ARM_NOP();
+  ARM_NOP();
+  ARM_NOP();
+  ARM_NOP();
+  ARM_NOP();
+  ARM_NOP();
+  ARM_NOP();
 }
 
 /****************************************************************************
@@ -1321,23 +1323,16 @@ static inline void cp15_wrdacr(unsigned int dacr)
 
 static inline void cp15_wrttb(unsigned int ttb)
 {
-  __asm__ __volatile__
-    (
-      "\tmcr p15, 0, %0, c2, c0, 0\n"
-      "\tnop\n"
-      "\tnop\n"
-      "\tnop\n"
-      "\tnop\n"
-      "\tnop\n"
-      "\tnop\n"
-      "\tnop\n"
-      "\tnop\n"
-      "\tmov r1, #0\n"
-      "\tmcr p15, 0, r1, c2, c0, 2\n"
-      :
-      : "r" (ttb)
-      : "r1", "memory"
-    );
+  CP15_SET(TTBR0, ttb);
+  ARM_NOP();
+  ARM_NOP();
+  ARM_NOP();
+  ARM_NOP();
+  ARM_NOP();
+  ARM_NOP();
+  ARM_NOP();
+  ARM_NOP();
+  CP15_SET(TTBCR, 0);
 }
 
 /****************************************************************************
@@ -1359,14 +1354,7 @@ static inline uint32_t *mmu_l1_pgtable(void)
   uint32_t ttbr0;
   uint32_t pgtable;
 
-  __asm__ __volatile__
-    (
-      "\tmrc p15, 0, %0, c2, c0, 0\n"
-      : "=r" (ttbr0)
-      :
-      :
-    );
-
+  ttbr0 = CP15_GET(TTBR0);
   pgtable = ttbr0 & TTBR0_BASE_MASK(0);
   return (uint32_t *)(pgtable - PGTABLE_BASE_PADDR + PGTABLE_BASE_VADDR);
 #else
@@ -1557,6 +1545,74 @@ void mmu_l1_map_region(const struct section_mapping_s *mapping);
 #ifndef CONFIG_ARCH_ROMPGTABLE
 void mmu_l1_map_regions(const struct section_mapping_s *mappings,
                         size_t count);
+#endif
+
+/****************************************************************************
+ * Name: mmu_l1_map_page
+ *
+ * Description:
+ *   Set level 1 page entrie in order to map a region
+ *   array of memory.
+ *
+ * Input Parameters:
+ *   mapping - Describes the mapping to be performed.
+ *
+ ****************************************************************************/
+
+#ifndef CONFIG_ARCH_ROMPGTABLE
+void mmu_l1_map_page(const struct section_mapping_s *mapping);
+#endif
+
+/****************************************************************************
+ * Name: mmu_l1_map_pages
+ *
+ * Description:
+ *   Set multiple level 1 page entries in order to map a region
+ *   array of memory.
+ *
+ * Input Parameters:
+ *   mappings - Describes the mapping to be performed.
+ *   count    - The number of mappings to be performed.
+ *
+ ****************************************************************************/
+
+#ifndef CONFIG_ARCH_ROMPGTABLE
+void mmu_l1_map_pages(const struct section_mapping_s *mappings,
+                      size_t count);
+#endif
+
+/****************************************************************************
+ * Name: mmu_l2_map_page
+ *
+ * Description:
+ *   Set level 2 page entrie in order to map a region
+ *   array of memory.
+ *
+ * Input Parameters:
+ *   mapping - Describes the mapping to be performed.
+ *
+ ****************************************************************************/
+
+#ifndef CONFIG_ARCH_ROMPGTABLE
+void mmu_l2_map_page(const struct page_mapping_s *mapping);
+#endif
+
+/****************************************************************************
+ * Name: mmu_l2_map_pages
+ *
+ * Description:
+ *   Set multiple level 2 page entries in order to map a region
+ *   array of memory.
+ *
+ * Input Parameters:
+ *   mappings - Describes the mapping to be performed.
+ *   count    - The number of mappings to be performed.
+ *
+ ****************************************************************************/
+
+#ifndef CONFIG_ARCH_ROMPGTABLE
+void mmu_l2_map_pages(const struct page_mapping_s *mappings,
+                      size_t count);
 #endif
 
 /****************************************************************************

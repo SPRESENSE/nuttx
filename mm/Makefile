@@ -29,11 +29,13 @@ include mm_gran/Make.defs
 include shm/Make.defs
 include iob/Make.defs
 include circbuf/Make.defs
+include mempool/Make.defs
 include kasan/Make.defs
+include ubsan/Make.defs
 
 BINDIR ?= bin
 
-CFLAGS += ${shell $(INCDIR) "$(CC)" $(TOPDIR)$(DELIM)mm}
+CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)mm
 
 AOBJS = $(patsubst %.S, $(BINDIR)$(DELIM)%$(OBJEXT), $(ASRCS))
 COBJS = $(patsubst %.c, $(BINDIR)$(DELIM)%$(OBJEXT), $(CSRCS))

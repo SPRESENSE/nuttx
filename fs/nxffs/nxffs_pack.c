@@ -28,9 +28,9 @@
 #include <string.h>
 #include <errno.h>
 #include <assert.h>
-#include <crc32.h>
 #include <debug.h>
 
+#include <nuttx/crc32.h>
 #include <nuttx/kmalloc.h>
 
 #include "nxffs.h"
@@ -1391,7 +1391,6 @@ int nxffs_pack(FAR struct nxffs_volume_s *volume)
    */
 
 start_pack:
-
   pack.ioblock     = nxffs_getblock(volume, iooffset);
   pack.iooffset    = nxffs_getoffset(volume, iooffset, pack.ioblock);
   volume->froffset = iooffset;

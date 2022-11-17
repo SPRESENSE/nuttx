@@ -18,8 +18,8 @@
  *
  ****************************************************************************/
 
-#ifndef __DRIVERS_MODEM_ALT1250_ALTCOM_CMD_SOCK_H__
-#define __DRIVERS_MODEM_ALT1250_ALTCOM_CMD_SOCK_H__
+#ifndef __DRIVERS_MODEM_ALT1250_ALTCOM_CMD_SOCK_H
+#define __DRIVERS_MODEM_ALT1250_ALTCOM_CMD_SOCK_H
 
 /****************************************************************************
  * Included Files
@@ -506,4 +506,4 @@ begin_packed_struct struct apicmd_selectres_s
   altcom_fd_set exceptset;
 } end_packed_struct;
 
-#endif  /* __DRIVERS_MODEM_ALT1250_ALTCOM_CMD_SOCK_H__ */
+#endif  /* __DRIVERS_MODEM_ALT1250_ALTCOM_CMD_SOCK_H */

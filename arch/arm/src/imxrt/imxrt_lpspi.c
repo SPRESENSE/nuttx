@@ -59,7 +59,7 @@
 
 #include <nuttx/irq.h>
 #include <nuttx/arch.h>
-#include <nuttx/semaphore.h>
+#include <nuttx/mutex.h>
 #include <nuttx/spi/spi.h>
 
 #include <arch/board/board.h>
@@ -112,7 +112,7 @@ struct imxrt_lpspidev_s
 #ifdef CONFIG_IMXRT_LPSPI_INTERRUPTS
   uint8_t spiirq;             /* SPI IRQ number */
 #endif
-  sem_t exclsem;              /* Held while chip is selected for mutual exclusion */
+  mutex_t lock;               /* Held while chip is selected for mutual exclusion */
   uint32_t frequency;         /* Requested clock frequency */
   uint32_t actual;            /* Actual clock frequency */
   int8_t nbits;               /* Width of word in bits */
@@ -164,16 +164,16 @@ static inline void imxrt_lpspi_master_set_delay_scaler(
 /* DMA support */
 
 #ifdef CONFIG_IMXRT_LPSPI_DMA
-static int         spi_dmarxwait(FAR struct imxrt_lpspidev_s *priv);
-static int         spi_dmatxwait(FAR struct imxrt_lpspidev_s *priv);
-static inline void spi_dmarxwakeup(FAR struct imxrt_lpspidev_s *priv);
-static inline void spi_dmatxwakeup(FAR struct imxrt_lpspidev_s *priv);
+static int         spi_dmarxwait(struct imxrt_lpspidev_s *priv);
+static int         spi_dmatxwait(struct imxrt_lpspidev_s *priv);
+static inline void spi_dmarxwakeup(struct imxrt_lpspidev_s *priv);
+static inline void spi_dmatxwakeup(struct imxrt_lpspidev_s *priv);
 static void        spi_dmarxcallback(DMACH_HANDLE handle, void *arg,
                                      bool done, int result);
 static void        spi_dmatxcallback(DMACH_HANDLE handle, void *arg,
                                      bool done, int result);
-static inline void spi_dmarxstart(FAR struct imxrt_lpspidev_s *priv);
-static inline void spi_dmatxstart(FAR struct imxrt_lpspidev_s *priv);
+static inline void spi_dmarxstart(struct imxrt_lpspidev_s *priv);
+static inline void spi_dmatxstart(struct imxrt_lpspidev_s *priv);
 #endif
 
 /* SPI methods */
@@ -883,11 +883,11 @@ static int imxrt_lpspi_lock(struct spi_dev_s *dev, bool lock)
 
   if (lock)
     {
-      ret = nxsem_wait_uninterruptible(&priv->exclsem);
+      ret = nxmutex_lock(&priv->lock);
     }
   else
     {
-      ret = nxsem_post(&priv->exclsem);
+      ret = nxmutex_unlock(&priv->lock);
     }
 
   return ret;
@@ -1404,9 +1404,9 @@ static void imxrt_lpspi_exchange_nodma(struct spi_dev_s *dev,
  ****************************************************************************/
 
 #ifdef CONFIG_IMXRT_LPSPI_DMA
-static void imxrt_lpspi_exchange(FAR struct spi_dev_s * dev,
-                                   FAR const void * txbuffer,
-                                   FAR void * rxbuffer, size_t nwords)
+static void imxrt_lpspi_exchange(struct spi_dev_s * dev,
+                                 const void * txbuffer,
+                                 void * rxbuffer, size_t nwords)
 {
   int                          ret;
   size_t                       adjust;
@@ -1414,7 +1414,7 @@ static void imxrt_lpspi_exchange(FAR struct spi_dev_s * dev,
   static uint8_t               rxdummy[4] aligned_data(4);
   static const uint16_t        txdummy = 0xffff;
   uint32_t                     regval;
-  FAR struct imxrt_lpspidev_s *priv = (FAR struct imxrt_lpspidev_s *)dev;
+  struct imxrt_lpspidev_s *priv = (struct imxrt_lpspidev_s *)dev;
 
   DEBUGASSERT(priv != NULL);
   DEBUGASSERT(priv && priv->spibase);
@@ -1711,9 +1711,9 @@ static void imxrt_lpspi_bus_initialize(struct imxrt_lpspidev_s *priv)
 
   imxrt_lpspi_setmode((struct spi_dev_s *)priv, SPIDEV_MODE0);
 
-  /* Initialize the SPI semaphore that enforces mutually exclusive access */
+  /* Initialize the SPI mutex that enforces mutually exclusive access */
 
-  nxsem_init(&priv->exclsem, 0, 1);
+  nxmutex_init(&priv->lock);
 
   /* Enable LPSPI */
 
@@ -1729,7 +1729,7 @@ static void imxrt_lpspi_bus_initialize(struct imxrt_lpspidev_s *priv)
  ****************************************************************************/
 
 #ifdef CONFIG_IMXRT_LPSPI_DMA
-static int spi_dmarxwait(FAR struct imxrt_lpspidev_s *priv)
+static int spi_dmarxwait(struct imxrt_lpspidev_s *priv)
 {
   int ret;
 
@@ -1762,7 +1762,7 @@ static int spi_dmarxwait(FAR struct imxrt_lpspidev_s *priv)
  ****************************************************************************/
 
 #ifdef CONFIG_IMXRT_LPSPI_DMA
-static int spi_dmatxwait(FAR struct imxrt_lpspidev_s *priv)
+static int spi_dmatxwait(struct imxrt_lpspidev_s *priv)
 {
   int ret;
 
@@ -1795,7 +1795,7 @@ static int spi_dmatxwait(FAR struct imxrt_lpspidev_s *priv)
  ****************************************************************************/
 
 #ifdef CONFIG_IMXRT_LPSPI_DMA
-static inline void spi_dmarxwakeup(FAR struct imxrt_lpspidev_s *priv)
+static inline void spi_dmarxwakeup(struct imxrt_lpspidev_s *priv)
 {
   nxsem_post(&priv->rxsem);
 }
@@ -1810,7 +1810,7 @@ static inline void spi_dmarxwakeup(FAR struct imxrt_lpspidev_s *priv)
  ****************************************************************************/
 
 #ifdef CONFIG_IMXRT_LPSPI_DMA
-static inline void spi_dmatxwakeup(FAR struct imxrt_lpspidev_s *priv)
+static inline void spi_dmatxwakeup(struct imxrt_lpspidev_s *priv)
 {
   nxsem_post(&priv->txsem);
 }
@@ -1828,7 +1828,7 @@ static inline void spi_dmatxwakeup(FAR struct imxrt_lpspidev_s *priv)
 static void spi_dmarxcallback(DMACH_HANDLE handle, void *arg, bool done,
                               int result)
 {
-  FAR struct imxrt_lpspidev_s *priv = (FAR struct imxrt_lpspidev_s *)arg;
+  struct imxrt_lpspidev_s *priv = (struct imxrt_lpspidev_s *)arg;
 
   priv->rxresult = result | 0x80000000;  /* assure non-zero */
   spi_dmarxwakeup(priv);
@@ -1847,7 +1847,7 @@ static void spi_dmarxcallback(DMACH_HANDLE handle, void *arg, bool done,
 static void spi_dmatxcallback(DMACH_HANDLE handle, void *arg, bool done,
                               int result)
 {
-  FAR struct imxrt_lpspidev_s *priv = (FAR struct imxrt_lpspidev_s *)arg;
+  struct imxrt_lpspidev_s *priv = (struct imxrt_lpspidev_s *)arg;
 
   /* Wake-up the SPI driver */
 
@@ -1865,7 +1865,7 @@ static void spi_dmatxcallback(DMACH_HANDLE handle, void *arg, bool done,
  ****************************************************************************/
 
 #ifdef CONFIG_IMXRT_LPSPI_DMA
-static inline void spi_dmarxstart(FAR struct imxrt_lpspidev_s *priv)
+static inline void spi_dmarxstart(struct imxrt_lpspidev_s *priv)
 {
   priv->rxresult = 0;
   imxrt_dmach_start(priv->rxdma, spi_dmarxcallback, priv);
@@ -1881,7 +1881,7 @@ static inline void spi_dmarxstart(FAR struct imxrt_lpspidev_s *priv)
  ****************************************************************************/
 
 #ifdef CONFIG_IMXRT_LPSPI_DMA
-static inline void spi_dmatxstart(FAR struct imxrt_lpspidev_s *priv)
+static inline void spi_dmatxstart(struct imxrt_lpspidev_s *priv)
 {
   priv->txresult = 0;
   imxrt_dmach_start(priv->txdma, spi_dmatxcallback, priv);
@@ -2052,9 +2052,6 @@ struct spi_dev_s *imxrt_lpspibus_initialize(int bus)
         {
           nxsem_init(&priv->rxsem, 0, 0);
           nxsem_init(&priv->txsem, 0, 0);
-
-          nxsem_set_protocol(&priv->rxsem, SEM_PRIO_NONE);
-          nxsem_set_protocol(&priv->txsem, SEM_PRIO_NONE);
 
           priv->txdma = imxrt_dmach_alloc(priv->txch | DMAMUX_CHCFG_ENBL,
                                             0);

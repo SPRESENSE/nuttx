@@ -82,7 +82,7 @@ static inline void forward_ipselect(FAR struct forward_s *fwd)
 
       /* Set the offset to the beginning of the UDP data payload */
 
-      dev->d_appdata = &dev->d_buf[IPv4UDP_HDRLEN + NET_LL_HDRLEN(dev)];
+      dev->d_appdata = IPBUF(IPv4UDP_HDRLEN);
     }
   else
     {
@@ -92,7 +92,7 @@ static inline void forward_ipselect(FAR struct forward_s *fwd)
 
       /* Set the offset to the beginning of the UDP data payload */
 
-      dev->d_appdata = &dev->d_buf[IPv6_HDRLEN + NET_LL_HDRLEN(dev)];
+      dev->d_appdata = IPBUF(IPv6UDP_HDRLEN);
     }
 }
 #endif
@@ -107,7 +107,6 @@ static inline void forward_ipselect(FAR struct forward_s *fwd)
  * Input Parameters:
  *   dev        The structure of the network driver that generated the
  *              event
- *   conn       An instance of the forwarding structure cast to (void *)
  *   pvpriv     An instance of struct forward_s cast to (void *)
  *   flags      Set of events describing why the callback was invoked
  *
@@ -120,10 +119,9 @@ static inline void forward_ipselect(FAR struct forward_s *fwd)
  ****************************************************************************/
 
 static uint16_t ipfwd_eventhandler(FAR struct net_driver_s *dev,
-                                   FAR void *conn,
                                    FAR void *pvpriv, uint16_t flags)
 {
-  FAR struct forward_s *fwd = (FAR struct forward_s *)pvpriv;
+  FAR struct forward_s *fwd = pvpriv;
 
   ninfo("flags: %04x\n", flags);
   DEBUGASSERT(fwd != NULL && fwd->f_iob != NULL && fwd->f_dev != NULL);
@@ -190,7 +188,7 @@ static uint16_t ipfwd_eventhandler(FAR struct net_driver_s *dev,
 
       if (fwd->f_iob != NULL)
         {
-          iob_free_chain(fwd->f_iob, IOBUSER_NET_IPFORWARD);
+          iob_free_chain(fwd->f_iob);
         }
 
       /* And release the forwarding state structure */

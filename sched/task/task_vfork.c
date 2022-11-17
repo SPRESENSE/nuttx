@@ -30,8 +30,9 @@
 #include <string.h>
 #include <assert.h>
 #include <errno.h>
-#include <queue.h>
 #include <debug.h>
+
+#include <nuttx/queue.h>
 
 #include "sched/sched.h"
 #include "environ/environ.h"
@@ -335,7 +336,7 @@ void nxtask_abort_vfork(FAR struct task_tcb_s *child, int errcode)
 {
   /* The TCB was added to the active task list by nxtask_setup_scheduler() */
 
-  dq_rem((FAR dq_entry_t *)child, (FAR dq_queue_t *)&g_inactivetasks);
+  dq_rem((FAR dq_entry_t *)child, &g_inactivetasks);
 
   /* Release the TCB */
 

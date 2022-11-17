@@ -18,8 +18,8 @@
  *
  ****************************************************************************/
 
-#ifndef __DRIVERS_MODEM_ALT1250_ALTCOM_LWM2M_HDLR_H__
-#define __DRIVERS_MODEM_ALT1250_ALTCOM_LWM2M_HDLR_H__
+#ifndef __DRIVERS_MODEM_ALT1250_ALTCOM_LWM2M_HDLR_H
+#define __DRIVERS_MODEM_ALT1250_ALTCOM_LWM2M_HDLR_H
 
 /****************************************************************************
  * Included Files
@@ -34,7 +34,7 @@
  * Public Types
  ****************************************************************************/
 
-typedef int32_t (*lwm2mstub_hndl_t)(FAR uint8_t *, size_t,
+typedef CODE int32_t (*lwm2mstub_hndl_t)(FAR uint8_t *, size_t,
                           FAR void **, size_t);
 
 /****************************************************************************
@@ -58,7 +58,8 @@ typedef int32_t (*lwm2mstub_hndl_t)(FAR uint8_t *, size_t,
  *
  ****************************************************************************/
 
-lwm2mstub_hndl_t lwm2mstub_get_handler(FAR uint8_t **pktbuf, size_t *pktsz,
-                                      uint32_t *lcmdid);
+lwm2mstub_hndl_t lwm2mstub_get_handler(FAR uint8_t **pktbuf,
+                                       FAR size_t *pktsz,
+                                       uint32_t *lcmdid);
 
-#endif  /* __DRIVERS_MODEM_ALT1250_ALTCOM_LWM2M_HDLR_H__ */
+#endif  /* __DRIVERS_MODEM_ALT1250_ALTCOM_LWM2M_HDLR_H */

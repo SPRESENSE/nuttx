@@ -18,8 +18,8 @@
  *
  ****************************************************************************/
 
-#ifndef __DRIVERS_MODEM_ALT1250_ALTMDM_EVENT_H__
-#define __DRIVERS_MODEM_ALT1250_ALTMDM_EVENT_H__
+#ifndef __DRIVERS_MODEM_ALT1250_ALTMDM_EVENT_H
+#define __DRIVERS_MODEM_ALT1250_ALTMDM_EVENT_H
 
 /****************************************************************************
  * Included Files
@@ -153,4 +153,4 @@ int altmdm_event_clear(FAR struct altmdm_event_s *evt, uint32_t event);
 
 uint32_t altmdm_event_refer(FAR struct altmdm_event_s *evt);
 
-#endif  /* __DRIVERS_MODEM_ALT1250_ALTMDM_EVENT_H__ */
+#endif  /* __DRIVERS_MODEM_ALT1250_ALTMDM_EVENT_H */

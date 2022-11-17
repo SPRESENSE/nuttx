@@ -31,7 +31,6 @@
 #include <errno.h>
 
 #include <nuttx/board.h>
-#include <nuttx/signal.h>
 #include <nuttx/spi/spi.h>
 #include <nuttx/modem/alt1250.h>
 #include <nuttx/wdog.h>

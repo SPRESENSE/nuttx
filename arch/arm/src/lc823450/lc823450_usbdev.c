@@ -32,7 +32,6 @@
 #include <errno.h>
 #include <debug.h>
 #include <stdio.h>
-#include <queue.h>
 #include <stddef.h>
 #ifdef CONFIG_SYSTEM_PROPERTY
 #  include <system_property.h>
@@ -41,6 +40,7 @@
 #include <nuttx/arch.h>
 #include <nuttx/spinlock.h>
 #include <nuttx/kmalloc.h>
+#include <nuttx/queue.h>
 #include <nuttx/signal.h>
 #include <nuttx/usb/usb.h>
 #include <nuttx/usb/usbdev.h>
@@ -319,7 +319,6 @@ static int epbuf_write(int epnum, void *buf, size_t len)
   privep = &g_usbdev.eplist[epnum];
 
 cont:
-
   if (epnum == 0)
     {
       while (!(getreg32(USB_EPCTRL(epnum)) & USB_EPCTRL_EMPTYI) &&

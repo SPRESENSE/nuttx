@@ -27,7 +27,7 @@
 #include <stdlib.h>
 
 #include <nuttx/atexit.h>
-#include <nuttx/semaphore.h>
+#include <nuttx/mutex.h>
 #include <nuttx/tls.h>
 
 #if CONFIG_LIBC_MAX_EXITFUNS > 0
@@ -59,51 +59,13 @@ static FAR struct atexit_list_s * get_exitfuncs(void)
 }
 
 /****************************************************************************
- * Name: exitfunc_lock
- *
- * Description:
- *    Obtain the exit function lock.
- *
- * Returned Value:
- *   OK on success, or negated errno on failure
- *
- ****************************************************************************/
-
-static int exitfunc_lock(void)
-{
-  FAR struct task_info_s *info = task_get_info();
-  int ret = _SEM_WAIT(&info->ta_sem);
-
-  if (ret < 0)
-    {
-      ret = _SEM_ERRVAL(ret);
-    }
-
-  return ret;
-}
-
-/****************************************************************************
- * Name: exitfunc_unlock
- *
- * Description:
- *    Release exit function lock .
- *
- ****************************************************************************/
-
-static void exitfunc_unlock(void)
-{
-  FAR struct task_info_s *info = task_get_info();
-
-  _SEM_POST(&info->ta_sem);
-}
-
-/****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 int atexit_register(int type, CODE void (*func)(void), FAR void *arg,
                     FAR void *dso)
 {
+  FAR struct task_info_s   *info = task_get_info();
   FAR struct atexit_list_s *aehead;
   int                       idx;
   int                       ret = ERROR;
@@ -118,10 +80,10 @@ int atexit_register(int type, CODE void (*func)(void), FAR void *arg,
 
   if (func)
     {
-      ret = exitfunc_lock();
+      ret = nxmutex_lock(&info->ta_lock);
       if (ret < 0)
         {
-          return ret;
+          return -ret;
         }
 
       if ((idx = aehead->nfuncs) < ATEXIT_MAX)
@@ -137,7 +99,7 @@ int atexit_register(int type, CODE void (*func)(void), FAR void *arg,
           ret = ERROR;
         }
 
-      exitfunc_unlock();
+      nxmutex_unlock(&info->ta_lock);
     }
 
   return ret;

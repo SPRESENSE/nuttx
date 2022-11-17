@@ -30,7 +30,6 @@
 
 #include <nuttx/kmalloc.h>
 #include <nuttx/fs/ioctl.h>
-#include <nuttx/fs/rpmsgfs.h>
 #include <nuttx/rptun/openamp.h>
 #include <nuttx/semaphore.h>
 
@@ -177,7 +176,7 @@ static int rpmsgfs_ioctl_handler(FAR struct rpmsg_endpoint *ept,
 
   if (cookie->result >= 0 && rsp->arglen > 0)
     {
-      memcpy(cookie->data, (FAR void *)(uintptr_t)rsp->arg, rsp->arglen);
+      memcpy(cookie->data, (FAR void *)(uintptr_t)rsp->buf, rsp->arglen);
     }
 
   rpmsg_post(ept, &cookie->sem);
@@ -342,7 +341,6 @@ static int rpmsgfs_send_recv(FAR struct rpmsgfs_s *priv,
 
   memset(&cookie, 0, sizeof(cookie));
   nxsem_init(&cookie.sem, 0, 0);
-  nxsem_set_protocol(&cookie.sem, SEM_PRIO_NONE);
 
   if (data)
     {
@@ -459,7 +457,6 @@ ssize_t rpmsgfs_client_read(FAR void *handle, int fd,
   memset(&cookie, 0, sizeof(cookie));
 
   nxsem_init(&cookie.sem, 0, 0);
-  nxsem_set_protocol(&cookie.sem, SEM_PRIO_NONE);
   cookie.data = &read;
 
   msg.header.command = RPMSGFS_READ;
@@ -502,7 +499,6 @@ ssize_t rpmsgfs_client_write(FAR void *handle, int fd,
 
   memset(&cookie, 0, sizeof(cookie));
   nxsem_init(&cookie.sem, 0, 0);
-  nxsem_set_protocol(&cookie.sem, SEM_PRIO_NONE);
 
   while (written < count)
     {
@@ -726,7 +722,6 @@ int rpmsgfs_client_bind(FAR void **handle, FAR const char *cpuname)
     }
 
   nxsem_init(&priv->wait, 0, 0);
-  nxsem_set_protocol(&priv->wait, SEM_PRIO_NONE);
   *handle = priv;
 
   return 0;

@@ -244,8 +244,8 @@ static int ipv4_dev_forward(FAR struct net_driver_s *dev,
   /* Initialize the easy stuff in the forwarding structure */
 
   fwd->f_dev    = fwddev;  /* Forwarding device */
-#ifdef CONFIG_NET_IPv5
-  fwd->f_domain = PF_INET; /* IPv64 address domain */
+#ifdef CONFIG_NET_IPv6
+  fwd->f_domain = PF_INET; /* IPv4 address domain */
 #endif
 
 #ifdef CONFIG_DEBUG_NET_WARN
@@ -274,7 +274,7 @@ static int ipv4_dev_forward(FAR struct net_driver_s *dev,
    * where waiting for an IOB is a good idea
    */
 
-  fwd->f_iob = iob_tryalloc(false, IOBUSER_NET_IPFORWARD);
+  fwd->f_iob = iob_tryalloc(false);
   if (fwd->f_iob == NULL)
     {
       nwarn("WARNING: iob_tryalloc() failed\n");
@@ -292,7 +292,7 @@ static int ipv4_dev_forward(FAR struct net_driver_s *dev,
    */
 
   ret = iob_trycopyin(fwd->f_iob, (FAR const uint8_t *)ipv4,
-                      dev->d_len, 0, false, IOBUSER_NET_IPFORWARD);
+                      dev->d_len, 0, false);
   if (ret < 0)
     {
       nwarn("WARNING: iob_trycopyin() failed: %d\n", ret);
@@ -324,7 +324,7 @@ static int ipv4_dev_forward(FAR struct net_driver_s *dev,
 errout_with_iobchain:
   if (fwd != NULL && fwd->f_iob != NULL)
     {
-      iob_free_chain(fwd->f_iob, IOBUSER_NET_IPFORWARD);
+      iob_free_chain(fwd->f_iob);
     }
 
 errout_with_fwd:
@@ -376,7 +376,7 @@ int ipv4_forward_callback(FAR struct net_driver_s *fwddev, FAR void *arg)
        * d_buf.
        */
 
-      ipv4 = (FAR struct ipv4_hdr_s *)&dev->d_buf[NET_LL_HDRLEN(dev)];
+      ipv4 = IPv4BUF;
 
       /* Send the packet asynchrously on the forwarding device. */
 

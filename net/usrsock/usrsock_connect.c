@@ -43,11 +43,11 @@
  * Private Functions
  ****************************************************************************/
 
-static uint16_t connect_event(FAR struct net_driver_s *dev, FAR void *pvconn,
+static uint16_t connect_event(FAR struct net_driver_s *dev,
                               FAR void *pvpriv, uint16_t flags)
 {
   FAR struct usrsock_reqstate_s *pstate = pvpriv;
-  FAR struct usrsock_conn_s *conn = pvconn;
+  FAR struct usrsock_conn_s *conn = pstate->conn;
 
   if (flags & USRSOCK_EVENT_ABORT)
     {
@@ -57,15 +57,15 @@ static uint16_t connect_event(FAR struct net_driver_s *dev, FAR void *pvconn,
 
       /* Stop further callbacks */
 
-      pstate->cb->flags   = 0;
-      pstate->cb->priv    = NULL;
-      pstate->cb->event   = NULL;
+      pstate->cb->flags = 0;
+      pstate->cb->priv  = NULL;
+      pstate->cb->event = NULL;
 
       /* Wake up the waiting thread */
 
       nxsem_post(&pstate->recvsem);
     }
-  else if (flags & USRSOCK_EVENT_REQ_COMPLETE)
+  else
     {
       ninfo("request completed.\n");
 
@@ -73,9 +73,9 @@ static uint16_t connect_event(FAR struct net_driver_s *dev, FAR void *pvconn,
 
       /* Stop further callbacks */
 
-      pstate->cb->flags   = 0;
-      pstate->cb->priv    = NULL;
-      pstate->cb->event   = NULL;
+      pstate->cb->flags = 0;
+      pstate->cb->priv  = NULL;
+      pstate->cb->event = NULL;
 
       /* Wake up the waiting thread */
 
@@ -98,6 +98,7 @@ static int do_connect_request(FAR struct usrsock_conn_s *conn,
   };
 
   struct iovec bufs[2];
+  int ret;
 
   if (addrlen > UINT16_MAX)
     {
@@ -115,7 +116,13 @@ static int do_connect_request(FAR struct usrsock_conn_s *conn,
   bufs[1].iov_base = (FAR void *)addr;
   bufs[1].iov_len = addrlen;
 
-  return usrsockdev_do_request(conn, bufs, ARRAY_SIZE(bufs));
+  ret = usrsock_do_request(conn, bufs, ARRAY_SIZE(bufs));
+  if (ret == -ENETDOWN)
+    {
+      ret = -ECONNABORTED;
+    }
+
+  return ret;
 }
 
 /****************************************************************************
@@ -192,7 +199,8 @@ int usrsock_connect(FAR struct socket *psock,
 
   ret = usrsock_setup_request_callback(conn, &state, connect_event,
                                        USRSOCK_EVENT_ABORT |
-                                       USRSOCK_EVENT_REQ_COMPLETE);
+                                       USRSOCK_EVENT_REQ_COMPLETE |
+                                       USRSOCK_EVENT_SENDTO_READY);
   if (ret < 0)
     {
       nwarn("usrsock_setup_request_callback failed: %d\n", ret);

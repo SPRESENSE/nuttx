@@ -35,11 +35,11 @@
 #include <assert.h>
 #include <errno.h>
 #include <fixedmath.h>
-#include <queue.h>
 #include <debug.h>
 
 #include <nuttx/kmalloc.h>
 #include <nuttx/mqueue.h>
+#include <nuttx/queue.h>
 #include <nuttx/clock.h>
 #include <nuttx/wqueue.h>
 #include <nuttx/fs/fs.h>
@@ -54,10 +54,8 @@
  * Private Function Prototypes
  ****************************************************************************/
 
-static int  cs4344_takesem(FAR sem_t *sem);
-static int  cs4344_forcetake(FAR sem_t *sem);
-#define     cs4344_givesem(s) nxsem_post(s)
-
+static int  cs4344_setmclkfrequency(FAR struct cs4344_dev_s *priv);
+static void cs4344_settxchannels(FAR struct cs4344_dev_s *priv);
 static void cs4344_setdatawidth(FAR struct cs4344_dev_s *priv);
 static void cs4344_setbitrate(FAR struct cs4344_dev_s *priv);
 
@@ -158,66 +156,158 @@ static const struct audio_ops_s g_audioops =
   cs4344_release        /* release */
 };
 
+struct mclk_rate_s
+{
+  uint32_t mclk_freq;   /* Master clock frequency (in Hz) */
+  uint32_t sample_rate; /* Sample rate (in Hz) */
+  uint16_t multiple;    /* Multiple of the mclk_freq to the sample_rate */
+};
+
+static const struct mclk_rate_s mclk_rate[] =
+{
+  {
+    8192000,  /* mclk_freq */
+    16000,    /* sample_rate */
+    512,      /* multiple */
+  },
+  {
+    12288000, /* mclk_freq */
+    16000,    /* sample_rate */
+    768,      /* multiple */
+  },
+  {
+    11289600, /* mclk_freq */
+    22050,    /* sample_rate */
+    512,      /* multiple */
+  },
+  {
+    8192000,  /* mclk_freq */
+    32000,    /* sample_rate */
+    256,      /* multiple */
+  },
+  {
+    12288000, /* mclk_freq */
+    32000,    /* sample_rate */
+    384,      /* multiple */
+  },
+  {
+    11289600, /* mclk_freq */
+    44100,    /* sample_rate */
+    256,      /* multiple */
+  },
+  {
+    16934400, /* mclk_freq */
+    44100,    /* sample_rate */
+    384,      /* multiple */
+  },
+  {
+    22579200, /* mclk_freq */
+    44100,    /* sample_rate */
+    512,      /* multiple */
+  },
+  {
+    12288000, /* mclk_freq */
+    48000,    /* sample_rate */
+    256,      /* multiple */
+  },
+  {
+    18432000, /* mclk_freq */
+    48000,    /* sample_rate */
+    384,      /* multiple */
+  },
+  {
+    24576000, /* mclk_freq */
+    48000,    /* sample_rate */
+    512,      /* multiple */
+  },
+};
+
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: cs4344_takesem
+ * Name: cs4344_setmclkfrequency
  *
  * Description:
- *  Take a semaphore count, handling the nasty EINTR return if we are
- *  interrupted by a signal.
+ *   Set the frequency of the Master Clock (MCLK)
+ *
+ * Input Parameters:
+ *   priv - A reference to the driver state structure
+ *
+ * Returned Value:
+ *   Returns OK or a negated errno value on failure.
  *
  ****************************************************************************/
 
-static int cs4344_takesem(FAR sem_t *sem)
+static int cs4344_setmclkfrequency(FAR struct cs4344_dev_s *priv)
 {
-  return nxsem_wait_uninterruptible(sem);
+  int ret = OK;
+  int i;
+
+  priv->mclk_freq = 0;
+
+  for (i = 0; i < ARRAY_SIZE(mclk_rate); i++)
+    {
+      if (mclk_rate[i].sample_rate == priv->samprate)
+        {
+          /* Normally master clock should be multiple of the sample rate
+           * and bclk at the same time. The field mclk_rate_s::multiple
+           * means the multiple of mclk to the sample rate. This value
+           * should be divisible by the size (in bytes) of the sample,
+           * otherwise the ws signal will be inaccurate. For instance,
+           * if data width is 24 bits, in order to keep mclk a multiple
+           * to the bclk, the mclk_rate_s::multiple should be divisible
+           * by the size of the sample, i.e, 24 / 8 = 3.
+           */
+
+          priv->mclk_freq = mclk_rate[i].mclk_freq;
+
+          /* Check if the current master clock frequency is divisible by
+           * the size (in bytes) of the sample. If so, we have a perfect
+           * match. Otherwise, try to find a more suitable value for the
+           * master clock.
+           */
+
+          if (mclk_rate[i].multiple % (priv->bpsamp / 8) == 0)
+            {
+              break;
+            }
+        }
+    }
+
+  if (priv->mclk_freq != 0)
+    {
+      ret = I2S_MCLKFREQUENCY(priv->i2s, priv->mclk_freq);
+    }
+  else
+    {
+      ret = -EINVAL;
+    }
+
+  return ret > 0 ? OK : ret;
 }
 
 /****************************************************************************
- * Name: cs4344_forcetake
+ * Name: cs4344_settxchannels
  *
  * Description:
- *   This is just another wrapper but this one continues even if the thread
- *   is canceled.  This must be done in certain conditions where were must
- *   continue in order to clean-up resources.
+ *   Set the number of channels
  *
  ****************************************************************************/
 
-static int cs4344_forcetake(FAR sem_t *sem)
+static void cs4344_settxchannels(FAR struct cs4344_dev_s *priv)
 {
-  int result;
-  int ret = OK;
+  DEBUGASSERT(priv);
 
-  do
-    {
-      result = nxsem_wait_uninterruptible(sem);
-
-      /* The only expected error would -ECANCELED meaning that the
-       * parent thread has been canceled.  We have to continue and
-       * terminate the poll in this case.
-       */
-
-      DEBUGASSERT(result == OK || result == -ECANCELED);
-      if (ret == OK && result < 0)
-        {
-          /* Remember the first failure */
-
-          ret = result;
-        }
-    }
-  while (result < 0);
-
-  return ret;
+  I2S_TXCHANNELS(priv->i2s, priv->nchannels);
 }
 
 /****************************************************************************
  * Name: cs4344_setdatawidth
  *
  * Description:
- *   Set the 8- or 16-bit data modes
+ *   Set the 16 or 24-bit data modes
  *
  ****************************************************************************/
 
@@ -227,13 +317,13 @@ static void cs4344_setdatawidth(FAR struct cs4344_dev_s *priv)
     {
       /* Reset default default setting */
 
-      priv->i2s->ops->i2s_txdatawidth(priv->i2s, 16);
+      I2S_TXDATAWIDTH(priv->i2s, 16);
     }
   else
     {
-      /* This should select 8-bit with no companding */
+      /* This should select 24-bit with no companding */
 
-      priv->i2s->ops->i2s_txdatawidth(priv->i2s, 8);
+      I2S_TXDATAWIDTH(priv->i2s, 24);
     }
 }
 
@@ -246,7 +336,7 @@ static void cs4344_setbitrate(FAR struct cs4344_dev_s *priv)
 {
   DEBUGASSERT(priv);
 
-  priv->i2s->ops->i2s_txsamplerate(priv->i2s, priv->samprate);
+  I2S_TXSAMPLERATE(priv->i2s, priv->samprate);
 
   audinfo("sample rate=%u nchannels=%u bpsamp=%u\n",
           priv->samprate, priv->nchannels, priv->bpsamp);
@@ -327,7 +417,6 @@ static int cs4344_getcaps(FAR struct audio_lowerhalf_s *dev, int type,
               /* Report the Sample rates we support */
 
               caps->ac_controls.b[0] =
-                AUDIO_SAMP_RATE_8K | AUDIO_SAMP_RATE_11K |
                 AUDIO_SAMP_RATE_16K | AUDIO_SAMP_RATE_22K |
                 AUDIO_SAMP_RATE_32K | AUDIO_SAMP_RATE_44K |
                 AUDIO_SAMP_RATE_48K;
@@ -463,6 +552,8 @@ cs4344_configure(FAR struct audio_lowerhalf_s *dev,
 
     case AUDIO_TYPE_OUTPUT:
       {
+        ret = OK;
+
         audinfo("  AUDIO_TYPE_OUTPUT:\n");
         audinfo("    Number of channels: %u\n", caps->ac_channels);
         audinfo("    Sample rate:        %u\n", caps->ac_controls.hw[0]);
@@ -470,18 +561,19 @@ cs4344_configure(FAR struct audio_lowerhalf_s *dev,
 
         /* Verify that all of the requested values are supported */
 
-        ret = -ERANGE;
         if (caps->ac_channels != 1 && caps->ac_channels != 2)
           {
             auderr("ERROR: Unsupported number of channels: %d\n",
                    caps->ac_channels);
+            ret = -ERANGE;
             break;
           }
 
-        if (caps->ac_controls.b[2] != 8 && caps->ac_controls.b[2] != 16)
+        if (caps->ac_controls.b[2] != 16 && caps->ac_controls.b[2] != 24)
           {
             auderr("ERROR: Unsupported bits per sample: %d\n",
                    caps->ac_controls.b[2]);
+            ret = -ERANGE;
             break;
           }
 
@@ -491,13 +583,32 @@ cs4344_configure(FAR struct audio_lowerhalf_s *dev,
         priv->nchannels = caps->ac_channels;
         priv->bpsamp    = caps->ac_controls.b[2];
 
-        /* Reconfigure the FLL to support the resulting number or channels,
-         * bits per sample, and bitrate.
+        /* Reconfigure the master clock to support the resulting number of
+         * channels, data width, and sample rate. However, if I2S lower half
+         * doesn't provide support for setting the master clock, execution
+         * goes on and try just to set the data width and sample rate.
          */
 
+        ret = cs4344_setmclkfrequency(priv);
+        if (ret != OK)
+          {
+            if (ret != -ENOTTY)
+              {
+                auderr("ERROR: Unsupported combination of sample rate and"
+                       "data width\n");
+                break;
+              }
+            else
+              {
+                audwarn("WARNING: MCLK could not be set on lower half\n");
+                priv->mclk_freq = 0;
+                ret = OK;
+              }
+          }
+
+        cs4344_settxchannels(priv);
         cs4344_setdatawidth(priv);
         cs4344_setbitrate(priv);
-        ret = OK;
       }
       break;
 
@@ -689,7 +800,7 @@ static int cs4344_sendbuffer(FAR struct cs4344_dev_s *priv)
    * only while accessing 'inflight'.
    */
 
-  ret = cs4344_takesem(&priv->pendsem);
+  ret = nxmutex_lock(&priv->pendlock);
   if (ret < 0)
     {
       return ret;
@@ -748,7 +859,7 @@ static int cs4344_sendbuffer(FAR struct cs4344_dev_s *priv)
         }
     }
 
-  cs4344_givesem(&priv->pendsem);
+  nxmutex_unlock(&priv->pendlock);
   return ret;
 }
 
@@ -940,7 +1051,7 @@ static int cs4344_enqueuebuffer(FAR struct audio_lowerhalf_s *dev,
   audinfo("Enqueueing: apb=%p curbyte=%d nbytes=%d flags=%04x\n",
           apb, apb->curbyte, apb->nbytes, apb->flags);
 
-  ret = cs4344_takesem(&priv->pendsem);
+  ret = nxmutex_lock(&priv->pendlock);
   if (ret < 0)
     {
       return ret;
@@ -954,7 +1065,7 @@ static int cs4344_enqueuebuffer(FAR struct audio_lowerhalf_s *dev,
 
   apb->flags |= AUDIO_APB_OUTPUT_ENQUEUED;
   dq_addlast(&apb->dq_entry, &priv->pendq);
-  cs4344_givesem(&priv->pendsem);
+  nxmutex_unlock(&priv->pendlock);
 
   /* Send a message to the worker thread indicating that a new buffer has
    * been enqueued.  If mq is NULL, then the playing has not yet started.
@@ -1064,9 +1175,9 @@ static int cs4344_reserve(FAR struct audio_lowerhalf_s *dev)
   FAR struct cs4344_dev_s *priv = (FAR struct cs4344_dev_s *)dev;
   int ret = OK;
 
-  /* Borrow the APBQ semaphore for thread sync */
+  /* Borrow the APBQ mutex for thread sync */
 
-  ret = cs4344_takesem(&priv->pendsem);
+  ret = nxmutex_lock(&priv->pendlock);
   if (ret < 0)
     {
       return ret;
@@ -1092,8 +1203,7 @@ static int cs4344_reserve(FAR struct audio_lowerhalf_s *dev)
       priv->reserved    = true;
     }
 
-  cs4344_givesem(&priv->pendsem);
-
+  nxmutex_unlock(&priv->pendlock);
   return ret;
 }
 
@@ -1124,14 +1234,14 @@ static int cs4344_release(FAR struct audio_lowerhalf_s *dev)
       priv->threadid = 0;
     }
 
-  /* Borrow the APBQ semaphore for thread sync */
+  /* Borrow the APBQ mutex for thread sync */
 
-  ret = cs4344_forcetake(&priv->pendsem);
+  ret = nxmutex_lock(&priv->pendlock);
 
   /* Really we should free any queued buffers here */
 
   priv->reserved = false;
-  cs4344_givesem(&priv->pendsem);
+  nxmutex_unlock(&priv->pendlock);
 
   return ret;
 }
@@ -1252,7 +1362,7 @@ static void *cs4344_workerthread(pthread_addr_t pvarg)
 
   /* Return any pending buffers in our pending queue */
 
-  cs4344_forcetake(&priv->pendsem);
+  nxmutex_lock(&priv->pendlock);
   while ((apb = (FAR struct ap_buffer_s *)dq_remfirst(&priv->pendq)) != NULL)
     {
       /* Release our reference to the buffer */
@@ -1268,7 +1378,7 @@ static void *cs4344_workerthread(pthread_addr_t pvarg)
 #endif
     }
 
-  cs4344_givesem(&priv->pendsem);
+  nxmutex_unlock(&priv->pendlock);
 
   /* Return any pending buffers in our done queue */
 
@@ -1312,6 +1422,7 @@ static void cs4344_reset(FAR struct cs4344_dev_s *priv)
   priv->samprate   = CS4344_DEFAULT_SAMPRATE;
   priv->nchannels  = CS4344_DEFAULT_NCHANNELS;
   priv->bpsamp     = CS4344_DEFAULT_BPSAMP;
+  priv->mclk_freq  = 0;
 
   /* Configure the FLL and the LRCLK */
 
@@ -1347,7 +1458,7 @@ FAR struct audio_lowerhalf_s *cs4344_initialize(FAR struct i2s_dev_s *i2s)
 
   /* Allocate a CS4344 device structure */
 
-  priv = (FAR struct cs4344_dev_s *) kmm_zalloc(sizeof(struct cs4344_dev_s));
+  priv = (FAR struct cs4344_dev_s *)kmm_zalloc(sizeof(struct cs4344_dev_s));
   if (priv)
     {
       /* Initialize the CS4344 device structure.  Since we used kmm_zalloc,
@@ -1357,7 +1468,7 @@ FAR struct audio_lowerhalf_s *cs4344_initialize(FAR struct i2s_dev_s *i2s)
       priv->dev.ops    = &g_audioops;
       priv->i2s        = i2s;
 
-      nxsem_init(&priv->pendsem, 0, 1);
+      nxmutex_init(&priv->pendlock);
       dq_init(&priv->pendq);
       dq_init(&priv->doneq);
 
@@ -1367,7 +1478,5 @@ FAR struct audio_lowerhalf_s *cs4344_initialize(FAR struct i2s_dev_s *i2s)
       return &priv->dev;
     }
 
-  nxsem_destroy(&priv->pendsem);
-  kmm_free(priv);
   return NULL;
 }

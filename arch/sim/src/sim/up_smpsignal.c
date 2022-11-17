@@ -199,6 +199,10 @@ int up_cpu_paused(int cpu)
 
   nxsched_resume_scheduler(tcb);
 
+  /* Restore the cpu lock */
+
+  restore_critical_section();
+
   /* Then switch contexts.  Any necessary address environment changes
    * will be made when the interrupt returns.
    */
@@ -217,7 +221,6 @@ int up_cpu_paused(int cpu)
  *
  ****************************************************************************/
 
-__attribute__ ((visibility("default")))
 void up_cpu_started(void)
 {
 #ifdef CONFIG_SCHED_INSTRUMENTATION
@@ -286,7 +289,6 @@ int up_cpu_start(int cpu)
  *   On success returns OK (0), otherwise a negative value.
  ****************************************************************************/
 
-__attribute__ ((visibility("default")))
 int up_init_ipi(int irq)
 {
   up_enable_irq(irq);

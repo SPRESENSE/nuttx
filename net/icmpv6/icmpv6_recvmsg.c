@@ -43,10 +43,6 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-#define IPv6_BUF \
-  ((FAR struct ipv6_hdr_s *)&dev->d_buf[NET_LL_HDRLEN(dev)])
-#define ICMPv6_BUF \
-  ((FAR struct icmpv6_echo_reply_s *)&dev->d_buf[NET_LL_HDRLEN(dev) + IPv6_HDRLEN])
 #define ICMPv6_SIZE \
   ((dev)->d_len - IPv6_HDRLEN)
 
@@ -83,7 +79,6 @@ struct icmpv6_recvfrom_s
  * Input Parameters:
  *   dev        The structure of the network driver that generated the
  *              event
- *   conn       The received packet, cast to (void *)
  *   pvpriv     An instance of struct icmpv6_recvfrom_s cast to void*
  *   flags      Set of events describing why the callback was invoked
  *
@@ -96,10 +91,9 @@ struct icmpv6_recvfrom_s
  ****************************************************************************/
 
 static uint16_t recvfrom_eventhandler(FAR struct net_driver_s *dev,
-                                  FAR void *pvconn,
-                                  FAR void *pvpriv, uint16_t flags)
+                                      FAR void *pvpriv, uint16_t flags)
 {
-  FAR struct icmpv6_recvfrom_s *pstate = (struct icmpv6_recvfrom_s *)pvpriv;
+  FAR struct icmpv6_recvfrom_s *pstate = pvpriv;
   FAR struct socket *psock;
   FAR struct icmpv6_conn_s *conn;
   FAR struct ipv6_hdr_s *ipv6;
@@ -141,7 +135,7 @@ static uint16_t recvfrom_eventhandler(FAR struct net_driver_s *dev,
            * REVISIT:  What if there are IPv6 extension headers present?
            */
 
-          icmpv6 = ICMPv6_BUF;
+          icmpv6 = IPBUF(IPv6_HDRLEN);
           if (conn->id != icmpv6->id)
             {
               ninfo("Wrong ID: %u vs %u\n", icmpv6->id, conn->id);
@@ -165,7 +159,7 @@ static uint16_t recvfrom_eventhandler(FAR struct net_driver_s *dev,
            * REVISIT:  What if there are IPv6 extension headers present?
            */
 
-          memcpy(pstate->recv_buf, ICMPv6_BUF, recvsize);
+          memcpy(pstate->recv_buf, IPBUF(IPv6_HDRLEN), recvsize);
 
           /* Return the size of the returned data */
 
@@ -174,7 +168,7 @@ static uint16_t recvfrom_eventhandler(FAR struct net_driver_s *dev,
 
           /* Return the IPv6 address of the sender from the IPv6 header */
 
-          ipv6 = IPv6_BUF;
+          ipv6 = IPBUF(0);
           net_ipv6addr_hdrcopy(&pstate->recv_from, ipv6->srcipaddr);
 
           /* Decrement the count of outstanding requests.  I suppose this
@@ -314,7 +308,7 @@ out:
 
       /* And free the I/O buffer chain */
 
-      iob_free_chain(iob, IOBUSER_NET_SOCK_ICMPv6);
+      iob_free_chain(iob);
     }
 
   return ret;
@@ -429,13 +423,7 @@ ssize_t icmpv6_recvmsg(FAR struct socket *psock, FAR struct msghdr *msg,
       /* Initialize the state structure */
 
       memset(&state, 0, sizeof(struct icmpv6_recvfrom_s));
-
-      /* This semaphore is used for signaling and, hence, should not have
-       * priority inheritance enabled.
-       */
-
       nxsem_init(&state.recv_sem, 0, 0);
-      nxsem_set_protocol(&state.recv_sem, SEM_PRIO_NONE);
 
       state.recv_sock   = psock;    /* The IPPROTO_ICMP6 socket instance */
       state.recv_result = -ENOMEM;  /* Assume allocation failure */
@@ -502,7 +490,7 @@ errout:
           conn->nreqs = 0;
           conn->dev   = NULL;
 
-          iob_free_queue(&conn->readahead, IOBUSER_NET_SOCK_ICMPv6);
+          iob_free_queue(&conn->readahead);
         }
     }
 

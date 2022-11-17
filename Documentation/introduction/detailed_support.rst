@@ -2197,6 +2197,24 @@ Refer to the EK-TM4C1294XL board
 `README <https://github.com/apache/incubator-nuttx/blob/master/boards/arm/tiva/tm4c1294-launchpad/README.txt>`__
 file for more detailed information about this port.
 
+TI/Tiva TM4C129E
+----------------
+
+This port uses the TI Tiva C Series TM4C129E Crypto Connected
+LaunchPad `(EK-TM4C129EXL) <https://www.ti.com/tool/EK-TM4C129EXL>`__.
+
+**STATUS:**
+
+-  Support for the EK-TM4C129EXL is based on support for the similar
+   EK-TM4C1294XL. This basic board support includes a configuration
+   for the NuttShell :ref:`NSH <nsh>`), a configuration for testing
+   IPv6, and a configuration for testing the RTOS using the ostest
+   example in the NuttX apps repository.
+
+Refer to the EK-TM4C129EXL board
+`README <https://github.com/apache/incubator-nuttx/blob/master/boards/arm/tiva/tm4c129e-launchpad/README.txt>`__
+file for more detailed information about this port.
+
 TI/Tiva TM4C129X
 ----------------
 
@@ -3001,32 +3019,67 @@ LiteX on ARTY A7
 Support for the Digilent ARTY_A7 board along with CPU VexRiscV SOC were
 added in NuttX-9.0.
 
+ESP32-C3
+--------
+
+Initial architectural support for ESP32-C3 (RISC-V) was added in NuttX-10.1.0
+
+**Espressif ESP32-C3 Devkit Board** The NuttX release includes support for
+Espressif ESP32-C3 Devkit board.
+
+Please, refer to the :doc:`ESP32-C3 </platforms/risc-v/esp32c3/index>` on NuttX for
+further information.
+
 ESP32 (Dual Xtensa LX6)
 =======================
 
 Xtensa LX6 ESP32
 ----------------
 
-Basic architectural support for Xtensa LX6 processors and the port for
-the Espressif ESP32 were added in NuttX-7.19. The basic ESP32 port is
-function in both single CPU and dual CPU SMP configurations.
+Initial architectural support for Xtensa LX6 processors for the Espressif
+ESP32 was added in NuttX-7.19, enabling both single CPU and dual CPU
+SMP configurations.
 
 **Espressif ESP32 DevkitC V4 Board** The NuttX release includes support for
 Espressif ESP32 DevkitC V4 board. There is an NSH configuration for each
 CPU configuration and an OS test configuration for verification of the
 port.
 
-**STATUS**. ESP32 support in NuttX-7.19 is functional, but very
-preliminary. There is little yet in the way of device driver support.
-Outstanding issues include missing clock configuration logic, missing
-partition tables to support correct configuration from FLASH, and some
-serial driver pin configuration issues. The configuration is usable
-despite these limitations. Refer to the NuttX board
-`README <https://github.com/apache/incubator-nuttx/blob/master/boards/xtensa/esp32/esp32-devkitc/README.txt>`__
-file for further information.
-
-Release NuttX-10.0.0 brought a bunch of additions to the ESP32 port.  This
+**STATUS**. Release NuttX-10.0.0 brought a bunch of additions to the ESP32 port.  This
 includes: I2C, SPI, RTC, PM, Timers, Watchdog Timer and Ethernet.
+
+Please, refer to the :doc:`ESP32 </platforms/xtensa/esp32/index>` on NuttX for
+further information.
+
+ESP32-S2 (Single Xtensa LX7)
+============================
+
+Xtensa LX7 ESP32-S2
+-------------------
+
+Initial architectural support for Xtensa LX7 processor for the Espressif
+ESP32-S2 was added in NuttX-10.2.
+
+**Espressif ESP32-S2 Saola V1 Board** The NuttX release includes support for
+Espressif ESP32-S2 Saola V1 board.
+
+Please, refer to the :doc:`ESP32-S2 </platforms/xtensa/esp32s2/index>` on NuttX for
+further information.
+
+ESP32-S3 (Dual Xtensa LX7)
+==========================
+
+Xtensa LX7 ESP32-S3
+-------------------
+
+Initial architectural support for dual Xtensa LX7 processors for the Espressif
+ESP32-S3 was added in NuttX-10.3.
+
+**Espressif ESP32-S3 DevKit Board** The NuttX release includes support for
+Espressif ESP32-S3 DevKit board.
+
+Please, refer to the :doc:`ESP32-S3 </platforms/xtensa/esp32s3/index>` on NuttX for
+further information.
 
 Zilog ZNEO Z16F
 ===============

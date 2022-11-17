@@ -252,9 +252,9 @@ int nxmq_wait_send(FAR struct mqueue_inode_s *msgq, int oflags)
        * When we are unblocked, we will try again
        */
 
-      rtcb           = this_task();
-      rtcb->msgwaitq = msgq;
-      msgq->nwaitnotfull++;
+      rtcb          = this_task();
+      rtcb->waitobj = msgq;
+      msgq->cmn.nwaitnotfull++;
 
       /* Initialize the errcode used to communication wake-up error
        * conditions.
@@ -266,7 +266,7 @@ int nxmq_wait_send(FAR struct mqueue_inode_s *msgq, int oflags)
        * isn't going to end well.
        */
 
-      DEBUGASSERT(NULL != rtcb->flink);
+      DEBUGASSERT(!is_idle_task(rtcb));
       up_block_task(rtcb, TSTATE_WAIT_MQNOTFULL);
 
       /* When we resume at this point, either (1) the message queue
@@ -386,27 +386,27 @@ int nxmq_do_send(FAR struct mqueue_inode_s *msgq,
 
   /* Check if any tasks are waiting for the MQ not empty event. */
 
-  if (msgq->nwaitnotempty > 0)
+  if (msgq->cmn.nwaitnotempty > 0)
     {
       /* Find the highest priority task that is waiting for
-       * this queue to be non-empty in g_waitingformqnotempty
+       * this queue to be non-empty in waitfornotempty
        * list. leave_critical_section() should give us sufficient
        * protection since interrupts should never cause a change
        * in this list
        */
 
-      for (btcb = (FAR struct tcb_s *)g_waitingformqnotempty.head;
-           btcb && btcb->msgwaitq != msgq;
-           btcb = btcb->flink)
-        {
-        }
+      btcb = (FAR struct tcb_s *)dq_peek(MQ_WNELIST(msgq->cmn));
 
       /* If one was found, unblock it */
 
       DEBUGASSERT(btcb);
 
-      btcb->msgwaitq = NULL;
-      msgq->nwaitnotempty--;
+      if (WDOG_ISACTIVE(&btcb->waitdog))
+        {
+          wd_cancel(&btcb->waitdog);
+        }
+
+      msgq->cmn.nwaitnotempty--;
       up_unblock_task(btcb);
     }
 

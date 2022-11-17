@@ -33,6 +33,7 @@
 #include <debug.h>
 
 #include <nuttx/kmalloc.h>
+#include <nuttx/mutex.h>
 #include <nuttx/fs/fs.h>
 #include <nuttx/board.h>
 #include <nuttx/spi/spi.h>
@@ -58,7 +59,7 @@
 
 struct cxd56_geofence_dev_s
 {
-  sem_t          devsem;
+  mutex_t        devlock;
   struct pollfd *fds[CONFIG_GEOFENCE_NPOLLWAITERS];
 };
 
@@ -433,27 +434,17 @@ static void cxd56_geofence_sighandler(uint32_t data, void *userdata)
 {
   struct cxd56_geofence_dev_s *priv =
     (struct cxd56_geofence_dev_s *)userdata;
-  int i;
   int ret;
 
-  ret = nxsem_wait(&priv->devsem);
+  ret = nxmutex_lock(&priv->devlock);
   if (ret < 0)
     {
       return;
     }
 
-  for (i = 0; i < CONFIG_GEOFENCE_NPOLLWAITERS; i++)
-    {
-      struct pollfd *fds = priv->fds[i];
-      if (fds)
-        {
-          fds->revents |= POLLIN;
-          gnssinfo("Report events: %08" PRIx32 "\n", fds->revents);
-          nxsem_post(fds->sem);
-        }
-    }
+  poll_notify(priv->fds, CONFIG_GEOFENCE_NPOLLWAITERS, POLLIN);
 
-  nxsem_post(&priv->devsem);
+  nxmutex_unlock(&priv->devlock);
 }
 
 /****************************************************************************
@@ -495,28 +486,21 @@ static int cxd56_geofence_initialize(struct cxd56_geofence_dev_s *dev)
 static ssize_t cxd56_geofence_read(struct file *filep, char *buffer,
                                    size_t len)
 {
-  int32_t ret = 0;
-
   /* Check argument */
 
   if (!buffer)
     {
-      ret = -EINVAL;
-      goto _err;
+      return -EINVAL;
     }
 
   if (len == 0)
     {
-      ret = 0;
-      goto _err;
+      return 0;
     }
 
   /* fw_gd_readbuffer returns copied data size or negative error code */
 
-  ret = fw_gd_readbuffer(CXD56_CPU1_DEV_GEOFENCE, 0, buffer, len);
-
-  _err:
-  return ret;
+  return fw_gd_readbuffer(CXD56_CPU1_DEV_GEOFENCE, 0, buffer, len);
 }
 
 /****************************************************************************
@@ -574,7 +558,7 @@ static int cxd56_geofence_poll(struct file *filep,
   inode = filep->f_inode;
   priv  = (struct cxd56_geofence_dev_s *)inode->i_private;
 
-  ret = nxsem_wait(&priv->devsem);
+  ret = nxmutex_lock(&priv->devlock);
   if (ret < 0)
     {
       return ret;
@@ -625,7 +609,7 @@ static int cxd56_geofence_poll(struct file *filep,
     }
 
 errout:
-  nxsem_post(&priv->devsem);
+  nxmutex_unlock(&priv->devlock);
   return ret;
 }
 
@@ -657,39 +641,39 @@ static int cxd56_geofence_register(const char *devpath)
     }
 
   memset(priv, 0, sizeof(struct cxd56_geofence_dev_s));
-  nxsem_init(&priv->devsem, 0, 1);
+  nxmutex_init(&priv->devlock);
 
   ret = cxd56_geofence_initialize(priv);
   if (ret < 0)
     {
       gnsserr("Failed to initialize geofence device!\n");
-      goto _err0;
+      goto err0;
     }
 
   ret = register_driver(devpath, &g_geofencefops, 0666, priv);
   if (ret < 0)
     {
       gnsserr("Failed to register driver: %d\n", ret);
-      goto _err0;
+      goto err0;
     }
 
   ret = cxd56_cpu1siginit(CXD56_CPU1_DEV_GEOFENCE, priv);
   if (ret < 0)
     {
       gnsserr("Failed to initialize ICC for GPS CPU: %d\n", ret);
-      goto _err2;
+      goto err1;
     }
 
   cxd56_cpu1sigregisterhandler(CXD56_CPU1_DEV_GEOFENCE,
                                cxd56_geofence_sighandler);
 
   gnssinfo("GEOFENCE driver loaded successfully!\n");
-
   return ret;
 
-  _err2:
+err1:
   unregister_driver(devpath);
-  _err0:
+
+err0:
   kmm_free(priv);
   return ret;
 }

@@ -27,12 +27,11 @@
 #include <stdint.h>
 #include <signal.h>
 #include <assert.h>
-#include <queue.h>
 #include <errno.h>
 
 #include <nuttx/clock.h>
+#include <nuttx/queue.h>
 #include <nuttx/wqueue.h>
-#include <nuttx/semaphore.h>
 
 #include "wqueue/wqueue.h"
 
@@ -75,14 +74,14 @@ static int work_qqueue(FAR struct usr_wqueue_s *wqueue,
                        FAR struct work_s *work, worker_t worker,
                        FAR void *arg, clock_t delay)
 {
-  FAR sq_entry_t *prev = NULL;
-  FAR sq_entry_t *curr;
+  FAR dq_entry_t *prev = NULL;
+  FAR dq_entry_t *curr;
   sclock_t delta;
   int semcount;
 
   /* Get exclusive access to the work queue */
 
-  while (_SEM_WAIT(&wqueue->lock) < 0);
+  while (nxmutex_lock(&wqueue->lock) < 0);
 
   /* Initialize the work structure */
 
@@ -96,7 +95,7 @@ static int work_qqueue(FAR struct usr_wqueue_s *wqueue,
     {
       /* Add the watchdog to the head == tail of the queue. */
 
-      sq_addfirst(&work->u.s.sq, &wqueue->q);
+      dq_addfirst(&work->u.s.dq, &wqueue->q);
       _SEM_POST(&wqueue->wake);
     }
 
@@ -127,7 +126,7 @@ static int work_qqueue(FAR struct usr_wqueue_s *wqueue,
         {
           /* Insert the watchdog at the head of the list */
 
-          sq_addfirst(&work->u.s.sq, &wqueue->q);
+          dq_addfirst(&work->u.s.dq, &wqueue->q);
           _SEM_GETVALUE(&wqueue->wake, &semcount);
           if (semcount < 1)
             {
@@ -138,11 +137,11 @@ static int work_qqueue(FAR struct usr_wqueue_s *wqueue,
         {
           /* Insert the watchdog in mid- or end-of-queue */
 
-          sq_addafter(prev, &work->u.s.sq, &wqueue->q);
+          dq_addafter(prev, &work->u.s.dq, &wqueue->q);
         }
     }
 
-  _SEM_POST(&wqueue->lock);
+  nxmutex_unlock(&wqueue->lock);
   return OK;
 }
 

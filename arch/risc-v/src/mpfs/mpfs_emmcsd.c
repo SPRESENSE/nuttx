@@ -97,8 +97,6 @@
 #define MPFS_MMC_CLOCK_200MHZ              200000u
 
 #define MPFS_EMMCSD_DEBOUNCE_TIME          0x300000u
-#define MPFS_EMMCSD_MODE_LEGACY            0x7u
-
 #define MPFS_EMMCSD_DATA_TIMEOUT           500000
 
 #define MPFS_EMMCSD_SRS10_3_3V_BUS_VOLTAGE (0x7 << 9)
@@ -142,6 +140,24 @@
 /* HS400 mode with Enhanced Strobe */
 
 #define MPFS_EMMCSD_MODE_HS400_ES          0x6u
+
+/* Backwards compatibility with legacy MMC card supports clock frequency up
+ * to 26MHz and data bus width of 1 bit, 4 bits, and 8 bits.
+ */
+
+#define MPFS_EMMCSD_MODE_LEGACY            0x7u
+
+/* Provide default eMMC CLK_MODE if unset at board.h */
+
+#ifndef MPFS_EMMC_CLK_MODE
+#  define MPFS_EMMC_CLK_MODE MPFS_EMMCSD_MODE_HS200
+#endif
+
+/* Provide default SD-card 4bit clk if unset at board.h */
+
+#ifndef MPFS_SD_CLOCK_4BIT
+#  define MPFS_SD_CLOCK_4BIT MPFS_MMC_CLOCK_25MHZ
+#endif
 
 /* Define the Hardware FIFO size */
 
@@ -292,7 +308,7 @@ struct mpfs_dev_s
 
   const bool         emmc;            /* eMMC or SD */
   int                bus_voltage;     /* Bus voltage */
-  int                bus_speed;       /* Bus speed */
+  int                bus_mode;        /* eMMC Bus mode */
   bool               jumpers_3v3;     /* Jumper settings: 1v8 or 3v3 */
 
   /* Event support */
@@ -335,8 +351,6 @@ struct mpfs_dev_s
  ****************************************************************************/
 
 /* Low-level helper  ********************************************************/
-
-#define     mpfs_givesem(priv) (nxsem_post(&priv->waitsem))
 
 /* Mutual exclusion */
 
@@ -455,27 +469,6 @@ struct mpfs_dev_s g_emmcsd_dev =
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
-
-/****************************************************************************
- * Name: mpfs_takesem
- *
- * Description:
- *   Take the wait semaphore (handling false alarm wakeups due to the receipt
- *   of signals).
- *
- * Input Parameters:
- *   priv  - Instance of the EMMCSD private state structure.
- *
- * Returned Value:
- *   Normally OK, but may return -ECANCELED in the rare event that the task
- *   has been canceled.
- *
- ****************************************************************************/
-
-static int mpfs_takesem(struct mpfs_dev_s *priv)
-{
-  return nxsem_wait_uninterruptible(&priv->waitsem);
-}
 
 /****************************************************************************
  * Name: mpfs_reset_lines
@@ -915,7 +908,7 @@ static void mpfs_endwait(struct mpfs_dev_s *priv,
 
   /* Wake up the waiting thread */
 
-  mpfs_givesem(priv);
+  nxsem_post(&priv->waitsem);
 }
 
 /****************************************************************************
@@ -1423,6 +1416,16 @@ static void mpfs_emmc_card_init(struct mpfs_dev_s *priv)
            MPFS_SYSREG_B4_10_11);
   putreg32(LIBERO_SETTING_MSSIO_BANK4_IO_CFG_12_13_CR_EMMC,
            MPFS_SYSREG_4_12_13);
+
+#ifdef CONFIG_MPFS_EMMCSD_MUX_GPIO
+  /* Select eMMC-card */
+
+  mcinfo("Selecting eMMC card\n");
+  mpfs_gpiowrite(MPFS_EMMCSD_GPIO, false);
+
+#else
+  putreg32(0, SDIO_REGISTER_ADDRESS);
+#endif
 }
 
 /****************************************************************************
@@ -1445,7 +1448,9 @@ static bool mpfs_device_reset(struct sdio_dev_s *dev)
   irqstate_t flags;
   uint32_t regval;
   uint32_t cap;
+#ifdef CONFIG_MPFS_EMMCSD_CD
   uint32_t srs09;
+#endif
   bool retval = true;
   int status = MPFS_EMMCSD_INITIALIZED;
 
@@ -1453,24 +1458,25 @@ static bool mpfs_device_reset(struct sdio_dev_s *dev)
 
   up_disable_irq(priv->plic_irq);
 
+  /* SD card needs FPGA out of reset and FIC3 clks for the eMMC / SD
+   * switch.  It's OK if these are already out of reset or clk applied.
+   * Also, switching back from SD card to eMMC needs these clocks.
+   */
+
+  modifyreg32(MPFS_SYSREG_SOFT_RESET_CR,
+              SYSREG_SOFT_RESET_CR_FPGA |
+              SYSREG_SOFT_RESET_CR_FIC3,
+              0);
+
+  modifyreg32(MPFS_SYSREG_SUBBLK_CLOCK_CR, 0,
+              SYSREG_SUBBLK_CLOCK_CR_FIC3);
+
   if (!priv->emmc)
     {
       /* Apply default HW settings */
 
       priv->bus_voltage = MPFS_EMMCSD_3_3V_BUS_VOLTAGE;
-      priv->bus_speed   = MPFS_EMMCSD_MODE_SDR;
       priv->jumpers_3v3 = true;
-
-      /* SD card needs FPGA out of reset and FIC3 clks for the eMMC / SD
-       * switch. It's OK if these are already out of reset or clk applied.
-       */
-
-      modifyreg32(MPFS_SYSREG_SOFT_RESET_CR,
-                  SYSREG_SOFT_RESET_CR_FPGA |
-                  SYSREG_SOFT_RESET_CR_FIC3, 0);
-
-      modifyreg32(MPFS_SYSREG_SUBBLK_CLOCK_CR, 0,
-                  SYSREG_SUBBLK_CLOCK_CR_FIC3);
 
       mpfs_sdcard_init(priv);
     }
@@ -1479,8 +1485,11 @@ static bool mpfs_device_reset(struct sdio_dev_s *dev)
       /* For the eMMC, use these default values */
 
       priv->bus_voltage = MPFS_EMMCSD_1_8V_BUS_VOLTAGE;
-      priv->bus_speed   = MPFS_EMMCSD_MODE_HS200;
       priv->jumpers_3v3 = false;
+
+      /* The following defines come from the board.h file */
+
+      priv->bus_mode    = MPFS_EMMC_CLK_MODE;
 
       /* Apply proper IOMUX values for the eMMC. This is required especially
        * if this NuttX works as the system bootloader. Otherwise, it's
@@ -1593,6 +1602,7 @@ static bool mpfs_device_reset(struct sdio_dev_s *dev)
 
   /* Card state stable */
 
+#ifdef CONFIG_MPFS_EMMCSD_CD
   srs09 = getreg32(MPFS_EMMCSD_SRS09);
   DEBUGASSERT(srs09 & MPFS_EMMCSD_SRS09_CSS);
 
@@ -1607,6 +1617,7 @@ static bool mpfs_device_reset(struct sdio_dev_s *dev)
           retval = false;
         }
     }
+#endif
 
   /* Set 1-bit bus mode */
 
@@ -1623,9 +1634,9 @@ static bool mpfs_device_reset(struct sdio_dev_s *dev)
             break;
 
           case MPFS_EMMCSD_3_3V_BUS_VOLTAGE:
-            if ((priv->bus_speed != MPFS_EMMCSD_MODE_HS200) &&
-                (priv->bus_speed != MPFS_EMMCSD_MODE_HS400_ES) &&
-                (priv->bus_speed != MPFS_EMMCSD_MODE_HS400))
+            if ((priv->bus_mode != MPFS_EMMCSD_MODE_HS200) &&
+                (priv->bus_mode != MPFS_EMMCSD_MODE_HS400_ES) &&
+                (priv->bus_mode != MPFS_EMMCSD_MODE_HS400))
               {
                 mpfs_set_sdhost_power(priv,
                                       MPFS_EMMCSD_SRS10_3_3V_BUS_VOLTAGE);
@@ -1829,13 +1840,26 @@ static void mpfs_clock(struct sdio_dev_s *dev, enum sdio_clock_e rate)
     /* Enable normal MMC operation clocking */
 
     case CLOCK_MMC_TRANSFER:
-      clckr = MPFS_MMC_CLOCK_200MHZ;
+      if (priv->bus_mode == MPFS_EMMCSD_MODE_HS200)
+        {
+          clckr = MPFS_MMC_CLOCK_200MHZ;
+        }
+      else if (priv->bus_mode == MPFS_EMMCSD_MODE_SDR)
+        {
+          clckr = MPFS_MMC_CLOCK_50MHZ;
+        }
+      else
+        {
+          /* 26 MHz may not be divided from 200 MHz */
+
+          clckr = MPFS_MMC_CLOCK_25MHZ;
+        }
       break;
 
     /* SD normal operation clocking (wide 4-bit mode) */
 
     case CLOCK_SD_TRANSFER_4BIT:
-      clckr = MPFS_MMC_CLOCK_25MHZ;
+      clckr = MPFS_SD_CLOCK_4BIT;
       break;
 
     /* SD normal operation clocking (narrow 1-bit mode) */
@@ -2718,7 +2742,7 @@ static sdio_eventset_t mpfs_eventwait(struct sdio_dev_s *dev)
        * incremented and there will be no wait.
        */
 
-      ret = mpfs_takesem(priv);
+      ret = nxsem_wait_uninterruptible(&priv->waitsem);
       if (ret < 0)
         {
           /* Task canceled.  Cancel the wdog (assuming it was started) and
@@ -2748,7 +2772,6 @@ static sdio_eventset_t mpfs_eventwait(struct sdio_dev_s *dev)
   /* Disable event-related interrupts */
 
 errout_with_waitints:
-
   mpfs_configwaitints(priv, 0, 0, 0);
 
   leave_critical_section(flags);
@@ -2936,12 +2959,6 @@ struct sdio_dev_s *sdio_initialize(int slotno)
   /* Initialize semaphores */
 
   nxsem_init(&priv->waitsem, 0, 0);
-
-  /* The waitsem semaphore is used for signaling and, hence, should not have
-   * priority inheritance enabled.
-   */
-
-  nxsem_set_protocol(&priv->waitsem, SEM_PRIO_NONE);
 
   /* Reset the card and assure that it is in the initial, unconfigured
    * state.

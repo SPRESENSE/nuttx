@@ -35,7 +35,7 @@ CSRCS += lib_setuid.c lib_setgid.c lib_getuid.c lib_getgid.c
 endif
 
 ifneq ($(CONFIG_DISABLE_ENVIRON),y)
-CSRCS += lib_chdir.c lib_getcwd.c lib_restoredir.c
+CSRCS += lib_chdir.c lib_fchdir.c lib_getcwd.c lib_restoredir.c
 endif
 
 ifeq ($(CONFIG_LIBC_EXECFUNCS),y)
@@ -44,10 +44,6 @@ endif
 
 ifneq ($(CONFIG_DISABLE_MOUNTPOINTS),y)
 CSRCS += lib_truncate.c lib_posix_fallocate.c
-endif
-
-ifeq ($(CONFIG_PIPES),y)
-CSRCS += lib_pipe.c lib_pipe2.c
 endif
 
 # Add the unistd directory to the build

@@ -55,15 +55,6 @@
 #ifdef CONFIG_NET_ICMPv6_SOCKET
 
 /****************************************************************************
- * Pre-processor Definitions
- ****************************************************************************/
-
-#define IPv6BUF \
-  ((FAR struct ipv6_hdr_s *)&dev->d_buf[NET_LL_HDRLEN(dev)])
-#define ICMPv6BUF \
-  ((FAR struct icmpv6_echo_request_s *)&dev->d_buf[NET_LL_HDRLEN(dev) + IPv6_HDRLEN])
-
-/****************************************************************************
  * Private Types
  ****************************************************************************/
 
@@ -136,7 +127,7 @@ static void sendto_request(FAR struct net_driver_s *dev,
 
   /* Copy the ICMPv6 request and payload into place after the IPv6 header */
 
-  icmpv6         = ICMPv6BUF;
+  icmpv6         = IPBUF(IPv6_HDRLEN);
   memcpy(icmpv6, pstate->snd_buf, pstate->snd_buflen);
 
   /* Calculate the ICMPv6 checksum over the ICMPv6 header and payload. */
@@ -168,7 +159,6 @@ static void sendto_request(FAR struct net_driver_s *dev,
  * Input Parameters:
  *   dev        The structure of the network driver that generated the
  *              event
- *   pvconn     The received packet, cast to (void *)
  *   pvpriv     An instance of struct icmpv6_sendto_s cast to (void *)
  *   flags      Set of events describing why the callback was invoked
  *
@@ -181,10 +171,9 @@ static void sendto_request(FAR struct net_driver_s *dev,
  ****************************************************************************/
 
 static uint16_t sendto_eventhandler(FAR struct net_driver_s *dev,
-                                    FAR void *pvconn,
                                     FAR void *pvpriv, uint16_t flags)
 {
-  FAR struct icmpv6_sendto_s *pstate = (struct icmpv6_sendto_s *)pvpriv;
+  FAR struct icmpv6_sendto_s *pstate = pvpriv;
 
   ninfo("flags: %04x\n", flags);
 
@@ -349,7 +338,7 @@ ssize_t icmpv6_sendmsg(FAR struct socket *psock, FAR struct msghdr *msg,
       conn->nreqs = 0;
       conn->dev   = NULL;
 
-      iob_free_queue(&conn->readahead, IOBUSER_NET_SOCK_ICMPv6);
+      iob_free_queue(&conn->readahead);
     }
 
 #ifdef CONFIG_NET_ICMPv6_NEIGHBOR
@@ -366,12 +355,7 @@ ssize_t icmpv6_sendmsg(FAR struct socket *psock, FAR struct msghdr *msg,
 
   /* Initialize the state structure */
 
-  /* This semaphore is used for signaling and, hence, should not have
-   * priority inheritance enabled.
-   */
-
   nxsem_init(&state.snd_sem, 0, 0);
-  nxsem_set_protocol(&state.snd_sem, SEM_PRIO_NONE);
 
   state.snd_result = -ENOMEM;           /* Assume allocation failure */
   state.snd_buf    = buf;               /* ICMPv6 header + data payload */
@@ -462,7 +446,7 @@ errout:
   conn->nreqs = 0;
   conn->dev   = NULL;
 
-  iob_free_queue(&conn->readahead, IOBUSER_NET_SOCK_ICMPv6);
+  iob_free_queue(&conn->readahead);
   return ret;
 }
 

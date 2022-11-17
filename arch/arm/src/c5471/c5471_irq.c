@@ -39,18 +39,6 @@
 #define ILR_PRIORITY      0x0000001E
 
 /****************************************************************************
- * Public Data
- ****************************************************************************/
-
-/* g_current_regs[] holds a references to the current interrupt level
- * register storage structure.  If is non-NULL only during interrupt
- * processing.  Access to g_current_regs[] must be through the macro
- * CURRENT_REGS for portability.
- */
-
-volatile uint32_t *g_current_regs[1];
-
-/****************************************************************************
  * Private Data
  ****************************************************************************/
 
@@ -67,7 +55,7 @@ extern up_vector_t _svectors[];
 
 static up_vector_t g_vectorinittab[] =
 {
-  (up_vector_t)NULL,
+  NULL,
   arm_vectorundefinsn,
   arm_vectorsvc,
   arm_vectorprefetch,
@@ -164,7 +152,6 @@ void up_irqinitialize(void)
   /* Initialize hardware interrupt vectors */
 
   up_vectorinitialize();
-  CURRENT_REGS = NULL;
 
   /* And finally, enable interrupts */
 

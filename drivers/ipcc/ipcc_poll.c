@@ -77,9 +77,9 @@ int ipcc_poll(FAR struct file *filep, FAR struct pollfd *fds,
 
   /* Get exclusive access to driver */
 
-  if ((ret = nxsem_wait(&priv->exclsem)) < 0)
+  if ((ret = nxmutex_lock(&priv->lock)) < 0)
     {
-      /* nxsem_wait() will return on signal, we did not start
+      /* nxmutex_lock() will return on signal, we did not start
        * any transfer yet, so we can safely return with error
        */
 
@@ -98,7 +98,7 @@ int ipcc_poll(FAR struct file *filep, FAR struct pollfd *fds,
 
       *slot = NULL;
       fds->priv = NULL;
-      nxsem_post(&priv->exclsem);
+      nxmutex_unlock(&priv->lock);
       return OK;
     }
 
@@ -125,79 +125,28 @@ int ipcc_poll(FAR struct file *filep, FAR struct pollfd *fds,
       /* No free poll slot found */
 
       fds->priv = NULL;
-      nxsem_post(&priv->exclsem);
+      nxmutex_unlock(&priv->lock);
       return -EBUSY;
     }
 
   /* Should immediately notify on any of the requested events?  */
 
   eventset = 0;
+
+#ifdef CONFIG_IPCC_BUFFERED
   if (circbuf_used(&priv->ipcc->rxbuf) > 0)
     {
-      eventset |= (fds->events & POLLIN);
+      eventset |= POLLIN;
     }
 
   if (circbuf_space(&priv->ipcc->txbuf) > 0)
     {
-      eventset |= (fds->events & POLLOUT);
+      eventset |= POLLOUT;
     }
+#endif
 
-  if (eventset)
-    {
-      ipcc_pollnotify(priv, eventset);
-    }
+  poll_notify(priv->fds, CONFIG_IPCC_NPOLLWAITERS, eventset);
 
-  nxsem_post(&priv->exclsem);
+  nxmutex_unlock(&priv->lock);
   return OK;
-}
-
-/****************************************************************************
- * Name: ipcc_pollnotify
- *
- * Description:
- *   Wakes up all sleeping threads waiting for event associated with ipcc
- *   driver.
- *
- * Input Parameters:
- *   ipcc - driver instance to check for poll events
- *   eventset - list of events to check for activity
- *
- * Returned Value:
- *   None
- *
- * Assumptions/Limitations:
- *   This function may be called from interrupt handler.
- *
- ****************************************************************************/
-
-void ipcc_pollnotify(FAR struct ipcc_driver_s *priv, pollevent_t eventset)
-{
-  struct pollfd *fds;
-  int semcount;
-  int i;
-
-  for (i = 0; i < CONFIG_IPCC_NPOLLWAITERS; i++)
-    {
-      if ((fds = priv->fds[i]) == NULL)
-        {
-          /* Slot empty, move to next one */
-
-          continue;
-        }
-
-      if ((fds->revents |= fds->events & eventset) == 0)
-        {
-          /* No event */
-
-          continue;
-        }
-
-      finfo("Report events: %08" PRIx32 "\n", fds->revents);
-
-      nxsem_get_value(fds->sem, &semcount);
-      if (semcount < 1)
-        {
-          nxsem_post(fds->sem);
-        }
-    }
 }

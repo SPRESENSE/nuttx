@@ -44,12 +44,11 @@
  *   Create a mutex
  *
  * Input Parameters:
- *   None
+ *   mutex - A reference to the mutex to be initialized
+ *   attr - Mutex attribute object to be used
  *
  * Returned Value:
- *   None
- *
- * Assumptions:
+ *   0 if successful.  Otherwise, an error code.
  *
  ****************************************************************************/
 
@@ -61,7 +60,7 @@ int pthread_mutex_init(FAR pthread_mutex_t *mutex,
   uint8_t type = PTHREAD_MUTEX_DEFAULT;
 #endif
 #ifdef CONFIG_PRIORITY_INHERITANCE
-#  ifdef PTHREAD_MUTEX_DEFAULT_PRIO_INHERIT
+#  ifdef CONFIG_PTHREAD_MUTEX_DEFAULT_PRIO_INHERIT
   uint8_t proto = PTHREAD_PRIO_INHERIT;
 #  else
   uint8_t proto = PTHREAD_PRIO_NONE;
@@ -108,7 +107,7 @@ int pthread_mutex_init(FAR pthread_mutex_t *mutex,
 
       /* Initialize the mutex like a semaphore with initial count = 1 */
 
-      status = nxsem_init((FAR sem_t *)&mutex->sem, pshared, 1);
+      status = nxsem_init(&mutex->sem, pshared, 1);
       if (status < 0)
         {
           ret = -ret;
@@ -117,7 +116,7 @@ int pthread_mutex_init(FAR pthread_mutex_t *mutex,
 #ifdef CONFIG_PRIORITY_INHERITANCE
       /* Initialize the semaphore protocol */
 
-      status = nxsem_set_protocol((FAR sem_t *)&mutex->sem, proto);
+      status = nxsem_set_protocol(&mutex->sem, proto);
       if (status < 0)
         {
           ret = -status;

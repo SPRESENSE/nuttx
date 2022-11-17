@@ -27,7 +27,6 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include <queue.h>
 #include <assert.h>
 #include <errno.h>
 
@@ -52,6 +51,7 @@
 #include <netinet/in.h>
 
 #include <nuttx/kmalloc.h>
+#include <nuttx/queue.h>
 #include <nuttx/net/net.h>
 
 #include "vnc_server.h"
@@ -281,7 +281,6 @@ int vnc_server(int argc, FAR char *argv[])
 
 #ifdef CONFIG_FB_SYNC
   nxsem_init(&session->vsyncsem, 0, 0);
-  nxsem_set_protocol(&session->vsyncsem, SEM_PRIO_NONE);
 #endif
 
   /* Inform any waiter that we have started */

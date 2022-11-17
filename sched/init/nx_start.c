@@ -48,6 +48,7 @@
 #include "signal/signal.h"
 #include "semaphore/semaphore.h"
 #include "mqueue/mqueue.h"
+#include "mqueue/msg.h"
 #include "clock/clock.h"
 #include "timer/timer.h"
 #include "irq/irq.h"
@@ -84,7 +85,7 @@
  * task, is always the IDLE task.
  */
 
-volatile dq_queue_t g_readytorun;
+dq_queue_t g_readytorun;
 
 /* In order to support SMP, the function of the g_readytorun list changes,
  * The g_readytorun is still used but in the SMP case it will contain only:
@@ -117,7 +118,7 @@ volatile dq_queue_t g_readytorun;
  */
 
 #ifdef CONFIG_SMP
-volatile dq_queue_t g_assignedtasks[CONFIG_SMP_NCPUS];
+dq_queue_t g_assignedtasks[CONFIG_SMP_NCPUS];
 #endif
 
 /* g_running_tasks[] holds a references to the running task for each cpu.
@@ -132,36 +133,16 @@ FAR struct tcb_s *g_running_tasks[CONFIG_SMP_NCPUS];
  * currently active task has disabled pre-emption.
  */
 
-volatile dq_queue_t g_pendingtasks;
-
-/* This is the list of all tasks that are blocked waiting for a semaphore */
-
-volatile dq_queue_t g_waitingforsemaphore;
+dq_queue_t g_pendingtasks;
 
 /* This is the list of all tasks that are blocked waiting for a signal */
 
-volatile dq_queue_t g_waitingforsignal;
-
-#ifndef CONFIG_DISABLE_MQUEUE
-/* This is the list of all tasks that are blocked waiting for a message
- * queue to become non-empty.
- */
-
-volatile dq_queue_t g_waitingformqnotempty;
-#endif
-
-#ifndef CONFIG_DISABLE_MQUEUE
-/* This is the list of all tasks that are blocked waiting for a message
- * queue to become non-full.
- */
-
-volatile dq_queue_t g_waitingformqnotfull;
-#endif
+dq_queue_t g_waitingforsignal;
 
 #ifdef CONFIG_PAGING
 /* This is the list of all tasks that are blocking waiting for a page fill */
 
-volatile dq_queue_t g_waitingforfill;
+dq_queue_t g_waitingforfill;
 #endif
 
 #ifdef CONFIG_SIG_SIGSTOP_ACTION
@@ -169,14 +150,14 @@ volatile dq_queue_t g_waitingforfill;
  * via SIGSTOP or SIGTSTP
  */
 
-volatile dq_queue_t g_stoppedtasks;
+dq_queue_t g_stoppedtasks;
 #endif
 
 /* This the list of all tasks that have been initialized, but not yet
  * activated. NOTE:  This is the only list that is not prioritized.
  */
 
-volatile dq_queue_t g_inactivetasks;
+dq_queue_t g_inactivetasks;
 
 /* This is the value of the last process ID assigned to a task */
 
@@ -237,8 +218,8 @@ const struct tasklist_s g_tasklisttable[NUM_TASK_STATES] =
     0
   },
   {                                              /* TSTATE_WAIT_SEM */
-    &g_waitingforsemaphore,
-    TLIST_ATTR_PRIORITIZED
+    (FAR void *)offsetof(sem_t, waitlist),
+    TLIST_ATTR_PRIORITIZED | TLIST_ATTR_OFFSET
   },
   {                                              /* TSTATE_WAIT_SIG */
     &g_waitingforsignal,
@@ -247,12 +228,12 @@ const struct tasklist_s g_tasklisttable[NUM_TASK_STATES] =
 #ifndef CONFIG_DISABLE_MQUEUE
   ,
   {                                              /* TSTATE_WAIT_MQNOTEMPTY */
-    &g_waitingformqnotempty,
-    TLIST_ATTR_PRIORITIZED
+    (FAR void *)offsetof(struct mqueue_inode_s, cmn.waitfornotempty),
+    TLIST_ATTR_PRIORITIZED | TLIST_ATTR_OFFSET
   },
   {                                              /* TSTATE_WAIT_MQNOTFULL */
-    &g_waitingformqnotfull,
-    TLIST_ATTR_PRIORITIZED
+    (FAR void *)offsetof(struct mqueue_inode_s, cmn.waitfornotfull),
+    TLIST_ATTR_PRIORITIZED | TLIST_ATTR_OFFSET
   }
 #endif
 #ifdef CONFIG_PAGING
@@ -429,9 +410,9 @@ void nx_start(void)
        */
 
 #ifdef CONFIG_SMP
-      tasklist = TLIST_HEAD(TSTATE_TASK_RUNNING, i);
+      tasklist = TLIST_HEAD(&g_idletcb[i].cmn, i);
 #else
-      tasklist = TLIST_HEAD(TSTATE_TASK_RUNNING);
+      tasklist = TLIST_HEAD(&g_idletcb[i].cmn);
 #endif
       dq_addfirst((FAR dq_entry_t *)&g_idletcb[i], tasklist);
 
@@ -564,16 +545,9 @@ void nx_start(void)
 
   g_nx_initstate = OSINIT_MEMORY;
 
-#if defined(CONFIG_SCHED_HAVE_PARENT) && defined(CONFIG_SCHED_CHILD_STATUS)
   /* Initialize tasking data structures */
 
-#ifdef CONFIG_HAVE_WEAKFUNCTIONS
-  if (task_initialize != NULL)
-#endif
-    {
-      task_initialize();
-    }
-#endif
+  task_initialize();
 
   /* Disables context switching because we need take the memory manager
    * semaphore on this CPU so that it will not be available on the other
@@ -588,49 +562,30 @@ void nx_start(void)
 
   /* Initialize the interrupt handling subsystem (if included) */
 
-#ifdef CONFIG_HAVE_WEAKFUNCTIONS
-  if (irq_initialize != NULL)
-#endif
-    {
-      irq_initialize();
-    }
+  irq_initialize();
 
   /* Initialize the POSIX timer facility (if included in the link) */
 
-#ifdef CONFIG_HAVE_WEAKFUNCTIONS
-  if (clock_initialize != NULL)
-#endif
-    {
-      clock_initialize();
-    }
+  clock_initialize();
 
 #ifndef CONFIG_DISABLE_POSIX_TIMERS
-#ifdef CONFIG_HAVE_WEAKFUNCTIONS
-  if (timer_initialize != NULL)
-#endif
-    {
-      timer_initialize();
-    }
+  timer_initialize();
 #endif
 
   /* Initialize the signal facility (if in link) */
 
-#ifdef CONFIG_HAVE_WEAKFUNCTIONS
-  if (nxsig_initialize != NULL)
-#endif
-    {
-      nxsig_initialize();
-    }
+  nxsig_initialize();
 
-#ifndef CONFIG_DISABLE_MQUEUE
+#if !defined(CONFIG_DISABLE_MQUEUE) && !defined(CONFIG_DISABLE_MQUEUE_SYSV)
   /* Initialize the named message queue facility (if in link) */
 
-#ifdef CONFIG_HAVE_WEAKFUNCTIONS
-  if (nxmq_initialize != NULL)
+  nxmq_initialize();
 #endif
-    {
-      nxmq_initialize();
-    }
+
+#ifndef CONFIG_DISABLE_MQUEUE_SYSV
+  /* Initialize the System V message queue facility (if in link) */
+
+  nxmsg_initialize();
 #endif
 
 #ifdef CONFIG_NET

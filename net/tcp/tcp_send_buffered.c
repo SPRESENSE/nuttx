@@ -77,9 +77,6 @@
 #  define NEED_IPDOMAIN_SUPPORT 1
 #endif
 
-#define TCPIPv4BUF ((FAR struct tcp_hdr_s *)&dev->d_buf[NET_LL_HDRLEN(dev) + IPv4_HDRLEN])
-#define TCPIPv6BUF ((FAR struct tcp_hdr_s *)&dev->d_buf[NET_LL_HDRLEN(dev) + IPv6_HDRLEN])
-
 /* Debug */
 
 #ifdef CONFIG_NET_TCP_WRBUFFER_DUMP
@@ -299,7 +296,7 @@ static inline void send_ipselect(FAR struct net_driver_s *dev,
  *
  * Input Parameters:
  *   dev      The structure of the network driver that caused the event
- *   conn     The connection structure associated with the socket
+ *   pvpriv   An instance of struct tcp_conn_s cast to void*
  *   flags    Set of events describing why the callback was invoked
  *
  * Returned Value:
@@ -311,17 +308,8 @@ static inline void send_ipselect(FAR struct net_driver_s *dev,
  ****************************************************************************/
 
 static uint16_t psock_send_eventhandler(FAR struct net_driver_s *dev,
-                                        FAR void *pvconn, FAR void *pvpriv,
-                                        uint16_t flags)
+                                        FAR void *pvpriv, uint16_t flags)
 {
-  /* FAR struct tcp_conn_s *conn = (FAR struct tcp_conn_s *)pvconn;
-   *
-   * Do not use pvconn argument to get the TCP connection pointer (the above
-   * commented line) because pvconn is normally NULL for some events like
-   * NETDEV_DOWN. Instead, the TCP connection pointer can be reliably
-   * obtained from the corresponding TCP socket.
-   */
-
   FAR struct tcp_conn_s *conn = pvpriv;
 #ifdef CONFIG_NET_TCP_FAST_RETRANSMIT
   uint32_t rexmitno = 0;
@@ -332,19 +320,6 @@ static uint16_t psock_send_eventhandler(FAR struct net_driver_s *dev,
    */
 
   DEBUGASSERT(conn != NULL);
-
-#ifdef CONFIG_DEBUG_FEATURES
-  if (conn->dev == NULL || (pvconn != conn && pvconn != NULL))
-    {
-      tcp_event_handler_dump(dev, pvconn, pvpriv, flags, conn);
-    }
-#endif
-
-  /* If pvconn is not NULL, make sure that pvconn refers to the same
-   * connection as the socket is bound to.
-   */
-
-  DEBUGASSERT(pvconn == conn || pvconn == NULL);
 
   /* The TCP socket is connected and, hence, should be bound to a device.
    * Make sure that the polling device is the one that we are bound to.
@@ -1204,30 +1179,16 @@ ssize_t psock_tcp_send(FAR struct socket *psock, FAR const void *buf,
         {
           conn->sndcb = tcp_callback_alloc(conn);
 
-#ifdef CONFIG_DEBUG_ASSERTIONS
-          if (conn->sndcb != NULL)
+          /* Test if the callback has been allocated */
+
+          if (conn->sndcb == NULL)
             {
-              conn->sndcb_alloc_cnt++;
+              /* A buffer allocation error occurred */
 
-              /* The callback is allowed to be allocated only once.
-               * This is to catch a potential re-allocation after
-               * conn->sndcb was set to NULL.
-               */
-
-              DEBUGASSERT(conn->sndcb_alloc_cnt == 1);
+              nerr("ERROR: Failed to allocate callback\n");
+              ret = nonblock ? -EAGAIN : -ENOMEM;
+              goto errout_with_lock;
             }
-#endif
-        }
-
-      /* Test if the callback has been allocated */
-
-      if (conn->sndcb == NULL)
-        {
-          /* A buffer allocation error occurred */
-
-          nerr("ERROR: Failed to allocate callback\n");
-          ret = nonblock ? -EAGAIN : -ENOMEM;
-          goto errout_with_lock;
         }
 
       /* Set up the callback in the connection */
@@ -1254,6 +1215,11 @@ ssize_t psock_tcp_send(FAR struct socket *psock, FAR const void *buf,
             tcp_send_gettimeout(start, timeout));
           if (ret < 0)
             {
+              if (ret == -ETIMEDOUT)
+                {
+                  ret = -EAGAIN;
+                }
+
               goto errout_with_lock;
             }
         }
@@ -1307,13 +1273,9 @@ ssize_t psock_tcp_send(FAR struct socket *psock, FAR const void *buf,
 
               nerr("ERROR: Failed to allocate write buffer\n");
 
-              if (nonblock)
+              if (nonblock || timeout != UINT_MAX)
                 {
                   ret = -EAGAIN;
-                }
-              else if (timeout != UINT_MAX)
-                {
-                  ret = -ETIMEDOUT;
                 }
               else
                 {
@@ -1406,11 +1368,10 @@ ssize_t psock_tcp_send(FAR struct socket *psock, FAR const void *buf,
            * we risk a deadlock with other threads competing on IOBs.
            */
 
-          iob = net_iobtimedalloc(true, tcp_send_gettimeout(start, timeout),
-                                  IOBUSER_NET_TCP_WRITEBUFFER);
+          iob = net_iobtimedalloc(true, tcp_send_gettimeout(start, timeout));
           if (iob != NULL)
             {
-              iob_free_chain(iob, IOBUSER_NET_TCP_WRITEBUFFER);
+              iob_free_chain(iob);
             }
         }
 

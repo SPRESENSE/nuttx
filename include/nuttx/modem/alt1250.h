@@ -28,7 +28,7 @@
 #include <nuttx/config.h>
 #include <nuttx/fs/ioctl.h>
 #include <nuttx/spi/spi.h>
-#include <queue.h>
+#include <nuttx/queue.h>
 #include <semaphore.h>
 #include <debug.h>
 #include <nuttx/irq.h>
@@ -47,9 +47,9 @@
 #  define m_warn    _warn
 #  define m_info    _info
 #else
-#  define m_err(x...)
-#  define m_warn(x...)
-#  define m_info(x...)
+#  define m_err(...)
+#  define m_warn(...)
+#  define m_info(...)
 #endif
 
 #define ALT1250_IOC_POWER           _MODEMIOC(1)

@@ -33,7 +33,6 @@
 #include <nuttx/arch.h>
 #include <nuttx/sched.h>
 
-#include "addrenv.h"
 #include "arm.h"
 #include "arm_internal.h"
 #include "signal/signal.h"
@@ -533,7 +532,13 @@ uint32_t *arm_syscall(uint32_t *regs)
         break;
     }
 
-  regs = (uint32_t *)CURRENT_REGS;
+  /* Restore the cpu lock */
+
+  if (regs != CURRENT_REGS)
+    {
+      restore_critical_section();
+      regs = (uint32_t *)CURRENT_REGS;
+    }
 
   /* Report what happened */
 

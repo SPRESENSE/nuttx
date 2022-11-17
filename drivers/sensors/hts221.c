@@ -36,6 +36,7 @@
 #include <nuttx/i2c/i2c_master.h>
 #include <nuttx/irq.h>
 #include <nuttx/kmalloc.h>
+#include <nuttx/mutex.h>
 #include <nuttx/signal.h>
 #include <nuttx/random.h>
 
@@ -128,7 +129,7 @@ struct hts221_dev_s
   struct i2c_master_s *i2c;
   uint8_t addr;
   hts221_config_t *config;
-  sem_t devsem;
+  mutex_t devlock;
   volatile bool int_pending;
   struct pollfd *fds[CONFIG_HTS221_NPOLLWAITERS];
   struct
@@ -899,7 +900,7 @@ static int hts221_open(FAR struct file *filep)
 
   /* Get exclusive access */
 
-  ret = nxsem_wait_uninterruptible(&priv->devsem);
+  ret = nxmutex_lock(&priv->devlock);
   if (ret < 0)
     {
       return ret;
@@ -908,7 +909,7 @@ static int hts221_open(FAR struct file *filep)
   priv->config->set_power(priv->config, true);
   priv->config->irq_enable(priv->config, true);
 
-  nxsem_post(&priv->devsem);
+  nxmutex_unlock(&priv->devlock);
   hts221_dbg("Sensor is powered on\n");
   return OK;
 }
@@ -921,7 +922,7 @@ static int hts221_close(FAR struct file *filep)
 
   /* Get exclusive access */
 
-  ret = nxsem_wait_uninterruptible(&priv->devsem);
+  ret = nxmutex_lock(&priv->devlock);
   if (ret < 0)
     {
       return ret;
@@ -931,7 +932,7 @@ static int hts221_close(FAR struct file *filep)
   ret = hts221_power_on_off(priv, false);
   priv->config->set_power(priv->config, false);
 
-  nxsem_post(&priv->devsem);
+  nxmutex_unlock(&priv->devlock);
   hts221_dbg("CLOSED\n");
   return ret;
 }
@@ -947,7 +948,7 @@ static ssize_t hts221_read(FAR struct file *filep, FAR char *buffer,
 
   /* Get exclusive access */
 
-  ret = nxsem_wait_uninterruptible(&priv->devsem);
+  ret = nxmutex_lock(&priv->devlock);
   if (ret < 0)
     {
       return (ssize_t)ret;
@@ -970,7 +971,7 @@ static ssize_t hts221_read(FAR struct file *filep, FAR char *buffer,
         }
     }
 
-  nxsem_post(&priv->devsem);
+  nxmutex_unlock(&priv->devlock);
   return length;
 }
 
@@ -989,7 +990,7 @@ static int hts221_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 
   /* Get exclusive access */
 
-  ret = nxsem_wait_uninterruptible(&priv->devsem);
+  ret = nxmutex_lock(&priv->devlock);
   if (ret < 0)
     {
       return ret;
@@ -1032,7 +1033,7 @@ static int hts221_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
       break;
     }
 
-  nxsem_post(&priv->devsem);
+  nxmutex_unlock(&priv->devlock);
   return ret;
 }
 
@@ -1054,30 +1055,6 @@ static bool hts221_sample(FAR struct hts221_dev_s *priv)
   return status.is_humid_ready || status.is_temp_ready;
 }
 
-static void hts221_notify(FAR struct hts221_dev_s *priv)
-{
-  DEBUGASSERT(priv != NULL);
-
-  int i;
-
-  /* If there are threads waiting on poll() for data to become available,
-   * then wake them up now.  NOTE: we wake up all waiting threads because we
-   * do not know that they are going to do.  If they all try to read the
-   * data, then some make end up blocking after all.
-   */
-
-  for (i = 0; i < CONFIG_HTS221_NPOLLWAITERS; i++)
-    {
-      FAR struct pollfd *fds = priv->fds[i];
-      if (fds)
-        {
-          fds->revents |= POLLIN;
-          hts221_dbg("Report events: %08" PRIx32 "\n", fds->revents);
-          nxsem_post(fds->sem);
-        }
-    }
-}
-
 static int hts221_poll(FAR struct file *filep, FAR struct pollfd *fds,
                        bool setup)
 {
@@ -1095,7 +1072,7 @@ static int hts221_poll(FAR struct file *filep, FAR struct pollfd *fds,
 
   /* Get exclusive access */
 
-  ret = nxsem_wait_uninterruptible(&priv->devsem);
+  ret = nxmutex_lock(&priv->devlock);
   if (ret < 0)
     {
       return ret;
@@ -1139,7 +1116,7 @@ static int hts221_poll(FAR struct file *filep, FAR struct pollfd *fds,
       flags = enter_critical_section();
       if (priv->int_pending || hts221_sample(priv))
         {
-          hts221_notify(priv);
+          poll_notify(priv->fds, CONFIG_HTS221_NPOLLWAITERS, POLLIN);
         }
 
       leave_critical_section(flags);
@@ -1158,7 +1135,7 @@ static int hts221_poll(FAR struct file *filep, FAR struct pollfd *fds,
     }
 
 out:
-  nxsem_post(&priv->devsem);
+  nxmutex_unlock(&priv->devlock);
   return ret;
 }
 
@@ -1170,7 +1147,7 @@ static int hts221_int_handler(int irq, FAR void *context, FAR void *arg)
 
   priv->int_pending = true;
   hts221_dbg("Hts221 interrupt\n");
-  hts221_notify(priv);
+  poll_notify(priv->fds, CONFIG_HTS221_NPOLLWAITERS, POLLIN);
 
   return OK;
 }
@@ -1192,16 +1169,17 @@ int hts221_register(FAR const char *devpath, FAR struct i2c_master_s *i2c,
   priv->addr   = addr;
   priv->i2c    = i2c;
   priv->config = config;
-  nxsem_init(&priv->devsem, 0, 1);
+  nxmutex_init(&priv->devlock);
 
   priv->config->set_power(priv->config, true);
 
   ret = hts221_load_calibration_data(priv);
   if (ret < 0)
     {
+      nxmutex_destroy(&priv->devlock);
       kmm_free(priv);
       hts221_dbg("Cannot calibrate hts221 sensor\n");
-      return -EAGAIN;
+      return ret;
     }
 
   ret = register_driver(devpath, &g_humidityops, 0666, priv);
@@ -1210,6 +1188,7 @@ int hts221_register(FAR const char *devpath, FAR struct i2c_master_s *i2c,
 
   if (ret < 0)
     {
+      nxmutex_destroy(&priv->devlock);
       kmm_free(priv);
       hts221_dbg("Error occurred during the driver registering\n");
       return ret;

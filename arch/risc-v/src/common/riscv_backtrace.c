@@ -60,6 +60,7 @@ static inline uintptr_t getfp(void)
  *
  ****************************************************************************/
 
+nosanitize_address
 static int backtrace(uintptr_t *base, uintptr_t *limit,
                      uintptr_t *fp, uintptr_t *ra,
                      void **buffer, int size, int *skip)
@@ -141,9 +142,8 @@ int up_backtrace(struct tcb_s *tcb, void **buffer, int size, int skip)
       if (up_interrupt_context())
         {
 #if CONFIG_ARCH_INTERRUPTSTACK > 15
-          ret = backtrace((void *)&g_intstackalloc,
-                          (void *)((uintptr_t)&g_intstackalloc +
-                                   CONFIG_ARCH_INTERRUPTSTACK),
+          ret = backtrace(g_intstackalloc,
+                          g_intstackalloc + CONFIG_ARCH_INTERRUPTSTACK,
                           (void *)getfp(), NULL, buffer, size, &skip);
 #else
           ret = backtrace(rtcb->stack_base_ptr,
@@ -154,8 +154,8 @@ int up_backtrace(struct tcb_s *tcb, void **buffer, int size, int skip)
             {
               ret += backtrace(rtcb->stack_base_ptr,
                                rtcb->stack_base_ptr + rtcb->adj_stack_size,
-                               (void *)CURRENT_REGS[REG_FP],
-                               (void *)CURRENT_REGS[REG_EPC],
+                               (void *)rtcb->xcp.regs[REG_FP],
+                               (void *)rtcb->xcp.regs[REG_EPC],
                                &buffer[ret], size - ret, &skip);
             }
         }

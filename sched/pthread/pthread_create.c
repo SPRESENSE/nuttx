@@ -33,8 +33,8 @@
 #include <debug.h>
 #include <assert.h>
 #include <errno.h>
-#include <queue.h>
 
+#include <nuttx/queue.h>
 #include <nuttx/sched.h>
 #include <nuttx/arch.h>
 #include <nuttx/semaphore.h>
@@ -151,9 +151,8 @@ static inline void pthread_addjoininfo(FAR struct task_group_s *group,
 static void pthread_start(void)
 {
   FAR struct pthread_tcb_s *ptcb = (FAR struct pthread_tcb_s *)this_task();
-  FAR struct join_s *pjoin = (FAR struct join_s *)ptcb->joininfo;
 
-  DEBUGASSERT(pjoin != NULL);
+  DEBUGASSERT(ptcb->joininfo != NULL);
 
   /* The priority of this thread may have been boosted to avoid priority
    * inversion problems.  If that is the case, then drop to the correct
@@ -516,20 +515,6 @@ int nx_pthread_create(pthread_trampoline_t trampoline, FAR pthread_t *thread,
       ret = -ret;
     }
 
-  /* Thse semaphore are used for signaling and, hence, should not have
-   * priority inheritance enabled.
-   */
-
-    if (ret == OK)
-      {
-        ret = nxsem_set_protocol(&pjoin->exit_sem, SEM_PRIO_NONE);
-      }
-
-    if (ret < 0)
-      {
-        ret = -ret;
-      }
-
   /* If the priority of the new pthread is lower than the priority of the
    * parent thread, then starting the pthread could result in both the
    * parent and the pthread to be blocked.  This is a recipe for priority
@@ -559,9 +544,9 @@ int nx_pthread_create(pthread_trampoline_t trampoline, FAR pthread_t *thread,
   sched_lock();
   if (ret == OK)
     {
-      nxsem_wait_uninterruptible(&ptcb->cmn.group->tg_joinsem);
+      nxmutex_lock(&ptcb->cmn.group->tg_joinlock);
       pthread_addjoininfo(ptcb->cmn.group, pjoin);
-      pthread_sem_give(&ptcb->cmn.group->tg_joinsem);
+      nxmutex_unlock(&ptcb->cmn.group->tg_joinlock);
       nxtask_activate((FAR struct tcb_s *)ptcb);
 
       /* Return the thread information to the caller */
@@ -576,7 +561,7 @@ int nx_pthread_create(pthread_trampoline_t trampoline, FAR pthread_t *thread,
   else
     {
       sched_unlock();
-      dq_rem((FAR dq_entry_t *)ptcb, (FAR dq_queue_t *)&g_inactivetasks);
+      dq_rem((FAR dq_entry_t *)ptcb, &g_inactivetasks);
       nxsem_destroy(&pjoin->exit_sem);
 
       errcode = EIO;

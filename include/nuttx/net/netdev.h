@@ -52,7 +52,8 @@
 
 #include <sys/ioctl.h>
 #include <stdint.h>
-#include <queue.h>
+
+#include <nuttx/queue.h>
 
 #include <net/if.h>
 #include <net/ethernet.h>
@@ -152,6 +153,21 @@
 
 #  define NETDEV_ERRORS(dev)
 #endif
+
+/* There are some helper pointers for accessing the contents of the Ethernet
+ * headers
+ */
+
+#define ETHBUF ((FAR struct eth_hdr_s *)&dev->d_buf[0])
+
+/* There are some helper pointers for accessing the contents of the IP
+ * headers
+ */
+
+#define IPBUF(hl) ((FAR void *)&dev->d_buf[NET_LL_HDRLEN(dev) + (hl)])
+
+#define IPv4BUF ((FAR struct ipv4_hdr_s *)IPBUF(0))
+#define IPv6BUF ((FAR struct ipv6_hdr_s *)IPBUF(0))
 
 /****************************************************************************
  * Public Types
@@ -258,21 +274,25 @@ struct net_driver_s
 
   /* Link layer address */
 
+#if defined(CONFIG_NET_ETHERNET) || defined(CONFIG_NET_6LOWPAN) || \
+    defined(CONFIG_NET_BLUETOOTH) || defined(CONFIG_NET_IEEE802154) || \
+    defined(CONFIG_NET_TUN)
   union
   {
-#ifdef CONFIG_NET_ETHERNET
+# if defined(CONFIG_NET_ETHERNET) || defined(CONFIG_NET_TUN)
     /* Ethernet device identity */
 
     struct ether_addr ether;    /* Device Ethernet MAC address */
-#endif
+# endif
 
-#if defined(CONFIG_NET_6LOWPAN) || defined(CONFIG_NET_BLUETOOTH) || \
+# if defined(CONFIG_NET_6LOWPAN) || defined(CONFIG_NET_BLUETOOTH) || \
     defined(CONFIG_NET_IEEE802154)
   /* The address assigned to an IEEE 802.15.4 or generic packet radio. */
 
     struct netdev_varaddr_s radio;
-#endif
+# endif
   } d_mac;
+#endif
 
   /* Network identity */
 
@@ -451,11 +471,10 @@ typedef CODE int (*devif_poll_callback_t)(FAR struct net_driver_s *dev);
  * Ethernet, you will need to call the network ARP code before calling
  * this function:
  *
- *     #define BUF ((FAR struct eth_hdr_s *)&dev->d_buf[0])
  *     dev->d_len = ethernet_devicedrver_poll();
  *     if (dev->d_len > 0)
  *       {
- *         if (BUF->type == HTONS(ETHTYPE_IP))
+ *         if (ETHBUF->type == HTONS(ETHTYPE_IP))
  *           {
  *             arp_ipin();
  *             ipv4_input(dev);
@@ -465,7 +484,7 @@ typedef CODE int (*devif_poll_callback_t)(FAR struct net_driver_s *dev);
  *                 devicedriver_send();
  *               }
  *           }
- *         else if (BUF->type == HTONS(ETHTYPE_ARP))
+ *         else if (ETHBUF->type == HTONS(ETHTYPE_ARP))
  *           {
  *             arp_arpin();
  *             if (dev->d_len > 0)
@@ -616,23 +635,6 @@ int netdev_ifdown(FAR struct net_driver_s *dev);
 
 int netdev_carrier_on(FAR struct net_driver_s *dev);
 int netdev_carrier_off(FAR struct net_driver_s *dev);
-
-/****************************************************************************
- * Name: net_ioctl_arglen
- *
- * Description:
- *   Calculate the ioctl argument buffer length.
- *
- * Input Parameters:
- *
- *   cmd      The ioctl command
- *
- * Returned Value:
- *   The argument buffer length, or error code.
- *
- ****************************************************************************/
-
-ssize_t net_ioctl_arglen(int cmd);
 
 /****************************************************************************
  * Name: net_chksum

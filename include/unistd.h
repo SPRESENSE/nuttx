@@ -352,7 +352,7 @@ FAR void *sbrk(intptr_t incr);
 
 /* Special devices */
 
-int     pipe(int fd[2]);
+#define pipe(fd) pipe2(fd, 0)
 int     pipe2(int pipefd[2], int flags);
 
 /* Schedule an alarm */
@@ -362,6 +362,7 @@ unsigned int alarm(unsigned int seconds);
 /* Working directory operations */
 
 int     chdir(FAR const char *path);
+int     fchdir(int fd);
 FAR char *getcwd(FAR char *buf, size_t size);
 
 /* File path operations */

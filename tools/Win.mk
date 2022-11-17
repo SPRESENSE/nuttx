@@ -21,6 +21,13 @@
 export SHELL=cmd
 
 export TOPDIR := ${shell echo %CD%}
+
+# Build any necessary tools needed early in the build.
+# incdir - Is needed immediately by all Make.defs file.
+
+DUMMY  := ${shell $(MAKE) -C tools -f Makefile.host incdir \
+          INCDIR="$(TOPDIR)\tools\incdir.bat"}
+
 include $(TOPDIR)\Make.defs
 -include $(TOPDIR)\.version
 
@@ -53,7 +60,7 @@ APPDIR := $(realpath ${shell if exist "$(CONFIG_APPS_DIR)\Makefile" echo $(CONFI
 # so that main Kconfig can find it. Otherwise, we redirect it to a dummy Kconfig
 # This is due to kconfig inability to do conditional inclusion.
 
-EXTERNALDIR := $(shell if [ -r $(TOPDIR)\external\Kconfig ]; then echo 'external'; else echo 'dummy'; fi)
+EXTERNALDIR := ${shell if exist "$(TOPDIR)\external\Kconfig" (echo external) else (echo dummy)}
 
 # CONTEXTDIRS include directories that have special, one-time pre-build
 #   requirements.  Normally this includes things like auto-generation of
@@ -116,7 +123,7 @@ MKEXPORT_ARGS += -u
 endif
 
 ifneq ($(APPDIR),)
-ifneq ($(shell [ -e $(APPDIR)/Makefile ] && echo yes),)
+ifneq ($(shell if exist "$(APPDIR)/Makefile" echo yes),)
 MKEXPORT_ARGS += -a "$(APPDIR)"
 MKEXPORT_ARGS += -m "$(MAKE)"
 endif
@@ -158,8 +165,8 @@ NEED_MATH_H = y
 endif
 
 ifeq ($(NEED_MATH_H),y)
-include\math.h: include\nuttx\math.h
-	$(Q) cp -f include\nuttx\math.h include\math.h
+include\math.h: include\nuttx\lib\math.h
+	$(Q) cp -f include\nuttx\lib\math.h include\math.h
 else
 include\math.h:
 endif
@@ -171,8 +178,8 @@ endif
 # the settings in this float.h are actually correct for your platform!
 
 ifeq ($(CONFIG_ARCH_FLOAT_H),y)
-include\float.h: include\nuttx\float.h
-	$(Q) cp -f include\nuttx\float.h include\float.h
+include\float.h: include\nuttx\lib\float.h
+	$(Q) cp -f include\nuttx\lib\float.h include\float.h
 else
 include\float.h:
 endif
@@ -183,8 +190,8 @@ endif
 # have to copy stdarg.h from include\nuttx\. to include\.
 
 ifeq ($(CONFIG_ARCH_STDARG_H),y)
-include\stdarg.h: include\nuttx\stdarg.h
-	$(Q) cp -f include\nuttx\stdarg.h include\stdarg.h
+include\stdarg.h: include\nuttx\lib\stdarg.h
+	$(Q) cp -f include\nuttx\lib\stdarg.h include\stdarg.h
 else
 include\stdarg.h:
 endif
@@ -195,8 +202,8 @@ endif
 # have to copy setjmp.h from include\nuttx\. to include\.
 
 ifeq ($(CONFIG_ARCH_SETJMP_H),y)
-include\setjmp.h: include\nuttx\setjmp.h
-	$(Q) cp -f include\nuttx\setjmp.h include\setjmp.h
+include\setjmp.h: include\nuttx\lib\setjmp.h
+	$(Q) cp -f include\nuttx\lib\setjmp.h include\setjmp.h
 else
 include\setjmp.h:
 endif
@@ -453,6 +460,8 @@ clean_context:
 # execution will then be built from those libraries.  The following targets
 # build those libraries.
 
+include tools/LibTargets.mk
+
 # pass1 and pass2
 #
 # If the 2 pass build option is selected, then this pass1 target is
@@ -661,11 +670,11 @@ ifeq ($(CONFIG_ARCH_HAVE_BOOTLOADER),y)
 	$(Q) $(MAKE) clean_bootloader
 endif
 	$(Q) $(MAKE) clean_context
+	$(Q) $(MAKE) -C tools -f Makefile.host clean
 	$(call DELFILE, Make.defs)
 	$(call DELFILE, defconfig)
 	$(call DELFILE, .config)
 	$(call DELFILE, .config.old)
-	$(Q) $(MAKE) -C tools -f Makefile.host clean
 
 # Application housekeeping targets.  The APPDIR variable refers to the user
 # application directory.  A sample apps\ directory is included with NuttX,

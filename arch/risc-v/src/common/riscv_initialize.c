@@ -29,6 +29,12 @@
 #include "riscv_internal.h"
 
 /****************************************************************************
+ * Public Data
+ ****************************************************************************/
+
+volatile uintptr_t *g_current_regs[CONFIG_SMP_NCPUS];
+
+/****************************************************************************
  * Private Functions
  ****************************************************************************/
 
@@ -44,7 +50,7 @@
 #if defined(CONFIG_STACK_COLORATION) && CONFIG_ARCH_INTERRUPTSTACK > 15
 static inline void up_color_intstack(void)
 {
-  uint32_t *ptr = (uint32_t *)&g_intstackalloc;
+  uint32_t *ptr = (uint32_t *)g_intstackalloc;
   ssize_t size;
 
   for (size = (CONFIG_ARCH_INTERRUPTSTACK & ~15);
@@ -97,6 +103,19 @@ void up_initialize(void)
    */
 
   riscv_pminitialize();
+#endif
+
+#ifdef CONFIG_ARCH_DMA
+  /* Initialize the DMA subsystem if the weak function arm_dma_initialize has
+   * been brought into the build
+   */
+
+#ifdef CONFIG_HAVE_WEAKFUNCTIONS
+  if (riscv_dma_initialize)
+#endif
+    {
+      riscv_dma_initialize();
+    }
 #endif
 
   /* Initialize the serial device driver */

@@ -29,14 +29,12 @@
 #include <stdint.h>
 #include <string.h>
 #include <fcntl.h>
-#include <dirent.h>
 #include <errno.h>
 #include <assert.h>
 #include <debug.h>
 
 #include <nuttx/kmalloc.h>
 #include <nuttx/fs/fs.h>
-#include <nuttx/fs/dirent.h>
 #include <nuttx/fs/ioctl.h>
 
 #include "fs_tmpfs.h"
@@ -71,6 +69,17 @@
            nxrmutex_unlock(&tfo->tfo_lock)
 #define tmpfs_unlock_directory(tdo) \
            nxrmutex_unlock(&tdo->tdo_lock)
+
+/****************************************************************************
+ * Private Type
+ ****************************************************************************/
+
+struct tmpfs_dir_s
+{
+  struct fs_dirent_s tf_base;           /* Vfs directory structure */
+  FAR struct tmpfs_directory_s *tf_tdo; /* Directory being enumerated */
+  unsigned int tf_index;                /* Directory index */
+};
 
 /****************************************************************************
  * Private Function Prototypes
@@ -132,11 +141,12 @@ static int  tmpfs_fstat(FAR const struct file *filep, FAR struct stat *buf);
 static int  tmpfs_truncate(FAR struct file *filep, off_t length);
 
 static int  tmpfs_opendir(FAR struct inode *mountpt, FAR const char *relpath,
-              FAR struct fs_dirent_s *dir);
+              FAR struct fs_dirent_s **dir);
 static int  tmpfs_closedir(FAR struct inode *mountpt,
               FAR struct fs_dirent_s *dir);
 static int  tmpfs_readdir(FAR struct inode *mountpt,
-              FAR struct fs_dirent_s *dir);
+              FAR struct fs_dirent_s *dir,
+              FAR struct dirent *entry);
 static int  tmpfs_rewinddir(FAR struct inode *mountpt,
               FAR struct fs_dirent_s *dir);
 static int  tmpfs_bind(FAR struct inode *blkdriver, FAR const void *data,
@@ -1486,8 +1496,15 @@ static ssize_t tmpfs_read(FAR struct file *filep, FAR char *buffer,
 
   /* Copy data from the memory object to the user buffer */
 
-  memcpy(buffer, &tfo->tfo_data[startpos], nread);
-  filep->f_pos += nread;
+  if (tfo->tfo_data != NULL)
+    {
+      memcpy(buffer, &tfo->tfo_data[startpos], nread);
+      filep->f_pos += nread;
+    }
+  else
+    {
+      DEBUGASSERT(tfo->tfo_size == 0 && nread == 0);
+    }
 
   /* Release the lock on the file */
 
@@ -1543,8 +1560,15 @@ static ssize_t tmpfs_write(FAR struct file *filep, FAR const char *buffer,
 
   /* Copy data from the memory object to the user buffer */
 
-  memcpy(&tfo->tfo_data[startpos], buffer, nwritten);
-  filep->f_pos += nwritten;
+  if (tfo->tfo_data != NULL)
+    {
+      memcpy(&tfo->tfo_data[startpos], buffer, nwritten);
+      filep->f_pos += nwritten;
+    }
+  else
+    {
+      DEBUGASSERT(tfo->tfo_size == 0 && nwritten == 0);
+    }
 
   /* Release the lock on the file */
 
@@ -1801,9 +1825,10 @@ errout_with_lock:
  ****************************************************************************/
 
 static int tmpfs_opendir(FAR struct inode *mountpt, FAR const char *relpath,
-                         FAR struct fs_dirent_s *dir)
+                         FAR struct fs_dirent_s **dir)
 {
   FAR struct tmpfs_s *fs;
+  FAR struct tmpfs_dir_s *tdir;
   FAR struct tmpfs_directory_s *tdo;
   int ret;
 
@@ -1816,11 +1841,18 @@ static int tmpfs_opendir(FAR struct inode *mountpt, FAR const char *relpath,
   fs = mountpt->i_private;
   DEBUGASSERT(fs != NULL && fs->tfs_root.tde_object != NULL);
 
+  tdir = kmm_zalloc(sizeof(*tdir));
+  if (tdir == NULL)
+    {
+      return -ENOMEM;
+    }
+
   /* Get exclusive access to the file system */
 
   ret = tmpfs_lock(fs);
   if (ret < 0)
     {
+      kmm_free(tdir);
       return ret;
     }
 
@@ -1838,8 +1870,8 @@ static int tmpfs_opendir(FAR struct inode *mountpt, FAR const char *relpath,
   ret = tmpfs_find_directory(fs, relpath, strlen(relpath), &tdo, NULL);
   if (ret >= 0)
     {
-      dir->u.tmpfs.tf_tdo   = tdo;
-      dir->u.tmpfs.tf_index = tdo->tdo_nentries;
+      tdir->tf_tdo   = tdo;
+      tdir->tf_index = tdo->tdo_nentries;
 
       tmpfs_unlock_directory(tdo);
     }
@@ -1847,6 +1879,7 @@ static int tmpfs_opendir(FAR struct inode *mountpt, FAR const char *relpath,
   /* Release the lock on the file system and return the result */
 
   tmpfs_unlock(fs);
+  *dir = &tdir->tf_base;
   return ret;
 }
 
@@ -1864,7 +1897,7 @@ static int tmpfs_closedir(FAR struct inode *mountpt,
 
   /* Get the directory structure from the dir argument */
 
-  tdo = dir->u.tmpfs.tf_tdo;
+  tdo = ((FAR struct tmpfs_dir_s *)dir)->tf_tdo;
   DEBUGASSERT(tdo != NULL);
 
   /* Decrement the reference count on the directory object */
@@ -1872,6 +1905,7 @@ static int tmpfs_closedir(FAR struct inode *mountpt,
   tmpfs_lock_directory(tdo);
   tdo->tdo_refs--;
   tmpfs_unlock_directory(tdo);
+  kmm_free(dir);
   return OK;
 }
 
@@ -1880,9 +1914,11 @@ static int tmpfs_closedir(FAR struct inode *mountpt,
  ****************************************************************************/
 
 static int tmpfs_readdir(FAR struct inode *mountpt,
-                         FAR struct fs_dirent_s *dir)
+                         FAR struct fs_dirent_s *dir,
+                         FAR struct dirent *entry)
 {
   FAR struct tmpfs_directory_s *tdo;
+  FAR struct tmpfs_dir_s *tdir;
   unsigned int index;
   int ret;
 
@@ -1891,14 +1927,15 @@ static int tmpfs_readdir(FAR struct inode *mountpt,
 
   /* Get the directory structure from the dir argument and lock it */
 
-  tdo = dir->u.tmpfs.tf_tdo;
+  tdir = (FAR struct tmpfs_dir_s *)dir;
+  tdo = tdir->tf_tdo;
   DEBUGASSERT(tdo != NULL);
 
   tmpfs_lock_directory(tdo);
 
   /* Have we reached the end of the directory? */
 
-  index = dir->u.tmpfs.tf_index;
+  index = tdir->tf_index;
   if (index-- == 0)
     {
       /* We signal the end of the directory by returning the special error:
@@ -1923,22 +1960,22 @@ static int tmpfs_readdir(FAR struct inode *mountpt,
         {
           /* A directory */
 
-           dir->fd_dir.d_type = DTYPE_DIRECTORY;
+           entry->d_type = DTYPE_DIRECTORY;
         }
       else /* to->to_type == TMPFS_REGULAR) */
         {
           /* A regular file */
 
-           dir->fd_dir.d_type = DTYPE_FILE;
+           entry->d_type = DTYPE_FILE;
         }
 
       /* Copy the entry name */
 
-      strlcpy(dir->fd_dir.d_name, tde->tde_name, sizeof(dir->fd_dir.d_name));
+      strlcpy(entry->d_name, tde->tde_name, sizeof(entry->d_name));
 
       /* Save the index for next time */
 
-      dir->u.tmpfs.tf_index = index;
+      tdir->tf_index = index;
       ret = OK;
     }
 
@@ -1954,18 +1991,20 @@ static int tmpfs_rewinddir(FAR struct inode *mountpt,
                            FAR struct fs_dirent_s *dir)
 {
   FAR struct tmpfs_directory_s *tdo;
+  FAR struct tmpfs_dir_s *tdir;
 
   finfo("mountpt: %p dir: %p\n",  mountpt, dir);
   DEBUGASSERT(mountpt != NULL && dir != NULL);
 
   /* Get the directory structure from the dir argument and lock it */
 
-  tdo = dir->u.tmpfs.tf_tdo;
+  tdir = (FAR struct tmpfs_dir_s *)dir;
+  tdo = tdir->tf_tdo;
   DEBUGASSERT(tdo != NULL);
 
   /* Set the readdir index pass the end */
 
-  dir->u.tmpfs.tf_index = tdo->tdo_nentries;
+  tdir->tf_index = tdo->tdo_nentries;
   return OK;
 }
 

@@ -80,9 +80,6 @@
  * Private Function Prototypes
  ****************************************************************************/
 
-static int     uart_takesem(FAR sem_t *sem, bool errout);
-static void    uart_pollnotify(FAR uart_dev_t *dev, pollevent_t eventset);
-
 /* Write support */
 
 static int     uart_putxmitchar(FAR uart_dev_t *dev, int ch,
@@ -142,62 +139,6 @@ static struct work_s g_serial_work;
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
-
-/****************************************************************************
- * Name: uart_takesem
- ****************************************************************************/
-
-static int uart_takesem(FAR sem_t *sem, bool errout)
-{
-  if (errout)
-    {
-      return nxsem_wait(sem);
-    }
-  else
-    {
-      return nxsem_wait_uninterruptible(sem);
-    }
-}
-
-/****************************************************************************
- * Name: uart_givesem
- ****************************************************************************/
-
-#define uart_givesem(sem) nxsem_post(sem)
-
-/****************************************************************************
- * Name: uart_pollnotify
- ****************************************************************************/
-
-static void uart_pollnotify(FAR uart_dev_t *dev, pollevent_t eventset)
-{
-  int i;
-
-  for (i = 0; i < CONFIG_SERIAL_NPOLLWAITERS; i++)
-    {
-      struct pollfd *fds = dev->fds[i];
-      if (fds)
-        {
-#ifdef CONFIG_SERIAL_REMOVABLE
-          fds->revents |= ((fds->events | (POLLERR | POLLHUP)) & eventset);
-#else
-          fds->revents |= (fds->events & eventset);
-#endif
-          if (fds->revents != 0)
-            {
-              int semcount;
-
-              finfo("Report events: %08" PRIx32 "\n", fds->revents);
-
-              nxsem_get_value(fds->sem, &semcount);
-              if (semcount < 1)
-                {
-                  nxsem_post(fds->sem);
-                }
-            }
-        }
-    }
-}
 
 /****************************************************************************
  * Name: uart_putxmitchar
@@ -293,7 +234,7 @@ static int uart_putxmitchar(FAR uart_dev_t *dev, int ch, bool oktoblock)
               uart_dmatxavail(dev);
 #endif
               uart_enabletxint(dev);
-              ret = uart_takesem(&dev->xmitsem, true);
+              ret = nxsem_wait(&dev->xmitsem);
               uart_disabletxint(dev);
             }
 
@@ -441,7 +382,7 @@ static int uart_tcdrain(FAR uart_dev_t *dev,
    * the operation with EINTR.
    */
 
-  ret = (ssize_t)uart_takesem(&dev->xmit.sem, true);
+  ret = nxmutex_lock(&dev->xmit.lock);
   if (ret >= 0)
     {
       irqstate_t flags;
@@ -494,7 +435,7 @@ static int uart_tcdrain(FAR uart_dev_t *dev,
               uart_dmatxavail(dev);
 #endif
               uart_enabletxint(dev);
-              ret = uart_takesem(&dev->xmitsem, true);
+              ret = nxsem_wait(&dev->xmitsem);
               uart_disabletxint(dev);
             }
         }
@@ -528,12 +469,13 @@ static int uart_tcdrain(FAR uart_dev_t *dev,
               elapsed = clock_systime_ticks() - start;
               if (elapsed >= timeout)
                 {
+                  nxmutex_unlock(&dev->xmit.lock);
                   return -ETIMEDOUT;
                 }
             }
         }
 
-      uart_givesem(&dev->xmit.sem);
+      nxmutex_unlock(&dev->xmit.lock);
     }
 
   if (cancelable)
@@ -563,7 +505,7 @@ static int uart_open(FAR struct file *filep)
    * If a signal is received while we are waiting, then return EINTR.
    */
 
-  ret = uart_takesem(&dev->closesem, true);
+  ret = nxmutex_lock(&dev->closelock);
   if (ret < 0)
     {
       /* A signal received while waiting for the last close operation. */
@@ -580,7 +522,7 @@ static int uart_open(FAR struct file *filep)
   if (dev->disconnected)
     {
       ret = -ENOTCONN;
-      goto errout_with_sem;
+      goto errout_with_lock;
     }
 #endif
 
@@ -594,7 +536,7 @@ static int uart_open(FAR struct file *filep)
       /* More than 255 opens; uint8_t overflows to zero */
 
       ret = -EMFILE;
-      goto errout_with_sem;
+      goto errout_with_lock;
     }
 
   /* Check if this is the first time that the driver has been opened. */
@@ -615,7 +557,7 @@ static int uart_open(FAR struct file *filep)
           if (ret < 0)
             {
               leave_critical_section(flags);
-              goto errout_with_sem;
+              goto errout_with_lock;
             }
         }
 
@@ -630,7 +572,7 @@ static int uart_open(FAR struct file *filep)
         {
           uart_shutdown(dev);
           leave_critical_section(flags);
-          goto errout_with_sem;
+          goto errout_with_lock;
         }
 
 #ifdef CONFIG_SERIAL_RXDMA
@@ -649,8 +591,8 @@ static int uart_open(FAR struct file *filep)
 
   dev->open_count = tmp;
 
-errout_with_sem:
-  uart_givesem(&dev->closesem);
+errout_with_lock:
+  nxmutex_unlock(&dev->closelock);
   return ret;
 }
 
@@ -677,11 +619,11 @@ static int uart_close(FAR struct file *filep)
    * this case.
    */
 
-  uart_takesem(&dev->closesem, false);
+  nxmutex_lock(&dev->closelock);
   if (dev->open_count > 1)
     {
       dev->open_count--;
-      uart_givesem(&dev->closesem);
+      nxmutex_unlock(&dev->closelock);
       return OK;
     }
 
@@ -723,7 +665,7 @@ static int uart_close(FAR struct file *filep)
    */
 
   uart_reset_sem(dev);
-  uart_givesem(&dev->closesem);
+  nxmutex_unlock(&dev->closelock);
   return OK;
 }
 
@@ -749,7 +691,7 @@ static ssize_t uart_read(FAR struct file *filep,
 
   /* Only one user can access rxbuf->tail at a time */
 
-  ret = uart_takesem(&rxbuf->sem, true);
+  ret = nxmutex_lock(&dev->recv.lock);
   if (ret < 0)
     {
       /* A signal received while waiting for access to the recv.tail will
@@ -980,7 +922,7 @@ static ssize_t uart_read(FAR struct file *filep,
                    */
 
                   dev->recvwaiting = true;
-                  ret = uart_takesem(&dev->recvsem, true);
+                  ret = nxsem_wait(&dev->recvsem);
                 }
 
               leave_critical_section(flags);
@@ -1084,7 +1026,7 @@ static ssize_t uart_read(FAR struct file *filep,
 #endif
 #endif
 
-  uart_givesem(&dev->recv.sem);
+  nxmutex_unlock(&dev->recv.lock);
   return recvd;
 }
 
@@ -1131,7 +1073,7 @@ static ssize_t uart_write(FAR struct file *filep, FAR const char *buffer,
 
   /* Only one user can access dev->xmit.head at a time */
 
-  ret = (ssize_t)uart_takesem(&dev->xmit.sem, true);
+  ret = nxmutex_lock(&dev->xmit.lock);
   if (ret < 0)
     {
       /* A signal received while waiting for access to the xmit.head will
@@ -1144,14 +1086,14 @@ static ssize_t uart_write(FAR struct file *filep, FAR const char *buffer,
 
 #ifdef CONFIG_SERIAL_REMOVABLE
   /* If the removable device is no longer connected, refuse to write to the
-   * device.  This check occurs after taking the xmit.sem because the
+   * device.  This check occurs after taking the xmit.lock because the
    * disconnection event might have occurred while we were waiting for
    * access to the transmit buffers.
    */
 
   if (dev->disconnected)
     {
-      uart_givesem(&dev->xmit.sem);
+      nxmutex_unlock(&dev->xmit.lock);
       return -ENOTCONN;
     }
 #endif
@@ -1263,7 +1205,7 @@ static ssize_t uart_write(FAR struct file *filep, FAR const char *buffer,
       uart_enabletxint(dev);
     }
 
-  uart_givesem(&dev->xmit.sem);
+  nxmutex_unlock(&dev->xmit.lock);
   return nwritten;
 }
 
@@ -1514,7 +1456,7 @@ static int uart_poll(FAR struct file *filep,
 
   /* Are we setting up the poll?  Or tearing it down? */
 
-  ret = uart_takesem(&dev->pollsem, true);
+  ret = nxmutex_lock(&dev->polllock);
   if (ret < 0)
     {
       /* A signal received while waiting for access to the poll data
@@ -1560,7 +1502,7 @@ static int uart_poll(FAR struct file *filep,
        */
 
       eventset = 0;
-      uart_takesem(&dev->xmit.sem, false);
+      nxmutex_lock(&dev->xmit.lock);
 
       ndx = dev->xmit.head + 1;
       if (ndx >= dev->xmit.size)
@@ -1570,10 +1512,10 @@ static int uart_poll(FAR struct file *filep,
 
       if (ndx != dev->xmit.tail)
         {
-          eventset |= (fds->events & POLLOUT);
+          eventset |= POLLOUT;
         }
 
-      uart_givesem(&dev->xmit.sem);
+      nxmutex_unlock(&dev->xmit.lock);
 
       /* Check if the receive buffer is empty.
        *
@@ -1582,13 +1524,13 @@ static int uart_poll(FAR struct file *filep,
        * (we probably should, but that would be a little awkward).
        */
 
-      uart_takesem(&dev->recv.sem, false);
+      nxmutex_lock(&dev->recv.lock);
       if (dev->recv.head != dev->recv.tail)
         {
-          eventset |= (fds->events & POLLIN);
+          eventset |= POLLIN;
         }
 
-      uart_givesem(&dev->recv.sem);
+      nxmutex_unlock(&dev->recv.lock);
 
 #ifdef CONFIG_SERIAL_REMOVABLE
       /* Check if a removable device has been disconnected. */
@@ -1599,10 +1541,7 @@ static int uart_poll(FAR struct file *filep,
         }
 #endif
 
-      if (eventset)
-        {
-          uart_pollnotify(dev, eventset);
-        }
+      poll_notify(dev->fds, CONFIG_SERIAL_NPOLLWAITERS, eventset);
     }
   else if (fds->priv != NULL)
     {
@@ -1625,7 +1564,7 @@ static int uart_poll(FAR struct file *filep,
     }
 
 errout:
-  uart_givesem(&dev->pollsem);
+  nxmutex_unlock(&dev->polllock);
   return ret;
 }
 
@@ -1665,9 +1604,9 @@ static void uart_launch_worker(void *arg)
 #ifdef CONFIG_TTY_LAUNCH_ENTRY
       nxtask_create(CONFIG_TTY_LAUNCH_ENTRYNAME,
                     CONFIG_TTY_LAUNCH_PRIORITY,
-                    CONFIG_TTY_LAUNCH_STACKSIZE,
-                    (main_t)CONFIG_TTY_LAUNCH_ENTRYPOINT,
-                    argv);
+                    NULL, CONFIG_TTY_LAUNCH_STACKSIZE,
+                    CONFIG_TTY_LAUNCH_ENTRYPOINT,
+                    argv, NULL);
 #else
       posix_spawnattr_t attr;
 
@@ -1721,21 +1660,14 @@ int uart_register(FAR const char *path, FAR uart_dev_t *dev)
     }
 #endif
 
-  /* Initialize semaphores */
+  /* Initialize mutex & semaphores */
 
-  nxsem_init(&dev->xmit.sem, 0, 1);
-  nxsem_init(&dev->recv.sem, 0, 1);
-  nxsem_init(&dev->closesem, 0, 1);
+  nxmutex_init(&dev->xmit.lock);
+  nxmutex_init(&dev->recv.lock);
+  nxmutex_init(&dev->closelock);
   nxsem_init(&dev->xmitsem,  0, 0);
   nxsem_init(&dev->recvsem,  0, 0);
-  nxsem_init(&dev->pollsem,  0, 1);
-
-  /* The recvsem and xmitsem are used for signaling and, hence, should
-   * not have priority inheritance enabled.
-   */
-
-  nxsem_set_protocol(&dev->xmitsem, SEM_PRIO_NONE);
-  nxsem_set_protocol(&dev->recvsem, SEM_PRIO_NONE);
+  nxmutex_init(&dev->polllock);
 
   /* Register the serial driver */
 
@@ -1757,7 +1689,7 @@ void uart_datareceived(FAR uart_dev_t *dev)
 {
   /* Notify all poll/select waiters that they can read from the recv buffer */
 
-  uart_pollnotify(dev, POLLIN);
+  poll_notify(dev->fds, CONFIG_SERIAL_NPOLLWAITERS, POLLIN);
 
   /* Is there a thread waiting for read data?  */
 
@@ -1795,7 +1727,7 @@ void uart_datasent(FAR uart_dev_t *dev)
 {
   /* Notify all poll/select waiters that they can write to xmit buffer */
 
-  uart_pollnotify(dev, POLLOUT);
+  poll_notify(dev->fds, CONFIG_SERIAL_NPOLLWAITERS, POLLOUT);
 
   /* Is there a thread waiting for space in xmit.buffer?  */
 
@@ -1845,7 +1777,7 @@ void uart_connected(FAR uart_dev_t *dev, bool connected)
     {
       /* Notify all poll/select waiters that a hangup occurred */
 
-      uart_pollnotify(dev, (POLLERR | POLLHUP));
+      poll_notify(dev->fds, CONFIG_SERIAL_NPOLLWAITERS, POLLERR | POLLHUP);
 
       /* Yes.. wake up all waiting threads.  Each thread should detect the
        * disconnection and return the ENOTCONN error.
@@ -1890,9 +1822,9 @@ void uart_reset_sem(FAR uart_dev_t *dev)
 {
   nxsem_reset(&dev->xmitsem,  0);
   nxsem_reset(&dev->recvsem,  0);
-  nxsem_reset(&dev->xmit.sem, 1);
-  nxsem_reset(&dev->recv.sem, 1);
-  nxsem_reset(&dev->pollsem,  1);
+  nxmutex_reset(&dev->xmit.lock);
+  nxmutex_reset(&dev->recv.lock);
+  nxmutex_reset(&dev->polllock);
 }
 
 /****************************************************************************

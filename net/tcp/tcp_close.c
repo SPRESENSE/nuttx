@@ -53,10 +53,13 @@ static void tcp_close_work(FAR void *param)
 
   net_lock();
 
-  /* Stop the network monitor for all sockets */
+  if (conn && conn->crefs == 0)
+    {
+      /* Stop the network monitor for all sockets */
 
-  tcp_stop_monitor(conn, TCP_CLOSE);
-  tcp_free(conn);
+      tcp_stop_monitor(conn, TCP_CLOSE);
+      tcp_free(conn);
+    }
 
   net_unlock();
 }
@@ -66,11 +69,9 @@ static void tcp_close_work(FAR void *param)
  ****************************************************************************/
 
 static uint16_t tcp_close_eventhandler(FAR struct net_driver_s *dev,
-                                       FAR void *pvconn, FAR void *pvpriv,
-                                       uint16_t flags)
+                                       FAR void *pvpriv, uint16_t flags)
 {
-  FAR struct tcp_conn_s *conn = pvconn;
-  FAR struct devif_callback_s *cb = pvpriv;
+  FAR struct tcp_conn_s *conn = pvpriv;
 
   ninfo("flags: %04x\n", flags);
 
@@ -177,11 +178,15 @@ static uint16_t tcp_close_eventhandler(FAR struct net_driver_s *dev,
   return flags;
 
 end_wait:
-  tcp_callback_free(conn, cb);
+  if (conn->clscb != NULL)
+    {
+      tcp_callback_free(conn, conn->clscb);
+      conn->clscb = NULL;
+    }
 
   /* Free network resources */
 
-  work_queue(LPWORK, &conn->work, tcp_close_work, conn, 0);
+  work_queue(LPWORK, &conn->clswork, tcp_close_work, conn, 0);
 
   return flags;
 }
@@ -253,7 +258,6 @@ static inline void tcp_close_txnotify(FAR struct socket *psock,
 static inline int tcp_close_disconnect(FAR struct socket *psock)
 {
   FAR struct tcp_conn_s *conn;
-  FAR struct devif_callback_s *cb;
   int ret = OK;
 
   /* Interrupts are disabled here to avoid race conditions */
@@ -306,13 +310,13 @@ static inline int tcp_close_disconnect(FAR struct socket *psock)
 
   if ((conn->tcpstateflags == TCP_ESTABLISHED ||
        conn->tcpstateflags == TCP_LAST_ACK) &&
-      (cb = tcp_callback_alloc(conn)) != NULL)
+      (conn->clscb = tcp_callback_alloc(conn)) != NULL)
     {
       /* Set up to receive TCP data event callbacks */
 
-      cb->flags = (TCP_NEWDATA | TCP_POLL | TCP_DISCONN_EVENTS);
-      cb->event = tcp_close_eventhandler;
-      cb->priv  = cb; /* reference for event handler to free cb */
+      conn->clscb->flags = TCP_NEWDATA | TCP_POLL | TCP_DISCONN_EVENTS;
+      conn->clscb->event = tcp_close_eventhandler;
+      conn->clscb->priv  = conn; /* reference for event handler to free cb */
 
       /* Notify the device driver of the availability of TX data */
 

@@ -33,7 +33,7 @@
 #include <nuttx/kmalloc.h>
 #include <nuttx/list.h>
 #include <nuttx/mm/circbuf.h>
-#include <nuttx/semaphore.h>
+#include <nuttx/mutex.h>
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -46,7 +46,7 @@
 struct keyboard_opriv_s
 {
   sem_t              waitsem;
-  sem_t              locksem;
+  mutex_t            lock;
   struct circbuf_s   circ;
   struct list_node   node;
   FAR struct pollfd *fds;
@@ -56,11 +56,11 @@ struct keyboard_opriv_s
 
 struct keyboard_upperhalf_s
 {
-  sem_t            exclsem; /* Manages exclusive access to this structure */
-  struct list_node head;    /* Head of list */
+  mutex_t          lock;     /* Manages exclusive access to this structure */
+  struct list_node head;     /* Head of list */
   FAR struct keyboard_lowerhalf_s
-                  *lower;   /* A pointer of lower half instance */
-  uint8_t          nums;    /* Number of buffer */
+                  *lower;    /* A pointer of lower half instance */
+  uint8_t          nums;     /* Number of buffer */
 };
 
 /****************************************************************************
@@ -75,7 +75,6 @@ static ssize_t keyboard_write(FAR struct file *filep, FAR const char *buffer,
                               size_t len);
 static int     keyboard_poll(FAR struct file *filep, FAR struct pollfd *fds,
                              bool setup);
-static void    keyboard_notify(FAR struct keyboard_opriv_s *buffer);
 
 /****************************************************************************
  * Private Data
@@ -100,30 +99,6 @@ static const struct file_operations g_keyboard_fops =
  ****************************************************************************/
 
 /****************************************************************************
- * Name: keyboard_notify
- ****************************************************************************/
-
-static void keyboard_notify(FAR struct keyboard_opriv_s *opriv)
-{
-  FAR struct pollfd *fds = opriv->fds;
-  if (fds != NULL)
-    {
-      fds->revents |= (fds->events & POLLIN);
-      if (fds->revents != 0)
-        {
-          /* report event log */
-
-          int semcount;
-          nxsem_get_value(fds->sem, &semcount);
-          if (semcount < 1)
-            {
-              nxsem_post(fds->sem);
-            }
-        }
-    }
-}
-
-/****************************************************************************
  * Name: keyboard_open
  ****************************************************************************/
 
@@ -134,7 +109,7 @@ static int keyboard_open(FAR struct file *filep)
   FAR struct keyboard_upperhalf_s *upper = inode->i_private;
   int ret;
 
-  ret = nxsem_wait(&upper->exclsem);
+  ret = nxmutex_lock(&upper->lock);
   if (ret < 0)
     {
       return ret;
@@ -143,7 +118,7 @@ static int keyboard_open(FAR struct file *filep)
   opriv = kmm_zalloc(sizeof(FAR struct keyboard_opriv_s));
   if (opriv == NULL)
     {
-      nxsem_post(&upper->exclsem);
+      nxmutex_unlock(&upper->lock);
       return -ENOMEM;
     }
 
@@ -153,7 +128,7 @@ static int keyboard_open(FAR struct file *filep)
   if (ret < 0)
     {
       kmm_free(opriv);
-      nxsem_post(&upper->exclsem);
+      nxmutex_unlock(&upper->lock);
       return ret;
     }
 
@@ -165,18 +140,17 @@ static int keyboard_open(FAR struct file *filep)
       if (ret < 0)
         {
           kmm_free(opriv);
-          nxsem_post(&upper->exclsem);
+          nxmutex_unlock(&upper->lock);
           return ret;
         }
     }
 
   nxsem_init(&opriv->waitsem, 0, 0);
-  nxsem_init(&opriv->locksem, 0, 1);
-  nxsem_set_protocol(&opriv->waitsem, SEM_PRIO_NONE);
+  nxmutex_init(&opriv->lock);
   list_add_tail(&upper->head, &opriv->node);
   filep->f_priv = opriv;
 
-  nxsem_post(&upper->exclsem);
+  nxmutex_unlock(&upper->lock);
   return ret;
 }
 
@@ -191,7 +165,7 @@ static int keyboard_close(FAR struct file *filep)
   FAR struct keyboard_upperhalf_s *upper = inode->i_private;
   int ret;
 
-  ret = nxsem_wait(&upper->exclsem);
+  ret = nxmutex_lock(&upper->lock);
   if (ret < 0)
     {
       return ret;
@@ -211,11 +185,11 @@ static int keyboard_close(FAR struct file *filep)
   list_delete(&opriv->node);
   circbuf_uninit(&opriv->circ);
   nxsem_destroy(&opriv->waitsem);
-  nxsem_destroy(&opriv->locksem);
+  nxmutex_destroy(&opriv->lock);
   kmm_free(opriv);
 
 out:
-  nxsem_post(&upper->exclsem);
+  nxmutex_unlock(&upper->lock);
   return ret;
 }
 
@@ -231,7 +205,7 @@ static ssize_t keyboard_read(FAR struct file *filep,
 
   /* Make sure that we have exclusive access to the private data structure */
 
-  ret = nxsem_wait(&opriv->locksem);
+  ret = nxmutex_lock(&opriv->lock);
   if (ret < 0)
     {
       return ret;
@@ -248,14 +222,14 @@ static ssize_t keyboard_read(FAR struct file *filep,
         }
       else
         {
-          nxsem_post(&opriv->locksem);
+          nxmutex_unlock(&opriv->lock);
           ret = nxsem_wait_uninterruptible(&opriv->waitsem);
           if (ret < 0)
             {
               return ret;
             }
 
-          ret = nxsem_wait(&opriv->locksem);
+          ret = nxmutex_lock(&opriv->lock);
           if (ret < 0)
             {
               return ret;
@@ -266,7 +240,7 @@ static ssize_t keyboard_read(FAR struct file *filep,
   ret = circbuf_read(&opriv->circ, buff, len);
 
 out:
-  nxsem_post(&opriv->locksem);
+  nxmutex_unlock(&opriv->lock);
   return ret;
 }
 
@@ -280,7 +254,7 @@ static int keyboard_poll(FAR struct file *filep,
   FAR struct keyboard_opriv_s *opriv = filep->f_priv;
   int ret;
 
-  ret = nxsem_wait(&opriv->locksem);
+  ret = nxmutex_lock(&opriv->lock);
   if (ret < 0)
     {
       return ret;
@@ -301,7 +275,7 @@ static int keyboard_poll(FAR struct file *filep,
 
       if (!circbuf_is_empty(&opriv->circ))
         {
-          keyboard_notify(opriv);
+          poll_notify(&opriv->fds, 1, POLLIN);
         }
     }
   else
@@ -311,7 +285,7 @@ static int keyboard_poll(FAR struct file *filep,
     }
 
 errout:
-  nxsem_post(&opriv->locksem);
+  nxmutex_unlock(&opriv->lock);
   return ret;
 }
 
@@ -366,12 +340,12 @@ int keyboard_register(FAR struct keyboard_lowerhalf_s *lower,
   upper->nums  = nums;
   lower->priv  = upper;
   list_initialize(&upper->head);
-  nxsem_init(&upper->exclsem, 0, 1);
+  nxmutex_init(&upper->lock);
 
   ret = register_driver(path, &g_keyboard_fops, 0666, upper);
   if (ret < 0)
     {
-      nxsem_destroy(&upper->exclsem);
+      nxmutex_destroy(&upper->lock);
       kmm_free(upper);
       return ret;
     }
@@ -401,7 +375,7 @@ int keyboard_unregister(FAR struct keyboard_lowerhalf_s *lower,
       return ret;
     }
 
-  nxsem_destroy(&upper->exclsem);
+  nxmutex_destroy(&upper->lock);
   kmm_free(upper);
   return 0;
 }
@@ -418,7 +392,7 @@ void keyboard_event(FAR struct keyboard_lowerhalf_s *lower, uint32_t keycode,
   struct keyboard_event_s          key;
   int semcount;
 
-  if (nxsem_wait(&upper->exclsem) < 0)
+  if (nxmutex_lock(&upper->lock) < 0)
     {
       return;
     }
@@ -427,7 +401,7 @@ void keyboard_event(FAR struct keyboard_lowerhalf_s *lower, uint32_t keycode,
   key.type = type;
   list_for_every_entry(&upper->head, opriv, struct keyboard_opriv_s, node)
     {
-      if (nxsem_wait(&opriv->locksem) == 0)
+      if (nxmutex_lock(&opriv->lock) == 0)
         {
           circbuf_overwrite(&opriv->circ, &key,
                             sizeof(struct keyboard_event_s));
@@ -437,10 +411,10 @@ void keyboard_event(FAR struct keyboard_lowerhalf_s *lower, uint32_t keycode,
               nxsem_post(&opriv->waitsem);
             }
 
-          keyboard_notify(opriv);
-          nxsem_post(&opriv->locksem);
+          poll_notify(&opriv->fds, 1, POLLIN);
+          nxmutex_unlock(&opriv->lock);
         }
     }
 
-  nxsem_post(&upper->exclsem);
+  nxmutex_unlock(&upper->lock);
 }

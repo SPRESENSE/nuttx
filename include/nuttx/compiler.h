@@ -179,17 +179,25 @@
 
 #  define naked_function __attribute__ ((naked,no_instrument_function))
 
-/* The inline_function attribute informs GCC that the function should always
- * be inlined, regardless of the level of optimization.  The
+/* The always_inline_function attribute informs GCC that the function should
+ * always be inlined, regardless of the level of optimization.  The
  * noinline_function indicates that the function should never be inlined.
  */
 
-#  define inline_function __attribute__ ((always_inline,no_instrument_function))
+#  define always_inline_function __attribute__ ((always_inline,no_instrument_function))
 #  define noinline_function __attribute__ ((noinline))
 
 /* The noinstrument_function attribute informs GCC don't instrument it */
 
 #  define noinstrument_function __attribute__ ((no_instrument_function))
+
+/* The nosanitize_address attribute informs GCC don't sanitize it */
+
+#  define nosanitize_address __attribute__ ((no_sanitize_address))
+
+/* The nosanitize_undefined attribute informs GCC don't sanitize it */
+
+#  define nosanitize_undefined __attribute__((no_sanitize("undefined")))
 
 /* The nostackprotect_function attribute disables stack protection in
  * sensitive functions, e.g., stack coloration routines.
@@ -457,9 +465,11 @@
 
 /* SDCC does not support forced inlining. */
 
-#  define inline_function
+#  define always_inline_function
 #  define noinline_function
 #  define noinstrument_function
+#  define nosanitize_address
+#  define nosanitize_undefined
 #  define nostackprotect_function
 
 #  define unused_code
@@ -588,9 +598,11 @@
 #  define begin_packed_struct
 #  define end_packed_struct
 #  define naked_function
-#  define inline_function
+#  define always_inline_function
 #  define noinline_function
 #  define noinstrument_function
+#  define nosanitize_address
+#  define nosanitize_undefined
 #  define nostackprotect_function
 #  define unused_code
 #  define unused_data
@@ -688,9 +700,11 @@
 #  define end_packed_struct
 #  define reentrant_function
 #  define naked_function
-#  define inline_function
+#  define always_inline_function
 #  define noinline_function
 #  define noinstrument_function
+#  define nosanitize_address
+#  define nosanitize_undefined
 #  define nostackprotect_function
 #  define unused_code
 #  define unused_data
@@ -731,6 +745,75 @@
 
 #  define no_builtin(n)
 
+/* MSVC(Microsoft Visual C++)-specific definitions **************************/
+
+#elif defined(_MSC_VER)
+
+/* Define these here and allow specific architectures to override as needed */
+
+#  define CONFIG_HAVE_LONG_LONG 1
+#  define CONFIG_HAVE_FLOAT 1
+#  define CONFIG_HAVE_DOUBLE 1
+#  define CONFIG_HAVE_LONG_DOUBLE 1
+
+/* Pre-processor */
+
+#  define CONFIG_CPP_HAVE_VARARGS 1 /* Supports variable argument macros */
+
+/* Intriniscs */
+
+#  define CONFIG_HAVE_FUNCTIONNAME 1 /* Has __FUNCTION__ */
+#  define CONFIG_HAVE_FILENAME     1 /* Has __FILE__ */
+
+#  undef  CONFIG_CPP_HAVE_WARNING
+#  undef  CONFIG_HAVE_WEAKFUNCTIONS
+#  define weak_alias(name, aliasname)
+#  define weak_data
+#  define weak_function
+#  define weak_const_function
+#  define restrict
+#  define noreturn_function
+#  define farcall_function
+#  define aligned_data(n)
+#  define locate_code(n)
+#  define locate_data(n)
+#  define begin_packed_struct
+#  define end_packed_struct
+#  define reentrant_function
+#  define naked_function
+#  define always_inline_function
+#  define noinline_function
+#  define noinstrument_function
+#  define nosanitize_address
+#  define nosanitize_undefined
+#  define nostackprotect_function
+#  define unused_code
+#  define unused_data
+#  define used_code
+#  define used_data
+#  define formatlike(a)
+#  define printflike(a, b)
+#  define sysloglike(a, b)
+#  define scanflike(a, b)
+#  define strftimelike(a)
+
+#  define FAR
+#  define NEAR
+#  define DSEG
+#  define CODE
+#  define IOBJ
+#  define IPTR
+
+#  undef  CONFIG_SMALL_MEMORY
+#  undef  CONFIG_LONG_IS_NOT_INT
+#  undef  CONFIG_PTR_IS_NOT_INT
+
+#  define UNUSED(a) ((void)(1 || &(a)))
+
+#  define offsetof(a, b) ((size_t)(&(((a *)(0))->b)))
+
+#  define no_builtin(n)
+
 /* Unknown compiler *********************************************************/
 
 #else
@@ -754,9 +837,11 @@
 #  define end_packed_struct
 #  define reentrant_function
 #  define naked_function
-#  define inline_function
+#  define always_inline_function
 #  define noinline_function
 #  define noinstrument_function
+#  define nosanitize_address
+#  define nosanitize_undefined
 #  define nostackprotect_function
 #  define unused_code
 #  define unused_data

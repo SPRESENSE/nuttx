@@ -45,11 +45,10 @@
  ****************************************************************************/
 
 static uint16_t getsockopt_event(FAR struct net_driver_s *dev,
-                                 FAR void *pvconn, FAR void *pvpriv,
-                                 uint16_t flags)
+                                 FAR void *pvpriv, uint16_t flags)
 {
   FAR struct usrsock_data_reqstate_s *pstate = pvpriv;
-  FAR struct usrsock_conn_s *conn = pvconn;
+  FAR struct usrsock_conn_s *conn = pstate->reqstate.conn;
 
   if (flags & USRSOCK_EVENT_ABORT)
     {
@@ -60,9 +59,9 @@ static uint16_t getsockopt_event(FAR struct net_driver_s *dev,
 
       /* Stop further callbacks */
 
-      pstate->reqstate.cb->flags   = 0;
-      pstate->reqstate.cb->priv    = NULL;
-      pstate->reqstate.cb->event   = NULL;
+      pstate->reqstate.cb->flags = 0;
+      pstate->reqstate.cb->priv  = NULL;
+      pstate->reqstate.cb->event = NULL;
 
       /* Wake up the waiting thread */
 
@@ -84,9 +83,9 @@ static uint16_t getsockopt_event(FAR struct net_driver_s *dev,
 
       /* Stop further callbacks */
 
-      pstate->reqstate.cb->flags   = 0;
-      pstate->reqstate.cb->priv    = NULL;
-      pstate->reqstate.cb->event   = NULL;
+      pstate->reqstate.cb->flags = 0;
+      pstate->reqstate.cb->priv  = NULL;
+      pstate->reqstate.cb->event = NULL;
 
       /* Wake up the waiting thread */
 
@@ -135,7 +134,7 @@ static int do_getsockopt_request(FAR struct usrsock_conn_s *conn, int level,
   bufs[0].iov_base = (FAR void *)&req;
   bufs[0].iov_len = sizeof(req);
 
-  return usrsockdev_do_request(conn, bufs, ARRAY_SIZE(bufs));
+  return usrsock_do_request(conn, bufs, ARRAY_SIZE(bufs));
 }
 
 /****************************************************************************
@@ -236,7 +235,6 @@ int usrsock_getsockopt(FAR struct usrsock_conn_s *conn,
 
 errout_unlock:
   net_unlock();
-
   return ret;
 }
 

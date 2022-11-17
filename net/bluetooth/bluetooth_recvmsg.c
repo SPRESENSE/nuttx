@@ -183,7 +183,7 @@ static ssize_t
 
       /* Free both the IOB and the container */
 
-      iob_free(iob, IOBUSER_NET_SOCK_BLUETOOTH);
+      iob_free(iob);
       bluetooth_container_free(container);
     }
 
@@ -205,7 +205,6 @@ static ssize_t
  ****************************************************************************/
 
 static uint16_t bluetooth_recvfrom_eventhandler(FAR struct net_driver_s *dev,
-                                                 FAR void *pvconn,
                                                  FAR void *pvpriv,
                                                  uint16_t flags)
 {
@@ -215,7 +214,7 @@ static uint16_t bluetooth_recvfrom_eventhandler(FAR struct net_driver_s *dev,
 
   ninfo("flags: %04x\n", flags);
 
-  DEBUGASSERT(pvpriv != NULL && dev != NULL && pvconn != NULL);
+  DEBUGASSERT(pvpriv != NULL && dev != NULL);
 
   /* Ignore polls from non Bluetooth network drivers */
 
@@ -228,7 +227,7 @@ static uint16_t bluetooth_recvfrom_eventhandler(FAR struct net_driver_s *dev,
 
 #warning Missing logic
 
-  pstate = (FAR struct bluetooth_recvfrom_s *)pvpriv;
+  pstate = pvpriv;
   radio  = (FAR struct radio_driver_s *)dev;
 
   /* 'pstate' might be null in some race conditions (?) */
@@ -366,12 +365,7 @@ ssize_t bluetooth_recvmsg(FAR struct socket *psock, FAR struct msghdr *msg,
       return ret;
     }
 
-  /* We will have to wait.  This semaphore is used for signaling and,
-   * hence, should not have priority inheritance enabled.
-   */
-
   nxsem_init(&state.ir_sem, 0, 0); /* Doesn't really fail */
-  nxsem_set_protocol(&state.ir_sem, SEM_PRIO_NONE);
 
   /* Set up the callback in the connection */
 

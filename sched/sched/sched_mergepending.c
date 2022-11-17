@@ -26,8 +26,9 @@
 
 #include <stdbool.h>
 #include <sched.h>
-#include <queue.h>
 #include <assert.h>
+
+#include <nuttx/queue.h>
 
 #ifdef CONFIG_SMP
 #  include <nuttx/spinlock.h>
@@ -195,12 +196,12 @@ bool nxsched_merge_pending(void)
     {
       /* Find the CPU that is executing the lowest priority task */
 
-      ptcb = (FAR struct tcb_s *)dq_peek((FAR dq_queue_t *)&g_pendingtasks);
+      ptcb = (FAR struct tcb_s *)dq_peek(&g_pendingtasks);
       if (ptcb == NULL)
         {
           /* The pending task list is empty */
 
-          goto errout;
+          return false;
         }
 
       cpu  = nxsched_select_cpu(ALL_CPUS); /* REVISIT:  Maybe ptcb->affinity */
@@ -219,8 +220,7 @@ bool nxsched_merge_pending(void)
         {
           /* Remove the task from the pending task list */
 
-          tcb = (FAR struct tcb_s *)
-            dq_remfirst((FAR dq_queue_t *)&g_pendingtasks);
+          tcb = (FAR struct tcb_s *)dq_remfirst(&g_pendingtasks);
 
           /* Add the pending task to the correct ready-to-run list. */
 
@@ -237,8 +237,8 @@ bool nxsched_merge_pending(void)
                * move them back to the pending task list.
                */
 
-              nxsched_merge_prioritized((FAR dq_queue_t *)&g_readytorun,
-                                        (FAR dq_queue_t *)&g_pendingtasks,
+              nxsched_merge_prioritized(&g_readytorun,
+                                        &g_pendingtasks,
                                         TSTATE_TASK_PENDING);
 
               /* And return with the scheduler locked and tasks in the
@@ -250,8 +250,7 @@ bool nxsched_merge_pending(void)
 
           /* Set up for the next time through the loop */
 
-          ptcb = (FAR struct tcb_s *)
-            dq_peek((FAR dq_queue_t *)&g_pendingtasks);
+          ptcb = (FAR struct tcb_s *)dq_peek(&g_pendingtasks);
           if (ptcb == NULL)
             {
               /* The pending task list is empty */
@@ -267,13 +266,12 @@ bool nxsched_merge_pending(void)
        * tasks in the pending task list to the ready-to-run task list.
        */
 
-      nxsched_merge_prioritized((FAR dq_queue_t *)&g_pendingtasks,
-                                (FAR dq_queue_t *)&g_readytorun,
+      nxsched_merge_prioritized(&g_pendingtasks,
+                                &g_readytorun,
                                 TSTATE_TASK_READYTORUN);
     }
 
 errout:
-
   return ret;
 }
 #endif /* CONFIG_SMP */

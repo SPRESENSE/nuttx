@@ -216,9 +216,9 @@
 
 /* Queue helpers */
 
-#define dq_get(q)    (dq_remfirst(q))
-#define dq_put(q,n) (dq_addlast((dq_entry_t*)n,(q)))
-#define dq_put_back(q,n) (dq_addfirst((dq_entry_t*)n,(q)))
+#define dq_get(q)    dq_remfirst(q)
+#define dq_put(q,n) dq_addlast((dq_entry_t*)(n),(q))
+#define dq_put_back(q,n) dq_addfirst((dq_entry_t*)(n),(q))
 #define dq_clear(q) \
   do \
     { \
@@ -269,7 +269,6 @@ struct cxd56_dev_s
   struct file             mq;               /* Message queue for receiving messages */
   char                    mqname[16];       /* Our message queue name */
   pthread_t               threadid;         /* ID of our thread */
-  sem_t                   pendsem;          /* Protect pendq */
 
   struct dq_queue_s       up_pendq;         /* Pending buffers from app to process */
   struct dq_queue_s       up_runq;          /* Buffers from app being played */

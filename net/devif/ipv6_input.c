@@ -56,10 +56,7 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-/* Macros */
-
-#define IPv6BUF ((FAR struct ipv6_hdr_s *)&dev->d_buf[NET_LL_HDRLEN(dev)])
-#define PAYLOAD ((FAR uint8_t *)&dev->d_buf[NET_LL_HDRLEN(dev)] + IPv6_HDRLEN)
+#define PAYLOAD ((FAR uint8_t *)TCPIPv6BUF)
 
 /****************************************************************************
  * Private Functions
@@ -379,13 +376,13 @@ int ipv6_input(FAR struct net_driver_s *dev)
             }
           else
 #endif
-#if defined(NET_UDP_HAVE_STACK) && defined(CONFIG_NET_UDP_BINDTODEVICE)
-          /* If the UDP protocol specific socket option UDP_BINDTODEVICE
+#if defined(NET_UDP_HAVE_STACK) && defined(CONFIG_NET_BINDTODEVICE)
+          /* If the protocol specific socket option NET_BINDTODEVICE
            * is selected, then we must forward all UDP packets to the bound
            * socket.
            */
 
-          if (nxthdr != IP_PROTO_UDP || !IFF_IS_BOUND(dev->d_flags))
+          if (nxthdr != IP_PROTO_UDP)
 #endif
             {
               /* Not destined for us and not forwardable...

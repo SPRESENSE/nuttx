@@ -58,7 +58,7 @@
 #include <debug.h>
 
 #include <nuttx/arch.h>
-#include <nuttx/semaphore.h>
+#include <nuttx/mutex.h>
 #include <nuttx/spi/spi.h>
 
 #include <arch/irq.h>
@@ -96,7 +96,7 @@ struct kinetis_spidev_s
 {
   struct spi_dev_s  spidev;     /* Externally visible part of the SPI interface */
   uint32_t          spibase;    /* Base address of SPI registers */
-  sem_t             exclsem;    /* Held while chip is selected for mutual exclusion */
+  mutex_t           lock;       /* Held while chip is selected for mutual exclusion */
   uint32_t          frequency;  /* Requested clock frequency */
   uint32_t          actual;     /* Actual clock frequency */
   uint8_t           nbits;      /* Width of word in bits (8 to 16) */
@@ -672,11 +672,11 @@ static int spi_lock(struct spi_dev_s *dev, bool lock)
 
   if (lock)
     {
-      ret = nxsem_wait_uninterruptible(&priv->exclsem);
+      ret = nxmutex_lock(&priv->lock);
     }
   else
     {
-      ret = nxsem_post(&priv->exclsem);
+      ret = nxmutex_unlock(&priv->lock);
     }
 
   return ret;
@@ -1222,12 +1222,15 @@ static void spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
   config.flags  = EDMA_CONFIG_LINKTYPE_LINKNONE;
   config.ssize  = adjust == 1 ? EDMA_8BIT : EDMA_16BIT;
   config.dsize  = adjust == 1 ? EDMA_8BIT : EDMA_16BIT;
-  config.ttype  = EDMA_PERIPH2MEM;
   config.nbytes = adjust;
 #ifdef CONFIG_KINETIS_EDMA_ELINK
   config.linkch = NULL;
 #endif
   kinetis_dmach_xfrsetup(priv->rxdma, &config);
+
+  up_invalidate_dcache((uintptr_t)config.daddr,
+                       (uintptr_t)config.daddr +
+                       config.iter * config.nbytes);
 
   config.saddr  = (uint32_t) (txbuffer ? txbuffer : &txdummy);
   config.daddr  = priv->spibase + KINETIS_SPI_PUSHR_OFFSET;
@@ -1237,11 +1240,14 @@ static void spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
   config.flags  = EDMA_CONFIG_LINKTYPE_LINKNONE;
   config.ssize  = adjust == 1 ? EDMA_8BIT : EDMA_16BIT;
   config.dsize  = adjust == 1 ? EDMA_8BIT : EDMA_16BIT;
-  config.ttype  = EDMA_MEM2PERIPH;
   config.nbytes = adjust;
 #ifdef CONFIG_KINETIS_EDMA_ELINK
   config.linkch = NULL;
 #endif
+
+  up_clean_dcache((uintptr_t)config.saddr,
+                  (uintptr_t)config.saddr + nbytes * adjust);
+
   kinetis_dmach_xfrsetup(priv->txdma, &config);
 
   spi_modifyreg(priv, KINETIS_SPI_RSER_OFFSET, 0 ,
@@ -1660,9 +1666,9 @@ struct spi_dev_s *kinetis_spibus_initialize(int port)
   priv->frequency = 0;
   spi_setfrequency(&priv->spidev, KINETIS_SPI_CLK_INIT);
 
-  /* Initialize the SPI semaphore that enforces mutually exclusive access */
+  /* Initialize the SPI mutex that enforces mutually exclusive access */
 
-  nxsem_init(&priv->exclsem, 0, 1);
+  nxmutex_init(&priv->lock);
 #ifdef CONFIG_KINETIS_SPI_DMA
   /* Initialize the SPI semaphores that is used to wait for DMA completion.
    * This semaphore is used for signaling and, hence, should not have
@@ -1675,9 +1681,6 @@ struct spi_dev_s *kinetis_spibus_initialize(int port)
         {
           nxsem_init(&priv->rxsem, 0, 0);
           nxsem_init(&priv->txsem, 0, 0);
-
-          nxsem_set_protocol(&priv->rxsem, SEM_PRIO_NONE);
-          nxsem_set_protocol(&priv->txsem, SEM_PRIO_NONE);
 
           priv->txdma = kinetis_dmach_alloc(priv->txch | DMAMUX_CHCFG_ENBL,
                                             0);

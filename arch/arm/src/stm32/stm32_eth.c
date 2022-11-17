@@ -33,13 +33,13 @@
 #include <assert.h>
 #include <debug.h>
 #include <assert.h>
-#include <queue.h>
 #include <errno.h>
 
 #include <arpa/inet.h>
 
 #include <nuttx/arch.h>
 #include <nuttx/irq.h>
+#include <nuttx/queue.h>
 #include <nuttx/wdog.h>
 #include <nuttx/wqueue.h>
 #include <nuttx/net/phy.h>
@@ -1134,7 +1134,7 @@ static int stm32_transmit(struct stm32_ethmac_s *priv)
 
       /* Set frame size */
 
-      DEBUGASSERT(priv->dev.d_len <= CONFIG_NET_ETH_PKTSIZE);
+      DEBUGASSERT(priv->dev.d_len <= CONFIG_STM32_ETH_BUFSIZE);
       txdesc->tdes1 = priv->dev.d_len;
 
       /* Set the Buffer1 address pointer */

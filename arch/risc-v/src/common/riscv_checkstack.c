@@ -155,8 +155,30 @@ size_t riscv_stack_check(uintptr_t alloc, size_t size)
 
 size_t up_check_tcbstack(struct tcb_s *tcb)
 {
-  return riscv_stack_check((uintptr_t)tcb->stack_base_ptr,
+  size_t size;
+
+#ifdef CONFIG_ARCH_ADDRENV
+  save_addrenv_t oldenv;
+  bool saved = false;
+
+  if ((tcb->flags & TCB_FLAG_TTYPE_MASK) != TCB_FLAG_TTYPE_KERNEL)
+    {
+      up_addrenv_select(&tcb->group->tg_addrenv, &oldenv);
+      saved = true;
+    }
+#endif
+
+  size = riscv_stack_check((uintptr_t)tcb->stack_base_ptr,
                            tcb->adj_stack_size);
+
+#ifdef CONFIG_ARCH_ADDRENV
+  if (saved)
+    {
+      up_addrenv_restore(&oldenv);
+    }
+#endif
+
+  return size;
 }
 
 ssize_t up_check_tcbstack_remain(struct tcb_s *tcb)
@@ -177,7 +199,7 @@ ssize_t up_check_stack_remain(void)
 #if CONFIG_ARCH_INTERRUPTSTACK > 15
 size_t up_check_intstack(void)
 {
-  return riscv_stack_check((uintptr_t)&g_intstackalloc,
+  return riscv_stack_check((uintptr_t)g_intstackalloc,
                            (CONFIG_ARCH_INTERRUPTSTACK & ~15));
 }
 

@@ -28,9 +28,9 @@
 #include <unistd.h>
 #include <assert.h>
 #include <errno.h>
-#include <queue.h>
 #include <debug.h>
 
+#include <nuttx/queue.h>
 #include <nuttx/net/net.h>
 
 #include <arch/irq.h>
@@ -44,21 +44,6 @@
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
-
-/****************************************************************************
- * Name: _local_semtake() and _local_semgive()
- *
- * Description:
- *   Take/give semaphore
- *
- ****************************************************************************/
-
-static inline void _local_semtake(sem_t *sem)
-{
-  net_lockedwait_uninterruptible(sem);
-}
-
-#define _local_semgive(sem) nxsem_post(sem)
 
 /****************************************************************************
  * Name: local_stream_connect
@@ -143,7 +128,7 @@ static int inline local_stream_connect(FAR struct local_conn_s *client,
 
   if (nxsem_get_value(&server->lc_waitsem, &sval) >= 0 && sval < 1)
     {
-      _local_semgive(&server->lc_waitsem);
+      nxsem_post(&server->lc_waitsem);
     }
 
   /* Wait for the server to accept the connections */
@@ -152,7 +137,7 @@ static int inline local_stream_connect(FAR struct local_conn_s *client,
     {
       do
         {
-          _local_semtake(&client->lc_waitsem);
+          net_lockedwait_uninterruptible(&client->lc_waitsem);
           ret = client->u.client.lc_result;
         }
       while (ret == -EBUSY);
@@ -306,9 +291,8 @@ int psock_local_connect(FAR struct socket *psock,
 
                 client->lc_type  = conn->lc_type;
                 client->lc_proto = conn->lc_proto;
-                strncpy(client->lc_path, unaddr->sun_path,
-                        UNIX_PATH_MAX - 1);
-                client->lc_path[UNIX_PATH_MAX - 1] = '\0';
+                strlcpy(client->lc_path, unaddr->sun_path,
+                        sizeof(client->lc_path));
                 client->lc_instance_id = local_generate_instance_id();
 
                 /* The client is now bound to an address */

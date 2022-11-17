@@ -34,6 +34,12 @@ config DISABLE_MQUEUE
 	bool "Disable POSIX message queue support"
 	default DEFAULT_SMALL
 
+config DISABLE_MQUEUE_SYSV
+	bool "Disable System V message queue support"
+	default DISABLE_MQUEUE
+	---help---
+		Disable System V message queue support
+
 config DISABLE_ENVIRON
 	bool "Disable environment variable support"
 	default DEFAULT_SMALL
@@ -59,6 +65,26 @@ config SCHED_TICKLESS
 		defined in include/nuttx/arch.h
 
 if SCHED_TICKLESS
+
+config SCHED_TICKLESS_TICK_ARGUMENT
+	bool "Scheduler use tick argument"
+	default n
+	---help---
+		Enables use of tick argument in scheduler. If enabled, then the
+		board-specific logic must provide the following functions:
+
+			int up_timer_gettick(FAR clock_t *ticks);
+
+		If SCHED_TICKLESS_ALARM is enabled, then these additional interfaces are
+		expected:
+
+			int up_alarm_tick_cancel(FAR clock_t *ticks);
+			int up_alarm_tick_start(clock_t ticks);
+
+		Otherwise, these additional interfaces are expected:
+
+			int up_timer_tick_cancel(FAR clock_t *ticks);
+			int up_timer_tick_start(FAR clock_t ticks);
 
 config SCHED_TICKLESS_ALARM
 	bool "Tickless alarm"
@@ -165,7 +191,7 @@ config ARCH_HAVE_TIMEKEEPING
 config CLOCK_TIMEKEEPING
 	bool "Support timekeeping algorithms"
 	default n
-	depends on EXPERIMENTAL && ARCH_HAVE_TIMEKEEPING
+	depends on ARCH_HAVE_TIMEKEEPING
 	---help---
 		CLOCK_TIMEKEEPING enables experimental time management algorithms.
 
@@ -197,6 +223,7 @@ config PREALLOC_TIMERS
 	int "Number of pre-allocated POSIX timers"
 	default 4 if DEFAULT_SMALL
 	default 8 if !DEFAULT_SMALL
+	depends on !DISABLE_POSIX_TIMERS
 	---help---
 		The number of pre-allocated POSIX timer structures.  The system manages a
 		pool of preallocated timer structures to minimize dynamic allocations.  Set to
@@ -568,6 +595,14 @@ config SCHED_WAITPID
 		compliant) and will enable the waitid() and wait() interfaces as
 		well.
 
+config SCHED_DUMP_LEAK
+	bool "Enable catch task memory leak"
+	default n
+	---help---
+		When this option is enabled, the task's outstanding memory allocations
+		are printed using syslog. This helps catch any memory allocated by the
+		task that remains unreleased when the task exits.
+
 config SCHED_USER_IDENTITY
 	bool "Support per-task User Identity"
 	default n
@@ -821,7 +856,7 @@ config SCHED_CPULOAD_EXTCLK
 		achieved.  This option enables use of such an "external" clock.  The
 		implementation of the clock must be provided by platform-specific
 		logic; that platform-specific logic must call the system function
-		nxsched_process_cpuload() at each timer expiration with interrupts
+		nxsched_process_cpuload_ticks() at each timer expiration with interrupts
 		disabled.
 
 if SCHED_CPULOAD_EXTCLK
@@ -1170,16 +1205,6 @@ config SEM_PREALLOCHOLDERS
 		This may be set to zero if priority inheritance is disabled OR if you
 		are only using semaphores as mutexes (only one holder) OR if no more
 		than two threads participate using a counting semaphore.
-
-config SEM_NNESTPRIO
-	int "Maximum number of higher priority threads"
-	default 16
-	---help---
-		If priority inheritance is enabled, then this setting is the
-		maximum number of higher priority threads (minus 1) than can be
-		waiting for another thread to release a count on a semaphore.
-		This value may be set to zero if no more than one thread is
-		expected to wait for a semaphore.
 
 endif # PRIORITY_INHERITANCE
 
@@ -1560,8 +1585,8 @@ config SIG_SIGWORK
 endmenu # Signal Numbers
 endmenu # Signal Configuration
 
-menu "POSIX Message Queue Options"
-	depends on !DISABLE_MQUEUE
+menu "Message Queue Options"
+	depends on !DISABLE_MQUEUE && !DISABLE_MQUEUE_SYSV
 
 config PREALLOC_MQ_MSGS
 	int "Number of pre-allocated messages"

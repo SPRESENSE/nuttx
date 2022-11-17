@@ -47,7 +47,7 @@
 /* Device naming ************************************************************/
 
 #define ROUND_DOWN(x, y)    (((x) / (y)) * (y))
-#define DEVNAME_FMT         "/dev/sensor/sensor_%s%s%d"
+#define DEVNAME_FMT         "/dev/uorb/sensor_%s%s%d"
 #define DEVNAME_UNCAL       "_uncal"
 #define TIMING_BUF_ESIZE    (sizeof(unsigned long))
 
@@ -488,28 +488,12 @@ static ssize_t sensor_do_samples(FAR struct sensor_upperhalf_s *upper,
 static void sensor_pollnotify_one(FAR struct sensor_user_s *user,
                                   pollevent_t eventset)
 {
-  int semcount;
-
   if (eventset == POLLPRI)
     {
       user->changed = true;
     }
 
-  if (!user->fds)
-    {
-      return;
-    }
-
-  user->fds->revents |= (user->fds->events & eventset);
-  if (user->fds->revents != 0)
-    {
-      sninfo("Report events: %08" PRIx32 "\n", user->fds->revents);
-      nxsem_get_value(user->fds->sem, &semcount);
-      if (semcount < 1)
-        {
-          nxsem_post(user->fds->sem);
-        }
-    }
+  poll_notify(&user->fds, 1, eventset);
 }
 
 static void sensor_pollnotify(FAR struct sensor_upperhalf_s *upper,
@@ -536,7 +520,7 @@ static int sensor_open(FAR struct file *filep)
   if (user == NULL)
     {
       ret = -ENOMEM;
-      goto errout_with_sem;
+      goto errout_with_lock;
     }
 
   if (lower->ops->open)
@@ -585,7 +569,6 @@ static int sensor_open(FAR struct file *filep)
   user->state.interval = ULONG_MAX;
   user->state.esize = upper->state.esize;
   nxsem_init(&user->buffersem, 0, 0);
-  nxsem_set_protocol(&user->buffersem, SEM_PRIO_NONE);
   list_add_tail(&upper->userlist, &user->node);
 
   /* The new user generation, notify to other users */
@@ -593,7 +576,7 @@ static int sensor_open(FAR struct file *filep)
   sensor_pollnotify(upper, POLLPRI);
 
   filep->f_priv = user;
-  goto errout_with_sem;
+  goto errout_with_lock;
 
 errout_with_open:
   if (lower->ops->close)
@@ -603,7 +586,7 @@ errout_with_open:
 
 errout_with_user:
   kmm_free(user);
-errout_with_sem:
+errout_with_lock:
   nxrmutex_unlock(&upper->lock);
   return ret;
 }
@@ -899,31 +882,28 @@ static int sensor_poll(FAR struct file *filep,
 
           if (filep->f_oflags & O_NONBLOCK)
             {
-              eventset |= (fds->events & POLLIN);
+              eventset |= POLLIN;
             }
           else
             {
               nxsem_get_value(&user->buffersem, &semcount);
               if (semcount > 0)
                 {
-                  eventset |= (fds->events & POLLIN);
+                  eventset |= POLLIN;
                 }
             }
         }
       else if (sensor_is_updated(upper, user))
         {
-          eventset |= (fds->events & POLLIN);
+          eventset |= POLLIN;
         }
 
       if (user->changed)
         {
-          eventset |= (fds->events & POLLPRI);
+          eventset |= POLLPRI;
         }
 
-      if (eventset)
-        {
-          sensor_pollnotify_one(user, eventset);
-        }
+        sensor_pollnotify_one(user, eventset);
     }
   else
     {
@@ -1074,7 +1054,7 @@ int sensor_register(FAR struct sensor_lowerhalf_s *lower, int devno)
  *   dev   - A pointer to an instance of lower half sensor driver. This
  *           instance is bound to the sensor driver and must persists as long
  *           as the driver persists.
- *   path  - The user specifies path of device. ex: /dev/sensor/xxx.
+ *   path  - The user specifies path of device. ex: /dev/uorb/xxx.
  *   esize - The element size of intermediate circular buffer.
  *
  * Returned Value:
@@ -1203,7 +1183,7 @@ void sensor_unregister(FAR struct sensor_lowerhalf_s *lower, int devno)
  *   dev   - A pointer to an instance of lower half sensor driver. This
  *           instance is bound to the sensor driver and must persists as long
  *           as the driver persists.
- *   path  - The user specifies path of device, ex: /dev/sensor/xxx
+ *   path  - The user specifies path of device, ex: /dev/uorb/xxx
  ****************************************************************************/
 
 void sensor_custom_unregister(FAR struct sensor_lowerhalf_s *lower,

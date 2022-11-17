@@ -25,6 +25,7 @@
 
 #define RV_MMU_PAGE_SHIFT       (12)
 #define RV_MMU_PAGE_SIZE        (1 << RV_MMU_PAGE_SHIFT) /* 4K pages */
+#define RV_MMU_PAGE_MASK        (RV_MMU_PAGE_SIZE - 1)
 
 /* Entries per PGT */
 
@@ -106,9 +107,20 @@
 #define RV_MMU_L1_PAGE_SIZE     (0x40000000) /* 1G */
 #define RV_MMU_L2_PAGE_SIZE     (0x200000)   /* 2M */
 #define RV_MMU_L3_PAGE_SIZE     (0x1000)     /* 4K */
+
+/* Minimum alignment requirement for any section of memory is 2MB */
+
+#define RV_MMU_SECTION_ALIGN        (RV_MMU_L2_PAGE_SIZE)
+#define RV_MMU_SECTION_ALIGN_MASK   (RV_MMU_SECTION_ALIGN - 1)
 #else
 #error "Unsupported RISC-V MMU implementation selected"
 #endif /* CONFIG_ARCH_MMU_TYPE_SV39 */
+
+/****************************************************************************
+ * Public Data
+ ****************************************************************************/
+
+extern uintptr_t g_kernel_pgt_pbase;
 
 /****************************************************************************
  * Name: mmu_satp_reg

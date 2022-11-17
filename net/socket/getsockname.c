@@ -88,7 +88,7 @@ int psock_getsockname(FAR struct socket *psock, FAR struct sockaddr *addr,
 
   /* Some sanity checking... */
 
-  if (addr == NULL || addrlen == NULL || *addrlen <= 0)
+  if (addr == NULL || addrlen == NULL)
     {
       return -EINVAL;
     }
@@ -139,12 +139,20 @@ int psock_getsockname(FAR struct socket *psock, FAR struct sockaddr *addr,
 int getsockname(int sockfd, FAR struct sockaddr *addr,
                 FAR socklen_t *addrlen)
 {
-  FAR struct socket *psock = sockfd_socket(sockfd);
+  FAR struct socket *psock;
   int ret;
+
+  /* Get the underlying socket structure */
+
+  ret = sockfd_socket(sockfd, &psock);
 
   /* Let psock_getsockname() do all of the work */
 
-  ret = psock_getsockname(psock, addr, addrlen);
+  if (ret == OK)
+    {
+      ret = psock_getsockname(psock, addr, addrlen);
+    }
+
   if (ret < 0)
     {
       _SO_SETERRNO(psock, -ret);

@@ -320,6 +320,7 @@ __start:
 	mcr		CP15_TLBIALL(r0,c5)
 	mcr		CP15_BPIALL(r0)		/* Invalidate entire branch prediction array */
 	mcr		CP15_ICIALLU(r0)	/* Invalidate I-cache */
+	isb
 
 	/* Load the page table address.
 	 *
@@ -434,7 +435,7 @@ __start:
 	orr		r0, r0, #(SCTLR_C)
 #endif
 
-#ifndef CPU_ICACHE_DISABLE
+#if !defined(CPU_ICACHE_DISABLE) && !defined(CONFIG_SMP)
 	/* Icache enable
 	 *
 	 *   SCTLR_I    Bit 12: ICache enable
@@ -467,6 +468,7 @@ __start:
 	/* Then write the configured control register */
 
 	mcr		CP15_SCTLR(r0)			/* Write control reg */
+	isb
 	.rept		12				/* Cortex A8 wants lots of NOPs here */
 	nop
 	.endr

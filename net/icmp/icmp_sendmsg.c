@@ -56,15 +56,6 @@
 #ifdef CONFIG_NET_ICMP_SOCKET
 
 /****************************************************************************
- * Pre-processor Definitions
- ****************************************************************************/
-
-#define IPv4BUF \
-  ((FAR struct ipv4_hdr_s *)&dev->d_buf[NET_LL_HDRLEN(dev)])
-#define ICMPBUF \
-  ((FAR struct icmp_hdr_s *)&dev->d_buf[NET_LL_HDRLEN(dev) + IPv4_HDRLEN])
-
-/****************************************************************************
  * Private Types
  ****************************************************************************/
 
@@ -141,7 +132,7 @@ static void sendto_request(FAR struct net_driver_s *dev,
 
   /* Copy the ICMP header and payload into place after the IPv4 header */
 
-  icmp              = ICMPBUF;
+  icmp              = IPBUF(IPv4_HDRLEN);
   memcpy(icmp, pstate->snd_buf, pstate->snd_buflen);
 
   /* Calculate IP checksum. */
@@ -178,7 +169,6 @@ static void sendto_request(FAR struct net_driver_s *dev,
  * Input Parameters:
  *   dev        The structure of the network driver that generated the
  *              event.
- *   conn       The received packet, cast to (void *)
  *   pvpriv     An instance of struct icmp_sendto_s cast to (void *)
  *   flags      Set of events describing why the callback was invoked
  *
@@ -191,10 +181,9 @@ static void sendto_request(FAR struct net_driver_s *dev,
  ****************************************************************************/
 
 static uint16_t sendto_eventhandler(FAR struct net_driver_s *dev,
-                                  FAR void *conn,
-                                  FAR void *pvpriv, uint16_t flags)
+                                    FAR void *pvpriv, uint16_t flags)
 {
-  FAR struct icmp_sendto_s *pstate = (struct icmp_sendto_s *)pvpriv;
+  FAR struct icmp_sendto_s *pstate = pvpriv;
 
   ninfo("flags: %04x\n", flags);
 
@@ -358,7 +347,7 @@ ssize_t icmp_sendmsg(FAR struct socket *psock, FAR struct msghdr *msg,
       conn->nreqs = 0;
       conn->dev   = NULL;
 
-      iob_free_queue(&conn->readahead, IOBUSER_NET_SOCK_ICMP);
+      iob_free_queue(&conn->readahead);
     }
 
 #ifdef CONFIG_NET_ARP_SEND
@@ -375,12 +364,7 @@ ssize_t icmp_sendmsg(FAR struct socket *psock, FAR struct msghdr *msg,
 
   /* Initialize the state structure */
 
-  /* This semaphore is used for signaling and, hence, should not have
-   * priority inheritance enabled.
-   */
-
   nxsem_init(&state.snd_sem, 0, 0);
-  nxsem_set_protocol(&state.snd_sem, SEM_PRIO_NONE);
 
   state.snd_result = -ENOMEM;                 /* Assume allocation failure */
   state.snd_toaddr = inaddr->sin_addr.s_addr; /* Address of the peer to send
@@ -471,7 +455,7 @@ errout:
   conn->nreqs = 0;
   conn->dev   = NULL;
 
-  iob_free_queue(&conn->readahead, IOBUSER_NET_SOCK_ICMP);
+  iob_free_queue(&conn->readahead);
   return ret;
 }
 

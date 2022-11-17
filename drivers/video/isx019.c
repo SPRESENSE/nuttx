@@ -23,7 +23,6 @@
  ****************************************************************************/
 
 #include <nuttx/config.h>
-#include <sys/time.h>
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
@@ -31,11 +30,12 @@
 #include <debug.h>
 #include <nuttx/i2c/i2c_master.h>
 #include <nuttx/signal.h>
+#include <nuttx/clock.h>
 #include <arch/board/board.h>
 #include <nuttx/video/isx019.h>
 #include <nuttx/video/imgsensor.h>
 #include <math.h>
-#include <nuttx/semaphore.h>
+#include <nuttx/mutex.h>
 
 #include "isx019_reg.h"
 #include "isx019_range.h"
@@ -198,8 +198,8 @@ typedef struct isx019_rect_s isx019_rect_t;
 
 struct isx019_dev_s
 {
-  sem_t fpga_lock;
-  sem_t i2c_lock;
+  mutex_t fpga_lock;
+  mutex_t i2c_lock;
   FAR struct i2c_master_s *i2c;
   float clock_ratio;
   isx019_default_value_t  default_value;
@@ -771,26 +771,6 @@ int32_t g_isx019_wbmode[] =
  * Private Functions
  ****************************************************************************/
 
-static void i2c_lock(void)
-{
-  nxsem_wait_uninterruptible(&g_isx019_private.i2c_lock);
-}
-
-static void i2c_unlock(void)
-{
-  nxsem_post(&g_isx019_private.i2c_lock);
-}
-
-static void fpga_lock(void)
-{
-  nxsem_wait_uninterruptible(&g_isx019_private.fpga_lock);
-}
-
-static void fpga_unlock(void)
-{
-  nxsem_post(&g_isx019_private.fpga_lock);
-}
-
 static int fpga_i2c_write(uint8_t addr, FAR uint8_t *data, uint8_t size)
 {
   struct i2c_config_s config;
@@ -803,7 +783,7 @@ static int fpga_i2c_write(uint8_t addr, FAR uint8_t *data, uint8_t size)
   config.address   = ISX019_I2C_SLVADDR;
   config.addrlen   = ISX019_I2C_SLVADDR_LEN;
 
-  i2c_lock();
+  nxmutex_lock(&g_isx019_private.i2c_lock);
 
   /* ISX019 requires that send read command to ISX019 before FPGA access. */
 
@@ -819,7 +799,7 @@ static int fpga_i2c_write(uint8_t addr, FAR uint8_t *data, uint8_t size)
                   &config,
                   buf,
                   size + FPGA_I2C_REGADDR_LEN);
-  i2c_unlock();
+  nxmutex_unlock(&g_isx019_private.i2c_lock);
 
   return ret;
 }
@@ -835,7 +815,7 @@ static int fpga_i2c_read(uint8_t addr, FAR uint8_t *data, uint8_t size)
   config.address   = ISX019_I2C_SLVADDR;
   config.addrlen   = ISX019_I2C_SLVADDR_LEN;
 
-  i2c_lock();
+  nxmutex_lock(&g_isx019_private.i2c_lock);
 
   /* ISX019 requires that send read command to ISX019 before FPGA access. */
 
@@ -854,8 +834,7 @@ static int fpga_i2c_read(uint8_t addr, FAR uint8_t *data, uint8_t size)
       ret = i2c_read(g_isx019_private.i2c, &config, data, size);
     }
 
-  i2c_unlock();
-
+  nxmutex_unlock(&g_isx019_private.i2c_lock);
   return ret;
 }
 
@@ -1001,7 +980,7 @@ static int isx019_i2c_write(uint8_t cat,
   config.address   = ISX019_I2C_SLVADDR;
   config.addrlen   = ISX019_I2C_SLVADDR_LEN;
 
-  i2c_lock();
+  nxmutex_lock(&g_isx019_private.i2c_lock);
 
   ret = send_write_cmd(&config, cat, addr, data, size);
   if (ret == OK)
@@ -1009,7 +988,7 @@ static int isx019_i2c_write(uint8_t cat,
       ret = recv_write_response(&config);
     }
 
-  i2c_unlock();
+  nxmutex_unlock(&g_isx019_private.i2c_lock);
   return ret;
 }
 
@@ -1056,7 +1035,7 @@ static int isx019_i2c_read(uint8_t cat,
   config.address   = ISX019_I2C_SLVADDR;
   config.addrlen   = ISX019_I2C_SLVADDR_LEN;
 
-  i2c_lock();
+  nxmutex_lock(&g_isx019_private.i2c_lock);
 
   ret = send_read_cmd(&config, cat, addr, size);
   if (ret == OK)
@@ -1064,8 +1043,7 @@ static int isx019_i2c_read(uint8_t cat,
       ret = recv_read_response(&config, data, size);
     }
 
-  i2c_unlock();
-
+  nxmutex_unlock(&g_isx019_private.i2c_lock);
   return ret;
 }
 
@@ -1108,34 +1086,42 @@ static int set_drive_mode(void)
 static bool try_repeat(int sec, int usec, CODE int (*trial_func)(void))
 {
   int ret;
-  struct timeval start;
-  struct timeval now;
-  struct timeval delta;
-  struct timeval wait;
+  struct timespec start;
+  struct timespec now;
+  struct timespec delta;
 
-  wait.tv_sec = sec;
-  wait.tv_usec = usec;
+  ret = clock_systime_timespec(&start);
+  if (ret < 0)
+    {
+      return false;
+    }
 
-  gettimeofday(&start, NULL);
   while (1)
     {
       ret = trial_func();
-      if (ret != -ENODEV)
+      if (ret >= 0)
         {
-          break;
+          return true;
         }
       else
         {
-          gettimeofday(&now, NULL);
-          timersub(&now, &start, &delta);
-          if (timercmp(&delta, &wait, >))
+          ret = clock_systime_timespec(&now);
+          if (ret < 0)
+            {
+              return false;
+            }
+
+          clock_timespec_subtract(&now, &start, &delta);
+          if ((delta.tv_sec > sec) ||
+              ((delta.tv_sec == sec) &&
+               (delta.tv_nsec > (usec * NSEC_PER_USEC))))
             {
               break;
             }
         }
     };
 
-  return (ret == OK);
+  return false;
 }
 
 static int try_isx019_i2c(void)
@@ -1253,7 +1239,7 @@ static int isx019_uninit(void)
 static FAR const char *isx019_get_driver_name(void)
 {
 #ifdef CONFIG_VIDEO_ISX019_NAME_WITH_VERSION
-  static char name[16];
+  static char name[20];
   uint8_t f_ver = 0;
   uint16_t is_ver = 0;
 
@@ -1480,6 +1466,7 @@ static int activate_clip(imgsensor_stream_type_t type,
         size = FPGA_CLIP_NON;
         top  = 0;
         left = 0;
+
         break;
     }
 
@@ -1510,7 +1497,7 @@ static int isx019_start_capture(imgsensor_stream_type_t type,
       return ret;
     }
 
-  fpga_lock();
+  nxmutex_lock(&g_isx019_private.fpga_lock);
 
   /* Update FORMAT_AND_SCALE register of FPGA */
 
@@ -1561,8 +1548,8 @@ static int isx019_start_capture(imgsensor_stream_type_t type,
     }
 
   activate_clip(type,
-               fmt[IMGSENSOR_FMT_MAIN].width,
-               fmt[IMGSENSOR_FMT_MAIN].height);
+                fmt[IMGSENSOR_FMT_MAIN].width,
+                fmt[IMGSENSOR_FMT_MAIN].height);
 
   fpga_i2c_write(FPGA_FORMAT_AND_SCALE, &regval, 1);
 
@@ -1625,7 +1612,7 @@ static int isx019_start_capture(imgsensor_stream_type_t type,
   fpga_i2c_write(FPGA_DATA_OUTPUT, &regval, 1);
 
   fpga_activate_setting();
-  fpga_unlock();
+  nxmutex_unlock(&g_isx019_private.fpga_lock);
   g_isx019_private.stream = type;
 
   return OK;
@@ -1636,10 +1623,10 @@ static int isx019_stop_capture(imgsensor_stream_type_t type)
   uint8_t regval;
 
   regval = FPGA_DATA_OUTPUT_STOP;
-  fpga_lock();
+  nxmutex_lock(&g_isx019_private.fpga_lock);
   fpga_i2c_write(FPGA_DATA_OUTPUT, &regval, 1);
   fpga_activate_setting();
-  fpga_unlock();
+  nxmutex_unlock(&g_isx019_private.fpga_lock);
   return OK;
 }
 
@@ -1684,7 +1671,7 @@ static int isx019_get_frame_interval(imgsensor_stream_type_t type,
    *   VTIME_PER_FRAME + INTERVAL_PER_FRAME * (frame number - 1)
    */
 
-  isx019_i2c_read(CAT_AESOUT, V_TIME, (uint8_t *)&vtime, 4);
+  isx019_i2c_read(CAT_AESOUT, V_TIME, (FAR uint8_t *)&vtime, 4);
   frame = 1 + (vtime - VTIME_PER_FRAME) / INTERVAL_PER_FRAME;
   interval->numerator *= frame;
 
@@ -2249,7 +2236,7 @@ static bool is_awb_enable(void)
 
   isx019_i2c_read(CAT_CATAWB, AWBMODE, &mode, 1);
 
-  return (mode == AWBMODE_HOLD) ? false : true;
+  return mode != AWBMODE_HOLD;
 }
 
 static int set_wbmode(imgsensor_value_t val)
@@ -2589,7 +2576,7 @@ static int set_jpg_quality(imgsensor_value_t val)
       return -EINVAL;
     }
 
-  fpga_lock();
+  nxmutex_lock(&g_isx019_private.fpga_lock);
 
   /* Update DQT data and activate them. */
 
@@ -2610,7 +2597,7 @@ static int set_jpg_quality(imgsensor_value_t val)
   set_dqt(FPGA_DQT_LUMA,   FPGA_DQT_CALC_DATA, y_calc);
   set_dqt(FPGA_DQT_CHROMA, FPGA_DQT_CALC_DATA, c_calc);
 
-  fpga_unlock();
+  nxmutex_unlock(&g_isx019_private.fpga_lock);
 
   g_isx019_private.jpg_quality = val.value32;
   return OK;
@@ -2760,7 +2747,7 @@ static setvalue_t set_value_func(uint32_t id)
   return func;
 }
 
-static int32_t get_flip(uint8_t *flip, uint8_t direction)
+static int32_t get_flip(FAR uint8_t *flip, uint8_t direction)
 {
   DEBUGASSERT(flip);
 
@@ -3375,15 +3362,15 @@ static int isx019_set_value(uint32_t id,
 int isx019_initialize(void)
 {
   imgsensor_register(&g_isx019_ops);
-  nxsem_init(&g_isx019_private.i2c_lock, 0, 1);
-  nxsem_init(&g_isx019_private.fpga_lock, 0, 1);
+  nxmutex_init(&g_isx019_private.i2c_lock);
+  nxmutex_init(&g_isx019_private.fpga_lock);
   return OK;
 }
 
 int isx019_uninitialize(void)
 {
-  nxsem_destroy(&g_isx019_private.i2c_lock);
-  nxsem_destroy(&g_isx019_private.fpga_lock);
+  nxmutex_destroy(&g_isx019_private.i2c_lock);
+  nxmutex_destroy(&g_isx019_private.fpga_lock);
   return OK;
 }
 

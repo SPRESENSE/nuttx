@@ -218,24 +218,14 @@ void nxsched_process_timer(void)
 
   /* Increment the system time (if in the link) */
 
-#ifdef CONFIG_HAVE_WEAKFUNCTIONS
-  if (clock_timer != NULL)
-#endif
-    {
-      clock_timer();
-    }
+  clock_timer();
 
-#if defined(CONFIG_SCHED_CPULOAD) && !defined(CONFIG_SCHED_CPULOAD_EXTCLK)
+#ifndef CONFIG_SCHED_CPULOAD_EXTCLK
   /* Perform CPU load measurements (before any timer-initiated context
    * switches can occur)
    */
 
-#ifdef CONFIG_HAVE_WEAKFUNCTIONS
-  if (nxsched_process_cpuload != NULL)
-#endif
-    {
-      nxsched_process_cpuload();
-    }
+  nxsched_process_cpuload();
 #endif
 
   /* Check if the currently executing task has exceeded its

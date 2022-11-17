@@ -50,7 +50,6 @@
 #define IFF_UP             (1 << 1)  /* Interface is up */
 #define IFF_RUNNING        (1 << 2)  /* Carrier is available */
 #define IFF_IPv6           (1 << 3)  /* Configured for IPv6 packet (vs ARP or IPv4) */
-#define IFF_BOUND          (1 << 4)  /* Bound to a socket */
 #define IFF_LOOPBACK       (1 << 5)  /* Is a loopback net */
 #define IFF_POINTOPOINT    (1 << 6)  /* Is point-to-point link */
 #define IFF_NOARP          (1 << 7)  /* ARP is not required for this packet */
@@ -61,7 +60,6 @@
 
 #define IFF_SET_UP(f)          do { (f) |= IFF_UP; } while (0)
 #define IFF_SET_RUNNING(f)     do { (f) |= IFF_RUNNING; } while (0)
-#define IFF_SET_BOUND(f)       do { (f) |= IFF_BOUND; } while (0)
 #define IFF_SET_NOARP(f)       do { (f) |= IFF_NOARP; } while (0)
 #define IFF_SET_LOOPBACK(f)    do { (f) |= IFF_LOOPBACK; } while (0)
 #define IFF_SET_POINTOPOINT(f) do { (f) |= IFF_POINTOPOINT; } while (0)
@@ -70,7 +68,6 @@
 
 #define IFF_CLR_UP(f)          do { (f) &= ~IFF_UP; } while (0)
 #define IFF_CLR_RUNNING(f)     do { (f) &= ~IFF_RUNNING; } while (0)
-#define IFF_CLR_BOUND(f)       do { (f) &= ~IFF_BOUND; } while (0)
 #define IFF_CLR_NOARP(f)       do { (f) &= ~IFF_NOARP; } while (0)
 #define IFF_CLR_LOOPBACK(f)    do { (f) &= ~IFF_LOOPBACK; } while (0)
 #define IFF_CLR_POINTOPOINT(f) do { (f) &= ~IFF_POINTOPOINT; } while (0)
@@ -79,7 +76,6 @@
 
 #define IFF_IS_UP(f)          (((f) & IFF_UP) != 0)
 #define IFF_IS_RUNNING(f)     (((f) & IFF_RUNNING) != 0)
-#define IFF_IS_BOUND(f)       (((f) & IFF_BOUND) != 0)
 #define IFF_IS_NOARP(f)       (((f) & IFF_NOARP) != 0)
 #define IFF_IS_LOOPBACK(f)    (((f) & IFF_LOOPBACK) != 0)
 #define IFF_IS_POINTOPOINT(f) (((f) & IFF_POINTOPOINT) != 0)
@@ -176,6 +172,15 @@ struct can_ioctl_filter_s
   uint8_t  fprio; /* See CAN_MSGPRIO_* definitions */
 };
 
+/* Structure passed to get or set the cellular network device features */
+
+struct cell_ioctl_data_s
+{
+  uint8_t mdp_chnidx;  /* MDP(Multi Data Path) channel idx bound to this network device */
+  uint8_t sim_id;      /* Sim ID in dual sim system */
+  uint8_t cell_id;     /* Cell Identification in mobile phone networks */
+};
+
 /* There are two forms of the I/F request structure.
  * One for IPv6 and one for IPv4.
  * Notice that they are (and must be) cast compatible and really different
@@ -202,6 +207,7 @@ struct lifreq
     struct mii_ioctl_data_s    lifru_mii_data;       /* MII request data */
     struct can_ioctl_data_s    lifru_can_data;       /* CAN bitrate request data */
     struct can_ioctl_filter_s  lifru_can_filter;     /* CAN filter request data */
+    struct cell_ioctl_data_s   lifru_cell_data;      /* Cellular network data */
   } lifr_ifru;
 };
 
@@ -255,6 +261,7 @@ struct ifreq
     struct mii_ioctl_data_s    ifru_mii_data;       /* MII request data */
     struct can_ioctl_data_s    ifru_can_data;       /* CAN bitrate request data */
     struct can_ioctl_filter_s  ifru_can_filter;     /* CAN filter request data */
+    struct cell_ioctl_data_s   ifru_cell_data;      /* Cellular network data */
   } ifr_ifru;
 };
 

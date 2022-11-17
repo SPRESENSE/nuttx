@@ -37,7 +37,7 @@
 #include <nuttx/kmalloc.h>
 #include <nuttx/signal.h>
 #include <nuttx/fs/fs.h>
-#include <nuttx/semaphore.h>
+#include <nuttx/mutex.h>
 #include <nuttx/timers/timer.h>
 
 #ifdef CONFIG_TIMER
@@ -50,7 +50,7 @@
 
 struct timer_upperhalf_s
 {
-  sem_t exclsem;           /* Supports mutual exclusion */
+  mutex_t lock;            /* Supports mutual exclusion */
   uint8_t crefs;           /* The number of times the device has been opened */
   FAR char *path;          /* Registration path */
 
@@ -143,7 +143,7 @@ static int timer_open(FAR struct file *filep)
 
   /* Get exclusive access to the device structures */
 
-  ret = nxsem_wait(&upper->exclsem);
+  ret = nxmutex_lock(&upper->lock);
   if (ret < 0)
     {
       goto errout;
@@ -160,7 +160,7 @@ static int timer_open(FAR struct file *filep)
       /* More than 255 opens; uint8_t overflows to zero */
 
       ret = -EMFILE;
-      goto errout_with_sem;
+      goto errout_with_lock;
     }
 
   /* Save the new open count */
@@ -168,8 +168,8 @@ static int timer_open(FAR struct file *filep)
   upper->crefs = tmp;
   ret = OK;
 
-errout_with_sem:
-  nxsem_post(&upper->exclsem);
+errout_with_lock:
+  nxmutex_unlock(&upper->lock);
 
 errout:
   return ret;
@@ -193,7 +193,7 @@ static int timer_close(FAR struct file *filep)
 
   /* Get exclusive access to the device structures */
 
-  ret = nxsem_wait(&upper->exclsem);
+  ret = nxmutex_lock(&upper->lock);
   if (ret < 0)
     {
       return ret;
@@ -208,7 +208,7 @@ static int timer_close(FAR struct file *filep)
       upper->crefs--;
     }
 
-  nxsem_post(&upper->exclsem);
+  nxmutex_unlock(&upper->lock);
   return OK;
 }
 
@@ -266,7 +266,7 @@ static int timer_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 
   /* Get exclusive access to the device structures */
 
-  ret = nxsem_wait(&upper->exclsem);
+  ret = nxmutex_lock(&upper->lock);
   if (ret < 0)
     {
       return ret;
@@ -285,14 +285,7 @@ static int timer_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
       {
         /* Start the timer, resetting the time to the current timeout */
 
-        if (lower->ops->start)
-          {
-            ret = lower->ops->start(lower);
-          }
-        else
-          {
-            ret = -ENOSYS;
-          }
+        ret = TIMER_START(lower);
       }
       break;
 
@@ -305,8 +298,7 @@ static int timer_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
       {
         /* Stop the timer */
 
-        DEBUGASSERT(lower->ops->stop != NULL); /* Required */
-        ret = lower->ops->stop(lower);
+        ret = TIMER_STOP(lower);
         nxsig_cancel_notification(&upper->work);
       }
       break;
@@ -322,21 +314,14 @@ static int timer_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 
         /* Get the current timer status */
 
-        if (lower->ops->getstatus) /* Optional */
+        status = (FAR struct timer_status_s *)((uintptr_t)arg);
+        if (status)
           {
-            status = (FAR struct timer_status_s *)((uintptr_t)arg);
-            if (status)
-              {
-                ret = lower->ops->getstatus(lower, status);
-              }
-            else
-              {
-                ret = -EINVAL;
-              }
+            ret = TIMER_GETSTATUS(lower, status);
           }
         else
           {
-            ret = -ENOSYS;
+            ret = -EINVAL;
           }
       }
       break;
@@ -353,14 +338,7 @@ static int timer_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
       {
         /* Set a new timeout value (and reset the timer) */
 
-        if (lower->ops->settimeout) /* Optional */
-          {
-            ret = lower->ops->settimeout(lower, (uint32_t)arg);
-          }
-        else
-          {
-            ret = -ENOSYS;
-          }
+        ret = TIMER_SETTIMEOUT(lower, (uint32_t)arg);
       }
       break;
 
@@ -396,14 +374,7 @@ static int timer_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
       {
         /*  Get the maximum supported timeout value */
 
-        if (lower->ops->maxtimeout) /* Optional */
-          {
-            ret = lower->ops->maxtimeout(lower, (FAR uint32_t *)arg);
-          }
-        else
-          {
-            ret = -ENOSYS;
-          }
+        ret = TIMER_MAXTIMEOUT(lower, (FAR uint32_t *)arg);
       }
       break;
 
@@ -420,19 +391,12 @@ static int timer_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
          * method.
          */
 
-        if (lower->ops->ioctl) /* Optional */
-          {
-            ret = lower->ops->ioctl(lower, cmd, arg);
-          }
-        else
-          {
-            ret = -ENOTTY;
-          }
+        ret = TIMER_IOCTL(lower, cmd, arg);
       }
       break;
     }
 
-  nxsem_post(&upper->exclsem);
+  nxmutex_unlock(&upper->lock);
   return ret;
 }
 
@@ -490,7 +454,7 @@ FAR void *timer_register(FAR const char *path,
    */
 
   upper->lower = lower;
-  nxsem_init(&upper->exclsem, 0, 1);
+  nxmutex_init(&upper->lock);
 
   /* Copy the registration path */
 
@@ -516,7 +480,7 @@ errout_with_path:
   kmm_free(upper->path);
 
 errout_with_upper:
-  nxsem_destroy(&upper->exclsem);
+  nxmutex_destroy(&upper->lock);
   kmm_free(upper);
 
 errout:
@@ -553,8 +517,7 @@ void timer_unregister(FAR void *handle)
 
   /* Disable the timer */
 
-  DEBUGASSERT(lower->ops->stop); /* Required */
-  lower->ops->stop(lower);
+  TIMER_STOP(lower);
   nxsig_cancel_notification(&upper->work);
 
   /* Unregister the timer device */
@@ -563,7 +526,7 @@ void timer_unregister(FAR void *handle)
 
   /* Then free all of the driver resources */
 
-  nxsem_destroy(&upper->exclsem);
+  nxmutex_destroy(&upper->lock);
   kmm_free(upper->path);
   kmm_free(upper);
 }

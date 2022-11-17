@@ -31,11 +31,30 @@
 #include <nuttx/spi/spi_flash.h>
 #include <nuttx/spi/qspi_flash.h>
 
+#include <stdlib.h>
+
 #include "up_internal.h"
+#include "up_usrsock_host.h"
 
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
+
+#ifndef CONFIG_DISABLE_ENVIRON
+static void up_init_cmdline(void)
+{
+  char cmdline[ARG_MAX] = "";
+  int i;
+
+  for (i = 1; i < g_argc; i++)
+    {
+      strlcat(cmdline, g_argv[i], sizeof(cmdline));
+      strlcat(cmdline, " ", sizeof(cmdline));
+    }
+
+  setenv("CMDLINE", cmdline, true);
+}
+#endif
 
 /****************************************************************************
  * Name: up_init_smartfs
@@ -161,7 +180,7 @@ static int up_loop_task(int argc, char **argv)
 #endif
 
 #ifdef CONFIG_SIM_NETUSRSOCK
-      usrsock_loop();
+      usrsock_host_loop();
 #endif
 
 #ifdef CONFIG_RPTUN
@@ -226,6 +245,10 @@ void up_initialize(void)
   pm_initialize();
 #endif
 
+#ifndef CONFIG_DISABLE_ENVIRON
+  up_init_cmdline();
+#endif
+
   /* Register some tty-port to access tty-port on sim platform */
 
   up_uartinit();
@@ -236,12 +259,6 @@ void up_initialize(void)
 
 #ifdef CONFIG_SIM_NETDEV
   netdriver_init();         /* Our "real" network driver */
-#endif
-
-#ifdef CONFIG_SIM_NETUSRSOCK
-  /* Register the usrsock native socket device */
-
-  usrsock_init();
 #endif
 
 #if defined(CONFIG_FS_SMARTFS) && defined(CONFIG_MTD_SMART) && \

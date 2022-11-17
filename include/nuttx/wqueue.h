@@ -29,9 +29,9 @@
 
 #include <sys/types.h>
 #include <stdint.h>
-#include <queue.h>
 
 #include <nuttx/clock.h>
+#include <nuttx/queue.h>
 #include <nuttx/wdog.h>
 
 /****************************************************************************
@@ -249,7 +249,7 @@ struct work_s
   {
     struct
     {
-      struct sq_entry_s sq; /* Implements a single linked list */
+      struct dq_entry_s dq; /* Implements a double linked list */
       clock_t qtime;        /* Time work queued */
     } s;
     struct wdog_s timer;    /* Delay expiry timer */

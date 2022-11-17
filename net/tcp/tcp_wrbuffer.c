@@ -31,12 +31,12 @@
 #  define CONFIG_DEBUG_NET 1
 #endif
 
-#include <queue.h>
 #include <string.h>
 #include <assert.h>
 #include <errno.h>
 #include <debug.h>
 
+#include <nuttx/queue.h>
 #include <nuttx/semaphore.h>
 #include <nuttx/net/net.h>
 #include <nuttx/mm/iob.h>
@@ -100,7 +100,6 @@ void tcp_wrbuffer_initialize(void)
     }
 
   nxsem_init(&g_wrbuffer.sem, 0, CONFIG_NET_TCP_NWRBCHAINS);
-  nxsem_set_protocol(&g_wrbuffer.sem, SEM_PRIO_NONE);
 }
 
 /****************************************************************************
@@ -150,8 +149,7 @@ FAR struct tcp_wrbuffer_s *tcp_wrbuffer_timedalloc(unsigned int timeout)
 
   /* Now get the first I/O buffer for the write buffer structure */
 
-  wrb->wb_iob = net_iobtimedalloc(true, timeout,
-                                  IOBUSER_NET_TCP_WRITEBUFFER);
+  wrb->wb_iob = net_iobtimedalloc(true, timeout);
 
   /* Did we get an IOB?  We should always get one except under some really
    * weird error conditions.
@@ -234,7 +232,7 @@ void tcp_wrbuffer_release(FAR struct tcp_wrbuffer_s *wrb)
 
   if (wrb->wb_iob != NULL)
     {
-      iob_free_chain(wrb->wb_iob, IOBUSER_NET_TCP_WRITEBUFFER);
+      iob_free_chain(wrb->wb_iob);
     }
 
 #ifdef CONFIG_NET_TCP_FAST_RETRANSMIT

@@ -29,7 +29,6 @@
 
 #include <sys/types.h>
 #include <stdbool.h>
-#include <queue.h>
 #include <sched.h>
 
 #include <nuttx/kmalloc.h>
@@ -67,7 +66,9 @@ extern FAR struct task_group_s *g_group_current[CONFIG_SMP_NCPUS];
  ****************************************************************************/
 
 #ifdef CONFIG_SCHED_CHILD_STATUS
-void weak_function task_initialize(void);
+void task_initialize(void);
+#else
+#  define task_initialize()
 #endif
 
 /* Task group data structure management */

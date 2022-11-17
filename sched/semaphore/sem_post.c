@@ -71,6 +71,7 @@ int nxsem_post(FAR sem_t *sem)
 {
   FAR struct tcb_s *stcb = NULL;
   irqstate_t flags;
+  int16_t sem_count;
   int ret = -EINVAL;
 
   /* Make sure we were supplied with a valid semaphore. */
@@ -84,9 +85,11 @@ int nxsem_post(FAR sem_t *sem)
 
       flags = enter_critical_section();
 
+      sem_count = sem->semcount;
+
       /* Check the maximum allowable value */
 
-      if (sem->semcount >= SEM_VALUE_MAX)
+      if (sem_count >= SEM_VALUE_MAX)
         {
           leave_critical_section(flags);
           return -EOVERFLOW;
@@ -110,7 +113,8 @@ int nxsem_post(FAR sem_t *sem)
        */
 
       nxsem_release_holder(sem);
-      sem->semcount++;
+      sem_count++;
+      sem->semcount = sem_count;
 
 #ifdef CONFIG_PRIORITY_INHERITANCE
       /* Don't let any unblocked tasks run until we complete any priority
@@ -127,17 +131,15 @@ int nxsem_post(FAR sem_t *sem)
        * there must be some task waiting for the semaphore.
        */
 
-      if (sem->semcount <= 0)
+      if (sem_count <= 0)
         {
           /* Check if there are any tasks in the waiting for semaphore
-           * task list that are waiting for this semaphore. This is a
+           * task list that are waiting for this semaphore.  This is a
            * prioritized list so the first one we encounter is the one
            * that we want.
            */
 
-          for (stcb = (FAR struct tcb_s *)g_waitingforsemaphore.head;
-               (stcb && stcb->waitsem != sem);
-               stcb = stcb->flink);
+          stcb = (FAR struct tcb_s *)dq_peek(SEM_WAITLIST(sem));
 
           if (stcb != NULL)
             {
@@ -149,11 +151,10 @@ int nxsem_post(FAR sem_t *sem)
 
               /* Stop the watchdog timer */
 
-              wd_cancel(&stcb->waitdog);
-
-              /* It is, let the task take the semaphore */
-
-              stcb->waitsem = NULL;
+              if (WDOG_ISACTIVE(&stcb->waitdog))
+                {
+                  wd_cancel(&stcb->waitdog);
+                }
 
               /* Restart the waiting task. */
 

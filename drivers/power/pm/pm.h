@@ -27,8 +27,7 @@
 
 #include <nuttx/config.h>
 
-#include <queue.h>
-
+#include <nuttx/queue.h>
 #include <nuttx/mutex.h>
 #include <nuttx/clock.h>
 #include <nuttx/power/pm.h>
@@ -88,11 +87,11 @@ struct pm_domain_s
 
 struct pm_global_s
 {
-  /* This semaphore manages mutually exclusive access to the power management
+  /* This mutex manages mutually exclusive access to the power management
    * registry.  It must be initialized to the value 1.
    */
 
-  sem_t regsem;
+  mutex_t reglock;
 
   /* registry is a doubly-linked list of registered power management
    * callback structures.  To ensure mutually exclusive access, this list

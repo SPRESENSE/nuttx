@@ -363,6 +363,12 @@ int nxsig_tcbdispatch(FAR struct tcb_s *stcb, siginfo_t *info)
         {
           memcpy(&stcb->sigunbinfo, info, sizeof(siginfo_t));
           stcb->sigwaitmask = NULL_SIGNAL_SET;
+
+          if (WDOG_ISACTIVE(&stcb->waitdog))
+            {
+              wd_cancel(&stcb->waitdog);
+            }
+
           up_unblock_task(stcb);
           leave_critical_section(flags);
         }
@@ -399,6 +405,12 @@ int nxsig_tcbdispatch(FAR struct tcb_s *stcb, siginfo_t *info)
         {
           memcpy(&stcb->sigunbinfo, info, sizeof(siginfo_t));
           stcb->sigwaitmask = NULL_SIGNAL_SET;
+
+          if (WDOG_ISACTIVE(&stcb->waitdog))
+            {
+              wd_cancel(&stcb->waitdog);
+            }
+
           up_unblock_task(stcb);
         }
 
@@ -418,6 +430,8 @@ int nxsig_tcbdispatch(FAR struct tcb_s *stcb, siginfo_t *info)
 
   if (masked == 0)
     {
+      flags = enter_critical_section();
+
       /* If the task is blocked waiting for a semaphore, then that task must
        * be unblocked when a signal is received.
        */
@@ -427,7 +441,7 @@ int nxsig_tcbdispatch(FAR struct tcb_s *stcb, siginfo_t *info)
           nxsem_wait_irq(stcb, EINTR);
         }
 
-#ifndef CONFIG_DISABLE_MQUEUE
+#if !defined(CONFIG_DISABLE_MQUEUE) && !defined(CONFIG_DISABLE_MQUEUE_SYSV)
       /* If the task is blocked waiting on a message queue, then that task
        * must be unblocked when a signal is received.
        */
@@ -450,10 +464,12 @@ int nxsig_tcbdispatch(FAR struct tcb_s *stcb, siginfo_t *info)
 #ifdef HAVE_GROUP_MEMBERS
           group_continue(stcb);
 #else
-          nxsched_continue(stcb);
+          up_unblock_task(stcb);
 #endif
         }
 #endif
+
+      leave_critical_section(flags);
     }
 
   /* In case nxsig_ismember failed due to an invalid signal number */

@@ -7,10 +7,18 @@ comment "ARMv7-R Configuration Options"
 
 config ARMV7R_HAVE_GICv2
 	bool "ARMV7R_GICv2 support"
+	select ARCH_HAVE_IRQTRIGGER
 	default y
 	---help---
 		Selected by the configuration tool if the architecture supports the
 		Generic Interrupt Controller (GIC)
+
+config ARMV7R_HAVE_PTM
+	bool
+	default n
+	---help---
+		Selected by the configuration tool if the architecture supports the
+		per-processor Private Timers (PTMs)
 
 config ARMV7R_MEMINIT
 	bool
@@ -46,9 +54,9 @@ if ARMV7R_HAVE_L2CC
 menu "L2 Cache Configuration"
 
 config ARMV7R_L2CC_PL310
-	bool "ARMv7-A L2CC P310 Support"
+	bool "ARMv7-R L2CC P310 Support"
 	default n
-	depends on ARMV7R_HAVE_L2CC_PL310 && EXPERIMENTAL
+	depends on ARMV7R_HAVE_L2CC_PL310
 	select ARCH_L2CACHE
 	---help---
 		Enable the 2 Cache Controller (L2CC) is based on the L2CC-PL310 ARM
@@ -125,38 +133,6 @@ endchoice # L2 Cache Associativity
 endif # ARCH_L2CACHE
 endmenu # L2 Cache Configuration
 endif # ARMV7R_HAVE_L2CC
-
-choice
-	prompt "Toolchain Selection"
-	default ARMV7R_TOOLCHAIN_GNU_EABI
-
-config ARMV7R_TOOLCHAIN_BUILDROOT
-	bool "Buildroot (Cygwin or Linux)"
-	select ARCH_TOOLCHAIN_GNU
-	depends on !WINDOWS_NATIVE
-
-config ARMV7R_TOOLCHAIN_GNU_EABI
-	bool "Generic GNU EABI toolchain"
-	select ARCH_TOOLCHAIN_GNU
-	---help---
-		This option should work for any modern GNU toolchain (GCC 4.5 or newer)
-		configured for arm-none-eabi-.
-
-config ARMV7R_TOOLCHAIN_GNU_OABI
-	bool "Generic GNU OABI toolchain"
-	select ARCH_TOOLCHAIN_GNU
-	---help---
-		This option should work for any GNU toolchain configured for arm-elf-.
-
-endchoice # Toolchain Selection
-
-config ARMV7R_OABI_TOOLCHAIN
-	bool "OABI (vs EABI)"
-	default n
-	depends on ARMV7R_TOOLCHAIN_BUILDROOT
-	---help---
-		Most of the older buildroot toolchains are OABI and are named
-		arm-nuttx-elf- vs. arm-nuttx-eabi-
 
 config ARMV7R_HAVE_DECODEFIQ
 	bool

@@ -29,7 +29,6 @@
 
 #include <sys/types.h>
 #include <stdint.h>
-#include <queue.h>
 #include <assert.h>
 
 #include <nuttx/mm/iob.h>
@@ -425,6 +424,24 @@ int icmpv6_autoconfig(FAR struct net_driver_s *dev);
 #endif
 
 /****************************************************************************
+ * Name: icmpv6_setaddresses
+ *
+ * Description:
+ *   We successfully obtained the Router Advertisement.  Set the new IPv6
+ *   addresses in the driver structure.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_NET_ICMPv6_AUTOCONF
+void icmpv6_setaddresses(FAR struct net_driver_s *dev,
+                         const net_ipv6addr_t draddr,
+                         const net_ipv6addr_t prefix,
+                         unsigned int preflen);
+#else
+#  define icmpv6_setaddresses(dev,draddr,prefix,preflen) (0)
+#endif
+
+/****************************************************************************
  * Name: icmpv6_rwait_setup
  *
  * Description:
@@ -502,12 +519,9 @@ int icmpv6_rwait(FAR struct icmpv6_rnotify_s *notify, unsigned int timeout);
  ****************************************************************************/
 
 #ifdef CONFIG_NET_ICMPv6_AUTOCONF
-void icmpv6_rnotify(FAR struct net_driver_s *dev,
-                    const net_ipv6addr_t draddr,
-                    const net_ipv6addr_t prefix,
-                    unsigned int preflen);
+void icmpv6_rnotify(FAR struct net_driver_s *dev);
 #else
-#  define icmpv6_rnotify(d,p,l)
+#  define icmpv6_rnotify(d) (0)
 #endif
 
 /****************************************************************************
@@ -756,13 +770,11 @@ void icmpv6_reply(FAR struct net_driver_s *dev,
  *   conn     The ICMP connection of interest
  *   cmd      The ioctl command
  *   arg      The argument of the ioctl cmd
- *   arglen   The length of 'arg'
  *
  ****************************************************************************/
 
 #ifdef CONFIG_NET_ICMPv6_SOCKET
-int icmpv6_ioctl(FAR struct socket *psock,
-                 int cmd, FAR void *arg, size_t arglen);
+int icmpv6_ioctl(FAR struct socket *psock, int cmd, unsigned long arg);
 #endif
 
 #undef EXTERN

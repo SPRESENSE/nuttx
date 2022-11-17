@@ -166,9 +166,9 @@ int nxmq_wait_receive(FAR struct mqueue_inode_s *msgq,
         {
           /* Yes.. Block and try again */
 
-          rtcb           = this_task();
-          rtcb->msgwaitq = msgq;
-          msgq->nwaitnotempty++;
+          rtcb          = this_task();
+          rtcb->waitobj = msgq;
+          msgq->cmn.nwaitnotempty++;
 
           /* Initialize the 'errcode" used to communication wake-up error
            * conditions.
@@ -180,7 +180,7 @@ int nxmq_wait_receive(FAR struct mqueue_inode_s *msgq,
            * isn't going to end well.
            */
 
-          DEBUGASSERT(NULL != rtcb->flink);
+          DEBUGASSERT(!is_idle_task(rtcb));
           up_block_task(rtcb, TSTATE_WAIT_MQNOTEMPTY);
 
           /* When we resume at this point, either (1) the message queue
@@ -251,7 +251,7 @@ int nxmq_wait_receive(FAR struct mqueue_inode_s *msgq,
 
 ssize_t nxmq_do_receive(FAR struct mqueue_inode_s *msgq,
                         FAR struct mqueue_msg_s *mqmsg,
-                        FAR char *ubuffer, unsigned int *prio)
+                        FAR char *ubuffer, FAR unsigned int *prio)
 {
   FAR struct tcb_s *btcb;
   ssize_t rcvmsglen;
@@ -277,19 +277,15 @@ ssize_t nxmq_do_receive(FAR struct mqueue_inode_s *msgq,
 
   /* Check if any tasks are waiting for the MQ not full event. */
 
-  if (msgq->nwaitnotfull > 0)
+  if (msgq->cmn.nwaitnotfull > 0)
     {
       /* Find the highest priority task that is waiting for
-       * this queue to be not-full in g_waitingformqnotfull list.
+       * this queue to be not-full in waitfornotfull list.
        * This must be performed in a critical section because
        * messages can be sent from interrupt handlers.
        */
 
-      for (btcb = (FAR struct tcb_s *)g_waitingformqnotfull.head;
-           btcb && btcb->msgwaitq != msgq;
-           btcb = btcb->flink)
-        {
-        }
+      btcb = (FAR struct tcb_s *)dq_peek(MQ_WNFLIST(msgq->cmn));
 
       /* If one was found, unblock it.  NOTE:  There is a race
        * condition here:  the queue might be full again by the
@@ -298,8 +294,12 @@ ssize_t nxmq_do_receive(FAR struct mqueue_inode_s *msgq,
 
       DEBUGASSERT(btcb != NULL);
 
-      btcb->msgwaitq = NULL;
-      msgq->nwaitnotfull--;
+      if (WDOG_ISACTIVE(&btcb->waitdog))
+        {
+          wd_cancel(&btcb->waitdog);
+        }
+
+      msgq->cmn.nwaitnotfull--;
       up_unblock_task(btcb);
     }
 

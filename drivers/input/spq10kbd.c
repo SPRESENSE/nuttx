@@ -37,6 +37,7 @@
 #include <nuttx/i2c/i2c_master.h>
 #include <nuttx/fs/fs.h>
 #include <nuttx/kmalloc.h>
+#include <nuttx/mutex.h>
 #include <nuttx/semaphore.h>
 
 /****************************************************************************
@@ -181,10 +182,10 @@ struct spq10kbd_dev_s
   djoy_buttonset_t          djoystate;        /* Joystick button state */
 #endif  /* CONFIG_SPQ10KBD_DJOY */
 
-  sem_t  exclsem;      /* Exclusive access to dev */
-  sem_t  waitsem;      /* Signal waiting thread */
-  bool   waiting;      /* Waiting for keyboard data */
-  struct work_s work;  /* Supports the interrupt handling "bottom half" */
+  mutex_t lock;         /* Exclusive access to dev */
+  sem_t   waitsem;      /* Signal waiting thread */
+  bool    waiting;      /* Waiting for keyboard data */
+  struct work_s work;   /* Supports the interrupt handling "bottom half" */
 
   /* The following is a list if poll structures of threads waiting for
    * driver events. The 'struct pollfd' reference for each open is also
@@ -292,7 +293,7 @@ static djoy_buttonset_t djoy_supported(
 static djoy_buttonset_t djoy_sample(
   FAR const struct djoy_lowerhalf_s *lower)
 {
-  FAR struct spq10kbd_dev_s  *priv =
+  FAR struct spq10kbd_dev_s *priv =
     (FAR struct spq10kbd_dev_s *)(lower->config);
   return priv->djoystate;
 }
@@ -310,7 +311,7 @@ static void djoy_enable(FAR const struct djoy_lowerhalf_s *lower,
                         djoy_buttonset_t press, djoy_buttonset_t release,
                         djoy_interrupt_t handler, FAR void *arg)
 {
-  FAR struct spq10kbd_dev_s  *priv =
+  FAR struct spq10kbd_dev_s *priv =
     (FAR struct spq10kbd_dev_s *)(lower->config);
   priv->djoypressmask    = press;
   priv->djoyreleasemask  = release;
@@ -325,13 +326,13 @@ static void djoy_enable(FAR const struct djoy_lowerhalf_s *lower,
 
 static void spq10kbd_worker(FAR void *arg)
 {
-  FAR struct spq10kbd_dev_s  *priv = (FAR struct spq10kbd_dev_s *)arg;
-  uint16_t                    regval;
-  uint8_t                     key;
-  uint8_t                     state;
-  int                         ret;
+  FAR struct spq10kbd_dev_s *priv = (FAR struct spq10kbd_dev_s *)arg;
+  uint16_t                   regval;
+  uint8_t                    key;
+  uint8_t                    state;
+  int                        ret;
 
-  ret = nxsem_wait_uninterruptible(&priv->exclsem);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return;
@@ -410,7 +411,7 @@ static void spq10kbd_worker(FAR void *arg)
   /* Clear interrupt status register */
 
   spq10kbd_putreg8(priv, SPQ10KBD_INT, 0);
-  nxsem_post(&priv->exclsem);
+  nxmutex_unlock(&priv->lock);
 }
 
 /****************************************************************************
@@ -419,8 +420,8 @@ static void spq10kbd_worker(FAR void *arg)
 
 static int spq10kbd_interrupt(int irq, FAR void *context, FAR void *arg)
 {
-  FAR struct spq10kbd_dev_s  *priv = (FAR struct spq10kbd_dev_s *)arg;
-  int                         ret;
+  FAR struct spq10kbd_dev_s *priv = (FAR struct spq10kbd_dev_s *)arg;
+  int                        ret;
 
   /* Let the event worker know that it has an interrupt event to handle
    * It is possbile that we will already have work scheduled from a
@@ -441,29 +442,6 @@ static int spq10kbd_interrupt(int irq, FAR void *context, FAR void *arg)
 }
 
 /****************************************************************************
- * Name: spq10kbd_pollnotify
- ****************************************************************************/
-
-static void spq10kbd_pollnotify(FAR struct spq10kbd_dev_s *priv)
-{
-  int i;
-
-  for (i = 0; i < CONFIG_SPQ10KBD_NPOLLWAITERS; i++)
-    {
-      struct pollfd *fds = priv->fds[i];
-      if (fds)
-        {
-          fds->revents |= (fds->events & POLLIN);
-          if (fds->revents != 0)
-            {
-              uinfo("Report events: %08" PRIx32 "\n", fds->revents);
-              nxsem_post(fds->sem);
-            }
-        }
-    }
-}
-
-/****************************************************************************
  * Name: spq10kbd_open
  *
  * Description:
@@ -473,8 +451,8 @@ static void spq10kbd_pollnotify(FAR struct spq10kbd_dev_s *priv)
 
 static int spq10kbd_open(FAR struct file *filep)
 {
-  FAR struct inode           *inode;
-  FAR struct spq10kbd_dev_s  *priv;
+  FAR struct inode          *inode;
+  FAR struct spq10kbd_dev_s *priv;
 
   DEBUGASSERT(filep && filep->f_inode);
   inode = filep->f_inode;
@@ -497,8 +475,8 @@ static int spq10kbd_open(FAR struct file *filep)
 
 static int spq10kbd_close(FAR struct file *filep)
 {
-  FAR struct inode           *inode;
-  FAR struct spq10kbd_dev_s  *priv;
+  FAR struct inode          *inode;
+  FAR struct spq10kbd_dev_s *priv;
 
   DEBUGASSERT(filep && filep->f_inode);
   inode = filep->f_inode;
@@ -524,11 +502,11 @@ static int spq10kbd_close(FAR struct file *filep)
 static ssize_t spq10kbd_read(FAR struct file *filep, FAR char *buffer,
                              size_t len)
 {
-  FAR struct inode           *inode;
-  FAR struct spq10kbd_dev_s  *priv;
-  size_t                      nbytes;
-  uint16_t                    tail;
-  int                         ret;
+  FAR struct inode          *inode;
+  FAR struct spq10kbd_dev_s *priv;
+  size_t                     nbytes;
+  uint16_t                   tail;
+  int                        ret;
 
   DEBUGASSERT(filep && filep->f_inode && buffer);
   inode = filep->f_inode;
@@ -536,7 +514,7 @@ static ssize_t spq10kbd_read(FAR struct file *filep, FAR char *buffer,
 
   /* Read data from our internal buffer of received characters */
 
-  ret = nxsem_wait_uninterruptible(&priv->exclsem);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
@@ -556,14 +534,14 @@ static ssize_t spq10kbd_read(FAR struct file *filep, FAR char *buffer,
       else
         {
           priv->waiting = true;
-          nxsem_post(&priv->exclsem);
+          nxmutex_unlock(&priv->lock);
           ret = nxsem_wait_uninterruptible(&priv->waitsem);
           if (ret < 0)
             {
               return ret;
             }
 
-          ret = nxsem_wait_uninterruptible(&priv->exclsem);
+          ret = nxmutex_lock(&priv->lock);
           if (ret < 0)
             {
               return ret;
@@ -594,7 +572,7 @@ static ssize_t spq10kbd_read(FAR struct file *filep, FAR char *buffer,
   priv->tailndx = tail;
 
 errout:
-  nxsem_post(&priv->exclsem);
+  nxmutex_unlock(&priv->lock);
   return ret;
 }
 
@@ -625,10 +603,10 @@ static ssize_t spq10kbd_write(FAR struct file *filep, FAR const char *buffer,
 static int spq10kbd_poll(FAR struct file *filep, FAR struct pollfd *fds,
                          bool setup)
 {
-  FAR struct inode           *inode;
-  FAR struct spq10kbd_dev_s  *priv;
-  int                         ret;
-  int                         i;
+  FAR struct inode          *inode;
+  FAR struct spq10kbd_dev_s *priv;
+  int                        ret;
+  int                        i;
 
   DEBUGASSERT(filep && filep->f_inode && fds);
   inode = filep->f_inode;
@@ -637,7 +615,7 @@ static int spq10kbd_poll(FAR struct file *filep, FAR struct pollfd *fds,
   /* Make sure that we have exclusive access to the private data structure */
 
   DEBUGASSERT(priv);
-  ret = nxsem_wait_uninterruptible(&priv->exclsem);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
@@ -676,7 +654,7 @@ static int spq10kbd_poll(FAR struct file *filep, FAR struct pollfd *fds,
 
       if (priv->headndx != priv->tailndx)
         {
-          spq10kbd_pollnotify(priv);
+          poll_notify(priv->fds, CONFIG_SPQ10KBD_NPOLLWAITERS, POLLIN);
         }
     }
   else
@@ -693,7 +671,7 @@ static int spq10kbd_poll(FAR struct file *filep, FAR struct pollfd *fds,
     }
 
 errout:
-  nxsem_post(&priv->exclsem);
+  nxmutex_unlock(&priv->lock);
   return ret;
 }
 
@@ -1016,7 +994,7 @@ int spq10kbd_register(FAR struct i2c_master_s *i2c,
   priv->waiting   = false;
 
 #ifdef CONFIG_SPQ10KBD_DJOY
-  priv->djoylower.config       = (FAR void *)priv;
+  priv->djoylower.config       = priv;
   priv->djoylower.dl_supported = djoy_supported;
   priv->djoylower.dl_sample    = djoy_sample;
   priv->djoylower.dl_enable    = djoy_enable;
@@ -1024,14 +1002,8 @@ int spq10kbd_register(FAR struct i2c_master_s *i2c,
   priv->djoystate              = 0;
 #endif  /* CONFIG_SPQ10KBD_DJOY */
 
-  nxsem_init(&priv->exclsem,  0, 1);   /* Initialize device semaphore */
+  nxmutex_init(&priv->lock);   /* Initialize device mutex */
   nxsem_init(&priv->waitsem, 0, 0);
-
-  /* The waitsem semaphore is used for signaling and, hence, should
-   * not have priority inheritance enabled.
-   */
-
-  nxsem_set_protocol(&priv->waitsem, SEM_PRIO_NONE);
 
   config->clear(config);
   config->enable(config, false);
@@ -1072,7 +1044,8 @@ int spq10kbd_register(FAR struct i2c_master_s *i2c,
   return OK;
 
 errout_with_priv:
-  nxsem_destroy(&priv->exclsem);
+  nxmutex_destroy(&priv->lock);
+  nxsem_destroy(&priv->waitsem);
   kmm_free(priv);
   return ret;
 }

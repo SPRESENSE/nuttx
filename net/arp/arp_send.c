@@ -71,7 +71,6 @@ static void arp_send_terminate(FAR struct arp_send_s *state, int result)
  ****************************************************************************/
 
 static uint16_t arp_send_eventhandler(FAR struct net_driver_s *dev,
-                                      FAR void *pvconn,
                                       FAR void *priv, uint16_t flags)
 {
   FAR struct arp_send_s *state = (FAR struct arp_send_s *)priv;
@@ -277,12 +276,7 @@ int arp_send(in_addr_t ipaddr)
       goto errout_with_lock;
     }
 
-  /* This semaphore is used for signaling and, hence, should not have
-   * priority inheritance enabled.
-   */
-
   nxsem_init(&state.snd_sem, 0, 0); /* Doesn't really fail */
-  nxsem_set_protocol(&state.snd_sem, SEM_PRIO_NONE);
 
   state.snd_retries   = 0;              /* No retries yet */
   state.snd_ipaddr    = ipaddr;         /* IP address to query */

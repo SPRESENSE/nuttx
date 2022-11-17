@@ -168,10 +168,9 @@ static inline void pkt_recvfrom_sender(FAR struct net_driver_s *dev,
  ****************************************************************************/
 
 static uint16_t pkt_recvfrom_eventhandler(FAR struct net_driver_s *dev,
-                                          FAR void *pvconn,
                                           FAR void *pvpriv, uint16_t flags)
 {
-  struct pkt_recvfrom_s *pstate = (struct pkt_recvfrom_s *)pvpriv;
+  struct pkt_recvfrom_s *pstate = pvpriv;
 
   ninfo("flags: %04x\n", flags);
 
@@ -243,13 +242,7 @@ static void pkt_recvfrom_initialize(FAR struct socket *psock, FAR void *buf,
   /* Initialize the state structure. */
 
   memset(pstate, 0, sizeof(struct pkt_recvfrom_s));
-
-  /* This semaphore is used for signaling and, hence, should not have
-   * priority inheritance enabled.
-   */
-
   nxsem_init(&pstate->pr_sem, 0, 0); /* Doesn't really fail */
-  nxsem_set_protocol(&pstate->pr_sem, SEM_PRIO_NONE);
 
   pstate->pr_buflen = len;
   pstate->pr_buffer = buf;

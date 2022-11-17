@@ -127,6 +127,8 @@
                                                     * to IPv6 communications only */
 #define IPV6_PKTINFO          (__SO_PROTOCOL + 8)  /* Get some information about
                                                     * the incoming packet */
+#define IPV6_RECVPKTINFO      (__SO_PROTOCOL + 9)  /* It functions just same as
+                                                    * IPV6_PKTINFO for now */
 
 /* Values used with SIOCSIFMCFILTER and SIOCGIFMCFILTER ioctl's */
 
@@ -190,6 +192,9 @@
 
 #define IN6_IS_ADDR_MULTICAST(a) \
   ((a)->s6_addr[0] == 0xff)
+
+#define IN6_IS_ADDR_LINKLOCAL(a) \
+  ((a)->s6_addr16[0] & HTONS(0xffc0) == HTONS(0xfe80))
 
 #define IN6_IS_ADDR_LOOPBACK(a) \
   ((a)->s6_addr32[0] == 0 && \

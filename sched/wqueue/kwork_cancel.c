@@ -24,12 +24,12 @@
 
 #include <nuttx/config.h>
 
-#include <queue.h>
 #include <assert.h>
 #include <errno.h>
 
 #include <nuttx/irq.h>
 #include <nuttx/arch.h>
+#include <nuttx/queue.h>
 #include <nuttx/wqueue.h>
 
 #include "wqueue/wqueue.h"
@@ -87,7 +87,7 @@ static int work_qcancel(FAR struct kwork_wqueue_s *wqueue,
         }
       else
         {
-          sq_rem((FAR sq_entry_t *)work, &wqueue->q);
+          dq_rem((FAR dq_entry_t *)work, &wqueue->q);
         }
 
       work->worker = NULL;

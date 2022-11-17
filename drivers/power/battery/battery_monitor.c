@@ -57,7 +57,7 @@
 struct battery_monitor_priv_s
 {
   struct list_node  node;
-  sem_t             lock;
+  mutex_t           lock;
   sem_t             wait;
   uint32_t          mask;
   FAR struct pollfd *fds;
@@ -114,7 +114,7 @@ static int battery_monitor_notify(FAR struct battery_monitor_priv_s *priv,
       return OK;
     }
 
-  ret = nxsem_wait_uninterruptible(&priv->lock);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
@@ -123,12 +123,7 @@ static int battery_monitor_notify(FAR struct battery_monitor_priv_s *priv,
   priv->mask |= mask;
   if (priv->mask)
     {
-      fd->revents |= POLLIN;
-      nxsem_get_value(fd->sem, &semcnt);
-      if (semcnt < 1)
-        {
-          nxsem_post(fd->sem);
-        }
+      poll_notify(&fd, 1, POLLIN);
 
       nxsem_get_value(&priv->wait, &semcnt);
       if (semcnt < 1)
@@ -137,8 +132,7 @@ static int battery_monitor_notify(FAR struct battery_monitor_priv_s *priv,
         }
     }
 
-  nxsem_post(&priv->lock);
-
+  nxmutex_unlock(&priv->lock);
   return OK;
 }
 
@@ -162,19 +156,18 @@ static int bat_monitor_open(FAR struct file *filep)
       return -ENOMEM;
     }
 
-  ret = nxsem_wait(&dev->batsem);
+  ret = nxmutex_lock(&dev->batlock);
   if (ret < 0)
     {
       kmm_free(priv);
       return ret;
     }
 
-  nxsem_init(&priv->lock, 0, 1);
+  nxmutex_init(&priv->lock);
   nxsem_init(&priv->wait, 0, 0);
-  nxsem_set_protocol(&priv->wait, SEM_PRIO_NONE);
   priv->mask = dev->mask;
   list_add_tail(&dev->flist, &priv->node);
-  nxsem_post(&dev->batsem);
+  nxmutex_unlock(&dev->batlock);
   filep->f_priv = priv;
 
   return ret;
@@ -194,15 +187,15 @@ static int bat_monitor_close(FAR struct file *filep)
   FAR struct battery_monitor_dev_s *dev = filep->f_inode->i_private;
   int ret;
 
-  ret = nxsem_wait(&dev->batsem);
+  ret = nxmutex_lock(&dev->batlock);
   if (ret < 0)
     {
       return ret;
     }
 
   list_delete(&priv->node);
-  nxsem_post(&dev->batsem);
-  nxsem_destroy(&priv->lock);
+  nxmutex_unlock(&dev->batlock);
+  nxmutex_destroy(&priv->lock);
   nxsem_destroy(&priv->wait);
   kmm_free(priv);
 
@@ -224,7 +217,7 @@ static ssize_t bat_monitor_read(FAR struct file *filep, FAR char *buffer,
       return -EINVAL;
     }
 
-  ret = nxsem_wait(&priv->lock);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
@@ -232,7 +225,7 @@ static ssize_t bat_monitor_read(FAR struct file *filep, FAR char *buffer,
 
   while (priv->mask == 0)
     {
-      nxsem_post(&priv->lock);
+      nxmutex_unlock(&priv->lock);
       if (filep->f_oflags & O_NONBLOCK)
         {
           return -EAGAIN;
@@ -244,7 +237,7 @@ static ssize_t bat_monitor_read(FAR struct file *filep, FAR char *buffer,
           return ret;
         }
 
-      ret = nxsem_wait(&priv->lock);
+      ret = nxmutex_lock(&priv->lock);
       if (ret < 0)
         {
           return ret;
@@ -254,7 +247,7 @@ static ssize_t bat_monitor_read(FAR struct file *filep, FAR char *buffer,
   memcpy(buffer, &priv->mask, sizeof(priv->mask));
   priv->mask = 0;
 
-  nxsem_post(&priv->lock);
+  nxmutex_unlock(&priv->lock);
   return sizeof(priv->mask);
 }
 
@@ -283,7 +276,7 @@ static int bat_monitor_ioctl(FAR struct file *filep, int cmd,
 
   /* Enforce mutually exclusive access to the battery driver */
 
-  ret = nxsem_wait(&dev->batsem);
+  ret = nxmutex_lock(&dev->batlock);
   if (ret < 0)
     {
       return ret; /* Probably -EINTR */
@@ -452,7 +445,7 @@ static int bat_monitor_ioctl(FAR struct file *filep, int cmd,
         break;
     }
 
-  nxsem_post(&dev->batsem);
+  nxmutex_unlock(&dev->batlock);
   return ret;
 }
 
@@ -466,7 +459,7 @@ static ssize_t bat_monitor_poll(FAR struct file *filep,
   FAR struct battery_monitor_priv_s *priv = filep->f_priv;
   int ret;
 
-  ret = nxsem_wait(&priv->lock);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
@@ -490,7 +483,7 @@ static ssize_t bat_monitor_poll(FAR struct file *filep,
       fds->priv = NULL;
     }
 
-  nxsem_post(&priv->lock);
+  nxmutex_unlock(&priv->lock);
 
   if (setup)
     {
@@ -520,7 +513,7 @@ int battery_monitor_changed(FAR struct battery_monitor_dev_s *dev,
       return 0;
     }
 
-  ret = nxsem_wait_uninterruptible(&dev->batsem);
+  ret = nxmutex_lock(&dev->batlock);
   if (ret < 0)
     {
       return ret;
@@ -533,7 +526,7 @@ int battery_monitor_changed(FAR struct battery_monitor_dev_s *dev,
       battery_monitor_notify(priv, mask);
     }
 
-  nxsem_post(&dev->batsem);
+  nxmutex_unlock(&dev->batlock);
   return OK;
 }
 
@@ -559,9 +552,9 @@ int battery_monitor_register(FAR const char *devpath,
 {
   int ret;
 
-  /* Initialize the semaphore and the list */
+  /* Initialize the mutex and the list */
 
-  nxsem_init(&dev->batsem, 0, 1);
+  nxmutex_init(&dev->batlock);
   list_initialize(&dev->flist);
 
   /* Register the character driver */

@@ -34,6 +34,7 @@
 #include <arch/irq.h>
 
 #include <nuttx/net/net.h>
+#include <netdev/netdev.h>
 
 #include "socket/socket.h"
 #include "inet/inet.h"
@@ -79,9 +80,9 @@ static int psock_socketlevel_option(FAR struct socket *psock, int option,
 
   /* Verify that the socket option if valid (but might not be supported ) */
 
-  if (!_SO_SETVALID(option) || !value)
+  if (!value)
     {
-      return -EINVAL;
+      return -EFAULT;
     }
 
   /* Process the options always handled locally */
@@ -399,16 +400,57 @@ static int psock_socketlevel_option(FAR struct socket *psock, int option,
         }
 #endif
 
-      /* The following are not yet implemented */
+#ifdef CONFIG_NET_BINDTODEVICE
+      /* Handle the SO_BINDTODEVICE socket-level option.
+       *
+       * NOTE: this option makes sense for UDP sockets trying to broadcast
+       * while their local address is not set, eg, with DHCP requests.
+       * The problem is that we are not able to determine the interface to be
+       * used for sending packets when multiple interfaces do not have a
+       * local address yet. This option can be used to "force" the interface
+       * used to send the UDP traffic in this connection. Note that it does
+       * NOT only apply to broadcast packets.
+       */
 
-      case SO_RCVLOWAT:   /* Sets the minimum number of bytes to input */
-      case SO_SNDLOWAT:   /* Sets the minimum number of bytes to output */
+      case SO_BINDTODEVICE:  /* Bind socket to a specific network device */
+        {
+          FAR struct net_driver_s *dev;
+
+          /* Check if we are are unbinding the socket */
+
+          if (value == NULL || value_len == 0 ||
+             (value_len > 0 && ((FAR char *)value)[0] == 0))
+            {
+              conn->s_boundto = 0;  /* This interface is no longer bound */
+              break;
+            }
+
+          /* No, we are binding a socket to the interface
+           * Find the interface device with this name.
+           */
+
+          dev = netdev_findbyname(value);
+          if (dev == NULL)
+            {
+              return -ENODEV;
+            }
+
+          /* Bind the socket to the interface */
+
+          DEBUGASSERT(dev->d_ifindex > 0 &&
+                      dev->d_ifindex <= MAX_IFINDEX);
+          conn->s_boundto = dev->d_ifindex;
+
+          break;
+        }
+#endif
 
       /* There options are only valid when used with getopt */
 
       case SO_ACCEPTCONN: /* Reports whether socket listening is enabled */
       case SO_ERROR:      /* Reports and clears error status. */
       case SO_TYPE:       /* Reports the socket type */
+        return -EINVAL;
 
       default:
         return -ENOPROTOOPT;
@@ -600,11 +642,15 @@ int setsockopt(int sockfd, int level, int option, const void *value,
 
   /* Get the underlying socket structure */
 
-  psock = sockfd_socket(sockfd);
+  ret = sockfd_socket(sockfd, &psock);
 
   /* Then let psock_setockopt() do all of the work */
 
-  ret = psock_setsockopt(psock, level, option, value, value_len);
+  if (ret == OK)
+    {
+      ret = psock_setsockopt(psock, level, option, value, value_len);
+    }
+
   if (ret < 0)
     {
       set_errno(-ret);

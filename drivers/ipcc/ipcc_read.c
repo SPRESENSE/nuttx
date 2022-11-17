@@ -122,6 +122,7 @@ ssize_t ipcc_read(FAR struct file *filep, FAR char *buffer,
   FAR struct ipcc_driver_s *priv;
   ssize_t nread;
   int ret;
+  int flags;
 
   /* Get our private data structure */
 
@@ -130,7 +131,7 @@ ssize_t ipcc_read(FAR struct file *filep, FAR char *buffer,
 
   /* Get exclusive access to driver */
 
-  if ((ret = nxsem_wait(&priv->exclsem)))
+  if ((ret = nxmutex_lock(&priv->lock)))
     {
       /* nxsem_wait() will return on signal, we did not start
        * any transfer yet, so we can safely return with error
@@ -139,12 +140,35 @@ ssize_t ipcc_read(FAR struct file *filep, FAR char *buffer,
       return ret;
     }
 
+  /* Disable interrupts, or we might get in situation when we:
+   * - read 0 bytes from circbuf
+   * - interrupt comes in
+   *   - it copies data to buffer and notifies blocked readers
+   *     (in this case sem count is 0, so no sem_post() is called)
+   * - interrupt ends
+   * - since we are in blocking mode, and we read 0 from buffer
+   *   we call sem_wait() and we hang in there cause rx interrupt
+   *   will not be triggered again.
+   */
+
+  flags = enter_critical_section();
+
   for (; ; )
     {
 #ifdef CONFIG_IPCC_BUFFERED
       /* Data is buffered in interrupt handler, so we simply
        * have to return buffers content to the user
        */
+
+      if (circbuf_used(&priv->ipcc->rxbuf))
+        {
+          /* There is some data on buffer, we are sure we won't block
+           * so immediately leave critical section to not block other
+           * more important drivers
+           */
+
+          leave_critical_section(flags);
+        }
 
       if ((nread = circbuf_read(&priv->ipcc->rxbuf, buffer, buflen)) > 0)
         {
@@ -173,22 +197,22 @@ ssize_t ipcc_read(FAR struct file *filep, FAR char *buffer,
 
           /* return number of bytes read to the caller */
 
-          nxsem_post(&priv->exclsem);
+          nxmutex_unlock(&priv->lock);
           return nread;
         }
-
 #else /* CONFIG_IPCC_BUFFERED */
 
       /* Unbuffered read, read data directly from lower driver */
 
-      if ((nread = priv->ipcc->ops.read(&priv->ipcc, buffer, buflen)) != 0)
+      if ((nread = priv->ipcc->ops.read(priv->ipcc, buffer, buflen)) != 0)
         {
           /* Got some data, return number of bytes read to the caller
            *   --or--
            * read() returned error in which case return errno value
            */
 
-          nxsem_post(&priv->exclsem);
+          leave_critical_section(flags);
+          nxmutex_unlock(&priv->lock);
           return nread;
         }
 #endif /* CONFIG_IPCC_BUFFERED */
@@ -201,15 +225,19 @@ ssize_t ipcc_read(FAR struct file *filep, FAR char *buffer,
            * no data could be read
            */
 
-          nxsem_post(&priv->exclsem);
+          leave_critical_section(flags);
+          nxmutex_unlock(&priv->lock);
           return -EAGAIN;
         }
 
-      /* We are in blocking mode, so we have to wait for data to arrive */
+      /* We are in blocking mode, so we have to wait for data to arrive.
+       */
 
-      nxsem_post(&priv->exclsem);
+      nxmutex_unlock(&priv->lock);
       if ((ret = nxsem_wait(&priv->rxsem)))
         {
+          leave_critical_section(flags);
+
           /* We were interrupted by signal, but we have not written
            * any data to caller's buffer, so we return with error
            */
@@ -226,7 +254,8 @@ ssize_t ipcc_read(FAR struct file *filep, FAR char *buffer,
        * waiting for data, so now let's retake it.
        */
 
-      nxsem_wait(&priv->exclsem);
-      continue;
+      nxmutex_lock(&priv->lock);
     }
+
+  leave_critical_section(flags);
 }

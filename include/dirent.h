@@ -114,7 +114,11 @@ struct dirent
   char     d_name[NAME_MAX + 1];  /* File name */
 };
 
-typedef void DIR;
+typedef struct
+{
+  int fd;
+  struct dirent entry;
+} DIR;
 
 /****************************************************************************
  * Public Data
@@ -137,6 +141,7 @@ extern "C"
 
 int        closedir(FAR DIR *dirp);
 FAR DIR   *opendir(FAR const char *path);
+FAR DIR   *fdopendir(int fd);
 FAR struct dirent *readdir(FAR DIR *dirp);
 int        readdir_r(FAR DIR *dirp, FAR struct dirent *entry,
                      FAR struct dirent **result);
@@ -149,6 +154,8 @@ int        scandir(FAR const char *path, FAR struct dirent ***namelist,
                                       FAR const struct dirent **));
 int        alphasort(FAR const struct dirent **a,
                      FAR const struct dirent **b);
+
+int        dirfd(FAR DIR *dirp);
 
 #undef EXTERN
 #if defined(__cplusplus)

@@ -28,20 +28,27 @@
 #include <nuttx/config.h>
 
 #include <sys/types.h>
-#include <queue.h>
 
 #include <nuttx/clock.h>
+#include <nuttx/queue.h>
 #include <nuttx/semaphore.h>
 #include <nuttx/mm/iob.h>
 #include <nuttx/net/ip.h>
 #include <nuttx/net/net.h>
 #include <nuttx/wqueue.h>
 
-#if defined(CONFIG_NET_TCP) && !defined(CONFIG_NET_TCP_NO_STACK)
+#ifdef CONFIG_NET_TCP
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
+
+/* This is a helper pointer for accessing the contents of the tcp header */
+
+#define TCPIPv4BUF ((FAR struct tcp_hdr_s *)IPBUF(IPv4_HDRLEN))
+#define TCPIPv6BUF ((FAR struct tcp_hdr_s *)IPBUF(IPv6_HDRLEN))
+
+#ifndef CONFIG_NET_TCP_NO_STACK
 
 #define NET_TCP_HAVE_STACK 1
 
@@ -69,15 +76,12 @@
 #  define TCP_WBIOB(wrb)             ((wrb)->wb_iob)
 #  define TCP_WBCOPYOUT(wrb,dest,n)  (iob_copyout(dest,(wrb)->wb_iob,(n),0))
 #  define TCP_WBCOPYIN(wrb,src,n,off) \
-     (iob_copyin((wrb)->wb_iob,src,(n),(off),true,\
-                 IOBUSER_NET_TCP_WRITEBUFFER))
+     (iob_copyin((wrb)->wb_iob,src,(n),(off),true))
 #  define TCP_WBTRYCOPYIN(wrb,src,n,off) \
-     (iob_trycopyin((wrb)->wb_iob,src,(n),(off),true,\
-                    IOBUSER_NET_TCP_WRITEBUFFER))
+     (iob_trycopyin((wrb)->wb_iob,src,(n),(off),true))
 
 #  define TCP_WBTRIM(wrb,n) \
-     do { (wrb)->wb_iob = iob_trimhead((wrb)->wb_iob,(n),\
-                            IOBUSER_NET_TCP_WRITEBUFFER); } while (0)
+     do { (wrb)->wb_iob = iob_trimhead((wrb)->wb_iob,(n)); } while (0)
 
 #ifdef CONFIG_DEBUG_FEATURES
 #  define TCP_WBDUMP(msg,wrb,len,offset) \
@@ -304,14 +308,15 @@ struct tcp_conn_s
   FAR struct devif_callback_s *connevents;
   FAR struct devif_callback_s *connevents_tail;
 
+  /* Reference to TCP close callback instance */
+
+  FAR struct devif_callback_s *clscb;
+  struct work_s                clswork;
+
 #if defined(CONFIG_NET_TCP_WRITE_BUFFERS)
   /* Callback instance for TCP send() */
 
   FAR struct devif_callback_s *sndcb;
-
-#ifdef CONFIG_DEBUG_ASSERTIONS
-  int sndcb_alloc_cnt;    /* The callback allocation counter */
-#endif
 #endif
 
   /* accept() is called when the TCP logic has created a connection
@@ -1377,11 +1382,8 @@ int psock_tcp_accept(FAR struct socket *psock, FAR struct sockaddr *addr,
  *
  * Input Parameters:
  *   psock    Pointer to the socket structure for the SOCK_DRAM socket
- *   buf      Buffer to receive data
- *   len      Length of buffer
+ *   msg      Receive info and buffer for receive data
  *   flags    Receive flags
- *   from     INET address of source (may be NULL)
- *   fromlen  The length of the address structure
  *
  * Returned Value:
  *   On success, returns the number of characters received.  On  error,
@@ -1391,9 +1393,8 @@ int psock_tcp_accept(FAR struct socket *psock, FAR struct sockaddr *addr,
  *
  ****************************************************************************/
 
-ssize_t psock_tcp_recvfrom(FAR struct socket *psock, FAR void *buf,
-                           size_t len, int flags, FAR struct sockaddr *from,
-                           FAR socklen_t *fromlen);
+ssize_t psock_tcp_recvfrom(FAR struct socket *psock, FAR struct msghdr *msg,
+                           int flags);
 
 /****************************************************************************
  * Name: psock_tcp_send
@@ -1721,7 +1722,6 @@ int tcp_wrbuffer_test(void);
 
 #ifdef CONFIG_DEBUG_FEATURES
 void tcp_event_handler_dump(FAR struct net_driver_s *dev,
-                            FAR void *pvconn,
                             FAR void *pvpriv,
                             uint16_t flags,
                             FAR struct tcp_conn_s *conn);
@@ -2000,12 +2000,10 @@ int tcp_txdrain(FAR struct socket *psock, unsigned int timeout);
  *   conn     The TCP connection of interest
  *   cmd      The ioctl command
  *   arg      The argument of the ioctl cmd
- *   arglen   The length of 'arg'
  *
  ****************************************************************************/
 
-int tcp_ioctl(FAR struct tcp_conn_s *conn, int cmd,
-              FAR void *arg, size_t arglen);
+int tcp_ioctl(FAR struct tcp_conn_s *conn, int cmd, unsigned long arg);
 
 /****************************************************************************
  * Name: tcp_sendbuffer_notify
@@ -2029,5 +2027,6 @@ void tcp_sendbuffer_notify(FAR struct tcp_conn_s *conn);
 }
 #endif
 
-#endif /* CONFIG_NET_TCP && !CONFIG_NET_TCP_NO_STACK */
+#endif /* !CONFIG_NET_TCP_NO_STACK */
+#endif /* CONFIG_NET_TCP */
 #endif /* __NET_TCP_TCP_H */
