@@ -51,7 +51,7 @@
 #include <nuttx/arch.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/wqueue.h>
-#include <nuttx/semaphore.h>
+#include <nuttx/mutex.h>
 #include <nuttx/signal.h>
 #include <nuttx/net/wiznet.h>
 
@@ -157,7 +157,7 @@ static ssize_t wizdev_read(FAR struct file *filep, FAR char *buffer,
   DEBUGASSERT(inode && inode->i_private);
   dev = (FAR struct wiznet_dev_s *)inode->i_private;
 
-  wiznet_lock_access(dev);
+  nxmutex_lock(&dev->dev_lock);
 
   ret = wiznet_check_interrupt(dev);
   if (ret <= 0)
@@ -168,7 +168,7 @@ static ssize_t wizdev_read(FAR struct file *filep, FAR char *buffer,
   memcpy(buffer, &ret, sizeof(ret));
   ret = sizeof(ret);
 
-  wiznet_unlock_access(dev);
+  nxmutex_unlock(&dev->dev_lock);
 
   return ret;
 }
@@ -601,7 +601,7 @@ static int wizdev_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
   /* Lock the device */
 
   ninfo("== ioctl:%X\n", cmd);
-  wiznet_lock_access(dev);
+  nxmutex_lock(&dev->dev_lock);
 
   /* Disable wiznet irq to poll dready */
 
@@ -715,7 +715,7 @@ static int wizdev_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 
   /* Unlock the device */
 
-  wiznet_unlock_access(dev);
+  nxmutex_unlock(&dev->dev_lock);
   ninfo("== ioctl:%X finished\n", cmd);
 
   return ret;
@@ -824,7 +824,7 @@ FAR void * wiznet_register(FAR const char *devpath,
   priv->path  = strdup(devpath);
   priv->lower = lower;
   priv->pfd   = NULL;
-  nxsem_init(&priv->lock_sem, 0, 1);
+  nxmutex_init(&priv->dev_lock);
 
   ret = wiznet_spi_init(priv);
 
