@@ -276,8 +276,7 @@ enum board_power_device
 #define ALT1250_SHUTDOWN           PIN_SPI2_MISO
 #define ALT1250_LTE_POWER_BUTTON   PIN_AP_CLK
 
-/* WIZnet ethernet device pin definitions **********************************/
-
+/* WIZnet ethernet device pin definitions ***********************************/
 
 #if defined(CONFIG_CXD56_WIZNET_RST_EMMC_DATA3)
 #define WIZNET_PIN_RST            PIN_EMMC_DATA3
