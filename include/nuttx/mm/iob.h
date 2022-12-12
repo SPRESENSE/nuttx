@@ -127,7 +127,7 @@ struct iob_s
 #if CONFIG_IOB_HEADSIZE > 0
   uint8_t  io_head[CONFIG_IOB_HEADSIZE];
 #endif
-  uint8_t  io_data[CONFIG_IOB_BUFSIZE];
+  uint8_t  io_data[CONFIG_IOB_BUFSIZE] aligned_data(CONFIG_IOB_ALIGNMENT);
 };
 
 #if CONFIG_IOB_NCHAINS > 0
@@ -543,6 +543,30 @@ FAR struct iob_s *iob_pack(FAR struct iob_s *iob);
  ****************************************************************************/
 
 int iob_contig(FAR struct iob_s *iob, unsigned int len);
+
+/****************************************************************************
+ * Name: iob_reserve
+ *
+ * Description:
+ *   Adjust headroom offset of iobs by reducing the tail room.
+ *
+ ****************************************************************************/
+
+void iob_reserve(FAR struct iob_s *iob, unsigned int reserved);
+
+/****************************************************************************
+ * Name: iob_update_pktlen
+ *
+ * Description:
+ *   This function will update packet length of the iob, it will be
+ *   trimmed if the length of the iob chain is greater than the current
+ *   length.
+ *   This function will not grow the iob link, any grow operation should
+ *   be implemented through iob_copyin()/iob_trycopyin().
+ *
+ ****************************************************************************/
+
+void iob_update_pktlen(FAR struct iob_s *iob, unsigned int pktlen);
 
 /****************************************************************************
  * Name: iob_dump

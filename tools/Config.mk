@@ -243,8 +243,8 @@ OBJPATH ?= .
 #   CONFIG_WINDOWS_NATIVE - Defined for a Windows native build
 
 ifeq ($(CONFIG_WINDOWS_NATIVE),y)
-  DEFINE ?= "$(TOPDIR)\tools\define.bat"
-  INCDIR ?= "$(TOPDIR)\tools\incdir.bat"
+  DEFINE ?= $(TOPDIR)\tools\define.bat
+  INCDIR ?= $(TOPDIR)\tools\incdir.bat
 else ifeq ($(CONFIG_CYGWIN_WINTOOL),y)
   DEFINE ?= "$(TOPDIR)/tools/define.sh" -w
   INCDIR ?= "$(TOPDIR)/tools/incdir$(HOSTEXEEXT)" -w
@@ -400,7 +400,6 @@ endef
 # created from scratch
 
 define ARCHIVE
-	@echo "AR (create): ${shell basename $(1)} $(2)"
 	$(Q) $(RM) $1
 	$(Q) $(AR) $1 $(2)
 endef
@@ -450,8 +449,12 @@ endef
 # DELFILE - Delete one file
 
 ifeq ($(CONFIG_WINDOWS_NATIVE),y)
+define NEWLINE
+
+
+endef
 define DELFILE
-	$(Q) if exist $1 (del /f /q $1)
+	$(foreach FILE, $(1), $(NEWLINE) $(Q) if exist $(FILE) (del /f /q  $(FILE)))
 endef
 else
 define DELFILE
@@ -463,7 +466,7 @@ endif
 
 ifeq ($(CONFIG_WINDOWS_NATIVE),y)
 define DELDIR
-	$(Q) if exist $1 (rmdir /q /s $1)
+	$(Q) if exist $1 (rmdir /q /s $1) $(NEWLINE)
 endef
 else
 define DELDIR
@@ -501,7 +504,7 @@ endif
 
 ifeq ($(CONFIG_WINDOWS_NATIVE),y)
 define CATFILE
-	$(Q) type $(2) > $1
+	$(foreach FILE, $(2), $(NEWLINE) $(Q) type $(FILE) >> $1)
 endef
 else
 define CATFILE
@@ -529,20 +532,14 @@ ifeq ($(CONFIG_ARCH_COVERAGE),y)
 endif
 
 ifeq ($(CONFIG_WINDOWS_NATIVE),y)
-
-define NEWLINE
-
-
-endef
-
 define CLEAN
 	$(Q) if exist *$(OBJEXT) (del /f /q *$(OBJEXT))
 	$(Q) if exist *$(LIBEXT) (del /f /q *$(LIBEXT))
 	$(Q) if exist *~ (del /f /q *~)
 	$(Q) if exist (del /f /q  .*.swp)
-	$(foreach OBJ, $(OBJS), $(NEWLINE) $(call DELFILE,$(OBJ)))
-	$(Q) if exist $(BIN) (del /f /q  $(BIN))
-	$(Q) if exist $(EXTRA) (del /f /q  $(EXTRA))
+	$(call DELFILE,$(subst /,\,$(OBJS)))
+	$(Q) if exist $(BIN) (del /f /q  $(subst /,\,$(BIN)))
+	$(Q) if exist $(EXTRA) (del /f /q  $(subst /,\,$(EXTRA)))
 endef
 else
 define CLEAN
@@ -589,9 +586,9 @@ $(1)_$(2):
 
 endef
 
-export DEFINE_PREFIX ?= $(subst X,,${shell $(DEFINE) "$(CC)" "X" 2> ${EMPTYFILE}})
-export INCDIR_PREFIX ?= $(subst "X",,${shell $(INCDIR) "$(CC)" "X" 2> ${EMPTYFILE}})
-export INCSYSDIR_PREFIX ?= $(subst "X",,${shell $(INCDIR) -s "$(CC)" "X" 2> ${EMPTYFILE}})
+export DEFINE_PREFIX ?= $(subst X,,${shell $(DEFINE) "$(CC)" X 2> ${EMPTYFILE}})
+export INCDIR_PREFIX ?= $(subst "X",,${shell $(INCDIR) "$(CC)" X 2> ${EMPTYFILE}})
+export INCSYSDIR_PREFIX ?= $(subst "X",,${shell $(INCDIR) -s "$(CC)" X 2> ${EMPTYFILE}})
 
 # ARCHxxx means the predefined setting(either toolchain, arch, or system specific)
 ARCHDEFINES += ${DEFINE_PREFIX}__NuttX__
