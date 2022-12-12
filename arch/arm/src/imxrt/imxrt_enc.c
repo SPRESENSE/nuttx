@@ -403,6 +403,7 @@ static struct imxrt_enc_lowerhalf_s imxrt_enc1_priv =
   .ops    = &g_qecallbacks,
   .config = &imxrt_enc1_config,
   .data   = &imxrt_enc1_data,
+  .lock   = NXMUTEX_INITIALIZER,
 };
 #endif
 
@@ -441,6 +442,7 @@ static struct imxrt_enc_lowerhalf_s imxrt_enc2_priv =
   .ops    = &g_qecallbacks,
   .config = &imxrt_enc2_config,
   .data   = &imxrt_enc2_data,
+  .lock   = NXMUTEX_INITIALIZER,
 };
 #endif
 
@@ -479,6 +481,7 @@ static struct imxrt_enc_lowerhalf_s imxrt_enc3_priv =
   .ops    = &g_qecallbacks,
   .config = &imxrt_enc3_config,
   .data   = &imxrt_enc3_data,
+  .lock   = NXMUTEX_INITIALIZER,
 };
 #endif
 
@@ -517,6 +520,7 @@ static struct imxrt_enc_lowerhalf_s imxrt_enc4_priv =
   .ops    = &g_qecallbacks,
   .config = &imxrt_enc4_config,
   .data   = &imxrt_enc4_data,
+  .lock   = NXMUTEX_INITIALIZER,
 };
 #endif
 
@@ -947,7 +951,7 @@ static int imxrt_setup(struct qe_lowerhalf_s *lower)
   imxrt_enc_putreg16(priv, IMXRT_ENC_TST_OFFSET, regval);
 #endif
 
-  if ((config->init_flags && XIE_SHIFT) == 1)
+  if (((config->init_flags >> XIE_SHIFT) & 1) != 0)
     {
       ret = irq_attach(config->irq, imxrt_enc_index, priv);
       if (ret < 0)
@@ -1007,10 +1011,9 @@ static int imxrt_shutdown(struct qe_lowerhalf_s *lower)
 
   /* Disable interrupts if used */
 
-  if ((priv->config->init_flags && XIE_SHIFT) == 1)
+  if (((priv->config->init_flags >> XIE_SHIFT) & 1) != 0)
     {
       up_disable_irq(priv->config->irq);
-
       irq_detach(priv->config->irq);
     }
 
@@ -1197,7 +1200,7 @@ static int imxrt_ioctl(struct qe_lowerhalf_s *lower, int cmd,
 
 int imxrt_qeinitialize(const char *devpath, int enc)
 {
-  struct imxrt_enc_lowerhalf_s * priv = NULL;
+  struct imxrt_enc_lowerhalf_s *priv = NULL;
 
   switch (enc)
     {
@@ -1224,10 +1227,6 @@ int imxrt_qeinitialize(const char *devpath, int enc)
     default:
       return -ENODEV;
     }
-
-  /* Initialize private data */
-
-  nxmutex_init(&priv->lock);
 
   /* Register the upper-half driver */
 

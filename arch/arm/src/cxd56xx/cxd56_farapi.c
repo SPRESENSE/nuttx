@@ -113,8 +113,8 @@ extern struct modulelist_s _image_modlist_base[];
  * Private Data
  ****************************************************************************/
 
-static sem_t g_farwait;
-static mutex_t g_farlock;
+static sem_t g_farwait = SEM_INITIALIZER(0);
+static mutex_t g_farlock = NXMUTEX_INITIALIZER;
 static struct pm_cpu_wakelock_s g_wlock =
 {
   .count = 0,
@@ -192,14 +192,14 @@ void farapi_main(int id, void *arg, struct modulelist_s *mlist)
     {
       /* Save the current cpuset */
 
-      sched_getaffinity(getpid(), sizeof(cpu_set_t), &cpuset0);
+      sched_getaffinity(gettid(), sizeof(cpu_set_t), &cpuset0);
 
       /* Assign the current task to cpu0 */
 
       cpu_set_t cpuset1;
       CPU_ZERO(&cpuset1);
       CPU_SET(0, &cpuset1);
-      sched_setaffinity(getpid(), sizeof(cpu_set_t), &cpuset1);
+      sched_setaffinity(gettid(), sizeof(cpu_set_t), &cpuset1);
 
       /* NOTE: a workaround to finish rescheduling */
 
@@ -267,7 +267,7 @@ err:
     {
       /* Restore the cpu affinity */
 
-      sched_setaffinity(getpid(), sizeof(cpu_set_t), &cpuset0);
+      sched_setaffinity(gettid(), sizeof(cpu_set_t), &cpuset0);
 
       /* NOTE: a workaround to finish rescheduling */
 
@@ -288,10 +288,7 @@ void cxd56_farapiinitialize(void)
       PANIC();
 #  endif
     }
-
 #endif
-  nxmutex_init(&g_farlock);
-  nxsem_init(&g_farwait, 0, 0);
 
   cxd56_iccinit(CXD56_PROTO_MBX);
   cxd56_iccinit(CXD56_PROTO_FLG);

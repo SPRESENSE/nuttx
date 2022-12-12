@@ -411,7 +411,7 @@ static FAR const char * const g_statenames[] =
   "Inactive",
   "Waiting,Semaphore",
   "Waiting,Signal"
-#if !defined(CONFIG_DISABLE_MQUEUE) && !defined(CONFIG_DISABLE_MQUEUE_SYSV)
+#if !defined(CONFIG_DISABLE_MQUEUE) || !defined(CONFIG_DISABLE_MQUEUE_SYSV)
   , "Waiting,MQ empty"
   , "Waiting,MQ full"
 #endif
@@ -984,7 +984,7 @@ static ssize_t proc_heapcheck(FAR struct proc_file_s *procfile,
   size_t totalsize = 0;
   size_t heapcheck = 0;
 
-  if (tcb->flags & TCB_FLAG_HEAPCHECK)
+  if (tcb->flags & TCB_FLAG_HEAP_CHECK)
     {
       heapcheck = 1;
     }
@@ -1006,10 +1006,10 @@ static ssize_t proc_heapcheck_write(FAR struct proc_file_s *procfile,
   switch (atoi(buffer))
     {
       case 0:
-        tcb->flags &= ~TCB_FLAG_HEAPCHECK;
+        tcb->flags &= ~TCB_FLAG_HEAP_CHECK;
         break;
       case 1:
-        tcb->flags |= TCB_FLAG_HEAPCHECK;
+        tcb->flags |= TCB_FLAG_HEAP_CHECK;
         break;
       default:
         ferr("ERROR: invalid argument\n");
@@ -1484,7 +1484,7 @@ static int proc_open(FAR struct file *filep, FAR const char *relpath,
 
   if (strncmp(relpath, "self", 4) == 0)
     {
-      tmp = (unsigned long)getpid();    /* Get the PID of the calling task */
+      tmp = gettid();                   /* Get the TID of the calling task */
       ptr = (FAR char *)relpath + 4;    /* Discard const */
     }
   else
@@ -1792,7 +1792,7 @@ static int proc_opendir(FAR const char *relpath,
 
   if (strncmp(relpath, "self", 4) == 0)
     {
-      tmp = (unsigned long)getpid();    /* Get the PID of the calling task */
+      tmp = gettid();                   /* Get the TID of the calling task */
       ptr = (FAR char *)relpath + 4;    /* Discard const */
     }
   else
@@ -2032,7 +2032,7 @@ static int proc_stat(const char *relpath, struct stat *buf)
 
   if (strncmp(relpath, "self", 4) == 0)
     {
-      tmp = (unsigned long)getpid();    /* Get the PID of the calling task */
+      tmp = gettid();                   /* Get the TID of the calling task */
       ptr = (FAR char *)relpath + 4;    /* Discard const */
     }
   else

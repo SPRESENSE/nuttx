@@ -98,10 +98,7 @@ struct sam_chconfig_s
 
 struct sam_tcconfig_s
 {
-  uintptr_t base;          /* TC register base address */
-  uint8_t pid;             /* Peripheral ID */
   uint8_t chfirst;         /* First channel number */
-  uint8_t tc;              /* Timer/counter number */
 
   /* Channels */
 
@@ -160,11 +157,6 @@ static bool sam_checkreg(struct sam_tc_s *tc, bool wr, uint32_t regaddr,
 #  define   sam_checkreg(tc,wr,regaddr,regval) (false)
 #endif
 
-static inline uint32_t sam_tc_getreg(struct sam_chan_s *chan,
-                                     unsigned int offset);
-static inline void sam_tc_putreg(struct sam_chan_s *chan,
-                                 unsigned int offset, uint32_t regval);
-
 static inline uint32_t sam_chan_getreg(struct sam_chan_s *chan,
                                        unsigned int offset);
 static inline void sam_chan_putreg(struct sam_chan_s *chan,
@@ -201,10 +193,7 @@ static inline struct sam_chan_s *sam_tc_initialize(int channel);
 #ifdef CONFIG_SAMA5_TC0
 static const struct sam_tcconfig_s g_tc012config =
 {
-  .base    = SAM_TC012_VBASE,
-  .pid     = SAM_PID_TC0,
   .chfirst = 0,
-  .tc      = 0,
   .channel =
   {
     [0] =
@@ -271,10 +260,7 @@ static const struct sam_tcconfig_s g_tc012config =
 #ifdef CONFIG_SAMA5_TC1
 static const struct sam_tcconfig_s g_tc345config =
 {
-  .base    = SAM_TC345_VBASE,
-  .pid     = SAM_PID_TC1,
   .chfirst = 3,
-  .tc      = 1,
   .channel =
   {
     [0] =
@@ -341,10 +327,7 @@ static const struct sam_tcconfig_s g_tc345config =
 #ifdef CONFIG_SAMA5_TC2
 static const struct sam_tcconfig_s g_tc678config =
 {
-  .base    = SAM_TC678_VBASE,
-  .pid     = SAM_PID_TC2,
   .chfirst = 6,
-  .tc      = 2,
   .channel =
   {
     [0] =
@@ -411,15 +394,33 @@ static const struct sam_tcconfig_s g_tc678config =
 /* Timer/counter state */
 
 #ifdef CONFIG_SAMA5_TC0
-static struct sam_tc_s g_tc012;
+static struct sam_tc_s g_tc012 =
+{
+  .lock = NXMUTEX_INITIALIZER,
+  .base = SAM_TC012_VBASE,
+  .pid  = SAM_PID_TC0,
+  .tc   = 0,
+};
 #endif
 
 #ifdef CONFIG_SAMA5_TC1
-static struct sam_tc_s g_tc345;
+static struct sam_tc_s g_tc345 =
+{
+  .lock = NXMUTEX_INITIALIZER,
+  .base = SAM_TC345_VBASE,
+  .pid  = SAM_PID_TC1,
+  .tc   = 1,
+};
 #endif
 
 #ifdef CONFIG_SAMA5_TC2
-static struct sam_tc_s g_tc678;
+static struct sam_tc_s g_tc678 =
+{
+  .lock = NXMUTEX_INITIALIZER,
+  .base = SAM_TC678_VBASE,
+  .pid  = SAM_PID_TC2,
+  .tc   = 2,
+};
 #endif
 
 /* TC frequency data.
@@ -559,55 +560,6 @@ static bool sam_checkreg(struct sam_tc_s *tc, bool wr, uint32_t regaddr,
   return true;
 }
 #endif
-
-/****************************************************************************
- * Name: sam_tc_getreg
- *
- * Description:
- *  Read an TC register
- *
- ****************************************************************************/
-
-static inline uint32_t sam_tc_getreg(struct sam_chan_s *chan,
-                                     unsigned int offset)
-{
-  struct sam_tc_s *tc = chan->tc;
-  uint32_t regaddr    = tc->base + offset;
-  uint32_t regval     = getreg32(regaddr);
-
-#ifdef CONFIG_SAMA5_TC_REGDEBUG
-  if (sam_checkreg(tc, false, regaddr, regval))
-    {
-      tmrinfo("%08x->%08x\n", regaddr, regval);
-    }
-#endif
-
-  return regval;
-}
-
-/****************************************************************************
- * Name: sam_tc_putreg
- *
- * Description:
- *  Write a value to an TC register
- *
- ****************************************************************************/
-
-static inline void sam_tc_putreg(struct sam_chan_s *chan, uint32_t regval,
-                                 unsigned int offset)
-{
-  struct sam_tc_s *tc = chan->tc;
-  uint32_t regaddr    = tc->base + offset;
-
-#ifdef CONFIG_SAMA5_TC_REGDEBUG
-  if (sam_checkreg(tc, true, regaddr, regval))
-    {
-      tmrinfo("%08x<-%08x\n", regaddr, regval);
-    }
-#endif
-
-  putreg32(regval, regaddr);
-}
 
 /****************************************************************************
  * Name: sam_chan_getreg
@@ -954,19 +906,11 @@ static inline struct sam_chan_s *sam_tc_initialize(int channel)
   flags = enter_critical_section();
   if (!tc->initialized)
     {
-      /* Initialize the timer counter data structure. */
-
-      memset(tc, 0, sizeof(struct sam_tc_s));
-      nxmutex_init(&tc->lock);
-      tc->base = tcconfig->base;
-      tc->tc   = channel < 3 ? 0 : 1;
-      tc->pid  = tcconfig->pid;
-
       /* Initialize the channels */
 
       for (i = 0, ch = tcconfig->chfirst; i < SAM_TC_NCHANNELS; i++)
         {
-          tmrerr("ERROR: Initializing TC%d channel %d\n", tcconfig->tc, ch);
+          tmrerr("ERROR: Initializing TC%d channel %d\n", tc->tc, ch);
 
           /* Initialize the channel data structure */
 
@@ -1008,7 +952,7 @@ static inline struct sam_chan_s *sam_tc_initialize(int channel)
 
       /* Set the maximum TC peripheral clock frequency */
 
-      regval  = PMC_PCR_PID(tcconfig->pid) | PMC_PCR_CMD | PMC_PCR_EN;
+      regval  = PMC_PCR_PID(tc->pid) | PMC_PCR_CMD | PMC_PCR_EN;
 
 #ifdef SAMA5_HAVE_PMC_PCR_DIV
       /* Set the MCK divider (if any) */
@@ -1020,7 +964,7 @@ static inline struct sam_chan_s *sam_tc_initialize(int channel)
 
       /* Enable clocking to the timer counter */
 
-      sam_enableperiph0(tcconfig->pid);
+      sam_enableperiph0(tc->pid);
 
       /* Attach the timer interrupt handler and enable the timer interrupts */
 
