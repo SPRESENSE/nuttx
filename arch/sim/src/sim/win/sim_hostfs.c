@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/sim/src/sim/posix/sim_hostfs.c
+ * arch/sim/src/sim/win/sim_hostfs.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -24,15 +24,14 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <sys/statvfs.h>
-#include <sys/ioctl.h>
 
-#include <dirent.h>
 #include <stdio.h>
-#include <unistd.h>
 #include <string.h>
 #include <fcntl.h>
 #include <errno.h>
+
+#include <io.h>
+#include <windows.h>
 
 #include "hostfs.h"
 
@@ -44,51 +43,24 @@
  * Name: host_stat_convert
  ****************************************************************************/
 
-static void host_stat_convert(struct stat *hostbuf, struct nuttx_stat_s *buf)
+static void host_stat_convert(struct _stat *hostbuf,
+                              struct nuttx_stat_s *buf)
 {
   /* Map the return values */
 
   buf->st_mode = hostbuf->st_mode & 07777;
 
-  if (S_ISDIR(hostbuf->st_mode))
+  if (hostbuf->st_mode & _S_IFDIR)
     {
       buf->st_mode |= NUTTX_S_IFDIR;
     }
-  else if (S_ISREG(hostbuf->st_mode))
+  else if (hostbuf->st_mode & _S_IFREG)
     {
       buf->st_mode |= NUTTX_S_IFREG;
     }
-  else if (S_ISCHR(hostbuf->st_mode))
+  else if (hostbuf->st_mode & _S_IFCHR)
     {
       buf->st_mode |= NUTTX_S_IFCHR;
-    }
-  else if (S_ISBLK(hostbuf->st_mode))
-    {
-      buf->st_mode |= NUTTX_S_IFBLK;
-    }
-  else if (S_ISLNK(hostbuf->st_mode))
-    {
-      buf->st_mode |= NUTTX_S_IFLNK;
-    }
-  else if (S_ISFIFO(hostbuf->st_mode))
-    {
-      buf->st_mode |= NUTTX_S_IFIFO;
-    }
-  else if (S_ISSOCK(hostbuf->st_mode))
-    {
-      buf->st_mode |= NUTTX_S_IFSOCK;
-    }
-  else if (S_TYPEISSEM(hostbuf))
-    {
-      buf->st_mode |= NUTTX_S_IFSEM;
-    }
-  else if (S_TYPEISMQ(hostbuf))
-    {
-      buf->st_mode |= NUTTX_S_IFMQ;
-    }
-  else if (S_TYPEISSHM(hostbuf))
-    {
-      buf->st_mode |= NUTTX_S_IFSHM;
     }
 
   buf->st_dev          = hostbuf->st_dev;
@@ -98,23 +70,6 @@ static void host_stat_convert(struct stat *hostbuf, struct nuttx_stat_s *buf)
   buf->st_gid          = hostbuf->st_gid;
   buf->st_rdev         = hostbuf->st_rdev;
   buf->st_size         = hostbuf->st_size;
-#if defined(__APPLE__)
-  buf->st_atim.tv_sec  = hostbuf->st_atimespec.tv_sec;
-  buf->st_atim.tv_nsec = hostbuf->st_atimespec.tv_nsec;
-  buf->st_mtim.tv_sec  = hostbuf->st_mtimespec.tv_sec;
-  buf->st_mtim.tv_nsec = hostbuf->st_mtimespec.tv_nsec;
-  buf->st_ctim.tv_sec  = hostbuf->st_ctimespec.tv_sec;
-  buf->st_ctim.tv_nsec = hostbuf->st_ctimespec.tv_nsec;
-#else
-  buf->st_atim.tv_sec  = hostbuf->st_atim.tv_sec;
-  buf->st_atim.tv_nsec = hostbuf->st_atim.tv_nsec;
-  buf->st_mtim.tv_sec  = hostbuf->st_mtim.tv_sec;
-  buf->st_mtim.tv_nsec = hostbuf->st_mtim.tv_nsec;
-  buf->st_ctim.tv_sec  = hostbuf->st_ctim.tv_sec;
-  buf->st_ctim.tv_nsec = hostbuf->st_ctim.tv_nsec;
-#endif
-  buf->st_blksize      = hostbuf->st_blksize;
-  buf->st_blocks       = hostbuf->st_blocks;
 }
 
 /****************************************************************************
@@ -128,6 +83,7 @@ static void host_stat_convert(struct stat *hostbuf, struct nuttx_stat_s *buf)
 int host_open(const char *pathname, int flags, nuttx_mode_t mode)
 {
   int mapflags = 0;
+  int ret;
 
   /* Perform flag mapping */
 
@@ -164,34 +120,7 @@ int host_open(const char *pathname, int flags, nuttx_mode_t mode)
       mapflags |= O_TRUNC;
     }
 
-  if (flags & NUTTX_O_NONBLOCK)
-    {
-      mapflags |= O_NONBLOCK;
-    }
-
-  if (flags & NUTTX_O_SYNC)
-    {
-      mapflags |= O_SYNC;
-    }
-
-#ifdef O_DIRECT
-  if (flags & NUTTX_O_DIRECT)
-    {
-      mapflags |= O_DIRECT;
-    }
-#endif
-
-  if (flags & NUTTX_O_CLOEXEC)
-    {
-      mapflags |= O_CLOEXEC;
-    }
-
-  if (flags & NUTTX_O_DIRECTORY)
-    {
-      mapflags |= O_DIRECTORY;
-    }
-
-  int ret = open(pathname, mapflags, mode);
+  ret = _open(pathname, mapflags, mode);
   if (ret == -1)
     {
       ret = -errno;
@@ -208,7 +137,7 @@ int host_close(int fd)
 {
   /* Just call the close routine */
 
-  int ret = close(fd);
+  int ret = _close(fd);
   if (ret == -1)
     {
       ret = -errno;
@@ -225,7 +154,7 @@ nuttx_ssize_t host_read(int fd, void *buf, nuttx_size_t count)
 {
   /* Just call the read routine */
 
-  nuttx_ssize_t ret = read(fd, buf, count);
+  nuttx_ssize_t ret = _read(fd, buf, count);
   if (ret == -1)
     {
       ret = -errno;
@@ -242,7 +171,7 @@ nuttx_ssize_t host_write(int fd, const void *buf, nuttx_size_t count)
 {
   /* Just call the write routine */
 
-  nuttx_ssize_t ret = write(fd, buf, count);
+  nuttx_ssize_t ret = _write(fd, buf, count);
   if (ret == -1)
     {
       ret = -errno;
@@ -259,7 +188,7 @@ nuttx_off_t host_lseek(int fd, nuttx_off_t offset, int whence)
 {
   /* Just call the lseek routine */
 
-  nuttx_off_t ret = lseek(fd, offset, whence);
+  nuttx_off_t ret = _lseek(fd, offset, whence);
   if (ret == (nuttx_off_t)-1)
     {
       ret = -errno;
@@ -274,9 +203,7 @@ nuttx_off_t host_lseek(int fd, nuttx_off_t offset, int whence)
 
 int host_ioctl(int fd, int request, unsigned long arg)
 {
-  /* Just call the ioctl routine */
-
-  return ioctl(fd, request, arg);
+  return -ENOSYS;
 }
 
 /****************************************************************************
@@ -285,9 +212,6 @@ int host_ioctl(int fd, int request, unsigned long arg)
 
 void host_sync(int fd)
 {
-  /* Just call the sync routine */
-
-  fsync(fd);
 }
 
 /****************************************************************************
@@ -296,7 +220,13 @@ void host_sync(int fd)
 
 int host_dup(int fd)
 {
-  return dup(fd);
+  int ret = _dup(fd);
+  if (ret < 0)
+    {
+      ret = -errno;
+    }
+
+  return ret;
 }
 
 /****************************************************************************
@@ -305,15 +235,15 @@ int host_dup(int fd)
 
 int host_fstat(int fd, struct nuttx_stat_s *buf)
 {
-  struct stat hostbuf;
+  struct _stat hostbuf;
   int ret;
 
   /* Call the host's stat routine */
 
-  ret = fstat(fd, &hostbuf);
+  ret = _fstat(fd, &hostbuf);
   if (ret < 0)
     {
-      ret = -errno;
+      return -errno;
     }
 
   /* Map the return values */
@@ -328,59 +258,7 @@ int host_fstat(int fd, struct nuttx_stat_s *buf)
 
 int host_fchstat(int fd, const struct nuttx_stat_s *buf, int flags)
 {
-  struct timespec times[2];
-  int ret;
-
-  if (flags & NUTTX_CH_STAT_MODE)
-    {
-      ret = fchmod(fd, buf->st_mode);
-      if (ret < 0)
-        {
-          return -errno;
-        }
-    }
-
-  if (flags & (NUTTX_CH_STAT_UID | NUTTX_CH_STAT_GID))
-    {
-      ret = fchown(fd, buf->st_uid, buf->st_gid);
-      if (ret < 0)
-        {
-          return -errno;
-        }
-    }
-
-  if (flags & (NUTTX_CH_STAT_ATIME | NUTTX_CH_STAT_MTIME))
-    {
-      if (flags & NUTTX_CH_STAT_ATIME)
-        {
-          times[0].tv_sec  = buf->st_atim.tv_sec;
-          times[0].tv_nsec = buf->st_atim.tv_nsec;
-        }
-      else
-        {
-          times[0].tv_sec = 0;
-          times[0].tv_nsec = UTIME_OMIT;
-        }
-
-      if (flags & NUTTX_CH_STAT_MTIME)
-        {
-          times[1].tv_sec  = buf->st_mtim.tv_sec;
-          times[1].tv_nsec = buf->st_mtim.tv_nsec;
-        }
-      else
-        {
-          times[1].tv_sec = 0;
-          times[1].tv_nsec = UTIME_OMIT;
-        }
-
-      ret = futimens(fd, times);
-      if (ret < 0)
-        {
-          return -errno;
-        }
-    }
-
-  return 0;
+  return -ENOSYS;
 }
 
 /****************************************************************************
@@ -389,13 +267,7 @@ int host_fchstat(int fd, const struct nuttx_stat_s *buf, int flags)
 
 int host_ftruncate(int fd, nuttx_off_t length)
 {
-  int ret = ftruncate(fd, length);
-  if (ret < 0)
-    {
-      ret = -errno;
-    }
-
-  return ret;
+  return -ENOSYS;
 }
 
 /****************************************************************************
@@ -404,9 +276,12 @@ int host_ftruncate(int fd, nuttx_off_t length)
 
 void *host_opendir(const char *name)
 {
-  /* Return the host DIR pointer */
+  char namebuf[CONFIG_PATH_MAX + 4];
+  WIN32_FIND_DATA data;
 
-  return (void *)opendir(name);
+  snprintf(namebuf, sizeof(namebuf), "%s/*", name);
+
+  return FindFirstFile(namebuf, &data);
 }
 
 /****************************************************************************
@@ -415,57 +290,29 @@ void *host_opendir(const char *name)
 
 int host_readdir(void *dirp, struct nuttx_dirent_s *entry)
 {
-  struct dirent *ent;
+  WIN32_FIND_DATA FileData;
+  BOOL ret;
 
-  /* Call the host's readdir routine */
-
-  ent = readdir(dirp);
-  if (ent != NULL)
+  ret = FindNextFile(dirp, &FileData);
+  if (ret == FALSE)
     {
-      /* Copy the entry name */
-
-      strncpy(entry->d_name, ent->d_name, sizeof(entry->d_name) - 1);
-      entry->d_name[sizeof(entry->d_name) - 1] = 0;
-
-      /* Map the type */
-
-      if (ent->d_type == DT_REG)
-        {
-          entry->d_type = NUTTX_DTYPE_FILE;
-        }
-      else if (ent->d_type == DT_FIFO)
-        {
-          entry->d_type = NUTTX_DTYPE_FIFO;
-        }
-      else if (ent->d_type == DT_CHR)
-        {
-          entry->d_type = NUTTX_DTYPE_CHR;
-        }
-      else if (ent->d_type == DT_BLK)
-        {
-          entry->d_type = NUTTX_DTYPE_BLK;
-        }
-      else if (ent->d_type == DT_DIR)
-        {
-          entry->d_type = NUTTX_DTYPE_DIRECTORY;
-        }
-      else if (ent->d_type == DT_LNK)
-        {
-          entry->d_type = NUTTX_DTYPE_LINK;
-        }
-      else if (ent->d_type == DT_SOCK)
-        {
-          entry->d_type = NUTTX_DTYPE_SOCK;
-        }
-      else
-        {
-          entry->d_type = NUTTX_DTYPE_UNKNOWN;
-        }
-
-      return 0;
+      return GetLastError() == ERROR_NO_MORE_FILES ?
+             -ENOENT : HRESULT_FROM_WIN32(GetLastError());
     }
 
-  return -ENOENT;
+  strncpy(entry->d_name, FileData.cFileName,
+          sizeof(entry->d_name) - 1);
+
+  if (FileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+    {
+      entry->d_type = NUTTX_DTYPE_DIRECTORY;
+    }
+  else
+    {
+      entry->d_type = NUTTX_DTYPE_FILE;
+    }
+
+  return 0;
 }
 
 /****************************************************************************
@@ -474,9 +321,6 @@ int host_readdir(void *dirp, struct nuttx_dirent_s *entry)
 
 void host_rewinddir(void *dirp)
 {
-  /* Just call the rewinddir routine */
-
-  rewinddir(dirp);
 }
 
 /****************************************************************************
@@ -485,13 +329,12 @@ void host_rewinddir(void *dirp)
 
 int host_closedir(void *dirp)
 {
-  int ret = closedir(dirp);
-  if (ret < 0)
+  if (FindClose(dirp))
     {
-      ret = -errno;
+      return 0;
     }
 
-  return ret;
+  return HRESULT_FROM_WIN32(GetLastError());
 }
 
 /****************************************************************************
@@ -500,29 +343,7 @@ int host_closedir(void *dirp)
 
 int host_statfs(const char *path, struct nuttx_statfs_s *buf)
 {
-  int            ret;
-  struct statvfs hostbuf;
-
-  /* Call the host's statfs routine */
-
-  ret = statvfs(path, &hostbuf);
-  if (ret < 0)
-    {
-      ret = -errno;
-    }
-
-  /* Map the struct statfs value */
-
-  buf->f_type    = 0; /* hostfs overwrites f_type anyway */
-  buf->f_namelen = hostbuf.f_namemax;
-  buf->f_bsize   = hostbuf.f_bsize;
-  buf->f_blocks  = hostbuf.f_blocks;
-  buf->f_bfree   = hostbuf.f_bfree;
-  buf->f_bavail  = hostbuf.f_bavail;
-  buf->f_files   = hostbuf.f_files;
-  buf->f_ffree   = hostbuf.f_ffree;
-
-  return ret;
+  return -ENOSYS;
 }
 
 /****************************************************************************
@@ -531,7 +352,7 @@ int host_statfs(const char *path, struct nuttx_statfs_s *buf)
 
 int host_unlink(const char *pathname)
 {
-  int ret = unlink(pathname);
+  int ret = _unlink(pathname);
   if (ret < 0)
     {
       ret = -errno;
@@ -548,7 +369,7 @@ int host_mkdir(const char *pathname, nuttx_mode_t mode)
 {
   /* Just call the host's mkdir routine */
 
-  int ret = mkdir(pathname, mode);
+  int ret = _mkdir(pathname, mode);
   if (ret < 0)
     {
       ret = -errno;
@@ -563,7 +384,7 @@ int host_mkdir(const char *pathname, nuttx_mode_t mode)
 
 int host_rmdir(const char *pathname)
 {
-  int ret = rmdir(pathname);
+  int ret = _rmdir(pathname);
   if (ret < 0)
     {
       ret = -errno;
@@ -578,13 +399,12 @@ int host_rmdir(const char *pathname)
 
 int host_rename(const char *oldpath, const char *newpath)
 {
-  int ret = rename(oldpath, newpath);
-  if (ret < 0)
+  if (MoveFile(oldpath, newpath))
     {
-      ret = -errno;
+      return 0;
     }
 
-  return ret;
+  return HRESULT_FROM_WIN32(GetLastError());
 }
 
 /****************************************************************************
@@ -593,12 +413,12 @@ int host_rename(const char *oldpath, const char *newpath)
 
 int host_stat(const char *path, struct nuttx_stat_s *buf)
 {
-  struct stat hostbuf;
+  struct _stat hostbuf;
   int ret;
 
   /* Call the host's stat routine */
 
-  ret = stat(path, &hostbuf);
+  ret = _stat(path, &hostbuf);
   if (ret < 0)
     {
       ret = -errno;
@@ -616,57 +436,5 @@ int host_stat(const char *path, struct nuttx_stat_s *buf)
 
 int host_chstat(const char *path, const struct nuttx_stat_s *buf, int flags)
 {
-  struct timespec times[2];
-  int ret;
-
-  if (flags & NUTTX_CH_STAT_MODE)
-    {
-      ret = chmod(path, buf->st_mode);
-      if (ret < 0)
-        {
-          return -errno;
-        }
-    }
-
-  if (flags & (NUTTX_CH_STAT_UID | NUTTX_CH_STAT_GID))
-    {
-      ret = chown(path, buf->st_uid, buf->st_gid);
-      if (ret < 0)
-        {
-          return -errno;
-        }
-    }
-
-  if (flags & (NUTTX_CH_STAT_ATIME | NUTTX_CH_STAT_MTIME))
-    {
-      if (flags & NUTTX_CH_STAT_ATIME)
-        {
-          times[0].tv_sec  = buf->st_atim.tv_sec;
-          times[0].tv_nsec = buf->st_atim.tv_nsec;
-        }
-      else
-        {
-          times[0].tv_sec = 0;
-          times[0].tv_nsec = UTIME_OMIT;
-        }
-
-      if (flags & NUTTX_CH_STAT_MTIME)
-        {
-          times[1].tv_sec  = buf->st_mtim.tv_sec;
-          times[1].tv_nsec = buf->st_mtim.tv_nsec;
-        }
-      else
-        {
-          times[1].tv_sec = 0;
-          times[1].tv_nsec = UTIME_OMIT;
-        }
-
-      ret = utimensat(AT_FDCWD, path, times, 0);
-      if (ret < 0)
-        {
-          return -errno;
-        }
-    }
-
-  return 0;
+  return -ENOSYS;
 }
