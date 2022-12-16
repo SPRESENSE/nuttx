@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/renesas/src/common/renesas_allocateheap.c
+ * drivers/note/note_initialize.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -22,51 +22,57 @@
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
-
-#include <sys/types.h>
-#include <debug.h>
-
-#include <nuttx/arch.h>
-#include <nuttx/board.h>
-#include <arch/board/board.h>
-
-#include "renesas_internal.h"
-
-/****************************************************************************
- * Pre-processor Definitions
- ****************************************************************************/
-
-/****************************************************************************
- * Private Data
- ****************************************************************************/
-
-/****************************************************************************
- * Private Functions
- ****************************************************************************/
+#include <nuttx/note/note_driver.h>
+#include <nuttx/note/noteram_driver.h>
+#include <nuttx/note/notectl_driver.h>
+#include <nuttx/segger/sysview.h>
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: up_allocate_heap
+ * Name: note_initialize
  *
  * Description:
- *   This function will be called to dynamically set aside the heap region.
+ *   Register sched note related drivers at /dev folder that can be used by
+ *   an application to read or filter the note data.
  *
- *   For the kernel build (CONFIG_BUILD_KERNEL=y) with both kernel- and
- *   user-space heaps (CONFIG_MM_KERNEL_HEAP=y), this function provides the
- *   size of the unprotected, user-space heap.
+ * Input Parameters:
+ *   None.
  *
- *   If a protected kernel-space heap is provided, the kernel heap must be
- *   allocated (and protected) by an analogous up_allocate_kheap().
+ * Returned Value:
+ *   Zero on succress. A negated errno value is returned on a failure.
  *
  ****************************************************************************/
 
-void up_allocate_heap(void **heap_start, size_t *heap_size)
+int note_initialize(void)
 {
-  board_autoled_on(LED_HEAPALLOCATE);
-  *heap_start = (void *)g_idle_topstack;
-  *heap_size = CONFIG_RAM_END - g_idle_topstack;
+  int ret = 0;
+
+#ifdef CONFIG_DRIVER_NOTERAM
+  ret = noteram_register();
+  if (ret < 0)
+    {
+      return ret;
+    }
+#endif
+
+#ifdef CONFIG_DRIVER_NOTECTL
+  ret = notectl_register();
+  if (ret < 0)
+    {
+      return ret;
+    }
+#endif
+
+#ifdef CONFIG_SEGGER_SYSVIEW
+  ret = sysview_initialize();
+  if (ret < 0)
+    {
+      return ret;
+    }
+#endif
+
+  return ret;
 }
