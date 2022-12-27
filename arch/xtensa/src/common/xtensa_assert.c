@@ -26,6 +26,7 @@
 
 #include <stdint.h>
 #include <debug.h>
+#include <assert.h>
 
 #include <nuttx/irq.h>
 #include <nuttx/board.h>
@@ -37,33 +38,8 @@
 #include "xtensa.h"
 
 /****************************************************************************
- * Private Functions
- ****************************************************************************/
-
-/****************************************************************************
- * Name: xtensa_assert
- ****************************************************************************/
-
-static void xtensa_assert(void)
-{
-  /* Dump the processor state */
-
-  xtensa_dumpstate();
-}
-
-/****************************************************************************
  * Public Functions
  ****************************************************************************/
-
-/****************************************************************************
- * Name: up_assert
- ****************************************************************************/
-
-void up_assert(const char *filename, int lineno)
-{
-  board_autoled_on(LED_ASSERTION);
-  xtensa_assert();
-}
 
 /****************************************************************************
  * Name: xtensa_panic
@@ -105,7 +81,7 @@ void xtensa_panic(int xptcode, uint32_t *regs)
   _alert("Unhandled Exception %d\n", xptcode);
 #endif
 
-  xtensa_assert(); /* Should not return */
+  PANIC();  /* Should not return */
   for (; ; );
 }
 
@@ -208,6 +184,6 @@ void xtensa_user_panic(int exccause, uint32_t *regs)
   _alert("User Exception: EXCCAUSE=%04x\n", exccause);
 #endif
 
-  xtensa_assert(); /* Should not return */
+  PANIC(); /* Should not return */
   for (; ; );
 }

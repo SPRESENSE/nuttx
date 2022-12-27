@@ -101,13 +101,12 @@ static const struct imgsensor_ops_s g_sim_video_ops =
 
 static const struct imgdata_ops_s g_sim_video_data_ops =
 {
-  .init                   = sim_video_data_init,
-  .uninit                 = sim_video_data_uninit,
-  .validate_buf           = sim_video_data_validate_buf,
-  .set_buf                = sim_video_data_set_buf,
-  .validate_frame_setting = sim_video_data_validate_frame_setting,
-  .start_capture          = sim_video_data_start_capture,
-  .stop_capture           = sim_video_data_stop_capture,
+  .init                     = sim_video_data_init,
+  .uninit                   = sim_video_data_uninit,
+  .set_buf                  = sim_video_data_set_buf,
+  .validate_frame_setting   = sim_video_data_validate_frame_setting,
+  .start_capture            = sim_video_data_start_capture,
+  .stop_capture             = sim_video_data_stop_capture,
 };
 
 static sim_video_priv_t g_sim_video_priv;
@@ -190,6 +189,11 @@ static int sim_video_data_validate_buf(uint8_t *addr, uint32_t size)
 
 static int sim_video_data_set_buf(uint8_t *addr, uint32_t size)
 {
+  if (sim_video_data_validate_buf(addr, size) < 0)
+    {
+      return -EINVAL;
+    }
+
   g_sim_video_priv.next_buf = addr;
   g_sim_video_priv.buf_size = size;
   return 0;
@@ -225,7 +229,7 @@ static int sim_video_data_start_capture(uint8_t nr_datafmt,
                            imgdata_fmt_to_v4l2(
                              datafmt[IMGDATA_FMT_MAIN].pixelformat),
                            interval->denominator, interval->numerator);
-  if (ret < 0)
+  if (ret < 0 && ret != -EBUSY)
     {
       return ret;
     }
@@ -303,9 +307,9 @@ void sim_video_loop(void)
 
   if (g_sim_video_priv.next_buf)
     {
-      ret = host_video_dq_buf(g_sim_video_priv.vdev,
-                              g_sim_video_priv.next_buf,
-                              g_sim_video_priv.buf_size);
+      ret = host_video_dqbuf(g_sim_video_priv.vdev,
+                             g_sim_video_priv.next_buf,
+                             g_sim_video_priv.buf_size);
       if (ret > 0)
         {
           g_sim_video_priv.capture_cb(0, ret);

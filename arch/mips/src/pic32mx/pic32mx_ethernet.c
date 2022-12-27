@@ -42,7 +42,6 @@
 #include <nuttx/wqueue.h>
 #include <nuttx/net/mii.h>
 #include <nuttx/net/netconfig.h>
-#include <nuttx/net/arp.h>
 #include <nuttx/net/netdev.h>
 
 #ifdef CONFIG_NET_PKT
@@ -272,13 +271,12 @@
 /* Ever-present MIN and MAX macros */
 
 #ifndef MIN
-#  define MIN(a,b) (a < b ? a : b)
+#  define MIN(a,b) (((a) < (b)) ? (a) : (b))
 #endif
 
 #ifndef MAX
-#  define MAX(a,b) (a > b ? a : b)
+#  define MAX(a,b) (((a) > (b)) ? (a) : (b))
 #endif
-
 /****************************************************************************
  * Private Types
  ****************************************************************************/

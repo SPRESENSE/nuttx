@@ -862,15 +862,15 @@ static int s32k1xx_setup(struct uart_dev_s *dev)
   config.parity     = priv->parity;     /* 0=none, 1=odd, 2=even */
   config.bits       = priv->bits;       /* Number of bits (5-9) */
   config.stopbits2  = priv->stopbits2;  /* true: Configure with 2 stop bits instead of 1 */
-#ifdef CONFIG_SERIAL_IFLOWCONTROL
-  config.usects     = priv->iflow;      /* Flow control on inbound side */
-#endif
 #ifdef CONFIG_SERIAL_OFLOWCONTROL
-  /* Flow control on outbound side if not GPIO based */
+  config.usects     = priv->oflow;      /* Flow control on outbound side */
+#endif
+#ifdef CONFIG_SERIAL_IFLOWCONTROL
+  /* Flow control on inbound side if not GPIO based */
 
   if ((priv->rts_gpio & _PIN_MODE_MASK) != _PIN_MODE_GPIO)
     {
-      config.userts = priv->oflow;
+      config.userts = priv->iflow;
     }
 
 #endif
@@ -2011,13 +2011,13 @@ static void up_pm_notify(struct pm_callback_s *cb, int domain,
   peripheral_clock_source_t clock_source;
 
   #ifdef CONFIG_PM_SERIAL0
-    struct s32k1xx_uart_s *priv0 = g_lpuart0priv.priv;
+    struct s32k1xx_uart_s *priv0 = g_lpuart0priv.dev.priv;
   #endif
   #ifdef CONFIG_PM_SERIAL1
-    struct s32k1xx_uart_s *priv1 = g_lpuart1priv.priv;
+    struct s32k1xx_uart_s *priv1 = g_lpuart1priv.dev.priv;
   #endif
   #ifdef CONFIG_PM_SERIAL2
-    struct s32k1xx_uart_s *priv2 = g_lpuart2priv.priv;
+    struct s32k1xx_uart_s *priv2 = g_lpuart2priv.dev.priv;
   #endif
 
   uint32_t ret_reg = 0;
@@ -2254,15 +2254,15 @@ static int up_pm_prepare(struct pm_callback_s *cb, int domain,
 
   #ifdef CONFIG_PM_SERIAL0
     struct s32k1xx_uart_s *priv0 =
-        (struct s32k1xx_uart_s *)g_lpuart0priv.priv;
+        (struct s32k1xx_uart_s *)g_lpuart0priv.dev.priv;
   #endif
   #ifdef CONFIG_PM_SERIAL1
     struct s32k1xx_uart_s *priv1 =
-        (struct s32k1xx_uart_s *)g_lpuart1priv.priv;
+        (struct s32k1xx_uart_s *)g_lpuart1priv.dev.priv;
   #endif
   #ifdef CONFIG_PM_SERIAL2
     struct s32k1xx_uart_s *priv2 =
-        (struct s32k1xx_uart_s *)g_lpuart2priv.priv;
+        (struct s32k1xx_uart_s *)g_lpuart2priv.dev.priv;
   #endif
 
   uint32_t ret_reg = 0;

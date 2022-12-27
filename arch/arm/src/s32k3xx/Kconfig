@@ -190,7 +190,7 @@ config S32K3XX_HAVE_ENET
 	bool
 	default n
 	select ARCH_HAVE_PHY
-	select ARCH_PHY_INTERRUPT
+	select ARCH_PHY_POLLED
 	select ARCH_HAVE_NETDEV_STATISTICS
 
 # Select MPU when D-cache is enabled for ARM errata 1624041
@@ -599,6 +599,14 @@ config S32K3XX_FS26
 		Disables the FS26 watchdog so that the S32K3XX MCU does not get resetted.
 		Engineering development purpose only, not for use in production.
 		Please refer to the FS26 Datasheet.
+
+config S32K3XX_PROGMEM
+	bool "PROGMEM"
+	default n
+	select ARCH_HAVE_PROGMEM
+	---help---
+		Use the Data Flash data memory as a
+		Memory-Technology-Device (MTD).
 
 endmenu # S32K3XX Peripheral Selection
 
@@ -1318,6 +1326,21 @@ config S32K3XX_LPUART_SINGLEWIRE
 	bool "Signal Wire Support"
 	default n
 	
+config S32K3XX_SERIAL_RXDMA_BUFFER_SIZE
+	int "RX DMA buffer size"
+	default 64
+	depends on LPUART0_RXDMA || LPUART1_RXDMA || LPUART2_RXDMA || LPUART3_RXDMA || \
+	           LPUART4_RXDMA || LPUART5_RXDMA || LPUART6_RXDMA || LPUART7_RXDMA || \
+	           LPUART8_RXDMA || LPUART9_RXDMA || LPUART10_RXDMA || LPUART11_RXDMA || \
+	           LPUART12_RXDMA || LPUART13_RXDMA ||LPUART14_RXDMA || LPUART15_RXDMA
+	---help---
+		The DMA buffer size when using RX DMA to emulate a FIFO.
+
+		When streaming data, the generic serial layer will be called
+		every time the FIFO receives half this number of bytes.
+
+		Value given here will be rounded up to next multiple of 32 bytes.
+
 endmenu
 
 menu "Ethernet Configuration"

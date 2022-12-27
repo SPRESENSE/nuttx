@@ -85,6 +85,27 @@
 #define sim_savestate(regs) sim_copyfullstate(regs, (xcpt_reg_t *)CURRENT_REGS)
 #define sim_restorestate(regs) (CURRENT_REGS = regs)
 
+#define sim_saveusercontext(saveregs)                           \
+    ({                                                          \
+       irqstate_t flags = up_irq_flags();                       \
+       uint32_t *env = (uint32_t *)saveregs + JB_FLAG;          \
+                                                                \
+       env[0] = flags & UINT32_MAX;                             \
+       env[1] = (flags >> 32) & UINT32_MAX;                     \
+                                                                \
+       setjmp(saveregs);                                        \
+    })
+#define sim_fullcontextrestore(restoreregs)                     \
+    do                                                          \
+      {                                                         \
+        xcpt_reg_t *env = restoreregs;                          \
+        uint32_t *flags = (uint32_t *)&env[JB_FLAG];            \
+                                                                \
+        up_irq_restore(((uint64_t)flags[1] << 32) | flags[0]);  \
+        longjmp(env, 1);                                        \
+      }                                                         \
+    while (0)
+
 /* File System Definitions **************************************************/
 
 /* These definitions characterize the compressed filesystem image */
@@ -119,19 +140,6 @@ struct i2c_master_s;
 /****************************************************************************
  * Public Data
  ****************************************************************************/
-
-/* g_current_regs[] holds a references to the current interrupt level
- * register storage structure.  If is non-NULL only during interrupt
- * processing.  Access to g_current_regs[] must be through the macro
- * CURRENT_REGS for portability.
- */
-
-/* For the case of architectures with multiple CPUs, then there must be one
- * such value for each processor that can receive an interrupt.
- */
-
-extern volatile void *g_current_regs[CONFIG_SMP_NCPUS];
-#define CURRENT_REGS (g_current_regs[up_cpu_index()])
 
 /* The command line  arguments passed to simulator */
 
@@ -208,7 +216,8 @@ int  host_uart_open(const char *pathname);
 void host_uart_close(int fd);
 int  host_uart_putc(int fd, int ch);
 int  host_uart_getc(int fd);
-bool host_uart_checkc(int fd);
+bool host_uart_checkin(int fd);
+bool host_uart_checkout(int fd);
 int  host_uart_setcflag(int fd, unsigned int cflag);
 int  host_uart_getcflag(int fd, unsigned int *cflag);
 
@@ -251,6 +260,12 @@ void sim_kbdevent(uint32_t key, bool is_press);
     defined(CONFIG_ARCH_BUTTONS) || defined(CONFING_SIM_KEYBOARD)
 void sim_x11events(void);
 void sim_buttonevent(int x, int y, int buttons);
+#endif
+
+/* sim_framebuffer.c sim_lcd.c **********************************************/
+
+#if defined(CONFIG_SIM_LCDDRIVER) || defined(CONFIG_SIM_FRAMEBUFFER)
+void sim_x11loop(void);
 #endif
 
 /* sim_ajoystick.c **********************************************************/
