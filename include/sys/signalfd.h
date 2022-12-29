@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/arm64/a64/pinephone/src/pinephone_bringup.c
+ * include/sys/signalfd.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,79 +18,71 @@
  *
  ****************************************************************************/
 
+#ifndef __INCLUDE_SYS_SIGNALFD_H
+#define __INCLUDE_SYS_SIGNALFD_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
-#include <sys/types.h>
-#include <syslog.h>
-
-#ifdef CONFIG_FS_PROCFS
-#  include <nuttx/fs/fs.h>
-#endif
-
-#ifdef CONFIG_USERLED
-#  include <nuttx/leds/userled.h>
-#endif
-
-#ifdef CONFIG_VIDEO_FB
-#  include <nuttx/video/fb.h>
-#  include "pinephone_display.h"
-#endif
-
-#include "pinephone.h"
+#include <stdint.h>
+#include <signal.h>
+#include <fcntl.h>
 
 /****************************************************************************
- * Public Functions
+ * Pre-processor Definitions
  ****************************************************************************/
+
+#define SFD_CLOEXEC O_CLOEXEC
+#define SFD_NONBLOCK O_NONBLOCK
 
 /****************************************************************************
- * Name: pinephone_bringup
- *
- * Description:
- *   Bring up board features
- *
+ * Public Types
  ****************************************************************************/
 
-int pinephone_bringup(void)
+struct signalfd_siginfo
 {
-  int ret;
+  uint32_t ssi_signo;
+  int32_t  ssi_errno;
+  int32_t  ssi_code;
+  uint32_t ssi_pid;
+  uint32_t ssi_uid;
+  int32_t  ssi_fd;
+  uint32_t ssi_tid;
+  uint32_t ssi_band;
+  uint32_t ssi_overrun;
+  uint32_t ssi_trapno;
+  int32_t  ssi_status;
+  int32_t  ssi_int;
+  uint64_t ssi_ptr;
+  uint64_t ssi_utime;
+  uint64_t ssi_stime;
+  uint64_t ssi_addr;
+  uint16_t ssi_addr_lsb;
+  uint16_t __pad2;
+  int32_t  ssi_syscall;
+  uint64_t ssi_call_addr;
+  uint32_t ssi_arch;
+  uint8_t  __pad[28];
+};
 
-#ifdef CONFIG_USERLED
-  /* Register the LED driver */
+/****************************************************************************
+ * Public Function Prototypes
+ ****************************************************************************/
 
-  ret = userled_lower_initialize("/dev/userleds");
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: userled_lower_initialize() failed: %d\n", ret);
-    }
+#ifdef __cplusplus
+#define EXTERN extern "C"
+extern "C"
+{
+#else
+#define EXTERN extern
 #endif
 
-#ifdef CONFIG_FS_PROCFS
-  /* Mount the procfs file system */
+int signalfd(int fd, FAR const sigset_t *mask, int flags);
 
-  ret = nx_mount(NULL, "/proc", "procfs", 0, NULL);
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: Failed to mount procfs at /proc: %d\n", ret);
-    }
-#endif
-
-#ifdef CONFIG_VIDEO_FB
-  /* Initialize and register the framebuffer driver */
-
-  ret = fb_register(0, 0);
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: fb_register() failed: %d\n", ret);
-    }
-
-  /* Render the Test Pattern */
-
-  pinephone_display_test_pattern();
-#endif
-
-  UNUSED(ret);
-  return OK;
+#undef EXTERN
+#ifdef __cplusplus
 }
+#endif
+
+#endif /* __INCLUDE_SYS_TIMERFD_H */
