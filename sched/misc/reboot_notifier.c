@@ -1,5 +1,5 @@
 /****************************************************************************
- * sched/misc/panic.c
+ * sched/misc/reboot_notifier.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -31,49 +31,49 @@
  * Private Data
  ****************************************************************************/
 
-static ATOMIC_NOTIFIER_HEAD(g_panic_notifier_list);
+static ATOMIC_NOTIFIER_HEAD(g_reboot_notifier_list);
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name:  panic_notifier_chain_register
+ * Name:  register_reboot_notifier
  *
  * Description:
- *   Add notifier to the panic notifier chain
+ *   Add notifier to the reboot notifier chain
  *
  * Input Parameters:
  *    nb - New entry in notifier chain
  *
  ****************************************************************************/
 
-void panic_notifier_chain_register(FAR struct notifier_block *nb)
+void register_reboot_notifier(FAR struct notifier_block *nb)
 {
-  atomic_notifier_chain_register(&g_panic_notifier_list, nb);
+  atomic_notifier_chain_register(&g_reboot_notifier_list, nb);
 }
 
 /****************************************************************************
- * Name:  panic_notifier_chain_unregister
+ * Name:  unregister_reboot_notifier
  *
  * Description:
- *   Remove notifier from the panic notifier chain
+ *   Remove notifier from the reboot notifier chain
  *
  * Input Parameters:
  *    nb - Entry to remove from notifier chain
  *
  ****************************************************************************/
 
-void panic_notifier_chain_unregister(FAR struct notifier_block *nb)
+void unregister_reboot_notifier(FAR struct notifier_block *nb)
 {
-  atomic_notifier_chain_unregister(&g_panic_notifier_list, nb);
+  atomic_notifier_chain_unregister(&g_reboot_notifier_list, nb);
 }
 
 /****************************************************************************
- * Name:  panic_notifier_call_chain
+ * Name:  reboot_notifier_call_chain
  *
  * Description:
- *   Call functions in the panic notifier chain.
+ *   Call functions in the reboot notifier chain.
  *
  * Input Parameters:
  *    action - Value passed unmodified to notifier function
@@ -81,8 +81,7 @@ void panic_notifier_chain_unregister(FAR struct notifier_block *nb)
  *
  ****************************************************************************/
 
-void panic_notifier_call_chain(unsigned long action, FAR void *data)
+void reboot_notifier_call_chain(unsigned long action, FAR void *data)
 {
-  atomic_notifier_call_chain(&g_panic_notifier_list, action, data);
+  atomic_notifier_call_chain(&g_reboot_notifier_list, action, data);
 }
-
