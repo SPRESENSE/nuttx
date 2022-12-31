@@ -1,5 +1,5 @@
 /****************************************************************************
- * include/pwd.h
+ * include/nuttx/note/notelog_driver.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,65 +18,46 @@
  *
  ****************************************************************************/
 
-#ifndef __INCLUDE_PWD_H
-#define __INCLUDE_PWD_H
+#ifndef __INCLUDE_NUTTX_NOTE_NOTELOG_DRIVER_H
+#define __INCLUDE_NUTTX_NOTE_NOTELOG_DRIVER_H
 
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
-#include <nuttx/compiler.h>
-
-#include <sys/types.h>
+#include <stddef.h>
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
-#ifdef CONFIG_LIBC_PASSWD_LINESIZE
-# define NSS_BUFLEN_PASSWD CONFIG_LIBC_PASSWD_LINESIZE
-#else
-# define NSS_BUFLEN_PASSWD 256
-#endif
-
 /****************************************************************************
- * Public Type Definitions
+ * Public Types
  ****************************************************************************/
 
-struct passwd
+#if defined(__cplusplus)
+extern "C"
 {
-  FAR char *pw_name;
-  uid_t     pw_uid;
-  gid_t     pw_gid;
-  FAR char *pw_gecos;
-  FAR char *pw_dir;
-  FAR char *pw_shell;
-};
+#endif
 
 /****************************************************************************
  * Public Function Prototypes
  ****************************************************************************/
 
-#undef EXTERN
-#if defined(__cplusplus)
-#define EXTERN extern "C"
-extern "C"
-{
-#else
-#define EXTERN extern
+/****************************************************************************
+ * Public Data
+ ****************************************************************************/
+
+#ifdef CONFIG_DRIVER_NOTELOG
+extern struct note_driver_s g_notelog_driver;
 #endif
 
-FAR struct passwd *getpwnam(FAR const char *name);
-FAR struct passwd *getpwuid(uid_t uid);
-int getpwnam_r(FAR const char *name, FAR struct passwd *pwd, FAR char *buf,
-               size_t buflen, FAR struct passwd **result);
-int getpwuid_r(uid_t uid, FAR struct passwd *pwd, FAR char *buf,
-               size_t buflen, FAR struct passwd **result);
+/****************************************************************************
+ * Public Function Prototypes
+ ****************************************************************************/
 
-#undef EXTERN
 #if defined(__cplusplus)
 }
 #endif
 
-#endif /* __INCLUDE_PWD_H */
+#endif /* __INCLUDE_NUTTX_NOTE_NOTELOG_DRIVER_H */
