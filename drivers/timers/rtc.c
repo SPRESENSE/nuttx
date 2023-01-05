@@ -129,6 +129,8 @@ static const struct file_operations rtc_fops =
   rtc_write,     /* write */
   NULL,          /* seek */
   rtc_ioctl,     /* ioctl */
+  NULL,          /* truncate */
+  NULL,          /* mmap */
   NULL           /* poll */
 #ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
   , rtc_unlink   /* unlink */

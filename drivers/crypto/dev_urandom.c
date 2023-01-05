@@ -100,10 +100,9 @@ static const struct file_operations g_urand_fops =
   devurand_write,               /* write */
   NULL,                         /* seek */
   NULL,                         /* ioctl */
+  NULL,                         /* truncate */
+  NULL,                         /* mmap */
   devurand_poll                 /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL                        /* unlink */
-#endif
 };
 
 #ifdef CONFIG_DEV_URANDOM_XORSHIFT128

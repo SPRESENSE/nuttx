@@ -133,10 +133,9 @@ static const struct file_operations btn_fops =
   btn_write, /* write */
   NULL,      /* seek */
   btn_ioctl, /* ioctl */
+  NULL,      /* truncate */
+  NULL,      /* mmap */
   btn_poll   /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL     /* unlink */
-#endif
 };
 
 /****************************************************************************

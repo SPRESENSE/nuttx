@@ -176,10 +176,9 @@ static const struct file_operations ft5x06_fops =
   NULL,           /* write */
   NULL,           /* seek */
   ft5x06_ioctl,   /* ioctl */
+  NULL,           /* truncate */
+  NULL,           /* mmap */
   ft5x06_poll     /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL          /* unlink */
-#endif
 };
 
 /* Maps FT5x06 touch events into bit encoded representation used by NuttX */

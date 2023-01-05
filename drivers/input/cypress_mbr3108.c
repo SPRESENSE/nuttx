@@ -224,10 +224,9 @@ static const struct file_operations g_mbr3108_fileops =
   mbr3108_write,  /* write */
   NULL,           /* seek */
   NULL,           /* ioctl */
+  NULL,           /* truncate */
+  NULL,           /* mmap */
   mbr3108_poll    /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL          /* unlink */
-#endif
 };
 
 /****************************************************************************

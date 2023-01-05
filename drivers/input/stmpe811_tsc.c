@@ -124,10 +124,9 @@ static const struct file_operations g_stmpe811fops =
   NULL,             /* write */
   NULL,             /* seek */
   stmpe811_ioctl,   /* ioctl */
+  NULL,             /* truncate */
+  NULL,             /* mmap */
   stmpe811_poll     /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL            /* unlink */
-#endif
 };
 
 /****************************************************************************

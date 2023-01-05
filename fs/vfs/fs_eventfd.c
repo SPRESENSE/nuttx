@@ -100,13 +100,10 @@ static const struct file_operations g_eventfd_fops =
   eventfd_do_write, /* write */
   NULL,             /* seek */
   NULL,             /* ioctl */
+  NULL,             /* truncate */
+  NULL,             /* mmap */
 #ifdef CONFIG_EVENT_FD_POLL
   eventfd_do_poll   /* poll */
-#else
-  NULL              /* poll */
-#endif
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL            /* unlink */
 #endif
 };
 

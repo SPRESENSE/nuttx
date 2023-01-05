@@ -249,10 +249,9 @@ static const struct file_operations g_tsdops =
   NULL,            /* write */
   NULL,            /* seek */
   sam_tsd_ioctl,   /* ioctl */
+  NULL,            /* truncate */
+  NULL,            /* mmap */
   sam_tsd_poll     /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL           /* unlink */
-#endif
 };
 
 /* The driver state structure is pre-allocated. */

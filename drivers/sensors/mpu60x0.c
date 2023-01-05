@@ -267,11 +267,6 @@ static const struct file_operations g_mpu_fops =
   mpu_read,        /* read */
   mpu_write,       /* write */
   mpu_seek,        /* seek */
-  NULL,            /* ioctl */
-  NULL             /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL           /* unlink */
-#endif
 };
 
 /****************************************************************************
@@ -395,7 +390,7 @@ static int __mpu_write_reg_spi(FAR struct mpu_dev_s *dev,
 /* __mpu_read_reg(), but for i2c-connected devices. */
 
 static int __mpu_read_reg_i2c(FAR struct mpu_dev_s *dev,
-                              enum mpu_regaddr_e reg_addr,
+                              uint8_t reg_addr,
                               FAR uint8_t *buf, uint8_t len)
 {
   int ret;
@@ -424,7 +419,7 @@ static int __mpu_read_reg_i2c(FAR struct mpu_dev_s *dev,
 }
 
 static int __mpu_write_reg_i2c(FAR struct mpu_dev_s *dev,
-                               enum mpu_regaddr_e reg_addr,
+                               uint8_t reg_addr,
                                FAR const uint8_t *buf, uint8_t len)
 {
   int ret;
@@ -870,7 +865,7 @@ static ssize_t mpu_write(FAR struct file *filep, FAR const char *buf,
 
   UNUSED(inode);
   UNUSED(dev);
-  snerr("ERROR: %p %p %d\n", inode, dev, len);
+  snerr("ERROR: %p %p %zu\n", inode, dev, len);
 
   return len;
 }
