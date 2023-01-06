@@ -39,7 +39,6 @@
 #include <nuttx/fs/fs.h>
 #include <nuttx/fs/ioctl.h>
 #include <nuttx/video/fb.h>
-#include <nuttx/mm/map.h>
 
 /****************************************************************************
  * Private Types
@@ -88,8 +87,8 @@ static const struct file_operations fb_fops =
   fb_write,      /* write */
   fb_seek,       /* seek */
   fb_ioctl,      /* ioctl */
-  NULL,          /* truncate */
   fb_mmap,       /* mmap */
+  NULL,          /* truncate */
   fb_poll        /* poll */
 };
 
@@ -686,7 +685,8 @@ static int fb_mmap(FAR struct file *filep, FAR struct mm_map_entry_s *map)
 
   /* Return the address corresponding to the start of frame buffer. */
 
-  if (map->offset + map->length <= fb->fblen)
+  if (map->offset >= 0 && map->offset < fb->fblen &&
+      map->length && map->offset + map->length <= fb->fblen)
     {
       map->vaddr = (FAR char *)fb->fbmem + map->offset;
       ret = OK;

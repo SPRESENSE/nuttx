@@ -38,7 +38,6 @@
 
 #include <nuttx/video/imgsensor.h>
 #include <nuttx/video/imgdata.h>
-#include <nuttx/mm/map.h>
 
 #include "video_framebuff.h"
 
@@ -287,7 +286,6 @@ static const struct file_operations g_video_fops =
   video_write,              /* write */
   NULL,                     /* seek */
   video_ioctl,              /* ioctl */
-  NULL,                     /* truncate */
   video_mmap,               /* mmap */
 };
 
@@ -1581,6 +1579,12 @@ static size_t get_bufsize(FAR video_format_t *vf)
       default:
         return ret * 2;
     }
+}
+
+static size_t get_heapsize(FAR video_type_inf_t *type_inf)
+{
+  return type_inf->bufinf.container_size *
+         get_bufsize(&type_inf->fmt[VIDEO_FMT_MAIN]);
 }
 
 static int video_try_fmt(FAR struct video_mng_s *priv,
@@ -3196,13 +3200,16 @@ static int video_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 
 static int video_mmap(FAR struct file *filep, FAR struct mm_map_entry_s *map)
 {
-  FAR struct inode *inode = filep->f_inode;
-  FAR video_mng_t  *priv  = (FAR video_mng_t *)inode->i_private;
-  int ret = -EINVAL;
+  FAR struct inode     *inode    = filep->f_inode;
+  FAR video_mng_t      *priv     = (FAR video_mng_t *)inode->i_private;
+  FAR video_type_inf_t *type_inf = &priv->video_inf;
+  size_t                heapsize = get_heapsize(type_inf);
+  int                   ret      = -EINVAL;
 
-  if (map)
+  if (map->offset >= 0 && map->offset < heapsize &&
+      map->length && map->offset + map->length <= heapsize)
     {
-      map->vaddr = priv->video_inf.bufheap + map->offset;
+      map->vaddr = type_inf->bufheap + map->offset;
       ret = OK;
     }
 
