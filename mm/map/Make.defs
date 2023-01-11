@@ -1,5 +1,5 @@
 ############################################################################
-# libs/libc/machine/risc-v/rv32/Make.defs
+# mm/map/Make.defs
 #
 # Licensed to the Apache Software Foundation (ASF) under one or more
 # contributor license agreements.  See the NOTICE file distributed with
@@ -18,10 +18,11 @@
 #
 ############################################################################
 
-ifeq ($(CONFIG_RISCV_MEMCPY),y)
-ASRCS += arch_memcpy.S
-endif
+# Virtual memory map list support
 
-DEPPATH += --dep-path machine/risc-v/rv32
-VPATH += :machine/risc-v/rv32
+CSRCS += mm_map.c
 
+# Add the shared memory directory to the build
+
+DEPPATH += --dep-path map
+VPATH += :map

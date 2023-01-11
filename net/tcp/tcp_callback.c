@@ -86,8 +86,6 @@ tcp_data_event(FAR struct net_driver_s *dev, FAR struct tcp_conn_s *conn,
                                 dev->d_iob->io_offset);
 
       net_incr32(conn->rcvseq, recvlen);
-
-      netdev_iob_clear(dev);
     }
 
   /* In any event, the new data has now been handled */
@@ -120,7 +118,7 @@ uint16_t tcp_callback(FAR struct net_driver_s *dev,
 
   /* Prepare device buffer */
 
-  if (dev->d_iob == NULL && netdev_iob_prepare(dev, true, 0) != OK)
+  if (dev->d_iob == NULL && netdev_iob_prepare(dev, false, 0) != OK)
     {
       return 0;
     }
@@ -192,7 +190,7 @@ uint16_t tcp_callback(FAR struct net_driver_s *dev,
 
   if (dev->d_iob == NULL)
     {
-      netdev_iob_prepare(dev, true, 0);
+      netdev_iob_prepare(dev, false, 0);
     }
 
   return flags;

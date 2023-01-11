@@ -165,6 +165,7 @@
 #define RTA_OIF               4    /* Argument:  Output interface index */
 #define RTA_GATEWAY           5    /* Argument:  Gateway address of the route */
 #define RTA_GENMASK           6    /* Argument:  Network address mask of sub-net */
+#define RTA_MAX               6    /* MAX type, same as last argument */
 
 /* NETLINK_ROUTE protocol message types *************************************/
 
@@ -418,6 +419,22 @@ struct nlmsghdr
   uint32_t nlmsg_seq;     /* Sequence number */
   uint32_t nlmsg_pid;     /* Sending process port ID */
                           /* Data follows */
+};
+
+struct nlmsgerr
+{
+  int   error;
+  struct nlmsghdr msg;
+  /**
+   * Followed by the message contents unless NETLINK_CAP_ACK was set
+   * or the ACK indicates success (error == 0)
+   * message length is aligned with NLMSG_ALIGN()
+   */
+
+  /**
+   * Followed by TLVs defined in enum nlmsgerr_attrs
+   * if NETLINK_EXT_ACK was set
+   */
 };
 
 /* NETLINK_ROUTE Message Structures *****************************************/

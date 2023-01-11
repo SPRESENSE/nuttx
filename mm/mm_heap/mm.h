@@ -88,8 +88,11 @@
          tcb = nxsched_get_tcb(tmp->pid); \
          if ((heap)->mm_procfs.backtrace || (tcb && tcb->flags & TCB_FLAG_HEAP_DUMP)) \
            { \
-             memset(tmp->backtrace, 0, sizeof(tmp->backtrace)); \
-             backtrace(tmp->backtrace, CONFIG_MM_BACKTRACE); \
+             int n = backtrace(tmp->backtrace, CONFIG_MM_BACKTRACE); \
+             if (n < CONFIG_MM_BACKTRACE) \
+               { \
+                 tmp->backtrace[n] = 0; \
+               } \
            } \
          else \
            { \
@@ -231,7 +234,7 @@ struct mm_heap_s
 
 /* This describes the callback for mm_foreach */
 
-typedef CODE void (*mmchunk_handler_t)(FAR struct mm_allocnode_s *node,
+typedef CODE void (*mm_node_handler_t)(FAR struct mm_allocnode_s *node,
                                        FAR void *arg);
 
 /****************************************************************************
@@ -259,7 +262,7 @@ int mm_size2ndx(size_t size);
 
 /* Functions contained in mm_foreach.c **************************************/
 
-void mm_foreach(FAR struct mm_heap_s *heap, mmchunk_handler_t handler,
+void mm_foreach(FAR struct mm_heap_s *heap, mm_node_handler_t handler,
                 FAR void *arg);
 
 #endif /* __MM_MM_HEAP_MM_H */

@@ -36,6 +36,7 @@
 
 #include "inode/inode.h"
 #include "fs_rammap.h"
+#include "fs_anonmap.h"
 
 /****************************************************************************
  * Private Functions
@@ -50,6 +51,23 @@ static int file_mmap_(FAR struct file *filep, FAR void *start,
                       off_t offset, bool kernel, FAR void **mapped)
 {
   int ret;
+
+  /* Pass the information about the mapping in mm_map_entry_s structure.
+   * The driver may alter the structure, and if it supports unmap, it
+   * will also add it to the kernel maintained list of mappings.
+   */
+
+  struct mm_map_entry_s entry =
+    {
+     NULL,     /* sq_entry_t */
+     start,
+     length,
+     offset,
+     prot,
+     flags,
+     { NULL }, /* priv.p */
+     NULL      /* munmap */
+    };
 
   /* Since only a tiny subset of mmap() functionality, we have to verify many
    * things.
@@ -107,20 +125,7 @@ static int file_mmap_(FAR struct file *filep, FAR void *start,
 
   if ((flags & MAP_ANONYMOUS) != 0)
     {
-      /* REVISIT:  Should reside outside of the heap.  That is really the
-       * only purpose of MAP_ANONYMOUS:  To get non-heap memory.  In KERNEL
-       * build, this could be accomplished using pgalloc(), provided that
-       * you had logic in place to assign a virtual address to the mapping.
-       */
-
-      *mapped = kernel ? kmm_zalloc(length) : kumm_zalloc(length);
-      if (*mapped == NULL)
-        {
-          ferr("ERROR: kumm_alloc() failed, enable DEBUG_MM for info!\n");
-          return -ENOMEM;
-        }
-
-      return OK;
+      return map_anonymous(&entry, kernel);
     }
 
   if ((flags & MAP_PRIVATE) != 0)
@@ -130,7 +135,7 @@ static int file_mmap_(FAR struct file *filep, FAR void *start,
        * do much better in the KERNEL build using the MMU.
        */
 
-      return rammap(filep, length, offset, kernel, mapped);
+      return rammap(filep, &entry, kernel);
 #endif
     }
 
@@ -140,24 +145,10 @@ static int file_mmap_(FAR struct file *filep, FAR void *start,
 
   if (filep->f_inode && filep->f_inode->u.i_ops->mmap != NULL)
     {
-      /* Pass the information about the mapping in mm_map_entry_s structure.
-       * The driver may alter the structure, and if it supports unmap, it
-       * will also add it to the kernel maintained list of mappings.
-       */
-
-      struct mm_map_entry_s map =
-        {
-         NULL, /* sq_entry_t */
-         start, length, offset,
-         prot, flags,
-         NULL, /* priv */
-         NULL  /* munmap */
-        };
-
-      ret = filep->f_inode->u.i_ops->mmap(filep, &map);
+      ret = filep->f_inode->u.i_ops->mmap(filep, &entry);
       if (ret == OK)
         {
-          *mapped = (void *)map.vaddr;
+          *mapped = (void *)entry.vaddr;
         }
     }
   else
@@ -171,7 +162,7 @@ static int file_mmap_(FAR struct file *filep, FAR void *start,
        * do much better in the KERNEL build using the MMU.
        */
 
-      return rammap(filep, length, offset, kernel, mapped);
+      return rammap(filep, &entry, kernel);
 #else
       ferr("ERROR: mmap not supported \n");
       return -ENOSYS;

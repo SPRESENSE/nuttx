@@ -90,7 +90,11 @@
 
 #define POOL_SIZE                   1
 
+#if defined(CONFIG_NET_CAN_RAW_TX_DEADLINE) || defined(CONFIG_NET_TIMESTAMP)
 #define MSG_DATA                    sizeof(struct timeval)
+#else
+#define MSG_DATA                    0
+#endif
 
 /* CAN bit timing values  */
 #define CLK_FREQ                    80000000
@@ -341,8 +345,8 @@ static struct s32k1xx_driver_s g_flexcan2;
 static uint8_t g_tx_pool[(sizeof(struct canfd_frame)+MSG_DATA)*POOL_SIZE];
 static uint8_t g_rx_pool[(sizeof(struct canfd_frame)+MSG_DATA)*POOL_SIZE];
 #else
-static uint8_t g_tx_pool[sizeof(struct can_frame)*POOL_SIZE];
-static uint8_t g_rx_pool[sizeof(struct can_frame)*POOL_SIZE];
+static uint8_t g_tx_pool[(sizeof(struct can_frame)+MSG_DATA)*POOL_SIZE];
+static uint8_t g_rx_pool[(sizeof(struct can_frame)+MSG_DATA)*POOL_SIZE];
 #endif
 
 /****************************************************************************
@@ -1629,12 +1633,17 @@ static int s32k1xx_initialize(struct s32k1xx_driver_s *priv)
   putreg32(regval, priv->base + S32K1XX_CAN_CTRL2_OFFSET);
 #endif
 
+  /* Counting from TXMBCOUNT into priv->rx[] makes no sense, and MBs were
+   * zeroed by s32k1xx_reset() above anyways.
+   */
+#if 0
   for (i = TXMBCOUNT; i < TOTALMBCOUNT; i++)
     {
       priv->rx[i].id.w = 0x0;
 
       /* FIXME sometimes we get a hard fault here */
     }
+#endif
 
   putreg32(0x0, priv->base + S32K1XX_CAN_RXFGMASK_OFFSET);
 
@@ -1718,6 +1727,9 @@ static void s32k1xx_reset(struct s32k1xx_driver_s *priv)
     }
 
   regval  = getreg32(priv->base + S32K1XX_CAN_MCR_OFFSET);
+  regval &= ~CAN_MCR_MAXMB_MASK; /* Zero MAXMB to ensure "bitwise or"
+                                  * below sets the correct value.
+                                  */
   regval |= CAN_MCR_SLFWAK | CAN_MCR_WRNEN | CAN_MCR_SRXDIS |
             CAN_MCR_IRMQ | CAN_MCR_AEN |
             (((TOTALMBCOUNT - 1) << CAN_MCR_MAXMB_SHIFT) &

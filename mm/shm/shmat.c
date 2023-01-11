@@ -32,10 +32,118 @@
 #include <nuttx/sched.h>
 #include <nuttx/arch.h>
 #include <nuttx/pgalloc.h>
+#include <nuttx/mm/map.h>
 
 #include "shm/shm.h"
 
 #ifdef CONFIG_MM_SHM
+
+/****************************************************************************
+ * Private Functions
+ ****************************************************************************/
+
+static int munmap_shm(FAR struct task_group_s *group,
+                      FAR struct mm_map_entry_s *entry,
+                      FAR void *start,
+                      size_t length)
+{
+  FAR const void *shmaddr = entry->vaddr;
+  int shmid = entry->priv.i;
+  FAR struct shm_region_s *region;
+  pid_t pid;
+  unsigned int npages;
+  int ret;
+
+  /* Remove the entry from the process' mappings */
+
+  ret = mm_map_remove(get_group_mm(group), entry);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  /* Get the region associated with the shmid */
+
+  region =  &g_shminfo.si_region[shmid];
+  DEBUGASSERT((region->sr_flags & SRFLAG_INUSE) != 0);
+
+  /* Get exclusive access to the region data structure */
+
+  ret = nxmutex_lock(&region->sr_lock);
+  if (ret < 0)
+    {
+      shmerr("ERROR: nxsem_wait failed: %d\n", ret);
+      return ret;
+    }
+
+  if (group)
+    {
+      /* Free the virtual address space */
+
+      shm_free(group, (FAR void *)shmaddr, region->sr_ds.shm_segsz);
+
+      /* Convert the region size to pages */
+
+      npages = MM_NPAGES(region->sr_ds.shm_segsz);
+
+      /* Detach, i.e, unmap, on shared memory region from a user virtual
+       * address.
+       */
+
+      ret = up_shmdt((uintptr_t)shmaddr, npages);
+
+      /* Get pid of this process */
+
+      pid = group->tg_pid;
+    }
+  else
+    {
+      /* We are in the middle of process destruction and don't know the
+       * context
+       */
+
+      pid = 0;
+    }
+
+  /* Decrement the count of processes attached to this region.
+   * If the count decrements to zero and there is a pending unlink,
+   * then destroy the shared memory region now and stop any further
+   * operations on it.
+   */
+
+  DEBUGASSERT(region->sr_ds.shm_nattch > 0);
+  if (region->sr_ds.shm_nattch <= 1)
+    {
+      region->sr_ds.shm_nattch = 0;
+      if ((region->sr_flags & SRFLAG_UNLINKED) != 0)
+        {
+          shm_destroy(shmid);
+          return OK;
+        }
+    }
+  else
+    {
+      /* Just decrement the number of processes attached to the shared
+       * memory region.
+       */
+
+      region->sr_ds.shm_nattch--;
+    }
+
+  /* Save the process ID of the last operation */
+
+  region->sr_ds.shm_lpid = pid;
+
+  /* Save the time of the last shmdt() */
+
+  region->sr_ds.shm_dtime = time(NULL);
+
+  /* Release our lock on the entry */
+
+  nxmutex_unlock(&region->sr_lock);
+
+  return ret;
+}
 
 /****************************************************************************
  * Public Functions
@@ -103,6 +211,7 @@ FAR void *shmat(int shmid, FAR const void *shmaddr, int shmflg)
   FAR void *vaddr;
   unsigned int npages;
   int ret;
+  struct mm_map_entry_s entry;
 
   /* Get the region associated with the shmid */
 
@@ -114,9 +223,8 @@ FAR void *shmat(int shmid, FAR const void *shmaddr, int shmflg)
 
   tcb = nxsched_self();
   DEBUGASSERT(tcb && tcb->group);
+
   group = tcb->group;
-  DEBUGASSERT(group->tg_shm.gs_handle != NULL &&
-              group->tg_shm.gs_vaddr[shmid] == 0);
 
   /* Get exclusive access to the region data structure */
 
@@ -150,12 +258,23 @@ FAR void *shmat(int shmid, FAR const void *shmaddr, int shmflg)
       goto errout_with_vaddr;
     }
 
-  /* Save the virtual address of the region.  We will need that in shmat()
+  /* Save the virtual address of the region.  We will need that in shmdt()
    * to do the reverse lookup:  Give the virtual address of the region to
    * detach, we need to get the region table index.
    */
 
-  group->tg_shm.gs_vaddr[shmid] = (uintptr_t)vaddr;
+  entry.vaddr = vaddr;
+  entry.length = region->sr_ds.shm_segsz;
+  entry.offset = 0;
+  entry.munmap = munmap_shm;
+  entry.priv.i = shmid;
+
+  ret = mm_map_add(&entry);
+  if (ret < 0)
+    {
+      shmerr("ERROR: mm_map_add() failed\n");
+      goto errout_with_vaddr;
+    }
 
   /* Increment the count of processes attached to this region */
 
