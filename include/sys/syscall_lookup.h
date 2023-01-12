@@ -248,10 +248,7 @@ SYSCALL_LOOKUP(fchown,                     3)
 SYSCALL_LOOKUP(utimens,                    2)
 SYSCALL_LOOKUP(lutimens,                   2)
 SYSCALL_LOOKUP(futimens,                   2)
-
-#if defined(CONFIG_FS_RAMMAP)
-  SYSCALL_LOOKUP(munmap,                   2)
-#endif
+SYSCALL_LOOKUP(munmap,                     2)
 
 #if defined(CONFIG_PSEUDOFS_SOFTLINKS)
   SYSCALL_LOOKUP(symlink,                  2)
@@ -351,6 +348,7 @@ SYSCALL_LOOKUP(futimens,                   2)
 
 #ifdef CONFIG_NET
   SYSCALL_LOOKUP(accept,                   3)
+  SYSCALL_LOOKUP(accept4,                  4)
   SYSCALL_LOOKUP(bind,                     3)
   SYSCALL_LOOKUP(connect,                  3)
   SYSCALL_LOOKUP(getpeername,              3)
