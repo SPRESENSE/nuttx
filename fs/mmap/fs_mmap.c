@@ -85,15 +85,6 @@ static int file_mmap_(FAR struct file *filep, FAR void *start,
       return -ENOSYS;
     }
 
-#ifndef CONFIG_FS_RAMMAP
-  if ((flags & MAP_PRIVATE) != 0)
-    {
-      ferr("ERROR: MAP_PRIVATE is not supported without file mapping"
-           "emulation\n");
-      return -ENOSYS;
-    }
-#endif /* CONFIG_FS_RAMMAP */
-
   /* A length of 0 is invalid. */
 
   if (length == 0)
@@ -102,20 +93,6 @@ static int file_mmap_(FAR struct file *filep, FAR void *start,
       return -EINVAL;
     }
 #endif /* CONFIG_DEBUG_FEATURES */
-
-  if ((filep->f_oflags & O_WROK) == 0 && prot == PROT_WRITE &&
-      (flags & MAP_SHARED) != 0)
-    {
-      ferr("ERROR: Unsupported options for read-only file descriptor,"
-           "prot=%x flags=%04x\n", prot, flags);
-      return -EACCES;
-    }
-
-  if ((filep->f_oflags & O_RDOK) == 0)
-    {
-      ferr("ERROR: File descriptor does not have read permission\n");
-      return -EACCES;
-    }
 
   /* Check if we are just be asked to allocate memory, i.e., MAP_ANONYMOUS
    * set meaning that the memory is not backed up from a file.  The file
@@ -128,45 +105,48 @@ static int file_mmap_(FAR struct file *filep, FAR void *start,
       return map_anonymous(&entry, kernel);
     }
 
-  if ((flags & MAP_PRIVATE) != 0)
+  if (filep == NULL)
     {
-#ifdef CONFIG_FS_RAMMAP
-      /* Allocate memory and copy the file into memory.  We would, of course,
-       * do much better in the KERNEL build using the MMU.
-       */
+      return -EBADF;
+    }
 
-      return rammap(filep, &entry, kernel);
-#endif
+  if ((filep->f_oflags & O_WROK) == 0 && prot == PROT_WRITE)
+    {
+      ferr("ERROR: Unsupported options for read-only file descriptor,"
+           "prot=%x flags=%04x\n", prot, flags);
+      return -EACCES;
+    }
+
+  if ((filep->f_oflags & O_RDOK) == 0)
+    {
+      ferr("ERROR: File descriptor does not have read permission\n");
+      return -EACCES;
     }
 
   /* Call driver's mmap to get the base address of the file in 'mapped'
    * in memory.
    */
 
-  if (filep->f_inode && filep->f_inode->u.i_ops->mmap != NULL)
+  if ((flags & MAP_PRIVATE) == 0 && filep->f_inode &&
+      filep->f_inode->u.i_ops->mmap != NULL)
     {
       ret = filep->f_inode->u.i_ops->mmap(filep, &entry);
       if (ret == OK)
         {
-          *mapped = (void *)entry.vaddr;
+          *mapped = entry.vaddr;
         }
     }
   else
     {
-      /* Not directly mappable, probably because the underlying media does
-       * not support random access.
+      /* Caller request the private mapping. Or not directly mappable,
+       * probably because the underlying media doesn't support random access.
        */
 
-#ifdef CONFIG_FS_RAMMAP
       /* Allocate memory and copy the file into memory.  We would, of course,
        * do much better in the KERNEL build using the MMU.
        */
 
       return rammap(filep, &entry, kernel);
-#else
-      ferr("ERROR: mmap not supported \n");
-      return -ENOSYS;
-#endif
     }
 
   /* Return */
@@ -243,7 +223,7 @@ int file_mmap(FAR struct file *filep, FAR void *start, size_t length,
  *           MAP_NORESERVE  - Ignored
  *           MAP_POPULATE   - Ignored
  *           MAP_NONBLOCK   - Ignored
- *   fd      file descriptor of the backing file -- required.
+ *   fd      file descriptor of the backing file.
  *   offset  The offset into the file to map
  *
  * Returned Value:
@@ -272,11 +252,11 @@ int file_mmap(FAR struct file *filep, FAR void *start, size_t length,
 FAR void *mmap(FAR void *start, size_t length, int prot, int flags,
                int fd, off_t offset)
 {
-  FAR struct file *filep;
+  FAR struct file *filep = NULL;
   FAR void *mapped;
   int ret;
 
-  if (fs_getfilep(fd, &filep) < 0)
+  if (fd != -1 && fs_getfilep(fd, &filep) < 0)
     {
       ferr("ERROR: Invalid file descriptor, fd=%d\n", fd);
       ret = -EBADF;

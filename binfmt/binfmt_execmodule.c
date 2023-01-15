@@ -34,7 +34,6 @@
 #include <nuttx/arch.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/sched.h>
-#include <nuttx/mm/shm.h>
 #include <nuttx/binfmt/binfmt.h>
 
 #include "binfmt.h"
@@ -227,17 +226,6 @@ int exec_module(FAR const struct binary_s *binp,
     }
 #endif
 
-#ifdef CONFIG_MM_SHM
-  /* Initialize the shared memory virtual page allocator */
-
-  ret = shm_group_initialize(tcb->cmn.group);
-  if (ret < 0)
-    {
-      berr("ERROR: shm_group_initialize() failed: %d\n", ret);
-      goto errout_with_tcbinit;
-    }
-#endif
-
 #ifdef CONFIG_PIC
   /* Add the D-Space address as the PIC base address.  By convention, this
    * must be the first allocated address space.
@@ -298,7 +286,7 @@ int exec_module(FAR const struct binary_s *binp,
 
   return (int)pid;
 
-#if defined(CONFIG_ARCH_ADDRENV) || defined(CONFIG_MM_SHM)
+#if defined(CONFIG_ARCH_ADDRENV) || defined(CONFIG_ARCH_VMA_MAPPING)
 errout_with_tcbinit:
   tcb->cmn.stack_alloc_ptr = NULL;
   nxsched_release_tcb(&tcb->cmn, TCB_FLAG_TTYPE_TASK);

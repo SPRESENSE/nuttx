@@ -1,5 +1,5 @@
 /****************************************************************************
- * mm/shm/shm_alloc.c
+ * drivers/video/mipidsi/mipi_dsi.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,92 +18,73 @@
  *
  ****************************************************************************/
 
+#ifndef __DRIVERS_VIDEO_MIPIDSI_MIPI_DSI_H
+#define __DRIVERS_VIDEO_MIPIDSI_MIPI_DSI_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
-
-#include <assert.h>
-#include <debug.h>
-#include <errno.h>
-
-#include <nuttx/addrenv.h>
-#include <nuttx/sched.h>
-#include <nuttx/mm/gran.h>
-#include <nuttx/pgalloc.h>
-#include <nuttx/mm/shm.h>
-
-#include "shm/shm.h"
-
-#ifdef CONFIG_MM_SHM
+#include <nuttx/video/mipi_dsi.h>
 
 /****************************************************************************
- * Public Functions
+ * Public Types
  ****************************************************************************/
 
 /****************************************************************************
- * Name: shm_alloc
+ * Public Functions Definitions
+ ****************************************************************************/
+
+#ifdef __cplusplus
+#define EXTERN extern "C"
+extern "C"
+{
+#else
+#define EXTERN extern
+#endif
+
+/****************************************************************************
+ * Name: mipi_dsi_host_driver_register
  *
  * Description:
- *   Allocate virtual memory region from the shared memory pool.
+ *   Create and register the dsi host character driver.
+ *
+ *   The dsi host character driver is a simple character driver that
+ *   supports dsi transfer.
  *
  * Input Parameters:
- *   group - A reference to the group structure to be un-initialized.
- *   vaddr - Virtual start address where the allocation starts, if NULL, will
- *           seek and return an address that satisfies the 'size' parameter
- *   size - Size of the area to allocate
+ *   host - An instance of the struct mipi_dsi_host
  *
  * Returned Value:
- *   Pointer to reserved vaddr, or NULL if out-of-memory
+ *   OK if the driver was successfully register; A negated errno value is
+ *   returned on any failure.
  *
  ****************************************************************************/
 
-FAR void *shm_alloc(FAR struct task_group_s *group, FAR void *vaddr,
-                    size_t size)
-{
-  FAR void *ret = NULL;
-
-  DEBUGASSERT(group != NULL);
-
-  if (group->tg_shm.gs_handle != NULL)
-    {
-      if (vaddr == NULL)
-        {
-          ret = gran_alloc(group->tg_shm.gs_handle, size);
-        }
-      else
-        {
-          ret = gran_reserve(group->tg_shm.gs_handle, (uintptr_t)vaddr,
-                             size);
-        }
-    }
-
-  return ret;
-}
+int mipi_dsi_host_driver_register(FAR struct mipi_dsi_host *host);
 
 /****************************************************************************
- * Name: shm_free
+ * Name: mipi_dsi_device_driver_register
  *
  * Description:
- *   Free a previously allocated virtual memory region back to the shared
- *   memory pool.
+ *   Create and register the dsi device character driver.
+ *
+ *   The dsi device character driver is a simple character driver that
+ *   supports get dsi device params.
  *
  * Input Parameters:
- *   group - A reference to the group structure to be un-initialized.
- *   vaddr - Virtual start address where the allocation starts.
- *   size - Size of the allocated area.
+ *   device - An instance of the struct mipi_dsi_device
+ *
+ * Returned Value:
+ *   OK if the driver was successfully register; A negated errno value is
+ *   returned on any failure.
  *
  ****************************************************************************/
 
-void shm_free(FAR struct task_group_s *group, FAR void *vaddr, size_t size)
-{
-  DEBUGASSERT(group != NULL);
+int mipi_dsi_device_driver_register(FAR struct mipi_dsi_device *device);
 
-  if (group->tg_shm.gs_handle != NULL)
-    {
-      gran_free(group->tg_shm.gs_handle, vaddr, size);
-    }
+#undef EXTERN
+#ifdef __cplusplus
 }
-
-#endif /* CONFIG_MM_SHM */
+#endif
+#endif /* __DRIVERS_VIDEO_MIPIDSI_MIPI_DSI_H */

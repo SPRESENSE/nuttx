@@ -1,5 +1,5 @@
 /****************************************************************************
- * net/devif/devif_cansend.c
+ * libs/libc/net/lib_accept.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -22,70 +22,30 @@
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
-
-#include <string.h>
-#include <assert.h>
-#include <debug.h>
-
-#include <nuttx/net/netdev.h>
-
-#if defined(CONFIG_NET_CAN)
+#include <sys/socket.h>
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: devif_can_send
+ * Name: accept
  *
  * Description:
- *   Called from socket logic in order to send a can packet in response to
- *   an xmit or poll request from the network interface driver.
+ *   The accept() call is identical to accept4() with a zero flags.
  *
- *   This is almost identical to calling devif_send() except that the data to
- *   be sent is copied into dev->d_buf (vs. dev->d_appdata), since there is
- *   no header on the data.
+ * Input Parameters:
+ *   sockfd   The listening socket descriptor
+ *   addr     Receives the address of the connecting client
+ *   addrlen  Input: allocated size of 'addr',
+ *            Return: returned size of 'addr'
  *
- * Assumptions:
- *   Called with the network locked.
+ * Returned Value:
+ *  (see accept4)
  *
  ****************************************************************************/
 
-void devif_can_send(FAR struct net_driver_s *dev, FAR const void *buf,
-                    unsigned int len)
+int accept(int sockfd, FAR struct sockaddr *addr, FAR socklen_t *addrlen)
 {
-  unsigned int limit = NETDEV_PKTSIZE(dev) - NET_LL_HDRLEN(dev);
-
-  if (dev == NULL || len == 0 || len > limit)
-    {
-      nerr("ERROR: devif_pkt_send fail: %p, sndlen: %u, pktlen: %u\n",
-           dev, len, limit);
-      return;
-    }
-
-  iob_update_pktlen(dev->d_iob, 0);
-
-  /* Copy the data into the device packet buffer and set the number of
-   * bytes to send
-   */
-
-  if (len <= iob_navail(false) * CONFIG_IOB_BUFSIZE)
-    {
-      dev->d_sndlen = iob_trycopyin(dev->d_iob, buf, len, 0, false);
-    }
-  else
-    {
-      dev->d_sndlen = 0;
-    }
-
-  if (dev->d_sndlen != len)
-    {
-      netdev_iob_release(dev);
-      dev->d_sndlen = 0;
-    }
-
-  dev->d_len = dev->d_sndlen;
+  return accept4(sockfd, addr, addrlen, 0);
 }
-
-#endif /* CONFIG_NET_CAN */

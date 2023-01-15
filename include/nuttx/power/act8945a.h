@@ -1,5 +1,5 @@
 /****************************************************************************
- * net/devif/devif_pktsend.c
+ * include/nuttx/power/act8945a.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,74 +18,44 @@
  *
  ****************************************************************************/
 
+#ifndef __INCLUDE_NUTTX_POWER_BATTERY_ACT8945A_H
+#define __INCLUDE_NUTTX_POWER_BATTERY_ACT8945A_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
-
-#include <string.h>
-#include <assert.h>
-#include <debug.h>
-
-#include <nuttx/net/netdev.h>
-
-#ifdef CONFIG_NET_PKT
+#include <nuttx/fs/ioctl.h>
 
 /****************************************************************************
- * Public Functions
+ * Pre-processor Definitions
+ ****************************************************************************/
+
+#define ACT8945A_NUM_REGS                         7
+
+/****************************************************************************
+ * Public Types
  ****************************************************************************/
 
 /****************************************************************************
- * Name: devif_pkt_send
- *
- * Description:
- *   Called from socket logic in order to send a raw packet in response to
- *   an xmit or poll request from the network interface driver.
- *
- *   This is almost identical to calling devif_send() except that the data to
- *   be sent is copied into dev->d_buf (vs. dev->d_appdata), since there is
- *   no header on the data.
- *
- * Assumptions:
- *   Called with the network locked.
- *
+ * Public Function Prototypes
  ****************************************************************************/
 
-void devif_pkt_send(FAR struct net_driver_s *dev, FAR const void *buf,
-                    unsigned int len)
+#if defined(CONFIG_I2C) && defined(CONFIG_REGULATOR_ACT8945A)
+
+#ifdef __cplusplus
+extern "C"
 {
-  unsigned int limit = NETDEV_PKTSIZE(dev) - NET_LL_HDRLEN(dev);
+#endif
 
-  if (dev == NULL || len == 0 || len > limit)
-    {
-      nerr("ERROR: devif_pkt_send fail: %p, sndlen: %u, pktlen: %u\n",
-           dev, len, limit);
-      return;
-    }
+struct i2c_master_s;
+int act8945a_initialize(FAR struct i2c_master_s *i2c, unsigned int vsel);
 
-  iob_update_pktlen(dev->d_iob, 0);
-
-  /* Copy the data into the device packet buffer and set the number of
-   * bytes to send
-   */
-
-  if (len <= iob_navail(false) * CONFIG_IOB_BUFSIZE)
-    {
-      dev->d_sndlen = iob_trycopyin(dev->d_iob, buf, len, 0, false);
-    }
-  else
-    {
-      dev->d_sndlen = 0;
-    }
-
-  if (dev->d_sndlen != len)
-    {
-      netdev_iob_release(dev);
-      dev->d_sndlen = 0;
-    }
-
-  dev->d_len = dev->d_sndlen;
+#ifdef __cplusplus
 }
+#endif
 
-#endif /* CONFIG_NET_PKT */
+#endif /* CONFIG_I2C && CONFIG_I2C_ACT8945A */
+#endif
+

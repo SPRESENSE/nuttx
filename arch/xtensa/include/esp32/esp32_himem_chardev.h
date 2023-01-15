@@ -1,5 +1,5 @@
 /****************************************************************************
- * mm/shm/shm_initialize.c
+ * arch/xtensa/include/esp32/esp32_himem_chardev.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -19,98 +19,84 @@
  ****************************************************************************/
 
 /****************************************************************************
- * Included Files
+ * Public Function Prototypes
  ****************************************************************************/
 
-#include <nuttx/config.h>
+#ifndef __ARCH_XTENSA_INCLUDE_ESP32_ESP32_HIMEM_CHARDEV_H
+#define __ARCH_XTENSA_INCLUDE_ESP32_ESP32_HIMEM_CHARDEV_H
 
-#include <assert.h>
-#include <debug.h>
-#include <errno.h>
-
-#include <nuttx/addrenv.h>
-#include <nuttx/sched.h>
-#include <nuttx/mm/gran.h>
-#include <nuttx/pgalloc.h>
-#include <nuttx/mm/shm.h>
-
-#include "shm/shm.h"
-
-#ifdef CONFIG_MM_SHM
-
-/****************************************************************************
- * Public Data
- ****************************************************************************/
-
-/* State of the all shared memory */
-
-struct shm_info_s g_shminfo =
+#ifdef __cplusplus
+extern "C"
 {
-  NXMUTEX_INITIALIZER
-};
+#endif
 
 /****************************************************************************
- * Public Functions
- ****************************************************************************/
-
-/****************************************************************************
- * Name: shm_group_initialize
+ * Name: himem_chardev_init
  *
  * Description:
- *   Initialize the group shared memory data structures when a new task
- *   group is initialized.
+ *   Himem_Cdev Initializes the operation.
  *
  * Input Parameters:
- *   group - A reference to the new group structure to be initialized.
- *
- * Returned Value:
- *   Zero (OK) on success; a negated errno value on failure.
- *
- ****************************************************************************/
-
-int shm_group_initialize(FAR struct task_group_s *group)
-{
-  DEBUGASSERT(group && !group->tg_shm.gs_handle);
-
-  group->tg_shm.gs_handle =
-    gran_initialize((FAR void *)CONFIG_ARCH_SHM_VBASE,
-                    ARCH_SHM_MAXPAGES << MM_PGSHIFT,
-                    MM_PGSHIFT, MM_PGSHIFT);
-
-  if (!group->tg_shm.gs_handle)
-    {
-      shmerr("ERROR: gran_initialize() failed\n");
-      return -ENOMEM;
-    }
-
-  return OK;
-}
-
-/****************************************************************************
- * Name: shm_group_release
- *
- * Description:
- *   Release resources used by the group shared memory logic.  This function
- *   is called at the time at the group is destroyed.
- *
- * Input Parameters:
- *   group - A reference to the group structure to be un-initialized.
- *
- * Returned Value:
  *   None
  *
+ * Returned Value:
+ *   Returns 0 on success and non-zero on failure.
+ *
  ****************************************************************************/
 
-void shm_group_release(FAR struct task_group_s *group)
-{
-  GRAN_HANDLE handle;
-  DEBUGASSERT(group);
+int himem_chardev_init(void);
 
-  handle = group->tg_shm.gs_handle;
-  if (handle)
-    {
-      gran_release(handle);
-    }
+/****************************************************************************
+ * Name: himem_chardev_exit
+ *
+ * Description:
+ *   Himem_Cdev exits and releases the operation.
+ *
+ * Input Parameters:
+ *   None
+ *
+ * Returned Value:
+ *   Returns 0 on success and non-zero on failure.
+ *
+ ****************************************************************************/
+
+int himem_chardev_exit(void);
+
+/****************************************************************************
+ * Name: himem_chardev_register
+ *
+ * Description:
+ *   Himem_Cdev indicates the registration operation.
+ *
+ * Input Parameters:
+ *   name - Himem_Cdev indicates the registration name.
+ *   size - Himem_Cdev registers the device size.
+ *
+ * Returned Value:
+ *   Returns 0 on success and non-zero on failure.
+ *
+ ****************************************************************************/
+
+int himem_chardev_register(char *name, size_t size);
+
+/****************************************************************************
+ * Name: himem_chardev_unregister
+ *
+ * Description:
+ *   Himem_Cdev cancels the registration
+ *
+ * Input Parameters:
+ *   name - Himem_Cdev indicates the registration name.
+ *
+ * Returned Value:
+ *   Returns 0 on success and non-zero on failure.
+ *
+ ****************************************************************************/
+
+int himem_chardev_unregister(char *name);
+
+#ifdef __cplusplus
 }
+#endif
 
-#endif /* CONFIG_MM_SHM */
+#endif /* __ARCH_XTENSA_INCLUDE_ESP32_ESP32_HIMEM_CHARDEV_H */
