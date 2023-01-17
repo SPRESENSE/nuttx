@@ -73,6 +73,41 @@ config PL310_ADDRESS_FILTERING
 	bool "PL310 Address Filtering by Line"
 	default n
 
+config PL310_TRCR
+	bool "PL310 TRCR set by usr"
+	default n
+
+if PL310_TRCR
+config PL310_TRCR_TSETLAT
+	int "PL310 TRCR setup latency"
+	default 1
+
+config PL310_TRCR_TRDLAT
+	bool "PL310 TRCR read access latency"
+	default 1
+
+config PL310_TRCR_WRLAT
+	bool "PL310 TRCR write access latency"
+	default 1
+endif # PL310_TRCR
+
+config PL310_DRCR
+	bool "PL310 DRCR set by usr"
+	default n
+
+if PL310_DRCR
+config PL310_DRCR_TSETLAT
+	int "PL310 DRCR setup latency"
+	default 1
+
+config PL310_DRCR_TRDLAT
+	bool "PL310 DRCR read access latency"
+	default 1
+
+config PL310_DRCR_WRLAT
+	bool "PL310 DRCR write access latency"
+	default 1
+endif # PL310_DRCR
 endif # ARMV7A_L2CC_PL310
 
 choice
@@ -134,3 +169,23 @@ config ARMV7A_DECODEFIQ
 		Select this option if your platform supports the function
 		arm_decodefiq().  This is used primarily to support secure TrustZone
 		interrupts received on the FIQ vector.
+
+config ARMV7A_ALIGNMENT_TRAP
+	bool "Enable Alignment Check at __start"
+	default n
+
+config ARMV7A_CACHE_ROUND_ROBIN
+	bool "Enable Cache Round Robin Replacement Policy at __start"
+	default n
+
+config ARMV7A_DCACHE_DISABLE
+	bool "Disable DCACHE at __start"
+	default n
+
+config ARMV7A_ICACHE_DISABLE
+	bool "Disable ICACHE at __start"
+	default n
+
+config ARMV7A_AFE_ENABLE
+	bool "Enable Access Flag at __start"
+	default n

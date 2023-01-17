@@ -37,6 +37,7 @@
 #include <nuttx/irq.h>
 
 #include "arm_internal.h"
+#include "barriers.h"
 #include "l2cc.h"
 #include "l2cc_pl310.h"
 
@@ -235,10 +236,6 @@
 #  define OK                       0
 #endif
 
-/* Data synchronization barrier */
-
-#define dsb(a) __asm__ __volatile__ ("dsb " #a : : : "memory")
-
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
@@ -357,7 +354,7 @@ void arm_l2ccinitialize(void)
     defined(CONFIG_PL310_TRCR_TWRLAT)
       /* Configure Tag RAM control */
 
-      regval = ((CONFIG_PL310_TRCR_TSETLAT - 1) << L2CC_TRCR_TSETLAT_SHIFT)
+      regval = ((CONFIG_PL310_TRCR_TSETLAT - 1) << L2CC_TRCR_TSETLAT_SHIFT) |
                ((CONFIG_PL310_TRCR_TRDLAT - 1) << L2CC_TRCR_TRDLAT_SHIFT) |
                ((CONFIG_PL310_TRCR_TWRLAT - 1) << L2CC_TRCR_TWRLAT_SHIFT);
       putreg32(regval, L2CC_TRCR);
@@ -404,6 +401,8 @@ void arm_l2ccinitialize(void)
 
       l2cc_invalidate_all();
       putreg32(L2CC_CR_L2CEN, L2CC_CR);
+      ARM_DSB();
+      ARM_ISB();
     }
 
   sinfo("(%d ways) * (%d bytes/way) = %d bytes\n",
@@ -434,6 +433,8 @@ void l2cc_enable(void)
   flags = enter_critical_section();
   l2cc_invalidate_all();
   putreg32(L2CC_CR_L2CEN, L2CC_CR);
+  ARM_DSB();
+  ARM_ISB();
   leave_critical_section(flags);
 }
 
@@ -463,7 +464,8 @@ void l2cc_disable(void)
   /* Disable the L2CC-P310 L2 cache by clearing the Control Register (CR) */
 
   putreg32(0, L2CC_CR);
-  dsb();
+  ARM_DSB();
+  ARM_ISB();
   leave_critical_section(flags);
 }
 
