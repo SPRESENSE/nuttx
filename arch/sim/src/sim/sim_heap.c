@@ -389,6 +389,21 @@ int mm_mallinfo(struct mm_heap_s *heap, struct mallinfo *info)
 }
 
 /****************************************************************************
+ * Name: mm_mallinfo_task
+ *
+ * Description:
+ *   mallinfo_task returns a copy of updated current task's heap information.
+ *
+ ****************************************************************************/
+
+int mm_mallinfo_task(struct mm_heap_s *heap, struct mallinfo_task *info)
+{
+  info->aordblks = 0;
+  info->uordblks = 0;
+  return 0;
+}
+
+/****************************************************************************
  * Name: mm_memdump
  *
  * Description:
@@ -420,7 +435,7 @@ void mm_checkcorruption(struct mm_heap_s *heap)
  * Name: malloc_size
  ****************************************************************************/
 
-size_t mm_malloc_size(void *mem)
+size_t mm_malloc_size(FAR struct mm_heap_s *heap, FAR void *mem)
 {
   return host_mallocsize(mem);
 }
