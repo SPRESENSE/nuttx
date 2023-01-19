@@ -1,5 +1,5 @@
 /****************************************************************************
- * libs/libc/semaphore/sem_getprotocol.c
+ * fs/shm/shmfs.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,42 +18,53 @@
  *
  ****************************************************************************/
 
+#ifndef __FS_SHM_SHMFS_H
+#define __FS_SHM_SHMFS_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
-
-#include <assert.h>
-
-#include <nuttx/semaphore.h>
+#include <nuttx/fs/fs.h>
 
 /****************************************************************************
- * Public Functions
+ * Public Data
  ****************************************************************************/
+
+extern const struct file_operations shmfs_operations;
 
 /****************************************************************************
- * Name: sem_getprotocol
- *
- * Description:
- *    Return the value of the semaphore protocol attribute.
- *
- * Input Parameters:
- *    sem      - A pointer to the semaphore whose attributes are to be
- *               queried.
- *    protocol - The user provided location in which to store the protocol
- *               value.
- *
- * Returned Value:
- *   This function is exposed as a non-standard application interface.  It
- *   returns zero (OK).  Otherwise, an error code.
- *
+ * Public Types
  ****************************************************************************/
 
-int sem_getprotocol(FAR sem_t *sem, FAR int *protocol)
+struct shmfs_object_s
 {
-  DEBUGASSERT(sem != NULL && protocol != NULL);
+  /* Total number of bytes needed from physical memory. */
 
-  *protocol = sem->flags;
-  return OK;
-}
+  size_t length;
+
+  /* Vector of allocations from physical memory.
+   *
+   * - In flat and protected builds this is a pointer to the
+   *   allocated memory.
+   *
+   * - In kernel build this is start of a malloc'd vector of void pointers
+   *   and the length of the vector is MM_NPAGES(length).
+   */
+
+  FAR void *paddr;
+
+  /* The struct continues here as malloc'd array of void pointers
+   * if CONFIG_BUILD_KERNEL
+   */
+};
+
+/****************************************************************************
+ * Public Function Prototypes
+ ****************************************************************************/
+
+FAR struct shmfs_object_s *shmfs_alloc_object(size_t length);
+
+void shmfs_free_object(FAR struct shmfs_object_s *object);
+
+#endif

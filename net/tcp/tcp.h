@@ -105,6 +105,11 @@
 /* The TCP options flags */
 
 #define TCP_WSCALE            0x01U /* Window Scale option enabled */
+#define TCP_SACK              0x02U /* Selective ACKs enabled */
+
+/* The Max Range count of TCP Selective ACKs */
+
+#define TCP_SACK_RANGES_MAX   4
 
 /* After receiving 3 duplicate ACKs, TCP performs a retransmission
  * (RFC 5681 (3.2))
@@ -142,6 +147,23 @@ struct tcp_poll_s
   FAR struct tcp_conn_s *conn;     /* Needed to handle loss of connection */
   struct pollfd *fds;              /* Needed to handle poll events */
   FAR struct devif_callback_s *cb; /* Needed to teardown the poll */
+};
+
+/* Out-of-order segments */
+
+struct tcp_ofoseg_s
+{
+  uint32_t         left;  /* Left edge of segment */
+  uint32_t         right; /* Right edge of segment */
+  FAR struct iob_s *data; /* Out-of-order buffering */
+};
+
+/* SACK ranges to include in ACK packets. */
+
+struct tcp_sack_s
+{
+  uint32_t left;    /* Left edge of the SACK */
+  uint32_t right;   /* Right edge of the SACK */
 };
 
 struct tcp_conn_s
@@ -233,7 +255,9 @@ struct tcp_conn_s
   uint16_t tx_unacked;    /* Number bytes sent but not yet ACKed */
 #endif
   uint16_t flags;         /* Flags of TCP-specific options */
-
+#ifdef CONFIG_NET_SOLINGER
+  sclock_t ltimeout;      /* Linger timeout expiration */
+#endif
   /* If the TCP socket is bound to a local address, then this is
    * a reference to the device that routes traffic on the corresponding
    * network.
@@ -248,6 +272,17 @@ struct tcp_conn_s
    */
 
   struct iob_s *readahead;   /* Read-ahead buffering */
+
+#ifdef CONFIG_NET_TCP_OUT_OF_ORDER
+
+  /* Number of out-of-order segments */
+
+  uint8_t nofosegs;
+
+  /* This defines a out of order segment block. */
+
+  struct tcp_ofoseg_s ofosegs[TCP_SACK_RANGES_MAX];
+#endif
 
 #ifdef CONFIG_NET_TCP_WRITE_BUFFERS
   /* Write buffering
@@ -853,6 +888,27 @@ void tcp_poll(FAR struct net_driver_s *dev, FAR struct tcp_conn_s *conn);
 void tcp_timer(FAR struct net_driver_s *dev, FAR struct tcp_conn_s *conn);
 
 /****************************************************************************
+ * Name: tcp_update_timer
+ *
+ * Description:
+ *   Update the TCP timer for the provided TCP connection,
+ *   The timeout is accurate
+ *
+ * Input Parameters:
+ *   conn - The TCP "connection" to poll for TX data
+ *
+ * Returned Value:
+ *   None
+ *
+ * Assumptions:
+ *   conn is not NULL.
+ *   The connection (conn) is bound to the polling device (dev).
+ *
+ ****************************************************************************/
+
+void tcp_update_timer(FAR struct tcp_conn_s *conn);
+
+/****************************************************************************
  * Name: tcp_update_retrantimer
  *
  * Description:
@@ -1254,6 +1310,21 @@ uint16_t tcp_callback(FAR struct net_driver_s *dev,
 uint16_t tcp_datahandler(FAR struct net_driver_s *dev,
                          FAR struct tcp_conn_s *conn,
                          uint16_t offset);
+
+/****************************************************************************
+ * Name: tcp_dataconcat
+ *
+ * Description:
+ *   Concatenate iob_s chain iob2 to iob1, if CONFIG_NET_TCP_RECV_PACK is
+ *   endabled, pack all data in the I/O buffer chain.
+ *
+ * Returned Value:
+ *   The number of bytes actually buffered is returned.  This will be either
+ *   zero or equal to iob1->io_pktlen.
+ *
+ ****************************************************************************/
+
+uint16_t tcp_dataconcat(FAR struct iob_s **iob1, FAR struct iob_s **iob2);
 
 /****************************************************************************
  * Name: tcp_backlogcreate
@@ -2061,6 +2132,45 @@ void tcp_sendbuffer_notify(FAR struct tcp_conn_s *conn);
  ****************************************************************************/
 
 uint16_t tcpip_hdrsize(FAR struct tcp_conn_s *conn);
+
+/****************************************************************************
+ * Name: tcp_ofoseg_bufsize
+ *
+ * Description:
+ *   Calculate the pending size of out-of-order buffer
+ *
+ * Input Parameters:
+ *   conn   - The TCP connection of interest
+ *
+ * Returned Value:
+ *   Total size of out-of-order buffer
+ *
+ * Assumptions:
+ *   This function must be called with the network locked.
+ *
+ ****************************************************************************/
+
+int tcp_ofoseg_bufsize(FAR struct tcp_conn_s *conn);
+
+/****************************************************************************
+ * Name: tcp_reorder_ofosegs
+ *
+ * Description:
+ *   Sort out-of-order segments by left edge
+ *
+ * Input Parameters:
+ *   nofosegs - Number of out-of-order semgnets
+ *   ofosegs  - Pointer to out-of-order segments
+ *
+ * Returned Value:
+ *   True if re-order occurs
+ *
+ * Assumptions:
+ *   The network is locked.
+ *
+ ****************************************************************************/
+
+bool tcp_reorder_ofosegs(int nofosegs, FAR struct tcp_ofoseg_s *ofosegs);
 
 #ifdef __cplusplus
 }

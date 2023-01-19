@@ -95,8 +95,153 @@ tcp_data_event(FAR struct net_driver_s *dev, FAR struct tcp_conn_s *conn,
 }
 
 /****************************************************************************
+ * Name: tcp_ofoseg_data_event
+ *
+ * Description:
+ *   Handle out-of-order segment to readahead poll.
+ *
+ * Assumptions:
+ * - This function must be called with the network locked.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_NET_TCP_OUT_OF_ORDER
+static uint16_t tcp_ofoseg_data_event(FAR struct net_driver_s *dev,
+                                      FAR struct tcp_conn_s *conn,
+                                      uint16_t flags)
+{
+  FAR struct tcp_ofoseg_s *seg;
+  uint32_t rcvseq;
+  int i = 0;
+
+  /* Assume that we will ACK the data.  The data will be ACKed if it is
+   * placed in the read-ahead buffer -OR- if it zero length
+   */
+
+  flags |= TCP_SNDACK;
+
+  /* Get the receive sequence number */
+
+  rcvseq = tcp_getsequence(conn->rcvseq);
+
+  ninfo("TCP OFOSEG rcvseq [%" PRIu32 "]\n", rcvseq);
+
+  /* Foreach out-of-order segments */
+
+  while (i < conn->nofosegs)
+    {
+      seg = &conn->ofosegs[i];
+
+      /* rcvseq -->|
+       * ofoseg    |------|
+       */
+
+      if (rcvseq == seg->left)
+        {
+          ninfo("TCP OFOSEG input [%" PRIu32 " : %" PRIu32 " : %u]\n",
+                 seg->left, seg->right, seg->data->io_pktlen);
+          rcvseq = TCP_SEQ_ADD(rcvseq,
+                               seg->data->io_pktlen);
+          net_incr32(conn->rcvseq, seg->data->io_pktlen);
+          tcp_dataconcat(&conn->readahead, &seg->data);
+        }
+      else if (TCP_SEQ_GT(rcvseq, seg->left))
+        {
+          /* rcvseq       -->|
+           * ofoseg  |------|
+           */
+
+          if (TCP_SEQ_GTE(rcvseq, seg->right))
+            {
+              /* Remove stale segments */
+
+              iob_free_chain(seg->data);
+              seg->data = NULL;
+            }
+
+          /* rcvseq  -->|
+           * ofoseg   |------|
+           */
+
+          else
+            {
+              seg->data =
+                iob_trimhead(seg->data,
+                             TCP_SEQ_SUB(rcvseq, seg->left));
+              seg->left = rcvseq;
+              if (seg->data != NULL)
+                {
+                  ninfo("TCP OFOSEG input "
+                        "[%" PRIu32 " : %" PRIu32 " : %u]\n",
+                        seg->left, seg->right, seg->data->io_pktlen);
+                  rcvseq = TCP_SEQ_ADD(rcvseq,
+                                       seg->data->io_pktlen);
+                  net_incr32(conn->rcvseq, seg->data->io_pktlen);
+                  tcp_dataconcat(&conn->readahead, &seg->data);
+                }
+            }
+        }
+
+      /* Rebuild out-of-order pool if segment is consumed */
+
+      if (seg->data == NULL)
+        {
+          for (; i < conn->nofosegs - 1; i++)
+            {
+              conn->ofosegs[i] = conn->ofosegs[i + 1];
+            }
+
+          conn->nofosegs--;
+
+          /* Try segments again */
+
+          i = 0;
+        }
+      else
+        {
+          i++;
+        }
+    }
+
+  return flags;
+}
+#endif /* CONFIG_NET_TCP_OUT_OF_ORDER */
+
+/****************************************************************************
  * Public Functions
  ****************************************************************************/
+
+/****************************************************************************
+ * Name: tcp_ofoseg_bufsize
+ *
+ * Description:
+ *   Calculate the pending size of out-of-order buffer
+ *
+ * Input Parameters:
+ *   conn   - The TCP connection of interest
+ *
+ * Returned Value:
+ *   Total size of out-of-order buffer
+ *
+ * Assumptions:
+ *   This function must be called with the network locked.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_NET_TCP_OUT_OF_ORDER
+int tcp_ofoseg_bufsize(FAR struct tcp_conn_s *conn)
+{
+  int total = 0;
+  int i;
+
+  for (i = 0; i < conn->nofosegs; i++)
+    {
+      total += conn->ofosegs[i].data->io_pktlen;
+    }
+
+  return total;
+}
+#endif /* CONFIG_NET_TCP_OUT_OF_ORDER */
 
 /****************************************************************************
  * Name: tcp_callback
@@ -112,7 +257,7 @@ tcp_data_event(FAR struct net_driver_s *dev, FAR struct tcp_conn_s *conn,
 uint16_t tcp_callback(FAR struct net_driver_s *dev,
                       FAR struct tcp_conn_s *conn, uint16_t flags)
 {
-#ifdef CONFIG_NET_TCP_NOTIFIER
+#if defined(CONFIG_NET_TCP_NOTIFIER) || defined(CONFIG_NET_TCP_OUT_OF_ORDER)
   uint16_t orig = flags;
 #endif
 
@@ -166,6 +311,15 @@ uint16_t tcp_callback(FAR struct net_driver_s *dev,
       flags = tcp_data_event(dev, conn, flags);
     }
 
+#ifdef CONFIG_NET_TCP_OUT_OF_ORDER
+  if ((orig & TCP_NEWDATA) != 0 && conn->nofosegs > 0)
+    {
+      /* Try out-of-order pool if new data is coming */
+
+      flags = tcp_ofoseg_data_event(dev, conn, flags);
+    }
+#endif
+
   /* Check if there is a connection-related event and a connection
    * callback.
    */
@@ -194,6 +348,43 @@ uint16_t tcp_callback(FAR struct net_driver_s *dev,
     }
 
   return flags;
+}
+
+/****************************************************************************
+ * Name: tcp_dataconcat
+ *
+ * Description:
+ *   Concatenate iob_s chain iob2 to iob1, if CONFIG_NET_TCP_RECV_PACK is
+ *   endabled, pack all data in the I/O buffer chain.
+ *
+ * Returned Value:
+ *   The number of bytes actually buffered is returned.  This will be either
+ *   zero or equal to iob->io_pktlen.
+ *
+ ****************************************************************************/
+
+uint16_t tcp_dataconcat(FAR struct iob_s **iob1, FAR struct iob_s **iob2)
+{
+  if (*iob1 == NULL)
+    {
+      *iob1 = *iob2;
+    }
+  else
+    {
+      iob_concat(*iob1, *iob2);
+    }
+
+  *iob2 = NULL;
+
+#ifdef CONFIG_NET_TCP_RECV_PACK
+  /* Merge an iob chain into a continuous space, thereby reducing iob
+   * consumption.
+   */
+
+  *iob1 = iob_pack(*iob1);
+#endif
+
+  return (*iob1)->io_pktlen;
 }
 
 /****************************************************************************
@@ -247,22 +438,9 @@ uint16_t tcp_datahandler(FAR struct net_driver_s *dev,
 
   /* Concat the iob to readahead */
 
-  if (conn->readahead == NULL)
-    {
-      conn->readahead = iob;
-    }
-  else
-    {
-      iob_concat(conn->readahead, iob);
-    }
+  tcp_dataconcat(&conn->readahead, &iob);
 
-#ifdef CONFIG_NET_TCP_RECV_PACK
-  /* Merge an iob chain into a continuous space, thereby reducing iob
-   * consumption.
-   */
-
-  conn->readahead = iob_pack(conn->readahead);
-#endif
+  /* Clear device buffer */
 
   netdev_iob_clear(dev);
 

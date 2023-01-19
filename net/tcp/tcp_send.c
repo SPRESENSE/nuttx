@@ -274,11 +274,73 @@ void tcp_send(FAR struct net_driver_s *dev, FAR struct tcp_conn_s *conn,
       return;
     }
 
-  tcp            = tcp_header(dev);
-  tcp->flags     = flags;
-  dev->d_len     = len;
-  tcp->tcpoffset = (TCP_HDRLEN / 4) << 4;
+  tcp        = tcp_header(dev);
+  tcp->flags = flags;
+  dev->d_len = len;
+
+#ifdef CONFIG_NET_TCP_SELECTIVE_ACK
+  if ((conn->flags & TCP_SACK) && (flags == TCP_ACK) && conn->nofosegs > 0)
+    {
+      int optlen = conn->nofosegs * sizeof(struct tcp_sack_s);
+      int i;
+
+      tcp->optdata[0] = TCP_OPT_NOOP;
+      tcp->optdata[1] = TCP_OPT_NOOP;
+      tcp->optdata[2] = TCP_OPT_SACK;
+      tcp->optdata[3] = TCP_OPT_SACK_PERM_LEN + optlen;
+
+      optlen += 4;
+
+      for (i = 0; i < conn->nofosegs; i++)
+        {
+          ninfo("TCP SACK [%d]"
+                "[%" PRIu32 " : %" PRIu32 " : %" PRIu32 "]\n", i,
+                conn->ofosegs[i].left, conn->ofosegs[i].right,
+                TCP_SEQ_SUB(conn->ofosegs[i].right, conn->ofosegs[i].left));
+          tcp_setsequence(&tcp->optdata[4 + i * 2 * sizeof(uint32_t)],
+                          conn->ofosegs[i].left);
+          tcp_setsequence(&tcp->optdata[4 + (i * 2 + 1) * sizeof(uint32_t)],
+                          conn->ofosegs[i].right);
+        }
+
+      dev->d_len += optlen;
+      tcp->tcpoffset = ((TCP_HDRLEN + optlen) / 4) << 4;
+    }
+  else
+#endif /* CONFIG_NET_TCP_SELECTIVE_ACK */
+    {
+      tcp->tcpoffset = (TCP_HDRLEN / 4) << 4;
+    }
+
   tcp_sendcommon(dev, conn, tcp);
+
+#if defined(CONFIG_NET_STATISTICS) && \
+    defined(CONFIG_NET_TCP_DEBUG_DROP_SEND)
+
+#pragma message \
+  "CONFIG_NET_TCP_DEBUG_DROP_SEND is selected, this is debug " \
+  "feature to drop the tcp send packet on the floor, " \
+  "please confirm the configuration again if you do not want " \
+  "debug the TCP stack."
+
+  /* Debug feature to drop the tcp received packet on the floor */
+
+  if ((flags & TCP_PSH) != 0)
+    {
+      if ((g_netstats.tcp.sent %
+          CONFIG_NET_TCP_DEBUG_DROP_SEND_PROBABILITY) == 0)
+        {
+          uint32_t seq = tcp_getsequence(tcp->seqno);
+
+          ninfo("TCP DROP SNDPKT: "
+                "[%d][%" PRIu32 " : %" PRIu32 " : %d]\n",
+                g_netstats.tcp.sent, seq, TCP_SEQ_ADD(seq, dev->d_sndlen),
+                dev->d_sndlen);
+
+          dev->d_len = 0;
+        }
+    }
+#endif
 }
 
 /****************************************************************************
@@ -569,40 +631,23 @@ void tcp_synack(FAR struct net_driver_s *dev, FAR struct tcp_conn_s *conn,
     }
 #endif
 
+#ifdef CONFIG_NET_TCP_SELECTIVE_ACK
+  if (tcp->flags == TCP_SYN ||
+      ((tcp->flags == (TCP_ACK | TCP_SYN)) && (conn->flags & TCP_SACK)))
+    {
+      tcp->optdata[optlen++] = TCP_OPT_NOOP;
+      tcp->optdata[optlen++] = TCP_OPT_NOOP;
+      tcp->optdata[optlen++] = TCP_OPT_SACK_PERM;
+      tcp->optdata[optlen++] = TCP_OPT_SACK_PERM_LEN;
+    }
+#endif
+
   tcp->tcpoffset         = ((TCP_HDRLEN + optlen) / 4) << 4;
   dev->d_len            += optlen;
 
   /* Complete the common portions of the TCP message */
 
   tcp_sendcommon(dev, conn, tcp);
-
-#if defined(CONFIG_NET_STATISTICS) && \
-    defined(CONFIG_NET_TCP_DEBUG_DROP_SEND)
-
-#pragma message \
-  "CONFIG_NET_TCP_DEBUG_DROP_SEND is selected, this is debug " \
-  "feature to drop the tcp send packet on the floor, " \
-  "please confirm the configuration again if you do not want " \
-  "debug the TCP stack."
-
-  /* Debug feature to drop the tcp received packet on the floor */
-
-  if ((flags & TCP_PSH) != 0)
-    {
-      if ((g_netstats.tcp.sent %
-          CONFIG_NET_TCP_DEBUG_DROP_SEND_PROBABILITY) == 0)
-        {
-          uint32_t seq = tcp_getsequence(tcp->seqno);
-
-          ninfo("TCP DROP SNDPKT: "
-                "[%d][%" PRIu32 " : %" PRIu32 " : %d]\n",
-                g_netstats.tcp.sent, seq, TCP_SEQ_ADD(seq, dev->d_sndlen),
-                dev->d_sndlen);
-
-          dev->d_len = 0;
-        }
-    }
-#endif
 }
 
 /****************************************************************************
