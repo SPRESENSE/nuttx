@@ -1,5 +1,5 @@
 /****************************************************************************
- * libs/libc/stdlib/lib_cxa_atexit.c
+ * boards/arm/stm32f7/stm32f777zit6-meadow/src/stm32_sporadic.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -24,33 +24,55 @@
 
 #include <nuttx/config.h>
 
-#include <nuttx/atexit.h>
+#include <stdbool.h>
+
+#include <nuttx/sched.h>
+
+#include "stm32_gpio.h"
+#include "stm32f777zit6-meadow.h"
+
+#ifdef CONFIG_SPORADIC_INSTRUMENTATION
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: __cxa_atexit
+ * Name: arch_sporadic_*
  *
  * Description:
- *   __cxa_atexit() registers a destructor function to be called by exit().
- *   On a call to exit(), the registered functions should be called with
- *   the single argument 'arg'. Destructor functions shall always be
- *   called in the reverse order to their registration (i.e. the most
- *   recently registered function shall be called first),
- *
- *   If shared libraries were supported, the callbacks should be invoked
- *   when the shared library is unloaded as well.
- *
- * Reference:
- *   Linux base
+ *   This configuration has been used for evaluating the NuttX sporadic
+ *   scheduler.  This only makes sense when uses with the sporadic test
+ *   which is a part of apps/examples/ostest.  If would make generate
+ *   meaningful output in its current state if there were multiple sporadic
+ *   threads
  *
  ****************************************************************************/
 
-int __cxa_atexit(CODE void (*func)(FAR void *), FAR void *arg,
-                 FAR void *dso_handle)
+void arch_sporadic_initialize(void)
 {
-  return atexit_register(ATTYPE_CXA, (CODE void (*)(void))func, arg,
-                         dso_handle);
+  stm32_configgpio(GPIO_SCHED_HIGHPRI);
+  stm32_configgpio(GPIO_SCHED_RUNNING);
 }
+
+void arch_sporadic_start(struct tcb_s *tcb)
+{
+  stm32_gpiowrite(GPIO_SCHED_HIGHPRI, true);
+}
+
+void arch_sporadic_lowpriority(struct tcb_s *tcb)
+{
+  stm32_gpiowrite(GPIO_SCHED_HIGHPRI, false);
+}
+
+void arch_sporadic_suspend(struct tcb_s *tcb)
+{
+  stm32_gpiowrite(GPIO_SCHED_RUNNING, false);
+}
+
+void arch_sporadic_resume(struct tcb_s *tcb)
+{
+  stm32_gpiowrite(GPIO_SCHED_RUNNING, true);
+}
+
+#endif /* CONFIG_SPORADIC_INSTRUMENTATION */
