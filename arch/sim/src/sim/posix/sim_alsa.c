@@ -82,6 +82,7 @@ struct sim_audio_s
   sq_entry_t link;
 
   bool playback;
+  bool offload;
   uint32_t frame_size;
   uint32_t nbuffers;
   uint32_t buffer_size;
@@ -315,7 +316,8 @@ static void sim_audio_config_ops(struct sim_audio_s *priv, uint8_t fmt)
 
 static int sim_audio_open(struct sim_audio_s *priv)
 {
-  snd_pcm_t *pcm;
+  irqstate_t flags;
+  snd_pcm_t *pcm = NULL;
   int direction;
   int ret;
 
@@ -324,13 +326,15 @@ static int sim_audio_open(struct sim_audio_s *priv)
       return 0;
     }
 
+  flags = up_irq_save();
+
   direction = priv->playback ? SND_PCM_STREAM_PLAYBACK
                              : SND_PCM_STREAM_CAPTURE;
 
   ret = snd_pcm_open(&pcm, "default", direction, 0);
   if (ret < 0)
     {
-      return ret;
+      goto fail;
     }
 
   ret = sim_audio_config_format(priv, pcm);
@@ -347,10 +351,12 @@ static int sim_audio_open(struct sim_audio_s *priv)
 
   priv->pcm = pcm;
 
+  up_irq_restore(flags);
   return 0;
 
 fail:
   snd_pcm_close(pcm);
+  up_irq_restore(flags);
   return ret;
 }
 
@@ -391,8 +397,14 @@ static int sim_audio_getcaps(struct audio_lowerhalf_s *dev, int type,
                                        AUDIO_TYPE_INPUT) |
                                        AUDIO_TYPE_FEATURE |
                                        AUDIO_TYPE_PROCESSING;
-              caps->ac_format.hw = (1 << (AUDIO_FMT_PCM - 1)) |
-                                   (1 << (AUDIO_FMT_MP3 - 1));
+              if (priv->offload)
+                {
+                   caps->ac_format.hw = (1 << (AUDIO_FMT_MP3 - 1));
+                }
+              else
+                {
+                   caps->ac_format.hw = (1 << (AUDIO_FMT_PCM - 1));
+                }
               break;
             case AUDIO_FMT_MP3:
               caps->ac_controls.b[0] = AUDIO_SUBFMT_PCM_MP3;
@@ -570,18 +582,13 @@ static int sim_audio_stop(struct audio_lowerhalf_s *dev)
 static int sim_audio_pause(struct audio_lowerhalf_s *dev)
 {
   struct sim_audio_s *priv = (struct sim_audio_s *)dev;
-  int ret;
 
   if (!priv->pcm)
     {
       return 0;
     }
 
-  ret = snd_pcm_pause(priv->pcm, 0);
-  if (ret < 0)
-    {
-      return ret;
-    }
+  snd_pcm_pause(priv->pcm, 0);
 
   return 0;
 }
@@ -589,20 +596,15 @@ static int sim_audio_pause(struct audio_lowerhalf_s *dev)
 static int sim_audio_resume(struct audio_lowerhalf_s *dev)
 {
   struct sim_audio_s *priv = (struct sim_audio_s *)dev;
-  int ret;
 
   if (!priv->pcm)
     {
       return 0;
     }
 
-  ret = snd_pcm_resume(priv->pcm);
-  if (ret < 0)
-    {
-      return ret;
-    }
+  snd_pcm_resume(priv->pcm);
 
-  return ret;
+  return 0;
 }
 #endif
 
@@ -1009,7 +1011,7 @@ void sim_audio_loop(void)
     }
 }
 
-struct audio_lowerhalf_s *sim_audio_initialize(bool playback)
+struct audio_lowerhalf_s *sim_audio_initialize(bool playback, bool offload)
 {
   struct sim_audio_s *priv;
   int ret;
@@ -1021,6 +1023,7 @@ struct audio_lowerhalf_s *sim_audio_initialize(bool playback)
     }
 
   priv->playback = playback;
+  priv->offload  = offload;
   priv->dev.ops  = &g_sim_audio_ops;
 
   ret = sim_mixer_open(priv);

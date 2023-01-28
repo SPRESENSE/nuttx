@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/armv7-a/arm_addrenv_perms.c
+ * arch/xtensa/src/esp32s3/hardware/wdev_reg.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,47 +18,17 @@
  *
  ****************************************************************************/
 
+#ifndef __ARCH_XTENSA_SRC_ESP32S3_HARDWARE_WDEV_REG_H
+#define __ARCH_XTENSA_SRC_ESP32S3_HARDWARE_WDEV_REG_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
+#include "esp32s3_soc.h"
 
-#include <nuttx/arch.h>
-#include <nuttx/compiler.h>
+/* Hardware random number generator register */
 
-#include <sys/mman.h>
+#define WDEV_RND_REG 0x6003507C
 
-/****************************************************************************
- * Public Functions
- ****************************************************************************/
-
-/****************************************************************************
- * Name: up_addrenv_mprot
- *
- * Description:
- *   Modify access rights to an address range.
- *
- * Input Parameters:
- *   addrenv - The address environment to be modified.
- *   addr - Base address of the region.
- *   len - Size of the region.
- *   prot - Access right flags.
- *
- * Returned Value:
- *   Zero (OK) on success; a negated errno value on failure.
- *
- ****************************************************************************/
-
-int up_addrenv_mprot(arch_addrenv_t *addrenv, uintptr_t addr, size_t len,
-                     int prot)
-{
-  /* Nothing needs to be done */
-
-  UNUSED(addrenv);
-  UNUSED(addr);
-  UNUSED(len);
-  UNUSED(prot);
-
-  return OK;
-}
+#endif /* __ARCH_XTENSA_SRC_ESP32S3_HARDWARE_WDEV_REG_H */
