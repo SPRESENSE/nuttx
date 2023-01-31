@@ -101,7 +101,6 @@ void udp_send(FAR struct net_driver_s *dev, FAR struct udp_conn_s *conn)
            ip6_is_ipv4addr((FAR struct in6_addr *)conn->u.ipv6.raddr)))
 #endif
         {
-          DEBUGASSERT(IFF_IS_IPv4(dev->d_flags));
           udp = UDPIPv4BUF;
 #ifdef CONFIG_NET_IPv6
           if (conn->domain == PF_INET6 &&
@@ -125,7 +124,7 @@ void udp_send(FAR struct net_driver_s *dev, FAR struct udp_conn_s *conn)
 
           ipv4_build_header(IPv4BUF, dev->d_len, IP_PROTO_UDP,
                             &dev->d_ipaddr, &raddr, IP_TTL_DEFAULT,
-                            NULL);
+                            conn->sconn.s_tos, NULL);
 
 #ifdef CONFIG_NET_STATISTICS
           g_netstats.ipv4.sent++;
@@ -150,7 +149,8 @@ void udp_send(FAR struct net_driver_s *dev, FAR struct udp_conn_s *conn)
           dev->d_len        = dev->d_sndlen + UDP_HDRLEN;
 
           ipv6_build_header(IPv6BUF, dev->d_len, IP_PROTO_UDP,
-                            dev->d_ipv6addr, conn->u.ipv6.raddr, conn->ttl);
+                            dev->d_ipv6addr, conn->u.ipv6.raddr, conn->ttl,
+                            conn->sconn.s_tclass);
 
           /* The total length to send is the size of the application data
            * plus the IPv6 and UDP headers (and, eventually, the link layer

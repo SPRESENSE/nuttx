@@ -1,5 +1,5 @@
 /****************************************************************************
- * libs/libc/pthread/pthread_attr_setschedpolicy.c
+ * net/inet/ipv6_getsockopt.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -24,57 +24,76 @@
 
 #include <nuttx/config.h>
 
-#include <pthread.h>
-#include <string.h>
-#include <sched.h>
-#include <debug.h>
+#include <sys/types.h>
 #include <errno.h>
+#include <debug.h>
+
+#include <netinet/in.h>
+
+#include <nuttx/net/net.h>
+
+#include "mld/mld.h"
+#include "inet/inet.h"
+#include "udp/udp.h"
+
+#ifdef CONFIG_NET_IPv6
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name:  pthread_attr_setschedpolicy
+ * Name: ipv6_getsockopt
  *
  * Description:
- *   Set the scheduling algorithm attribute.
+ *   ipv6_getsockopt() sets the IPv6-protocol socket option specified by the
+ *   'option' argument to the value pointed to by the 'value' argument for
+ *   the socket specified by the 'psock' argument.
+ *
+ *   See <netinet/in.h> for the a complete list of values of IPv6 protocol
+ *   socket options.
  *
  * Input Parameters:
- *   attr
- *   policy
+ *   psock     Socket structure of socket to operate on
+ *   option    identifies the option to set
+ *   value     Points to the argument value
+ *   value_len The length of the argument value
  *
  * Returned Value:
- *   0 if successful.  Otherwise, an error code.
- *
- * Assumptions:
+ *   Returns zero (OK) on success.  On failure, it returns a negated errno
+ *   value to indicate the nature of the error.
  *
  ****************************************************************************/
 
-int pthread_attr_setschedpolicy(FAR pthread_attr_t *attr, int policy)
+int ipv6_getsockopt(FAR struct socket *psock, int option,
+                    FAR void *value, FAR socklen_t *value_len)
 {
   int ret;
 
-  linfo("attr=%p policy=%d\n", attr, policy);
+  ninfo("option: %d\n", option);
 
-  if (!attr || (policy != SCHED_OTHER
-       && policy != SCHED_FIFO
-#if CONFIG_RR_INTERVAL > 0
-       && policy != SCHED_RR
-#endif
-#ifdef CONFIG_SCHED_SPORADIC
-       && policy != SCHED_SPORADIC
-#endif
-    ))
+  net_lock();
+  switch (option)
     {
-      ret = EINVAL;
-    }
-  else
-    {
-      attr->policy = policy;
-      ret = OK;
+      case IPV6_TCLASS:
+        {
+          FAR struct socket_conn_s *conn =
+                           (FAR struct socket_conn_s *)psock->s_conn;
+
+          *(FAR uint8_t *)value = conn->s_tclass;
+          *value_len = 1;
+          ret = OK;
+        }
+        break;
+
+      default:
+        nerr("ERROR: Unrecognized IPv6 option: %d\n", option);
+        ret = -ENOPROTOOPT;
+        break;
     }
 
-  linfo("Returning %d\n", ret);
+  net_unlock();
   return ret;
 }
+
+#endif /* CONFIG_NET_IPv6 */

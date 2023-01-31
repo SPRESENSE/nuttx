@@ -40,6 +40,9 @@ NUTTX = $(call CONVERT_PATH,$(TOPDIR)$(DELIM)nuttx$(EXEEXT))
 
 LINKOBJS = sim_head$(OBJEXT)
 REQUIREDOBJS = $(LINKOBJS) sim_doirq$(OBJEXT)
+ifeq ($(CONFIG_SIM_NETUSRSOCK),y)
+  REQUIREDOBJS += sim_usrsock$(OBJEXT)
+endif
 
 ifeq ($(CONFIG_HOST_X86_64),y)
 ifeq ($(CONFIG_SIM_M32),y)
@@ -103,6 +106,10 @@ ifeq ($(CONFIG_HAVE_CXXINITIALIZE),y)
 endif
 else
   STDLIBS += -lrt
+endif
+
+ifneq ($(CONFIG_LIBM),y)
+  STDLIBS += -lm
 endif
 
 ifeq ($(CONFIG_STACK_COLORATION),y)

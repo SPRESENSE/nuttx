@@ -450,6 +450,16 @@ void tcp_initialize(void);
 FAR struct tcp_conn_s *tcp_alloc(uint8_t domain);
 
 /****************************************************************************
+ * Name: tcp_free_rx_buffers
+ *
+ * Description:
+ *   Free rx buffer of a connection
+ *
+ ****************************************************************************/
+
+void tcp_free_rx_buffers(FAR struct tcp_conn_s *conn);
+
+/****************************************************************************
  * Name: tcp_free
  *
  * Description:
@@ -782,6 +792,16 @@ void tcp_ipv6_select(FAR struct net_driver_s *dev);
 #endif
 
 /****************************************************************************
+ * Name: tcp_ip_select
+ *
+ * Description:
+ *   Configure to send or receive an TCP IPv[4|6] packet for connection
+ *
+ ****************************************************************************/
+
+void tcp_ip_select(FAR struct tcp_conn_s *conn);
+
+/****************************************************************************
  * Name: tcp_setsequence
  *
  * Description:
@@ -1108,6 +1128,7 @@ ssize_t tcp_sendfile(FAR struct socket *psock, FAR struct file *infile,
  *
  * Input Parameters:
  *   dev    - The device driver structure to use in the send operation
+ *   conn   - The TCP connection structure holding connection information
  *
  * Returned Value:
  *   None
@@ -1117,7 +1138,7 @@ ssize_t tcp_sendfile(FAR struct socket *psock, FAR struct file *infile,
  *
  ****************************************************************************/
 
-void tcp_reset(FAR struct net_driver_s *dev);
+void tcp_reset(FAR struct net_driver_s *dev, FAR struct tcp_conn_s *conn);
 
 /****************************************************************************
  * Name: tcp_rx_mss
