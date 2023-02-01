@@ -268,11 +268,11 @@ endif
 
 define PREPROCESS
 	@echo "CPP: $1->$2"
-	$(Q) $(CPP) $(CPPFLAGS) $($(strip $1)_CPPFLAGS) $1 -o $2
+	$(Q) $(CPP) $(CPPFLAGS) $($(strip $1)_CPPFLAGS) $(abspath $1) -o $(abspath $2)
 endef
 
 # COMPILE - Default macro to compile one C file
-# Example: $(call COMPILE, in-file, out-file)
+# Example: $(call COMPILE, in-file, out-file, flags)
 #
 # Depends on these settings defined in board-specific Make.defs file
 # installed at $(TOPDIR)/Make.defs:
@@ -285,11 +285,11 @@ endef
 
 define COMPILE
 	@echo "CC: $1"
-	$(Q) $(CCACHE) $(CC) -c $(CFLAGS) $($(strip $1)_CFLAGS) $1 -o $2
+	$(Q) $(CCACHE) $(CC) -c $(CFLAGS) $3 $($(strip $1)_CFLAGS) $(abspath $1) -o $(abspath $2)
 endef
 
 # COMPILEXX - Default macro to compile one C++ file
-# Example: $(call COMPILEXX, in-file, out-file)
+# Example: $(call COMPILEXX, in-file, out-file, flags)
 #
 # Depends on these settings defined in board-specific Make.defs file
 # installed at $(TOPDIR)/Make.defs:
@@ -303,7 +303,7 @@ endef
 
 define COMPILEXX
 	@echo "CXX: $1"
-	$(Q) $(CCACHE) $(CXX) -c $(CXXFLAGS) $($(strip $1)_CXXFLAGS) $1 -o $2
+	$(Q) $(CCACHE) $(CXX) -c $(CXXFLAGS) $3 $($(strip $1)_CXXFLAGS) $(abspath $1) -o $(abspath $2)
 endef
 
 # COMPILERUST - Default macro to compile one Rust file
@@ -321,7 +321,7 @@ endef
 
 define COMPILERUST
 	@echo "RUSTC: $1"
-	$(Q) $(RUSTC) --emit obj $(RUSTFLAGS) $($(strip $1)_RUSTFLAGS) $1 -o $2
+	$(Q) $(RUSTC) --emit obj $(RUSTFLAGS) $($(strip $1)_RUSTFLAGS) $(abspath $1) -o $(abspath $2)
 endef
 
 # COMPILEZIG - Default macro to compile one Zig file
@@ -364,7 +364,7 @@ endef
 
 define ASSEMBLE
 	@echo "AS: $1"
-	$(Q) $(CCACHE) $(CC) -c $(AFLAGS) $1 $($(strip $1)_AFLAGS) -o $2
+	$(Q) $(CCACHE) $(CC) -c $(AFLAGS) $(abspath $1) $($(strip $1)_AFLAGS) -o $(abspath $2)
 endef
 
 # INSTALL_LIB - Install a library $1 into target $2

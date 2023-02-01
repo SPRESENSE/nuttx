@@ -35,6 +35,7 @@
 #include <semaphore.h>
 
 #include <nuttx/queue.h>
+#include <nuttx/mutex.h>
 #ifdef CONFIG_MM_IOB
 #  include <nuttx/mm/iob.h>
 #endif
@@ -166,6 +167,7 @@ struct sock_intf_s
   CODE int        (*si_ioctl)(FAR struct socket *psock,
                     int cmd, unsigned long arg);
   CODE int        (*si_socketpair)(FAR struct socket *psocks[2]);
+  CODE int        (*si_shutdown)(FAR struct socket *psock, int how);
 #ifdef CONFIG_NET_SOCKOPTS
   CODE int        (*si_getsockopt)(FAR struct socket *psock, int level,
                     int option, FAR void *value, FAR socklen_t *value_len);
@@ -398,6 +400,30 @@ void net_unlock(void);
 int net_sem_timedwait(sem_t *sem, unsigned int timeout);
 
 /****************************************************************************
+ * Name: net_mutex_timedlock
+ *
+ * Description:
+ *   Atomically wait for mutex (or a timeout) while temporarily releasing
+ *   the lock on the network.
+ *
+ *   Caution should be utilized.  Because the network lock is relinquished
+ *   during the wait, there could be changes in the network state that occur
+ *   before the lock is recovered.  Your design should account for this
+ *   possibility.
+ *
+ * Input Parameters:
+ *   mutex   - A reference to the mutex to be taken.
+ *   timeout - The relative time to wait until a timeout is declared.
+ *
+ * Returned Value:
+ *   Zero (OK) is returned on success; a negated errno value is returned on
+ *   any failure.
+ *
+ ****************************************************************************/
+
+int net_mutex_timedlock(mutex_t *mutex, unsigned int timeout);
+
+/****************************************************************************
  * Name: net_sem_wait
  *
  * Description:
@@ -418,6 +444,28 @@ int net_sem_timedwait(sem_t *sem, unsigned int timeout);
  ****************************************************************************/
 
 int net_sem_wait(sem_t *sem);
+
+/****************************************************************************
+ * Name: net_mutex_lock
+ *
+ * Description:
+ *   Atomically wait for mutex while temporarily releasing the network lock.
+ *
+ *   Caution should be utilized.  Because the network lock is relinquished
+ *   during the wait, there could be changes in the network state that occur
+ *   before the lock is recovered.  Your design should account for this
+ *   possibility.
+ *
+ * Input Parameters:
+ *   mutex - A reference to the mutex to be taken.
+ *
+ * Returned Value:
+ *   Zero (OK) is returned on success; a negated errno value is returned on
+ *   any failure.
+ *
+ ****************************************************************************/
+
+int net_mutex_lock(mutex_t *mutex);
 
 /****************************************************************************
  * Name: net_sem_timedwait_uninterruptible
@@ -1220,6 +1268,40 @@ int psock_getpeername(FAR struct socket *psock, FAR struct sockaddr *addr,
 
 int psock_vioctl(FAR struct socket *psock, int cmd, va_list ap);
 int psock_ioctl(FAR struct socket *psock, int cmd, ...);
+
+/****************************************************************************
+ * Name: psock_shutdown
+ *
+ * Description:
+ *   The shutdown() function will cause all or part of a full-duplex
+ *   connection on the socket associated with the file descriptor socket to
+ *   be shut down.
+ *
+ *   The shutdown() function disables subsequent send and/or receive
+ *   operations on a socket, depending on the value of the how argument.
+ *
+ * Input Parameters:
+ *   sockfd - Specifies the file descriptor of the socket.
+ *   how    - Specifies the type of shutdown. The values are as follows:
+ *
+ *     SHUT_RD   - Disables further receive operations.
+ *     SHUT_WR   - Disables further send operations.
+ *     SHUT_RDWR - Disables further send and receive operations.
+ *
+ * Returned Value:
+ *   On success, returns the number of characters sent.  On any failure, a
+ *   negated errno value is returned.  One of:
+ *
+ *     EINVAL     - The how argument is invalid.
+ *     ENOTCONN   - The socket is not connected.
+ *     ENOTSOCK   - The socket argument does not refer to a socket.
+ *     ENOBUFS    - Insufficient resources were available in the system to
+ *                  perform the operation.
+ *     EOPNOTSUPP - The operation is not supported for this socket's protocol
+ *
+ ****************************************************************************/
+
+int psock_shutdown(FAR struct socket *psock, int how);
 
 /****************************************************************************
  * Name: psock_poll
