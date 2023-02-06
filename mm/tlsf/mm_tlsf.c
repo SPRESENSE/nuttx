@@ -33,6 +33,7 @@
 #include <sched.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/param.h>
 
 #include <nuttx/arch.h>
 #include <nuttx/fs/procfs.h>
@@ -53,8 +54,6 @@
 #elif UINTPTR_MAX <= UINT64_MAX
 #  define MM_PTR_FMT_WIDTH 19
 #endif
-
-#define MIN(x, y) ((x) < (y) ? (x) : (y))
 
 #if CONFIG_MM_HEAP_MEMPOOL_THRESHOLD != 0
 #  define MEMPOOL_NPOOLS (CONFIG_MM_HEAP_MEMPOOL_THRESHOLD / tlsf_align_size())
@@ -145,7 +144,7 @@ static void memdump_backtrace(FAR struct mm_heap_s *heap,
   FAR struct tcb_s *tcb;
 #  endif
 
-  dump->pid = getpid();
+  dump->pid = _SCHED_GETPID();
 #  if CONFIG_MM_BACKTRACE > 0
   tcb = nxsched_get_tcb(dump->pid);
   if (heap->mm_procfs.backtrace ||
@@ -320,17 +319,17 @@ static int mm_lock(FAR struct mm_heap_s *heap)
   else
 #endif
 
-  /* gettid() returns the task ID of the task at the head of the ready-to-
-   * run task list.  mm_lock() may be called during context
+  /* _SCHED_GETTID() returns the task ID of the task at the head of the
+   * ready-to-run task list.  mm_lock() may be called during context
    * switches.  There are certain situations during context switching when
    * the OS data structures are in flux and then can't be freed immediately
    * (e.g. the running thread stack).
    *
-   * This is handled by gettid() to return the special value -ESRCH to
-   * indicate this special situation.
+   * This is handled by _SCHED_GETTID() to return the special value
+   * -ESRCH to indicate this special situation.
    */
 
-  if (gettid() < 0)
+  if (_SCHED_GETTID() < 0)
     {
       return -ESRCH;
     }

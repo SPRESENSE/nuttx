@@ -34,6 +34,7 @@
 #include <unistd.h>
 #include <math.h>
 #include <clock/clock.h>
+#include <sys/param.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -83,10 +84,6 @@
 #  define NVS_FS_PREFIX CONFIG_ESP32_WIFI_FS_MOUNTPT
 #  define NVS_DIR_BASE  NVS_FS_PREFIX"/wifi."
 #  define NVS_FILE_MODE 0777
-#endif
-
-#ifndef MIN
-#  define MIN(a,b) ((a) < (b) ? (a) : (b))
 #endif
 
 #define WIFI_CONNECT_TIMEOUT  CONFIG_ESP32_WIFI_CONNECT_TIMEOUT
@@ -2028,7 +2025,7 @@ static int32_t esp_task_ms_to_tick(uint32_t ms)
 
 static void *esp_task_get_current_task(void)
 {
-  pid_t pid = getpid();
+  pid_t pid = nxsched_getpid();
 
   return (void *)((uintptr_t)pid);
 }
@@ -4683,7 +4680,7 @@ int esp_wifi_notify_subscribe(pid_t pid, struct sigevent *event)
             {
               if (pid == 0)
                 {
-                  pid = getpid();
+                  pid = nxsched_getpid();
                   wlinfo("Actual PID=%d\n", pid);
                 }
 

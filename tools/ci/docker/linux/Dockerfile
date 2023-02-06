@@ -245,6 +245,7 @@ RUN apt-get update -qq && DEBIAN_FRONTEND="noninteractive" apt-get install -y -q
   libasound2-dev libasound2-dev:i386 \
   libc6-dev-i386 \
   libcurl4-openssl-dev \
+  libmp3lame-dev:i386 \
   libmad0-dev:i386 \
   libncurses5-dev \
   libpulse-dev libpulse-dev:i386 \
@@ -278,6 +279,8 @@ ENV PIP_NO_CACHE_DIR=0
 RUN pip3 install setuptools wheel
 # Install CodeChecker and use it to statically analyze the code.
 RUN pip3 install CodeChecker
+# Install cvt2utf to check for non-UTF characters.
+RUN pip3 install cvt2utf
 # Install pytest
 RUN pip3 install cxxfilt
 RUN pip3 install esptool

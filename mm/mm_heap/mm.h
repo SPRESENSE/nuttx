@@ -75,7 +75,7 @@
      do \
        { \
          FAR struct mm_allocnode_s *tmp = (FAR struct mm_allocnode_s *)(ptr); \
-         tmp->pid = gettid(); \
+         tmp->pid = _SCHED_GETTID(); \
        } \
      while (0)
 #elif CONFIG_MM_BACKTRACE > 0
@@ -84,7 +84,7 @@
        { \
          FAR struct mm_allocnode_s *tmp = (FAR struct mm_allocnode_s *)(ptr); \
          FAR struct tcb_s *tcb; \
-         tmp->pid = gettid(); \
+         tmp->pid = _SCHED_GETTID(); \
          tcb = nxsched_get_tcb(tmp->pid); \
          if ((heap)->mm_procfs.backtrace || (tcb && tcb->flags & TCB_FLAG_HEAP_DUMP)) \
            { \
@@ -119,7 +119,8 @@
  */
 
 #define MM_ALLOC_BIT     0x1
-#define MM_MASK_BIT      MM_ALLOC_BIT
+#define MM_PREVFREE_BIT  0x2
+#define MM_MASK_BIT      (MM_ALLOC_BIT | MM_PREVFREE_BIT)
 #ifdef CONFIG_MM_SMALL
 # define MMSIZE_MAX      UINT16_MAX
 #else
@@ -130,9 +131,20 @@
 
 #define SIZEOF_MM_ALLOCNODE sizeof(struct mm_allocnode_s)
 
+/* What is the overhead of the allocnode
+ * Remove the space of preceding field since it locates at the end of the
+ * previous freenode
+ */
+
+#define OVERHEAD_MM_ALLOCNODE (SIZEOF_MM_ALLOCNODE - sizeof(mmsize_t))
+
 /* What is the size of the freenode? */
 
 #define SIZEOF_MM_FREENODE sizeof(struct mm_freenode_s)
+
+/* Get the node size */
+
+#define SIZEOF_MM_NODE(node) ((node)->size & (~MM_MASK_BIT))
 
 /****************************************************************************
  * Public Types
@@ -153,28 +165,28 @@ typedef size_t mmsize_t;
 
 struct mm_allocnode_s
 {
+  mmsize_t preceding;                       /* Size of the preceding chunk */
+  mmsize_t size;                            /* Size of this chunk */
 #if CONFIG_MM_BACKTRACE >= 0
   pid_t pid;                                /* The pid for caller */
 #  if CONFIG_MM_BACKTRACE > 0
   FAR void *backtrace[CONFIG_MM_BACKTRACE]; /* The backtrace buffer for caller */
 #  endif
 #endif
-  mmsize_t size;                            /* Size of this chunk */
-  mmsize_t preceding;                       /* Size of the preceding chunk */
 };
 
 /* This describes a free chunk */
 
 struct mm_freenode_s
 {
+  mmsize_t preceding;                       /* Size of the preceding chunk */
+  mmsize_t size;                            /* Size of this chunk */
 #if CONFIG_MM_BACKTRACE >= 0
   pid_t pid;                                /* The pid for caller */
 #  if CONFIG_MM_BACKTRACE > 0
   FAR void *backtrace[CONFIG_MM_BACKTRACE]; /* The backtrace buffer for caller */
 #  endif
 #endif
-  mmsize_t size;                            /* Size of this chunk */
-  mmsize_t preceding;                       /* Size of the preceding chunk */
   FAR struct mm_freenode_s *flink;          /* Supports a doubly linked list */
   FAR struct mm_freenode_s *blink;
 };

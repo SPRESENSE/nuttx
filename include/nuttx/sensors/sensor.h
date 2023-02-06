@@ -34,6 +34,7 @@
 
 #include <nuttx/fs/fs.h>
 #include <nuttx/sensors/ioctl.h>
+#include <nuttx/clock.h>
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -344,6 +345,7 @@ struct sensor_mag           /* Type: Magnetic Field */
   float y;                  /* Axis Y in Gauss or micro Tesla (uT) */
   float z;                  /* Axis Z in Gauss or micro Tesla (uT) */
   float temperature;        /* Temperature in degrees celsius */
+  int32_t status;           /* Status of calibration */
 };
 
 struct sensor_baro          /* Type: Barometer */
@@ -363,6 +365,7 @@ struct sensor_light         /* Type: Light */
 {
   uint64_t timestamp;       /* Units is microseconds */
   float light;              /* in SI lux units */
+  float ir;                 /* in SI lux units */
 };
 
 struct sensor_humi          /* Type: Relative Humidity */
@@ -388,7 +391,7 @@ struct sensor_rgb           /* Type: RGB */
 struct sensor_hall          /* Type: HALL */
 {
   uint64_t timestamp;       /* Units is microseconds */
-  bool hall;                /* Boolean type */
+  int32_t hall;             /* Hall state */
 };
 
 struct sensor_ir            /* Type: Infrared Ray */
@@ -417,6 +420,7 @@ struct sensor_gps           /* Type: Gps */
   float epv;                /* GPS vertical position accuracy (metres) */
 
   float hdop;               /* Horizontal dilution of precision */
+  float pdop;               /* Position dilution of precision */
   float vdop;               /* Vertical dilution of precision */
 
   float ground_speed;       /* GPS ground speed, Unit is m/s */
@@ -426,6 +430,11 @@ struct sensor_gps           /* Type: Gps */
    */
 
   float course;
+
+  float hspeed_err;         /* Horizontal speed error RMS (m/s) */
+  float vspeed_err;         /* Vertical speed error RMS (m/s) */
+  float env_range_resid;    /* Environment RangeResid (meters) */
+  float altitude_err;       /* Altitude error RMS (meters) */
 
   uint32_t satellites_used; /* Number of satellites used */
 };

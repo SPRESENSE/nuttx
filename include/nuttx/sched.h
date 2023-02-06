@@ -166,6 +166,16 @@
 #  define _SCHED_ERRVAL(r)           (-errno)
 #endif
 
+#if defined(CONFIG_BUILD_FLAT) || defined(__KERNEL__)
+#  define _SCHED_GETTID()            nxsched_gettid()
+#  define _SCHED_GETPID()            nxsched_getpid()
+#  define _SCHED_GETPPID()           nxsched_getppid()
+#else
+#  define _SCHED_GETTID()            gettid()
+#  define _SCHED_GETPID()            getpid()
+#  define _SCHED_GETPPID()           getppid()
+#endif
+
 #ifdef CONFIG_DEBUG_TCBINFO
 #  define TCB_PID_OFF                offsetof(struct tcb_s, pid)
 #  define TCB_STATE_OFF              offsetof(struct tcb_s, task_state)
@@ -1359,12 +1369,115 @@ int nxsched_set_affinity(pid_t pid, size_t cpusetsize,
 int nxsched_get_stackinfo(pid_t pid, FAR struct stackinfo_s *stackinfo);
 
 /****************************************************************************
- * Name: nx_wait/nx_waitid/nx_waitpid
+ * Name: nxsched_waitpid
+ *
+ * Description:
+ *   This functions will obtain status information pertaining to one
+ *   of the caller's child processes. This function will suspend
+ *   execution of the calling thread until status information for one of the
+ *   terminated child processes of the calling process is available, or until
+ *   delivery of a signal whose action is either to execute a signal-catching
+ *   function or to terminate the process. If more than one thread is
+ *   suspended in nxsched_waitpid() awaiting termination of the same process,
+ *   exactly one thread will return the process status at the time of the
+ *   target process termination. If status information is available prior to
+ *   the call to nxsched_waitpid(), return will be immediate.
+ *
+ * Input Parameters:
+ *   pid - The task ID of the thread to waid for
+ *   stat_loc - The location to return the exit status
+ *   options - ignored
+ *
+ * Returned Value:
+ *   If nxsched_waitpid() returns because the status of a child process is
+ *   available, it will return a value equal to the process ID of the child
+ *   process for which status is reported.
+ *
+ *   If nxsched_waitpid() returns due to the delivery of a signal to the
+ *   calling process, -1 will be returned and errno set to EINTR.
+ *
+ *   If nxsched_waitpid() was invoked with WNOHANG set in options, it has
+ *   at least one child process specified by pid for which status is not
+ *   available, and status is not available for any process specified by
+ *   pid, 0 is returned.
+ *
+ *   Otherwise, (pid_t)-1 will be returned, and errno set to indicate the
+ *   error:
+ *
+ *   ECHILD - The process specified by pid does not exist or is not a child
+ *            of the calling process, or the process group specified by pid
+ *            does not exist does not have any member process that is a child
+ *            of the calling process.
+ *   EINTR - The function was interrupted by a signal. The value of the
+ *           location pointed to by stat_loc is undefined.
+ *   EINVAL - The options argument is not valid.
+ *
  ****************************************************************************/
 
 #ifdef CONFIG_SCHED_WAITPID
-pid_t nx_waitpid(pid_t pid, FAR int *stat_loc, int options);
+pid_t nxsched_waitpid(pid_t pid, FAR int *stat_loc, int options);
 #endif
+
+/****************************************************************************
+ * Name: nxsched_gettid
+ *
+ * Description:
+ *   Get the thread ID of the currently executing thread.
+ *
+ * Input parameters:
+ *   None
+ *
+ * Returned Value:
+ *   On success, returns the thread ID of the calling process.
+ *
+ ****************************************************************************/
+
+pid_t nxsched_gettid(void);
+
+/****************************************************************************
+ * Name: nxsched_getpid
+ *
+ * Description:
+ *   Get the Process ID of the currently executing task.
+ *
+ * Input parameters:
+ *   None
+ *
+ * Returned Value:
+ *   Normally when called from user applications, nxsched_getpid() will
+ *   return the Process ID of the currently executing task. that is,
+ *   the main task for the task groups. There is no specification for
+ *   any errors returned from nxsched_getpid().
+ *
+ ****************************************************************************/
+
+pid_t nxsched_getpid(void);
+
+/****************************************************************************
+ * Name: nxsched_getppid
+ *
+ * Description:
+ *   Get the parent task ID of the currently executing task.
+ *
+ * Input parameters:
+ *   None
+ *
+ * Returned Value:
+ *   Normally when called from user applications, nxsched_getppid() will
+ *   return the parent task ID of the currently executing task, that is,
+ *   the task at the head of the ready-to-run list.
+ *   There is no specification for any errors returned from
+ *   nxsched_getppid().
+ *
+ *   nxsched_getppid(), however, may be called from within the OS in some
+ *   cases. There are certain situations during context switching when the
+ *   OS data structures are in flux and where the current task at the head
+ *   of the ready-to-run task list is not actually running.
+ *   In that case, nxsched_getppid() will return the error: -ESRCH
+ *
+ ****************************************************************************/
+
+pid_t nxsched_getppid(void);
 
 #undef EXTERN
 #if defined(__cplusplus)

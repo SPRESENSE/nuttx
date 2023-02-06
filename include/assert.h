@@ -43,13 +43,19 @@
 #undef DEBUGVERIFY  /* Like VERIFY, but only if CONFIG_DEBUG_ASSERTIONS is defined */
 
 #ifndef CONFIG_HAVE_FILENAME
-#  define __FILE__       "unknown"
+#  define __FILE__       NULL
 #  define __LINE__       0
 #endif
 
 #define PANIC()          __assert(__FILE__, __LINE__, "panic")
+
+#ifdef CONFIG_DEBUG_ASSERTIONS_EXPRESSION
 #define ASSERT(f)        do { if (!(f)) __assert(__FILE__, __LINE__, #f); } while (0)
 #define VERIFY(f)        do { if ((f) < 0) __assert(__FILE__, __LINE__, #f); } while (0)
+#else
+#define ASSERT(f)        do { if (!(f)) __assert(__FILE__, __LINE__, NULL); } while (0)
+#define VERIFY(f)        do { if ((f) < 0) __assert(__FILE__, __LINE__, NULL); } while (0)
+#endif
 
 #ifdef CONFIG_DEBUG_ASSERTIONS
 #  define DEBUGPANIC()   PANIC()

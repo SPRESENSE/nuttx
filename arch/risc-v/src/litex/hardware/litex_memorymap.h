@@ -50,6 +50,35 @@
 #define LITEX_TIMER0_BASE       0xf0006000
 #define LITEX_UART0_BASE        0xf0006800
 
+/* GPIO peripheral definitions.
+ *  - LITEX_GPIO_BASE is the first 32-bit address which contains a block
+ *    of GPIO registers (peripheral). Each block can contain up to 32 pins.
+ *  - LITEX_GPIO_OFFSET is the number of bytes between each GPIO peripheral.
+ *  - LITEX_GPIO_MAX is the number of peripherals enabled in gateware.
+ *
+ *  Each peripheral is referenced by an index in the GPIO driver. E.g Index 0
+ *  is the first GPIO peripheral at 0xf0008000. Index 1 is at 0xf00080020.
+ */
+
+#define LITEX_GPIO_BASE         0xf0008000
+#define LITEX_GPIO_OFFSET       0x00000020
+#define LITEX_GPIO_MAX          8
+
+/* PWM peripheral definitions.
+ *  - LITEX_PWM_BASE is the first 32-bit address which contains a block
+ *    of PWM registers (peripheral). Each block controls a single output
+ *    channel.
+ *  - LITEX_PWM_OFFSET is the number of bytes between each PWM peripheral.
+ *  - LITEX_PWM_MAX is the number of peripherals enabled in gateware.
+ *
+ *  Each peripheral is referenced by an index in the PWM driver. E.g Index 0
+ *  is the first PWM peripheral at 0xF0009800. Index 1 is at 0xF0009008C.
+ */
+
+#define LITEX_PWM_BASE          0xf0009800
+#define LITEX_PWM_OFFSET        0x0000000c
+#define LITEX_PWM_MAX           4
+
 #define LITEX_ETHMAC_RXBASE     0x80000000
 #define LITEX_ETHMAC_TXBASE     0x80001000
 

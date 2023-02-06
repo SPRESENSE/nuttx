@@ -201,6 +201,7 @@ endif
 
 ifeq ($(CONFIG_SIM_SOUND_ALSA),y)
   CSRCS += sim_alsa.c
+  CSRCS += sim_offload.c
   STDLIBS += -lasound
   STDLIBS += -lmad
 endif
@@ -284,8 +285,9 @@ $(COBJS) $(LINKOBJS): %$(OBJEXT): %.c
 	$(call COMPILE, $<, $@)
 
 $(HOSTOBJS) $(HEADOBJ): %$(OBJEXT): %.c
-	$(Q) echo "CC:  $<"
+	$(Q) $(ECHO_BEGIN)"CC:  $<"
 	$(Q) "$(CC)" -c $(HOSTCFLAGS) $< -o $@
+	$(Q) $(ECHO_END)
 
 # The architecture-specific library
 

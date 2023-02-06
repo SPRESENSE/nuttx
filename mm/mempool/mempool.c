@@ -102,7 +102,7 @@ static inline void mempool_add_backtrace(FAR struct mempool_s *pool,
                                          FAR struct mempool_backtrace_s *buf)
 {
   list_add_head(&pool->alist, &buf->node);
-  buf->pid = gettid();
+  buf->pid = _SCHED_GETTID();
 #  if CONFIG_MM_BACKTRACE > 0
   if (pool->procfs.backtrace)
     {
@@ -206,7 +206,7 @@ int mempool_init(FAR struct mempool_s *pool, FAR const char *name)
       kasan_poison(base, size);
     }
 
-  pool->lock = 0;
+  spin_initialize(&pool->lock, 0);
   if (pool->wait && pool->expandsize == 0)
     {
       nxsem_init(&pool->waitsem, 0, 0);

@@ -23,6 +23,7 @@ check=check_patch
 fail=0
 range=0
 spell=0
+encoding=0
 message=0
 
 usage() {
@@ -30,7 +31,8 @@ usage() {
   echo ""
   echo "Options:"
   echo "-h"
-  echo "-c spell check with codespell(install with: pip install codespell)"
+  echo "-c spell check with codespell (install with: pip install codespell)"
+  echo "-u encoding check with cvt2utf (install with: pip install cvt2utf)"
   echo "-r range check only (coupled with -p or -g)"
   echo "-p <patch file names> (default)"
   echo "-m Change-Id check in commit message (coupled with -g)"
@@ -57,23 +59,39 @@ is_rust_file() {
 }
 
 check_file() {
+  if [ -x $@ ]; then
+    case $@ in
+    *.bat | *.sh | *.py)
+      ;;
+    *)
+      echo "$@: error: execute permissions detected!"
+      fail=1
+      ;;
+    esac
+  fi
+
   if [ "$(is_rust_file $@)" == "1" ]; then
     if ! command -v rustfmt &> /dev/null; then
       fail=1
-    else
-      if ! rustfmt --edition 2021 --check $@ 2>&1; then
-        fail=1
-      fi
-    fi
-  else
-    if ! $TOOLDIR/nxstyle $@ 2>&1; then
+    elif ! rustfmt --edition 2021 --check $@ 2>&1; then
       fail=1
     fi
+  elif ! $TOOLDIR/nxstyle $@ 2>&1; then
+    fail=1
+  fi
 
-    if [ $spell != 0 ]; then
-      if ! codespell -q 7 ${@: -1}; then
-        fail=1
-      fi
+  if [ $spell != 0 ]; then
+    if ! codespell -q 7 ${@: -1}; then
+      fail=1
+    fi
+  fi
+
+  if [ $encoding != 0 ]; then
+    md5="$(md5sum $@)"
+    cvt2utf convert --nobak "$@" &> /dev/null
+    if [ "$md5" != "$(md5sum $@)" ]; then
+      echo "$@: error: Non-UTF8 characters detected!"
+      fail=1
     fi
   fi
 }
@@ -146,6 +164,9 @@ while [ ! -z "$1" ]; do
     ;;
   -c )
     spell=1
+    ;;
+  -u )
+    encoding=1
     ;;
   -f )
     check=check_file
