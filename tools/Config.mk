@@ -412,7 +412,7 @@ endef
 #   CONFIG_WINDOWS_NATIVE - Defined for a Windows native build
 
 define ARCHIVE_ADD
-	$(ECHO_BEGIN)"AR (add): ${shell basename $(1)} $(2) "
+	$(ECHO_BEGIN)"AR (add): ${shell basename $(1)} "
 	$(Q) $(AR) $1 $2
 	$(ECHO_END)
 endef
@@ -559,6 +559,10 @@ endef
 
 ifeq ($(CONFIG_ARCH_COVERAGE),y)
 	EXTRA = *.gcno *.gcda
+endif
+
+ifeq ($(CONFIG_STACK_USAGE),y)
+	EXTRA += *.su
 endif
 
 ifeq ($(CONFIG_WINDOWS_NATIVE),y)
