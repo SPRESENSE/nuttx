@@ -154,7 +154,7 @@ int nxsched_release_tcb(FAR struct tcb_s *tcb, uint8_t ttype)
 #ifdef CONFIG_ARCH_ADDRENV
       /* Release this thread's reference to the address environment */
 
-      ret = up_addrenv_detach(tcb->group, tcb);
+      ret = addrenv_leave(tcb);
 #endif
 
       /* Leave the group (if we did not already leave in task_exithook.c) */

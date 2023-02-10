@@ -32,6 +32,13 @@
 #  include <nuttx/mm/mm.h>
 #endif
 
+#include <stdbool.h>
+#include <stdint.h>
+
+#include <nuttx/wqueue.h>
+
+#include <arch/arch.h>
+
 #ifdef CONFIG_ARCH_ADDRENV
 
 /****************************************************************************
@@ -218,12 +225,26 @@
      (CONFIG_ARCH_PGPOOL_VBASE + CONFIG_ARCH_PGPOOL_SIZE)
 
 #endif
+/****************************************************************************
+ * Public Type Definitions
+ ****************************************************************************/
+
+struct tcb_s;                  /* Forward reference to TCB */
 
 /****************************************************************************
  * Public Types
  ****************************************************************************/
 
 #ifndef __ASSEMBLY__
+
+struct addrenv_s
+{
+  struct arch_addrenv_s addrenv; /* The address environment page directory  */
+  struct work_s         work;    /* Worker to free address environment      */
+  int                   refs;    /* Users of address environment            */
+};
+
+typedef struct addrenv_s addrenv_t;
 
 /* Reserved .bss/.data region.  In the kernel build (CONFIG_BUILD_KERNEL),
  * the region at the beginning of the .bss/.data region is reserved for use
@@ -270,6 +291,208 @@ struct addrenv_reserve_s
  ****************************************************************************/
 
 /****************************************************************************
+ * Name: addrenv_allocate
+ *
+ * Description:
+ *   Allocate an address environment for a new process.
+ *
+ * Input Parameters:
+ *   tcb   - The tcb of the newly created task.
+ *   ttype - The type of the task.
+ *
+ * Returned Value:
+ *   This is a NuttX internal function so it follows the convention that
+ *   0 (OK) is returned on success and a negated errno is returned on
+ *   failure.
+ *
+ ****************************************************************************/
+
+int addrenv_allocate(FAR struct tcb_s *tcb, uint8_t ttype);
+
+/****************************************************************************
+ * Name: addrenv_free
+ *
+ * Description:
+ *   Free an address environment for a process.
+ *
+ * Input Parameters:
+ *   tcb - The tcb of the task.
+ *
+ * Returned Value:
+ *   This is a NuttX internal function so it follows the convention that
+ *   0 (OK) is returned on success and a negated errno is returned on
+ *   failure.
+ *
+ ****************************************************************************/
+
+int addrenv_free(FAR struct tcb_s *tcb);
+
+/****************************************************************************
+ * Name: addrenv_switch
+ *
+ * Description:
+ *   Switch to an address environment.
+ *
+ * Input Parameters:
+ *   tcb - The tcb of the task to switch to, or NULL to use the task at the
+ *         head of the ready-to-run list.
+ *
+ * Returned Value:
+ *   This is a NuttX internal function so it follows the convention that
+ *   0 (OK) is returned on success and a negated errno is returned on
+ *   failure.
+ *
+ ****************************************************************************/
+
+int addrenv_switch(FAR struct tcb_s *tcb);
+
+/****************************************************************************
+ * Name: addrenv_attach
+ *
+ * Description:
+ *   Attach address environment to a newly process. Called by exec() right
+ *   before injecting the new process into the system.
+ *
+ * Input Parameters:
+ *   tcb     - The tcb of the newly loaded task.
+ *   addrenv - The address environment that is attached.
+ *
+ * Returned Value:
+ *   This is a NuttX internal function so it follows the convention that
+ *   0 (OK) is returned on success and a negated errno is returned on
+ *   failure.
+ *
+ ****************************************************************************/
+
+int addrenv_attach(FAR struct tcb_s *tcb,
+                   FAR const struct addrenv_s *addrenv);
+
+/****************************************************************************
+ * Name: addrenv_join
+ *
+ * Description:
+ *   Join the parent process's address environment.
+ *
+ * Input Parameters:
+ *   ptcb - The tcb of the parent process.
+ *   tcb  - The tcb of the child process.
+ *
+ * Returned Value:
+ *   This is a NuttX internal function so it follows the convention that
+ *   0 (OK) is returned on success and a negated errno is returned on
+ *   failure.
+ *
+ ****************************************************************************/
+
+int addrenv_join(FAR struct tcb_s *ptcb, FAR struct tcb_s *tcb);
+
+/****************************************************************************
+ * Name: addrenv_leave
+ *
+ * Description:
+ *   Leave a process's address environment.
+ *
+ * Input Parameters:
+ *   tcb  - The tcb of the process.
+ *
+ * Returned Value:
+ *   This is a NuttX internal function so it follows the convention that
+ *   0 (OK) is returned on success and a negated errno is returned on
+ *   failure.
+ *
+ ****************************************************************************/
+
+int addrenv_leave(FAR struct tcb_s *tcb);
+
+/****************************************************************************
+ * Name: addrenv_select
+ *
+ * Description:
+ *   Temporarily select a different address environment for the currently
+ *   running process.
+ *
+ * Input Parameters:
+ *   addrenv - The address environment.
+ *
+ * Returned Value:
+ *   This is a NuttX internal function so it follows the convention that
+ *   0 (OK) is returned on success and a negated errno is returned on
+ *   failure.
+ *
+ ****************************************************************************/
+
+int addrenv_select(FAR struct addrenv_s *addrenv);
+
+/****************************************************************************
+ * Name: addrenv_restore
+ *
+ * Description:
+ *   Switch back to the procces's own address environment.
+ *
+ * Input Parameters:
+ *   None
+ *
+ * Returned Value:
+ *   This is a NuttX internal function so it follows the convention that
+ *   0 (OK) is returned on success and a negated errno is returned on
+ *   failure.
+ *
+ ****************************************************************************/
+
+int addrenv_restore(void);
+
+/****************************************************************************
+ * Name: addrenv_take
+ *
+ * Description:
+ *   Take a reference to an address environment.
+ *
+ * Input Parameters:
+ *   addrenv - The address environment.
+ *
+ * Returned Value:
+ *   None.
+ *
+ ****************************************************************************/
+
+void addrenv_take(FAR struct addrenv_s *addrenv);
+
+/****************************************************************************
+ * Name: addrenv_give
+ *
+ * Description:
+ *   Give back a reference to an address environment, obtaining the resulting
+ *   reference counter as returned value.
+ *
+ * Input Parameters:
+ *   addrenv - The address environment.
+ *
+ * Returned Value:
+ *   Remaining reference count.
+ *
+ ****************************************************************************/
+
+int addrenv_give(FAR struct addrenv_s *addrenv);
+
+/****************************************************************************
+ * Name: addrenv_drop
+ *
+ * Description:
+ *   Drop an address environment.
+ *
+ * Input Parameters:
+ *   addrenv - The address environment.
+ *   deferred - yes: The address environment should be dropped by the worker
+ *              no:  The address environment can be dropped at once
+ *
+ * Returned Value:
+ *   None.
+ *
+ ****************************************************************************/
+
+void addrenv_drop(FAR struct addrenv_s *addrenv, bool deferred);
+
+/****************************************************************************
  * Address Environment Interfaces
  *
  * Low-level interfaces used in binfmt/ to instantiate tasks with address
@@ -287,7 +510,6 @@ struct addrenv_reserve_s
  *                         address environment
  *   up_addrenv_heapsize - Returns the size of the initial heap allocation.
  *   up_addrenv_select   - Instantiate an address environment
- *   up_addrenv_restore  - Restore an address environment
  *   up_addrenv_clone    - Copy an address environment from one location to
  *                         another.
  *

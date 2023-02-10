@@ -34,7 +34,6 @@
  *                         address environment
  *   up_addrenv_heapsize - Returns the size of the initial heap allocation.
  *   up_addrenv_select   - Instantiate an address environment
- *   up_addrenv_restore  - Restore an address environment
  *   up_addrenv_clone    - Copy an address environment from one location to
  *                        another.
  *
@@ -713,55 +712,16 @@ ssize_t up_addrenv_heapsize(const arch_addrenv_t *addrenv)
  * Input Parameters:
  *   addrenv - The representation of the task address environment previously
  *     returned by up_addrenv_create.
- *   oldenv
- *     The address environment that was in place before up_addrenv_select().
- *     This may be used with up_addrenv_restore() to restore the original
- *     address environment that was in place before up_addrenv_select() was
- *     called.  Note that this may be a task agnostic, hardware
- *     representation that is different from arch_addrenv_t.
  *
  * Returned Value:
  *   Zero (OK) on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
-int up_addrenv_select(const arch_addrenv_t *addrenv,
-                      save_addrenv_t *oldenv)
+int up_addrenv_select(const arch_addrenv_t *addrenv)
 {
   DEBUGASSERT(addrenv && addrenv->satp);
-  if (oldenv)
-    {
-      /* Save the old environment */
-
-      uintptr_t satp_reg = mmu_read_satp();
-      *oldenv = (save_addrenv_t)satp_reg;
-    }
-
   mmu_write_satp(addrenv->satp);
-  return OK;
-}
-
-/****************************************************************************
- * Name: up_addrenv_restore
- *
- * Description:
- *   After an address environment has been temporarily instantiated by
- *   up_addrenv_select, this function may be called to restore the
- *   original address environment.
- *
- * Input Parameters:
- *   oldenv - The hardware representation of the address environment
- *     previously returned by up_addrenv_select.
- *
- * Returned Value:
- *   Zero (OK) on success; a negated errno value on failure.
- *
- ****************************************************************************/
-
-int up_addrenv_restore(const save_addrenv_t *oldenv)
-{
-  DEBUGASSERT(oldenv);
-  mmu_write_satp((uintptr_t)*oldenv);
   return OK;
 }
 
@@ -824,7 +784,7 @@ int up_addrenv_clone(const arch_addrenv_t *src,
  *   group.
  *
  * Input Parameters:
- *   group - The task group to which the new thread belongs.
+ *   ptcb  - The tcb of the parent task.
  *   tcb   - The tcb of the thread needing the address environment.
  *
  * Returned Value:
@@ -832,7 +792,7 @@ int up_addrenv_clone(const arch_addrenv_t *src,
  *
  ****************************************************************************/
 
-int up_addrenv_attach(struct task_group_s *group, struct tcb_s *tcb)
+int up_addrenv_attach(struct tcb_s *ptcb, struct tcb_s *tcb)
 {
   /* There is nothing that needs to be done */
 
@@ -849,12 +809,7 @@ int up_addrenv_attach(struct task_group_s *group, struct tcb_s *tcb)
  *   task group is itself destroyed.  Any resources unique to this thread
  *   may be destroyed now.
  *
- *   NOTE: In some platforms, nothing will need to be done in this case.
- *   Simply being a member of the group that has the address environment
- *   may be sufficient.
- *
  * Input Parameters:
- *   group - The group to which the thread belonged.
  *   tcb - The TCB of the task or thread whose the address environment will
  *     be released.
  *
@@ -863,7 +818,7 @@ int up_addrenv_attach(struct task_group_s *group, struct tcb_s *tcb)
  *
  ****************************************************************************/
 
-int up_addrenv_detach(struct task_group_s *group, struct tcb_s *tcb)
+int up_addrenv_detach(struct tcb_s *tcb)
 {
   /* There is nothing that needs to be done */
 

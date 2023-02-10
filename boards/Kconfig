@@ -315,9 +315,7 @@ config ARCH_BOARD_TTGO_T5V2_ESP32
 	select LCD
 	select LCD_DEV
 	select LCD_FRAMEBUFFER
-	select LCD_PORTRAIT
 	select LCD_SSD1680
-	select LCD_SSD1680_2_90
 	---help---
 		TTGO T5v2 is an ESP32 board with e-ink 2.9 inch display.
 		Display resolution 128/296. More info:
@@ -1444,7 +1442,7 @@ config ARCH_BOARD_NUCLEO_F446RE
 
 
 config ARCH_BOARD_STM32G071B_DISCO
-	bool "STM32G071 STM32G071B-DISO "
+	bool "STM32G071 STM32G071B-DISO"
 	depends on ARCH_CHIP_STM32G071RB
 	select ARCH_HAVE_LEDS
 	---help---
@@ -1797,7 +1795,6 @@ config ARCH_BOARD_SAMA5D2_XULT
 config ARCH_BOARD_GIANT_BOARD
 	bool "Groboards Giant Board (SAMA5D27C-D1G)"
 	depends on ARCH_CHIP_ATSAMA5D27
-	select SAMA5D27_GIANT_BOARD_492MHZ
 	select ARCH_HAVE_LEDS
 	---help---
 		This options selects support for NuttX on the Groboards Giant Board,
@@ -2630,6 +2627,13 @@ config ARCH_BOARD_S698PM_DKIT
 	---help---
 		none
 
+config ARCH_BOARD_HPM6750EVK2
+	bool "Hpmicro hpm6750evk2"
+	depends on ARCH_CHIP_HPM6750
+	---help---
+		This is the board configuration for the port of NuttX to the Hpmicro hpm6750evk2
+		board.  This board features the RISC-V hpm6750.
+
 config ARCH_BOARD_SIM
 	bool "User mode simulation"
 	select ARCH_HAVE_BUTTONS
@@ -2979,6 +2983,7 @@ config ARCH_BOARD
 	default "xx3803"                    if ARCH_BOARD_XX3803
 	default "xx3823"                    if ARCH_BOARD_XX3823
 	default "s698pm-dkit"               if ARCH_BOARD_S698PM_DKIT
+	default "hpm6750evk2"               if ARCH_BOARD_HPM6750EVK2
 
 comment "Common Board Options"
 
@@ -3636,7 +3641,7 @@ if ARCH_BOARD_MOTEINO_MEGA
 source "boards/avr/atmega/moteino-mega/Kconfig"
 endif
 if ARCH_BOARD_CUSTOM
-source "boards/dummy/Kconfig"
+source "$BINDIR/boards/dummy/Kconfig"
 endif
 if ARCH_BOARD_DEMOS92S12NEC64
 source "boards/hc/m9s12/demo9s12ne64/Kconfig"
@@ -3817,6 +3822,9 @@ source "boards/sparc/s698pm/s698pm-dkit/Kconfig"
 endif
 if ARCH_BOARD_TLSR8278ADK80D
 source "boards/arm/tlsr82/tlsr8278adk80d/Kconfig"
+endif
+if ARCH_BOARD_HPM6750EVK2
+source "boards/risc-v/hpm6750/hpm6750evk2/Kconfig"
 endif
 
 comment "Board-Common Options"

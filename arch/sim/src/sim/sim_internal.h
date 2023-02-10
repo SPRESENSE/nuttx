@@ -88,10 +88,11 @@
 #define sim_saveusercontext(saveregs)                           \
     ({                                                          \
        irqstate_t flags = up_irq_flags();                       \
-       uint32_t *env = (uint32_t *)saveregs + JB_FLAG;          \
+       xcpt_reg_t *env = saveregs;                              \
+       uint32_t *val = (uint32_t *)&env[JB_FLAG];               \
                                                                 \
-       env[0] = flags & UINT32_MAX;                             \
-       env[1] = (flags >> 32) & UINT32_MAX;                     \
+       val[0] = flags & UINT32_MAX;                             \
+       val[1] = (flags >> 32) & UINT32_MAX;                     \
                                                                 \
        setjmp(saveregs);                                        \
     })
@@ -177,7 +178,8 @@ void host_mallinfo(int *aordblks, int *uordblks);
 uint64_t host_gettime(bool rtc);
 void host_sleep(uint64_t nsec);
 void host_sleepuntil(uint64_t nsec);
-int host_settimer(int *irq);
+int host_timerirq(void);
+int host_settimer(uint64_t nsec);
 
 /* sim_sigdeliver.c *********************************************************/
 

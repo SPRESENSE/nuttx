@@ -36,10 +36,6 @@ ifeq ($(CONFIG_SCHED_USER_IDENTITY),y)
 CSRCS += group_setuid.c group_setgid.c group_getuid.c group_getgid.c
 endif
 
-ifeq ($(CONFIG_ARCH_ADDRENV),y)
-CSRCS += group_addrenv.c
-endif
-
 ifeq ($(CONFIG_SIG_SIGSTOP_ACTION),y)
 CSRCS += group_suspendchildren.c group_continue.c
 endif
