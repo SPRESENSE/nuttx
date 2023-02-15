@@ -1241,9 +1241,7 @@ off_t nx_seek(int fd, off_t offset, int whence);
  *
  ****************************************************************************/
 
-#ifndef CONFIG_DISABLE_MOUNTPOINT
 int file_fsync(FAR struct file *filep);
-#endif
 
 /****************************************************************************
  * Name: file_truncate
@@ -1255,9 +1253,7 @@ int file_fsync(FAR struct file *filep);
  *
  ****************************************************************************/
 
-#ifndef CONFIG_DISABLE_MOUNTPOINT
 int file_truncate(FAR struct file *filep, off_t length);
-#endif
 
 /****************************************************************************
  * Name: file_mmap
