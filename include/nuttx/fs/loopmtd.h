@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/arm/samv7/common/include/board_hsmci.h
+ * include/nuttx/fs/loopmtd.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,18 +18,63 @@
  *
  ****************************************************************************/
 
-#ifndef __BOARDS_ARM_SAMV7_COMMON_INCLUDE_BOARD_HSMCI_H
-#define __BOARDS_ARM_SAMV7_COMMON_INCLUDE_BOARD_HSMCI_H
+#ifndef __INCLUDE_NUTTX_FS_LOOPMTD_H
+#define __INCLUDE_NUTTX_FS_LOOPMTD_H
 
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#include "sam_gpio.h"
+#include <nuttx/config.h>
+
+#include <sys/types.h>
+#include <sys/ioctl.h>
+#include <stdint.h>
+#include <stdbool.h>
+
+/****************************************************************************
+ * Pre-processor Definitions
+ ****************************************************************************/
+
+#ifdef CONFIG_MTD_LOOP
+/* Loop device IOCTL commands */
+
+/* Command:      MTD_LOOPIOC_SETUP
+ * Description:  Setup the loop device
+ * Argument:     A pointer to a read-only instance of struct losetup_s.
+ * Dependencies: The loop device must be enabled (CONFIG_MTD_LOOP=y)
+ */
+
+/* Command:      MTD_LOOPIOC_TEARDOWN
+ * Description:  Teardown a loop device previously setup vis LOOPIOC_SETUP
+ * Argument:     A read-able pointer to the path of the device to be
+ *               torn down
+ * Dependencies: The loop device must be enabled (CONFIG_MTD_LOOP=y)
+ */
+
+#define MTD_LOOPIOC_SETUP     _LOOPIOC(0x0001)
+#define MTD_LOOPIOC_TEARDOWN  _LOOPIOC(0x0002)
+
+#endif
 
 /****************************************************************************
  * Public Types
  ****************************************************************************/
+
+#ifdef CONFIG_MTD_LOOP
+/* This is the structure referred to in the argument to the LOOPIOC_SETUP
+ * IOCTL command.
+ */
+
+struct mtd_losetup_s
+{
+  FAR const char *devname;      /* The loop mtd device to be created */
+  FAR const char *filename;     /* The file or character device to use */
+  size_t          erasesize;    /* The erase size to use on the file */
+  size_t          sectsize;     /* The sector / page size of the file */
+  off_t           offset;       /* An offset that may be applied to the device */
+};
+#endif
 
 /****************************************************************************
  * Public Data
@@ -37,8 +82,7 @@
 
 #ifndef __ASSEMBLY__
 
-#undef EXTERN
-#if defined(__cplusplus)
+#ifdef __cplusplus
 #define EXTERN extern "C"
 extern "C"
 {
@@ -47,44 +91,17 @@ extern "C"
 #endif
 
 /****************************************************************************
- * Public Functions Definitions
+ * Public Function Prototypes
  ****************************************************************************/
 
-/****************************************************************************
- * Name: sam_hsmci_initialize
- *
- * Description:
- *   Perform architecture specific initialization
- *
- ****************************************************************************/
-
-int sam_hsmci_initialize(int slotno, int minor, gpio_pinset_t cdcfg,
-                         int cdirq, bool cdinvert);
-
-/****************************************************************************
- * Name: sam_cardinserted
- *
- * Description:
- *   Check if a card is inserted into the selected HSMCI slot
- *
- ****************************************************************************/
-
-bool sam_cardinserted(int slotno);
-
-/****************************************************************************
- * Name: sam_writeprotected
- *
- * Description:
- *   Check if the card in the MMCSD slot is write protected
- *
- ****************************************************************************/
-
-bool sam_writeprotected(int slotno);
+#ifdef CONFIG_MTD_LOOP
+int mtd_loop_register(void);
+#endif
 
 #undef EXTERN
-#if defined(__cplusplus)
+#ifdef __cplusplus
 }
 #endif
 
 #endif /* __ASSEMBLY__ */
-#endif /* __BOARDS_ARM_SAMV7_COMMON_INCLUDE_BOARD_HSMCI_H */
+#endif /* __INCLUDE_NUTTX_FS_LOOPMTD_H */
