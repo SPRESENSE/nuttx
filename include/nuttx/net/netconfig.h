@@ -288,16 +288,6 @@
 
 /* UDP configuration options */
 
-/* The maximum amount of concurrent UDP connection, Default: 10 */
-
-#ifndef CONFIG_NET_UDP_CONNS
-#  ifdef CONFIG_NET_UDP
-#    define CONFIG_NET_UDP_CONNS 10
-#  else
-#    define CONFIG_NET_UDP_CONNS  0
-#  endif
-#endif
-
 /* The UDP maximum packet size. This should not be set to more than
  * NETDEV_PKTSIZE(d) - NET_LL_HDRLEN(dev) - __UDP_HDRLEN - IPv*_HDRLEN.
  */
@@ -416,21 +406,6 @@
 
 /* TCP configuration options */
 
-/* The maximum number of simultaneously open TCP connections.
- *
- * Since the TCP connections are statically allocated, turning this
- * configuration knob down results in less RAM used. Each TCP
- * connection requires approximately 30 bytes of memory.
- */
-
-#ifndef CONFIG_NET_TCP_CONNS
-#  ifdef CONFIG_NET_TCP
-#   define CONFIG_NET_TCP_CONNS 10
-#  else
-#   define CONFIG_NET_TCP_CONNS  0
-#  endif
-#endif
-
 /* The maximum number of simultaneously listening TCP ports.
  *
  * Each listening TCP port requires 2 bytes of memory.
@@ -438,15 +413,6 @@
 
 #ifndef CONFIG_NET_MAX_LISTENPORTS
 #  define CONFIG_NET_MAX_LISTENPORTS 20
-#endif
-
-/* Define the maximum number of concurrently active UDP and TCP
- * ports.  This number must be greater than the number of open
- * sockets in order to support multi-threaded read/write operations.
- */
-
-#ifndef CONFIG_NET_NACTIVESOCKETS
-#  define CONFIG_NET_NACTIVESOCKETS (CONFIG_NET_TCP_CONNS + CONFIG_NET_UDP_CONNS)
 #endif
 
 /* The initial retransmission timeout counted in timer pulses.
@@ -653,18 +619,6 @@
  */
 
 #  define CONFIG_NET_ARP_MAXAGE 120
-#endif
-
-/* Usrsock configuration options */
-
-/* The maximum amount of concurrent usrsock connections, Default: 6 */
-
-#ifndef CONFIG_NET_USRSOCK_CONNS
-#  ifdef CONFIG_NET_USRSOCK
-#    define CONFIG_NET_USRSOCK_CONNS 6
-#  else
-#    define CONFIG_NET_USRSOCK_CONNS 0
-#  endif
 #endif
 
 /****************************************************************************
