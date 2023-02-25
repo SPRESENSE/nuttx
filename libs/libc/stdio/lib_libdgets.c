@@ -1,5 +1,5 @@
 /****************************************************************************
- * libs/libc/stdio/lib_libfgets.c
+ * libs/libc/stdio/lib_libdgets.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -27,10 +27,6 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <unistd.h>
-#include <string.h>
-#include <ctype.h>
-#include <assert.h>
-#include <debug.h>
 
 #include "libc.h"
 
@@ -42,17 +38,23 @@
  * Private Functions
  ****************************************************************************/
 
+static int dgetc(int fd)
+{
+  unsigned char c;
+  return read(fd, &c, 1) == 1 ? c : EOF;
+}
+
 /****************************************************************************
  * Name: consume_eol
  *
  * Description:
  *   If 'consume' is true, then consume_eol() will read and discard bytes
- *   from 'stream' until an EOF or a newline encountered or until a read
+ *   from 'fd' until an EOF or a newline encountered or until a read
  *   error occurs.
  *
  ****************************************************************************/
 
-static void consume_eol(FILE *stream, bool consume)
+static void consume_eol(int fd, bool consume)
 {
   if (consume)
     {
@@ -60,7 +62,7 @@ static void consume_eol(FILE *stream, bool consume)
 
       do
         {
-          ch = fgetc(stream);
+          ch = dgetc(fd);
         }
       while (ch != EOF && ch != '\n');
     }
@@ -71,12 +73,12 @@ static void consume_eol(FILE *stream, bool consume)
  ****************************************************************************/
 
 /****************************************************************************
- * Name: lib_fgets
+ * Name: lib_dgets
  *
  * Description:
- *   lib_fgets() implements the core logic for both fgets() and gets_s().
- *   lib_fgets() reads in at most one less than 'buflen' characters from
- *   stream and stores them into the buffer pointed to by 'buf'. Reading
+ *   lib_dgets() implements the core logic for both gets() and gets_s().
+ *   lib_dgets() reads in at most one less than 'buflen' characters from
+ *   fd and stores them into the buffer pointed to by 'buf'. Reading
  *   stops after an EOF or a newline encountered or after a read error
  *   occurs.
  *
@@ -86,21 +88,21 @@ static void consume_eol(FILE *stream, bool consume)
  *
  *   If 'buflen'-1 bytes were read into 'buf' without encountering an EOF
  *   or newline then the following behavior depends on the value of
- *   'consume':  If consume is true, then lib_fgets() will continue reading
+ *   'consume':  If consume is true, then lib_dgets() will continue reading
  *   bytes and discarding them until an EOF or a newline encountered or
- *   until a read error occurs.  Otherwise, lib_fgets() returns with the
+ *   until a read error occurs.  Otherwise, lib_dgets() returns with the
  *   remaining of the incoming stream buffer.
  *
  ****************************************************************************/
 
-FAR char *lib_fgets(FAR char *buf, size_t buflen, FILE *stream,
+FAR char *lib_dgets(FAR char *buf, size_t buflen, int fd,
                     bool keepnl, bool consume)
 {
   size_t nch = 0;
 
   /* Sanity checks */
 
-  if (!stream || !buf || stream->fs_fd < 0)
+  if (!buf || fd < 0)
     {
       return NULL;
     }
@@ -109,7 +111,7 @@ FAR char *lib_fgets(FAR char *buf, size_t buflen, FILE *stream,
 
   if (buflen < 1)
     {
-      consume_eol(stream, consume);
+      consume_eol(fd, consume);
       return NULL;
     }
 
@@ -120,7 +122,7 @@ FAR char *lib_fgets(FAR char *buf, size_t buflen, FILE *stream,
   if (buflen < 2)
     {
       *buf = '\0';
-      consume_eol(stream, consume);
+      consume_eol(fd, consume);
       return buf;
     }
 
@@ -133,7 +135,7 @@ FAR char *lib_fgets(FAR char *buf, size_t buflen, FILE *stream,
     {
       /* Get the next character */
 
-      int ch = fgetc(stream);
+      int ch = dgetc(fd);
 
       /* Check for end-of-line.  This is tricky only in that some
        * environments may return CR as end-of-line, others LF, and
@@ -197,7 +199,7 @@ FAR char *lib_fgets(FAR char *buf, size_t buflen, FILE *stream,
           if (nch + 1 >= buflen)
             {
               buf[nch] = '\0';
-              consume_eol(stream, consume);
+              consume_eol(fd, consume);
               return buf;
             }
         }

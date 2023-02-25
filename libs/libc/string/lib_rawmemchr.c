@@ -1,5 +1,5 @@
 /****************************************************************************
- * libs/libc/termios/lib_ttynamer.c
+ * libs/libc/string/lib_rawmemchr.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -22,64 +22,38 @@
  * Included Files
  ****************************************************************************/
 
-#include <errno.h>
-#include <fcntl.h>
+#include <nuttx/config.h>
+
 #include <string.h>
-#include <unistd.h>
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: ttyname_r
+ * Name: rawmemchr
  *
  * Description:
- *   The ttyname_r() function shall store the null-terminated pathname of
- *   the terminal associated with the file descriptor fildes in the
- *   character array referenced by name. The array is namesize characters
- *   long and should have space for the name and the terminating null
- *   character. The maximum length of the terminal name shall be
- *   {TTY_NAME_MAX}.
- *
- * Input Parameters:
- *   fd - The 'fd' argument is an open file descriptor associated with
- *        a terminal.
- *   buf - Caller provided buffer to hold tty name.
- *   buflen - The size of the caller-provided buffer.
+ *   The rawmemchr() function is similar to memchr(), it assumes (i.e., the
+ *   programmer knows for certain) that an instance of c lies somewhere in
+ *   the memory area starting at the location pointed to by s,and so performs
+ *   an optimized search for c (i.e., no use of a count argument to limit the
+ *   range of the search). If an instance of c is not found, the results are
+ *   unpredictable.The following call is a fast means of locating a string's
+ *   terminating null byte.
  *
  * Returned Value:
- *   If successful, the ttyname_r() function shall return zero.
- *   Otherwise, an error number shall be returned to indicate the error.
+ *   The rawmemchr() function returns a pointer to the located byte, or a
+ *   null pointer if the byte does not occur in the object.
  *
  ****************************************************************************/
 
-int ttyname_r(int fd, FAR char *buf, size_t buflen)
+FAR void *rawmemchr(FAR const void *s, int c)
 {
-  if (!isatty(fd))
+  if (c != '\0')
     {
-      return ENOTTY;
+      return memchr(s, c, SSIZE_MAX);
     }
 
-  if (buflen >= TTY_NAME_MAX)
-    {
-      return fcntl(fd, F_GETPATH, buf) < 0 ? get_errno() : 0;
-    }
-  else
-    {
-      char name[TTY_NAME_MAX];
-
-      if (fcntl(fd, F_GETPATH, name) < 0)
-        {
-          return get_errno();
-        }
-
-      if (strlen(name) >= buflen)
-        {
-          return ERANGE;
-        }
-
-      strlcpy(buf, name, buflen);
-      return OK;
-    }
+  return (FAR char *)s + strlen(s);
 }
