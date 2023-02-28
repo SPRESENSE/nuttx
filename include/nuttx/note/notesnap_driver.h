@@ -1,5 +1,5 @@
 /****************************************************************************
- * libs/libc/stream/lib_lowoutstream.c
+ * include/nuttx/note/notesnap_driver.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,78 +18,38 @@
  *
  ****************************************************************************/
 
+#ifndef __INCLUDE_NUTTX_NOTESNAP_DRIVER_H
+#define __INCLUDE_NUTTX_NOTESNAP_DRIVER_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
-
-#ifdef CONFIG_ARCH_LOWPUTC
-
-#include <stdio.h>
-#include <assert.h>
-#include <errno.h>
-#include <nuttx/arch.h>
-
-#include "libc.h"
+#include <nuttx/streams.h>
 
 /****************************************************************************
- * Private Functions
+ * Public Function Prototypes
  ****************************************************************************/
+
+#ifdef CONFIG_DRIVERS_NOTESNAP
 
 /****************************************************************************
- * Name: lowoutstream_putc
+ * Name: notesnap_register
  ****************************************************************************/
 
-static void lowoutstream_putc(FAR struct lib_outstream_s *this, int ch)
-{
-  DEBUGASSERT(this);
-
-  if (up_putc(ch) != EOF)
-    {
-      this->nput++;
-    }
-}
+int notesnap_register(void);
 
 /****************************************************************************
- * Name: lowoutstream_puts
+ * Name: notesnap_dump_with_stream
  ****************************************************************************/
 
-static int lowoutstream_puts(FAR struct lib_outstream_s *this,
-                             FAR const void *buf, int len)
-{
-  DEBUGASSERT(this);
-
-  this->nput += len;
-  up_nputs(buf, len);
-  return len;
-}
+void notesnap_dump_with_stream(FAR struct lib_outstream_s *stream);
 
 /****************************************************************************
- * Public Functions
+ * Name: notesnap_dump
  ****************************************************************************/
 
-/****************************************************************************
- * Name: lib_lowoutstream
- *
- * Description:
- *   Initializes a stream for use with low-level, architecture-specific I/O.
- *
- * Input Parameters:
- *   stream - User allocated, uninitialized instance of struct
- *            lib_lowoutstream_s to be initialized.
- *
- * Returned Value:
- *   None (User allocated instance initialized).
- *
- ****************************************************************************/
+void notesnap_dump(void);
 
-void lib_lowoutstream(FAR struct lib_outstream_s *stream)
-{
-  stream->putc  = lowoutstream_putc;
-  stream->puts  = lowoutstream_puts;
-  stream->flush = lib_noflush;
-  stream->nput  = 0;
-}
-
-#endif /* CONFIG_ARCH_LOWPUTC */
+#endif
+#endif /* __INCLUDE_NUTTX_NOTESNAP_DRIVER_H */

@@ -140,7 +140,7 @@ RUN cd renesas-tools/source/binutils && \
   chmod +x ./configure ./mkinstalldirs && \
   mkdir -p /tools/renesas-tools/build/binutils && cd /tools/renesas-tools/build/binutils && \
   /tools/renesas-tools/source/binutils/configure --target=rx-elf --prefix=/tools/renesas-toolchain/rx-elf-gcc --disable-werror &&\
-  make && make install 
+  make && make install
 ENV PATH="/tools/renesas-toolchain/rx-elf-gcc/bin:$PATH"
 
 # Install gcc
@@ -153,14 +153,14 @@ RUN cd renesas-tools/source/gcc && \
   /tools/renesas-tools/source/gcc/configure --target=rx-elf --prefix=/tools/renesas-toolchain/rx-elf-gcc \
   --disable-shared --disable-multilib --disable-libssp --disable-libstdcxx-pch --disable-werror --enable-lto \
   --enable-gold --with-pkgversion=GCC_Build_1.02 --with-newlib --enable-languages=c && \
-  make && make install 
+  make && make install
 ENV PATH="/tools/renesas-toolchain/rx-elf-gcc/bin:$PATH"
 
 # Install newlib
 RUN cd renesas-tools/source/newlib && \
   chmod +x ./configure && \
   mkdir -p /tools/renesas-tools/build/newlib && cd /tools/renesas-tools/build/newlib && \
-  /tools/renesas-tools/source/newlib/configure --target=rx-elf --prefix=/tools/renesas-toolchain/rx-elf-gcc && \  
+  /tools/renesas-tools/source/newlib/configure --target=rx-elf --prefix=/tools/renesas-toolchain/rx-elf-gcc && \
   make && make install
 RUN cd /tools/renesas-tools/build/gcc && \
   make && make install
@@ -246,6 +246,7 @@ RUN apt-get update -qq && DEBIAN_FRONTEND="noninteractive" apt-get install -y -q
   libpulse-dev libpulse-dev:i386 \
   libpython2.7 \
   libtinfo5 \
+  libusb-1.0-0-dev libusb-1.0-0-dev:i386 \
   libv4l-dev libv4l-dev:i386 \
   libx11-dev libx11-dev:i386 \
   libxext-dev libxext-dev:i386 \
