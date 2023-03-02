@@ -1,5 +1,5 @@
 /****************************************************************************
- * libs/libc/stream/lib_rawsostream.c
+ * libs/libc/stream/lib_bufferedoutstream.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -37,53 +37,67 @@
  ****************************************************************************/
 
 /****************************************************************************
- * Name: rawsostream_putc
+ * Name: bufferedoutstream_flush
  ****************************************************************************/
 
-static void rawsostream_putc(FAR struct lib_sostream_s *this, int ch)
+static int bufferedoutstream_flush(FAR struct lib_outstream_s *this)
 {
-  FAR struct lib_rawsostream_s *rthis = (FAR struct lib_rawsostream_s *)this;
-  char buffer = ch;
-  int nwritten;
-  int errcode;
+  FAR struct lib_bufferedoutstream_s *rthis =
+    (FAR struct lib_bufferedoutstream_s *)this;
+  int ret = OK;
 
-  DEBUGASSERT(this && rthis->fd >= 0);
+  ret = lib_stream_puts(rthis->backend, rthis->buffer,
+                        rthis->pending);
 
-  /* Loop until the character is successfully transferred or until an
-   * irrecoverable error occurs.
-   */
-
-  do
+  if (ret >= 0)
     {
-      nwritten = _NX_WRITE(rthis->fd, &buffer, 1);
-      if (nwritten == 1)
-        {
-          this->nput++;
-          return;
-        }
-
-      /* The only expected error is EINTR, meaning that the write operation
-       * was awakened by a signal.  Zero would not be a valid return value
-       * from _NX_WRITE().
-       */
-
-      errcode = _NX_GETERRNO(nwritten);
-      DEBUGASSERT(nwritten < 0);
+      rthis->pending = 0;
     }
-  while (errcode == EINTR);
+
+  return ret;
 }
 
 /****************************************************************************
- * Name: rawsostream_seek
+ * Name: bufferedoutstream_puts
  ****************************************************************************/
 
-static off_t rawsostream_seek(FAR struct lib_sostream_s *this, off_t offset,
-                              int whence)
+static int bufferedoutstream_puts(FAR struct lib_outstream_s *this,
+                                 FAR const void *buf, int len)
 {
-  FAR struct lib_rawsostream_s *mthis = (FAR struct lib_rawsostream_s *)this;
+  FAR struct lib_bufferedoutstream_s *rthis =
+    (FAR struct lib_bufferedoutstream_s *)this;
+  int ret = len;
 
-  DEBUGASSERT(this);
-  return _NX_SEEK(mthis->fd, offset, whence);
+  if (rthis->pending + len <= CONFIG_STREAM_OUT_BUFFER_SIZE)
+    {
+      /* If buffer is enough to save incoming data, cache it */
+
+      memcpy(rthis->buffer + rthis->pending, buf, len);
+      rthis->pending += len;
+    }
+  else
+    {
+      /* Or, for long data flush buffer and write it directly */
+
+      ret = lib_stream_flush(this);
+      if (ret >= 0)
+        {
+          ret = lib_stream_puts(rthis->backend, buf, len);
+        }
+    }
+
+  return ret;
+}
+
+/****************************************************************************
+ * Name: bufferedoutstream_putc
+ ****************************************************************************/
+
+static void bufferedoutstream_putc(FAR struct lib_outstream_s *this, int ch)
+{
+  char c = ch;
+
+  bufferedoutstream_puts(this, &c, 1);
 }
 
 /****************************************************************************
@@ -91,27 +105,16 @@ static off_t rawsostream_seek(FAR struct lib_sostream_s *this, off_t offset,
  ****************************************************************************/
 
 /****************************************************************************
- * Name: lib_rawsostream
- *
- * Description:
- *   Initializes a stream for use with a file descriptor.
- *
- * Input Parameters:
- *   outstream - User allocated, uninitialized instance of struct
- *               lib_rawsostream_s to be initialized.
- *   fd        - User provided file/socket descriptor (must have been opened
- *               for write access).
- *
- * Returned Value:
- *   None (User allocated instance initialized).
- *
+ * Name: lib_bufferedoutstream
  ****************************************************************************/
 
-void lib_rawsostream(FAR struct lib_rawsostream_s *outstream, int fd)
+void lib_bufferedoutstream(FAR struct lib_bufferedoutstream_s *outstream,
+                           FAR struct lib_outstream_s *backend)
 {
-  outstream->public.putc  = rawsostream_putc;
-  outstream->public.flush = lib_snoflush;
-  outstream->public.seek  = rawsostream_seek;
+  outstream->public.putc  = bufferedoutstream_putc;
+  outstream->public.puts  = bufferedoutstream_puts;
+  outstream->public.flush = bufferedoutstream_flush;
   outstream->public.nput  = 0;
-  outstream->fd           = fd;
+  outstream->backend      = backend;
+  outstream->pending      = 0;
 }

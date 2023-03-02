@@ -134,7 +134,7 @@ static int arm64_arch_timer_compare_isr(int irq, void *regs, void *arg)
 static int arm64_arch_timer_compare_isr(int irq, void *regs, void *arg)
 {
   uint64_t      curr_cycle;
-  uint32_t      delta_ticks;
+  uint64_t      delta_ticks;
   uint64_t      next_cycle;
 
   UNUSED(irq);
@@ -142,7 +142,7 @@ static int arm64_arch_timer_compare_isr(int irq, void *regs, void *arg)
   UNUSED(arg);
 
   curr_cycle    = arm64_arch_timer_count();
-  delta_ticks   = (uint32_t)((curr_cycle - last_cycle) / cycle_per_tick);
+  delta_ticks   = (curr_cycle - last_cycle) / cycle_per_tick;
 
   last_cycle += delta_ticks * cycle_per_tick;
 
@@ -221,8 +221,6 @@ void up_timer_initialize(void)
         (unsigned long)(arch_timer_rate / 10000) % 100, cycle_per_tick);
 
   irq_attach(ARM_ARCH_TIMER_IRQ, arm64_arch_timer_compare_isr, 0);
-  arm64_gic_irq_set_priority(ARM_ARCH_TIMER_IRQ, ARM_ARCH_TIMER_PRIO,
-                             ARM_ARCH_TIMER_FLAGS);
 
   curr_cycle = arm64_arch_timer_count();
   arm64_arch_timer_set_compare(curr_cycle + cycle_per_tick);

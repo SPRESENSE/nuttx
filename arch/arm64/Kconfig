@@ -31,6 +31,7 @@ config ARCH_CHIP_A64
 	select ARCH_CORTEX_A53
 	select ARCH_HAVE_ADDRENV
 	select ARCH_HAVE_RESET
+	select ARCH_HAVE_PSCI
 	select ARCH_NEED_ADDRENV_MAPPING
 	---help---
 		Allwinner A64 SoC
@@ -48,10 +49,69 @@ endchoice
 config ARCH_ARMV8A
 	bool
 	default n
+	select ARCH_HAVE_EL3
 
 config ARCH_ARMV8R
 	bool
 	default n
+	select ARCH_SINGLE_SECURITY_STATE
+
+config ARCH_HAVE_PSCI
+	bool "ARM PCSI (Power State Coordination Interface) Support"
+	default n
+	---help---
+		This Power State Coordination Interface (PSCI) defines
+		a standard interface for power management. the PCSI need
+		to implement handling firmware at EL2 or EL3. The option
+		maybe not applicable for arm core without PCSI firmware
+		interface implement
+
+config ARCH_SINGLE_SECURITY_STATE
+	bool "ARM Single Security State Support"
+	default n
+	---help---
+		Some ARM aarch64 Cortex-family processors only supports single
+		security state(eg. Cortex-R82). For these Processors,
+		GIC or other ARM architecture feature will with different
+		configure
+
+config ARCH_HAVE_EL3
+	bool
+	default n
+	---help---
+		Some ARM aarch64 Cortex-family processors only supports
+		EL0~El2(eg. Cortex-R82). For these Processors, the code
+		runing at EL3 is not necessary and system register for EL3
+		is not accessible
+
+config ARCH_SET_VMPIDR_EL2
+	bool "Set VMPIDR_EL2 at EL2 stage"
+	help
+		VMPIDR_EL2 holds the value of the Virtualization Multiprocessor ID.
+		From architecture manual of AArch64, the behave is:
+		  -reading register MPIDR_EL1 in EL2, it's return real MPIDR_EL1
+		  -reading register MPIDR_EL1 in EL1, it's return VMPIDR_EL2
+		So since NuttX for SMP is running at EL1 to read MPIDR_EL1 for
+		identify CPU id, it's need to set VMPIDR_EL2 to MPIDR_EL1 for
+		every CPU at boot EL2 stage.
+		For some platform, the bootloader or hypervisor will do that at
+		the EL2 stage, but not all.
+		ARM FVP and VDK should set it since these platform will boot
+		without BootLoader.
+
+config ARCH_EARLY_PRINT
+	bool "arch early print support"
+	default n
+	---help---
+		The aarch64 have EL0~El3 execute level and NS/S (security state),
+		the NuttX should be execute at EL1 in NS(ARmv8-A) or S(ARmv8-R)
+		state. but booting NuttX have different ELs and state while with
+		different platform, if NuttX runing at wrong ELs or state it will
+		be not normal anymore. So we need to print something in arm64_head.S
+		to debug this situation.
+		Enabling this option will need to implement up_earlyserialinit and
+		up_lowputc functions just you see in qemu, if you not sure,
+		keeping the option disable.
 
 config ARCH_CORTEX_A53
 	bool

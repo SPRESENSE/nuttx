@@ -71,6 +71,24 @@ const struct arm_mmu_config mmu_config =
  ****************************************************************************/
 
 /****************************************************************************
+ * Name: arm64_el_init
+ *
+ * Description:
+ *   The function called from arm64_head.S at very early stage for these
+ * platform, it's use to:
+ *   - Handling special hardware initialize routine which is need to
+ *     run at high ELs
+ *   - Initialize system software such as hypervisor or security firmware
+ *     which is need to run at high ELs
+ *
+ ****************************************************************************/
+
+void arm64_el_init(void)
+{
+  /* TODO: A64 set init sys clock */
+}
+
+/****************************************************************************
  * Name: arm64_chip_boot
  *
  * Description:
@@ -84,7 +102,7 @@ void arm64_chip_boot(void)
 
   arm64_mmu_init(true);
 
-#if defined(CONFIG_SMP) || defined(CONFIG_ARCH_HAVE_RESET)
+#if defined(CONFIG_SMP) || defined(CONFIG_ARCH_HAVE_PSCI)
   arm64_psci_init("smc");
 
 #endif

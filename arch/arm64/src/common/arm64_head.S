@@ -48,7 +48,7 @@
 #define __HEAD_FLAGS            ((__HEAD_FLAG_PAGE_SIZE << 1) | \
                                  (__HEAD_FLAG_PHYS_BASE << 3))
 
-#ifdef CONFIG_DEBUG_FEATURES
+#ifdef CONFIG_ARCH_EARLY_PRINT
 
 #define RODATA_STR(label, msg)                  \
 .pushsection .rodata.str, "aMS", %progbits, 1 ; \
@@ -66,7 +66,7 @@ label:  .asciz msg;                             \
     RODATA_STR(boot_string_##sym, _s)
 #else
 #define PRINT(sym, s)
-#endif /* CONFIG_DEBUG_FEATURES */
+#endif /* CONFIG_ARCH_EARLY_PRINT */
 
 /****************************************************************************
  * Private Functions
@@ -122,43 +122,65 @@ real_start:
     ldr    x0, =cpu_boot_params
     get_cpu_id x1
 
-    /* If the cores start up at the same time, we should atomically load and
-     * store the mpid into arm64_cpu_boot_params.
+    /* The global variable cpu_boot_params is not safety to
+     * access in some case. eg. Some debugger will reboot
+     * the NuttX but not reload the whole image, so it will
+     * be not predicable for the initial value of the global
+     * value in that case
+     *
+     * get_cpu_id is safety because the CPU identification is
+     * not change in any case, so the code will judge in a
+     * very simple method:
+     *  -- Primary core will go on until it want to boot the
+     *     other core. For NuttX OS usage case, we can consider
+     *     the CPU id (the affinity of mpidr_el1) of primary
+     *     core is always 0.
+     *  -- The other cores will waiting until the primary
+     *     core write mpid and notify it to go on
      */
 
-    ldaxr  x2, [x0, #BOOT_PARAM_MPID]
-    cmp    x2, #-1
-    bne    1f
-
-    /* try to store x1 (mpid) */
-
-    stlxr    w3, x1, [x0]
-
-    /* If succeed, go to primary_core */
-
-    cbz    w3, primary_core
+    cmp    x1, #0
+    beq    primary_core
 
     /* loop until our turn comes */
 
 1:  dmb    ld
-    ldr    x2, [x0, #BOOT_PARAM_MPID]
+    wfe
+    ldr    x2,  [x0, #BOOT_PARAM_MPID]
     cmp    x1, x2
     bne    1b
 
     /* we can now load our stack pointer value and move on */
+
     ldr    x24, [x0, #BOOT_PARAM_SP]
     add    x24, x24, #(CONFIG_IDLETHREAD_STACKSIZE)
     ldr    x25, =arm64_boot_secondary_c_routine
     bl     __reset_prep_c
+
+    PRINT(second_boot, "- Ready to Boot Second CPU\r\n")
+
     b      cpu_boot
 
 primary_core:
+    /* set primary core id */
+
+    str    x1,  [x0, #BOOT_PARAM_MPID]
+
     ldr    x24, [x0, #BOOT_PARAM_SP]
     add    x24, x24, #(CONFIG_IDLETHREAD_STACKSIZE)
 #else
+    /* In some case, we need to boot one core in a SMP system,
+     * To avoid the primary core disturbed by the other cores,
+     * we need keep the other cores into WFE loop
+     */
+    get_cpu_id x1
+    cmp    x1, #0
+    bne    fail
+
     /* load stack and entry point */
+
     ldr    x24, =(g_idle_stack + CONFIG_IDLETHREAD_STACKSIZE)
-#endif
+#endif /* CONFIG_SMP */
 
     ldr    x25, =arm64_boot_primary_c_routine
 
@@ -166,7 +188,7 @@ primary_core:
 
     bl     __reset_prep_c
 
-#ifdef CONFIG_DEBUG_FEATURES
+#ifdef CONFIG_ARCH_EARLY_PRINT
     /* Initialize the UART for early print.
      * Should only be called on the boot CPU
      */
@@ -174,12 +196,18 @@ primary_core:
     bl    up_earlyserialinit
 #endif
 
+    PRINT(primary_boot, "- Ready to Boot Primary CPU\r\n")
+
 cpu_boot:
-    PRINT(cpu_boot, "- Ready to Boot CPU\r\n")
+
+    /* Platform hook for highest EL */
+
+    bl  arm64_el_init
 
 switch_el:
     switch_el x0, 3f, 2f, 1f
 3:
+#ifdef CONFIG_ARCH_HAVE_EL3
     PRINT(switch_el3, "- Boot from EL3\r\n")
 
     /* EL3 init */
@@ -191,7 +219,7 @@ switch_el:
     adr   x0, switch_el
     bl    arm64_boot_el3_get_next_el
     eret
-
+#endif
 2:
     PRINT(switch_el2, "- Boot from EL2\r\n")
 
@@ -228,8 +256,9 @@ jump_to_c_entry:
 /* Fail-stop */
 
 fail:
-    PRINT(fail, "- Boot failed -\r\n")
-1:      wfe
+    /* Boot failed */
+
+1:  wfe
     b     1b
 
 /* Set the minimum necessary to safely call C code */
@@ -242,10 +271,12 @@ __reset_prep_c:
 
     switch_el x0, 3f, 2f, 1f
 3:
+#ifdef CONFIG_ARCH_HAVE_EL3
     /* Reinitialize SCTLR from scratch in EL3 */
 
     ldr   w0, =(SCTLR_EL3_RES1 | SCTLR_I_BIT | SCTLR_SA_BIT)
     msr   sctlr_el3, x0
+#endif
 
     /* Set SP_EL1 */
 
@@ -283,7 +314,7 @@ out:
 
     ret   x23
 
-#ifdef CONFIG_DEBUG_FEATURES
+#ifdef CONFIG_ARCH_EARLY_PRINT
 
 /* Print early debug messages.
  * x0: Nul-terminated string to print.
@@ -303,4 +334,4 @@ boot_stage_puts:
 
 .type boot_low_puts, %function;
 
-#endif /* !CONFIG_DEBUG_FEATURES */
+#endif /* !CONFIG_ARCH_EARLY_PRINT */

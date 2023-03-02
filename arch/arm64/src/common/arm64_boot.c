@@ -36,6 +36,13 @@ extern void *_vector_table[];
  * Public Functions
  ****************************************************************************/
 
+#ifdef CONFIG_ARCH_HAVE_EL3
+
+/* Some ARM aarch64 Cortex-family processors have not EL3
+ * these two function should never called
+ * defined to available compile error when with gcc option
+ */
+
 void arm64_boot_el3_init(void)
 {
   uint64_t reg;
@@ -87,6 +94,7 @@ void arm64_boot_el3_get_next_el(uint64_t switch_addr)
 
   write_sysreg(spsr, spsr_el3);
 }
+#endif
 
 void arm64_boot_el2_init(void)
 {
@@ -120,6 +128,11 @@ void arm64_boot_el2_init(void)
   zero_sysreg(cnthps_ctl_el2);
 #else
   zero_sysreg(cnthp_ctl_el2);
+#endif
+
+#ifdef CONFIG_ARCH_SET_VMPIDR_EL2
+  reg = read_sysreg(mpidr_el1);
+  write_sysreg(reg, vmpidr_el2);
 #endif
 
   /* Enable this if/when we use the hypervisor timer.
