@@ -1024,6 +1024,14 @@ config ARCH_BOARD_NRF52840_DONGLE
 	---help---
 		This option selects the Nordic nRF52840 Dongle (PCA10059)
 
+config ARCH_BOARD_NRF5340_DK
+	bool "Nordic nRF5340 Development Kit (PCA10095)"
+	depends on ARCH_CHIP_NRF53
+	select ARCH_HAVE_LEDS
+	select ARCH_HAVE_BUTTONS
+	---help---
+		This option selects the nRF5340 Development Kit (PCA10095)
+
 config ARCH_BOARD_NRF5340_AUDIO_DK
 	bool "Nordic nRF5340 Audio Development Kit (PCA10121)"
 	depends on ARCH_CHIP_NRF53
@@ -1791,6 +1799,14 @@ config ARCH_BOARD_PINEPHONE
 	---help---
 		This options selects support for NuttX on PINE64 PinePhone based
 		on Allwinner A64 SoC with ARM Cortex-A53.
+
+config ARCH_BOARD_FVP_ARMV8R
+	bool "FVP ARM-v8r CPUs board"
+	depends on ARCH_CHIP_FVP_ARMV8R
+	select ARCH_HAVE_IRQBUTTONS
+	---help---
+		This options selects support for NuttX on the Armv8-R AEM FVP
+		configure board with ARM Cortex-R82.
 
 config ARCH_BOARD_SAMA5D2_XULT
 	bool "Atmel SAMA5D2 Xplained Ultra development board"
@@ -2820,6 +2836,7 @@ config ARCH_BOARD
 	default "nrf52832-dk"               if ARCH_BOARD_NRF52832_DK
 	default "nrf52840-dk"               if ARCH_BOARD_NRF52840_DK
 	default "nrf52840-dongle"           if ARCH_BOARD_NRF52840_DONGLE
+	default "nrf5340-dk"                if ARCH_BOARD_NRF5340_DK
 	default "nrf5340-audio-dk"          if ARCH_BOARD_NRF5340_AUDIO_DK
 	default "ntosd-dm320"               if ARCH_BOARD_NTOSD_DM320
 	default "nucleo-144"                if ARCH_BOARD_NUCLEO_144
@@ -2900,6 +2917,7 @@ config ARCH_BOARD
 	default "sabre-6quad"               if ARCH_BOARD_SABRE_6QUAD
 	default "qemu-armv8a"               if ARCH_BOARD_QEMU_ARMV8A
 	default "pinephone"                 if ARCH_BOARD_PINEPHONE
+	default "fvp-armv8r"                if ARCH_BOARD_FVP_ARMV8R
 	default "sama5d2-xult"              if ARCH_BOARD_SAMA5D2_XULT
 	default "giant-board"               if ARCH_BOARD_GIANT_BOARD
 	default "jupiter-nano"              if ARCH_BOARD_JUPITER_NANO
@@ -3094,6 +3112,9 @@ source "boards/arm64/qemu/qemu-armv8a/Kconfig"
 endif
 if ARCH_BOARD_PINEPHONE
 source "boards/arm64/a64/pinephone/Kconfig"
+endif
+if ARCH_BOARD_FVP_ARMV8R
+source "boards/arm64/fvp-v8r/fvp-armv8r/Kconfig"
 endif
 if ARCH_BOARD_IMXRT1020_EVK
 source "boards/arm/imxrt/imxrt1020-evk/Kconfig"
