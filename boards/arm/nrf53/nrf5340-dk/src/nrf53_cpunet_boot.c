@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/nrf52/sdc/core_cm4.h
+ * boards/arm/nrf53/nrf5340-dk/src/nrf53_cpunet_boot.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,24 +18,27 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_ARM_SRC_NRF52_SDC_CORE_CM4_H
-#define __ARCH_ARM_SRC_NRF52_SDC_CORE_CM4_H
-
 /****************************************************************************
- * Preprocessor Definitions
+ * Included Files
  ****************************************************************************/
 
-/* These are the definitions needed from CMSIS */
+#include <nuttx/config.h>
 
-#ifdef __cplusplus
-#  define   __I     volatile
-#else
-#  define   __I     volatile const
+#include "nrf53_gpio.h"
+#include "nrf53_cpunet.h"
+
+#include <arch/board/board.h>
+
+#ifndef CONFIG_NRF53_NET_GPIO_ALLOW_ALL
+/****************************************************************************
+ * Public Functions
+ ****************************************************************************/
+
+void nrf53_board_gpio_cpunet_allow(void)
+{
+  /* UART0 pins */
+
+  nrf53_gpio_cpunet_allow(BOARD_NET_UART0_RX_PIN);
+  nrf53_gpio_cpunet_allow(BOARD_NET_UART0_TX_PIN);
+}
 #endif
-#define     __O     volatile
-#define     __IO    volatile
-#define     __IM    volatile const
-#define     __OM    volatile
-#define     __IOM   volatile
-
-#endif /* __ARCH_ARM_SRC_NRF52_SDC_CORE_CM4_H */
