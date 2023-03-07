@@ -1,5 +1,5 @@
 /****************************************************************************
- * mm/mm_heap/mm_checkcorruption.c
+ * arch/arm/src/nrf53/nrf53_oscconfig.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,62 +18,44 @@
  *
  ****************************************************************************/
 
+#ifndef __ARCH_ARM_SRC_NRF53_NRF53_OSCCONFIG_H
+#define __ARCH_ARM_SRC_NRF53_NRF53_OSCCONFIG_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
-#include <assert.h>
-#include <sched.h>
-
-#include <nuttx/arch.h>
-#include <nuttx/mm/mm.h>
-#include <nuttx/irq.h>
-
-#include "mm_heap/mm.h"
+#ifndef __ASSEMBLY__
 
 /****************************************************************************
- * Private Functions
+ * Public Data
  ****************************************************************************/
 
-static void checkcorruption_handler(FAR struct mm_allocnode_s *node,
-                                    FAR void *arg)
+#undef EXTERN
+#if defined(__cplusplus)
+#define EXTERN extern "C"
+extern "C"
 {
-  size_t nodesize = SIZEOF_MM_NODE(node);
-
-  if ((node->size & MM_ALLOC_BIT) != 0)
-    {
-      assert(nodesize >= SIZEOF_MM_ALLOCNODE);
-    }
-  else
-    {
-      FAR struct mm_freenode_s *fnode = (FAR void *)node;
-
-      assert(nodesize >= MM_MIN_CHUNK);
-      assert(fnode->blink->flink == fnode);
-      assert(SIZEOF_MM_NODE(fnode->blink) <= nodesize);
-      assert(fnode->flink == NULL ||
-             fnode->flink->blink == fnode);
-      assert(fnode->flink == NULL ||
-             SIZEOF_MM_NODE(fnode->flink) == 0 ||
-             SIZEOF_MM_NODE(fnode->flink) >= nodesize);
-    }
-}
+#else
+#define EXTERN extern
+#endif
 
 /****************************************************************************
- * Public Functions
+ * Public Function Prototypes
  ****************************************************************************/
 
 /****************************************************************************
- * Name: mm_checkcorruption
- *
- * Description:
- *   mm_checkcorruption is used to check whether memory heap is normal.
- *
+ * Name: nrf53_oscconfig
  ****************************************************************************/
 
-void mm_checkcorruption(FAR struct mm_heap_s *heap)
-{
-  mm_foreach(heap, checkcorruption_handler, NULL);
+void nrf53_oscconfig(void);
+
+#undef EXTERN
+#if defined(__cplusplus)
 }
+#endif
+
+#endif /* __ASSEMBLY__ */
+#endif /* __ARCH_ARM_SRC_NRF53_NRF53_OSCCONFIG_H */

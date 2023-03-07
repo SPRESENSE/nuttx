@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/nrf52/nrf52_sdc.c
+ * arch/arm/src/nrf53/nrf53_sdc.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -34,8 +34,8 @@
 #include <nuttx/irq.h>
 #include <nuttx/arch.h>
 #include <nuttx/mutex.h>
-#include <arch/armv7-m/nvicpri.h>
-#include <arch/nrf52/nrf52_irq.h>
+#include <arch/armv8-m/nvicpri.h>
+#include <arch/nrf53/nrf5340_irq_cpunet.h>
 #include <nuttx/wqueue.h>
 
 #if defined(CONFIG_UART_BTH4)
@@ -45,7 +45,7 @@
 #include "arm_internal.h"
 #include "ram_vectors.h"
 
-#include "hardware/nrf52_ficr.h"
+#include "hardware/nrf53_ficr.h"
 
 #include <mpsl.h>
 #include <sdc.h>
@@ -56,6 +56,10 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
+#ifndef CONFIG_NRF53_NETCORE
+#  error Only for the NET core
+#endif
+
 /* Connections configuration ************************************************/
 
 #if defined(CONFIG_SDC_PERIPHERAL_COUNT) && \
@@ -64,20 +68,7 @@
 #endif
 
 #define SDC_CENTRAL_COUNT (CONFIG_BLUETOOTH_MAX_CONN - \
-                           CONFIG_NRF52_SDC_PERIPHERAL_COUNT)
-
-/* Validate number of connections for Peripheral and Central roles */
-
-#ifdef CONFIG_NRF52_SDC_PERIPHERAL
-#  if CONFIG_NRF52_SDC_PERIPHERAL_COUNT == 0
-#    error Peripheral role configured but peripheral count is 0
-#  endif
-#endif
-#ifdef CONFIG_NRF52_SDC_CENTRAL
-#  if SDC_CENTRAL_COUNT == 0
-#    error Central role configured but central count is 0
-#  endif
-#endif
+                           CONFIG_NRF53_SDC_PERIPHERAL_COUNT)
 
 /* Memory configuration *****************************************************/
 
@@ -97,7 +88,7 @@
 
 /* Scan supported if central present */
 
-#ifdef CONFIG_NRF52_SDC_SCANNING
+#ifdef CONFIG_NRF53_SDC_SCANNING
 #  if SDC_CENTRAL_COUNT == 0
 #    error Scanning enabled but central count is 0
 #  endif
@@ -105,20 +96,20 @@
 
 /* Advertising supported if peripheral present */
 
-#ifdef CONFIG_NRF52_SDC_ADVERTISING
-#  if CONFIG_NRF52_SDC_PERIPHERAL_COUNT == 0
+#ifdef CONFIG_NRF53_SDC_ADVERTISING
+#  if CONFIG_NRF53_SDC_PERIPHERAL_COUNT == 0
 #    error Advertising enabled but peripheral count is 0
 #  endif
 #endif
 
 /* Observer configuration */
 
-#ifdef CONFIG_NRF52_SDC_SCANNING
-#  if CONFIG_NRF52_SDC_SCAN_BUFFER_COUNT < 2
+#ifdef CONFIG_NRF53_SDC_SCANNING
+#  if CONFIG_NRF53_SDC_SCAN_BUFFER_COUNT < 2
 #    error The minimum allowed number of scan buffers is 2.
 #  endif
-#  define SCAN_MEM_SIZE  (SDC_MEM_SCAN_BUFFER(CONFIG_NRF52_SDC_SCAN_BUFFER_COUNT))
-#  define SCAN_MEM_COUNT (CONFIG_NRF52_SDC_SCAN_BUFFER_COUNT)
+#  define SCAN_MEM_SIZE  (SDC_MEM_SCAN_BUFFER(CONFIG_NRF53_SDC_SCAN_BUFFER_COUNT))
+#  define SCAN_MEM_COUNT (CONFIG_NRF53_SDC_SCAN_BUFFER_COUNT)
 #else
 #  define SCAN_MEM_SIZE  (0)
 #  define SCAN_MEM_COUNT (0)
@@ -126,7 +117,7 @@
 
 /* Broadcaster configuration */
 
-#ifdef CONFIG_NRF52_SDC_ADVERTISING
+#ifdef CONFIG_NRF53_SDC_ADVERTISING
 /* Advertising extensions not supported for now */
 
 #  define ADV_SET_COUNT (1)
@@ -147,7 +138,7 @@
 
 /* Memory poll size */
 
-#define MEMPOOL_SIZE  ((CONFIG_NRF52_SDC_PERIPHERAL_COUNT * PERIPHERAL_MEM_SIZE) + \
+#define MEMPOOL_SIZE  ((CONFIG_NRF53_SDC_PERIPHERAL_COUNT * PERIPHERAL_MEM_SIZE) + \
                        (SDC_CENTRAL_COUNT * CENTRAL_MEM_SIZE)+ \
                        SCAN_MEM_SIZE+ \
                        ADV_MEM_SIZE + \
@@ -158,8 +149,8 @@
 
 /* BT address configuration *************************************************/
 
-#if (CONFIG_NRF52_SDC_PUB_ADDR > 0) ||          \
-  defined(CONFIG_NRF52_SDC_FICR_STATIC_ADDR)
+#if (CONFIG_NRF53_SDC_PUB_ADDR > 0) ||          \
+  defined(CONFIG_NRF53_SDC_FICR_STATIC_ADDR)
 #  define HAVE_BTADDR_CONFIGURE
 #endif
 
@@ -174,7 +165,7 @@
  * Private Types
  ****************************************************************************/
 
-struct nrf52_sdc_dev_s
+struct nrf53_sdc_dev_s
 {
   uint8_t *mempool;  /* Must be 8 bytes aligned */
   uint8_t msg_buffer[HCI_MSG_BUFFER_MAX_SIZE];
@@ -242,7 +233,7 @@ static const mpsl_clock_lfclk_cfg_t g_clock_config =
   .source                   = MPSL_CLOCK_LF_SRC_XTAL,
   .rc_ctiv                  = 0,
   .rc_temp_ctiv             = 0,
-  .accuracy_ppm             = CONFIG_NRF52_SDC_CLOCK_ACCURACY,
+  .accuracy_ppm             = CONFIG_NRF53_SDC_CLOCK_ACCURACY,
   .skip_wait_lfclk_started  = false
 };
 
@@ -250,7 +241,7 @@ static const mpsl_clock_lfclk_cfg_t g_clock_config =
 
 static uint8_t g_sdc_mempool[MEMPOOL_SIZE] aligned_data(8);
 
-static struct nrf52_sdc_dev_s g_sdc_dev =
+static struct nrf53_sdc_dev_s g_sdc_dev =
 {
   .mempool = g_sdc_mempool,
   .lock = NXMUTEX_INITIALIZER,
@@ -483,30 +474,30 @@ static void radio_handler(void)
 
 #ifdef HAVE_BTADDR_CONFIGURE
 /****************************************************************************
- * Name: nrf52_sdc_btaddr_configure
+ * Name: nrf53_sdc_btaddr_configure
  ****************************************************************************/
 
-static int nrf52_sdc_btaddr_configure(void)
+static int nrf53_sdc_btaddr_configure(void)
 {
-#if CONFIG_NRF52_SDC_PUB_ADDR > 0
+#if CONFIG_NRF53_SDC_PUB_ADDR > 0
   struct sdc_hci_cmd_vs_zephyr_write_bd_addr_s pub_addr;
 #endif
-#ifdef CONFIG_NRF52_SDC_FICR_STATIC_ADDR
+#ifdef CONFIG_NRF53_SDC_FICR_STATIC_ADDR
   struct sdc_hci_cmd_le_set_random_address_s   rand_addr;
   uint32_t                                     addr[2];
   uint32_t                                     addrtype = 0;
 #endif
   int                                          ret      = OK;
 
-#ifdef CONFIG_NRF52_SDC_FICR_STATIC_ADDR
+#ifdef CONFIG_NRF53_SDC_FICR_STATIC_ADDR
   /* Get device address type */
 
-  addrtype = getreg32(NRF52_FICR_DEVICEADDRTYPE);
+  addrtype = getreg32(NRF53_FICR_DEVICEADDRTYPE);
 
   /* Get device addr from FICR */
 
-  addr[0] = getreg32(NRF52_FICR_DEVICEADDR0);
-  addr[1] = getreg32(NRF52_FICR_DEVICEADDR1);
+  addr[0] = getreg32(NRF53_FICR_DEVICEADDR0);
+  addr[1] = getreg32(NRF53_FICR_DEVICEADDR1);
 
   if ((addrtype & 0x01) == FICR_DEVICEADDRTYPE_RANDOM)
     {
@@ -534,15 +525,15 @@ static int nrf52_sdc_btaddr_configure(void)
     }
 #endif
 
-#if CONFIG_NRF52_SDC_PUB_ADDR > 0
+#if CONFIG_NRF53_SDC_PUB_ADDR > 0
   /* Configure public address if available */
 
-  pub_addr.bd_addr[0] = (CONFIG_NRF52_SDC_PUB_ADDR >> (8 * 5)) & 0xff;
-  pub_addr.bd_addr[1] = (CONFIG_NRF52_SDC_PUB_ADDR >> (8 * 4)) & 0xff;
-  pub_addr.bd_addr[2] = (CONFIG_NRF52_SDC_PUB_ADDR >> (8 * 3)) & 0xff;
-  pub_addr.bd_addr[3] = (CONFIG_NRF52_SDC_PUB_ADDR >> (8 * 2)) & 0xff;
-  pub_addr.bd_addr[4] = (CONFIG_NRF52_SDC_PUB_ADDR >> (8 * 1)) & 0xff;
-  pub_addr.bd_addr[5] = (CONFIG_NRF52_SDC_PUB_ADDR >> (8 * 0)) & 0xff;
+  pub_addr.bd_addr[0] = (CONFIG_NRF53_SDC_PUB_ADDR >> (8 * 5)) & 0xff;
+  pub_addr.bd_addr[1] = (CONFIG_NRF53_SDC_PUB_ADDR >> (8 * 4)) & 0xff;
+  pub_addr.bd_addr[2] = (CONFIG_NRF53_SDC_PUB_ADDR >> (8 * 3)) & 0xff;
+  pub_addr.bd_addr[3] = (CONFIG_NRF53_SDC_PUB_ADDR >> (8 * 2)) & 0xff;
+  pub_addr.bd_addr[4] = (CONFIG_NRF53_SDC_PUB_ADDR >> (8 * 1)) & 0xff;
+  pub_addr.bd_addr[5] = (CONFIG_NRF53_SDC_PUB_ADDR >> (8 * 0)) & 0xff;
 
   ret = sdc_hci_cmd_vs_zephyr_write_bd_addr(&pub_addr);
   if (ret < 0)
@@ -558,45 +549,45 @@ errout:
 #endif
 
 /****************************************************************************
- * Name: nrf52_rand_prio_low_get
+ * Name: nrf53_rand_prio_low_get
  ****************************************************************************/
 
-static uint8_t nrf52_rand_prio_low_get(uint8_t *p_buff, uint8_t length)
+static uint8_t nrf53_rand_prio_low_get(uint8_t *p_buff, uint8_t length)
 {
   arc4random_buf(p_buff, length);
   return length;
 }
 
 /****************************************************************************
- * Name: nrf52_rand_prio_high_get
+ * Name: nrf53_rand_prio_high_get
  ****************************************************************************/
 
-static uint8_t nrf52_rand_prio_high_get(uint8_t *p_buff, uint8_t length)
+static uint8_t nrf53_rand_prio_high_get(uint8_t *p_buff, uint8_t length)
 {
   arc4random_buf(p_buff, length);
   return length;
 }
 
 /****************************************************************************
- * Name: nrf52_rand_poll
+ * Name: nrf53_rand_poll
  ****************************************************************************/
 
-static void nrf52_rand_poll(uint8_t *p_buff, uint8_t length)
+static void nrf53_rand_poll(uint8_t *p_buff, uint8_t length)
 {
   arc4random_buf(p_buff, length);
 }
 
 /****************************************************************************
- * Name: nrf52_configure_features
+ * Name: nrf53_configure_features
  ****************************************************************************/
 
-static int nrf52_configure_features(void)
+static int nrf53_configure_features(void)
 {
   int ret = OK;
 
   /* Turn on specific features */
 
-#ifdef CONFIG_NRF52_SDC_ADVERTISING
+#ifdef CONFIG_NRF53_SDC_ADVERTISING
   ret = sdc_support_adv();
   if (ret < 0)
     {
@@ -605,7 +596,7 @@ static int nrf52_configure_features(void)
     }
 #endif
 
-#ifdef CONFIG_NRF52_SDC_SCANNING
+#ifdef CONFIG_NRF53_SDC_SCANNING
   ret = sdc_support_scan();
   if (ret < 0)
     {
@@ -623,7 +614,7 @@ static int nrf52_configure_features(void)
     }
 #endif
 
-#if CONFIG_NRF52_SDC_PERIPHERAL_COUNT > 0
+#if CONFIG_NRF53_SDC_PERIPHERAL_COUNT > 0
   ret = sdc_support_peripheral();
   if (ret < 0)
     {
@@ -632,7 +623,7 @@ static int nrf52_configure_features(void)
     }
 #endif
 
-#ifdef CONFIG_NRF52_SDC_DLE
+#ifdef CONFIG_NRF53_SDC_DLE
 #  if SDC_CENTRAL_COUNT > 0
   ret = sdc_support_dle_central();
   if (ret < 0)
@@ -642,7 +633,7 @@ static int nrf52_configure_features(void)
     }
 #  endif
 
-#  if CONFIG_NRF52_SDC_PERIPHERAL_COUNT > 0
+#  if CONFIG_NRF53_SDC_PERIPHERAL_COUNT > 0
   ret = sdc_support_dle_peripheral();
   if (ret < 0)
     {
@@ -652,7 +643,7 @@ static int nrf52_configure_features(void)
 #  endif
 #endif
 
-#ifdef CONFIG_NRF52_SDC_LE_2M_PHY
+#ifdef CONFIG_NRF53_SDC_LE_2M_PHY
   ret = sdc_support_le_2m_phy();
   if (ret < 0)
     {
@@ -661,7 +652,7 @@ static int nrf52_configure_features(void)
     }
 #endif
 
-#ifdef CONFIG_NRF52_SDC_LE_CODED_PHY
+#ifdef CONFIG_NRF53_SDC_LE_CODED_PHY
   ret = sdc_support_le_coded_phy();
   if (ret < 0)
     {
@@ -673,7 +664,7 @@ static int nrf52_configure_features(void)
 #ifdef HAVE_BTADDR_CONFIGURE
   /* Configure BT address */
 
-  ret = nrf52_sdc_btaddr_configure();
+  ret = nrf53_sdc_btaddr_configure();
   if (ret < 0)
     {
       wlerr("Could not configure BT addr: %d\n", ret);
@@ -686,10 +677,10 @@ errout:
 }
 
 /****************************************************************************
- * Name: nrf52_configure_memory
+ * Name: nrf53_configure_memory
  ****************************************************************************/
 
-static int nrf52_configure_memory(void)
+static int nrf53_configure_memory(void)
 {
   int32_t   required_memory = 0;
   int       ret             = OK;
@@ -700,7 +691,6 @@ static int nrf52_configure_memory(void)
    *       sdc_support_*() calls.
    */
 
-#ifndef CONFIG_NRF52_SDC_PERIPHERAL
   /* Configure scanner memory */
 
   cfg.scan_buffer_cfg.count = SCAN_MEM_COUNT;
@@ -711,9 +701,7 @@ static int nrf52_configure_memory(void)
       wlerr("Failed to set scan count: %d\n", ret);
       goto errout;
     }
-#endif
 
-#ifndef CONFIG_NRF52_SDC_CENTRAL
   /* Configure advertisers memory */
 
   cfg.adv_count.count = ADV_SET_COUNT;
@@ -733,9 +721,7 @@ static int nrf52_configure_memory(void)
       wlerr("Failed to set advertising buffer: %d\n", ret);
       goto errout;
     }
-#endif
 
-#ifndef CONFIG_NRF52_SDC_PERIPHERAL
   /* Configure central connections memory */
 
   cfg.central_count.count = SDC_CENTRAL_COUNT;
@@ -746,12 +732,10 @@ static int nrf52_configure_memory(void)
       wlerr("Failed to set central role count: %d\n", ret);
       goto errout;
     }
-#endif
 
-#ifndef CONFIG_NRF52_SDC_CENTRAL
   /* Configure peripheral connections memory */
 
-  cfg.peripheral_count.count = CONFIG_NRF52_SDC_PERIPHERAL_COUNT;
+  cfg.peripheral_count.count = CONFIG_NRF53_SDC_PERIPHERAL_COUNT;
   ret = sdc_cfg_set(SDC_DEFAULT_RESOURCE_CFG_TAG,
                     SDC_CFG_TYPE_PERIPHERAL_COUNT, &cfg);
   if (ret < 0)
@@ -759,7 +743,6 @@ static int nrf52_configure_memory(void)
       wlerr("Failed to set peripheral role count: %d\n", ret);
       goto errout;
     }
-#endif
 
   /* Configure buffers memory and get the final required memory */
 
@@ -787,10 +770,10 @@ errout:
 }
 
 /****************************************************************************
- * Name: nrf52_configure_rand
+ * Name: nrf53_configure_rand
  ****************************************************************************/
 
-static int nrf52_configure_rand(void)
+static int nrf53_configure_rand(void)
 {
   sdc_rand_source_t rand_func;
   int               ret = OK;
@@ -801,9 +784,9 @@ static int nrf52_configure_rand(void)
 
   /* Enable rand source */
 
-  rand_func.rand_prio_low_get = nrf52_rand_prio_low_get;
-  rand_func.rand_prio_high_get = nrf52_rand_prio_high_get;
-  rand_func.rand_poll = nrf52_rand_poll;
+  rand_func.rand_prio_low_get = nrf53_rand_prio_low_get;
+  rand_func.rand_prio_high_get = nrf53_rand_prio_high_get;
+  rand_func.rand_poll = nrf53_rand_poll;
 
   ret = sdc_rand_source_register(&rand_func);
   if (ret < 0)
@@ -821,54 +804,54 @@ errout:
  ****************************************************************************/
 
 /****************************************************************************
- * Name: nrf52_sdc_initialize
+ * Name: nrf53_sdc_initialize
  ****************************************************************************/
 
-int nrf52_sdc_initialize(void)
+int nrf53_sdc_initialize(void)
 {
   int ret = OK;
 
-  /* Register interrupt handler for normal-priority events. SWI5 will be
+  /* Register interrupt handler for normal-priority events. SWI3 will be
    * used by MPSL to delegate low-priority work
    */
 
-  irq_attach(NRF52_IRQ_SWI5_EGU5, swi_isr, NULL);
-  irq_attach(NRF52_IRQ_POWER_CLOCK, power_clock_isr, NULL);
+  irq_attach(NRF53_IRQ_SWI3, swi_isr, NULL);
+  irq_attach(NRF53_IRQ_POWER_CLOCK, power_clock_isr, NULL);
 
-  up_enable_irq(NRF52_IRQ_SWI5_EGU5);
-  up_enable_irq(NRF52_IRQ_POWER_CLOCK);
+  up_enable_irq(NRF53_IRQ_SWI3);
+  up_enable_irq(NRF53_IRQ_POWER_CLOCK);
 
-  up_prioritize_irq(NRF52_IRQ_SWI5_EGU5, NVIC_SYSH_PRIORITY_DEFAULT);
-  up_prioritize_irq(NRF52_IRQ_POWER_CLOCK, NVIC_SYSH_PRIORITY_DEFAULT);
+  up_prioritize_irq(NRF53_IRQ_SWI3, NVIC_SYSH_PRIORITY_DEFAULT);
+  up_prioritize_irq(NRF53_IRQ_POWER_CLOCK, NVIC_SYSH_PRIORITY_DEFAULT);
 
   /* Configure SoftDevice random sources */
 
-  ret = nrf52_configure_rand();
+  ret = nrf53_configure_rand();
   if (ret < 0)
     {
-      wlerr("nrf52_configure_rand failed: %d\n", ret);
+      wlerr("nrf53_configure_rand failed: %d\n", ret);
       return ret;
     }
 
   /* Register high-priority interrupts for specific peripherals */
 
-  arm_ramvec_attach(NRF52_IRQ_RTC0, rtc0_handler);
-  arm_ramvec_attach(NRF52_IRQ_TIMER0, timer0_handler);
-  arm_ramvec_attach(NRF52_IRQ_RADIO, radio_handler);
+  arm_ramvec_attach(NRF53_IRQ_RTC0, rtc0_handler);
+  arm_ramvec_attach(NRF53_IRQ_TIMER0, timer0_handler);
+  arm_ramvec_attach(NRF53_IRQ_RADIO, radio_handler);
 
-  up_prioritize_irq(NRF52_IRQ_RTC0, MPSL_HIGH_IRQ_PRIORITY);
-  up_prioritize_irq(NRF52_IRQ_TIMER0, MPSL_HIGH_IRQ_PRIORITY);
-  up_prioritize_irq(NRF52_IRQ_RADIO, MPSL_HIGH_IRQ_PRIORITY);
+  up_prioritize_irq(NRF53_IRQ_RTC0, MPSL_HIGH_IRQ_PRIORITY);
+  up_prioritize_irq(NRF53_IRQ_TIMER0, MPSL_HIGH_IRQ_PRIORITY);
+  up_prioritize_irq(NRF53_IRQ_RADIO, MPSL_HIGH_IRQ_PRIORITY);
 
-  up_enable_irq(NRF52_IRQ_RTC0);
-  up_enable_irq(NRF52_IRQ_TIMER0);
-  up_enable_irq(NRF52_IRQ_RADIO);
+  up_enable_irq(NRF53_IRQ_RTC0);
+  up_enable_irq(NRF53_IRQ_TIMER0);
+  up_enable_irq(NRF53_IRQ_RADIO);
 
   /* TODO: how do WFI again after high priority interrupt wakes MCU up? */
 
   /* Initialize MPSL */
 
-  ret = mpsl_init(&g_clock_config, NRF52_IRQ_SWI5_EGU5 - NRF52_IRQ_EXTINT,
+  ret = mpsl_init(&g_clock_config, NRF53_IRQ_SWI3 - NRF53_IRQ_EXTINT,
                   &mpsl_assert_handler);
   if (ret < 0)
     {
@@ -887,19 +870,19 @@ int nrf52_sdc_initialize(void)
 
   /* Configure SoftDevice features */
 
-  ret = nrf52_configure_features();
+  ret = nrf53_configure_features();
   if (ret < 0)
     {
-      wlerr("nrf52_configure_features failed: %d\n", ret);
+      wlerr("nrf53_configure_features failed: %d\n", ret);
       return ret;
     }
 
   /* Configure SoftDevice memory */
 
-  ret = nrf52_configure_memory();
+  ret = nrf53_configure_memory();
   if (ret < 0)
     {
-      wlerr("nrf52_configure_memory failed: %d\n", ret);
+      wlerr("nrf53_configure_memory failed: %d\n", ret);
       return ret;
     }
 
@@ -915,7 +898,7 @@ int nrf52_sdc_initialize(void)
 #ifdef CONFIG_UART_BTH4
   /* Register UART BT H4 device */
 
-  ret = uart_bth4_register(CONFIG_NRF52_BLE_TTY_NAME, &g_bt_driver);
+  ret = uart_bth4_register(CONFIG_NRF53_BLE_TTY_NAME, &g_bt_driver);
   if (ret < 0)
     {
       wlerr("bt_bth4_register error: %d\n", ret);

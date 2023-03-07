@@ -1,5 +1,5 @@
-/***************************************************************************
- * arch/arm/src/nrf53/hardware/nrf53_uicr.h
+/****************************************************************************
+ * arch/arm/src/nrf53/sdc/nrf_peripherals.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -16,21 +16,15 @@
  * License for the specific language governing permissions and limitations
  * under the License.
  *
- ***************************************************************************/
+ ****************************************************************************/
 
-#ifndef __ARCH_ARM_SRC_NRF53_HARDWARE_NRF53_UICR_H
-#define __ARCH_ARM_SRC_NRF53_HARDWARE_NRF53_UICR_H
+#ifndef __ARCH_ARM_SRC_NRF53_SDC_NRF_PERIPHERALS_H
+#define __ARCH_ARM_SRC_NRF53_SDC_NRF_PERIPHERALS_H
 
-/***************************************************************************
- * Included Files
- ***************************************************************************/
+/****************************************************************************
+ * Public Definitions
+ ****************************************************************************/
 
-#include <nuttx/config.h>
+#define DPPIC_PRESENT 1
 
-#ifdef CONFIG_NRF53_APPCORE
-#  include "hardware/nrf53_uicr_cpuapp.h"
-#else
-#  include "hardware/nrf53_uicr_cpunet.h"
-#endif
-
-#endif /* __ARCH_ARM_SRC_NRF53_HARDWARE_NRF53_UICR_H */
+#endif  /* __ARCH_ARM_SRC_NRF53_SDC_NRF_PERIPHERALS_H */
