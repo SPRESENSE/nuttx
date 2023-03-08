@@ -47,18 +47,6 @@
 static int        icmp_setup(FAR struct socket *psock);
 static sockcaps_t icmp_sockcaps(FAR struct socket *psock);
 static void       icmp_addref(FAR struct socket *psock);
-static int        icmp_bind(FAR struct socket *psock,
-                    FAR const struct sockaddr *addr, socklen_t addrlen);
-static int        icmp_getsockname(FAR struct socket *psock,
-                    FAR struct sockaddr *addr, FAR socklen_t *addrlen);
-static int        icmp_getpeername(FAR struct socket *psock,
-                    FAR struct sockaddr *addr, FAR socklen_t *addrlen);
-static int        icmp_listen(FAR struct socket *psock, int backlog);
-static int        icmp_connect(FAR struct socket *psock,
-                    FAR const struct sockaddr *addr, socklen_t addrlen);
-static int        icmp_accept(FAR struct socket *psock,
-                    FAR struct sockaddr *addr, FAR socklen_t *addrlen,
-                    FAR struct socket *newsock);
 static int        icmp_netpoll(FAR struct socket *psock,
                     FAR struct pollfd *fds, bool setup);
 static int        icmp_close(FAR struct socket *psock);
@@ -72,12 +60,12 @@ const struct sock_intf_s g_icmp_sockif =
   icmp_setup,       /* si_setup */
   icmp_sockcaps,    /* si_sockcaps */
   icmp_addref,      /* si_addref */
-  icmp_bind,        /* si_bind */
-  icmp_getsockname, /* si_getsockname */
-  icmp_getpeername, /* si_getpeername */
-  icmp_listen,      /* si_listen */
-  icmp_connect,     /* si_connect */
-  icmp_accept,      /* si_accept */
+  NULL,             /* si_bind */
+  NULL,             /* si_getsockname */
+  NULL,             /* si_getpeername */
+  NULL,             /* si_listen */
+  NULL,             /* si_connect */
+  NULL,             /* si_accept */
   icmp_netpoll,     /* si_poll */
   icmp_sendmsg,     /* si_sendmsg */
   icmp_recvmsg,     /* si_recvmsg */
@@ -189,221 +177,6 @@ static void icmp_addref(FAR struct socket *psock)
   conn = psock->s_conn;
   DEBUGASSERT(conn->crefs > 0 && conn->crefs < 255);
   conn->crefs++;
-}
-
-/****************************************************************************
- * Name: icmp_connect
- *
- * Description:
- *   icmp_connect() connects the local socket referred to by the structure
- *   'psock' to the address specified by 'addr'. The addrlen argument
- *   specifies the size of 'addr'.  The format of the address in 'addr' is
- *   determined by the address space of the socket 'psock'.
- *
- *   If the socket 'psock' is of type SOCK_DGRAM then 'addr' is the address
- *   to which datagrams are sent by default, and the only address from which
- *   datagrams are received. If the socket is of type SOCK_STREAM or
- *   SOCK_SEQPACKET, this call attempts to make a connection to the socket
- *   that is bound to the address specified by 'addr'.
- *
- *   Generally, connection-based protocol sockets may successfully
- *   icmp_connect() only once; connectionless protocol sockets may use
- *   icmp_connect() multiple times to change their association.
- *   Connectionless sockets may dissolve the association by connecting to
- *   an address with the sa_family member of sockaddr set to AF_UNSPEC.
- *
- * Input Parameters:
- *   psock     Pointer to a socket structure initialized by psock_socket()
- *   addr      Server address (form depends on type of socket)
- *   addrlen   Length of actual 'addr'
- *
- * Returned Value:
- *   0 on success; a negated errno value on failure.  See connect() for the
- *   list of appropriate errno values to be returned.
- *
- ****************************************************************************/
-
-static int icmp_connect(FAR struct socket *psock,
-                       FAR const struct sockaddr *addr, socklen_t addrlen)
-{
-  return -EAFNOSUPPORT;
-}
-
-/****************************************************************************
- * Name: icmp_accept
- *
- * Description:
- *   The icmp_accept function is used with connection-based socket types
- *   (SOCK_STREAM, SOCK_SEQPACKET and SOCK_RDM). It extracts the first
- *   connection request on the queue of pending connections, creates a new
- *   connected socket with mostly the same properties as 'sockfd', and
- *   allocates a new socket descriptor for the socket, which is returned. The
- *   newly created socket is no longer in the listening state. The original
- *   socket 'sockfd' is unaffected by this call.  Per file descriptor flags
- *   are not inherited across an icmp_accept.
- *
- *   The 'sockfd' argument is a socket descriptor that has been created with
- *   socket(), bound to a local address with bind(), and is listening for
- *   connections after a call to listen().
- *
- *   On return, the 'addr' structure is filled in with the address of the
- *   connecting entity. The 'addrlen' argument initially contains the size
- *   of the structure pointed to by 'addr'; on return it will contain the
- *   actual length of the address returned.
- *
- *   If no pending connections are present on the queue, and the socket is
- *   not marked as non-blocking, icmp_accept blocks the caller until a
- *   connection is present. If the socket is marked non-blocking and no
- *   pending connections are present on the queue, icmp_accept returns
- *   EAGAIN.
- *
- * Input Parameters:
- *   psock    Reference to the listening socket structure
- *   addr     Receives the address of the connecting client
- *   addrlen  Input: allocated size of 'addr',
- *            Return: returned size of 'addr'
- *   newsock  Location to return the accepted socket information.
- *
- * Returned Value:
- *   Returns 0 (OK) on success.  On failure, it returns a negated errno
- *   value.  See accept() for a description of the appropriate error value.
- *
- * Assumptions:
- *   The network is locked.
- *
- ****************************************************************************/
-
-static int icmp_accept(FAR struct socket *psock, FAR struct sockaddr *addr,
-                      FAR socklen_t *addrlen, FAR struct socket *newsock)
-{
-  return -EAFNOSUPPORT;
-}
-
-/****************************************************************************
- * Name: icmp_bind
- *
- * Description:
- *   icmp_bind() gives the socket 'psock' the local address 'addr'.  'addr'
- *   is 'addrlen' bytes long.  Traditionally, this is called "assigning a
- *   name to a socket."  When a socket is created with socket(), it exists
- *   in a name space (address family) but has no name assigned.
- *
- * Input Parameters:
- *   psock    Socket structure of the socket to bind
- *   addr     Socket local address
- *   addrlen  Length of 'addr'
- *
- * Returned Value:
- *   0 on success;  A negated errno value is returned on failure.  See
- *   bind() for a list a appropriate error values.
- *
- ****************************************************************************/
-
-static int icmp_bind(FAR struct socket *psock,
-                     FAR const struct sockaddr *addr,
-                     socklen_t addrlen)
-{
-  /* An ICMP socket cannot be bound to a local address */
-
-  return -EBADF;
-}
-
-/****************************************************************************
- * Name: icmp_getsockname
- *
- * Description:
- *   The icmp_getsockname() function retrieves the locally-bound name of the
- *   specified packet socket, stores this address in the sockaddr structure
- *   pointed to by the 'addr' argument, and stores the length of this
- *   address in the object pointed to by the 'addrlen' argument.
- *
- *   If the actual length of the address is greater than the length of the
- *   supplied sockaddr structure, the stored address will be truncated.
- *
- *   If the socket has not been bound to a local name, the value stored in
- *   the object pointed to by address is unspecified.
- *
- * Input Parameters:
- *   psock    Socket structure of the socket to be queried
- *   addr     sockaddr structure to receive data [out]
- *   addrlen  Length of sockaddr structure [in/out]
- *
- * Returned Value:
- *   On success, 0 is returned, the 'addr' argument points to the address
- *   of the socket, and the 'addrlen' argument points to the length of the
- *   address.  Otherwise, a negated errno value is returned.  See
- *   getsockname() for the list of appropriate error numbers.
- *
- ****************************************************************************/
-
-static int icmp_getsockname(FAR struct socket *psock,
-                           FAR struct sockaddr *addr, FAR socklen_t *addrlen)
-{
-  return -EAFNOSUPPORT;
-}
-
-/****************************************************************************
- * Name: icmp_getpeername
- *
- * Description:
- *   The icmp_getpeername() function retrieves the remote-connected name of
- *   the specified packet socket, stores this address in the sockaddr
- *   structure pointed to by the 'addr' argument, and stores the length of
- *   this address in the object pointed to by the 'addrlen' argument.
- *
- *   If the actual length of the address is greater than the length of the
- *   supplied sockaddr structure, the stored address will be truncated.
- *
- *   If the socket has not been bound to a local name, the value stored in
- *   the object pointed to by address is unspecified.
- *
- * Parameters:
- *   psock    Socket structure of the socket to be queried
- *   addr     sockaddr structure to receive data [out]
- *   addrlen  Length of sockaddr structure [in/out]
- *
- * Returned Value:
- *   On success, 0 is returned, the 'addr' argument points to the address
- *   of the socket, and the 'addrlen' argument points to the length of the
- *   address.  Otherwise, a negated errno value is returned.  See
- *   getpeername() for the list of appropriate error numbers.
- *
- ****************************************************************************/
-
-static int icmp_getpeername(FAR struct socket *psock,
-                           FAR struct sockaddr *addr, FAR socklen_t *addrlen)
-{
-  return -EAFNOSUPPORT;
-}
-
-/****************************************************************************
- * Name: icmp_listen
- *
- * Description:
- *   To accept connections, a socket is first created with psock_socket(), a
- *   willingness to accept incoming connections and a queue limit for
- *   incoming connections are specified with psock_listen(), and then the
- *   connections are accepted with psock_accept().  For the case of raw
- *   packet sockets, psock_listen() calls this function.  The psock_listen()
- *   call applies only to sockets of type SOCK_STREAM or SOCK_SEQPACKET.
- *
- * Input Parameters:
- *   psock    Reference to an internal, boound socket structure.
- *   backlog  The maximum length the queue of pending connections may grow.
- *            If a connection request arrives with the queue full, the client
- *            may receive an error with an indication of ECONNREFUSED or,
- *            if the underlying protocol supports retransmission, the request
- *            may be ignored so that retries succeed.
- *
- * Returned Value:
- *   On success, zero is returned. On error, a negated errno value is
- *   returned.  See listen() for the set of appropriate error values.
- *
- ****************************************************************************/
-
-int icmp_listen(FAR struct socket *psock, int backlog)
-{
-  return -EOPNOTSUPP;
 }
 
 /****************************************************************************

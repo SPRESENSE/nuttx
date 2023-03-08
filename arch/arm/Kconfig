@@ -481,7 +481,7 @@ config ARCH_CHIP_STM32L5
 	bool "STMicro STM32 L5"
 	select ARCH_CORTEXM33
 	select ARCH_HAVE_MPU
-	select ARCH_HAVE_DSP
+	select ARM_HAVE_DSP
 	select ARCH_HAVE_FETCHADD
 	select ARCH_HAVE_HEAPCHECK
 	select ARCH_HAVE_PROGMEM
@@ -496,7 +496,7 @@ config ARCH_CHIP_STM32U5
 	bool "STMicro STM32 U5"
 	select ARCH_CORTEXM33
 	select ARCH_HAVE_MPU
-	select ARCH_HAVE_DSP
+	select ARM_HAVE_DSP
 	select ARCH_HAVE_FETCHADD
 	select ARCH_HAVE_HEAPCHECK
 	select ARCH_HAVE_PROGMEM
@@ -1049,6 +1049,12 @@ config ARM_HAVE_MVE
 	---help---
 		Decide whether support MVE instruction
 
+config ARM_HAVE_PACBTI
+	bool
+	default n
+	---help---
+		Decide whether support PACBTI(Pointer Authentication and Branch Target Identification) Extension
+
 config ARM_FPU_ABI_SOFT
 	bool "Soft Float ABI"
 	default n
@@ -1072,6 +1078,13 @@ config ARM_DSP
 	depends on ARM_HAVE_DSP
 	---help---
 		Enables DSP Extension
+
+config ARM_PACBTI
+	bool "Advanced PACBTI Extension"
+	default y
+	depends on ARM_HAVE_PACBTI
+	---help---
+		Enables PACBTI(Pointer Authentication and Branch Target Identification) Extension
 
 config ARM_HAVE_MPU_UNIFIED
 	bool
