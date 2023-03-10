@@ -1,5 +1,5 @@
 /****************************************************************************
- * net/pkt/pkt_finddev.c
+ * arch/arm/src/nrf53/nrf53_ipc.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,39 +18,30 @@
  *
  ****************************************************************************/
 
+#ifndef __ARCH_ARM_SRC_NRF53_NRF53_IPC_H
+#define __ARCH_ARM_SRC_NRF53_NRF53_IPC_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
-#if defined(CONFIG_NET) && defined(CONFIG_NET_PKT)
 
-#include <nuttx/net/netdev.h>
-
-#include "netdev/netdev.h"
-#include "pkt/pkt.h"
+#include "hardware/nrf53_ipc.h"
 
 /****************************************************************************
- * Public Functions
+ * Public Types
  ****************************************************************************/
+
+typedef void (*ipc_callback_t)(int id, void *arg);
 
 /****************************************************************************
- * Name: pkt_find_device
- *
- * Description:
- *   Select the network driver to use with the PKT transaction.
- *
- * Input Parameters:
- *   conn - PKT connection structure.
- *
- * Returned Value:
- *   A pointer to the network driver to use.
- *
+ * Public Function Prototypes
  ****************************************************************************/
 
-FAR struct net_driver_s *pkt_find_device(FAR struct pkt_conn_s *conn)
-{
-  return netdev_findbyindex(conn->ifindex);
-}
+void nrf53_ipc_subscribe(int id, ipc_callback_t callback, void *args);
+void nrf53_ipc_send_cfg(int id);
+void nrf53_ipc_signal(int id);
+void nrf53_ipc_init(void);
 
-#endif /* CONFIG_NET && CONFIG_NET_PKT */
+#endif /* __ARCH_ARM_SRC_NRF53_NRF53_IPC_H */

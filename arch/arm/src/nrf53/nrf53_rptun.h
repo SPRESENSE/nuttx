@@ -1,5 +1,5 @@
 /****************************************************************************
- * net/pkt/pkt_finddev.c
+ * arch/arm/src/nrf53/nrf53_rptun.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,39 +18,44 @@
  *
  ****************************************************************************/
 
+#ifndef __ARCH_ARM_SRC_NRF53_NRF53_RPTUN_H
+#define __ARCH_ARM_SRC_NRF53_NRF53_RPTUN_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
-#if defined(CONFIG_NET) && defined(CONFIG_NET_PKT)
 
-#include <nuttx/net/netdev.h>
-
-#include "netdev/netdev.h"
-#include "pkt/pkt.h"
+#ifndef __ASSEMBLY__
 
 /****************************************************************************
- * Public Functions
+ * Public Data
  ****************************************************************************/
 
-/****************************************************************************
- * Name: pkt_find_device
- *
- * Description:
- *   Select the network driver to use with the PKT transaction.
- *
- * Input Parameters:
- *   conn - PKT connection structure.
- *
- * Returned Value:
- *   A pointer to the network driver to use.
- *
- ****************************************************************************/
-
-FAR struct net_driver_s *pkt_find_device(FAR struct pkt_conn_s *conn)
+#undef EXTERN
+#if defined(__cplusplus)
+#define EXTERN extern "C"
+extern "C"
 {
-  return netdev_findbyindex(conn->ifindex);
-}
+#else
+#define EXTERN extern
+#endif
 
-#endif /* CONFIG_NET && CONFIG_NET_PKT */
+/****************************************************************************
+ * Public Function Prototypes
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: nrf53_rptun_init
+ ****************************************************************************/
+
+int nrf53_rptun_init(const char *shmemname, const char *cpuname);
+
+#undef EXTERN
+#if defined(__cplusplus)
+}
+#endif
+
+#endif /* __ASSEMBLY__ */
+#endif /* __ARCH_ARM_SRC_NRF53_NRF53_RPTUN_H */
