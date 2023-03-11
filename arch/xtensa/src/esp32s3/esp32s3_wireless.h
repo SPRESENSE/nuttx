@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/xtensa/src/esp32s3/esp32s3_systemreset.c
+ * arch/xtensa/src/esp32s3/esp32s3_wireless.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,133 +18,151 @@
  *
  ****************************************************************************/
 
+#ifndef __ARCH_XTENSA_SRC_ESP32S3_ESP32S3_WIRELESS_H
+#define __ARCH_XTENSA_SRC_ESP32S3_ESP32S3_WIRELESS_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
-#include <stdint.h>
+#include "xtensa_attr.h"
 
-#include <nuttx/arch.h>
-#include <nuttx/board.h>
-
-#include "xtensa.h"
-#include "hardware/esp32s3_rtccntl.h"
-#include "esp32s3_systemreset.h"
+#include "espidf_wifi.h"
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
-#define SHUTDOWN_HANDLERS_NO 4
+/* Note: Don't remove these definitions, they are needed by the 3rdparty IDF
+ * headers
+ */
+
+#define CONFIG_ESP32_SUPPORT_MULTIPLE_PHY_INIT_DATA_BIN     0
+#define CONFIG_MAC_BB_PD                                    0
+
+#define MAC_LEN                                       (6)
 
 /****************************************************************************
- * Private Data
+ * Public Function Prototypes
  ****************************************************************************/
 
-static shutdown_handler_t shutdown_handlers[SHUTDOWN_HANDLERS_NO];
-
 /****************************************************************************
- * Public Functions
- ****************************************************************************/
-
-/****************************************************************************
- * Name: esp32s3_register_shutdown_handler
+ * Name: esp_read_mac
  *
  * Description:
- *   This function allows you to register a handler that gets invoked before
- *   the application is restarted.
+ *   Read MAC address from efuse
  *
  * Input Parameters:
- *   handler - Function to execute on restart
+ *   mac  - MAC address buffer pointer
+ *   type - MAC address type
  *
  * Returned Value:
- *   OK on success (positive non-zero values are cmd-specific)
- *   Negated errno returned on failure.
+ *   0 if success or -1 if fail
  *
  ****************************************************************************/
 
-int esp32s3_register_shutdown_handler(shutdown_handler_t handler)
-{
-  for (int i = 0; i < SHUTDOWN_HANDLERS_NO; i++)
-    {
-      if (shutdown_handlers[i] == handler)
-        {
-          return -EEXIST;
-        }
-      else if (shutdown_handlers[i] == NULL)
-        {
-          shutdown_handlers[i] = handler;
-          return OK;
-        }
-    }
-
-  return -ENOMEM;
-}
+int32_t esp_read_mac(uint8_t *mac, esp_mac_type_t type);
 
 /****************************************************************************
- * Name: esp32s3_unregister_shutdown_handler
+ * Name: esp32s3_phy_enable
  *
  * Description:
- *   This function allows you to unregister a handler which was previously
- *   registered using up_register_shutdown_handler function.
+ *   Initialize PHY hardware
  *
  * Input Parameters:
- *   handler - Function to execute on restart
+ *   None
  *
  * Returned Value:
- *   OK on success (positive non-zero values are cmd-specific)
- *   Negated errno returned on failure.
+ *   None
  *
  ****************************************************************************/
 
-int esp32s3_unregister_shutdown_handler(shutdown_handler_t handler)
-{
-  for (int i = 0; i < SHUTDOWN_HANDLERS_NO; i++)
-    {
-      if (shutdown_handlers[i] == handler)
-        {
-          shutdown_handlers[i] = NULL;
-          return OK;
-        }
-    }
-
-  return -EINVAL;
-}
+void esp32s3_phy_enable(void);
 
 /****************************************************************************
- * Name: up_shutdown_handler
+ * Name: esp32s3_phy_disable
  *
  * Description:
- *   Process all registered shutdown callback functions.
+ *   Deinitialize PHY hardware
+ *
+ * Input Parameters:
+ *   None
+ *
+ * Returned Value:
+ *   None
  *
  ****************************************************************************/
 
-void up_shutdown_handler(void)
-{
-  for (int i = SHUTDOWN_HANDLERS_NO - 1; i >= 0; i--)
-    {
-      if (shutdown_handlers[i])
-        {
-          shutdown_handlers[i]();
-        }
-    }
-}
+void esp32s3_phy_disable(void);
 
 /****************************************************************************
- * Name: up_systemreset
+ * Name: esp32s3_phy_enable_clock
  *
  * Description:
- *   Internal reset logic.
+ *   Enable PHY clock
+ *
+ * Input Parameters:
+ *   None
+ *
+ * Returned Value:
+ *   None
  *
  ****************************************************************************/
 
-void up_systemreset(void)
-{
-  putreg32(RTC_CNTL_SW_SYS_RST, RTC_CNTL_RTC_OPTIONS0_REG);
+void esp32s3_phy_enable_clock(void);
 
-  /* Wait for the reset */
+/****************************************************************************
+ * Name: esp32s3_phy_disable_clock
+ *
+ * Description:
+ *   Disable PHY clock
+ *
+ * Input Parameters:
+ *   None
+ *
+ * Returned Value:
+ *   None
+ *
+ ****************************************************************************/
 
-  for (; ; );
-}
+void esp32s3_phy_disable_clock(void);
+
+/****************************************************************************
+ * Functions needed by libphy.a
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: esp_dport_access_reg_read
+ *
+ * Description:
+ *   Read register value safely in SMP
+ *
+ * Input Parameters:
+ *   reg - Register address
+ *
+ * Returned Value:
+ *   Register value
+ *
+ ****************************************************************************/
+
+uint32_t IRAM_ATTR esp_dport_access_reg_read(uint32_t reg);
+
+/****************************************************************************
+ * Name: phy_printf
+ *
+ * Description:
+ *   Output format string and its arguments
+ *
+ * Input Parameters:
+ *   format - format string
+ *
+ * Returned Value:
+ *   0
+ *
+ ****************************************************************************/
+
+int phy_printf(const char *format, ...) printf_like(1, 2);
+
+#endif /* __ARCH_XTENSA_SRC_ESP32S3_ESP32S3_WIRELESS_H */

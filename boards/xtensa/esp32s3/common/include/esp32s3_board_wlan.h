@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3_reset.c
+ * boards/xtensa/esp32s3/common/include/esp32s3_board_wlan.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,68 +18,56 @@
  *
  ****************************************************************************/
 
+#ifndef __BOARDS_XTENSA_ESP32S3_COMMON_INCLUDE_ESP32S3_BOARD_WLAN_H
+#define __BOARDS_XTENSA_ESP32S3_COMMON_INCLUDE_ESP32S3_BOARD_WLAN_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
-#include <stdlib.h>
-#include <debug.h>
-#include <assert.h>
-#include <nuttx/arch.h>
-#include <nuttx/board.h>
+/****************************************************************************
+ * Pre-processor Definitions
+ ****************************************************************************/
 
-#include "esp32s3_systemreset.h"
+#ifndef __ASSEMBLY__
 
-#ifdef CONFIG_BOARDCTL_RESET
-
-#if CONFIG_BOARD_ASSERT_RESET_VALUE == EXIT_SUCCESS
-#  error "CONFIG_BOARD_ASSERT_RESET_VALUE must not be equal to EXIT_SUCCESS"
+#undef EXTERN
+#if defined(__cplusplus)
+#define EXTERN extern "C"
+extern "C"
+{
+#else
+#define EXTERN extern
 #endif
 
 /****************************************************************************
- * Public Functions
+ * Public Function Prototypes
  ****************************************************************************/
+
+#ifdef CONFIG_ESP32S3_WIFI
 
 /****************************************************************************
- * Name: board_reset
+ * Name: board_wlan_init
  *
  * Description:
- *   Reset board.  Support for this function is required by board-level
- *   logic if CONFIG_BOARDCTL_RESET is selected.
- *
- * Input Parameters:
- *   status - Status information provided with the reset event.  This
- *            meaning of this status information is board-specific.  If not
- *            used by a board, the value zero may be provided in calls to
- *            board_reset().
+ *   Configure the wireless subsystem.
  *
  * Returned Value:
- *   If this function returns, then it was not possible to power-off the
- *   board due to some constraints.  The return value in this case is a
- *   board-specific reason for the failure to shutdown.
+ *   Zero (OK) is returned on success; A negated errno value is returned
+ *   to indicate the nature of any failure.
  *
  ****************************************************************************/
 
-int board_reset(int status)
-{
-  syslog(LOG_INFO, "reboot status=%d\n", status);
+int board_wlan_init(void);
 
-  switch (status)
-    {
-      case EXIT_SUCCESS:
-        up_shutdown_handler();
-        break;
-      case CONFIG_BOARD_ASSERT_RESET_VALUE:
-        break;
-      default:
-        break;
-    }
+#endif /* CONFIG_ESP32S3_WIFI */
 
-  up_systemreset();
-
-  return 0;
+#undef EXTERN
+#if defined(__cplusplus)
 }
+#endif
 
-#endif /* CONFIG_BOARDCTL_RESET */
+#endif /* __ASSEMBLY__ */
+#endif /* __BOARDS_XTENSA_ESP32S3_COMMON_INCLUDE_ESP32S3_BOARD_WLAN_H */

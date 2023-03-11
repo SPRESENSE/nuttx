@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3_reset.c
+ * arch/xtensa/src/esp32s3/esp32s3_wlan.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,68 +18,76 @@
  *
  ****************************************************************************/
 
+#ifndef __ARCH_XTENSA_SRC_ESP32S3_ESP32S3_WLAN_H
+#define __ARCH_XTENSA_SRC_ESP32S3_ESP32S3_WLAN_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
-#include <stdlib.h>
-#include <debug.h>
-#include <assert.h>
-#include <nuttx/arch.h>
-#include <nuttx/board.h>
+#include "esp32s3_wifi_adapter.h"
 
-#include "esp32s3_systemreset.h"
+#ifndef __ASSEMBLY__
 
-#ifdef CONFIG_BOARDCTL_RESET
-
-#if CONFIG_BOARD_ASSERT_RESET_VALUE == EXIT_SUCCESS
-#  error "CONFIG_BOARD_ASSERT_RESET_VALUE must not be equal to EXIT_SUCCESS"
+#undef EXTERN
+#if defined(__cplusplus)
+#define EXTERN extern "C"
+extern "C"
+{
+#else
+#define EXTERN extern
 #endif
 
-/****************************************************************************
- * Public Functions
- ****************************************************************************/
+#ifdef CONFIG_ESP32S3_WIFI
 
 /****************************************************************************
- * Name: board_reset
+ * Public Function Prototypes
+ ****************************************************************************/
+
+#ifdef ESP32S3_WLAN_HAS_STA
+
+/****************************************************************************
+ * Name: esp32s3_wlan_sta_set_linkstatus
  *
  * Description:
- *   Reset board.  Support for this function is required by board-level
- *   logic if CONFIG_BOARDCTL_RESET is selected.
+ *   Set Wi-Fi station link status
  *
- * Input Parameters:
- *   status - Status information provided with the reset event.  This
- *            meaning of this status information is board-specific.  If not
- *            used by a board, the value zero may be provided in calls to
- *            board_reset().
+ * Parameters:
+ *   linkstatus - true Notifies the networking layer about an available
+ *                carrier, false Notifies the networking layer about an
+ *                disappeared carrier.
  *
  * Returned Value:
- *   If this function returns, then it was not possible to power-off the
- *   board due to some constraints.  The return value in this case is a
- *   board-specific reason for the failure to shutdown.
+ *   OK on success; Negated errno on failure.
  *
  ****************************************************************************/
 
-int board_reset(int status)
-{
-  syslog(LOG_INFO, "reboot status=%d\n", status);
+int esp32s3_wlan_sta_set_linkstatus(bool linkstatus);
 
-  switch (status)
-    {
-      case EXIT_SUCCESS:
-        up_shutdown_handler();
-        break;
-      case CONFIG_BOARD_ASSERT_RESET_VALUE:
-        break;
-      default:
-        break;
-    }
+/****************************************************************************
+ * Name: esp32s3_wlan_sta_initialize
+ *
+ * Description:
+ *   Initialize the ESP32-S3 WLAN station netcard driver
+ *
+ * Input Parameters:
+ *   None
+ *
+ * Returned Value:
+ *   OK on success; Negated errno on failure.
+ *
+ ****************************************************************************/
 
-  up_systemreset();
+int esp32s3_wlan_sta_initialize(void);
+#endif /* ESP32S3_WLAN_HAS_STA */
 
-  return 0;
+#endif /* CONFIG_ESP32S3_WIFI */
+#ifdef __cplusplus
 }
+#endif
+#undef EXTERN
 
-#endif /* CONFIG_BOARDCTL_RESET */
+#endif /* __ASSEMBLY__ */
+#endif /* __ARCH_XTENSA_SRC_ESP32S3_ESP32S3_WLAN_H */

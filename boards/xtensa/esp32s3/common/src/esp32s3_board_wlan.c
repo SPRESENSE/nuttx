@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3_reset.c
+ * boards/xtensa/esp32s3/common/src/esp32s3_board_wlan.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -24,62 +24,50 @@
 
 #include <nuttx/config.h>
 
-#include <stdlib.h>
+#include <stdio.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <syslog.h>
 #include <debug.h>
-#include <assert.h>
-#include <nuttx/arch.h>
-#include <nuttx/board.h>
 
-#include "esp32s3_systemreset.h"
+#include <nuttx/wireless/wireless.h>
 
-#ifdef CONFIG_BOARDCTL_RESET
-
-#if CONFIG_BOARD_ASSERT_RESET_VALUE == EXIT_SUCCESS
-#  error "CONFIG_BOARD_ASSERT_RESET_VALUE must not be equal to EXIT_SUCCESS"
-#endif
+#include "esp32s3_spiflash.h"
+#include "esp32s3_wlan.h"
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: board_reset
+ * Name: board_wlan_init
  *
  * Description:
- *   Reset board.  Support for this function is required by board-level
- *   logic if CONFIG_BOARDCTL_RESET is selected.
+ *   Configure the wireless subsystem.
  *
  * Input Parameters:
- *   status - Status information provided with the reset event.  This
- *            meaning of this status information is board-specific.  If not
- *            used by a board, the value zero may be provided in calls to
- *            board_reset().
+ *   None.
  *
  * Returned Value:
- *   If this function returns, then it was not possible to power-off the
- *   board due to some constraints.  The return value in this case is a
- *   board-specific reason for the failure to shutdown.
+ *   Zero (OK) is returned on success; A negated errno value is returned
+ *   to indicate the nature of any failure.
  *
  ****************************************************************************/
 
-int board_reset(int status)
+int board_wlan_init(void)
 {
-  syslog(LOG_INFO, "reboot status=%d\n", status);
+  int ret = OK;
 
-  switch (status)
+#ifdef ESP32S3_WLAN_HAS_STA
+  ret = esp32s3_wlan_sta_initialize();
+  if (ret)
     {
-      case EXIT_SUCCESS:
-        up_shutdown_handler();
-        break;
-      case CONFIG_BOARD_ASSERT_RESET_VALUE:
-        break;
-      default:
-        break;
+      wlerr("ERROR: Failed to initialize Wi-Fi station\n");
+      return ret;
     }
+#endif /* ESP32S3_WLAN_HAS_STA */
 
-  up_systemreset();
-
-  return 0;
+  return ret;
 }
 
-#endif /* CONFIG_BOARDCTL_RESET */
