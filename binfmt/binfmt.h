@@ -118,6 +118,50 @@ void binfmt_freeargv(FAR char * const *argv);
 #endif
 
 /****************************************************************************
+ * Name: binfmt_copyenv
+ *
+ * Description:
+ *   In the kernel build, the environment exists in the parent's address
+ *   environment and, hence, will be inaccessible when we switch to the
+ *   address environment of the new process. So we do not have any real
+ *   option other than to copy the parents envp list into an intermediate
+ *   buffer that resides in neutral kernel memory.
+ *
+ * Input Parameters:
+ *   envp     - Allocated environment strings
+ *
+ * Returned Value:
+ *   A non-zero copy is returned on success.
+ *
+ ****************************************************************************/
+
+#ifndef CONFIG_DISABLE_ENVIRON
+#  define binfmt_copyenv(envp) binfmt_copyargv(envp)
+#else
+#  define binfmt_copyenv(envp) (envp)
+#endif
+
+/****************************************************************************
+ * Name: binfmt_freeenv
+ *
+ * Description:
+ *   Release the copied envp[] list.
+ *
+ * Input Parameters:
+ *   envp     - Allocated environment strings
+ *
+ * Returned Value:
+ *   None
+ *
+ ****************************************************************************/
+
+#ifndef CONFIG_DISABLE_ENVIRON
+#  define binfmt_freeenv(envp) binfmt_freeargv(envp)
+#else
+#  define binfmt_freeenv(envp)
+#endif
+
+/****************************************************************************
  * Name: builtin_initialize
  *
  * Description:
@@ -131,7 +175,7 @@ void binfmt_freeargv(FAR char * const *argv);
  *
  ****************************************************************************/
 
-#ifdef CONFIG_FS_BINFS
+#ifdef CONFIG_BUILTIN
 int builtin_initialize(void);
 #endif
 
@@ -146,7 +190,7 @@ int builtin_initialize(void);
  *
  ****************************************************************************/
 
-#ifdef CONFIG_FS_BINFS
+#ifdef CONFIG_BUILTIN
 void builtin_uninitialize(void);
 #endif
 

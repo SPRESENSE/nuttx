@@ -33,8 +33,6 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-#define PM_IDLE_DOMAIN 0 /* Revisit */
-
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
@@ -59,8 +57,12 @@ void up_idle(void)
 #ifdef CONFIG_PM
   static enum pm_state_e state = PM_NORMAL;
   enum pm_state_e newstate;
+  irqstate_t flags;
 
   /* Fake some power management stuff for testing purposes */
+
+  flags = enter_critical_section();
+  sched_lock();
 
   newstate = pm_checkstate(PM_IDLE_DOMAIN);
   if (newstate != state)
@@ -73,44 +75,16 @@ void up_idle(void)
     }
 #endif
 
-  /* Handle UART data availability */
-
-  up_uartloop();
-
-#if defined(CONFIG_SIM_TOUCHSCREEN) || defined(CONFIG_SIM_AJOYSTICK) || \
-    defined(CONFIG_SIM_BUTTONS)
-  /* Drive the X11 event loop */
-
-  up_x11events();
-#endif
-
-#ifdef CONFIG_SIM_NETDEV
-  /* Run the network if enabled */
-
-  netdriver_loop();
-#endif
-
-#ifdef CONFIG_RPTUN
-  up_rptun_loop();
-#endif
-
-#ifdef CONFIG_SIM_HCISOCKET
-  bthcisock_loop();
-#endif
-
-#ifdef CONFIG_SIM_SOUND
-  sim_audio_loop();
-#endif
-
 #ifdef CONFIG_ONESHOT
   /* Driver the simulated interval timer */
 
   up_timer_update();
 #endif
 
-#ifdef CONFIG_SIM_MOTOR_FOC
-  /* Update simulated FOC device */
+#ifdef CONFIG_PM
+  pm_changestate(PM_IDLE_DOMAIN, PM_RESTORE);
 
-  sim_foc_update();
+  sched_unlock();
+  leave_critical_section(flags);
 #endif
 }

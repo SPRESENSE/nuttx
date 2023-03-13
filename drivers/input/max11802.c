@@ -112,12 +112,12 @@ static const struct file_operations max11802_fops =
   max11802_open,    /* open */
   max11802_close,   /* close */
   max11802_read,    /* read */
-  0,                /* write */
-  0,                /* seek */
+  NULL,             /* write */
+  NULL,             /* seek */
   max11802_ioctl,   /* ioctl */
   max11802_poll     /* poll */
 #ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , 0               /* unlink */
+  , NULL            /* unlink */
 #endif
 };
 
@@ -250,7 +250,7 @@ static void max11802_notify(FAR struct max11802_dev_s *priv)
       if (fds)
         {
           fds->revents |= POLLIN;
-          iinfo("Report events: %02x\n", fds->revents);
+          iinfo("Report events: %08" PRIx32 "\n", fds->revents);
           nxsem_post(fds->sem);
         }
     }
@@ -1236,7 +1236,7 @@ int max11802_register(FAR struct spi_dev_s *spi,
 
   /* Register the device as an input device */
 
-  snprintf(devname, DEV_NAMELEN, DEV_FORMAT, minor);
+  snprintf(devname, sizeof(devname), DEV_FORMAT, minor);
   iinfo("Registering %s\n", devname);
 
   ret = register_driver(devname, &max11802_fops, 0666, priv);

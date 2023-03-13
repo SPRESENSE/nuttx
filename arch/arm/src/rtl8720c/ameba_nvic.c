@@ -32,7 +32,6 @@
 #include "chip.h"
 #include "nvic.h"
 #include "ram_vectors.h"
-#include "arm_arch.h"
 #include "arm_internal.h"
 
 /****************************************************************************
@@ -62,11 +61,8 @@
  * processing.  Access to g_current_regs[] must be through the macro
  * CURRENT_REGS for portability.
  */
-#ifdef CONFIG_SMP
+
 volatile uint32_t *g_current_regs[CONFIG_SMP_NCPUS];
-#else
-volatile uint32_t *g_current_regs[1];
-#endif
 
 /* extern int32_t    __StackLimit; */
 
@@ -85,21 +81,6 @@ static int (* __vectors[NR_IRQS - NVIC_IRQ_FIRST])(void);
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
-
-/****************************************************************************
- * Name: up_getsp
- ****************************************************************************/
-
-static inline uint32_t up_getsp(void)
-{
-  uint32_t sp;
-  __asm__
-  (
-    "\tmov %0, sp\n\t"
-    : "=r"(sp)
-  );
-  return sp;
-}
 
 /****************************************************************************
  * Name: nvic_irqinfo
@@ -362,7 +343,7 @@ int up_prioritize_irq(int irq, int priority)
  * Name: _up_doirq
  ****************************************************************************/
 
-int _up_doirq(int irq, FAR void *context, FAR void *arg)
+int _up_doirq(int irq, void *context, void *arg)
 {
   if (irq < NVIC_IRQ_FIRST)
     {

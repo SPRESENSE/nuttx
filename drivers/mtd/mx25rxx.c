@@ -100,7 +100,11 @@
 /* JEDEC Read ID register values */
 
 #define MX25R_JEDEC_MANUFACTURER         0xc2  /* Macronix manufacturer ID */
-#define MX25R_JEDEC_MEMORY_TYPE          0x28  /* MX25Rx memory type */
+#ifdef CONFIG_MX25RXX_LXX
+#  define MX25R_JEDEC_MEMORY_TYPE          0x20  /* MX25Lx memory type */
+#else
+#  define MX25R_JEDEC_MEMORY_TYPE          0x28  /* MX25Rx memory type */
+#endif
 #define MX25R_JEDEC_MX25R6435F_CAPACITY  0x17  /* MX25R6435F memory capacity */
 #define MX25R_JEDEC_MX25R8035F_CAPACITY  0x14  /* MX25R8035F memory capacity */
 
@@ -112,7 +116,12 @@
 #define MX25R6435F_SECTOR_SHIFT     (12)
 #define MX25R6435F_SECTOR_COUNT     (2048)
 #define MX25R6435F_PAGE_SIZE        (256)
-#define MX25R6435F_PAGE_SHIFT       (8)
+
+#ifdef CONFIG_MX25RXX_PAGE128
+#  define MX25R6435F_PAGE_SHIFT       (7)
+#else
+#  define MX25R6435F_PAGE_SHIFT       (8)
+#endif
 
 /* Status register bit definitions */
 
@@ -539,7 +548,11 @@ void mx25rxx_write_status_config(FAR struct mx25rxx_dev_s *dev,
   dev->cmdbuf[1] = config & 0xff;
   dev->cmdbuf[2] = config >> 8;
 
+#ifdef CONFIG_MX25RXX_LXX
+  mx25rxx_command_write(dev->qspi, MX25R_WRSR, dev->cmdbuf, 2);
+#else
   mx25rxx_command_write(dev->qspi, MX25R_WRSR, dev->cmdbuf, 3);
+#endif
   mx25rxx_write_enable(dev, false);
 }
 
@@ -605,8 +618,8 @@ int mx25rxx_erase(FAR struct mtd_dev_s *dev,
           /* Erase each sector */
 
           mx25rxx_erase_sector(priv, startblock);
-          startblock ++;
-          blocksleft --;
+          startblock++;
+          blocksleft--;
         }
     }
 #endif
@@ -711,7 +724,7 @@ int mx25rxx_ioctl(FAR struct mtd_dev_s *dev, int cmd, unsigned long arg)
   FAR struct mx25rxx_dev_s *priv = (FAR struct mx25rxx_dev_s *)dev;
   int ret = -EINVAL; /* Assume good command with bad parameters */
 
-  finfo("cmd: %d \n", cmd);
+  finfo("cmd: %d\n", cmd);
 
   switch (cmd)
     {

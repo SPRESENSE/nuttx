@@ -18,8 +18,14 @@
 #
 #############################################################################
 
+ifeq ($(CONFIG_ARCH_BOARD_COMMON),y)
+
 ifeq ($(CONFIG_SENSORS_BMP180),y)
   CSRCS += stm32_bmp180.c
+endif
+
+ifeq ($(CONFIG_SENSORS_MS5611),y)
+  CSRCS += stm32_ms5611.c
 endif
 
 ifeq ($(CONFIG_LEDS_APA102),y)
@@ -133,3 +139,5 @@ endif
 DEPPATH += --dep-path src
 VPATH += :src
 CFLAGS += $(shell $(INCDIR) "$(CC)" $(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)board$(DELIM)src)
+
+endif

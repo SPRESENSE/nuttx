@@ -37,20 +37,6 @@
 #include "xtensa.h"
 
 /****************************************************************************
- * Pre-processor Definitions
- ****************************************************************************/
-
-/* XTENSA requires at least a 16-byte stack alignment. */
-
-#define STACK_ALIGNMENT   16
-
-/* Stack alignment macros */
-
-#define STACK_ALIGN_MASK    (STACK_ALIGNMENT - 1)
-#define STACK_ALIGN_DOWN(a) ((a) & ~STACK_ALIGN_MASK)
-#define STACK_ALIGN_UP(a)   (((a) + STACK_ALIGN_MASK) & ~STACK_ALIGN_MASK)
-
-/****************************************************************************
  * Public Functions
  ****************************************************************************/
 
@@ -132,7 +118,7 @@ int up_use_stack(struct tcb_s *tcb, void *stack, size_t stack_size)
    * water marks.
    */
 
-  up_stack_color(tcb->stack_base_ptr, tcb->adj_stack_size);
+  xtensa_stack_color(tcb->stack_base_ptr, tcb->adj_stack_size);
 #endif
 
   return OK;

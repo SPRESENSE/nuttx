@@ -71,34 +71,17 @@ static inline int open_mountpoint(FAR struct inode *inode,
 
   if (!inode->u.i_mops || !inode->u.i_mops->opendir)
     {
-      return ENOSYS;
+      return -ENOSYS;
     }
-
-  /* Take reference to the mountpoint inode.  Note that we do not use
-   * inode_addref() because we already hold the tree semaphore.
-   */
-
-  inode->i_crefs++;
 
   /* Perform the opendir() operation */
 
   ret = inode->u.i_mops->opendir(inode, relpath, dir);
   if (ret < 0)
     {
-      /* We now need to back off our reference to the inode.  We can't
-       * call inode_release() to do that unless we release the tree
-       * semaphore.  The following should be safe because:  (1) after the
-       * reference count was incremented above it should be >=1 so it should
-       * not decrement below zero, and (2) we hold the tree semaphore so no
-       * other thread should be able to change the reference count.
-       */
-
-      inode->i_crefs--;
-      DEBUGASSERT(inode->i_crefs >= 0);
-
       /* Negate the error value so that it can be used to set errno */
 
-      return -ret;
+      return ret;
     }
 
   return OK;
@@ -126,11 +109,10 @@ static void open_pseudodir(FAR struct inode *inode,
 {
   /* We have a valid pseudo-filesystem node.  Take two references on the
    * inode -- one for the parent (fd_root) and one for the child (fd_next).
-   * Note that we do not call inode_addref because we are holding the tree
-   * semaphore and that would result in deadlock.
    */
 
-  inode->i_crefs       += 2;
+  inode_addref(inode);
+
   dir->fd_root          = inode; /* Save the inode where we start */
   dir->u.pseudo.fd_next = inode; /* This is the next node to use for readdir() */
 
@@ -224,34 +206,20 @@ FAR DIR *opendir(FAR const char *path)
 
   SETUP_SEARCH(&desc, path, false);
 
-  ret = inode_semtake();
+  ret = inode_find(&desc);
   if (ret < 0)
     {
-      ret = -ret;
-      goto errout;
+      goto errout_with_search;
     }
 
-  /* Find the node matching the path. */
+  /* Get the search results */
 
-  ret = inode_search(&desc);
-  if (ret >= 0)
-    {
-      inode   = desc.node;
-      DEBUGASSERT(inode != NULL);
 #ifndef CONFIG_DISABLE_MOUNTPOINT
-      relpath = desc.relpath;
+  relpath = desc.relpath;
 #endif
-    }
 
-  /* Did we get an inode? */
-
-  if (inode == NULL)
-    {
-      /* Inode for 'path' does not exist. */
-
-      ret = ENOTDIR;
-      goto errout_with_semaphore;
-    }
+  inode = desc.node;
+  DEBUGASSERT(inode != NULL);
 
   /* Allocate a type DIR -- which is little more than an inode
    * container.
@@ -262,8 +230,8 @@ FAR DIR *opendir(FAR const char *path)
     {
       /* Insufficient memory to complete the operation. */
 
-      ret = ENOMEM;
-      goto errout_with_semaphore;
+      ret = -ENOMEM;
+      goto errout_with_inode;
     }
 
   /* Populate the DIR structure and return it to the caller.  The way that
@@ -315,13 +283,12 @@ FAR DIR *opendir(FAR const char *path)
         }
       else
         {
-          ret = ENOTDIR;
+          ret = -ENOTDIR;
           goto errout_with_direntry;
         }
     }
 
   RELEASE_SEARCH(&desc);
-  inode_semgive();
   return ((FAR DIR *)dir);
 
   /* Nasty goto's make error handling simpler */
@@ -329,11 +296,11 @@ FAR DIR *opendir(FAR const char *path)
 errout_with_direntry:
   kumm_free(dir);
 
-errout_with_semaphore:
-  RELEASE_SEARCH(&desc);
-  inode_semgive();
+errout_with_inode:
+  inode_release(inode);
 
-errout:
-  set_errno(ret);
+errout_with_search:
+  RELEASE_SEARCH(&desc);
+  set_errno(-ret);
   return NULL;
 }

@@ -32,8 +32,6 @@
 #include <arch/board/board.h>
 
 #include "arm_internal.h"
-#include "arm_arch.h"
-
 #include "chip.h"
 #include "stm32l5_rcc.h"
 #include "stm32l5_flash.h"
@@ -104,7 +102,7 @@ static inline void rcc_resetbkp(void)
        * backup data registers and backup SRAM).
        */
 
-      (void)stm32l5_pwr_enablebkp(true);
+      stm32l5_pwr_enablebkp(true);
 
       /* We might be changing RTCSEL - to ensure such changes work, we must
        * reset the backup domain (having backed up the RTC_MAGIC token)
@@ -125,7 +123,7 @@ static inline void rcc_resetbkp(void)
           putreg32(bkregs[i], STM32L5_RTC_BKR(i));
         }
 
-      (void)stm32l5_pwr_enablebkp(false);
+      stm32l5_pwr_enablebkp(false);
     }
 }
 #else

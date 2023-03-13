@@ -36,7 +36,7 @@
 #include <debug.h>
 #include <semaphore.h>
 
-#include "riscv_arch.h"
+#include "riscv_internal.h"
 #include "hardware/esp32c3_rsa.h"
 #include "hardware/esp32c3_system.h"
 
@@ -1431,7 +1431,7 @@ int esp32c3_mpi_copy(struct esp32c3_mpi_s *X,
         }
     }
 
-  i ++;
+  i++;
 
   X->s = Y->s;
 
@@ -1964,7 +1964,9 @@ int esp32c3_mpi_write_string(const struct esp32c3_mpi_s *X, int radix,
   if (radix == 16)
     {
       int c;
-      size_t i, j, k;
+      size_t i;
+      size_t j;
+      size_t k;
 
       for (i = X->n, k = 0; i > 0; i--)
         {
@@ -2146,8 +2148,11 @@ int esp32c3_mpi_write_binary(const struct esp32c3_mpi_s *X,
 int esp32c3_mpi_shift_l(struct esp32c3_mpi_s *X, size_t count)
 {
   int ret;
-  size_t i, v0, t1;
-  uint32_t r0 = 0, r1;
+  size_t i;
+  size_t v0;
+  size_t t1;
+  uint32_t r0 = 0;
+  uint32_t r1;
   DEBUGASSERT(X != NULL);
 
   v0 = count / (BIL);
@@ -2209,8 +2214,11 @@ cleanup:
 
 int esp32c3_mpi_shift_r(struct esp32c3_mpi_s *X, size_t count)
 {
-  size_t i, v0, v1;
-  uint32_t r0 = 0, r1;
+  size_t i;
+  size_t v0;
+  size_t v1;
+  uint32_t r0 = 0;
+  uint32_t r1;
   DEBUGASSERT(X != NULL);
 
   v0 = count /  BIL;
@@ -2274,7 +2282,9 @@ int esp32c3_mpi_shift_r(struct esp32c3_mpi_s *X, size_t count)
 int esp32c3_mpi_cmp_abs(const struct esp32c3_mpi_s *X,
                         const struct esp32c3_mpi_s *Y)
 {
-  size_t i, j;
+  size_t i;
+  size_t j;
+
   DEBUGASSERT(X != NULL);
   DEBUGASSERT(Y != NULL);
 
@@ -2345,7 +2355,8 @@ int esp32c3_mpi_cmp_abs(const struct esp32c3_mpi_s *X,
 int esp32c3_mpi_cmp_mpi(const struct esp32c3_mpi_s *X,
                         const struct esp32c3_mpi_s *Y)
 {
-  size_t i, j;
+  size_t i;
+  size_t j;
   DEBUGASSERT(X != NULL);
   DEBUGASSERT(Y != NULL);
 
@@ -2432,7 +2443,10 @@ int esp32c3_mpi_lt_mpi_ct(const struct esp32c3_mpi_s *X,
 
   /* The value of any of these variables is either 0 or 1 at all times. */
 
-  unsigned cond, done, x_is_negative, y_is_negative;
+  unsigned cond;
+  unsigned done;
+  unsigned x_is_negative;
+  unsigned y_is_negative;
 
   DEBUGASSERT(X != NULL);
   DEBUGASSERT(Y != NULL);
@@ -2545,8 +2559,13 @@ int esp32c3_mpi_add_abs(struct esp32c3_mpi_s *X,
                         const struct esp32c3_mpi_s *B)
 {
   int ret;
-  size_t i, j;
-  uint32_t *o, *p, c, tmp;
+  size_t i;
+  size_t j;
+  uint32_t *o;
+  uint32_t *p;
+  uint32_t c;
+  uint32_t tmp;
+
   DEBUGASSERT(X != NULL);
   DEBUGASSERT(A != NULL);
   DEBUGASSERT(B != NULL);
@@ -2709,7 +2728,8 @@ int esp32c3_mpi_add_mpi(struct esp32c3_mpi_s *X,
                         const struct esp32c3_mpi_s *A,
                         const struct esp32c3_mpi_s *B)
 {
-  int ret, s;
+  int ret;
+  int s;
   DEBUGASSERT(X != NULL);
   DEBUGASSERT(A != NULL);
   DEBUGASSERT(B != NULL);
@@ -2759,7 +2779,8 @@ int esp32c3_mpi_sub_mpi(struct esp32c3_mpi_s *X,
                         const struct esp32c3_mpi_s *A,
                         const struct esp32c3_mpi_s *B)
 {
-  int ret, s;
+  int ret;
+  int s;
   DEBUGASSERT(X != NULL);
   DEBUGASSERT(A != NULL);
   DEBUGASSERT(B != NULL);
@@ -3011,8 +3032,15 @@ int esp32c3_mpi_div_mpi(struct esp32c3_mpi_s *Q,
                         const struct esp32c3_mpi_s *B)
 {
   int ret;
-  size_t i, n, t, k;
-  struct esp32c3_mpi_s X, Y, Z, T1, T2;
+  size_t i;
+  size_t n;
+  size_t t;
+  size_t k;
+  struct esp32c3_mpi_s X;
+  struct esp32c3_mpi_s Y;
+  struct esp32c3_mpi_s Z;
+  struct esp32c3_mpi_s T1;
+  struct esp32c3_mpi_s T2;
   DEBUGASSERT(A != NULL);
   DEBUGASSERT(B != NULL);
 
@@ -3246,7 +3274,10 @@ int esp32c3_mpi_mod_int(uint32_t *r,
                         const struct esp32c3_mpi_s *A, int32_t b)
 {
   size_t i;
-  uint32_t x, y, z;
+  uint32_t x;
+  uint32_t y;
+  uint32_t z;
+
   DEBUGASSERT(r != NULL);
   DEBUGASSERT(A != NULL);
 
@@ -3330,11 +3361,21 @@ int esp32c3_mpi_exp_mod(struct esp32c3_mpi_s *X,
                         struct esp32c3_mpi_s *_RR)
 {
   int ret;
-  size_t wbits, wsize, one = 1;
-  size_t i, j, nblimbs;
-  size_t bufsize, nbits;
-  uint32_t ei, mm, state;
-  struct esp32c3_mpi_s RR, T, W[1 << ESP32C3_MPI_WINDOW_SIZE], apos;
+  size_t wbits;
+  size_t wsize;
+  size_t one = 1;
+  size_t i;
+  size_t j;
+  size_t nblimbs;
+  size_t bufsize;
+  size_t nbits;
+  uint32_t ei;
+  uint32_t mm;
+  uint32_t state;
+  struct esp32c3_mpi_s RR;
+  struct esp32c3_mpi_s T;
+  struct esp32c3_mpi_s W[1 << ESP32C3_MPI_WINDOW_SIZE];
+  struct esp32c3_mpi_s apos;
   int neg;
 
   DEBUGASSERT(X != NULL);
@@ -3581,8 +3622,11 @@ int esp32c3_mpi_gcd(struct esp32c3_mpi_s *G,
                     const struct esp32c3_mpi_s *B)
 {
   int ret;
-  size_t lz, lzt;
-  struct esp32c3_mpi_s TG, TA, TB;
+  size_t lz;
+  size_t lzt;
+  struct esp32c3_mpi_s TG;
+  struct esp32c3_mpi_s TA;
+  struct esp32c3_mpi_s TB;
 
   DEBUGASSERT(G != NULL);
   DEBUGASSERT(A != NULL);
@@ -3705,7 +3749,16 @@ int esp32c3_mpi_inv_mod(struct esp32c3_mpi_s *X,
                         const struct esp32c3_mpi_s *N)
 {
   int ret;
-  struct esp32c3_mpi_s G, TA, TU, U1, U2, TB, TV, V1, V2;
+  struct esp32c3_mpi_s G;
+  struct esp32c3_mpi_s TA;
+  struct esp32c3_mpi_s TU;
+  struct esp32c3_mpi_s U1;
+  struct esp32c3_mpi_s U2;
+  struct esp32c3_mpi_s TB;
+  struct esp32c3_mpi_s TV;
+  struct esp32c3_mpi_s V1;
+  struct esp32c3_mpi_s V2;
+
   DEBUGASSERT(X != NULL);
   DEBUGASSERT(A != NULL);
   DEBUGASSERT(N != NULL);
@@ -3814,254 +3867,6 @@ cleanup:
 
   return ret;
 }
-
-/****************************************************************************
- * Test Functions
- ****************************************************************************/
-
-#ifdef CONFIG_ESP32C3_BIGNUM_ACCELERATOR_TEST
-
-#define GCD_PAIR_COUNT  3
-
-/****************************************************************************
- * Name: esp32c3_mpi_self_test
- *
- * Description:
- *   Checkup routine
- *
- * Input Parameters:
- *   verbose        - The result output or not
- *
- * Returned Value:
- *   OK on success; Negated errno on failure.
- *
- ****************************************************************************/
-
-int esp32c3_mpi_self_test(int verbose)
-{
-  int ret;
-  int i;
-  struct esp32c3_mpi_s A;
-  struct esp32c3_mpi_s E;
-  struct esp32c3_mpi_s N;
-  struct esp32c3_mpi_s X;
-  struct esp32c3_mpi_s Y;
-  struct esp32c3_mpi_s U;
-  struct esp32c3_mpi_s V;
-
-  const int gcd_pairs[GCD_PAIR_COUNT][3] =
-  {
-    {
-      693, 609, 21
-    },
-
-    {
-      1764, 868, 28
-    },
-
-    {
-      768454923, 542167814, 1
-    }
-  };
-
-  esp32c3_mpi_init(&A);
-  esp32c3_mpi_init(&E);
-  esp32c3_mpi_init(&N);
-  esp32c3_mpi_init(&X);
-  esp32c3_mpi_init(&Y);
-  esp32c3_mpi_init(&U);
-  esp32c3_mpi_init(&V);
-
-  ESP32C3_MPI_CHK(esp32c3_mpi_read_string(&A, 16,
-    "EFE021C2645FD1DC586E69184AF4A31E" \
-    "D5F53E93B5F123FA41680867BA110131" \
-    "944FE7952E2517337780CB0DB80E61AA" \
-    "E7C8DDC6C5C6AADEB34EB38A2F40D5E6"), cleanup);
-
-  ESP32C3_MPI_CHK(esp32c3_mpi_read_string(&E, 16,
-    "B2E7EFD37075B9F03FF989C7C5051C20" \
-    "34D2A323810251127E7BF8625A4F49A5" \
-    "F3E27F4DA8BD59C47D6DAABA4C8127BD" \
-    "5B5C25763222FEFCCFC38B832366C29E"), cleanup);
-
-  ESP32C3_MPI_CHK(esp32c3_mpi_read_string(&N, 16,
-    "0066A198186C18C10B2F5ED9B522752A" \
-    "9830B69916E535C8F047518A889A43A5" \
-    "94B6BED27A168D31D4A52F88925AA8F5"), cleanup);
-
-  ESP32C3_MPI_CHK(esp32c3_mpi_mul_mpi(&X, &A, &N), cleanup);
-
-  ESP32C3_MPI_CHK(esp32c3_mpi_read_string(&U, 16,
-    "602AB7ECA597A3D6B56FF9829A5E8B85" \
-    "9E857EA95A03512E2BAE7391688D264A" \
-    "A5663B0341DB9CCFD2C4C5F421FEC814" \
-    "8001B72E848A38CAE1C65F78E56ABDEF" \
-    "E12D3C039B8A02D6BE593F0BBBDA56F1" \
-    "ECF677152EF804370C1A305CAF3B5BF1" \
-    "30879B56C61DE584A0F53A2447A51E"), cleanup);
-
-  if (verbose != 0)
-    {
-      syslog(LOG_INFO, "  MPI test #1 (mul_mpi): ");
-    }
-
-  if (esp32c3_mpi_cmp_mpi(&X, &U) != 0)
-    {
-      if (verbose != 0)
-        {
-          syslog(LOG_INFO, "failed\n");
-        }
-
-      ret = 1;
-      goto cleanup;
-    }
-
-  if (verbose != 0)
-    {
-      syslog(LOG_INFO, "passed\n");
-    }
-
-  ESP32C3_MPI_CHK(esp32c3_mpi_div_mpi(&X, &Y, &A, &N), cleanup);
-
-  ESP32C3_MPI_CHK(esp32c3_mpi_read_string(&U, 16,
-    "256567336059E52CAE22925474705F39A94"), cleanup);
-
-  ESP32C3_MPI_CHK(esp32c3_mpi_read_string(&V, 16,
-    "6613F26162223DF488E9CD48CC132C7A" \
-    "0AC93C701B001B092E4E5B9F73BCD27B" \
-    "9EE50D0657C77F374E903CDFA4C642"), cleanup);
-
-  if (verbose != 0)
-    {
-      syslog(LOG_INFO, "  MPI test #2 (div_mpi): ");
-    }
-
-  if (esp32c3_mpi_cmp_mpi(&X, &U) != 0 ||
-      esp32c3_mpi_cmp_mpi(&Y, &V) != 0)
-    {
-      if (verbose != 0)
-        {
-          syslog(LOG_INFO, "failed\n");
-        }
-
-      ret = 1;
-      goto cleanup;
-    }
-
-  if (verbose != 0)
-    {
-      syslog(LOG_INFO, "passed\n");
-    }
-
-  ESP32C3_MPI_CHK(esp32c3_mpi_exp_mod(&X, &A, &E, &N, NULL), cleanup);
-
-  ESP32C3_MPI_CHK(esp32c3_mpi_read_string(&U, 16,
-    "36E139AEA55215609D2816998ED020BB" \
-    "BD96C37890F65171D948E9BC7CBAA4D9" \
-    "325D24D6A3C12710F10A09FA08AB87"), cleanup);
-
-  if (verbose != 0)
-    {
-      syslog(LOG_INFO, "  MPI test #3 (exp_mod): ");
-    }
-
-  if (esp32c3_mpi_cmp_mpi(&X, &U) != 0)
-    {
-      if (verbose != 0)
-        {
-          syslog(LOG_INFO, "failed\n");
-        }
-
-      ret = 1;
-      goto cleanup;
-    }
-
-  if (verbose != 0)
-    {
-      syslog(LOG_INFO, "passed\n");
-    }
-
-  ESP32C3_MPI_CHK(esp32c3_mpi_inv_mod(&X, &A, &N), cleanup);
-
-  ESP32C3_MPI_CHK(esp32c3_mpi_read_string(&U, 16,
-    "003A0AAEDD7E784FC07D8F9EC6E3BFD5" \
-    "C3DBA76456363A10869622EAC2DD84EC" \
-    "C5B8A74DAC4D09E03B5E0BE779F2DF61"), cleanup);
-
-  if (verbose != 0)
-    {
-      syslog(LOG_INFO, "  MPI test #4 (inv_mod): ");
-    }
-
-  if (esp32c3_mpi_cmp_mpi(&X, &U) != 0)
-    {
-      if (verbose != 0)
-        {
-          syslog(LOG_INFO, "failed\n");
-        }
-
-      ret = 1;
-      goto cleanup;
-    }
-
-  if (verbose != 0)
-    {
-      syslog(LOG_INFO, "passed\n");
-    }
-
-  if (verbose != 0)
-    {
-      syslog(LOG_INFO, "  MPI test #5 (simple gcd): ");
-    }
-
-  for (i = 0; i < GCD_PAIR_COUNT; i++)
-    {
-      ESP32C3_MPI_CHK(esp32c3_mpi_lset(&X, gcd_pairs[i][0]), cleanup);
-      ESP32C3_MPI_CHK(esp32c3_mpi_lset(&Y, gcd_pairs[i][1]), cleanup);
-
-      ESP32C3_MPI_CHK(esp32c3_mpi_gcd(&A, &X, &Y), cleanup);
-
-      if (esp32c3_mpi_cmp_int(&A, gcd_pairs[i][2]) != 0)
-        {
-          if (verbose != 0)
-            {
-              syslog(LOG_INFO, "failed at %d\n", i);
-            }
-
-          ret = 1;
-          goto cleanup;
-        }
-    }
-
-  if (verbose != 0)
-    {
-      syslog(LOG_INFO, "passed\n");
-    }
-
-cleanup:
-
-  if (ret != 0 && verbose != 0)
-    {
-      syslog(LOG_INFO, "Unexpected error, return code = %08X\n", ret);
-    }
-
-  esp32c3_mpi_free(&A);
-  esp32c3_mpi_free(&E);
-  esp32c3_mpi_free(&N);
-  esp32c3_mpi_free(&X);
-  esp32c3_mpi_free(&Y);
-  esp32c3_mpi_free(&U);
-  esp32c3_mpi_free(&V);
-
-  if (verbose != 0)
-    {
-      syslog(LOG_INFO, "\n");
-    }
-
-  return ret;
-}
-
-#endif /* CONFIG_ESP32C3_BIGNUM_ACCELERATOR_TEST */
 
 #endif /* CONFIG_ESP32C3_BIGNUM_ACCELERATOR */
 

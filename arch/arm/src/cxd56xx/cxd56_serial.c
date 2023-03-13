@@ -44,9 +44,7 @@
 #include <arch/board/board.h>
 
 #include "chip.h"
-#include "arm_arch.h"
 #include "arm_internal.h"
-
 #include "cxd56_config.h"
 #include "cxd56_serial.h"
 #include "cxd56_powermgr.h"
@@ -96,23 +94,23 @@ struct up_dev_s
 #ifndef CONFIG_SUPPRESS_UART_CONFIG
 static void up_set_format(struct uart_dev_s *dev);
 #endif
-static int up_setup(FAR struct uart_dev_s *dev);
-static void up_shutdown(FAR struct uart_dev_s *dev);
-static int up_attach(FAR struct uart_dev_s *dev);
-static void up_detach(FAR struct uart_dev_s *dev);
-static int up_interrupt(int irq, FAR void *context, FAR void *arg);
-static int up_ioctl(FAR struct file *filep, int cmd, unsigned long arg);
+static int up_setup(struct uart_dev_s *dev);
+static void up_shutdown(struct uart_dev_s *dev);
+static int up_attach(struct uart_dev_s *dev);
+static void up_detach(struct uart_dev_s *dev);
+static int up_interrupt(int irq, void *context, void *arg);
+static int up_ioctl(struct file *filep, int cmd, unsigned long arg);
 #ifdef CONFIG_UART2_IFLOWCONTROL
-static bool up_rxflowcontrol(FAR struct uart_dev_s *dev,
+static bool up_rxflowcontrol(struct uart_dev_s *dev,
                              unsigned int nbuffered, bool upper);
 #endif
-static int up_receive(FAR struct uart_dev_s *dev, FAR unsigned int *status);
-static void up_rxint(FAR struct uart_dev_s *dev, bool enable);
-static bool up_rxavailable(FAR struct uart_dev_s *dev);
-static void up_send(FAR struct uart_dev_s *dev, int ch);
-static void up_txint(FAR struct uart_dev_s *dev, bool enable);
-static bool up_txready(FAR struct uart_dev_s *dev);
-static bool up_txempty(FAR struct uart_dev_s *dev);
+static int up_receive(struct uart_dev_s *dev, unsigned int *status);
+static void up_rxint(struct uart_dev_s *dev, bool enable);
+static bool up_rxavailable(struct uart_dev_s *dev);
+static void up_send(struct uart_dev_s *dev, int ch);
+static void up_txint(struct uart_dev_s *dev, bool enable);
+static bool up_txready(struct uart_dev_s *dev);
+static bool up_txempty(struct uart_dev_s *dev);
 
 /****************************************************************************
  * Private Data
@@ -266,7 +264,7 @@ static uart_dev_t g_uart2port =
  * Name: up_serialin
  ****************************************************************************/
 
-static inline uint32_t up_serialin(FAR struct up_dev_s *priv, int offset)
+static inline uint32_t up_serialin(struct up_dev_s *priv, int offset)
 {
   return getreg32(priv->uartbase + offset);
 }
@@ -275,7 +273,7 @@ static inline uint32_t up_serialin(FAR struct up_dev_s *priv, int offset)
  * Name: up_serialout
  ****************************************************************************/
 
-static inline void up_serialout(FAR struct up_dev_s *priv, int offset,
+static inline void up_serialout(struct up_dev_s *priv, int offset,
                                 uint32_t value)
 {
   putreg32(value, priv->uartbase + offset);
@@ -285,8 +283,8 @@ static inline void up_serialout(FAR struct up_dev_s *priv, int offset,
  * Name: up_disableuartint
  ****************************************************************************/
 
-static inline void up_disableuartint(FAR struct up_dev_s *priv,
-                                     FAR uint32_t *ier)
+static inline void up_disableuartint(struct up_dev_s *priv,
+                                     uint32_t *ier)
 {
   irqstate_t flags;
 
@@ -305,7 +303,7 @@ static inline void up_disableuartint(FAR struct up_dev_s *priv,
  * Name: up_restoreuartint
  ****************************************************************************/
 
-static inline void up_restoreuartint(FAR struct up_dev_s *priv, uint32_t ier)
+static inline void up_restoreuartint(struct up_dev_s *priv, uint32_t ier)
 {
   irqstate_t flags;
 
@@ -319,7 +317,7 @@ static inline void up_restoreuartint(FAR struct up_dev_s *priv, uint32_t ier)
  * Name: up_enablebreaks
  ****************************************************************************/
 
-static inline void up_enablebreaks(FAR struct up_dev_s *priv, bool enable)
+static inline void up_enablebreaks(struct up_dev_s *priv, bool enable)
 {
   uint32_t lcr = up_serialin(priv, CXD56_UART_LCR_H);
   if (enable)
@@ -338,10 +336,10 @@ static inline void up_enablebreaks(FAR struct up_dev_s *priv, bool enable)
  * Name: cxd56_serial2_pm_event
  ****************************************************************************/
 
-#ifdef CONFIG_CXD56_UART2
+#if defined(CONFIG_CXD56_UART2) && !defined(CONFIG_UART2_SERIAL_CONSOLE)
 static int cxd56_serial2_pm_event(uint8_t id)
 {
-  FAR struct up_dev_s *priv = (FAR struct up_dev_s *)&g_uart2priv;
+  struct up_dev_s *priv = (struct up_dev_s *)&g_uart2priv;
 
   switch (id)
     {
@@ -368,7 +366,7 @@ static int cxd56_serial2_pm_event(uint8_t id)
 #ifndef CONFIG_SUPPRESS_UART_CONFIG
 static void up_set_format(struct uart_dev_s *dev)
 {
-  FAR struct up_dev_s *priv = (FAR struct up_dev_s *)dev->priv;
+  struct up_dev_s *priv = (struct up_dev_s *)dev->priv;
   uint32_t lcr;
   uint32_t cr;
   uint32_t cr_en;
@@ -453,10 +451,10 @@ static void up_set_format(struct uart_dev_s *dev)
  *
  ****************************************************************************/
 
-static int up_setup(FAR struct uart_dev_s *dev)
+static int up_setup(struct uart_dev_s *dev)
 {
 #ifndef CONFIG_SUPPRESS_UART_CONFIG
-  FAR struct up_dev_s *priv = (FAR struct up_dev_s *)dev->priv;
+  struct up_dev_s *priv = (struct up_dev_s *)dev->priv;
   uint32_t lcr;
   uint32_t cr;
 
@@ -526,9 +524,9 @@ static int up_setup(FAR struct uart_dev_s *dev)
  *
  ****************************************************************************/
 
-static void up_shutdown(FAR struct uart_dev_s *dev)
+static void up_shutdown(struct uart_dev_s *dev)
 {
-  FAR struct up_dev_s *priv = (FAR struct up_dev_s *)dev->priv;
+  struct up_dev_s *priv = (struct up_dev_s *)dev->priv;
 
   /* Disable further interrupts from the UART */
 
@@ -574,9 +572,9 @@ static void up_shutdown(FAR struct uart_dev_s *dev)
  *
  ****************************************************************************/
 
-static int up_attach(FAR struct uart_dev_s *dev)
+static int up_attach(struct uart_dev_s *dev)
 {
-  FAR struct up_dev_s *priv = (FAR struct up_dev_s *)dev->priv;
+  struct up_dev_s *priv = (struct up_dev_s *)dev->priv;
   int ret;
 
   /* Attach and enable the IRQ */
@@ -604,9 +602,9 @@ static int up_attach(FAR struct uart_dev_s *dev)
  *
  ****************************************************************************/
 
-static void up_detach(FAR struct uart_dev_s *dev)
+static void up_detach(struct uart_dev_s *dev)
 {
-  FAR struct up_dev_s *priv = (FAR struct up_dev_s *)dev->priv;
+  struct up_dev_s *priv = (struct up_dev_s *)dev->priv;
   up_disable_irq(priv->irq);
   irq_detach(priv->irq);
 }
@@ -635,7 +633,7 @@ static void up_detach(FAR struct uart_dev_s *dev)
  ****************************************************************************/
 
 #ifdef CONFIG_SERIAL_IFLOWCONTROL
-static bool up_rxflowcontrol(FAR struct uart_dev_s *dev,
+static bool up_rxflowcontrol(struct uart_dev_s *dev,
                              unsigned int nbuffered, bool upper)
 {
   up_rxint(dev, !upper);
@@ -655,14 +653,14 @@ static bool up_rxflowcontrol(FAR struct uart_dev_s *dev,
  *
  ****************************************************************************/
 
-static int up_interrupt(int irq, FAR void *context, FAR void *arg)
+static int up_interrupt(int irq, void *context, void *arg)
 {
-  FAR struct uart_dev_s *dev = (FAR struct uart_dev_s *)arg;
-  FAR struct up_dev_s *priv;
+  struct uart_dev_s *dev = (struct uart_dev_s *)arg;
+  struct up_dev_s *priv;
   uint32_t status;
   int passes;
 
-  priv = (FAR struct up_dev_s *)dev->priv;
+  priv = (struct up_dev_s *)dev->priv;
 
   /* Loop until there are no characters to be transferred or,
    * until we have been looping for a long time.
@@ -735,11 +733,11 @@ static int up_interrupt(int irq, FAR void *context, FAR void *arg)
  *
  ****************************************************************************/
 
-static int up_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
+static int up_ioctl(struct file *filep, int cmd, unsigned long arg)
 {
-  FAR struct inode *inode    = filep->f_inode;
-  FAR struct uart_dev_s *dev = inode->i_private;
-  FAR struct up_dev_s *priv  = (FAR struct up_dev_s *)dev->priv;
+  struct inode *inode    = filep->f_inode;
+  struct uart_dev_s *dev = inode->i_private;
+  struct up_dev_s *priv  = (struct up_dev_s *)dev->priv;
   int ret                = OK;
 
   switch (cmd)
@@ -747,7 +745,7 @@ static int up_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 #ifdef CONFIG_SERIAL_TIOCSERGSTRUCT
       case TIOCSERGSTRUCT:
         {
-          FAR struct up_dev_s *user = (FAR struct up_dev_s *)arg;
+          struct up_dev_s *user = (struct up_dev_s *)arg;
           if (!user)
             {
               ret = -EINVAL;
@@ -763,7 +761,7 @@ static int up_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 #ifdef CONFIG_SERIAL_TERMIOS
       case TCGETS:
         {
-          FAR struct termios *termiosp = (FAR struct termios *)arg;
+          struct termios *termiosp = (struct termios *)arg;
           irqstate_t flags;
 
           if (!termiosp)
@@ -812,7 +810,7 @@ static int up_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 
       case TCSETS:
         {
-          FAR struct termios *termiosp = (FAR struct termios *)arg;
+          struct termios *termiosp = (struct termios *)arg;
           irqstate_t flags;
 
           if (!termiosp)
@@ -912,9 +910,9 @@ static int up_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
  *
  ****************************************************************************/
 
-static int up_receive(FAR struct uart_dev_s *dev, FAR unsigned int *status)
+static int up_receive(struct uart_dev_s *dev, unsigned int *status)
 {
-  FAR struct up_dev_s *priv = (struct up_dev_s *)dev->priv;
+  struct up_dev_s *priv = (struct up_dev_s *)dev->priv;
   uint32_t rbr;
 
   rbr     = up_serialin(priv, CXD56_UART_DR);
@@ -930,9 +928,9 @@ static int up_receive(FAR struct uart_dev_s *dev, FAR unsigned int *status)
  *
  ****************************************************************************/
 
-static void up_rxint(FAR struct uart_dev_s *dev, bool enable)
+static void up_rxint(struct uart_dev_s *dev, bool enable)
 {
-  FAR struct up_dev_s *priv = (FAR struct up_dev_s *)dev->priv;
+  struct up_dev_s *priv = (struct up_dev_s *)dev->priv;
   irqstate_t flags;
 
   flags = spin_lock_irqsave(&priv->lock);
@@ -959,9 +957,9 @@ static void up_rxint(FAR struct uart_dev_s *dev, bool enable)
  *
  ****************************************************************************/
 
-static bool up_rxavailable(FAR struct uart_dev_s *dev)
+static bool up_rxavailable(struct uart_dev_s *dev)
 {
-  FAR struct up_dev_s *priv = (FAR struct up_dev_s *)dev->priv;
+  struct up_dev_s *priv = (struct up_dev_s *)dev->priv;
   return ((up_serialin(priv, CXD56_UART_FR) & UART_FLAG_RXFE) == 0);
 }
 
@@ -973,9 +971,9 @@ static bool up_rxavailable(FAR struct uart_dev_s *dev)
  *
  ****************************************************************************/
 
-static void up_send(FAR struct uart_dev_s *dev, int ch)
+static void up_send(struct uart_dev_s *dev, int ch)
 {
-  FAR struct up_dev_s *priv = (FAR struct up_dev_s *)dev->priv;
+  struct up_dev_s *priv = (struct up_dev_s *)dev->priv;
   up_serialout(priv, CXD56_UART_DR, (uint32_t)ch);
 }
 
@@ -987,9 +985,9 @@ static void up_send(FAR struct uart_dev_s *dev, int ch)
  *
  ****************************************************************************/
 
-static void up_txint(FAR struct uart_dev_s *dev, bool enable)
+static void up_txint(struct uart_dev_s *dev, bool enable)
 {
-  FAR struct up_dev_s *priv = (FAR struct up_dev_s *)dev->priv;
+  struct up_dev_s *priv = (struct up_dev_s *)dev->priv;
   irqstate_t flags;
 
   flags = spin_lock_irqsave(&priv->lock);
@@ -1029,9 +1027,9 @@ static void up_txint(FAR struct uart_dev_s *dev, bool enable)
  *
  ****************************************************************************/
 
-static bool up_txready(FAR struct uart_dev_s *dev)
+static bool up_txready(struct uart_dev_s *dev)
 {
-  FAR struct up_dev_s *priv = (FAR struct up_dev_s *)dev->priv;
+  struct up_dev_s *priv = (struct up_dev_s *)dev->priv;
   return ((up_serialin(priv, CXD56_UART_FR) & UART_FLAG_TXFF) == 0);
 }
 
@@ -1043,9 +1041,9 @@ static bool up_txready(FAR struct uart_dev_s *dev)
  *
  ****************************************************************************/
 
-static bool up_txempty(FAR struct uart_dev_s *dev)
+static bool up_txempty(struct uart_dev_s *dev)
 {
-  FAR struct up_dev_s *priv = (FAR struct up_dev_s *)dev->priv;
+  struct up_dev_s *priv = (struct up_dev_s *)dev->priv;
   uint32_t rbr = 0;
   rbr = up_serialin(priv, CXD56_UART_FR);
   return (((rbr & UART_FLAG_TXFE) != 0) && ((rbr & UART_FLAG_BUSY) == 0));

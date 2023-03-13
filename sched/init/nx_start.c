@@ -35,37 +35,29 @@
 #include <nuttx/sched.h>
 #include <nuttx/fs/fs.h>
 #include <nuttx/net/net.h>
-#include <nuttx/lib/lib.h>
 #include <nuttx/mm/iob.h>
 #include <nuttx/mm/mm.h>
-#include <nuttx/mm/shm.h>
 #include <nuttx/kmalloc.h>
+#include <nuttx/pgalloc.h>
 #include <nuttx/sched_note.h>
-#include <nuttx/syslog/syslog.h>
 #include <nuttx/binfmt/binfmt.h>
+#include <nuttx/drivers/drivers.h>
 #include <nuttx/init.h>
-#include <nuttx/tls.h>
 
 #include "sched/sched.h"
 #include "signal/signal.h"
-#include "wdog/wdog.h"
 #include "semaphore/semaphore.h"
-#ifndef CONFIG_DISABLE_MQUEUE
-#  include "mqueue/mqueue.h"
-#endif
+#include "mqueue/mqueue.h"
 #include "clock/clock.h"
 #include "timer/timer.h"
 #include "irq/irq.h"
 #include "group/group.h"
 #include "init/init.h"
+#include "tls/tls.h"
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
-
-#ifndef CONFIG_SMP_NCPUS
-#  define CONFIG_SMP_NCPUS       1
-#endif
 
 /* This set of all CPUs */
 
@@ -197,8 +189,7 @@ volatile pid_t g_lastpid;
  * 2. Is used to quickly map a process ID into a TCB.
  */
 
-FAR struct pidhash_s *g_pidhash;
-
+FAR struct tcb_s **g_pidhash;
 volatile int g_npidhash;
 
 /* This is a table of task lists.  This table is indexed by the task stat
@@ -350,31 +341,6 @@ void nx_start(void)
 
   /* Initialize RTOS Data ***************************************************/
 
-  /* Initialize all task lists */
-
-  dq_init(&g_readytorun);
-  dq_init(&g_pendingtasks);
-  dq_init(&g_waitingforsemaphore);
-  dq_init(&g_waitingforsignal);
-#ifndef CONFIG_DISABLE_MQUEUE
-  dq_init(&g_waitingformqnotfull);
-  dq_init(&g_waitingformqnotempty);
-#endif
-#ifdef CONFIG_PAGING
-  dq_init(&g_waitingforfill);
-#endif
-#ifdef CONFIG_SIG_SIGSTOP_ACTION
-  dq_init(&g_stoppedtasks);
-#endif
-  dq_init(&g_inactivetasks);
-
-#ifdef CONFIG_SMP
-  for (i = 0; i < CONFIG_SMP_NCPUS; i++)
-    {
-      dq_init(&g_assignedtasks[i]);
-    }
-#endif
-
   /* Initialize the IDLE task TCB *******************************************/
 
   for (i = 0; i < CONFIG_SMP_NCPUS; i++)
@@ -442,8 +408,7 @@ void nx_start(void)
       snprintf(g_idletcb[i].cmn.name, CONFIG_TASK_NAME_SIZE, "CPU%d IDLE",
                i);
 #  else
-      strncpy(g_idletcb[i].cmn.name, g_idlename, CONFIG_TASK_NAME_SIZE);
-      g_idletcb[i].cmn.name[CONFIG_TASK_NAME_SIZE] = '\0';
+      strlcpy(g_idletcb[i].cmn.name, g_idlename, CONFIG_TASK_NAME_SIZE);
 #  endif
 
       /* Configure the task name in the argument list.  The IDLE task does
@@ -454,12 +419,10 @@ void nx_start(void)
        * stack and there is no support that yet.
        */
 
-      g_idleargv[i][0]  = g_idletcb[i].cmn.name;
+      g_idleargv[i][0] = g_idletcb[i].cmn.name;
 #else
-      g_idleargv[i][0]  = (FAR char *)g_idlename;
+      g_idleargv[i][0] = (FAR char *)g_idlename;
 #endif /* CONFIG_TASK_NAME_SIZE */
-      g_idleargv[i][1]  = NULL;
-      g_idletcb[i].argv = &g_idleargv[i][0];
 
       /* Then add the idle task's TCB to the head of the current ready to
        * run list.
@@ -547,31 +510,24 @@ void nx_start(void)
       g_npidhash <<= 1;
     }
 
-  g_pidhash = kmm_malloc(sizeof(struct pidhash_s) * g_npidhash);
+  g_pidhash = kmm_zalloc(sizeof(*g_pidhash) * g_npidhash);
   DEBUGASSERT(g_pidhash);
-
-  for (i = 0; i < g_npidhash; i++)
-    {
-      g_pidhash[i].tcb = NULL;
-      g_pidhash[i].pid = INVALID_PROCESS_ID;
-    }
 
   /* IDLE Group Initialization **********************************************/
 
   for (i = 0; i < CONFIG_SMP_NCPUS; i++)
     {
-      FAR struct tls_info_s *info;
       int hashndx;
 
       /* Assign the process ID(s) of ZERO to the idle task(s) */
 
-      hashndx                = PIDHASH(i);
-      g_pidhash[hashndx].tcb = &g_idletcb[i].cmn;
-      g_pidhash[hashndx].pid = i;
+      hashndx            = PIDHASH(i);
+      g_pidhash[hashndx] = &g_idletcb[i].cmn;
 
       /* Allocate the IDLE group */
 
       DEBUGVERIFY(group_allocate(&g_idletcb[i], g_idletcb[i].cmn.flags));
+      g_idletcb[i].cmn.group->tg_info->argv = &g_idleargv[i][0];
 
 #ifdef CONFIG_SMP
       /* Create a stack for all CPU IDLE threads (except CPU0 which already
@@ -591,16 +547,15 @@ void nx_start(void)
 
       /* Initialize the thread local storage */
 
-      info = up_stack_frame(&g_idletcb[i].cmn, sizeof(struct tls_info_s));
-      DEBUGASSERT(info == g_idletcb[i].cmn.stack_alloc_ptr);
-      info->tl_task = g_idletcb[i].cmn.group->tg_info;
+      tls_init_info(&g_idletcb[i].cmn);
 
       /* Complete initialization of the IDLE group.  Suppress retention
        * of child status in the IDLE group.
        */
 
-      DEBUGVERIFY(group_initialize(&g_idletcb[i]));
-      g_idletcb[i].cmn.group->tg_flags = GROUP_FLAG_NOCLDWAIT;
+      group_initialize(&g_idletcb[i]);
+      g_idletcb[i].cmn.group->tg_flags = GROUP_FLAG_NOCLDWAIT |
+                                         GROUP_FLAG_PRIVILEGED;
     }
 
   g_lastpid = CONFIG_SMP_NCPUS - 1;
@@ -620,6 +575,13 @@ void nx_start(void)
     }
 #endif
 
+  /* Disables context switching because we need take the memory manager
+   * semaphore on this CPU so that it will not be available on the other
+   * CPUs until we have finished initialization.
+   */
+
+  sched_lock();
+
   /* Initialize the file system (needed to support device drivers) */
 
   fs_initialize();
@@ -631,15 +593,6 @@ void nx_start(void)
 #endif
     {
       irq_initialize();
-    }
-
-  /* Initialize the watchdog facility (if included in the link) */
-
-#ifdef CONFIG_HAVE_WEAKFUNCTIONS
-  if (wd_initialize != NULL)
-#endif
-    {
-      wd_initialize();
     }
 
   /* Initialize the POSIX timer facility (if included in the link) */
@@ -686,6 +639,12 @@ void nx_start(void)
   net_initialize();
 #endif
 
+#ifndef CONFIG_BINFMT_DISABLE
+  /* Initialize the binfmt system */
+
+  binfmt_initialize();
+#endif
+
   /* Initialize Hardware Facilities *****************************************/
 
   /* The processor specific details of running the operating system
@@ -695,6 +654,10 @@ void nx_start(void)
    */
 
   up_initialize();
+
+  /* Initialize common drivers */
+
+  drivers_initialize();
 
 #ifdef CONFIG_BOARD_EARLY_INITIALIZE
   /* Call the board-specific up_initialize() extension to support
@@ -710,24 +673,6 @@ void nx_start(void)
   g_nx_initstate = OSINIT_HARDWARE;
 
   /* Setup for Multi-Tasking ************************************************/
-
-#ifdef CONFIG_MM_SHM
-  /* Initialize shared memory support */
-
-  shm_initialize();
-#endif
-
-  /* Initialize the C libraries.  This is done last because the libraries
-   * may depend on the above.
-   */
-
-  lib_initialize();
-
-#ifndef CONFIG_BINFMT_DISABLE
-  /* Initialize the binfmt system */
-
-  binfmt_initialize();
-#endif
 
   /* Announce that the CPU0 IDLE task has started */
 
@@ -754,22 +699,6 @@ void nx_start(void)
         }
     }
 
-  /* Start SYSLOG ***********************************************************/
-
-  /* Late initialization of the system logging device.  Some SYSLOG channel
-   * must be initialized late in the initialization sequence because it may
-   * depend on having IDLE task file structures setup.
-   */
-
-  syslog_initialize();
-
-  /* Disables context switching beacuse we need take the memory manager
-   * semaphore on this CPU so that it will not be available on the other
-   * CPUs until we have finished initialization.
-   */
-
-  sched_lock();
-
 #ifdef CONFIG_SMP
   /* Start all CPUs *********************************************************/
 
@@ -793,6 +722,10 @@ void nx_start(void)
 
   DEBUGVERIFY(nx_bringup());
 
+  /* Enter to idleloop */
+
+  g_nx_initstate = OSINIT_IDLELOOP;
+
   /* Let other threads have access to the memory manager */
 
   sched_unlock();
@@ -804,35 +737,6 @@ void nx_start(void)
   sinfo("CPU0: Beginning Idle Loop\n");
   for (; ; )
     {
-#if defined(CONFIG_STACK_COLORATION) && CONFIG_STACK_USAGE_SAFE_PERCENT > 0
-
-      /* Check stack in idle thread */
-
-      for (i = 0; i < g_npidhash; i++)
-        {
-          FAR struct tcb_s *tcb;
-          irqstate_t flags;
-
-          flags = enter_critical_section();
-
-          tcb = g_pidhash[i].tcb;
-          if (tcb && (up_check_tcbstack(tcb) * 100 / tcb->adj_stack_size
-                      > CONFIG_STACK_USAGE_SAFE_PERCENT))
-            {
-              _alert("Stack check failed, pid %d, name %s\n",
-                      tcb->pid, tcb->name);
-              PANIC();
-            }
-
-          leave_critical_section(flags);
-        }
-
-#endif
-
-      /* Check heap in idle thread */
-
-      kmm_checkcorruption();
-
       /* Perform any processor-specific idle state operations */
 
       up_idle();

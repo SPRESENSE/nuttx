@@ -92,6 +92,7 @@ Configurations
        - Syslog with process name, priority, and timestamp
        - Process Snapshot with stack usage, cpu usage, and signal information
        - Interrupt Statistics
+       - procfs filesystem (required for ifconfig, ifup/ifdown)
 
       Networking:
        - IPv4 Networking
@@ -237,8 +238,6 @@ nsh> cat /mnt/sda/afile
 This will stay on the USB drive
 nsh> 
 ```
-
-
 
 ```
 ❯ telnet 192.168.86.249

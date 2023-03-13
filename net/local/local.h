@@ -118,20 +118,7 @@ struct local_conn_s
 {
   /* Common prologue of all connection structures. */
 
-  /* lc_node supports a doubly linked list: Listening SOCK_STREAM servers
-   * will be linked into a list of listeners; SOCK_STREAM clients will be
-   * linked to the lc_conn lists.
-   */
-
-  dq_entry_t lc_node;          /* Supports a doubly linked list */
-
-  /* This is a list of Local connection callbacks.  Each callback represents
-   * a thread that is stalled, waiting for a device-specific event.
-   * REVISIT:  Here for commonality with other connection structures; not
-   * used in the current implementation.
-   */
-
-  FAR struct devif_callback_s *lc_list;
+  struct socket_conn_s lc_conn;
 
   /* Local-socket specific content follows */
 
@@ -158,6 +145,7 @@ struct local_conn_s
   /* SOCK_STREAM fields common to both client and server */
 
   sem_t lc_waitsem;            /* Use to wait for a connection to be accepted */
+  sem_t lc_donesem;            /* Use to wait for client connected done */
   FAR struct socket *lc_psock; /* A reference to the socket structure */
 
   /* The following is a list if poll structures of threads waiting for
@@ -215,17 +203,6 @@ EXTERN const struct sock_intf_s g_local_sockif;
 
 struct sockaddr; /* Forward reference */
 struct socket;   /* Forward reference */
-
-/****************************************************************************
- * Name: local_initialize
- *
- * Description:
- *   Initialize the local, Unix domain connection structures.  Called once
- *   and only from the common network initialization logic.
- *
- ****************************************************************************/
-
-void local_initialize(void);
 
 /****************************************************************************
  * Name: local_alloc

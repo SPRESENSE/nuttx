@@ -149,7 +149,6 @@ static int nsh_waiter(int argc, char *argv[])
 #ifdef NSH_HAVE_USBHOST
 static int nsh_usbhostinitialize(void)
 {
-  int pid;
   int ret;
 
   /* First, register all of the class drivers needed to support the drivers
@@ -210,11 +209,11 @@ static int nsh_usbhostinitialize(void)
 
       syslog(LOG_INFO, "Start nsh_waiter\n");
 
-      pid = kthread_create("usbhost", CONFIG_USBHOST_DEFPRIO,
+      ret = kthread_create("usbhost", CONFIG_USBHOST_DEFPRIO,
                            CONFIG_USBHOST_STACKSIZE,
                            (main_t)nsh_waiter, (FAR char * const *)NULL);
-      syslog(LOG_INFO, "USBHost: Created pid = %d\n", pid);
-      return pid < 0 ? -ENOEXEC : OK;
+      syslog(LOG_INFO, "USBHost: Created pid = %d\n", ret);
+      return ret < 0 ? -ENOEXEC : OK;
     }
 
   return -ENODEV;
@@ -383,13 +382,13 @@ int rx65n_bringup(void)
 #ifdef CONFIG_RX65N_SBRAM
   /* Initialize battery-backed RAM */
 
-  (void)rx65n_sbram_int();
+  rx65n_sbram_int();
 #endif
 
 #ifdef HAVE_DTC_DRIVER
   /* Initialize DTC */
 
-  (void)rx65n_dtc_initialize();
+  rx65n_dtc_initialize();
 #endif
 
 #if defined(CONFIG_USBHOST)
@@ -397,7 +396,7 @@ int rx65n_bringup(void)
 #endif
 
 #ifdef CONFIG_RX65N_RSPI
-  (void)rx65n_rspi_initialize();
+  rx65n_rspi_initialize();
 #endif
 
 #if defined(CONFIG_CDCACM) && !defined(CONFIG_CDCACM_CONSOLE)

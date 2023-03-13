@@ -43,9 +43,7 @@
 #  include <termios.h>
 #endif
 
-#include "arm_arch.h"
 #include "arm_internal.h"
-
 #include "chip.h"
 #include "stm32_gpio.h"
 #include "hardware/stm32_pinmap.h"
@@ -333,9 +331,6 @@
 #if defined(CONFIG_PM) && !defined(CONFIG_STM32F7_PM_SERIAL_ACTIVITY)
 #  define CONFIG_STM32F7_PM_SERIAL_ACTIVITY 10
 #endif
-#if defined(CONFIG_PM)
-#  define PM_IDLE_DOMAIN             0 /* Revisit */
-#endif
 
 /* Since RX DMA or TX DMA or both may be enabled for a given U[S]ART.
  * We need runtime detection in up_dma_setup and up_dma_shutdown
@@ -530,7 +525,7 @@ static int  up_setup(struct uart_dev_s *dev);
 static void up_shutdown(struct uart_dev_s *dev);
 static int  up_attach(struct uart_dev_s *dev);
 static void up_detach(struct uart_dev_s *dev);
-static int  up_interrupt(int irq, void *context, FAR void *arg);
+static int  up_interrupt(int irq, void *context, void *arg);
 static int  up_ioctl(struct file *filep, int cmd, unsigned long arg);
 #if !defined(SERIAL_HAVE_ONLY_DMA)
 static int  up_receive(struct uart_dev_s *dev, unsigned int *status);
@@ -1702,7 +1697,7 @@ static void up_setsuspend(struct uart_dev_s *dev, bool suspend)
         }
 
 #ifdef SERIAL_HAVE_RXDMA
-      if (priv->dev.ops == &g_uart_dma_ops && !priv->rxdmasusp)
+      if (priv->dev.ops == &g_uart_rxdma_ops && !priv->rxdmasusp)
         {
           /* Suspend Rx DMA. */
 
@@ -1714,7 +1709,7 @@ static void up_setsuspend(struct uart_dev_s *dev, bool suspend)
   else
     {
 #ifdef SERIAL_HAVE_RXDMA
-      if (priv->dev.ops == &g_uart_dma_ops && priv->rxdmasusp)
+      if (priv->dev.ops == &g_uart_rxdma_ops && priv->rxdmasusp)
         {
           /* Re-enable DMA. */
 
@@ -2260,7 +2255,7 @@ static void up_detach(struct uart_dev_s *dev)
  *
  ****************************************************************************/
 
-static int up_interrupt(int irq, void *context, FAR void *arg)
+static int up_interrupt(int irq, void *context, void *arg)
 {
   struct up_dev_s *priv = (struct up_dev_s *)arg;
   int  passes;
@@ -2391,7 +2386,7 @@ static int up_ioctl(struct file *filep, int cmd, unsigned long arg)
 #if defined(CONFIG_SERIAL_TERMIOS) || defined(CONFIG_STM32F7_SERIALBRK_BSDCOMPAT)
   struct up_dev_s   *priv  = (struct up_dev_s *)dev->priv;
 #endif
-  int                ret    = OK;
+  int                ret   = OK;
 
   switch (cmd)
     {
@@ -3330,6 +3325,7 @@ static void up_txint(struct uart_dev_s *dev, bool enable)
 #  ifdef CONFIG_STM32_SERIALBRK_BSDCOMPAT
       if (priv->ie & USART_CR1_IE_BREAK_INPROGRESS)
         {
+          leave_critical_section(flags);
           return;
         }
 #  endif

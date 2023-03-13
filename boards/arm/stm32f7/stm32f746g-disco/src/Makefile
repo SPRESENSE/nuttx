@@ -40,10 +40,6 @@ ifeq ($(CONFIG_ADC),y)
 CSRCS += stm32_adc.c
 endif
 
-ifeq ($(CONFIG_ARCH_FPU),y)
-CSRCS += stm32_ostest.c
-endif
-
 ifeq ($(CONFIG_SPORADIC_INSTRUMENTATION),y)
 CSRCS += stm32_sporadic.c
 endif
@@ -64,11 +60,11 @@ ifeq ($(CONFIG_MTD_N25QXXX),y)
 CSRCS += stm32_n25q.c
 endif
 
-ifeq ($(CONFIG_STM32F7_SDMMC), y)
+ifeq ($(CONFIG_STM32F7_SDMMC),y)
 CSRCS += stm32_sdmmc.c
 endif
 
-ifeq ($(CONFIG_AUDIO_WM8994), y)
+ifeq ($(CONFIG_AUDIO_WM8994),y)
 CSRCS += stm32_wm8994.c
 endif
 

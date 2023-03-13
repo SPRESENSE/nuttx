@@ -33,7 +33,7 @@
 #include <nuttx/spi/spi.h>
 #include <arch/board/board.h>
 
-#include "arm_arch.h"
+#include "arm_internal.h"
 #include "chip.h"
 #include "sam_gpio.h"
 #include "sam_spi.h"
@@ -154,7 +154,7 @@ void sam_spi0select(uint32_t devid, bool selected)
  *
  ****************************************************************************/
 
-uint8_t sam_spi0status(FAR struct spi_dev_s *dev, uint32_t devid)
+uint8_t sam_spi0status(struct spi_dev_s *dev, uint32_t devid)
 {
   spiinfo("Returning nothing\n");
   return 0;
@@ -185,7 +185,7 @@ uint8_t sam_spi0status(FAR struct spi_dev_s *dev, uint32_t devid)
  ****************************************************************************/
 
 #ifdef CONFIG_SPI_CMDDATA
-int sam_spi0cmddata(FAR struct spi_dev_s *dev, uint32_t devid, bool cmd)
+int sam_spi0cmddata(struct spi_dev_s *dev, uint32_t devid, bool cmd)
 {
   spiinfo("devid: %08x %s\n", (unsigned int)devid, cmd ? "cmd" : "data");
 

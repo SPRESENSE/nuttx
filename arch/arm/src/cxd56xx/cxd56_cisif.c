@@ -36,7 +36,7 @@
 
 #include <arch/chip/cisif.h>
 #include <nuttx/video/imgdata.h>
-#include "arm_arch.h"
+#include "arm_internal.h"
 
 #include "cxd56_pinconfig.h"
 #include "cxd56_clock.h"
@@ -200,7 +200,7 @@ static int cisif_set_jpg_sarea(uint8_t *addr, uint32_t size);
 static int cisif_set_intlev_sarea(uint8_t *addr,
                                   uint32_t total_size,
                                   uint32_t yuv_size);
-static int cisif_intc_handler(int irq, FAR void *context, FAR void *arg);
+static int cisif_intc_handler(int irq, void *context, void *arg);
 
 /* video image data operations */
 
@@ -208,12 +208,12 @@ static int cxd56_cisif_init(void);
 static int cxd56_cisif_uninit(void);
 static int cxd56_cisif_validate_frame_setting
              (uint8_t nr_datafmt,
-              FAR imgdata_format_t *datafmt,
-              FAR imgdata_interval_t *interval);
+              imgdata_format_t *datafmt,
+              imgdata_interval_t *interval);
 static int cxd56_cisif_start_capture
              (uint8_t nr_datafmt,
-              FAR imgdata_format_t *datafmt,
-              FAR imgdata_interval_t *interval,
+              imgdata_format_t *datafmt,
+              imgdata_interval_t *interval,
               imgdata_capture_t callback);
 static int cxd56_cisif_stop_capture(void);
 static int cxd56_cisif_validate_buf(uint8_t *addr, uint32_t size);
@@ -272,7 +272,7 @@ static uint64_t cisif_get_msec_time(void)
 {
   struct timespec tp;
 
-  if (clock_gettime(CLOCK_REALTIME, &tp))
+  if (clock_systime_timespec(&tp) < 0)
     {
       return 0;
     }
@@ -516,7 +516,7 @@ static void cisif_jpg_err_int(uint8_t code)
  * cisif_intc_handler
  ****************************************************************************/
 
-static int cisif_intc_handler(int irq, FAR void *context, FAR void *arg)
+static int cisif_intc_handler(int irq, void *context, void *arg)
 {
   uint32_t value;
   uint32_t enable;
@@ -841,8 +841,8 @@ static int cxd56_cisif_uninit(void)
 
 static int cxd56_cisif_start_capture
              (uint8_t nr_fmt,
-              FAR imgdata_format_t *fmt,
-              FAR imgdata_interval_t *interval,
+              imgdata_format_t *fmt,
+              imgdata_interval_t *interval,
               imgdata_capture_t callback)
 {
   cisif_param_t param =
@@ -1013,8 +1013,8 @@ static int cxd56_cisif_set_buf(uint8_t *addr, uint32_t size)
 
 static int cxd56_cisif_validate_frame_setting
              (uint8_t nr_datafmt,
-              FAR imgdata_format_t *datafmt,
-              FAR imgdata_interval_t *interval)
+              imgdata_format_t *datafmt,
+              imgdata_interval_t *interval)
 {
   int ret = OK;
 

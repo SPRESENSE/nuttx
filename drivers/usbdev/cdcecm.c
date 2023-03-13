@@ -43,7 +43,6 @@
 #include <nuttx/arch.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/irq.h>
-#include <nuttx/wdog.h>
 #include <nuttx/wqueue.h>
 #include <nuttx/semaphore.h>
 #include <nuttx/net/arp.h>
@@ -90,19 +89,13 @@
 #  define CONFIG_CDCECM_NINTERFACES 1
 #endif
 
-/* TX poll delay = 1 seconds.
- * CLK_TCK is the number of clock ticks per second
- */
-
-#define CDCECM_WDDELAY   (1*CLK_TCK)
-
 /* TX timeout = 1 minute */
 
 #define CDCECM_TXTIMEOUT (60*CLK_TCK)
 
 /* This is a helper pointer for accessing the contents of Ethernet header */
 
-#define BUF ((struct eth_hdr_s *)self->dev.d_buf)
+#define BUF ((FAR struct eth_hdr_s *)self->dev.d_buf)
 
 /****************************************************************************
  * Private Types
@@ -124,8 +117,8 @@ struct cdcecm_driver_s
   FAR struct usbdev_ep_s      *epbulkout;   /* Bulk OUT endpoint */
   uint8_t                      config;      /* Selected configuration number */
 
-  uint8_t                      pktbuf[CONFIG_NET_ETH_PKTSIZE +
-                                      CONFIG_NET_GUARDSIZE];
+  uint16_t                     pktbuf[(CONFIG_NET_ETH_PKTSIZE +
+                                       CONFIG_NET_GUARDSIZE + 1) / 2];
 
   struct usbdev_req_s         *rdreq;       /* Single read request */
   bool                         rxpending;   /* Packet available in rdreq */
@@ -137,7 +130,6 @@ struct cdcecm_driver_s
   /* Network device */
 
   bool                         bifup;       /* true:ifup false:ifdown */
-  struct wdog_s                txpoll;      /* TX poll timer */
   struct work_s                irqwork;     /* For deferring interrupt work
                                              * to the work queue */
   struct work_s                pollwork;    /* For deferring poll work to
@@ -168,11 +160,6 @@ static void cdcecm_receive(FAR struct cdcecm_driver_s *priv);
 static void cdcecm_txdone(FAR struct cdcecm_driver_s *priv);
 
 static void cdcecm_interrupt_work(FAR void *arg);
-
-/* Watchdog timer expirations */
-
-static void cdcecm_poll_work(FAR void *arg);
-static void cdcecm_poll_expiry(wdparm_t arg);
 
 /* NuttX callback functions */
 
@@ -536,7 +523,7 @@ static void cdcecm_receive(FAR struct cdcecm_driver_s *self)
   else
 #endif
 #ifdef CONFIG_NET_ARP
-  if (BUF->type == htons(ETHTYPE_ARP))
+  if (BUF->type == HTONS(ETHTYPE_ARP))
     {
       /* Dispatch ARP packet to the network layer */
 
@@ -647,79 +634,6 @@ static void cdcecm_interrupt_work(FAR void *arg)
 }
 
 /****************************************************************************
- * Name: cdcecm_poll_work
- *
- * Description:
- *   Perform periodic polling from the worker thread
- *
- * Input Parameters:
- *   arg - The argument passed when work_queue() as called.
- *
- * Returned Value:
- *   OK on success
- *
- * Assumptions:
- *   Run on a work queue thread.
- *
- ****************************************************************************/
-
-static void cdcecm_poll_work(FAR void *arg)
-{
-  FAR struct cdcecm_driver_s *self = (FAR struct cdcecm_driver_s *)arg;
-
-  ninfo("rxpending: %d, txdone: %d\n", self->rxpending, self->txdone);
-
-  /* Lock the network and serialize driver operations if necessary.
-   * NOTE: Serialization is only required in the case where the driver work
-   * is performed on an LP worker thread and where more than one LP worker
-   * thread has been configured.
-   */
-
-  net_lock();
-
-  /* Perform the poll.  We are always able to accept another packet, since
-   * cdcecm_transmit will just wait until the USB device write request will
-   * become available.
-   */
-
-  devif_timer(&self->dev, CDCECM_WDDELAY, cdcecm_txpoll);
-
-  /* Setup the watchdog poll timer again */
-
-  wd_start(&self->txpoll, CDCECM_WDDELAY,
-           cdcecm_poll_expiry, (wdparm_t)self);
-
-  net_unlock();
-}
-
-/****************************************************************************
- * Name: cdcecm_poll_expiry
- *
- * Description:
- *   Periodic timer handler.  Called from the timer interrupt handler.
- *
- * Input Parameters:
- *   arg  - The argument
- *
- * Returned Value:
- *   None
- *
- * Assumptions:
- *   Runs in the context of a the timer interrupt handler.  Local
- *   interrupts are disabled by the interrupt logic.
- *
- ****************************************************************************/
-
-static void cdcecm_poll_expiry(wdparm_t arg)
-{
-  FAR struct cdcecm_driver_s *priv = (FAR struct cdcecm_driver_s *)arg;
-
-  /* Schedule to perform the interrupt processing on the worker thread. */
-
-  work_queue(ETHWORK, &priv->pollwork, cdcecm_poll_work, priv, 0);
-}
-
-/****************************************************************************
  * Name: cdcecm_ifup
  *
  * Description:
@@ -766,11 +680,6 @@ static int cdcecm_ifup(FAR struct net_driver_s *dev)
   cdcecm_ipv6multicast(priv);
 #endif
 
-  /* Set and activate a timer process */
-
-  wd_start(&priv->txpoll, CDCECM_WDDELAY,
-           cdcecm_poll_expiry, (wdparm_t)priv);
-
   priv->bifup = true;
   return OK;
 }
@@ -801,10 +710,6 @@ static int cdcecm_ifdown(FAR struct net_driver_s *dev)
   /* Disable the Ethernet interrupt */
 
   flags = enter_critical_section();
-
-  /* Cancel the TX poll timer and TX timeout timers */
-
-  wd_cancel(&priv->txpoll);
 
   /* Put the EMAC in its reset, non-operational state.  This should be
    * a known configuration that will guarantee the cdcecm_ifup() always
@@ -851,7 +756,7 @@ static void cdcecm_txavail_work(FAR void *arg)
 
   if (self->bifup)
     {
-      devif_timer(&self->dev, 0, cdcecm_txpoll);
+      devif_poll(&self->dev, cdcecm_txpoll);
     }
 
   net_unlock();
@@ -1365,7 +1270,8 @@ static int cdcecm_setinterface(FAR struct cdcecm_driver_s *self,
 
 static int cdcecm_mkstrdesc(uint8_t id, FAR struct usb_strdesc_s *strdesc)
 {
-  const char *str;
+  FAR uint8_t *data = (FAR uint8_t *)(strdesc + 1);
+  FAR const char *str;
   int len;
   int ndata;
   int i;
@@ -1377,10 +1283,10 @@ static int cdcecm_mkstrdesc(uint8_t id, FAR struct usb_strdesc_s *strdesc)
       {
         /* Descriptor 0 is the language id */
 
-        strdesc->len     = 4;
-        strdesc->type    = USB_DESC_TYPE_STRING;
-        strdesc->data[0] = LSBYTE(CDCECM_STR_LANGUAGE);
-        strdesc->data[1] = MSBYTE(CDCECM_STR_LANGUAGE);
+        strdesc->len  = 4;
+        strdesc->type = USB_DESC_TYPE_STRING;
+        data[0] = LSBYTE(CDCECM_STR_LANGUAGE);
+        data[1] = MSBYTE(CDCECM_STR_LANGUAGE);
         return 4;
       }
 
@@ -1426,8 +1332,8 @@ static int cdcecm_mkstrdesc(uint8_t id, FAR struct usb_strdesc_s *strdesc)
 
   for (i = 0, ndata = 0; i < len; i++, ndata += 2)
     {
-      strdesc->data[ndata]     = str[i];
-      strdesc->data[ndata + 1] = 0;
+      data[ndata]     = str[i];
+      data[ndata + 1] = 0;
     }
 
   strdesc->len  = ndata + 2;
@@ -1502,7 +1408,7 @@ static void cdcecm_mkepdesc(int epidx,
         break;
 
       default:
-        DEBUGASSERT(false);
+        DEBUGPANIC();
     }
 }
 
@@ -2103,7 +2009,7 @@ static int cdcecm_classobject(int minor,
 
   /* Network device initialization */
 
-  self->dev.d_buf     = self->pktbuf;
+  self->dev.d_buf     = (uint8_t *)self->pktbuf;
   self->dev.d_ifup    = cdcecm_ifup;     /* I/F up (new IP address) callback */
   self->dev.d_ifdown  = cdcecm_ifdown;   /* I/F down callback */
   self->dev.d_txavail = cdcecm_txavail;  /* New TX data callback */

@@ -38,7 +38,6 @@
 #  include <nuttx/lastkmsg.h>
 #endif /* CONFIG_LASTKMSG */
 
-#include "arm_arch.h"
 #include "arm_internal.h"
 #include "nvic.h"
 #include <arch/board/board.h>
@@ -128,7 +127,7 @@ extern uint32_t _svect;
  ****************************************************************************/
 
 /****************************************************************************
- * Name: _start
+ * Name: __start
  *
  * Description:
  *   This is the reset entry point.

@@ -29,6 +29,7 @@
 
 #ifndef __ASSEMBLY__
 #  include <nuttx/compiler.h>
+#  include <nuttx/irq.h>
 #  include <sys/types.h>
 #  include <stdint.h>
 #endif
@@ -63,6 +64,22 @@
 #  endif
 #endif
 
+/* LM32 requires at least a 4-byte stack alignment.  For floating point use,
+ * however, the stack must be aligned to 8-byte addresses.
+ */
+
+#ifdef CONFIG_LIBC_FLOATINGPOINT
+#  define STACK_ALIGNMENT   8
+#else
+#  define STACK_ALIGNMENT   4
+#endif
+
+/* Stack alignment macros */
+
+#define STACK_ALIGN_MASK    (STACK_ALIGNMENT - 1)
+#define STACK_ALIGN_DOWN(a) ((a) & ~STACK_ALIGN_MASK)
+#define STACK_ALIGN_UP(a)   (((a) + STACK_ALIGN_MASK) & ~STACK_ALIGN_MASK)
+
 /****************************************************************************
  * Public Types
  ****************************************************************************/
@@ -73,7 +90,6 @@
 
 #ifndef __ASSEMBLY__
 
-extern volatile uint32_t *g_current_regs;
 extern uint32_t g_idle_topstack;
 
 /****************************************************************************
@@ -88,12 +104,6 @@ extern uint32_t g_idle_topstack;
 
 void lm32_board_initialize(void);
 
-/* Memory allocation ********************************************************/
-
-#if CONFIG_MM_REGIONS > 1
-void lm32_add_region(void);
-#endif
-
 /* Context switching ********************************************************/
 
 void lm32_copystate(uint32_t *dest, uint32_t *src);
@@ -105,19 +115,7 @@ uint32_t *lm32_doirq(int irq, uint32_t *regs);
 
 /* Software interrupts ******************************************************/
 
-int lm32_swint(int irq, FAR void *context, FAR void *arg);
-
-/* Rpmsg serial *************************************************************/
-
-#ifdef CONFIG_RPMSG_UART
-void rpmsg_serialinit(void);
-#else
-#  define rpmsg_serialinit()
-#endif
-
-/* System timer *************************************************************/
-
-void lm32_timer_initialize(void);
+int lm32_swint(int irq, void *context, void *arg);
 
 /* Signal handling **********************************************************/
 

@@ -35,12 +35,12 @@ ifeq ($(CONFIG_MMCSD),y)
 CSRCS += esp32_mmcsd.c
 endif
 
-ifeq ($(CONFIG_ESP32_SPIFLASH),y)
-CSRCS += esp32_spiflash.c
-endif
-
 ifeq ($(CONFIG_DEV_GPIO),y)
 CSRCS += esp32_gpio.c
+endif
+
+ifeq ($(CONFIG_PWM),y)
+CSRCS += esp32_ledc.c
 endif
 
 ifeq ($(CONFIG_USERLED),y)
@@ -49,6 +49,10 @@ endif
 
 ifeq ($(CONFIG_ARCH_BUTTONS),y)
 CSRCS += esp32_buttons.c
+endif
+
+ifeq ($(CONFIG_ESP32_TWAI),y)
+CSRCS += esp32_twai.c
 endif
 
 SCRIPTOUT = $(BOARD_DIR)$(DELIM)scripts$(DELIM)esp32_out.ld
@@ -62,7 +66,6 @@ context:: $(SCRIPTOUT)
 
 distclean::
 	$(call DELFILE, $(SCRIPTOUT))
-	$(call DELFILE, $(TOPDIR)/esp32_qemu_img.bin)
 
 DEPPATH += --dep-path board
 VPATH += :board

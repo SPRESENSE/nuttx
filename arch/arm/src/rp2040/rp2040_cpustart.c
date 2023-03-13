@@ -36,11 +36,9 @@
 #include <nuttx/sched_note.h>
 
 #include "nvic.h"
-#include "arm_arch.h"
 #include "sched/sched.h"
 #include "init/init.h"
 #include "arm_internal.h"
-
 #include "hardware/rp2040_memorymap.h"
 #include "hardware/rp2040_sio.h"
 #include "hardware/rp2040_psm.h"
@@ -69,7 +67,7 @@
 
 volatile static spinlock_t g_core1_boot;
 
-extern int arm_pause_handler(int irq, void *c, FAR void *arg);
+extern int arm_pause_handler(int irq, void *c, void *arg);
 
 /****************************************************************************
  * Private Functions

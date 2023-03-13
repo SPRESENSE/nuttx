@@ -31,8 +31,13 @@
 #include "chip.h"
 #include "mpfs.h"
 #include "mpfs_clockconfig.h"
+#include "mpfs_ddr.h"
+#include "mpfs_cache.h"
+#include "mpfs_mm_init.h"
 #include "mpfs_userspace.h"
-#include "riscv_arch.h"
+
+#include "riscv_internal.h"
+#include "riscv_percpu.h"
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -42,6 +47,10 @@
 #  define showprogress(c) riscv_lowputc(c)
 #else
 #  define showprogress(c)
+#endif
+
+#if defined (CONFIG_BUILD_KERNEL) && !defined (CONFIG_ARCH_USE_S_MODE)
+#  error "Target requires kernel in S-mode, enable CONFIG_ARCH_USE_S_MODE"
 #endif
 
 /****************************************************************************
@@ -59,9 +68,47 @@
  */
 
 uintptr_t g_idle_topstack = MPFS_IDLESTACK_TOP;
-volatile bool g_serial_ok = false;
 
-extern void mpfs_cpu_boot(uint32_t);
+/* Default boot address for every hart */
+
+#ifdef CONFIG_MPFS_BOOTLOADER
+
+extern void mpfs_opensbi_prepare_hart(void);
+
+const uint64_t g_entrypoints[5] =
+{
+#ifdef CONFIG_MPFS_HART0_SBI
+  (uint64_t)mpfs_opensbi_prepare_hart,
+#else
+  CONFIG_MPFS_HART0_ENTRYPOINT,
+#endif
+
+#ifdef CONFIG_MPFS_HART1_SBI
+  (uint64_t)mpfs_opensbi_prepare_hart,
+#else
+  CONFIG_MPFS_HART1_ENTRYPOINT,
+#endif
+
+#ifdef CONFIG_MPFS_HART2_SBI
+  (uint64_t)mpfs_opensbi_prepare_hart,
+#else
+  CONFIG_MPFS_HART2_ENTRYPOINT,
+#endif
+
+#ifdef CONFIG_MPFS_HART3_SBI
+  (uint64_t)mpfs_opensbi_prepare_hart,
+#else
+  CONFIG_MPFS_HART3_ENTRYPOINT,
+#endif
+
+#ifdef CONFIG_MPFS_HART4_SBI
+  (uint64_t)mpfs_opensbi_prepare_hart,
+#else
+  CONFIG_MPFS_HART4_ENTRYPOINT,
+#endif
+};
+
+#endif
 
 /****************************************************************************
  * Public Functions
@@ -71,10 +118,17 @@ extern void mpfs_cpu_boot(uint32_t);
  * Name: __mpfs_start
  ****************************************************************************/
 
-void __mpfs_start(uint32_t mhartid)
+void __mpfs_start(uint64_t mhartid)
 {
   const uint32_t *src;
   uint32_t *dest;
+
+  /* Configure FPU (hart 0 don't have an FPU) */
+
+  if (mhartid != 0)
+    {
+      riscv_fpuconfig();
+    }
 
   /* Clear .bss.  We'll do this inline (vs. calling memset) just to be
    * certain that there are no issues with the state of global variables.
@@ -96,9 +150,11 @@ void __mpfs_start(uint32_t mhartid)
       *dest++ = *src++;
     }
 
-  /* Setup PLL */
+  /* Setup PLL if not already provided */
 
+#ifdef CONFIG_MPFS_BOOTLOADER
   mpfs_clockconfig();
+#endif
 
   /* Configure the UART so we can get debug output */
 
@@ -110,13 +166,48 @@ void __mpfs_start(uint32_t mhartid)
   riscv_earlyserialinit();
 #endif
 
-  showprogress('B');
+#ifdef CONFIG_MPFS_DDR_INIT
+  if (mpfs_ddr_init() != 0)
+    {
+      /* We don't allow booting, ddr training failure will cause random
+       * behaviour
+       */
 
-  g_serial_ok = true;
+      showprogress('X');
+
+      /* Reset, but let the progress come out of the uart first */
+
+      up_udelay(1000);
+      up_systemreset();
+    }
+#endif
+
+  showprogress('B');
 
   /* Do board initialization */
 
   mpfs_boardinitialize();
+
+#ifdef CONFIG_ARCH_USE_S_MODE
+  /* Initialize the per CPU areas */
+
+  if (mhartid != 0)
+    {
+      riscv_percpu_add_hart(mhartid);
+    }
+#endif /* CONFIG_ARCH_USE_S_MODE */
+
+  /* Initialize the caches.  Should only be executed from E51 (hart 0) to be
+   * functional.  Consider the caches already configured if running without
+   * the CONFIG_MPFS_BOOTLOADER -option.
+   */
+
+#ifdef CONFIG_MPFS_BOOTLOADER
+  if (mhartid == 0)
+    {
+      mpfs_enable_cache();
+    }
+#endif
 
   showprogress('C');
 
@@ -129,6 +220,10 @@ void __mpfs_start(uint32_t mhartid)
 #ifdef CONFIG_BUILD_PROTECTED
   mpfs_userspace();
   showprogress('D');
+#endif
+
+#ifdef CONFIG_BUILD_KERNEL
+  mpfs_mm_init();
 #endif
 
   /* Call nx_start() */

@@ -34,10 +34,17 @@
 
 #include "hardware/stm32g4xxxx_opamp.h"
 
+#if defined(CONFIG_SENSORS_QENCODER) || defined(CONFIG_SENSORS_HALL3PHASE)
+#  include "hardware/stm32g4xxxx_pwr.h"
+#endif
+
 #include "stm32_foc.h"
 
-#include "arm_arch.h"
+#ifdef CONFIG_SENSORS_QENCODER
+#  include "stm32_qencoder.h"
+#endif
 
+#include "arm_internal.h"
 #include "b-g431b-esc1.h"
 
 /****************************************************************************
@@ -169,6 +176,17 @@
 #  error
 #endif
 
+/* Qenco configuration - only TIM4 */
+
+#ifdef CONFIG_SENSORS_QENCODER
+#  ifndef CONFIG_STM32_TIM4_QE
+#    error
+#  endif
+#  if CONFIG_STM32_TIM4_QEPSC != 0
+#    error
+#  endif
+#endif
+
 /****************************************************************************
  * Private Types
  ****************************************************************************/
@@ -177,24 +195,24 @@
  * Private Function Protototypes
  ****************************************************************************/
 
-static int board_foc_setup(FAR struct foc_dev_s *dev);
-static int board_foc_shutdown(FAR struct foc_dev_s *dev);
-static int board_foc_calibration(FAR struct foc_dev_s *dev, bool state);
-static int board_foc_fault_clear(FAR struct foc_dev_s *dev);
-static int board_foc_pwm_start(FAR struct foc_dev_s *dev, bool state);
-static int board_foc_current_get(FAR struct foc_dev_s *dev,
-                                 FAR int16_t *curr_raw,
-                                 FAR foc_current_t *curr);
+static int board_foc_setup(struct foc_dev_s *dev);
+static int board_foc_shutdown(struct foc_dev_s *dev);
+static int board_foc_calibration(struct foc_dev_s *dev, bool state);
+static int board_foc_fault_clear(struct foc_dev_s *dev);
+static int board_foc_pwm_start(struct foc_dev_s *dev, bool state);
+static int board_foc_current_get(struct foc_dev_s *dev,
+                                 int16_t *curr_raw,
+                                 foc_current_t *curr);
 #ifdef CONFIG_MOTOR_FOC_TRACE
-static int board_foc_trace_init(FAR struct foc_dev_s *dev);
-static void board_foc_trace(FAR struct foc_dev_s *dev, int type, bool state);
+static int board_foc_trace_init(struct foc_dev_s *dev);
+static void board_foc_trace(struct foc_dev_s *dev, int type, bool state);
 #endif
 
 /****************************************************************************
  * Private Data
  ****************************************************************************/
 
-/* OPAMP confuguration:
+/* OPAMP configuration:
  *   - connected with ADC through output pin (OPAINTOEN=0)
  *   - Current U+ - OPAMP1_VINP0 (PA1)
  *   - Current U- - OPAMP1_VINP0 (PA3)
@@ -318,7 +336,7 @@ static struct stm32_foc_board_s g_stm32_foc_board =
 
 /* Global pointer to the upper FOC driver */
 
-static FAR struct foc_dev_s *g_foc_dev = NULL;
+static struct foc_dev_s *g_foc_dev = NULL;
 
 /****************************************************************************
  * Private Functions
@@ -328,7 +346,7 @@ static FAR struct foc_dev_s *g_foc_dev = NULL;
  * Name: board_foc_setup
  ****************************************************************************/
 
-static int board_foc_setup(FAR struct foc_dev_s *dev)
+static int board_foc_setup(struct foc_dev_s *dev)
 {
   uint32_t regval = 0;
 
@@ -394,7 +412,7 @@ static int board_foc_setup(FAR struct foc_dev_s *dev)
  * Name: board_foc_shutdown
  ****************************************************************************/
 
-static int board_foc_shutdown(FAR struct foc_dev_s *dev)
+static int board_foc_shutdown(struct foc_dev_s *dev)
 {
   DEBUGASSERT(dev);
 
@@ -407,7 +425,7 @@ static int board_foc_shutdown(FAR struct foc_dev_s *dev)
  * Name: board_foc_calibration
  ****************************************************************************/
 
-static int board_foc_calibration(FAR struct foc_dev_s *dev, bool state)
+static int board_foc_calibration(struct foc_dev_s *dev, bool state)
 {
   DEBUGASSERT(dev);
 
@@ -420,7 +438,7 @@ static int board_foc_calibration(FAR struct foc_dev_s *dev, bool state)
  * Name: board_foc_fault_clear
  ****************************************************************************/
 
-static int board_foc_fault_clear(FAR struct foc_dev_s *dev)
+static int board_foc_fault_clear(struct foc_dev_s *dev)
 {
   DEBUGASSERT(dev);
 
@@ -433,7 +451,7 @@ static int board_foc_fault_clear(FAR struct foc_dev_s *dev)
  * Name: board_foc_pwm_start
  ****************************************************************************/
 
-static int board_foc_pwm_start(FAR struct foc_dev_s *dev, bool state)
+static int board_foc_pwm_start(struct foc_dev_s *dev, bool state)
 {
   DEBUGASSERT(dev);
 
@@ -446,9 +464,9 @@ static int board_foc_pwm_start(FAR struct foc_dev_s *dev, bool state)
  * Name: board_foc_current_get
  ****************************************************************************/
 
-static int board_foc_current_get(FAR struct foc_dev_s *dev,
-                                 FAR int16_t *curr_raw,
-                                 FAR foc_current_t *curr)
+static int board_foc_current_get(struct foc_dev_s *dev,
+                                 int16_t *curr_raw,
+                                 foc_current_t *curr)
 {
   DEBUGASSERT(dev);
   DEBUGASSERT(curr_raw);
@@ -471,7 +489,7 @@ static int board_foc_current_get(FAR struct foc_dev_s *dev,
  * Name: board_foc_trace_init
  ****************************************************************************/
 
-static int board_foc_trace_init(FAR struct foc_dev_s *dev)
+static int board_foc_trace_init(struct foc_dev_s *dev)
 {
   DEBUGASSERT(dev);
 
@@ -486,7 +504,7 @@ static int board_foc_trace_init(FAR struct foc_dev_s *dev)
  * Name: board_foc_trace
  ****************************************************************************/
 
-static void board_foc_trace(FAR struct foc_dev_s *dev, int type, bool state)
+static void board_foc_trace(struct foc_dev_s *dev, int type, bool state)
 {
   DEBUGASSERT(dev);
 
@@ -513,13 +531,31 @@ static void board_foc_trace(FAR struct foc_dev_s *dev, int type, bool state)
 
 int stm32_foc_setup(void)
 {
-  FAR struct foc_dev_s *foc = NULL;
-  int                   ret = OK;
+  struct foc_dev_s *foc = NULL;
+  int               ret = OK;
 
   /* Initialize only once */
 
   if (g_foc_dev == NULL)
     {
+#if defined(CONFIG_SENSORS_QENCODER) || defined(CONFIG_SENSORS_HALL3PHASE)
+      /* Disable USB Type-C and Power Delivery Dead Battery */
+
+      modifyreg32(STM32_PWR_CR3, 0, PWR_CR3_UCPD1_DBDIS);
+#endif
+
+#if defined(CONFIG_SENSORS_QENCODER) && defined(CONFIG_STM32_QENCODER_INDEX_PIN)
+      /* Configure encoder index GPIO */
+
+      ret = stm32_qe_index_init(4, QENCODER_TIM4_INDEX_GPIO);
+      if (ret < 0)
+        {
+          mtrerr("Failed to register encoder index pin %d\n", ret);
+          ret = -EACCES;
+          goto errout;
+        }
+#endif
+
       /* Initialize arch specific FOC lower-half */
 
       foc = stm32_foc_initialize(0, &g_stm32_foc_board);
@@ -561,9 +597,9 @@ errout:
 
 int stm32_adc_setup(void)
 {
-  FAR struct adc_dev_s *adc         = NULL;
-  int                   ret         = OK;
-  static bool           initialized = false;
+  struct adc_dev_s *adc         = NULL;
+  int               ret         = OK;
+  static bool       initialized = false;
 
   /* Initialize only once */
 

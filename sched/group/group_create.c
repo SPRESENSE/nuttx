@@ -30,14 +30,15 @@
 #include <debug.h>
 
 #include <nuttx/irq.h>
+#include <nuttx/fs/fs.h>
 #include <nuttx/kmalloc.h>
+#include <nuttx/lib/lib.h>
 #include <nuttx/semaphore.h>
 #include <nuttx/sched.h>
-#include <nuttx/tls.h>
 
-#include "environ/environ.h"
 #include "sched/sched.h"
 #include "group/group.h"
+#include "tls/tls.h"
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -150,7 +151,6 @@ int group_allocate(FAR struct task_tcb_s *tcb, uint8_t ttype)
     }
 
 # if defined(CONFIG_FILE_STREAM)
-
   /* In a flat, single-heap build.  The stream list is allocated with the
    * group structure.  But in a kernel build with a kernel allocator, it
    * must be separately allocated using a user-space allocator.
@@ -161,7 +161,6 @@ int group_allocate(FAR struct task_tcb_s *tcb, uint8_t ttype)
 
   group->tg_streamlist = (FAR struct streamlist *)
     group_zalloc(group, sizeof(struct streamlist));
-
   if (!group->tg_streamlist)
     {
       goto errout_with_group;
@@ -170,19 +169,27 @@ int group_allocate(FAR struct task_tcb_s *tcb, uint8_t ttype)
 # endif /* defined(CONFIG_FILE_STREAM) */
 #endif /* defined(CONFIG_MM_KERNEL_HEAP) */
 
-  /* Alloc task info for group  */
+#ifdef HAVE_GROUP_MEMBERS
+  /* Allocate space to hold GROUP_INITIAL_MEMBERS members of the group */
 
-  group->tg_info = (FAR struct task_info_s *)
-    group_zalloc(group, sizeof(struct task_info_s));
-
-  if (!group->tg_info)
+  group->tg_members = kmm_malloc(GROUP_INITIAL_MEMBERS * sizeof(pid_t));
+  if (!group->tg_members)
     {
       goto errout_with_stream;
     }
 
-  /* Initial user space semaphore */
+  /* Number of members in allocation */
 
-  nxsem_init(&group->tg_info->ta_sem, 0, 1);
+  group->tg_mxmembers = GROUP_INITIAL_MEMBERS;
+#endif
+
+  /* Alloc task info for group  */
+
+  ret = task_init_info(group);
+  if (ret < 0)
+    {
+      goto errout_with_member;
+    }
 
   /* Attach the group to the TCB */
 
@@ -192,14 +199,15 @@ int group_allocate(FAR struct task_tcb_s *tcb, uint8_t ttype)
 
   group_inherit_identity(group);
 
-  /* Duplicate the parent tasks environment */
+  /* Initialize file descriptors for the TCB */
 
-  ret = env_dup(group);
-  if (ret < 0)
-    {
-      tcb->cmn.group = NULL;
-      goto errout_with_group;
-    }
+  files_initlist(&group->tg_filelist);
+
+#ifdef CONFIG_FILE_STREAM
+  /* Initialize file streams for the task group */
+
+  lib_stream_initialize(group);
+#endif
 
 #ifndef CONFIG_DISABLE_PTHREAD
   /* Initialize the pthread join semaphore */
@@ -220,38 +228,17 @@ int group_allocate(FAR struct task_tcb_s *tcb, uint8_t ttype)
 
   return OK;
 
+errout_with_member:
+#ifdef HAVE_GROUP_MEMBERS
+  kmm_free(group->tg_members);
 errout_with_stream:
-#if defined(CONFIG_FILE_STREAM) && defined(CONFIG_MM_KERNEL_HEAP)
-      group_free(group, group->tg_streamlist);
 #endif
+#if defined(CONFIG_FILE_STREAM) && defined(CONFIG_MM_KERNEL_HEAP)
+  group_free(group, group->tg_streamlist);
 errout_with_group:
-  group_deallocate(group);
+#endif
+  kmm_free(group);
   return ret;
-}
-
-/****************************************************************************
- * Name: group_deallocate
- *
- * Description:
- *   Free an existing task group structure.
- *
- * Input Parameters:
- *   group  = The group structure
- *
- ****************************************************************************/
-
-void group_deallocate(FAR struct task_group_s *group)
-{
-  if (group)
-    {
-      if (group->tg_info)
-        {
-          nxsem_destroy(&group->tg_info->ta_sem);
-          group_free(group, group->tg_info);
-        }
-
-      kmm_free(group);
-    }
 }
 
 /****************************************************************************
@@ -267,7 +254,7 @@ void group_deallocate(FAR struct task_group_s *group)
  *   tcb - The tcb in need of the task group.
  *
  * Returned Value:
- *   0 (OK) on success; a negated errno value on failure.
+ *   None.
  *
  * Assumptions:
  *   Called during task creation in a safe context.  No special precautions
@@ -275,7 +262,7 @@ void group_deallocate(FAR struct task_group_s *group)
  *
  ****************************************************************************/
 
-int group_initialize(FAR struct task_tcb_s *tcb)
+void group_initialize(FAR struct task_tcb_s *tcb)
 {
   FAR struct task_group_s *group;
 #if defined(HAVE_GROUP_MEMBERS) || defined(CONFIG_ARCH_ADDRENV)
@@ -286,35 +273,9 @@ int group_initialize(FAR struct task_tcb_s *tcb)
   group = tcb->cmn.group;
 
 #ifdef HAVE_GROUP_MEMBERS
-  /* Allocate space to hold GROUP_INITIAL_MEMBERS members of the group */
-
-  group->tg_members = kmm_malloc(GROUP_INITIAL_MEMBERS * sizeof(pid_t));
-  if (!group->tg_members)
-    {
-      group_deallocate(group);
-      tcb->cmn.group = NULL;
-      return -ENOMEM;
-    }
-
   /* Assign the PID of this new task as a member of the group. */
 
   group->tg_members[0] = tcb->cmn.pid;
-
-  /* Initialize the non-zero elements of group structure and assign it to
-   * the tcb.
-   */
-
-  group->tg_mxmembers  = GROUP_INITIAL_MEMBERS; /* Number of members in allocation */
-
-#endif
-
-#if defined(HAVE_GROUP_MEMBERS) || defined(CONFIG_ARCH_ADDRENV)
-  /* Add the initialized entry to the list of groups */
-
-  flags = enter_critical_section();
-  group->flink = g_grouphead;
-  g_grouphead = group;
-  leave_critical_section(flags);
 #endif
 
   /* Save the ID of the main task within the group of threads.  This needed
@@ -328,5 +289,13 @@ int group_initialize(FAR struct task_tcb_s *tcb)
   /* Mark that there is one member in the group, the main task */
 
   group->tg_nmembers = 1;
-  return OK;
+
+#if defined(HAVE_GROUP_MEMBERS) || defined(CONFIG_ARCH_ADDRENV)
+  /* Add the initialized entry to the list of groups */
+
+  flags = enter_critical_section();
+  group->flink = g_grouphead;
+  g_grouphead = group;
+  leave_critical_section(flags);
+#endif
 }

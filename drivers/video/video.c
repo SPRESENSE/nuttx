@@ -172,6 +172,7 @@ struct video_scene_params_s
   enum v4l2_iso_sensitivity_auto_type iso_auto;
   int32_t iso;
   enum v4l2_exposure_metering meter;
+  int32_t spot_pos;
   int32_t threea_lock;
   enum v4l2_flash_led_mode led;
   int32_t jpeg_quality;
@@ -271,14 +272,14 @@ static const struct file_operations g_video_fops =
 {
   video_open,               /* open */
   video_close,              /* close */
-  0,                        /* read */
-  0,                        /* write */
-  0,                        /* seek */
+  NULL,                     /* read */
+  NULL,                     /* write */
+  NULL,                     /* seek */
   video_ioctl,              /* ioctl */
-#ifndef CONFIG_DISABLE_POLL
-  0,                        /* poll */
+  NULL                      /* poll */
+#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
+  , NULL                    /* unlink */
 #endif
-  0                         /* unlink */
 };
 
 static bool is_initialized = false;
@@ -287,71 +288,71 @@ enum v4l2_scene_mode g_video_scene_mode = V4L2_SCENE_MODE_NONE;
 video_scene_params_t g_video_scene_parameter[] =
 {
     {
-      .mode = V4L2_SCENE_MODE_NONE,
+      V4L2_SCENE_MODE_NONE
     },
 #ifdef CONFIG_VIDEO_SCENE_BACKLIGHT
     {
-      .mode = V4L2_SCENE_MODE_BACKLIGHT,
+      V4L2_SCENE_MODE_BACKLIGHT
     },
 #endif /* CONFIG_VIDEO_SCENE_BACKLIGHT */
 #ifdef CONFIG_VIDEO_SCENE_BEACHSNOW
     {
-      .mode = V4L2_SCENE_MODE_BEACH_SNOW,
+      V4L2_SCENE_MODE_BEACH_SNOW
     },
 #endif /* CONFIG_VIDEO_SCENE_BEACHSNOW */
 #ifdef CONFIG_VIDEO_SCENE_CANDLELIGHT
     {
-      .mode = V4L2_SCENE_MODE_CANDLE_LIGHT,
+      V4L2_SCENE_MODE_CANDLE_LIGHT
     },
 #endif /* CONFIG_VIDEO_SCENE_CANDLELIGHT */
 #ifdef CONFIG_VIDEO_SCENE_DAWNDUSK
     {
-      .mode = V4L2_SCENE_MODE_DAWN_DUSK,
+      V4L2_SCENE_MODE_DAWN_DUSK
     },
 #endif /* CONFIG_VIDEO_SCENE_DAWNDUSK */
 #ifdef CONFIG_VIDEO_SCENE_FALLCOLORS
     {
-      .mode = V4L2_SCENE_MODE_FALL_COLORS,
+      V4L2_SCENE_MODE_FALL_COLORS,
     },
 #endif /* CONFIG_VIDEO_SCENE_FALLCOLORS */
 #ifdef CONFIG_VIDEO_SCENE_FIREWORKS
     {
-      .mode = V4L2_SCENE_MODE_FIREWORKS,
+      V4L2_SCENE_MODE_FIREWORKS
     },
 #endif /* CONFIG_VIDEO_SCENE_FIREWORKS */
 #ifdef CONFIG_VIDEO_SCENE_LANDSCAPE
     {
-      .mode = V4L2_SCENE_MODE_LANDSCAPE,
+      V4L2_SCENE_MODE_LANDSCAPE
     },
 #endif /* CONFIG_VIDEO_SCENE_LANDSCAPE */
 #ifdef CONFIG_VIDEO_SCENE_NIGHT
     {
-      .mode = V4L2_SCENE_MODE_NIGHT,
+      V4L2_SCENE_MODE_NIGHT
     },
 #endif /* CONFIG_VIDEO_SCENE_NIGHT */
 #ifdef CONFIG_VIDEO_SCENE_PARTYINDOOR
     {
-      .mode = V4L2_SCENE_MODE_PARTY_INDOOR,
+      V4L2_SCENE_MODE_PARTY_INDOOR
     },
 #endif /* CONFIG_VIDEO_SCENE_PARTYINDOOR */
 #ifdef CONFIG_VIDEO_SCENE_PORTRAIT
     {
-      .mode = V4L2_SCENE_MODE_PORTRAIT,
+      V4L2_SCENE_MODE_PORTRAIT
     },
 #endif /* CONFIG_VIDEO_SCENE_PORTRAIT */
 #ifdef CONFIG_VIDEO_SCENE_SPORTS
     {
-      .mode = V4L2_SCENE_MODE_SPORTS,
+      V4L2_SCENE_MODE_SPORTS
     },
 #endif /* CONFIG_VIDEO_SCENE_SPORTS */
 #ifdef CONFIG_VIDEO_SCENE_SUNSET
     {
-      .mode = V4L2_SCENE_MODE_SUNSET,
+      V4L2_SCENE_MODE_SUNSET
     },
 #endif /* CONFIG_VIDEO_SCENE_SUNSET */
 #ifdef CONFIG_VIDEO_SCENE_TEXT
     {
-      .mode = V4L2_SCENE_MODE_TEXT,
+      V4L2_SCENE_MODE_TEXT
     },
 #endif /* CONFIG_VIDEO_SCENE_TEXT */
 };
@@ -393,6 +394,7 @@ static video_parameter_name_t g_video_parameter_name[] =
   {IMGSENSOR_ID_ISO_SENSITIVITY,      "ISO sensitivity"},
   {IMGSENSOR_ID_ISO_SENSITIVITY_AUTO, "Automatic ISO sensitivity"},
   {IMGSENSOR_ID_EXPOSURE_METERING,    "Photometry"},
+  {IMGSENSOR_ID_SPOT_POSITION,        "Spot position"},
   {IMGSENSOR_ID_3A_LOCK,              "Lock AWB/AE"},
   {IMGSENSOR_ID_AUTO_FOCUS_START,     "Start single Auto Focus"},
   {IMGSENSOR_ID_AUTO_FOCUS_STOP,      "Stop single Auto Focus"},
@@ -648,7 +650,7 @@ static int start_capture(enum v4l2_buf_type type,
                          FAR struct v4l2_fract *interval,
                          uint32_t bufaddr, uint32_t bufsize)
 {
-  FAR video_format_t c_fmt[MAX_VIDEO_FMT];
+  video_format_t c_fmt[MAX_VIDEO_FMT];
   imgdata_format_t df[MAX_VIDEO_FMT];
   imgsensor_format_t sf[MAX_VIDEO_FMT];
   imgdata_interval_t di;
@@ -907,6 +909,7 @@ static void initialize_scene_parameter(video_scene_params_t *sp)
   sp->iso_auto        = get_default_value(IMGSENSOR_ID_ISO_SENSITIVITY_AUTO);
   sp->iso             = get_default_value(IMGSENSOR_ID_ISO_SENSITIVITY);
   sp->meter           = get_default_value(IMGSENSOR_ID_EXPOSURE_METERING);
+  sp->spot_pos        = get_default_value(IMGSENSOR_ID_SPOT_POSITION);
   sp->threea_lock     = get_default_value(IMGSENSOR_ID_3A_LOCK);
   sp->led             = get_default_value(IMGSENSOR_ID_FLASH_LED_MODE);
   sp->jpeg_quality    = get_default_value(IMGSENSOR_ID_JPEG_QUALITY);
@@ -999,10 +1002,10 @@ static bool is_sem_waited(FAR sem_t *sem)
     }
 }
 
-static const struct imgsensor_ops_s *get_connected_imgsensor(void)
+static FAR const struct imgsensor_ops_s *get_connected_imgsensor(void)
 {
   int i;
-  const struct imgsensor_ops_s *ops = NULL;
+  FAR const struct imgsensor_ops_s *ops = NULL;
 
   for (i = 0; i < g_video_registered_sensor_num; i++)
     {
@@ -1107,7 +1110,7 @@ static int video_querycap(FAR struct v4l2_capability *cap)
 
   /* cap->driver needs to be NULL-terminated. */
 
-  strncpy((char *)cap->driver, name, sizeof(cap->driver) - 1);
+  strlcpy((FAR char *)cap->driver, name, sizeof(cap->driver));
 
   return OK;
 }
@@ -1335,7 +1338,7 @@ static bool validate_clip_range(int32_t pos, uint32_t c_sz, uint16_t frm_sz)
 }
 
 static bool validate_clip_setting(FAR struct v4l2_rect *clip,
-                                 FAR video_format_t *fmt)
+                                  FAR video_format_t *fmt)
 {
   int ret = true;
 
@@ -2324,6 +2327,7 @@ static int reflect_scene_parameter(enum v4l2_scene_mode mode)
     }
 
   set_intvalue(IMGSENSOR_ID_EXPOSURE_METERING, sp->meter);
+  set_intvalue(IMGSENSOR_ID_SPOT_POSITION, sp->spot_pos);
   set_intvalue(IMGSENSOR_ID_3A_LOCK, sp->threea_lock);
   set_intvalue(IMGSENSOR_ID_FLASH_LED_MODE, sp->led);
   set_intvalue(IMGSENSOR_ID_JPEG_QUALITY, sp->jpeg_quality);
@@ -2574,6 +2578,10 @@ static int read_scene_param(enum v4l2_scene_mode mode,
 
       case IMGSENSOR_ID_EXPOSURE_METERING:
         control->value = sp->meter;
+        break;
+
+      case IMGSENSOR_ID_SPOT_POSITION:
+        control->value = sp->spot_pos;
         break;
 
       case IMGSENSOR_ID_3A_LOCK:
@@ -2881,6 +2889,10 @@ static int save_scene_param(enum v4l2_scene_mode mode,
 
       case IMGSENSOR_ID_EXPOSURE_METERING:
         sp->meter = control->value;
+        break;
+
+      case IMGSENSOR_ID_SPOT_POSITION:
+        sp->spot_pos = control->value;
         break;
 
       case IMGSENSOR_ID_3A_LOCK:
@@ -3295,10 +3307,10 @@ int video_uninitialize(void)
   return OK;
 }
 
-int imgsensor_register(const FAR struct imgsensor_ops_s *ops)
+int imgsensor_register(FAR const struct imgsensor_ops_s *ops)
 {
   int ret = -ENOMEM;
-  const struct imgsensor_ops_s **new_addr;
+  FAR const struct imgsensor_ops_s **new_addr;
 
   new_addr = realloc(g_video_registered_sensor,
                      sizeof(ops) * (g_video_registered_sensor_num + 1));
@@ -3312,7 +3324,7 @@ int imgsensor_register(const FAR struct imgsensor_ops_s *ops)
   return ret;
 }
 
-void imgdata_register(const FAR struct imgdata_ops_s *ops)
+void imgdata_register(FAR const struct imgdata_ops_s *ops)
 {
   g_video_data_ops = ops;
 }

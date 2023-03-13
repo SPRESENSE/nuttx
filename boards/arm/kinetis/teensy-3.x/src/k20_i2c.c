@@ -31,7 +31,7 @@
 #include <nuttx/i2c/i2c_master.h>
 #include <arch/board/board.h>
 
-#include "arm_arch.h"
+#include "arm_internal.h"
 #include "chip.h"
 #include "kinetis.h"
 #include "kinetis_i2c.h"
@@ -53,7 +53,7 @@
 
 void kinetis_i2cdev_initialize(void)
 {
-  i2c_dev = NULL;
+  struct i2c_master_s *i2c_dev = NULL;
 
 #if defined(CONFIG_KINETIS_I2C0)
   i2c_dev = kinetis_i2cbus_initialize(0);

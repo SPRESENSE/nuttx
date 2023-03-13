@@ -105,7 +105,7 @@ extern "C"
  *
  ****************************************************************************/
 
-int hostif_i2cinitialize(FAR struct hostif_i2cconf_s *config);
+int hostif_i2cinitialize(struct hostif_i2cconf_s *config);
 
 /**
  * Initialize the host interface for SPI slave
@@ -116,7 +116,7 @@ int hostif_i2cinitialize(FAR struct hostif_i2cconf_s *config);
  *
  ****************************************************************************/
 
-int hostif_spiinitialize(FAR struct hostif_spiconf_s *config);
+int hostif_spiinitialize(struct hostif_spiconf_s *config);
 
 /**
  * Uninitialize the host interface

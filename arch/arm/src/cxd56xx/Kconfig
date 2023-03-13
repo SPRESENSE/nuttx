@@ -80,7 +80,7 @@ if CXD56_PMIC
 config CXD56_PMIC_INT
 	bool "PMIC interrupt"
 	default n
-	depends on SCHED_LPWORK
+	depends on SCHED_WORKQUEUE
 	---help---
 		Enable PMIC interrupt.
 
@@ -214,7 +214,6 @@ comment "Power Management Options"
 menuconfig CXD56_PM
 	bool "Power Management"
 	default y
-	select POWER
 
 if CXD56_PM
 
@@ -276,16 +275,6 @@ config CXD56_GAUGE
 		Enable battery gauge driver.
 		This is not a lower half of power driver, but compatible with NuttX gauge driver.
 
-if CXD56_GAUGE
-
-config CXD56_GAUGE_DEBUG
-	bool "Battery Gauge Debug"
-	default n
-	---help---
-		Enable battery driver debug messages and debug IO command.
-
-endif
-
 config CXD56_CHARGER
 	bool "CXD5247 battery charger"
 	default n
@@ -303,13 +292,6 @@ config CXD56_CHARGER_TEMP_PRECISE
 		Get temperature precisely. If this option is enabled, driver calculate precisely
 		from register value to degrees Celsius.
 		This option requires libm.
-
-config CXD56_CHARGER_DEBUG
-	bool "Battery Charger Debug"
-	default n
-	---help---
-		Enable battery charger driver debug messages.
-
 endif
 
 comment "Peripheral Support"
@@ -400,9 +382,9 @@ config CXD56_SPI_DRIVER
 		this driver is to support SPI testing.
 
 config CXD56_SPI_DMATHRESHOLD
-       int "SPI DMA threshold"
-       default 64
-       depends on CXD56_DMAC
+	int "SPI DMA threshold"
+	default 64
+	depends on CXD56_DMAC
 	---help---
 		When SPI DMA is enabled, small DMA transfers will still be performed
 		by polling logic.  But we need a threshold value to determine what
@@ -1219,7 +1201,7 @@ menuconfig CXD56_SDIO
 	default n
 	select ARCH_HAVE_SDIO
 	select SDIO_BLOCKSETUP
-	depends on SCHED_HPWORK
+	depends on SCHED_WORKQUEUE
 
 if CXD56_SDIO
 
@@ -1329,6 +1311,12 @@ config CXD56_GNSS_CEP_FILENAME
 	default "/mnt/sd0/gnss_cep.bin"
 	---help---
 		Specify the path and file name of cep data.
+
+config CXD56_GNSS_CEP_ON_SPIFLASH
+	bool "GNSS CEP file on SPI-Flash"
+	default n
+	---help---
+		Use a cep file on SPI-Flash.
 
 config CXD56_GNSS_FW_RTK
 	bool "Support carrier-phase data output for Real-Time Kinematic"

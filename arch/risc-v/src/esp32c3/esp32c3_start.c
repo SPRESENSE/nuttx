@@ -30,11 +30,21 @@
 #include <arch/board/board.h>
 
 #include "esp32c3.h"
+#ifdef CONFIG_ESP32C3_BROWNOUT_DET
+#  include "esp32c3_brownout.h"
+#endif
 #include "esp32c3_clockconfig.h"
 #include "esp32c3_irq.h"
 #include "esp32c3_lowputc.h"
+#ifdef CONFIG_ESP32C3_REGION_PROTECTION
+#include "esp32c3_region.h"
+#endif
+#include "esp32c3_rtc.h"
 #include "esp32c3_start.h"
 #include "esp32c3_wdt.h"
+#ifdef CONFIG_BUILD_PROTECTED
+#  include "esp32c3_userspace.h"
+#endif
 #include "hardware/esp32c3_cache_memory.h"
 #include "hardware/extmem_reg.h"
 
@@ -84,7 +94,7 @@ extern uint32_t _image_drom_size;
  ****************************************************************************/
 
 #ifdef CONFIG_ESP32C3_APP_FORMAT_MCUBOOT
-extern int ets_printf(const char *fmt, ...);
+extern int ets_printf(const char *fmt, ...) printflike(1, 2);
 extern uint32_t cache_suspend_icache(void);
 extern void cache_resume_icache(uint32_t val);
 extern void cache_invalidate_icache_all(void);
@@ -120,7 +130,7 @@ HDR_ATTR static void (*_entry_point)(void) = &__start;
 
 uint8_t g_idlestack[CONFIG_IDLETHREAD_STACKSIZE]
   aligned_data(16) locate_data(".noinit");
-uint32_t g_idle_topstack = ESP32C3_IDLESTACK_TOP;
+uintptr_t g_idle_topstack = ESP32C3_IDLESTACK_TOP;
 
 /****************************************************************************
  * Private Functions
@@ -236,9 +246,31 @@ void __esp32c3_start(void)
 
 #endif
 
+#ifdef CONFIG_ESP32C3_REGION_PROTECTION
+  /* Configure region protection */
+
+  esp32c3_region_protection();
+#endif
+
+  /* Initialize RTC parameters */
+
+  esp32c3_rtc_init();
+  esp32c3_rtc_clk_set();
+
   /* Set CPU frequency */
 
   esp32c3_clockconfig();
+
+  /* Initialize peripherals parameters */
+
+  esp32c3_perip_clk_init();
+
+#ifdef CONFIG_ESP32C3_BROWNOUT_DET
+
+  /* Initialize hardware brownout check and reset */
+
+  esp32c3_brownout_init();
+#endif
 
   /* Configure the UART so we can get debug output */
 
@@ -270,6 +302,19 @@ void __esp32c3_start(void)
   /* Initialize onboard resources */
 
   esp32c3_board_initialize();
+
+  showprogress('C');
+
+  /* For the case of the separate user-/kernel-space build, perform whatever
+   * platform specific initialization of the user memory is required.
+   * Normally this just means initializing the user space .data and .bss
+   * segments.
+   */
+
+#ifdef CONFIG_BUILD_PROTECTED
+  esp32c3_userspace();
+  showprogress('D');
+#endif
 
   /* Bring up NuttX */
 

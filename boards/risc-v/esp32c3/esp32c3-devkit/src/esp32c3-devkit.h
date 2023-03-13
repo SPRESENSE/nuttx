@@ -150,6 +150,22 @@ int board_i2c_init(void);
 #endif
 
 /****************************************************************************
+ * Name: board_twai_setup
+ *
+ * Description:
+ *   Configure the TWAI driver.
+ *
+ * Returned Value:
+ *   Zero (OK) is returned on success; A negated errno value is returned
+ *   to indicate the nature of any failure.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_CAN
+int esp32c3_twai_setup(void);
+#endif
+
+/****************************************************************************
  * Name: board_oneshot_init
  *
  * Description:
@@ -205,7 +221,7 @@ int board_wlan_init(void);
 #endif
 
 /****************************************************************************
- * Name: esp32c3_spiflash_init
+ * Name: board_spiflash_init
  *
  * Description:
  *   Initialize the SPIFLASH and register the MTD device.
@@ -213,7 +229,7 @@ int board_wlan_init(void);
  ****************************************************************************/
 
 #ifdef CONFIG_ESP32C3_SPIFLASH
-int esp32c3_spiflash_init(void);
+int board_spiflash_init(void);
 #endif
 
 /****************************************************************************

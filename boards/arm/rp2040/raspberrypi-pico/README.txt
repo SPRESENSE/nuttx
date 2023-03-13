@@ -5,7 +5,7 @@ This directory contains the port of NuttX to the Raspberry Pi Pico.
 See https://www.raspberrypi.org/products/raspberry-pi-pico/ for information
 about Raspberry Pi Pico.
 
-Currently only the following devices are suppored.
+Currently only the following devices are supported.
 
   Supported:
   - UART  (console port)
@@ -13,6 +13,8 @@ Currently only the following devices are suppored.
   - I2C
   - SPI
   - DMAC
+  - PWM
+  - ADC
   - USB device
     - MSC, CDC/ACM serial and these composite device are supported.
     - CDC/ACM serial device can be used for the console.
@@ -36,7 +38,7 @@ Installation
 
 1. Download Raspberry Pi Pico SDK
 
-  $ git clone -b master https://github.com/raspberrypi/pico-sdk.git
+  $ git clone -b 1.1.2 https://github.com/raspberrypi/pico-sdk.git
 
 2. Set PICO_SDK_PATH environment variable
 
@@ -153,7 +155,7 @@ Defconfigs
     USB MSC and CDC/ACM support
     `msconn` and `sercon` commands enable the MSC and CDC/ACM devices.
     The MSC support provides the interface to the SD card with SPI,
-    so the SD card slot connection like spisd configuraion is requied.
+    so the SD card slot connection like spisd configuration is required.
 
 - composite
     USB composite device (MSC + CDC/ACM) support

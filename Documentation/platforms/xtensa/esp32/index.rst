@@ -4,7 +4,7 @@ Espressif ESP32
 
 The ESP32 is a series of single and dual-core SoCs from Espressif
 based on Harvard architecture Xtensa LX6 CPUs and with on-chip support
-for Bluetooth and WiFi.
+for Bluetooth and Wi-Fi.
 
 All embedded memory, external memory and peripherals are located on the
 data bus and/or the instruction bus of these CPUs. With some minor
@@ -60,7 +60,7 @@ It's a two step process where the first converts the ELF file into a ESP32-compa
 and the second flashes it to the board.  These steps are included into the build system and you can
 flash your NuttX firmware simply by running::
 
-    $ make download ESPTOOL_PORT=<port>
+    $ make flash ESPTOOL_PORT=<port>
 
 where ``<port>`` is typically ``/dev/ttyUSB0`` or similar. You can change the baudrate by passing ``ESPTOOL_BAUD``.
 
@@ -68,12 +68,12 @@ Bootloader and partitions
 -------------------------
 
 ESP32 requires a bootloader to be flashed as well as a set of FLASH partitions. This is only needed the first time
-(or any time you which to modify either of these). An easy way is to use prebuilt binaries for NuttX from `here <https://github.com/espressif/esp-nuttx-bootloader>`_. In there you will find instructions to rebuild these if necessary. 
+(or any time you which to modify either of these). An easy way is to use prebuilt binaries for NuttX `from here <https://github.com/espressif/esp-nuttx-bootloader>`_. In there you will find instructions to rebuild these if necessary. 
 Once you downloaded both binaries, you can flash them by adding an ``ESPTOOL_BINDIR`` parameter, pointing to the directory where these binaries were downloaded:
 
 .. code-block:: console
 
-   $ make download ESPTOOL_PORT=<port> ESPTOOL_BINDIR=<dir>
+   $ make flash ESPTOOL_PORT=<port> ESPTOOL_BINDIR=<dir>
 
 .. note:: It is recommended that if this is the first time you are using the board with NuttX that you perform a complete
    SPI FLASH erase.
@@ -106,7 +106,7 @@ RNG          Yes
 AES          Yes
 eFuse        Yes
 ADC          No
-Bluetooth    No
+Bluetooth    Yes
 SDIO         No
 SD/MMC       No
 I2S          No
@@ -141,7 +141,6 @@ Data / Instruction 0x50000000 0x50001FFF Embedded Memory
 .                  0x50002000 0xFFFFFFFF                 Reserved
 ================== ========== ========== =============== ===============
 
-
 Embedded Memory
 ---------------
 
@@ -156,8 +155,8 @@ Data        0x3ffae000 0x3ffdffff Internal SRAM 2 DMA
 Data        0x3ffe0000 0x3fffffff Internal SRAM 1 DMA
 =========== ========== ========== =============== ===============
 
-Boundary Address
----------------
+Boundary Address (Embedded)
+---------------------------
 
 ====================== ========== ========== =============== ===============
 BUS TYPE               START      LAST       DESCRIPTION     NOTES
@@ -185,8 +184,8 @@ Data        0x3f400000 0x3f7fffff External Flash  Read
 Data        0x3f800000 0x3fbfffff External SRAM   Read and Write
 =========== ========== ========== =============== ===============
 
-Boundary Address
-----------------
+Boundary Address (External)
+---------------------------
 
 Instruction 0x400c2000 0x40bfffff 11512 KB External Flash Read
 
@@ -271,23 +270,8 @@ following in ``scripts/esp32.cfg``::
   # Only configure the APP CPU
   #set ESP32_ONLYCPU 2
 
-Open Issues
------------
-
-  1. Cache Issues.  I have not thought about this yet, but certainly caching is
-     an issue in an SMP system:
-
-     - Cache coherency.  Are there separate caches for each CPU?  Or a single
-       shared cache?  If the are separate then keep the caches coherent will
-       be an issue.
-     - Caching MAY interfere with spinlocks as they are currently implemented.
-       Waiting on a cached copy of the spinlock may result in a hang or a
-       failure to wait.
-
-  2. Assertions.  On a fatal assertions, other CPUs need to be stopped.
-
-WiFi
-====
+Wi-Fi
+=====
 
 A standard network interface will be configured and can be initialized such as::
 
@@ -300,10 +284,10 @@ In this case a connection to AP with SSID ``myssid`` is done, using ``mypasswd``
 password. IP address is obtained via DHCP using ``renew`` command. You can check
 the result by running ``ifconfig`` afterwards.
 
-.. tip:: Boards usually expose a ``wapi`` defconfig which enables WiFi
+.. tip:: Boards usually expose a ``wapi`` defconfig which enables Wi-Fi
 
-WiFi SoftAP
-===========
+Wi-Fi SoftAP
+============
 
 It is possible to use ESP32 as an Access Point (SoftAP). Actually there are some
 boards with a ``sta_softap`` which enables this support.
@@ -323,21 +307,66 @@ The ``dhcpd_start`` is necessary to let your board to associate an IP to your sm
 Bluetooth
 =========
 
-Bluetooth is not currently supported.
+These are the steps to test Bluetooth Low Energy (BLE) scan on ESP32 (i.e. Devkit board).
+First configure to use the BLE board profile::
+
+    $ make distclean
+    $ ./tools/configure.sh esp32-devkitc:ble
+    $ make flash ESPTOOL_PORT=/dev/ttyUSB0
+
+Enter in the NSH shell using your preferred serial console tool and run the scan command::
+
+    NuttShell (NSH) NuttX-10.2.0
+    nsh> ifconfig
+    bnep0   Link encap:UNSPEC at DOWN
+            inet addr:0.0.0.0 DRaddr:0.0.0.0 Mask:0.0.0.0
+
+    wlan0   Link encap:Ethernet HWaddr ac:67:b2:53:8b:ec at UP
+            inet addr:10.0.0.2 DRaddr:10.0.0.1 Mask:255.255.255.0
+
+    nsh> bt bnep0 scan start
+    nsh> bt bnep0 scan stop
+    nsh> bt bnep0 scan get
+    Scan result:
+    1.     addr:           63:14:2f:b9:9f:83 type: 1
+           rssi:            -90
+           response type:   3
+           advertiser data: 1e ff 06 00 01 09 20 02 7c 33 a3 a7 cd c9 44 5b
+    2.     addr:           52:ca:05:b5:ad:77 type: 1
+           rssi:            -82
+           response type:   3
+           advertiser data: 1e ff 06 00 01 09 20 02 03 d1 21 57 bf 19 b3 7a
+    3.     addr:           46:8e:b2:cd:94:27 type: 1
+           rssi:            -92
+           response type:   2
+           advertiser data: 02 01 1a 09 ff c4 00 10 33 14 12 16 80 02 0a d4
+    4.     addr:           46:8e:b2:cd:94:27 type: 1
+           rssi:            -92
+           response type:   4
+           advertiser data: 18 09 5b 4c 47 5d 20 77 65 62 4f 53 20 54 56 20
+    5.     addr:           63:14:2f:b9:9f:83 type: 1
+           rssi:            -80
+           response type:   3
+        advertiser data: 1e ff 06 00 01 09 20 02 7c 33 a3 a7 cd c9 44 5b
+    nsh>
 
 Using QEMU
 ==========
 
 First follow the instructions `here <https://github.com/espressif/qemu/wiki>`_ to build QEMU.
-Enable the ESP32_QEMU_IMAGE config found in "Board Selection -> ESP32 binary image for QEMU".
-Download the bootloader and the partition table from https://github.com/espressif/esp-nuttx-bootloader/releases
-and place them in a directory, say ../esp-bins.
-Build and generate the QEMU image: `make ESPTOOL_BINDIR=../esp-bins`
-A new image "esp32_qemu_image.bin" will be created.  It can be run as::
 
- ~/PATH_TO_QEMU/qemu/build/xtensa-softmmu/qemu-system-xtensa -nographic \
-    -machine esp32 \
-    -drive file=esp32_qemu_image.bin,if=mtd,format=raw
+Enable the ``ESP32_QEMU_IMAGE`` config found in :menuselection:`Board Selection --> ESP32 binary image for QEMU`.
+
+Download the bootloader and the partition table from https://github.com/espressif/esp-nuttx-bootloader/releases
+and place them in a directory, say ``../esp-bins``.
+
+Build and generate the QEMU image::
+
+ $ make ESPTOOL_BINDIR=../esp-bins
+
+A QEMU-compatible ``nuttx.merged.bin`` binary image will be created. It can be run as::
+
+ $ qemu-system-xtensa -nographic -machine esp32 -drive file=nuttx.merged.bin,if=mtd,format=raw
 
 Things to Do
 ============

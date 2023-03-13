@@ -53,8 +53,17 @@
 
 void pthread_exit(FAR void *exit_value)
 {
+  /* Mark the pthread as non-cancelable to avoid additional calls to
+   * pthread_exit() due to any cancellation point logic that might get
+   * kicked off by actions taken during pthread_exit processing.
+   */
+
+#ifdef CONFIG_CANCELLATION_POINTS
+  task_setcancelstate(TASK_CANCEL_DISABLE, NULL);
+#endif
+
 #ifdef CONFIG_PTHREAD_CLEANUP
-  pthread_cleanup_popall();
+  pthread_cleanup_popall(tls_get_info());
 #endif
 
 #if CONFIG_TLS_NELEM > 0

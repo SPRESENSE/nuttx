@@ -18,8 +18,8 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_ARM_SRC_SAM34_TC_H
-#define __ARCH_ARM_SRC_SAM34_TC_H
+#ifndef __ARCH_ARM_SRC_SAM34_SAM_TC_H
+#define __ARCH_ARM_SRC_SAM34_SAM_TC_H
 
 /****************************************************************************
  * Included Files
@@ -71,7 +71,7 @@ extern "C"
 #if defined(CONFIG_SAM34_TC0) || defined(CONFIG_SAM34_TC1) || \
     defined(CONFIG_SAM34_TC2) || defined(CONFIG_SAM34_TC3) || \
     defined(CONFIG_SAM34_TC4) || defined(CONFIG_SAM34_TC5)
-void sam_tcinitialize(FAR const char *devpath, int irq);
+void sam_tcinitialize(const char *devpath, int irq);
 #endif
 
 #undef EXTERN
@@ -81,4 +81,4 @@ void sam_tcinitialize(FAR const char *devpath, int irq);
 
 #endif /* __ASSEMBLY__ */
 #endif /* CONFIG_TIMER */
-#endif /* __ARCH_ARM_SRC_SAM34_TC_H */
+#endif /* __ARCH_ARM_SRC_SAM34_SAM_TC_H */

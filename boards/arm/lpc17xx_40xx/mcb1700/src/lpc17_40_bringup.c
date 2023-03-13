@@ -178,7 +178,7 @@ static int nsh_waiter(int argc, char *argv[])
 #ifdef HAVE_MMCSD
 static int nsh_sdinitialize(void)
 {
-  FAR struct spi_dev_s *ssp;
+  struct spi_dev_s *ssp;
   int ret;
 
   /* Enable power to the SD/MMC via a GPIO. LOW enables SD/MMC. */
@@ -238,7 +238,6 @@ errout:
 #ifdef HAVE_USBHOST
 static int nsh_usbhostinitialize(void)
 {
-  int pid;
   int ret;
 
   /* First, register all of the class drivers needed to support the drivers
@@ -294,10 +293,10 @@ static int nsh_usbhostinitialize(void)
 
       syslog(LOG_ERR, "ERROR: Start nsh_waiter\n");
 
-      pid = kthread_create("usbhost", CONFIG_MCB1700_USBHOST_PRIO,
+      ret = kthread_create("usbhost", CONFIG_MCB1700_USBHOST_PRIO,
                            CONFIG_MCB1700_USBHOST_STACKSIZE,
-                           (main_t)nsh_waiter, (FAR char * const *)NULL);
-      return pid < 0 ? -ENOEXEC : OK;
+                           (main_t)nsh_waiter, (char * const *)NULL);
+      return ret < 0 ? -ENOEXEC : OK;
     }
 
   return -ENODEV;

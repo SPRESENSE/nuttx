@@ -45,7 +45,7 @@
 #include "hardware/bl602_glb.h"
 #include "hardware/bl602_spi.h"
 #include "hardware/bl602_hbn.h"
-#include "riscv_arch.h"
+#include "riscv_internal.h"
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -196,7 +196,7 @@ static const struct spi_ops_s bl602_spi_ops =
     .lock = bl602_spi_lock,
     .select = bl602_spi_select,
     .setfrequency = bl602_spi_setfrequency,
-#ifdef CONFIG_SPI_CS_DELAY_CONTROL
+#ifdef CONFIG_SPI_DELAY_CONTROL
     .setdelay = bl602_spi_setdelay,
 #endif
     .setmode = bl602_spi_setmode,
@@ -441,6 +441,15 @@ static void bl602_spi_select(struct spi_dev_s *dev, uint32_t devid,
   /* we used hardware CS */
 
   spiinfo("devid: %lu, CS: %s\n", devid, selected ? "select" : "free");
+
+#ifdef CONFIG_SPI_CMDDATA
+  /* revert MISO from GPIO Pin to SPI Pin */
+
+  if (!selected)
+    {
+      bl602_configgpio(BOARD_SPI_MISO);
+    }
+#endif
 }
 
 /****************************************************************************
@@ -518,6 +527,7 @@ static uint32_t bl602_spi_setfrequency(struct spi_dev_s *dev,
  *   startdelay - The delay between CS active and first CLK
  *   stopdelay  - The delay between last CLK and CS inactive
  *   csdelay    - The delay between CS inactive and CS active again
+ *   ifdelay    - The delay between frames
  *
  * Returned Value:
  *   Returns zero (OK) on success; a negated errno value is return on any
@@ -525,9 +535,10 @@ static uint32_t bl602_spi_setfrequency(struct spi_dev_s *dev,
  *
  ****************************************************************************/
 
-#ifdef CONFIG_SPI_CS_DELAY_CONTROL
+#ifdef CONFIG_SPI_DELAY_CONTROL
 static int bl602_spi_setdelay(struct spi_dev_s *dev, uint32_t startdelay,
-                                uint32_t stopdelay, uint32_t csdelay)
+                                uint32_t stopdelay, uint32_t csdelay,
+                                uint32_t ifdelay)
 {
   spierr("SPI CS delay control not supported\n");
   DEBUGPANIC();
@@ -679,6 +690,11 @@ static uint8_t bl602_spi_status(struct spi_dev_s *dev, uint32_t devid)
  *   method is required if CONFIG_SPI_CMDDATA is selected in the NuttX
  *   configuration
  *
+ *   This function reconfigures MISO from SPI Pin to GPIO Pin, and sets
+ *   MISO to high (data) or low (command). bl602_spi_select() will revert
+ *   MISO back from GPIO Pin to SPI Pin.  We must revert because the SPI Bus
+ *   may be used by other drivers.
+ *
  * Input Parameters:
  *   dev - Device-specific state data
  *   cmd - TRUE: The following word is a command; FALSE: the following words
@@ -693,10 +709,38 @@ static uint8_t bl602_spi_status(struct spi_dev_s *dev, uint32_t devid)
 static int bl602_spi_cmddata(struct spi_dev_s *dev,
                               uint32_t devid, bool cmd)
 {
+  spiinfo("devid: %" PRIu32 " CMD: %s\n", devid, cmd ? "command" :
+          "data");
+
+  if (devid == SPIDEV_DISPLAY(0))
+    {
+      gpio_pinset_t gpio;
+      int ret;
+
+      /* reconfigure MISO from SPI Pin to GPIO Pin */
+
+      gpio = (BOARD_SPI_MISO & GPIO_PIN_MASK)
+             | GPIO_OUTPUT | GPIO_PULLUP | GPIO_FUNC_SWGPIO;
+      ret = bl602_configgpio(gpio);
+      if (ret < 0)
+        {
+          spierr("Failed to configure MISO as GPIO\n");
+          DEBUGPANIC();
+
+          return ret;
+        }
+
+      /* set MISO to high (data) or low (command) */
+
+      bl602_gpiowrite(gpio, !cmd);
+
+      return OK;
+    }
+
   spierr("SPI cmddata not supported\n");
   DEBUGPANIC();
 
-  return -1;
+  return -ENODEV;
 }
 #endif
 
@@ -779,6 +823,15 @@ static uint32_t bl602_spi_poll_send(struct bl602_spi_priv_s *priv,
 {
   uint32_t val;
   uint32_t tmp_val = 0;
+
+  /* spi enable master */
+
+  modifyreg32(BL602_SPI_CFG, SPI_CFG_CR_S_EN, SPI_CFG_CR_M_EN);
+
+  /* spi fifo clear  */
+
+  modifyreg32(BL602_SPI_FIFO_CFG_0, SPI_FIFO_CFG_0_RX_CLR
+              | SPI_FIFO_CFG_0_TX_CLR, 0);
 
   /* write data to tx fifo */
 
@@ -887,15 +940,6 @@ static void bl602_spi_poll_exchange(struct bl602_spi_priv_s *priv,
   int i;
   uint32_t w_wd = 0xffff;
   uint32_t r_wd;
-
-  /* spi enable master */
-
-  modifyreg32(BL602_SPI_CFG, SPI_CFG_CR_S_EN, SPI_CFG_CR_M_EN);
-
-  /* spi fifo clear  */
-
-  modifyreg32(BL602_SPI_FIFO_CFG_0, SPI_FIFO_CFG_0_RX_CLR
-              | SPI_FIFO_CFG_0_TX_CLR, 0);
 
   for (i = 0; i < nwords; i++)
     {
@@ -1076,6 +1120,32 @@ static void bl602_set_spi_0_act_mode_sel(uint8_t mod)
 }
 
 /****************************************************************************
+ * Name: bl602_swap_spi_0_mosi_with_miso
+ *
+ * Description:
+ *   Swap SPI0 MOSI with MISO
+ *
+ * Input Parameters:
+ *   swap      - Non-zero to swap MOSI and MISO
+ *
+ * Returned Value:
+ *   None
+ *
+ ****************************************************************************/
+
+static void bl602_swap_spi_0_mosi_with_miso(uint8_t swap)
+{
+  if (swap)
+    {
+      modifyreg32(BL602_GLB_GLB_PARM, 0, GLB_PARM_REG_SPI_0_SWAP);
+    }
+  else
+    {
+      modifyreg32(BL602_GLB_GLB_PARM, GLB_PARM_REG_SPI_0_SWAP, 0);
+    }
+}
+
+/****************************************************************************
  * Name: bl602_spi_init
  *
  * Description:
@@ -1106,6 +1176,10 @@ static void bl602_spi_init(struct spi_dev_s *dev)
   /* set master mode */
 
   bl602_set_spi_0_act_mode_sel(1);
+
+  /* swap MOSI with MISO to be consistent with BL602 Reference Manual */
+
+  bl602_swap_spi_0_mosi_with_miso(1);
 
   /* spi cfg  reg:
    * cr_spi_deg_en 1

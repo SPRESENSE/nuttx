@@ -36,10 +36,15 @@
 #include <stdio.h>
 
 #include <errno.h>
+#if defined(CONFIG_ESP32_EFUSE)
+#include <nuttx/efuse/efuse.h>
+#endif
 #include <nuttx/fs/fs.h>
 #include <nuttx/himem/himem.h>
 
-#include "esp32_spiflash.h"
+#if defined(CONFIG_ESP32_EFUSE)
+#include "esp32_efuse.h"
+#endif
 #include "esp32_partition.h"
 
 #ifdef CONFIG_USERLED
@@ -62,11 +67,15 @@
 #  include "esp32_board_wdt.h"
 #endif
 
+#ifdef CONFIG_ESP32_SPIFLASH
+#  include "esp32_board_spiflash.h"
+#endif
+
 #ifdef CONFIG_ESP32_BLE
 #  include "esp32_ble.h"
 #endif
 
-#ifdef CONFIG_ESP32_WIRELESS
+#ifdef CONFIG_ESP32_WIFI
 #  include "esp32_board_wlan.h"
 #endif
 
@@ -173,7 +182,7 @@ int esp32_bringup(void)
     }
 #endif
 
-#ifdef CONFIG_ESP32_PARTITION
+#ifdef CONFIG_ESP32_PARTITION_TABLE
   ret = esp32_partition_init();
   if (ret < 0)
     {
@@ -195,11 +204,11 @@ int esp32_bringup(void)
   ret = esp32_ble_initialize();
   if (ret)
     {
-      syslog(LOG_ERR, "ERROR: Failed to initialize BLE: %d \n", ret);
+      syslog(LOG_ERR, "ERROR: Failed to initialize BLE: %d\n", ret);
     }
 #endif
 
-#ifdef CONFIG_ESP32_WIRELESS
+#ifdef CONFIG_ESP32_WIFI
   ret = board_wlan_init();
   if (ret < 0)
     {

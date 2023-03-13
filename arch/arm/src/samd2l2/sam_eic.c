@@ -32,8 +32,7 @@
 #include <stdbool.h>
 #include <assert.h>
 
-#include "arm_arch.h"
-
+#include "arm_internal.h"
 #include "sam_config.h"
 
 #include "sam_pm.h"
@@ -56,7 +55,7 @@
  * Private Functions
  ****************************************************************************/
 
-static int sam_eic_isr(int irq, FAR void *context, FAR void *arg)
+static int sam_eic_isr(int irq, void *context, void *arg)
 {
   uint32_t intflag;
   int bit;

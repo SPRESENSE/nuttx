@@ -48,8 +48,7 @@
 #include "esp32c3_i2c.h"
 #include "esp32c3_irq.h"
 #include "esp32c3_gpio.h"
-
-#include "riscv_arch.h"
+#include "riscv_internal.h"
 #include "hardware/esp32c3_gpio_sigmap.h"
 #include "hardware/esp32c3_i2c.h"
 #include "hardware/esp32c3_soc.h"
@@ -84,6 +83,9 @@
 #ifdef CONFIG_I2C_POLLED
 #define TIMESPEC_TO_US(sec, nano)  ((sec * USEC_PER_SEC) + (nano / NSEC_PER_USEC))
 #endif
+
+#define ESP32C3_I2CTIMEOTICKS \
+    (SEC2TICK(CONFIG_ESP32C3_I2CTIMEOSEC) + MSEC2TICK(CONFIG_ESP32C3_I2CTIMEOMS))
 
 /* I2C hardware FIFO depth */
 
@@ -794,27 +796,8 @@ static void esp32c3_i2c_reset_fsmc(struct esp32c3_i2c_priv_s *priv)
 #ifndef CONFIG_I2C_POLLED
 static int esp32c3_i2c_sem_waitdone(struct esp32c3_i2c_priv_s *priv)
 {
-  int ret;
-  struct timespec abstime;
-
-  clock_gettime(CLOCK_REALTIME, &abstime);
-
-#if CONFIG_ESP32C3_I2CTIMEOSEC > 0
-  abstime.tv_sec += CONFIG_ESP32C3_I2CTIMEOSEC;
-#endif
-
-#if CONFIG_ESP32C3_I2CTIMEOMS > 0
-  abstime.tv_nsec += CONFIG_ESP32C3_I2CTIMEOMS * NSEC_PER_MSEC;
-  if (abstime.tv_nsec >= 1000 * NSEC_PER_MSEC)
-    {
-      abstime.tv_sec++;
-      abstime.tv_nsec -= 1000 * NSEC_PER_MSEC;
-    }
-#endif
-
-  ret = nxsem_timedwait_uninterruptible(&priv->sem_isr, &abstime);
-
-  return ret;
+  return nxsem_tickwait_uninterruptible(&priv->sem_isr,
+                                        ESP32C3_I2CTIMEOTICKS);
 }
 #endif
 
@@ -839,10 +822,8 @@ static int esp32c3_i2c_sem_waitdone(struct esp32c3_i2c_priv_s *priv)
 static int esp32c3_i2c_polling_waitdone(struct esp32c3_i2c_priv_s *priv)
 {
   int ret;
-  struct timespec current_time;
-  struct timespec timeout;
-  uint64_t current_us;
-  uint64_t timeout_us;
+  clock_t current;
+  clock_t timeout;
   uint32_t status = 0;
 
   /* Get the current absolute time and add an offset as timeout.
@@ -851,23 +832,14 @@ static int esp32c3_i2c_polling_waitdone(struct esp32c3_i2c_priv_s *priv)
    * forward and backwards.
    */
 
-  #ifdef CONFIG_CLOCK_MONOTONIC
-    clock_gettime(CLOCK_MONOTONIC, &current_time);
-  #else
-    clock_gettime(CLOCK_REALTIME, &current_time);
-  #endif
-
-  timeout.tv_sec  = current_time.tv_sec  + 10;
-  timeout.tv_nsec = current_time.tv_nsec +  0;
-
-  current_us = TIMESPEC_TO_US(current_time.tv_sec, current_time.tv_nsec);
-  timeout_us = TIMESPEC_TO_US(timeout.tv_sec, timeout.tv_nsec);
+  current = clock_systime_ticks();
+  timeout = current + SEC2TICK(10);
 
   /* Loop while a transfer is in progress
    * and an error didn't occur within the timeout
    */
 
-  while ((current_us < timeout_us) && (priv->error == 0))
+  while ((current < timeout) && (priv->error == 0))
     {
       /* Check if any interrupt triggered, clear them
        * process the operation.
@@ -896,12 +868,7 @@ static int esp32c3_i2c_polling_waitdone(struct esp32c3_i2c_priv_s *priv)
 
       /* Update current time */
 
-      #ifdef CONFIG_CLOCK_MONOTONIC
-        clock_gettime(CLOCK_MONOTONIC, &current_time);
-      #else
-        clock_gettime(CLOCK_REALTIME, &current_time);
-      #endif
-      current_us = TIMESPEC_TO_US(current_time.tv_sec, current_time.tv_nsec);
+      current = clock_systime_ticks();
     }
 
   /* Return a negated value in case of timeout, and in the other scenarios
@@ -910,7 +877,7 @@ static int esp32c3_i2c_polling_waitdone(struct esp32c3_i2c_priv_s *priv)
    * scenarios.
    */
 
-  if (current_us >= timeout_us)
+  if (current >= timeout)
     {
       ret = -ETIMEDOUT;
     }
@@ -1070,14 +1037,34 @@ static int esp32c3_i2c_transfer(struct i2c_master_s *dev,
 
       esp32c3_i2c_init_clock(priv, msgs[i].frequency);
 
-      /* Reset I2C trace logic */
+#ifndef CONFIG_I2C_POLLED
+      if ((msgs[i].flags & I2C_M_NOSTART) != 0)
+        {
+          esp32c3_i2c_traceevent(priv, I2CEVENT_SENDBYTE, priv->bytes,
+                                 getreg32(I2C_SR_REG(priv->id)));
+          esp32c3_i2c_senddata(priv);
 
-      esp32c3_i2c_tracereset(priv);
+          if (priv->bytes == msgs[i].length)
+            {
+              priv->i2cstate = I2CSTATE_STOP;
+              if ((msgs[i].flags & I2C_M_NOSTOP) != 0)
+                {
+                  priv->i2cstate = I2CSTATE_FINISH;
+                }
+            }
+        }
+      else
+#endif
+        {
+          /* Reset I2C trace logic */
 
-      esp32c3_i2c_traceevent(priv, I2CEVENT_SENDADDR, msgs[i].addr,
-                             getreg32(I2C_SR_REG(priv->id)));
+          esp32c3_i2c_tracereset(priv);
 
-      esp32c3_i2c_sendstart(priv);
+          esp32c3_i2c_traceevent(priv, I2CEVENT_SENDADDR, msgs[i].addr,
+                                 getreg32(I2C_SR_REG(priv->id)));
+
+          esp32c3_i2c_sendstart(priv);
+        }
 
 #ifndef CONFIG_I2C_POLLED
       if (esp32c3_i2c_sem_waitdone(priv) < 0)
@@ -1487,6 +1474,12 @@ static inline void esp32c3_i2c_process(struct esp32c3_i2c_priv_s *priv,
               if (priv->bytes == msg->length)
                 {
                   priv->i2cstate = I2CSTATE_STOP;
+#ifndef CONFIG_I2C_POLLED
+                  if ((msg->flags & I2C_M_NOSTOP) != 0)
+                    {
+                      priv->i2cstate = I2CSTATE_FINISH;
+                    }
+#endif
                 }
             }
         }

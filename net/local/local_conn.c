@@ -48,20 +48,6 @@ static dq_queue_t g_local_connections;
  ****************************************************************************/
 
 /****************************************************************************
- * Name: local_initialize
- *
- * Description:
- *   Initialize the local, Unix domain connection structures.  Called once
- *   and only from the common network initialization logic.
- *
- ****************************************************************************/
-
-void local_initialize(void)
-{
-  dq_init(&g_local_connections);
-}
-
-/****************************************************************************
  * Name: local_nextconn
  *
  * Description:
@@ -79,7 +65,7 @@ FAR struct local_conn_s *local_nextconn(FAR struct local_conn_s *conn)
       return (FAR struct local_conn_s *)g_local_connections.head;
     }
 
-  return (FAR struct local_conn_s *)conn->lc_node.flink;
+  return (FAR struct local_conn_s *)conn->lc_conn.node.flink;
 }
 
 /****************************************************************************
@@ -138,12 +124,16 @@ FAR struct local_conn_s *local_alloc(void)
 
       nxsem_init(&conn->lc_waitsem, 0, 0);
       nxsem_set_protocol(&conn->lc_waitsem, SEM_PRIO_NONE);
+
+      nxsem_init(&conn->lc_donesem, 0, 0);
+      nxsem_set_protocol(&conn->lc_donesem, SEM_PRIO_NONE);
+
 #endif
 
       /* Add the connection structure to the list of listeners */
 
       net_lock();
-      dq_addlast(&conn->lc_node, &g_local_connections);
+      dq_addlast(&conn->lc_conn.node, &g_local_connections);
       net_unlock();
     }
 
@@ -170,12 +160,13 @@ void local_free(FAR struct local_conn_s *conn)
   /* Remove the server from the list of listeners. */
 
   net_lock();
-  dq_rem(&conn->lc_node, &g_local_connections);
+  dq_rem(&conn->lc_conn.node, &g_local_connections);
 
 #ifdef CONFIG_NET_LOCAL_SCM
   if (local_peerconn(conn) && conn->lc_peer)
     {
       conn->lc_peer->lc_peer = NULL;
+      conn->lc_peer = NULL;
     }
 #endif /* CONFIG_NET_LOCAL_SCM */
 
@@ -216,6 +207,7 @@ void local_free(FAR struct local_conn_s *conn)
 
   local_release_fifos(conn);
   nxsem_destroy(&conn->lc_waitsem);
+  nxsem_destroy(&conn->lc_donesem);
 #endif
 
   /* And free the connection structure */

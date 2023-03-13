@@ -31,6 +31,16 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
+/* procfs File System */
+
+#ifdef CONFIG_FS_PROCFS
+#  ifdef CONFIG_NSH_PROC_MOUNTPOINT
+#    define STM32_PROCFS_MOUNTPOINT CONFIG_NSH_PROC_MOUNTPOINT
+#  else
+#    define STM32_PROCFS_MOUNTPOINT "/proc"
+#  endif
+#endif
+
 /* LED definitions **********************************************************/
 
 /* LED definitions **********************************************************/
@@ -69,6 +79,29 @@
 #define NUM_IRQBUTTONS 1
 
 #define GPIO_BTN_USER  (GPIO_INPUT|GPIO_FLOAT|GPIO_EXTI|GPIO_PORTC|GPIO_PIN10)
+
+#ifdef CONFIG_SENSORS_QENCODER
+/* Qenco index pin */
+
+#  define QENCODER_TIM4_INDEX_GPIO (GPIO_INPUT | GPIO_FLOAT |\
+                                    GPIO_EXTI | GPIO_PORTB | GPIO_PIN8)
+#endif
+
+#ifdef CONFIG_SENSORS_HALL3PHASE
+/* GPIO pins used by the 3-phase Hall effect sensor */
+
+#  define GPIO_HALL_PHA (GPIO_INPUT | GPIO_SPEED_5MHz | \
+                         GPIO_PORTB | GPIO_PIN6)
+#  define GPIO_HALL_PHB (GPIO_INPUT | GPIO_SPEED_5MHz | \
+                         GPIO_PORTB | GPIO_PIN7)
+#  define GPIO_HALL_PHC (GPIO_INPUT | GPIO_SPEED_5MHz | \
+                         GPIO_PORTB | GPIO_PIN8)
+#endif
+
+/* CAN_TERM - PC14 */
+
+#define GPIO_CANTERM (GPIO_OUTPUT|GPIO_PUSHPULL|GPIO_SPEED_50MHz| \
+                      GPIO_OUTPUT_CLEAR|GPIO_PORTC|GPIO_PIN14)
 
 /****************************************************************************
  * Public Data
@@ -120,6 +153,30 @@ int stm32_adc_setup(void);
 
 #ifdef CONFIG_STM32_FOC
 int stm32_foc_setup(void);
+#endif
+
+/****************************************************************************
+ * Name: stm32_can_setup
+ *
+ * Description:
+ *  Initialize CAN and register the CAN device
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_STM32_FDCAN_CHARDRIVER
+int stm32_can_setup(void);
+#endif
+
+/****************************************************************************
+ * Name: stm32_cansock_setup
+ *
+ * Description:
+ *  Initialize CAN socket interface
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_STM32_FDCAN_SOCKET
+int stm32_cansock_setup(void);
 #endif
 
 #endif /* __BOARDS_ARM_STM32_B_G431B_ESC1_SRC_B_G431B_ESC1_H */

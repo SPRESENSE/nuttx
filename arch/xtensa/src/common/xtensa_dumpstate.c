@@ -24,75 +24,203 @@
 
 #include <nuttx/config.h>
 
+#include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <assert.h>
 #include <debug.h>
 
 #include <nuttx/irq.h>
+#include <nuttx/tls.h>
 #include <nuttx/arch.h>
+#include <nuttx/syslog/syslog.h>
 
 #include <arch/xtensa/xtensa_corebits.h>
 #include <arch/board/board.h>
 #include <arch/chip/core-isa.h>
-#include "chip.h"
+
 #include "sched/sched.h"
 #include "xtensa.h"
 
 #ifdef CONFIG_DEBUG_ALERT
 
 /****************************************************************************
- * Private Data
- ****************************************************************************/
-
-static uint32_t s_last_regs[XCPTCONTEXT_REGS];
-
-/****************************************************************************
  * Private Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: up_taskdump
+ * Name: xtensa_dump_task
  ****************************************************************************/
 
-#ifdef CONFIG_STACK_COLORATION
-static void up_taskdump(struct tcb_s *tcb, void *arg)
+static void xtensa_dump_task(struct tcb_s *tcb, void *arg)
 {
+  char args[64] = "";
+#ifdef CONFIG_STACK_COLORATION
+  uint32_t stack_filled = 0;
+  uint32_t stack_used;
+#endif
+#ifdef CONFIG_SCHED_CPULOAD
+  struct cpuload_s cpuload;
+  uint32_t fracpart;
+  uint32_t intpart;
+  uint32_t tmp;
+
+  clock_cpuload(tcb->pid, &cpuload);
+
+  if (cpuload.total > 0)
+    {
+      tmp      = (1000 * cpuload.active) / cpuload.total;
+      intpart  = tmp / 10;
+      fracpart = tmp - 10 * intpart;
+    }
+  else
+    {
+      intpart  = 0;
+      fracpart = 0;
+    }
+#endif
+
+#ifdef CONFIG_STACK_COLORATION
+  stack_used = up_check_tcbstack(tcb);
+  if (tcb->adj_stack_size > 0 && stack_used > 0)
+    {
+      /* Use fixed-point math with one decimal place */
+
+      stack_filled = 10 * 100 * stack_used / tcb->adj_stack_size;
+    }
+#endif
+
+#ifndef CONFIG_DISABLE_PTHREAD
+  if ((tcb->flags & TCB_FLAG_TTYPE_MASK) == TCB_FLAG_TTYPE_PTHREAD)
+    {
+      FAR struct pthread_tcb_s *ptcb = (FAR struct pthread_tcb_s *)tcb;
+
+      snprintf(args, sizeof(args), " %p", ptcb->arg);
+    }
+  else
+#endif
+    {
+      FAR char **argv = tcb->group->tg_info->argv + 1;
+      size_t npos = 0;
+
+      while (*argv != NULL && npos < sizeof(args))
+        {
+          npos += snprintf(args + npos, sizeof(args) - npos, " %s", *argv++);
+        }
+    }
+
   /* Dump interesting properties of this task */
 
+  _alert("  %4d   %4d"
+#ifdef CONFIG_SMP
+         "  %4d"
+#endif
+         "   %7lu"
+#ifdef CONFIG_STACK_COLORATION
+         "   %7lu   %3" PRId32 ".%1" PRId32 "%%%c"
+#endif
+#ifdef CONFIG_SCHED_CPULOAD
+         "   %3" PRId32 ".%01" PRId32 "%%"
+#endif
+         "   %s%s\n"
+         , tcb->pid, tcb->sched_priority
+#ifdef CONFIG_SMP
+         , tcb->cpu
+#endif
+         , (unsigned long)tcb->adj_stack_size
+#ifdef CONFIG_STACK_COLORATION
+         , (unsigned long)up_check_tcbstack(tcb)
+         , stack_filled / 10, stack_filled % 10
+         , (stack_filled >= 10 * 80 ? '!' : ' ')
+#endif
+#ifdef CONFIG_SCHED_CPULOAD
+         , intpart, fracpart
+#endif
 #if CONFIG_TASK_NAME_SIZE > 0
-  _alert("%s: PID=%d Stack Used=%lu of %lu\n",
-        tcb->name, tcb->pid, (unsigned long)up_check_tcbstack(tcb),
-        (unsigned long)tcb->adj_stack_size);
+         , tcb->name
 #else
-  _alert("PID: %d Stack Used=%lu of %lu\n",
-        tcb->pid, (unsigned long)up_check_tcbstack(tcb),
-        (unsigned long)tcb->adj_stack_size);
+         , "<noname>"
 #endif
+         , args
+        );
+}
 
-  /* Dump the backtrace */
+/****************************************************************************
+ * Name: xtensa_dump_backtrace
+ ****************************************************************************/
 
-#if defined(CONFIG_XTENSA_DUMPBT_ON_ASSERT) && \
-    defined(CONFIG_SCHED_BACKTRACE)
+#ifdef CONFIG_SCHED_BACKTRACE
+static void xtensa_dump_backtrace(struct tcb_s *tcb, void *arg)
+{
+  /* Show back trace */
+
   sched_dumpstack(tcb->pid);
-#endif
 }
 #endif
 
 /****************************************************************************
- * Name: up_showtasks
+ * Name: xtensa_showtasks
  ****************************************************************************/
 
-#ifdef CONFIG_STACK_COLORATION
-static inline void up_showtasks(void)
+static inline void xtensa_showtasks(void)
 {
+#if CONFIG_ARCH_INTERRUPTSTACK > 15
+#  ifdef CONFIG_STACK_COLORATION
+  uint32_t stack_used = up_check_intstack();
+  uint32_t stack_filled = 0;
+
+  if ((CONFIG_ARCH_INTERRUPTSTACK & ~15) > 0 && stack_used > 0)
+    {
+      /* Use fixed-point math with one decimal place */
+
+      stack_filled = 10 * 100 *
+                     stack_used / (CONFIG_ARCH_INTERRUPTSTACK & ~15);
+    }
+#  endif
+#endif
+
   /* Dump interesting properties of each task in the crash environment */
 
-  nxsched_foreach(up_taskdump, NULL);
-}
-#else
-#  define up_showtasks()
+  _alert("   PID    PRI"
+#ifdef CONFIG_SMP
+         "   CPU"
 #endif
+         "     STACK"
+#ifdef CONFIG_STACK_COLORATION
+         "      USED   FILLED "
+#endif
+#ifdef CONFIG_SCHED_CPULOAD
+         "      CPU"
+#endif
+         "   COMMAND\n");
+
+#if CONFIG_ARCH_INTERRUPTSTACK > 15
+  _alert("  ----   ----"
+#  ifdef CONFIG_SMP
+         "  ----"
+#  endif
+         "   %7u"
+#  ifdef CONFIG_STACK_COLORATION
+         "   %7" PRId32 "   %3" PRId32 ".%1" PRId32 "%%%c"
+#  endif
+#  ifdef CONFIG_SCHED_CPULOAD
+         "     ----"
+#  endif
+         "   irq\n"
+         , (CONFIG_ARCH_INTERRUPTSTACK & ~15)
+#  ifdef CONFIG_STACK_COLORATION
+         , stack_used
+         , stack_filled / 10, stack_filled % 10,
+         (stack_filled >= 10 * 80 ? '!' : ' ')
+#  endif
+        );
+#endif
+
+  nxsched_foreach(xtensa_dump_task, NULL);
+#ifdef CONFIG_SCHED_BACKTRACE
+  nxsched_foreach(xtensa_dump_backtrace, NULL);
+#endif
+}
 
 /****************************************************************************
  * Name: xtensa_stackdump
@@ -102,7 +230,11 @@ static void xtensa_stackdump(uint32_t sp, uint32_t stack_top)
 {
   uint32_t stack;
 
-  for (stack = sp & ~0x1f; stack < stack_top; stack += 32)
+  /* Flush any buffered SYSLOG data to avoid overwrite */
+
+  syslog_flush();
+
+  for (stack = sp & ~0x1f; stack < (stack_top & ~0x1f); stack += 32)
     {
       uint32_t *ptr = (uint32_t *)stack;
       _alert("%08x: %08x %08x %08x %08x %08x %08x %08x %08x\n",
@@ -115,20 +247,8 @@ static void xtensa_stackdump(uint32_t sp, uint32_t stack_top)
  * Name: xtensa_registerdump
  ****************************************************************************/
 
-static inline void xtensa_registerdump(void)
+static inline void xtensa_registerdump(uintptr_t *regs)
 {
-  uint32_t *regs = (uint32_t *)CURRENT_REGS; /* Don't need volatile here */
-
-  /* Are user registers available from interrupt processing? */
-
-  if (regs == NULL)
-    {
-      /* No.. capture user registers by hand */
-
-      xtensa_context_save(s_last_regs);
-      regs = s_last_regs;
-    }
-
   _alert("   PC: %08lx    PS: %08lx\n",
          (unsigned long)regs[REG_PC], (unsigned long)regs[REG_PS]);
   _alert("   A0: %08lx    A1: %08lx    A2: %08lx    A3: %08lx\n",
@@ -151,10 +271,53 @@ static inline void xtensa_registerdump(void)
          (unsigned long)regs[REG_LBEG], (unsigned long)regs[REG_LEND],
          (unsigned long)regs[REG_LCOUNT]);
 #endif
-#ifndef __XTENSA_CALL0_ABI__
-  _alert(" TMP0: %08lx  TMP1: %08lx\n",
-         (unsigned long)regs[REG_TMP0], (unsigned long)regs[REG_TMP1]);
+}
+
+/****************************************************************************
+ * Name: xtensa_dump_stack
+ ****************************************************************************/
+
+static void xtensa_dump_stack(const char *tag, uint32_t sp,
+                              uint32_t base, uint32_t size, bool force)
+{
+  uint32_t top = base + size;
+#ifdef CONFIG_STACK_COLORATION
+  uint32_t used = xtensa_stack_check((uintptr_t)base, size);
 #endif
+
+  _alert("%s Stack:\n", tag);
+  _alert("sp:     %08" PRIx32 "\n", sp);
+  _alert("  base: %08" PRIx32 "\n", base);
+  _alert("  size: %08" PRIx32 "\n", size);
+#ifdef CONFIG_STACK_COLORATION
+  _alert("  used: %08" PRIx32 "\n", used);
+#endif
+
+  if (sp >= base && sp < top)
+    {
+      xtensa_stackdump(sp, top);
+    }
+  else
+    {
+      _alert("ERROR: %s Stack pointer is not within the stack\n", tag);
+
+      if (force)
+        {
+#ifdef CONFIG_STACK_COLORATION
+          base += size - used;
+          size = used;
+#endif
+
+#if CONFIG_ARCH_STACKDUMP_MAX_LENGTH > 0
+          if (size > CONFIG_ARCH_STACKDUMP_MAX_LENGTH)
+            {
+              size = CONFIG_ARCH_STACKDUMP_MAX_LENGTH;
+            }
+#endif
+
+          xtensa_stackdump(base, base + size);
+        }
+    }
 }
 
 /****************************************************************************
@@ -165,12 +328,6 @@ void xtensa_dumpstate(void)
 {
   struct tcb_s *rtcb = running_task();
   uint32_t sp = up_getsp();
-  uint32_t ustackbase;
-  uint32_t ustacksize;
-#if CONFIG_ARCH_INTERRUPTSTACK > 15
-  uint32_t istackbase;
-  uint32_t istacksize;
-#endif
 
 #ifdef CONFIG_SMP
   /* Show the CPU number */
@@ -178,9 +335,20 @@ void xtensa_dumpstate(void)
   _alert("CPU%d:\n", up_cpu_index());
 #endif
 
+  /* Update the xcp context */
+
+  if (CURRENT_REGS)
+    {
+      rtcb->xcp.regs = (uint32_t *)CURRENT_REGS;
+    }
+  else
+    {
+      up_saveusercontext(rtcb->xcp.regs);
+    }
+
   /* Dump the registers (if available) */
 
-  xtensa_registerdump();
+  xtensa_registerdump(rtcb->xcp.regs);
 
   /* Dump the backtrace */
 
@@ -189,92 +357,34 @@ void xtensa_dumpstate(void)
   sched_dumpstack(rtcb->pid);
 #endif
 
-  /* Get the limits on the user stack memory */
-
-  ustackbase = (uint32_t)rtcb->stack_base_ptr;
-  ustacksize = (uint32_t)rtcb->adj_stack_size;
-
-  /* Get the limits on the interrupt stack memory */
+  /* Dump the irq stack */
 
 #if CONFIG_ARCH_INTERRUPTSTACK > 15
-#ifdef CONFIG_SMP
-  istackbase = (uint32_t)xtensa_intstack_alloc();
-#else
-  istackbase = (uint32_t)&g_intstackalloc;
-#endif
-  istacksize = INTSTACK_SIZE;
-
-  /* Show interrupt stack info */
-
-  _alert("sp:     %08x\n", sp);
-  _alert("IRQ stack:\n");
-  _alert("  base: %08x\n", istackbase);
-  _alert("  size: %08x\n", istacksize);
-#ifdef CONFIG_STACK_COLORATION
-  _alert("  used: %08x\n", up_check_intstack());
-#endif
-
-  /* Does the current stack pointer lie within the interrupt
-   * stack?
-   */
-
-  if (sp >= istackbase && sp < istackbase + istacksize)
-    {
-      /* Yes.. dump the interrupt stack */
-
-      xtensa_stackdump(sp, istackbase + istacksize);
-    }
-  else if (CURRENT_REGS)
-    {
-      _alert("ERROR: Stack pointer is not within the interrupt stack\n");
-      xtensa_stackdump(istackbase, istackbase + istacksize);
-    }
-
-  /* Extract the user stack pointer if we are in an interrupt handler.
-   * If we are not in an interrupt handler.  Then sp is the user stack
-   * pointer (and the above range check should have failed).
-   */
+  xtensa_dump_stack("IRQ", sp,
+#  ifdef CONFIG_SMP
+                    (uint32_t)xtensa_intstack_alloc(),
+#  else
+                    (uint32_t)&g_intstackalloc,
+#  endif
+                    INTSTACK_SIZE,
+                    !!CURRENT_REGS);
 
   if (CURRENT_REGS)
     {
       sp = CURRENT_REGS[REG_A1];
-      _alert("sp:     %08x\n", sp);
     }
-
-  /* Show user stack info */
-
-  _alert("User stack:\n");
-  _alert("  base: %08x\n", ustackbase);
-  _alert("  size: %08x\n", ustacksize);
-#ifdef CONFIG_STACK_COLORATION
-  _alert("  used: %08x\n", up_check_tcbstack(rtcb));
-#endif
-#else
-  _alert("sp:         %08x\n", sp);
-  _alert("stack base: %08x\n", ustackbase);
-  _alert("stack size: %08x\n", ustacksize);
-#ifdef CONFIG_STACK_COLORATION
-  _alert("stack used: %08x\n", up_check_tcbstack(rtcb));
-#endif
 #endif
 
-  /* Dump the user stack if the stack pointer lies within the allocated user
-   * stack memory.
-   */
+  /* Dump the user stack */
 
-  if (sp >= ustackbase && sp < ustackbase + ustacksize)
-    {
-      xtensa_stackdump(sp, ustackbase + ustacksize);
-    }
-  else
-    {
-      _alert("ERROR: Stack pointer is not within allocated stack\n");
-      xtensa_stackdump(ustackbase, ustackbase + ustacksize);
-    }
+  xtensa_dump_stack("User", sp,
+                    (uint32_t)rtcb->stack_base_ptr,
+                    (uint32_t)rtcb->adj_stack_size,
+                    true);
 
   /* Dump the state of all tasks (if available) */
 
-  up_showtasks();
+  xtensa_showtasks();
 }
 
 #endif /* CONFIG_DEBUG_ALERT */

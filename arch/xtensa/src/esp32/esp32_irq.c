@@ -32,7 +32,9 @@
 
 #include <nuttx/irq.h>
 #include <nuttx/arch.h>
+#include <nuttx/board.h>
 #include <arch/irq.h>
+#include <arch/board/board.h>
 
 #include "xtensa.h"
 
@@ -96,10 +98,10 @@
 #define ESP32_MAX_PRIORITY     5
 #define ESP32_PRIO_INDEX(p)    ((p) - ESP32_MIN_PRIORITY)
 
-#ifdef CONFIG_ESP32_WIRELESS
-#  define ESP32_WIRELESS_RESERVE_INT  (1 << ESP32_CPUINT_MAC)
+#ifdef CONFIG_ESP32_WIFI
+#  define ESP32_WIFI_RESERVE_INT  (1 << ESP32_CPUINT_MAC)
 #else
-#  define ESP32_WIRELESS_RESERVE_INT  0
+#  define ESP32_WIFI_RESERVE_INT  0
 #endif
 
 #ifdef CONFIG_ESP32_BLE
@@ -120,18 +122,11 @@
  * CURRENT_REGS for portability.
  */
 
-#ifdef CONFIG_SMP
 /* For the case of architectures with multiple CPUs, then there must be one
  * such value for each processor that can receive an interrupt.
  */
 
 volatile uint32_t *g_current_regs[CONFIG_SMP_NCPUS];
-
-#else
-
-volatile uint32_t *g_current_regs[1];
-
-#endif
 
 #if defined(CONFIG_SMP) && CONFIG_ARCH_INTERRUPTSTACK > 15
 /* In the SMP configuration, we will need custom interrupt stacks.
@@ -168,23 +163,17 @@ static volatile uint8_t g_irqmap[NR_IRQS];
  * content.
  */
 
-#ifdef CONFIG_SMP
 static uint32_t g_intenable[CONFIG_SMP_NCPUS];
-#else
-static uint32_t g_intenable[1];
-#endif
 
 /* Bitsets for free, unallocated CPU interrupts available to peripheral
  * devices.
  */
 
 static uint32_t g_cpu0_freeints = ESP32_CPUINT_PERIPHSET &
-                                  (~ESP32_WIRELESS_RESERVE_INT &
+                                  (~ESP32_WIFI_RESERVE_INT &
                                    ~ESP32_BLE_RESERVE_INT);
 #ifdef CONFIG_SMP
-static uint32_t g_cpu1_freeints = ESP32_CPUINT_PERIPHSET &
-                                  (~ESP32_WIRELESS_RESERVE_INT &
-                                   ~ESP32_BLE_RESERVE_INT);
+static uint32_t g_cpu1_freeints = ESP32_CPUINT_PERIPHSET;
 #endif
 
 /* Bitsets for each interrupt priority 1-5 */
@@ -461,6 +450,7 @@ static void esp32_free_cpuint(int cpuint)
 void up_irqinitialize(void)
 {
   int i;
+
   for (i = 0; i < NR_IRQS; i++)
     {
       g_irqmap[i] = IRQ_UNMAPPED;
@@ -470,7 +460,7 @@ void up_irqinitialize(void)
 
   g_irqmap[XTENSA_IRQ_TIMER0] = IRQ_MKMAP(0, ESP32_CPUINT_TIMER0);
 
-#ifdef CONFIG_ESP32_WIRELESS
+#ifdef CONFIG_ESP32_WIFI
   g_irqmap[ESP32_IRQ_MAC] = IRQ_MKMAP(0, ESP32_CPUINT_MAC);
 #endif
 
@@ -480,9 +470,28 @@ void up_irqinitialize(void)
   g_irqmap[ESP32_IRQ_RWBLE_IRQ] = IRQ_MKMAP(0, ESP32_PERIPH_RWBLE_IRQ);
 #endif
 
+  g_irqmap[XTENSA_IRQ_SWINT] = IRQ_MKMAP(0, ESP32_CPUINT_SOFTWARE1);
+  g_irqmap[XTENSA_IRQ_SWINT] = IRQ_MKMAP(1, ESP32_CPUINT_SOFTWARE1);
+
   /* Initialize CPU interrupts */
 
   esp32_cpuint_initialize();
+
+  /* Reserve CPU0 interrupt for some special drivers */
+
+#ifdef CONFIG_ESP32_WIFI
+  g_cpu0_intmap[ESP32_CPUINT_MAC]  = CPUINT_ASSIGN(ESP32_IRQ_MAC);
+  xtensa_enable_cpuint(&g_intenable[0], 1 << ESP32_CPUINT_MAC);
+#endif
+
+#ifdef CONFIG_ESP32_BLE
+  g_cpu0_intmap[ESP32_PERIPH_BT_BB_NMI] = CPUINT_ASSIGN(ESP32_IRQ_BT_BB_NMI);
+  g_cpu0_intmap[ESP32_PERIPH_RWBT_NMI]  = CPUINT_ASSIGN(ESP32_IRQ_RWBT_NMI);
+  g_cpu0_intmap[ESP32_PERIPH_RWBLE_IRQ] = CPUINT_ASSIGN(ESP32_IRQ_RWBLE_IRQ);
+  xtensa_enable_cpuint(&g_intenable[0], 1 << ESP32_PERIPH_BT_BB_NMI);
+  xtensa_enable_cpuint(&g_intenable[0], 1 << ESP32_PERIPH_RWBT_NMI);
+  xtensa_enable_cpuint(&g_intenable[0], 1 << ESP32_PERIPH_RWBLE_IRQ);
+#endif
 
   /* Attach and enable internal interrupts */
 
@@ -505,6 +514,14 @@ void up_irqinitialize(void)
 
   up_irq_enable();
 #endif
+
+  /* Attach the software interrupt */
+
+  irq_attach(XTENSA_IRQ_SWINT, (xcpt_t)xtensa_swint, NULL);
+
+  /* Enable the software interrupt. */
+
+  up_enable_irq(XTENSA_IRQ_SWINT);
 }
 
 /****************************************************************************
@@ -528,11 +545,7 @@ void up_disable_irq(int irq)
     }
 
   DEBUGASSERT(cpuint >= 0 && cpuint <= ESP32_CPUINT_MAX);
-#ifdef CONFIG_SMP
-  DEBUGASSERT(cpu >= 0 && cpu <= CONFIG_SMP_NCPUS);
-#else
-  DEBUGASSERT(cpu == 0);
-#endif
+  DEBUGASSERT(cpu >= 0 && cpu < CONFIG_SMP_NCPUS);
 
   if (irq < XTENSA_NIRQ_INTERNAL)
     {
@@ -564,9 +577,9 @@ void up_disable_irq(int irq)
 #ifdef CONFIG_SMP
       /* The APP's CPU GPIO is a special case. See esp32/irq.h */
 
-      if (periph == ESP32_IRQ_APPCPU_GPIO)
+      if (irq == ESP32_IRQ_APPCPU_GPIO)
         {
-          periph = ESP32_IRQ_CPU_GPIO;
+          periph = ESP32_PERIPH_CPU_GPIO;
         }
 #endif
 #endif
@@ -589,26 +602,40 @@ void up_disable_irq(int irq)
 
 void up_enable_irq(int irq)
 {
-  int cpu = IRQ_GETCPU(g_irqmap[irq]);
   int cpuint = IRQ_GETCPUINT(g_irqmap[irq]);
 
   DEBUGASSERT(cpuint >= 0 && cpuint <= ESP32_CPUINT_MAX);
-#ifdef CONFIG_SMP
-  DEBUGASSERT(cpu >= 0 && cpu <= CONFIG_SMP_NCPUS);
-#else
-  DEBUGASSERT(cpu == 0);
-#endif
 
   if (irq < XTENSA_NIRQ_INTERNAL)
     {
+      /* For internal interrupts, use the current CPU.  We can't enable other
+       * CPUs' internal interrupts.
+       * The CPU interrupt can still be taken from the map as internal
+       * interrupts have the same number for all CPUs.  In this case then
+       * we are just overwriting the cpu part of the map.
+       */
+
+      int cpu = up_cpu_index();
+
       /* Enable the CPU interrupt now for internal CPU. */
 
       xtensa_enable_cpuint(&g_intenable[cpu], (1ul << cpuint));
     }
   else
     {
-      /* For peripheral interrupts, attach the interrupt to the peripheral;
-       * the CPU interrupt was already enabled when allocated.
+      /* Retrieve the CPU that enabled this interrupt from the IRQ map.
+       *
+       * For peripheral interrupts we rely on the interrupt matrix to manage
+       * interrupts.  The interrupt matrix registers are available for both
+       * CPUs.
+       */
+
+      int cpu = IRQ_GETCPU(g_irqmap[irq]);
+
+      DEBUGASSERT(cpu >= 0 && cpu < CONFIG_SMP_NCPUS);
+
+      /* Attach the interrupt to the peripheral; the CPU interrupt was
+       * already enabled when allocated.
        */
 
       int periph = ESP32_IRQ2PERIPH(irq);
@@ -619,9 +646,9 @@ void up_enable_irq(int irq)
 #ifdef CONFIG_SMP
       /* The APP's CPU GPIO is a special case. See esp32/irq.h */
 
-      if (periph == ESP32_IRQ_APPCPU_GPIO)
+      if (irq == ESP32_IRQ_APPCPU_GPIO)
         {
-          periph = ESP32_IRQ_CPU_GPIO;
+          periph = ESP32_PERIPH_CPU_GPIO;
         }
 #endif
 #endif
@@ -739,34 +766,18 @@ int esp32_cpuint_initialize(void)
    *
    *   CPU interrupt bit           IRQ number
    *   --------------------------- ---------------------
-   *   ESP32_CPUINT_MAC         0  ESP32_IRQ_MAC      4
    *   ESP32_CPUINT_TIMER0      6  XTENSA_IRQ_TIMER0  0
    *   ESP32_CPUINT_SOFTWARE0   7  Not yet defined
    *   ESP32_CPUINT_PROFILING  11  Not yet defined
    *   ESP32_CPUINT_TIMER1     15  XTENSA_IRQ_TIMER1  1
    *   ESP32_CPUINT_TIMER2     16  XTENSA_IRQ_TIMER2  2
-   *   ESP32_CPUINT_SOFTWARE1  29  Not yet defined
+   *   ESP32_CPUINT_SOFTWARE1  29  XTENSA_IRQ_SWINT   4
    */
 
-  intmap[ESP32_CPUINT_TIMER0] = CPUINT_ASSIGN(XTENSA_IRQ_TIMER0);
-  intmap[ESP32_CPUINT_TIMER1] = CPUINT_ASSIGN(XTENSA_IRQ_TIMER1);
-  intmap[ESP32_CPUINT_TIMER2] = CPUINT_ASSIGN(XTENSA_IRQ_TIMER2);
-
-  /* Reserve CPU interrupt for some special drivers */
-
-#ifdef CONFIG_ESP32_WIRELESS
-  intmap[ESP32_CPUINT_MAC]    = CPUINT_ASSIGN(ESP32_IRQ_MAC);
-  xtensa_enable_cpuint(&g_intenable[0], 1 << ESP32_CPUINT_MAC);
-#endif
-
-#ifdef CONFIG_ESP32_BLE
-  intmap[ESP32_PERIPH_BT_BB_NMI] = CPUINT_ASSIGN(ESP32_IRQ_BT_BB_NMI);
-  intmap[ESP32_PERIPH_RWBT_NMI]  = CPUINT_ASSIGN(ESP32_IRQ_RWBT_NMI);
-  intmap[ESP32_PERIPH_RWBLE_IRQ] = CPUINT_ASSIGN(ESP32_IRQ_RWBLE_IRQ);
-  xtensa_enable_cpuint(&g_intenable[0], 1 << ESP32_PERIPH_BT_BB_NMI);
-  xtensa_enable_cpuint(&g_intenable[0], 1 << ESP32_PERIPH_RWBT_NMI);
-  xtensa_enable_cpuint(&g_intenable[0], 1 << ESP32_PERIPH_RWBLE_IRQ);
-#endif
+  intmap[ESP32_CPUINT_TIMER0]    = CPUINT_ASSIGN(XTENSA_IRQ_TIMER0);
+  intmap[ESP32_CPUINT_TIMER1]    = CPUINT_ASSIGN(XTENSA_IRQ_TIMER1);
+  intmap[ESP32_CPUINT_TIMER2]    = CPUINT_ASSIGN(XTENSA_IRQ_TIMER2);
+  intmap[ESP32_CPUINT_SOFTWARE1] = CPUINT_ASSIGN(XTENSA_IRQ_SWINT);
 
   return OK;
 }
@@ -818,6 +829,15 @@ int esp32_setup_irq(int cpu, int periphid, int priority, int type)
     }
 
   irq = ESP32_PERIPH2IRQ(periphid);
+
+#ifdef CONFIG_ESP32_GPIO_IRQ
+#ifdef CONFIG_SMP
+  if (cpu == 1 && periphid == ESP32_PERIPH_CPU_GPIO)
+    {
+      irq = ESP32_IRQ_APPCPU_GPIO;
+    }
+#endif
+#endif
 
   DEBUGASSERT(periphid >= 0 && periphid < ESP32_NPERIPHERALS);
   DEBUGASSERT(cpuint >= 0 && cpuint <= ESP32_CPUINT_MAX);
@@ -913,6 +933,10 @@ uint32_t *xtensa_int_decode(uint32_t cpuints, uint32_t *regs)
   int bit;
 #ifdef CONFIG_SMP
   int cpu;
+#endif
+
+#ifdef CONFIG_ARCH_LEDS_CPU_ACTIVITY
+  board_autoled_on(LED_CPU);
 #endif
 
 #ifdef CONFIG_SMP

@@ -24,8 +24,7 @@
 
 #include <nuttx/config.h>
 
-#include "svcall.h"
-#include "syscall.h"
+#include <arch/syscall.h>
 
 /****************************************************************************
  * Public Functions
@@ -42,7 +41,7 @@
  *
  ****************************************************************************/
 
-void arm_switchcontext(uint32_t *saveregs, uint32_t *restoreregs)
+void arm_switchcontext(uint32_t **saveregs, uint32_t *restoreregs)
 {
   sys_call2(SYS_switch_context, (uintptr_t)saveregs, (uintptr_t)restoreregs);
 }

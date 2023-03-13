@@ -40,6 +40,10 @@
 #  include <nuttx/syslog/syslog_rpmsg.h>
 #endif
 
+#ifdef CONFIG_SYSLOG_RTT
+#  include <nuttx/syslog/syslog_rtt.h>
+#endif
+
 #ifdef CONFIG_ARCH_LOWPUTC
 #  include <nuttx/arch.h>
 #endif
@@ -95,11 +99,22 @@ static struct syslog_channel_s g_rpmsg_channel =
 };
 #endif
 
-#if defined(CONFIG_SYSLOG_DEFAULT)
-#  if defined(CONFIG_ARCH_LOWPUTC)
-static sem_t g_syslog_default_sem = SEM_INITIALIZER(1);
-#  endif
+#if defined(CONFIG_SYSLOG_RTT)
+static const struct syslog_channel_ops_s g_rtt_channel_ops =
+{
+  syslog_rtt_putc,
+  syslog_rtt_putc,
+  NULL,
+  syslog_rtt_write
+};
 
+static struct syslog_channel_s g_rtt_channel =
+{
+  &g_rtt_channel_ops
+};
+#endif
+
+#if defined(CONFIG_SYSLOG_DEFAULT)
 static const struct syslog_channel_ops_s g_default_channel_ops =
 {
   syslog_default_putc,
@@ -112,6 +127,43 @@ static struct syslog_channel_s g_default_channel =
 {
   &g_default_channel_ops
 };
+#endif
+
+/* This is a simply sanity check to avoid we have more elements than the
+ * `g_syslog_channel` array can hold
+ */
+
+#ifdef CONFIG_SYSLOG_DEFAULT
+#  define SYSLOG_DEFAULT_AVAILABLE 1
+#else
+#  define SYSLOG_DEFAULT_AVAILABLE 0
+#endif
+
+#ifdef CONFIG_RAMLOG_SYSLOG
+#  define RAMLOG_SYSLOG_AVAILABLE 1
+#else
+#  define RAMLOG_SYSLOG_AVAILABLE 0
+#endif
+
+#ifdef CONFIG_SYSLOG_RPMSG
+#  define SYSLOG_RPMSG_AVAILABLE 1
+#else
+#  define SYSLOG_RPMSG_AVAILABLE 0
+#endif
+
+#ifdef CONFIG_SYSLOG_RTT
+#  define SYSLOG_RTT_AVAILABLE 1
+#else
+#  define SYSLOG_RTT_AVAILABLE 0
+#endif
+
+#define SYSLOG_NCHANNELS (SYSLOG_DEFAULT_AVAILABLE + \
+                          RAMLOG_SYSLOG_AVAILABLE + \
+                          SYSLOG_RPMSG_AVAILABLE + \
+                          SYSLOG_RTT_AVAILABLE)
+
+#if SYSLOG_NCHANNELS > CONFIG_SYSLOG_MAX_CHANNELS
+#  error "Maximum channel number exceeds."
 #endif
 
 /* This is the current syslog channel in use */
@@ -128,7 +180,11 @@ FAR struct syslog_channel_s
 #endif
 
 #if defined(CONFIG_SYSLOG_RPMSG)
-  &g_rpmsg_channel
+  &g_rpmsg_channel,
+#endif
+
+#if defined(CONFIG_SYSLOG_RTT)
+  &g_rtt_channel
 #endif
 };
 
@@ -152,21 +208,20 @@ static int syslog_default_putc(FAR struct syslog_channel_s *channel, int ch)
 
 #if defined(CONFIG_ARCH_LOWPUTC)
   return up_putc(ch);
-#endif
-
+#else
   return ch;
+#endif
 }
 
 static ssize_t syslog_default_write(FAR struct syslog_channel_s *channel,
                                     FAR const char *buffer, size_t buflen)
 {
 #if defined(CONFIG_ARCH_LOWPUTC)
-  nxsem_wait(&g_syslog_default_sem);
-  up_puts(buffer);
-  nxsem_post(&g_syslog_default_sem);
+  up_nputs(buffer, buflen);
 #endif
 
-  return OK;
+  UNUSED(channel);
+  return buflen;
 }
 #endif
 

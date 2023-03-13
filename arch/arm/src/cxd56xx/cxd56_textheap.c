@@ -47,15 +47,15 @@
  * Name: up_textheap_memalign()
  ****************************************************************************/
 
-FAR void *up_textheap_memalign(size_t align, size_t size)
+void *up_textheap_memalign(size_t align, size_t size)
 {
-  FAR void *ret;
-  ret = (FAR void *)kmm_malloc(size);
+  void *ret;
+  ret = (void *)kmm_malloc(size);
 
 #ifdef CONFIG_CXD56_USE_SYSBUS
   if (ret)
     {
-      binfo("** ret=%p \n", ret);
+      binfo("** ret=%p\n", ret);
 
       /* NOTE:
        * kmm_malloc() will return the address in SYSBUS.
@@ -64,7 +64,7 @@ FAR void *up_textheap_memalign(size_t align, size_t size)
 
       ret -= SYSBUS_ADDRESS_OFFSET;
 
-      binfo("** mapped to %p \n", ret);
+      binfo("** mapped to %p\n", ret);
     }
 #endif
 
@@ -75,12 +75,12 @@ FAR void *up_textheap_memalign(size_t align, size_t size)
  * Name: up_textheap_free()
  ****************************************************************************/
 
-void up_textheap_free(FAR void *p)
+void up_textheap_free(void *p)
 {
 #ifdef CONFIG_CXD56_USE_SYSBUS
   if (p)
     {
-      binfo("** p=%p \n", p);
+      binfo("** p=%p\n", p);
 
       /* NOTE:
        * The address p will be in I/D BUS.
@@ -89,9 +89,27 @@ void up_textheap_free(FAR void *p)
 
       p += SYSBUS_ADDRESS_OFFSET;
 
-      binfo("** mapped to %p \n", p);
+      binfo("** mapped to %p\n", p);
     }
 #endif
 
   kmm_free(p);
+}
+
+/****************************************************************************
+ * Name: up_textheap_heapmember()
+ ****************************************************************************/
+
+bool up_textheap_heapmember(void *p)
+{
+  if (p == NULL)
+    {
+      return false;
+    }
+
+#ifdef CONFIG_CXD56_USE_SYSBUS
+  p += SYSBUS_ADDRESS_OFFSET;
+#endif
+
+  return kmm_heapmember(p);
 }

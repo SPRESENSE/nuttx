@@ -58,10 +58,10 @@ config ARCH_SH1
 	default n
 
 config ARCH_RENESAS_RX
-    bool
-    default n
-    select ARCH_HAVE_SETJMP
-    select CYGWIN_WINTOOL if WINDOWS_CYGWIN
+	bool
+	default n
+	select ARCH_HAVE_SETJMP
+	select CYGWIN_WINTOOL if WINDOWS_CYGWIN
 
 config ARCH_RX65N
 	bool
@@ -77,7 +77,6 @@ config ARCH_RX65N_RSK2MB
 	bool
 	default n
 	select ARCH_RENESAS_RX
-
 
 config ARCH_RX65N_GRROSE
 	bool

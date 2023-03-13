@@ -31,7 +31,7 @@
 #include <nuttx/arch.h>
 #include <arch/board/board.h>
 
-#include "riscv_arch.h"
+#include "riscv_internal.h"
 #include "k210_clockconfig.h"
 
 /****************************************************************************
@@ -105,5 +105,9 @@ void k210_clockconfig(void)
 
       g_cpu_clock = OSC_FREQ;
     }
+
+  /* Workaround for stabilization */
+
+  up_udelay(1);
 #endif
 }

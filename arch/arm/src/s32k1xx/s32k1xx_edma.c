@@ -60,7 +60,6 @@
 #include <nuttx/spinlock.h>
 #include <nuttx/semaphore.h>
 
-#include "arm_arch.h"
 #include "arm_internal.h"
 #include "sched/sched.h"
 
@@ -553,7 +552,7 @@ static void s32k1xx_dmaterminate(struct s32k1xx_dmach_s *dmach, int result)
  *
  ****************************************************************************/
 
-static int s32k1xx_edma_interrupt(int irq, void *context, FAR void *arg)
+static int s32k1xx_edma_interrupt(int irq, void *context, void *arg)
 {
   struct s32k1xx_dmach_s *dmach;
   uintptr_t regaddr;
@@ -636,7 +635,7 @@ static int s32k1xx_edma_interrupt(int irq, void *context, FAR void *arg)
  *
  ****************************************************************************/
 
-static int s32k1xx_error_interrupt(int irq, void *context, FAR void *arg)
+static int s32k1xx_error_interrupt(int irq, void *context, void *arg)
 {
   uint32_t errstatus;
   uint32_t errmask;

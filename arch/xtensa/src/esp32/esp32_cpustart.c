@@ -46,8 +46,6 @@
 #include "esp32_smp.h"
 #include "esp32_gpio.h"
 
-#ifdef CONFIG_SMP
-
 /****************************************************************************
  * Private Data
  ****************************************************************************/
@@ -88,7 +86,6 @@ static inline void xtensa_registerdump(struct tcb_s *tcb)
  * Name: xtensa_attach_fromcpu0_interrupt
  ****************************************************************************/
 
-#ifdef CONFIG_SMP
 static inline void xtensa_attach_fromcpu0_interrupt(void)
 {
   int cpuint;
@@ -106,7 +103,6 @@ static inline void xtensa_attach_fromcpu0_interrupt(void)
 
   up_enable_irq(ESP32_IRQ_CPU_CPU0);
 }
-#endif
 
 /****************************************************************************
  * Public Functions
@@ -128,28 +124,10 @@ static inline void xtensa_attach_fromcpu0_interrupt(void)
  *
  ****************************************************************************/
 
-void xtensa_appcpu_start(void)
+void IRAM_ATTR xtensa_appcpu_start(void)
 {
   struct tcb_s *tcb = this_task();
   register uint32_t sp;
-
-#ifdef CONFIG_STACK_COLORATION
-    {
-      register uint32_t *ptr;
-      register int i;
-
-      /* If stack debug is enabled, then fill the stack with a recognizable
-       * value that we can use later to test for high water marks.
-       */
-
-      for (i = 0, ptr = (uint32_t *)tcb->stack_alloc_ptr;
-           i < tcb->adj_stack_size;
-           i += sizeof(uint32_t))
-        {
-          *ptr++ = STACK_COLOR;
-        }
-    }
-#endif
 
   /* Move to the stack assigned to us by up_smp_start immediately.  Although
    * we were give a stack pointer at start-up, we don't know where that stack
@@ -157,7 +135,8 @@ void xtensa_appcpu_start(void)
    * is to switch to a well-known IDLE thread stack.
    */
 
-  sp = (uint32_t)tcb->stack_base_ptr + tcb->adj_stack_size;
+  sp = (uint32_t)tcb->stack_base_ptr + tcb->adj_stack_size -
+       XCPTCONTEXT_SIZE;
   __asm__ __volatile__("mov sp, %0\n" : : "r"(sp));
 
   sinfo("CPU%d Started\n", up_cpu_index());
@@ -168,7 +147,9 @@ void xtensa_appcpu_start(void)
   sched_note_cpu_started(tcb);
 #endif
 
-  /* Handle interlock */
+  /* Release the spinlock to signal to the PRO CPU that the APP CPU has
+   * started.
+   */
 
   g_appcpu_started = true;
   spin_unlock(&g_appcpu_interlock);
@@ -191,19 +172,13 @@ void xtensa_appcpu_start(void)
 
   /* Attach and enable internal interrupts */
 
-#ifdef CONFIG_SMP
   /* Attach and enable the inter-CPU interrupt */
 
   xtensa_attach_fromcpu0_interrupt();
-#endif
 
-#if 0 /* Does it make since to have co-processors enabled on the IDLE thread? */
-#if XTENSA_CP_ALLSET != 0
-  /* Set initial co-processor state */
+  /* Enable the software interrupt */
 
-  xtensa_coproc_enable(struct xtensa_cpstate_s *cpstate, int cpset);
-#endif
-#endif
+  up_enable_irq(XTENSA_IRQ_SWINT);
 
   /* Dump registers so that we can see what is going to happen on return */
 
@@ -219,6 +194,10 @@ void xtensa_appcpu_start(void)
   /* And Enable interrupts */
 
   up_irq_enable();
+#endif
+
+#if XCHAL_CP_NUM > 0
+  xtensa_set_cpenable(CONFIG_XTENSA_CP_INITSET);
 #endif
 
   /* Then switch contexts. This instantiates the exception context of the
@@ -274,8 +253,9 @@ int up_cpu_start(int cpu)
       sched_note_cpu_start(this_task(), cpu);
 #endif
 
-      /* The waitsem semaphore is used for signaling and, hence, should not
-       * have priority inheritance enabled.
+      /* This spinlock will be used as a handshake between the two CPUs.
+       * It's first initialized to its locked state, later the PRO CPU will
+       * try to lock it but spins until the APP CPU starts and unlocks it.
        */
 
       spin_initialize(&g_appcpu_interlock, SP_LOCKED);
@@ -295,31 +275,39 @@ int up_cpu_start(int cpu)
       regval &= ~RTC_CNTL_SW_STALL_APPCPU_C0_M;
       putreg32(regval, RTC_CNTL_OPTIONS0_REG);
 
-      /* Enable clock gating for the APP CPU */
+      /* OpenOCD might have already enabled clock gating and taken APP CPU
+       * out of reset.  Don't reset the APP CPU if that's the case as this
+       * will clear the breakpoints that may have already been set.
+       */
 
-      regval  = getreg32(DPORT_APPCPU_CTRL_B_REG);
-      regval |= DPORT_APPCPU_CLKGATE_EN;
-      putreg32(regval, DPORT_APPCPU_CTRL_B_REG);
+      regval = getreg32(DPORT_APPCPU_CTRL_B_REG);
+      if ((regval & DPORT_APPCPU_CLKGATE_EN_M) == 0)
+        {
+          /* Enable clock gating for the APP CPU */
 
-      regval  = getreg32(DPORT_APPCPU_CTRL_C_REG);
-      regval &= ~DPORT_APPCPU_RUNSTALL;
-      putreg32(regval, DPORT_APPCPU_CTRL_C_REG);
+          regval |= DPORT_APPCPU_CLKGATE_EN;
+          putreg32(regval, DPORT_APPCPU_CTRL_B_REG);
 
-      /* Reset the APP CPU */
+          regval  = getreg32(DPORT_APPCPU_CTRL_C_REG);
+          regval &= ~DPORT_APPCPU_RUNSTALL;
+          putreg32(regval, DPORT_APPCPU_CTRL_C_REG);
 
-      regval  = getreg32(DPORT_APPCPU_CTRL_A_REG);
-      regval |= DPORT_APPCPU_RESETTING;
-      putreg32(regval, DPORT_APPCPU_CTRL_A_REG);
+          /* Reset the APP CPU */
 
-      regval  = getreg32(DPORT_APPCPU_CTRL_A_REG);
-      regval &= ~DPORT_APPCPU_RESETTING;
-      putreg32(regval, DPORT_APPCPU_CTRL_A_REG);
+          regval  = getreg32(DPORT_APPCPU_CTRL_A_REG);
+          regval |= DPORT_APPCPU_RESETTING;
+          putreg32(regval, DPORT_APPCPU_CTRL_A_REG);
+
+          regval  = getreg32(DPORT_APPCPU_CTRL_A_REG);
+          regval &= ~DPORT_APPCPU_RESETTING;
+          putreg32(regval, DPORT_APPCPU_CTRL_A_REG);
+        }
 
       /* Set the CPU1 start address */
 
       ets_set_appcpu_boot_addr((uint32_t)xtensa_appcpu_start);
 
-      /* And wait for the initial task to run on CPU1 */
+      /* And wait until the APP CPU starts and releases the spinlock. */
 
       spin_lock(&g_appcpu_interlock);
       DEBUGASSERT(g_appcpu_started);
@@ -328,4 +316,3 @@ int up_cpu_start(int cpu)
   return OK;
 }
 
-#endif /* CONFIG_SMP */

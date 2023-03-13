@@ -30,8 +30,7 @@
 #include <nuttx/arch.h>
 #include <nuttx/irq.h>
 
-#include "arm_arch.h"
-
+#include "arm_internal.h"
 #include "max326_gpio.h"
 
 #ifdef CONFIG_MAX326XX_GPIOIRQ
@@ -48,7 +47,7 @@
  *
  ****************************************************************************/
 
-static int max326_gpio0_interrupt(int irq, FAR void *context, FAR void *arg)
+static int max326_gpio0_interrupt(int irq, void *context, void *arg)
 {
   uint32_t pending;
   int i;

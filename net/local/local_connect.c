@@ -178,6 +178,8 @@ static int inline local_stream_connect(FAR struct local_conn_s *client,
 
   DEBUGASSERT(client->lc_infile.f_inode != NULL);
 
+  nxsem_post(&client->lc_donesem);
+
   if (!nonblock)
     {
       client->lc_state = LOCAL_STATE_CONNECTED;
@@ -267,6 +269,13 @@ int psock_local_connect(FAR struct socket *psock,
   net_lock();
   while ((conn = local_nextconn(conn)) != NULL)
     {
+      /* Slef found, continue */
+
+      if (conn == psock->s_conn)
+        {
+          continue;
+        }
+
       /* Handle according to the server connection type */
 
       switch (conn->lc_type)
@@ -301,9 +310,6 @@ int psock_local_connect(FAR struct socket *psock,
                         UNIX_PATH_MAX - 1);
                 client->lc_path[UNIX_PATH_MAX - 1] = '\0';
                 client->lc_instance_id = local_generate_instance_id();
-#ifdef CONFIG_NET_LOCAL_SCM
-                client->lc_peer = conn;
-#endif /* CONFIG_NET_LOCAL_SCM */
 
                 /* The client is now bound to an address */
 
@@ -315,7 +321,7 @@ int psock_local_connect(FAR struct socket *psock,
                   {
                     ret =
                       local_stream_connect(client, conn,
-                                           _SS_ISNONBLOCK(psock->s_flags));
+                        _SS_ISNONBLOCK(client->lc_conn.s_flags));
                   }
 
                 net_unlock();

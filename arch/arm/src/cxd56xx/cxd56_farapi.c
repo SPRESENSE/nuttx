@@ -34,7 +34,6 @@
 
 #include <arch/chip/pm.h>
 
-#include "arm_arch.h"
 #include "arm_internal.h"
 #include "chip.h"
 #include "cxd56_icc.h"
@@ -161,7 +160,7 @@ static int cxd56_sendmsg(int cpuid, int protoid, int msgtype, uint16_t pdata,
 
 static int cxd56_farapidonehandler(int cpuid, int protoid,
                                    uint32_t pdata, uint32_t data,
-                                   FAR void *userdata)
+                                   void *userdata)
 {
   /* Receive event flag message as Far API done.
    * We need only far API done event.
@@ -182,7 +181,7 @@ static int cxd56_farapidonehandler(int cpuid, int protoid,
  * Public Functions
  ****************************************************************************/
 
-unused_code
+used_code
 void farapi_main(int id, void *arg, struct modulelist_s *mlist)
 {
   struct farmsg_s msg;

@@ -178,9 +178,9 @@ static int audio_comp_getcaps(FAR struct audio_lowerhalf_s *dev, int type,
   int ret = -ENOTTY;
   int i;
 
-  caps->ac_channels   = 0;
-  caps->ac_format.hw  = 0;
-  caps->ac_controls.w = 0;
+  caps->ac_channels   = UINT8_MAX;
+  caps->ac_format.hw  = UINT16_MAX;
+  caps->ac_controls.w = UINT32_MAX;
 
   for (i = 0; i < priv->count; i++)
     {
@@ -200,13 +200,13 @@ static int audio_comp_getcaps(FAR struct audio_lowerhalf_s *dev, int type,
               break;
             }
 
-          if (caps->ac_channels < dup.ac_channels)
+          if (caps->ac_channels > dup.ac_channels)
             {
               caps->ac_channels = dup.ac_channels;
             }
 
-          caps->ac_format.hw   |= dup.ac_format.hw;
-          caps->ac_controls.w  |= dup.ac_controls.w;
+          caps->ac_format.hw   &= dup.ac_format.hw;
+          caps->ac_controls.w  &= dup.ac_controls.w;
         }
     }
 
@@ -919,14 +919,15 @@ static void audio_comp_callback(FAR void *arg, uint16_t reason,
  *   ...  - The list of the lower half audio driver.
  *
  * Returned Value:
- *   Zero on success; a negated errno value on failure.
+ *   struct audio_lowerhalf_s* on success; NULL on failure.
  *
  * Note
  *   The variable argument list must be NULL terminated.
  *
  ****************************************************************************/
 
-int audio_comp_initialize(FAR const char *name, ...)
+FAR struct audio_lowerhalf_s *audio_comp_initialize(FAR const char *name,
+                                                    ...)
 {
   FAR struct audio_comp_priv_s *priv;
   va_list ap;
@@ -936,7 +937,7 @@ int audio_comp_initialize(FAR const char *name, ...)
   priv = kmm_zalloc(sizeof(struct audio_comp_priv_s));
   if (priv == NULL)
     {
-      return ret;
+      return NULL;
     }
 
   priv->export.ops = &g_audio_comp_ops;
@@ -968,17 +969,20 @@ int audio_comp_initialize(FAR const char *name, ...)
     }
 
   va_end(ap);
-  ret = audio_register(name, &priv->export);
-  if (ret < 0)
+  if (name != NULL)
     {
-      goto free_lower;
+      ret = audio_register(name, &priv->export);
+      if (ret < 0)
+        {
+          goto free_lower;
+        }
     }
 
-  return OK;
+  return &priv->export;
 
 free_lower:
   kmm_free(priv->lower);
 free_priv:
   kmm_free(priv);
-  return ret;
+  return NULL;
 }

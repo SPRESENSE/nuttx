@@ -136,8 +136,8 @@ pwm-4.1
 -------
 
 This configuration is similar to the nsh configuration with enabled
-FlexPWM driver. Submodules 1 (pin 4) and 2 (pin 5) of FlexPWM2 are turn
-on aswell as ultiple channel PWM output. Functionality can be tested
+FlexPWM driver. Submodules 1 (pin 4) and 2 (pin 5) of FlexPWM2 are turned
+on as well as multiple channel PWM output. Functionality can be tested
 with example application "pwm". Each channel runs different duty cycle.
 
 This configuration can be easily changed to work with Teensy 4.0 by
@@ -167,7 +167,6 @@ by starting "fb" in console. The LCD display is connected via SPI4.
 
 This configuration can be easily changed to work with Teensy 4.0 by
 selecting ``CONFIG_TEENSY_40=y``.
-
 
 Flash
 =====

@@ -38,7 +38,6 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <irq/irq.h>
-#include <sched/sched.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/mqueue.h>
 #include <nuttx/spinlock.h>
@@ -50,9 +49,15 @@
 #include <nuttx/signal.h>
 #include <nuttx/arch.h>
 #include <nuttx/wireless/wireless.h>
+#include <nuttx/tls.h>
 
+#include "riscv_internal.h"
+
+#include "hardware/esp32c3_system.h"
+#include "hardware/wdev_reg.h"
 #include "hardware/esp32c3_rtccntl.h"
 #include "hardware/esp32c3_syscon.h"
+
 #include "esp32c3.h"
 #include "esp32c3_attr.h"
 #include "esp32c3_irq.h"
@@ -60,6 +65,9 @@
 #include "esp32c3_rt_timer.h"
 #include "esp32c3_wifi_utils.h"
 #include "esp32c3_wlan.h"
+#include "esp32c3_ble_adapter.h"
+#include "esp32c3_wireless.h"
+#include "esp32c3_clockconfig.h"
 
 #ifdef CONFIG_PM
 #include "esp32c3_pm.h"
@@ -76,13 +84,6 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-#ifndef CONFIG_SCHED_ONEXIT
-#  error "on_exit() API must be enabled for deallocating Wi-Fi resources"
-#endif
-
-#define MAC_ADDR0_REG (DR_REG_EFUSE_BASE + 0x044)
-#define MAC_ADDR1_REG (DR_REG_EFUSE_BASE + 0x048)
-
 #define PHY_RF_MASK   ((1 << PHY_BT_MODULE) | (1 << PHY_WIFI_MODULE))
 
 #ifdef CONFIG_ESP32C3_WIFI_SAVE_PARAM
@@ -96,6 +97,7 @@
 #endif
 
 #define WIFI_CONNECT_TIMEOUT  CONFIG_ESP32C3_WIFI_CONNECT_TIMEOUT
+#define WIFI_RECONNECT_COUNT  (10)
 
 #define TIMER_INITIALIZED_VAL (0x5aa5a55a)
 
@@ -127,6 +129,8 @@
 #define RTC_CLK_CAL_FRACT               (19)
 #define SOC_WIFI_LIGHT_SLEEP_CLK_WIDTH  (12)
 
+#define DEFAULT_RSSI                    (-127)
+
 /****************************************************************************
  * Private Types
  ****************************************************************************/
@@ -140,6 +144,17 @@ enum wifi_sta_state
   WIFI_STA_STATE_CONNECT,
   WIFI_STA_STATE_DISCONNECT,
   WIFI_STA_STATE_STOP
+};
+
+/* Wi-Fi Station connect state */
+
+enum wifi_sta_connect_state
+{
+  WIFI_STA_STATE_OK,
+  WIFI_STA_STATE_FAIL,
+  WIFI_STA_STATE_PENDING,
+  WIFI_STA_STATE_BUSY,
+  WIFI_STA_STATE_CANCEL
 };
 
 /* Wi-Fi SoftAP state */
@@ -297,10 +312,6 @@ static void esp_dport_access_stall_other_cpu_start(void);
 static void esp_dport_access_stall_other_cpu_end(void);
 static void wifi_apb80m_request(void);
 static void wifi_apb80m_release(void);
-static void wifi_phy_disable(void);
-static void wifi_phy_enable(void);
-static void esp_phy_enable_clock(void);
-static void esp_phy_disable_clock(void);
 static int wifi_phy_update_country_info(const char *country);
 static int esp_wifi_read_mac(uint8_t *mac, uint32_t type);
 static void wifi_reset_mac(void);
@@ -333,7 +344,8 @@ static int esp_get_random(uint8_t *buf, size_t len);
 static int esp_get_time(void *t);
 static uint32_t esp_clk_slowclk_cal_get_wrapper(void);
 static void esp_log_writev(uint32_t level, const char *tag,
-                           const char *format, va_list args);
+                           const char *format, va_list args)
+            printflike(3, 0);
 static void *esp_malloc_internal(size_t size);
 static void *esp_realloc_internal(void *ptr, size_t size);
 static void *esp_calloc_internal(size_t n, size_t size);
@@ -368,14 +380,12 @@ static uint8_t wifi_coex_get_schm_curr_period(void);
 static void *wifi_coex_get_schm_curr_phase(void);
 static int wifi_coex_set_schm_curr_phase_idx(int idx);
 static int wifi_coex_get_schm_curr_phase_idx(void);
-
-/****************************************************************************
- * Extern Functions declaration
- ****************************************************************************/
-
-#ifdef CONFIG_ESP32C3_BLE
-extern void coex_pti_v2(void);
+static int32_t wifi_errno_trans(int ret);
+static int esp_wifi_lock(bool lock);
+#ifdef ESP32C3_WLAN_HAS_STA
+static int esp_wifi_sta_connect_wrapper(void);
 #endif
+static void esp_wifi_set_debug_log(void);
 
 /****************************************************************************
  * Public Functions declaration
@@ -389,7 +399,8 @@ void ets_timer_arm_us(void *timer, uint32_t us, bool repeat);
 
 int64_t esp_timer_get_time(void);
 void esp_fill_random(void *buf, size_t len);
-void esp_log_write(uint32_t level, const char *tag, const char *format, ...);
+void esp_log_write(uint32_t level, const char *tag, const char *format, ...)
+     printflike(3, 4);
 uint32_t esp_log_timestamp(void);
 uint8_t esp_crc8(const uint8_t *p, uint32_t len);
 
@@ -400,18 +411,6 @@ uint8_t esp_crc8(const uint8_t *p, uint32_t len);
 /* Wi-Fi interrupt private data */
 
 static bool g_wifi_irq_bind;
-
-/* Wi-Fi sleep private data */
-
-static uint32_t g_phy_clk_en_cnt;
-
-/* Reference count of enabling PHY */
-
-static uint8_t g_phy_access_ref;
-
-/* time stamp updated when the PHY/RF is turned on */
-
-static int64_t g_phy_rf_en_ts;
 
 /* Wi-Fi event private data */
 
@@ -437,6 +436,14 @@ static bool g_sta_started;
 /* If Wi-Fi sta connected */
 
 static bool g_sta_connected;
+
+/* If Wi-Fi sta connect blocking */
+
+static bool g_sta_block = false;
+
+static int g_retry_cnt = 0;
+
+static int g_channel = 0;
 
 /* Wi-Fi station TX done callback function */
 
@@ -537,8 +544,8 @@ wifi_osi_funcs_t g_wifi_osi_funcs =
       esp_dport_access_stall_other_cpu_end,
   ._wifi_apb80m_request = wifi_apb80m_request,
   ._wifi_apb80m_release = wifi_apb80m_release,
-  ._phy_disable = wifi_phy_disable,
-  ._phy_enable = wifi_phy_enable,
+  ._phy_disable = esp32c3_phy_disable,
+  ._phy_enable = esp32c3_phy_enable,
   ._phy_update_country_info = wifi_phy_update_country_info,
   ._read_mac = esp_wifi_read_mac,
   ._timer_arm = ets_timer_arm,
@@ -614,6 +621,99 @@ ESP_EVENT_DEFINE_BASE(WIFI_EVENT);
 /****************************************************************************
  * Private Functions and Public Functions only used by libraries
  ****************************************************************************/
+
+#ifdef ESP32C3_WLAN_HAS_STA
+
+/****************************************************************************
+ * Name: esp_wifi_sta_connect_wrapper
+ *
+ * Description:
+ *   Trigger Wi-Fi station connection action
+ *
+ * Input Parameters:
+ *   None
+ *
+ * Returned Value:
+ *   OK on success (positive non-zero values are cmd-specific)
+ *   Negated errno returned on failure.
+ *
+ ****************************************************************************/
+
+static int esp_wifi_sta_connect_wrapper(void)
+{
+  int ret;
+  wifi_config_t wifi_cfg;
+  memset(&wifi_cfg, 0x0, sizeof(wifi_config_t));
+  ret = esp_wifi_get_config(WIFI_IF_STA, &wifi_cfg);
+  if (ret)
+    {
+      wlerr("ERROR: Failed to get Wi-Fi config data ret=%d\n", ret);
+    }
+
+  wifi_cfg.sta.listen_interval = 1;
+  wifi_cfg.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
+  wifi_cfg.sta.threshold.rssi = DEFAULT_RSSI;
+  if (g_channel > 0 && g_channel <= 14)
+    {
+      wifi_cfg.sta.channel = g_channel;
+      wifi_cfg.sta.scan_method = WIFI_FAST_SCAN;
+    }
+
+  if (strlen((const char *)wifi_cfg.sta.password) == 0)
+    {
+      wifi_cfg.sta.threshold.authmode = WIFI_AUTH_OPEN;
+    }
+  else
+    {
+      wifi_cfg.sta.threshold.authmode = WIFI_AUTH_WEP;
+    }
+
+  wifi_cfg.sta.pmf_cfg.capable = true;
+  wifi_cfg.sta.pmf_cfg.required = false;
+  ret = esp_wifi_set_config(WIFI_IF_STA, &wifi_cfg);
+  if (ret)
+    {
+      wlerr("ERROR: Failed to set Wi-Fi config data ret=%d\n", ret);
+      return wifi_errno_trans(ret);
+    }
+
+  ret = esp_wifi_connect();
+  if ((ret != WIFI_STA_STATE_OK) && (ret != WIFI_STA_STATE_PENDING))
+    {
+      wlerr("ERROR: Failed to reconnect AP error=%d\n", ret);
+      return wifi_errno_trans(ret);
+    }
+
+  return OK;
+}
+
+#endif
+
+/****************************************************************************
+ * Name: esp_wifi_set_debug_log
+ *
+ * Description:
+ *   Set Wi-Fi log level and module
+ *
+ * Input Parameters:
+ *   None
+ *
+ * Returned Value:
+ *   None
+ *
+ ****************************************************************************/
+
+static void esp_wifi_set_debug_log(void)
+{
+  uint32_t g_wifi_log_submodule = WIFI_LOG_SUBMODULE_CONN;
+  wifi_log_level_t level = WIFI_LOG_INFO;
+#ifdef CONFIG_WIFI_LOG_LEVEL
+  level = CONFIG_WIFI_LOG_LEVEL;
+#endif
+  esp_wifi_internal_set_log_level(level);
+  esp_wifi_internal_set_log_mod(WIFI_LOG_MODULE_WIFI,
+                                g_wifi_log_submodule, true);
+}
 
 /****************************************************************************
  * Name: osi_errno_trans
@@ -742,7 +842,7 @@ static int esp_int_adpt_cb(int irq, void *context, void *arg)
  *
  ****************************************************************************/
 
-static void esp_thread_semphr_free(int status, void *semphr)
+static void esp_thread_semphr_free(void *semphr)
 {
   if (semphr)
     {
@@ -847,7 +947,7 @@ static void esp_set_isr(int32_t n, void *f, void *arg)
   adapter = kmm_malloc(sizeof(struct irq_adpt));
   if (!adapter)
     {
-      DEBUGASSERT(0);
+      DEBUGPANIC();
     }
 
   adapter->func = f;
@@ -856,7 +956,7 @@ static void esp_set_isr(int32_t n, void *f, void *arg)
   ret = irq_attach(n + ESP32C3_IRQ_FIRSTPERIPH, esp_int_adpt_cb, adapter);
   if (ret != OK)
     {
-      DEBUGASSERT(0);
+      DEBUGPANIC();
     }
 
   g_wifi_irq_bind = true;
@@ -1107,7 +1207,6 @@ static void esp_semphr_delete(void *semphr)
 static int32_t esp_semphr_take(void *semphr, uint32_t ticks)
 {
   int ret;
-  struct timespec timeout;
   sem_t *sem = (sem_t *)semphr;
 
   if (ticks == OSI_FUNCS_TIME_BLOCKING)
@@ -1120,19 +1219,7 @@ static int32_t esp_semphr_take(void *semphr, uint32_t ticks)
     }
   else
     {
-      ret = clock_gettime(CLOCK_REALTIME, &timeout);
-      if (ret < 0)
-        {
-          wlerr("ERROR: Failed to get time\n");
-          return false;
-        }
-
-      if (ticks)
-        {
-          esp_update_time(&timeout, ticks);
-        }
-
-      ret = nxsem_timedwait(sem, &timeout);
+      ret = nxsem_tickwait(sem, ticks);
       if (ret)
         {
           wlerr("ERROR: Failed to wait sem in %lu ticks\n", ticks);
@@ -1249,40 +1336,39 @@ static int IRAM_ATTR wifi_is_in_isr(void)
 
 static void *esp_thread_semphr_get(void)
 {
+  static int wifi_task_key = -1;
   int ret;
-  int i;
   void *sem;
-  struct tcb_s *tcb = this_task();
-  struct task_group_s *group = tcb->group;
 
-  for (i = 0; i < CONFIG_SCHED_EXIT_MAX; i++)
+  if (wifi_task_key < 0)
     {
-      if (group->tg_exit[i].func.on == esp_thread_semphr_free)
+      ret = task_tls_alloc(esp_thread_semphr_free);
+      if (ret < 0)
         {
-          break;
+          wlerr("Failed to create task local key\n");
+          return NULL;
         }
+
+      wifi_task_key = ret;
     }
 
-  if (i >= CONFIG_SCHED_EXIT_MAX)
+  sem = (void *)task_tls_get_value(wifi_task_key);
+  if (sem == NULL)
     {
       sem = esp_semphr_create(1, 0);
       if (!sem)
         {
-          wlerr("ERROR: Failed to create semaphore\n");
+          wlerr("Failed to create semaphore\n");
           return NULL;
         }
 
-      ret = on_exit(esp_thread_semphr_free, sem);
-      if (ret < 0)
+      ret = task_tls_set_value(wifi_task_key, (uintptr_t)sem);
+      if (ret != OK)
         {
-          wlerr("ERROR: Failed to bind semaphore\n");
+          wlerr("Failed to save semaphore on task local storage: %d\n", ret);
           esp_semphr_delete(sem);
           return NULL;
         }
-    }
-  else
-    {
-      sem = group->tg_exit[i].arg;
     }
 
   return sem;
@@ -1786,7 +1872,7 @@ static uint32_t esp_queue_msg_waiting(void *queue)
 
 static void *esp_event_group_create(void)
 {
-  DEBUGASSERT(0);
+  DEBUGPANIC();
 
   return NULL;
 }
@@ -1801,7 +1887,7 @@ static void *esp_event_group_create(void)
 
 static void esp_event_group_delete(void *event)
 {
-  DEBUGASSERT(0);
+  DEBUGPANIC();
 }
 
 /****************************************************************************
@@ -1814,7 +1900,7 @@ static void esp_event_group_delete(void *event)
 
 static uint32_t esp_event_group_set_bits(void *event, uint32_t bits)
 {
-  DEBUGASSERT(0);
+  DEBUGPANIC();
 
   return false;
 }
@@ -1829,7 +1915,7 @@ static uint32_t esp_event_group_set_bits(void *event, uint32_t bits)
 
 static uint32_t esp_event_group_clear_bits(void *event, uint32_t bits)
 {
-  DEBUGASSERT(0);
+  DEBUGPANIC();
 
   return false;
 }
@@ -1848,7 +1934,7 @@ static uint32_t esp_event_group_wait_bits(void *event,
                                           int wait_for_all_bits,
                                           uint32_t block_time_tick)
 {
-  DEBUGASSERT(0);
+  DEBUGPANIC();
 
   return false;
 }
@@ -1899,7 +1985,7 @@ static int32_t esp_task_create_pinned_to_core(void *entry,
       wlerr("ERROR: Failed to create task\n");
     }
 
-  return pid > 0 ? true : false;
+  return pid > 0;
 }
 
 /****************************************************************************
@@ -2159,6 +2245,7 @@ static void esp_evt_work_cb(void *arg)
 {
   int ret;
   irqstate_t flags;
+  wifi_ps_type_t ps_type = DEFAULT_PS_MODE;
   struct evt_adpt *evt_adpt;
   struct wifi_notify *notify;
   wifi_event_sta_disconnected_t *disconnected;
@@ -2185,14 +2272,30 @@ static void esp_evt_work_cb(void *arg)
           case WIFI_ADPT_EVT_STA_START:
             wlinfo("INFO: Wi-Fi sta start\n");
             g_sta_connected = false;
-            ret = esp_wifi_set_ps(DEFAULT_PS_MODE);
+#ifdef CONFIG_ESP32C3_BLE
+            if (esp32c3_bt_controller_get_status() !=
+                  ESP_BT_CONTROLLER_STATUS_IDLE)
+              {
+                if (ps_type == WIFI_PS_NONE)
+                  {
+                    ps_type = WIFI_PS_MIN_MODEM;
+                  }
+              }
+#endif
+            ret = esp_wifi_set_ps(ps_type);
             if (ret)
               {
                 wlerr("ERROR: Failed to close PS\n");
               }
+            else
+              {
+                wlinfo("INFO: Set ps type=%d\n", ps_type);
+              }
+
             break;
 
           case WIFI_ADPT_EVT_STA_CONNECT:
+            g_channel = 0;
             wlinfo("INFO: Wi-Fi sta connect\n");
             g_sta_connected = true;
             ret = esp32c3_wlan_sta_set_linkstatus(true);
@@ -2207,27 +2310,57 @@ static void esp_evt_work_cb(void *arg)
             disconnected = (wifi_event_sta_disconnected_t *)evt_adpt->buf;
             wlinfo("INFO: Wi-Fi sta disconnect, reason code: %d\n",
                                               disconnected->reason);
-            g_sta_connected = false;
-            ret = esp32c3_wlan_sta_set_linkstatus(false);
-            if (ret < 0)
+            if ((disconnected->reason == WIFI_REASON_CONNECTION_FAIL ||
+                 disconnected->reason == WIFI_REASON_NO_AP_FOUND ||
+                 disconnected->reason == WIFI_REASON_AUTH_EXPIRE ||
+                 disconnected->reason == WIFI_REASON_ASSOC_EXPIRE ||
+                 disconnected->reason == WIFI_REASON_AUTH_FAIL) &&
+                 g_sta_block && (g_retry_cnt++ < WIFI_RECONNECT_COUNT))
               {
-                wlerr("ERROR: Failed to set Wi-Fi station link status\n");
-              }
-#ifdef CONFIG_ESP32C3_WIFI_RECONNECT
-            if (g_sta_reconnect)
-              {
-                ret = esp_wifi_connect();
+                ret = esp_wifi_sta_connect_wrapper();
                 if (ret)
                   {
-                    wlerr("ERROR: Failed to connect AP error=%d\n", ret);
+                    wlerr("ERROR: Failed to reconnect AP error=%d\n", ret);
                   }
               }
+            else
+              {
+                if (g_sta_block)
+                  {
+                    g_sta_block = false;
+                  }
+
+                g_channel = 0;
+                g_sta_connected = false;
+                ret = esp32c3_wlan_sta_set_linkstatus(false);
+                if (ret < 0)
+                  {
+                    wlerr("ERROR: Failed to set Wi-Fi\
+                           station link status\n");
+                  }
+#ifdef CONFIG_ESP32C3_WIFI_RECONNECT
+                if (g_sta_reconnect)
+                  {
+                    ret = esp_wifi_connect();
+                    if ((ret != WIFI_STA_STATE_OK) &&
+                       (ret != WIFI_STA_STATE_PENDING))
+                      {
+                        wlerr("ERROR: Failed to connect AP error=%d\n", ret);
+                      }
+                  }
 #endif
+              }
+
             break;
 
           case WIFI_ADPT_EVT_STA_STOP:
             wlinfo("INFO: Wi-Fi sta stop\n");
             g_sta_connected = false;
+            if (g_sta_block)
+              {
+                g_sta_block = false;
+              }
+
             break;
 #endif
 
@@ -2492,155 +2625,6 @@ static void wifi_apb80m_release(void)
 }
 
 /****************************************************************************
- * Name: wifi_phy_disable
- *
- * Description:
- *   Deinitialize PHY hardware
- *
- * Input Parameters:
- *   None
- *
- * Returned Value:
- *   None
- *
- ****************************************************************************/
-
-static void wifi_phy_disable(void)
-{
-  irqstate_t flags;
-  flags = enter_critical_section();
-
-  g_phy_access_ref--;
-
-  if (g_phy_access_ref == 0)
-    {
-      /* Disable PHY and RF. */
-
-      phy_close_rf();
-
-      /* Disable Wi-Fi/BT common peripheral clock.
-       * Do not disable clock for hardware RNG.
-       */
-
-      esp_phy_disable_clock();
-    }
-
-  leave_critical_section(flags);
-}
-
-/****************************************************************************
- * Name: wifi_phy_enable
- *
- * Description:
- *   Initialize PHY hardware
- *
- * Input Parameters:
- *   None
- *
- * Returned Value:
- *   None
- *
- ****************************************************************************/
-
-static void wifi_phy_enable(void)
-{
-  irqstate_t flags;
-  esp_phy_calibration_data_t *cal_data;
-
-  cal_data = kmm_zalloc(sizeof(esp_phy_calibration_data_t));
-  if (!cal_data)
-    {
-      wlerr("ERROR: Failed to kmm_zalloc");
-      DEBUGASSERT(0);
-    }
-
-  flags = enter_critical_section();
-
-  if (g_phy_access_ref == 0)
-    {
-      /* Update time stamp */
-
-      g_phy_rf_en_ts = esp_timer_get_time();
-
-      esp_phy_enable_clock();
-      phy_set_wifi_mode_only(0);
-      register_chipv7_phy(&phy_init_data, cal_data, PHY_RF_CAL_NONE);
-#ifdef CONFIG_ESP32C3_BLE
-      coex_pti_v2();
-#endif
-    }
-
-  g_phy_access_ref++;
-  leave_critical_section(flags);
-  kmm_free(cal_data);
-}
-
-/****************************************************************************
- * Name: esp_phy_enable_clock
- *
- * Description:
- *   Enable PHY hardware clock
- *
- * Input Parameters:
- *   None
- *
- * Returned Value:
- *   None
- *
- ****************************************************************************/
-
-void esp_phy_enable_clock(void)
-{
-  irqstate_t flags;
-
-  flags = enter_critical_section();
-
-  if (g_phy_clk_en_cnt == 0)
-    {
-      modifyreg32(SYSTEM_WIFI_CLK_EN_REG, 0,
-                  SYSTEM_WIFI_CLK_WIFI_BT_COMMON_M);
-    }
-
-  g_phy_clk_en_cnt++;
-
-  leave_critical_section(flags);
-}
-
-/****************************************************************************
- * Name: esp_phy_disable_clock
- *
- * Description:
- *   Disable PHY hardware clock
- *
- * Input Parameters:
- *   None
- *
- * Returned Value:
- *   None
- *
- ****************************************************************************/
-
-void esp_phy_disable_clock(void)
-{
-  irqstate_t flags;
-
-  flags = enter_critical_section();
-
-  if (g_phy_clk_en_cnt)
-    {
-      g_phy_clk_en_cnt--;
-      if (!g_phy_clk_en_cnt)
-        {
-          modifyreg32(SYSTEM_WIFI_CLK_EN_REG,
-                      SYSTEM_WIFI_CLK_WIFI_BT_COMMON_M,
-                      0);
-        }
-    }
-
-  leave_critical_section(flags);
-}
-
-/****************************************************************************
  * Name: wifi_phy_update_country_info
  *
  * Description:
@@ -2651,66 +2635,6 @@ void esp_phy_disable_clock(void)
 static int wifi_phy_update_country_info(const char *country)
 {
   return -1;
-}
-
-/****************************************************************************
- * Name: esp_read_mac
- *
- * Description:
- *   Read MAC address from efuse
- *
- * Input Parameters:
- *   mac  - MAC address buffer pointer
- *   type - MAC address type
- *
- * Returned Value:
- *   0 if success or -1 if fail
- *
- ****************************************************************************/
-
-esp_err_t esp_read_mac(uint8_t *mac, esp_mac_type_t type)
-{
-  uint32_t regval[2];
-  uint8_t tmp;
-  uint8_t *data = (uint8_t *)regval;
-  int i;
-
-  if (type > ESP_MAC_WIFI_SOFTAP)
-    {
-      wlerr("ERROR: Input type is error=%d\n", type);
-      return -1;
-    }
-
-  regval[0] = getreg32(MAC_ADDR0_REG);
-  regval[1] = getreg32(MAC_ADDR1_REG);
-
-  for (i = 0; i < MAC_LEN; i++)
-    {
-      mac[i] = data[5 - i];
-    }
-
-  if (type == ESP_MAC_WIFI_SOFTAP)
-    {
-      tmp = mac[0];
-      for (i = 0; i < 64; i++)
-        {
-          mac[0] = tmp | 0x02;
-          mac[0] ^= i << 2;
-
-          if (mac[0] != tmp)
-            {
-              break;
-            }
-        }
-
-      if (i >= 64)
-        {
-          wlerr("ERROR: Failed to generate softAP MAC\n");
-          return -1;
-        }
-    }
-
-  return 0;
 }
 
 /****************************************************************************
@@ -3023,7 +2947,7 @@ static int esp_nvs_set_i8(uint32_t handle,
 #ifdef CONFIG_ESP32C3_WIFI_SAVE_PARAM
   return esp_nvs_set_blob(handle, key, &value, sizeof(int8_t));
 #else
-  DEBUGASSERT(0);
+  DEBUGPANIC();
 
   return -1;
 #endif
@@ -3054,7 +2978,7 @@ static int esp_nvs_get_i8(uint32_t handle,
 
   return esp_nvs_get_blob(handle, key, out_value, &len);
 #else
-  DEBUGASSERT(0);
+  DEBUGPANIC();
 
   return -1;
 #endif
@@ -3083,7 +3007,7 @@ static int esp_nvs_set_u8(uint32_t handle,
 #ifdef CONFIG_ESP32C3_WIFI_SAVE_PARAM
   return esp_nvs_set_blob(handle, key, &value, sizeof(uint8_t));
 #else
-  DEBUGASSERT(0);
+  DEBUGPANIC();
 
   return -1;
 #endif
@@ -3114,7 +3038,7 @@ static int esp_nvs_get_u8(uint32_t handle,
 
   return esp_nvs_get_blob(handle, key, out_value, &len);
 #else
-  DEBUGASSERT(0);
+  DEBUGPANIC();
 
   return -1;
 #endif
@@ -3143,7 +3067,7 @@ static int esp_nvs_set_u16(uint32_t handle,
 #ifdef CONFIG_ESP32C3_WIFI_SAVE_PARAM
   return esp_nvs_set_blob(handle, key, &value, sizeof(uint16_t));
 #else
-  DEBUGASSERT(0);
+  DEBUGPANIC();
 
   return -1;
 #endif
@@ -3174,7 +3098,7 @@ static int esp_nvs_get_u16(uint32_t handle,
 
   return esp_nvs_get_blob(handle, key, out_value, &len);
 #else
-  DEBUGASSERT(0);
+  DEBUGPANIC();
 
   return -1;
 #endif
@@ -3227,7 +3151,7 @@ static int esp_nvs_open(const char *name,
 
   return 0;
 #else
-  DEBUGASSERT(0);
+  DEBUGPANIC();
 
   return -1;
 #endif
@@ -3255,7 +3179,7 @@ static void esp_nvs_close(uint32_t handle)
   kmm_free(nvs_adpt->index_name);
   kmm_free(nvs_adpt);
 #else
-  DEBUGASSERT(0);
+  DEBUGPANIC();
 #endif
 }
 
@@ -3341,7 +3265,7 @@ static int esp_nvs_set_blob(uint32_t handle,
 
   return 0;
 #else
-  DEBUGASSERT(0);
+  DEBUGPANIC();
 
   return -1;
 #endif
@@ -3415,7 +3339,7 @@ static int esp_nvs_get_blob(uint32_t handle,
 
   return 0;
 #else
-  DEBUGASSERT(0);
+  DEBUGPANIC();
 
   return -1;
 #endif
@@ -3463,7 +3387,7 @@ static int esp_nvs_erase_key(uint32_t handle, const char *key)
 
   return 0;
 #else
-  DEBUGASSERT(0);
+  DEBUGPANIC();
 
   return -1;
 #endif
@@ -3491,7 +3415,7 @@ void esp_fill_random(void *buf, size_t len)
 
   while (len > 0)
     {
-      tmp = random();
+      tmp = esp_rand();
       n = len < 4 ? len : 4;
 
       memcpy(p, &tmp, n);
@@ -3581,6 +3505,11 @@ static uint32_t esp_clk_slowclk_cal_get_wrapper(void)
           SOC_WIFI_LIGHT_SLEEP_CLK_WIDTH));
 }
 
+static inline uint32_t IRAM_ATTR esp_cpu_ll_get_cycle_count(void)
+{
+  return (uint32_t)READ_CSR(CSR_PCCR_MACHINE);
+}
+
 /****************************************************************************
  * Name: esp_rand
  *
@@ -3597,7 +3526,35 @@ static uint32_t esp_clk_slowclk_cal_get_wrapper(void)
 
 static uint32_t esp_rand(void)
 {
-  return random();
+  /* The PRNG which implements WDEV_RANDOM register gets 2 bits of extra
+   * entropy from a hardware randomness source every APB clock cycle
+   * (provided WiFi or BT are enabled). To make sure entropy is not drained
+   * faster than it is added, this function needs to wait for at least 16 APB
+   * clock cycles after reading previous word. This implementation may
+   * actually wait a bit longer due to extra time spent in arithmetic and
+   * branch statements. As a (probably unncessary) precaution to avoid
+   * returning the RNG state as-is, the result is XORed with additional
+   * WDEV_RND_REG reads while waiting.
+   * This code does not run in a critical section, so CPU frequency switch
+   * may happens while this code runs (this will not happen in the current
+   * implementation, but possible in the future). However if that happens,
+   * the number of cycles spent on frequency switching will certainly be more
+   * than the number of cycles we need to wait here.
+   */
+
+  uint32_t ccount;
+  uint32_t result = 0;
+  static uint32_t last_ccount = 0;
+  uint32_t cpu_to_apb_freq_ratio =
+           esp32c3_clk_cpu_freq() / esp32c3_clk_apb_freq();
+  do
+    {
+      ccount = esp_cpu_ll_get_cycle_count();
+      result ^= getreg32(WDEV_RND_REG);
+    }
+  while (ccount - last_ccount < cpu_to_apb_freq_ratio * 16);
+  last_ccount = ccount;
+  return result ^ getreg32(WDEV_RND_REG);
 }
 
 /****************************************************************************
@@ -4193,7 +4150,6 @@ static void *wifi_coex_get_schm_curr_phase(void)
 
 static int wifi_coex_set_schm_curr_phase_idx(int idx)
 {
-  return -1;
 #ifdef CONFIG_ESP32C3_WIFI_BT_COEXIST
   return coex_schm_curr_phase_idx_set(idx);
 #else
@@ -4224,7 +4180,7 @@ static int wifi_coex_get_schm_curr_phase_idx(void)
 
 static unsigned long esp_random_ulong(void)
 {
-  return random();
+  return esp_rand();
 }
 
 /****************************************************************************
@@ -4440,7 +4396,7 @@ static int esp_freq_to_channel(int freq)
  * Name: esp_dport_access_reg_read
  *
  * Description:
- *   Read regitser value safely in SMP
+ *   Read register value safely in SMP
  *
  * Input Parameters:
  *   reg - Register address
@@ -4863,6 +4819,8 @@ esp_err_t esp_wifi_init(const wifi_init_config_t *config)
       return ret;
     }
 
+  esp_wifi_set_debug_log();
+
   ret = esp_supplicant_init();
   if (ret)
     {
@@ -5066,6 +5024,13 @@ int esp_wifi_adapter_init(void)
 {
   int ret;
   wifi_init_config_t wifi_cfg = WIFI_INIT_CONFIG_DEFAULT();
+  wifi_country_t country =
+    {
+      .cc = "CN",
+      .schan = 1,
+      .nchan = 13,
+      .policy = WIFI_COUNTRY_POLICY_MANUAL
+    };
 
   esp_wifi_lock(true);
 
@@ -5133,6 +5098,12 @@ int esp_wifi_adapter_init(void)
       return ret;
     }
 
+  ret = esp_wifi_set_country(&country);
+  if (ret < 0)
+    {
+      nerr("ERROR: Failed to configure country info: %d\n", ret);
+    }
+
   g_wifi_ref++;
 
   wlinfo("INFO: OK to initialize Wi-Fi adapter\n");
@@ -5186,6 +5157,10 @@ int esp_wifi_sta_start(void)
   if (g_softap_started)
     {
       mode = WIFI_MODE_APSTA;
+    }
+  else
+    {
+      mode = WIFI_MODE_STA;
     }
 #else
   mode = WIFI_MODE_STA;
@@ -5276,7 +5251,7 @@ int esp_wifi_sta_stop(void)
 
 #ifdef ESP32C3_WLAN_HAS_SOFTAP
 errout_set_mode:
-  esp_wifi_lock(true);
+  esp_wifi_lock(false);
   return ret;
 #endif
 }
@@ -5421,7 +5396,10 @@ int esp_wifi_sta_password(struct iwreq *iwr, bool set)
       memcpy(wifi_cfg.sta.password, pdata, len);
 
       wifi_cfg.sta.pmf_cfg.capable = true;
-      wifi_cfg.sta.listen_interval = DEFAULT_LISTEN_INTERVAL;
+      if (DEFAULT_PS_MODE != WIFI_PS_NONE)
+        {
+          wifi_cfg.sta.listen_interval = DEFAULT_LISTEN_INTERVAL;
+        }
 
       ret = esp_wifi_set_config(WIFI_IF_STA, &wifi_cfg);
       if (ret)
@@ -5624,7 +5602,6 @@ int esp_wifi_sta_bssid(struct iwreq *iwr, bool set)
     {
       wifi_cfg.sta.bssid_set = true;
       memcpy(wifi_cfg.sta.bssid, pdata, MAC_LEN);
-
       ret = esp_wifi_set_config(WIFI_IF_STA, &wifi_cfg);
       if (ret)
         {
@@ -5659,6 +5636,9 @@ int esp_wifi_sta_connect(void)
 {
   int ret;
   uint32_t ticks;
+  wifi_config_t wifi_cfg;
+  uint16_t bss_total = 0;
+  wifi_scan_config_t  config ;
 
   esp_wifi_lock(true);
 
@@ -5670,9 +5650,52 @@ int esp_wifi_sta_connect(void)
     }
 
   g_sta_reconnect = true;
+  g_retry_cnt = 0;
+  if (g_channel > 0 && g_channel <= 14)
+    {
+      memset(&wifi_cfg.sta, 0x0, sizeof(wifi_sta_config_t));
+      ret = esp_wifi_get_config(WIFI_IF_STA, &wifi_cfg);
+      if (ret)
+        {
+          wlerr("ERROR: Failed to get Wi-Fi config data ret=%d\n", ret);
+          esp_wifi_lock(false);
+          return wifi_errno_trans(ret);
+        }
 
-  ret = esp_wifi_connect();
-  if (ret)
+      wifi_cfg.sta.channel = g_channel;
+      if ((wifi_cfg.sta.ssid[0] != 0x0) && ((wifi_cfg.sta.bssid[0] != 0x0) ||
+          (wifi_cfg.sta.bssid[1] != 0x0) || (wifi_cfg.sta.bssid[2] != 0x0)))
+        {
+          int scan_retry = 3;
+          int retry_cnt =  0;
+          memset(&config, 0x0, sizeof(wifi_scan_config_t));
+          config.scan_type  = IW_SCAN_TYPE_ACTIVE;
+          config.channel = g_channel;
+          config.show_hidden = true;
+          config.ssid = wifi_cfg.sta.ssid;
+          for (retry_cnt =  0; retry_cnt < scan_retry; retry_cnt++)
+            {
+              esp_wifi_scan_start(&config, true);
+              esp_wifi_scan_get_ap_num(&bss_total);
+              esp_wifi_scan_stop();
+              if (bss_total > 0)
+                {
+                  break;
+                }
+            }
+        }
+
+      ret = esp_wifi_set_config(WIFI_IF_STA, &wifi_cfg);
+      if (ret)
+        {
+          wlerr("ERROR: Failed to set Wi-Fi config data ret=%d\n", ret);
+          esp_wifi_lock(false);
+          return wifi_errno_trans(ret);
+        }
+    }
+
+  ret = esp_wifi_sta_connect_wrapper();
+  if ((ret != WIFI_STA_STATE_OK) && (ret != WIFI_STA_STATE_PENDING))
     {
       wlerr("ERROR: Failed to connect ret=%d\n", ret);
       ret = wifi_errno_trans(ret);
@@ -5682,21 +5705,38 @@ int esp_wifi_sta_connect(void)
   esp_wifi_lock(false);
 
   ticks = SEC2TICK(WIFI_CONNECT_TIMEOUT);
+  g_sta_block = true;
   do
     {
-      if (g_sta_connected)
+      if (g_sta_connected || (!g_sta_block))
         {
           break;
         }
 
-      esp_task_delay(1);
+      esp_task_delay(10);
     }
   while (ticks--);
 
+  g_sta_block = false;
   if (!g_sta_connected)
     {
       g_sta_reconnect = false;
       wlinfo("INFO: Failed to connect to AP\n");
+      ret = esp_wifi_get_config(WIFI_IF_STA, &wifi_cfg);
+      if (ret)
+        {
+          wlerr("ERROR: Failed to get Wi-Fi config data ret=%d\n", ret);
+          return wifi_errno_trans(ret);
+        }
+
+      memset(&wifi_cfg.sta, 0x0, sizeof(wifi_sta_config_t));
+      ret = esp_wifi_set_config(WIFI_IF_STA, &wifi_cfg);
+      if (ret)
+        {
+          wlerr("ERROR: Failed to set Wi-Fi config data ret=%d\n", ret);
+          return wifi_errno_trans(ret);
+        }
+
       return -1;
     }
 
@@ -5727,6 +5767,7 @@ errout_wifi_connect:
 int esp_wifi_sta_disconnect(void)
 {
   int ret;
+  wifi_config_t wifi_cfg;
 
   esp_wifi_lock(true);
 
@@ -5741,6 +5782,21 @@ int esp_wifi_sta_disconnect(void)
   else
     {
       wlinfo("INFO: Wi-Fi disconnect complete, success\n");
+    }
+
+  ret = esp_wifi_get_config(WIFI_IF_STA, &wifi_cfg);
+  if (ret)
+    {
+      wlerr("ERROR: Failed to get Wi-Fi config data ret=%d\n", ret);
+      return wifi_errno_trans(ret);
+    }
+
+  memset(&wifi_cfg.sta, 0x0, sizeof(wifi_sta_config_t));
+  ret = esp_wifi_set_config(WIFI_IF_STA, &wifi_cfg);
+  if (ret)
+    {
+      wlerr("ERROR: Failed to set Wi-Fi config data ret=%d\n", ret);
+      return wifi_errno_trans(ret);
     }
 
   esp_wifi_lock(false);
@@ -5801,7 +5857,7 @@ int esp_wifi_sta_auth(struct iwreq *iwr, bool set)
     }
   else
     {
-      if (g_sta_connected == false)
+      if (!g_sta_connected)
         {
           return -ENOTCONN;
         }
@@ -5877,8 +5933,7 @@ int esp_wifi_sta_freq(struct iwreq *iwr, bool set)
           return wifi_errno_trans(ret);
         }
 
-      wifi_cfg.sta.channel = esp_freq_to_channel(iwr->u.freq.m);
-
+      g_channel = wifi_cfg.sta.channel = esp_freq_to_channel(iwr->u.freq.m);
       ret = esp_wifi_set_config(WIFI_IF_STA, &wifi_cfg);
       if (ret)
         {
@@ -5945,7 +6000,7 @@ int esp_wifi_sta_bitrate(struct iwreq *iwr, bool set)
     }
   else
     {
-      if (g_sta_connected == false)
+      if (!g_sta_connected)
         {
           iwr->u.bitrate.fixed = IW_FREQ_AUTO;
           return OK;
@@ -6141,7 +6196,7 @@ int esp_wifi_sta_country(struct iwreq *iwr, bool set)
     {
       memset(&country, 0x00, sizeof(wifi_country_t));
       country.schan  = 1;
-      country.policy = 0;
+      country.policy = WIFI_COUNTRY_POLICY_MANUAL;
 
       country_code = (char *)iwr->u.data.pointer;
       if (strlen(country_code) != 2)
@@ -6151,7 +6206,15 @@ int esp_wifi_sta_country(struct iwreq *iwr, bool set)
         }
 
       if (strncmp(country_code, "US", 3) == 0 ||
-          strncmp(country_code, "CA", 3) == 0)
+          strncmp(country_code, "CA", 3) == 0 ||
+          strncmp(country_code, "CO", 3) == 0 ||
+          strncmp(country_code, "DO", 3) == 0 ||
+          strncmp(country_code, "GT", 3) == 0 ||
+          strncmp(country_code, "MX", 3) == 0 ||
+          strncmp(country_code, "PA", 3) == 0 ||
+          strncmp(country_code, "PR", 3) == 0 ||
+          strncmp(country_code, "TW", 3) == 0 ||
+          strncmp(country_code, "UZ", 3) == 0)
         {
           country.nchan  = 11;
         }
@@ -6207,7 +6270,7 @@ int esp_wifi_sta_rssi(struct iwreq *iwr, bool set)
     }
   else
     {
-      if (g_sta_connected == false)
+      if (!g_sta_connected)
         {
           iwr->u.sens.value = 128;
           return OK;
@@ -6265,6 +6328,10 @@ int esp_wifi_softap_start(void)
   if (g_sta_started)
     {
       mode = WIFI_MODE_APSTA;
+    }
+  else
+    {
+      mode = WIFI_MODE_AP;
     }
 #else
   mode = WIFI_MODE_AP;
@@ -6355,7 +6422,7 @@ int esp_wifi_softap_stop(void)
 
 #ifdef ESP32C3_WLAN_HAS_STA
 errout_set_mode:
-  esp_wifi_lock(true);
+  esp_wifi_lock(false);
   return ret;
 #endif
 }
@@ -7033,3 +7100,32 @@ int esp32c3_wifi_bt_coexist_init(void)
   return 0;
 }
 #endif
+
+/****************************************************************************
+ * Name: esp_wifi_stop_callback
+ *
+ * Description:
+ *   Callback to stop Wi-Fi
+ *
+ * Input Parameters:
+ *   None
+ *
+ * Returned Value:
+ *   None
+ *
+ ****************************************************************************/
+
+void esp_wifi_stop_callback(void)
+{
+  wlinfo("Trying to stop Wi-Fi...");
+
+  int ret = esp_wifi_stop();
+  if (ret)
+    {
+      wlerr("ERROR: Failed to stop Wi-Fi ret=%d\n", ret);
+    }
+  else
+    {
+      nxsig_sleep(1);
+    }
+}

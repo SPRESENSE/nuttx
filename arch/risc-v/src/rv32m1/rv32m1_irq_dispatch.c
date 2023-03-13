@@ -29,20 +29,16 @@
 
 #include <nuttx/irq.h>
 #include <nuttx/arch.h>
-#include <nuttx/board.h>
-#include <arch/board/board.h>
 
-#include "riscv_arch.h"
 #include "riscv_internal.h"
-
 #include "rv32m1.h"
 #include "hardware/rv32m1_eu.h"
 
 /****************************************************************************
- * Public Data
+ * Pre-processor Definitions
  ****************************************************************************/
 
-volatile uint32_t * g_current_regs;
+#define RV_IRQ_MASK 27
 
 /****************************************************************************
  * Public Functions
@@ -53,26 +49,17 @@ volatile uint32_t * g_current_regs;
  ****************************************************************************/
 
 LOCATE_ITCM
-void *rv32m1_dispatch_irq(uint32_t vector, uint32_t *regs)
+void *rv32m1_dispatch_irq(uintptr_t vector, uintptr_t *regs)
 {
-  int vec = vector & 0x1f;
-  int irq = (vector >> 27) + vec;
-  uint32_t *mepc = regs;
-
+  uint32_t vec = vector & 0x1f;
+  int irq = (vector >> RV_IRQ_MASK) + vec;
   int irqofs = 0;
-
-  /* NOTE: In case of ecall, we need to adjust mepc in the context */
-
-  if (RV32M1_IRQ_ECALL_M == irq)
-    {
-      *mepc += 4;
-    }
 
   if (RV32M1_IRQ_INTMUX0 <= irq)
     {
-      uint32_t const chn = irq - RV32M1_IRQ_INTMUX0;
-      uint32_t regaddr = RV32M1_INTMUX_CH_BASE(chn) + INTMUX_CH_VEC_OFFSET;
-      uint32_t regval = getreg32(regaddr);
+      uintptr_t chn = irq - RV32M1_IRQ_INTMUX0;
+      uintptr_t regaddr = RV32M1_INTMUX_CH_BASE(chn) + INTMUX_CH_VEC_OFFSET;
+      uintptr_t regval = getreg32(regaddr);
 
       /* CH_VEC coudle be 0 while INTMUX doesn't latch pending source
        * interrupts. In that case a spurious interrupt is being serviced,
@@ -105,21 +92,9 @@ void *rv32m1_dispatch_irq(uint32_t vector, uint32_t *regs)
 
   riscv_ack_irq(irq);
 
-#ifdef CONFIG_SUPPRESS_INTERRUPTS
-  PANIC();
-#else
-  /* Current regs non-zero indicates that we are processing an interrupt;
-   * g_current_regs is also used to manage interrupt level context switches.
-   *
-   * Nested interrupts are not supported
-   */
-
-  DEBUGASSERT(g_current_regs == NULL);
-  g_current_regs = regs;
-
   /* Deliver the IRQ */
 
-  irq_dispatch(irq, regs);
+  regs = riscv_doirq(irq, regs);
 
   if (RV32M1_IRQ_MEXT <= irq)
     {
@@ -129,17 +104,6 @@ void *rv32m1_dispatch_irq(uint32_t vector, uint32_t *regs)
 
       putreg32(1 << vec, RV32M1_EU_INTPTPENDCLR);
     }
-
-#endif
-
-  /* If a context switch occurred while processing the interrupt then
-   * g_current_regs may have change value.  If we return any value different
-   * from the input regs, then the lower level will know that a context
-   * switch occurred during interrupt processing.
-   */
-
-  regs = (uint32_t *)g_current_regs;
-  g_current_regs = NULL;
 
   return regs;
 }

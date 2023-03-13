@@ -48,9 +48,7 @@
 
 #include <arch/board/board.h> /* May redefine PIO settings */
 
-#include "arm_arch.h"
 #include "arm_internal.h"
-
 #include "chip.h"
 #include "sam_periphclks.h"
 #include "sam_memories.h"
@@ -4286,7 +4284,7 @@ struct usbhost_connection_s *sam_ohci_initialize(int controller)
  *
  ****************************************************************************/
 
-int sam_ohci_tophalf(int irq, void *context, FAR void *arg)
+int sam_ohci_tophalf(int irq, void *context, void *arg)
 {
   uint32_t intst;
   uint32_t inten;

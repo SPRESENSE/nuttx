@@ -36,7 +36,6 @@
 #include <nuttx/usb/usbdev_trace.h>
 
 #include "chip.h"
-#include "z80_arch.h"
 #include "sched/sched.h"
 #include "z80_internal.h"
 
@@ -72,12 +71,13 @@ static void _up_assert(void)
 
   if (up_interrupt_context() || running_task()->flink == NULL)
     {
+#if CONFIG_BOARD_RESET_ON_ASSERT >= 1
+      board_reset(CONFIG_BOARD_ASSERT_RESET_VALUE);
+#endif
+
       up_irq_save();
       for (; ; )
         {
-#if CONFIG_BOARD_RESET_ON_ASSERT >= 1
-          board_reset(CONFIG_BOARD_ASSERT_RESET_VALUE);
-#endif
 #ifdef CONFIG_ARCH_LEDS
           board_autoled_on(LED_PANIC);
           up_mdelay(250);
@@ -142,8 +142,8 @@ void up_assert(const char *filename, int lineno)
          filename, lineno);
 #endif
 
-  REGISTER_DUMP();
-  up_stackdump();
+  Z80_REGISTER_DUMP();
+  z80_stackdump();
 
 #ifdef CONFIG_ARCH_USBDUMP
   /* Dump USB trace data */

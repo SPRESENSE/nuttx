@@ -433,7 +433,7 @@ static int scd41_read_values(FAR struct scd41_dev_s *priv, FAR float *temp,
   struct timespec ts;
   int ret;
 
-  clock_gettime(CLOCK_REALTIME, &ts);
+  clock_systime_timespec(&ts);
 
   if (wait || !priv->valid ||
       has_time_passed(ts, priv->last_update,
@@ -576,7 +576,7 @@ static int scd41_configure(FAR struct scd41_dev_s *priv, bool start)
 static int scd41_open(FAR struct file *filep)
 {
   FAR struct inode *inode = filep->f_inode;
-  FAR struct scd41_dev_s *priv  = inode->i_private;
+  FAR struct scd41_dev_s *priv = inode->i_private;
   int ret = OK;
 
   /* Get exclusive access */

@@ -30,11 +30,16 @@
 #include <nuttx/arch.h>
 #include <nuttx/kmalloc.h>
 
+#include <sys/mman.h>
+
 #include "libelf.h"
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
+
+#define ELF_TEXT_WRE (PROT_READ | PROT_WRITE | PROT_EXEC)
+#define ELF_TEXT_WRD (PROT_READ | PROT_EXEC)
 
 /****************************************************************************
  * Private Constant Data
@@ -122,7 +127,8 @@ int elf_addrenv_alloc(FAR struct elf_loadinfo_s *loadinfo, size_t textsize,
                          up_textheap_memalign(loadinfo->textalign,
                                               textsize);
 #else
-  loadinfo->textalloc = (uintptr_t)kumm_malloc(textsize + datasize);
+  loadinfo->textalloc = (uintptr_t)kumm_memalign(loadinfo->textalign,
+                                                 textsize);
 #endif
 
   if (!loadinfo->textalloc)
@@ -130,20 +136,103 @@ int elf_addrenv_alloc(FAR struct elf_loadinfo_s *loadinfo, size_t textsize,
       return -ENOMEM;
     }
 
-#if defined(CONFIG_ARCH_USE_TEXT_HEAP)
-  loadinfo->dataalloc = (uintptr_t)kumm_malloc(datasize);
-
-  if (0 != datasize && !loadinfo->dataalloc)
+  if (loadinfo->datasize > 0)
     {
-      return -ENOMEM;
+      loadinfo->dataalloc = (uintptr_t)kumm_memalign(loadinfo->dataalign,
+                                                     datasize);
+      if (!loadinfo->dataalloc)
+        {
+          return -ENOMEM;
+        }
     }
-#else
-  loadinfo->dataalloc = loadinfo->textalloc + textsize;
-#endif
 
   return OK;
 #endif
 }
+
+/****************************************************************************
+ * Name: elf_addrenv_select
+ *
+ * Description:
+ *   Temporarily select the task's address environment.
+ *
+ * Input Parameters:
+ *   loadinfo - Load state information
+ *
+ * Returned Value:
+ *   Zero (OK) on success; a negated errno value on failure.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_ARCH_ADDRENV
+int elf_addrenv_select(FAR struct elf_loadinfo_s *loadinfo)
+{
+  int ret;
+
+  /* Instantiate the new address environment */
+
+  ret = up_addrenv_select(&loadinfo->addrenv, &loadinfo->oldenv);
+  if (ret < 0)
+    {
+      berr("ERROR: up_addrenv_select failed: %d\n", ret);
+      return ret;
+    }
+
+  /* Allow write access to .text */
+
+  ret = up_addrenv_mprot(&loadinfo->addrenv, loadinfo->textalloc,
+                         loadinfo->textsize, ELF_TEXT_WRE);
+  if (ret < 0)
+    {
+      berr("ERROR: up_addrenv_text_enable_write failed: %d\n", ret);
+      return ret;
+    }
+
+  return OK;
+}
+#endif
+
+/****************************************************************************
+ * Name: elf_addrenv_restore
+ *
+ * Description:
+ *   Restore the address environment before elf_addrenv_select() was called..
+ *
+ * Input Parameters:
+ *   loadinfo - Load state information
+ *
+ * Returned Value:
+ *   Zero (OK) on success; a negated errno value on failure.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_ARCH_ADDRENV
+int elf_addrenv_restore(FAR struct elf_loadinfo_s *loadinfo)
+{
+  int ret;
+
+  /* Remove write access to .text */
+
+  ret = up_addrenv_mprot(&loadinfo->addrenv, loadinfo->textalloc,
+                         loadinfo->textsize, ELF_TEXT_WRD);
+  if (ret < 0)
+    {
+      berr("ERROR: up_addrenv_text_disable_write failed: %d\n", ret);
+      return ret;
+    }
+
+  /* Restore the old address environment */
+
+  ret = up_addrenv_restore(&loadinfo->oldenv);
+  if (ret < 0)
+    {
+      berr("ERROR: up_addrenv_restore failed: %d\n", ret);
+      return ret;
+    }
+
+  return OK;
+}
+#endif
 
 /****************************************************************************
  * Name: elf_addrenv_free
@@ -177,24 +266,19 @@ void elf_addrenv_free(FAR struct elf_loadinfo_s *loadinfo)
     }
 #else
 
-#if defined(CONFIG_ARCH_USE_TEXT_HEAP)
   if (loadinfo->textalloc != 0)
     {
+#if defined(CONFIG_ARCH_USE_TEXT_HEAP)
       up_textheap_free((FAR void *)loadinfo->textalloc);
+#else
+      kumm_free((FAR void *)loadinfo->textalloc);
+#endif
     }
 
   if (loadinfo->dataalloc != 0)
     {
       kumm_free((FAR void *)loadinfo->dataalloc);
     }
-#else
-  /* If there is an allocation for the ELF image, free it */
-
-  if (loadinfo->textalloc != 0)
-    {
-      kumm_free((FAR void *)loadinfo->textalloc);
-    }
-#endif
 
 #endif
 

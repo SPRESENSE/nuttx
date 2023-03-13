@@ -77,7 +77,7 @@
 #ifdef HAVE_RTC_DRIVER
 static int rtc_driver_initialize(void)
 {
-  FAR struct rtc_lowerhalf_s *lower;
+  struct rtc_lowerhalf_s *lower;
   int ret;
 
   /* Instantiate the STM32 lower-half RTC driver */
@@ -164,7 +164,7 @@ int stm32_bringup(void)
     }
 #endif
 
-#ifdef CONFIG_CAN
+#ifdef CONFIG_STM32_CAN_CHARDRIVER
   /* Initialize CAN and register the CAN driver. */
 
   ret = stm32_can_setup();

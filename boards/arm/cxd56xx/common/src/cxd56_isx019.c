@@ -49,8 +49,8 @@
 #  error "IMAGER_RST must be defined in board.h !!"
 #endif
 
-#define POWER_CHECK_TIME            (1 * 1000)   /* ms */
-#define POWER_OFF_TIME              (50 * 1000)  /* ms */
+#define POWER_CHECK_TIME            (1 * USEC_PER_MSEC)   /* ms */
+#define POWER_OFF_TIME              (50 * USEC_PER_MSEC)  /* ms */
 
 #define POWER_CHECK_RETRY           (10)
 
@@ -77,7 +77,7 @@ int board_isx019_power_on(void)
 
       nxsig_usleep(POWER_CHECK_TIME);
 
-      if (true == board_power_monitor(POWER_IMAGE_SENSOR))
+      if (board_power_monitor(POWER_IMAGE_SENSOR))
         {
           ret = OK;
           break;
@@ -106,7 +106,7 @@ int board_isx019_power_off(void)
   ret = -ETIMEDOUT;
   for (i = 0; i < POWER_CHECK_RETRY; i++)
     {
-      if (false == board_power_monitor(POWER_IMAGE_SENSOR))
+      if (!board_power_monitor(POWER_IMAGE_SENSOR))
         {
           ret = OK;
           break;
@@ -130,7 +130,7 @@ void board_isx019_release_reset(void)
 
 struct i2c_master_s *board_isx019_initialize(void)
 {
-  int     retry = 50;
+  int retry = 50;
 
   _info("Initializing ISX019...\n");
 
@@ -138,7 +138,7 @@ struct i2c_master_s *board_isx019_initialize(void)
     {
       /* ISX019 requires stable RTC */
 
-      nxsig_usleep(100 * 1000);
+      nxsig_usleep(100 * USEC_PER_MSEC);
     }
 
   cxd56_gpio_config(IMAGER_RST, false);
@@ -179,7 +179,7 @@ int board_isx019_uninitialize(struct i2c_master_s *i2c)
       _err("Failed to uninitialize ISX019.\n");
     }
 
-  if (!i2c)
+  if (i2c == NULL)
     {
       _err("Error uninitialize ISX019.\n");
       return -ENODEV;
@@ -201,4 +201,3 @@ uint32_t board_isx019_get_master_clock(void)
 {
   return cxd56_get_xosc_clock();
 }
-

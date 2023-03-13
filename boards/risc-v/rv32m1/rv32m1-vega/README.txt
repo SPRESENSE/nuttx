@@ -149,14 +149,11 @@ You will see the following lines in Make.defs file:
 
   ARCHCPUFLAGS = $(ARCHCPURV32IM)
 
-
-
 CONFIG_ARCH_RISV_INTXCPT_EXTREGS could be configured in the following menu:
 
 System Type  --->
   [*] RISC-V Integer Context Extensions
   (6)   Number of Extral RISC-V Integer Context Registers
-
 
 Program & Debug
 ========
@@ -235,8 +232,8 @@ nsh-itcm
   This configuration is a variant of the NSH configuration used for
   demonstrating ITCM. When ITCM is selected, RI5CY Exception Vectors and
   Interrupt Service Routines are placed in ITCM. Performance can be calculated
-  by getprime, and you might find it deteriorated a litte ironically. The drawback
+  by getprime, and you might find it deteriorated a little ironically. The drawback
   may be caused by long jump frequently between ITCM and flash. Besides, an instr-
   uction cache is enabled always after RI5CY resets, and amelioration could not be 
   achieved with even ITCM enabled.
-  What if codes fullfill the 64KB ITCM ?
+  What if codes fulfill the 64KB ITCM ?

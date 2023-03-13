@@ -37,26 +37,7 @@
 #include <nuttx/board.h>
 #include <arch/board/board.h>
 
-#include "arm_arch.h"
 #include "arm_internal.h"
-
-/****************************************************************************
- * Pre-processor Macros
- ****************************************************************************/
-
-/* Configuration */
-
-/* For use with EABI and floating point, the stack must be aligned to 8-byte
- * addresses.
- */
-
-#define CONFIG_STACK_ALIGNMENT 8
-
-/* Stack alignment macros */
-
-#define STACK_ALIGN_MASK    (CONFIG_STACK_ALIGNMENT - 1)
-#define STACK_ALIGN_DOWN(a) ((a) & ~STACK_ALIGN_MASK)
-#define STACK_ALIGN_UP(a)   (((a) + STACK_ALIGN_MASK) & ~STACK_ALIGN_MASK)
 
 /****************************************************************************
  * Public Functions
@@ -100,10 +81,8 @@
  *
  ****************************************************************************/
 
-int up_create_stack(FAR struct tcb_s *tcb, size_t stack_size, uint8_t ttype)
+int up_create_stack(struct tcb_s *tcb, size_t stack_size, uint8_t ttype)
 {
-  stack_size = STACK_ALIGN_UP(stack_size);
-
 #ifdef CONFIG_TLS_ALIGNED
   /* The allocated stack size must not exceed the maximum possible for the
    * TLS feature.
@@ -156,16 +135,14 @@ int up_create_stack(FAR struct tcb_s *tcb, size_t stack_size, uint8_t ttype)
 
       if (ttype == TCB_FLAG_TTYPE_KERNEL)
         {
-          tcb->stack_alloc_ptr =
-              kmm_memalign(CONFIG_STACK_ALIGNMENT, stack_size);
+          tcb->stack_alloc_ptr = kmm_malloc(stack_size);
         }
       else
 #endif
         {
           /* Use the user-space allocator if this is a task or pthread */
 
-          tcb->stack_alloc_ptr =
-              kumm_memalign(CONFIG_STACK_ALIGNMENT, stack_size);
+          tcb->stack_alloc_ptr = kumm_malloc(stack_size);
         }
 #endif /* CONFIG_TLS_ALIGNED */
 
@@ -174,7 +151,7 @@ int up_create_stack(FAR struct tcb_s *tcb, size_t stack_size, uint8_t ttype)
 
       if (!tcb->stack_alloc_ptr)
         {
-          serr("ERROR: Failed to allocate stack, size %d\n", stack_size);
+          serr("ERROR: Failed to allocate stack, size %zu\n", stack_size);
         }
 #endif
     }
@@ -183,6 +160,9 @@ int up_create_stack(FAR struct tcb_s *tcb, size_t stack_size, uint8_t ttype)
 
   if (tcb->stack_alloc_ptr)
     {
+      uintptr_t top_of_stack;
+      size_t size_of_stack;
+
       /* The ARM uses a "full descending" stack:
        * the stack grows toward lower addresses in memory.
        * The stack pointer register points to the last pushed item in
@@ -190,14 +170,17 @@ int up_create_stack(FAR struct tcb_s *tcb, size_t stack_size, uint8_t ttype)
        * Items on the stack are referenced as positive word offsets from sp.
        */
 
-      /* Since both stack_alloc_ptr and stack_size are in
-       * CONFIG_STACK_ALIGNMENT, and the stack ptr is decremented before
-       * the first write, we can directly save our variables to struct
-       * tcb_s.
-       */
+      top_of_stack = (uintptr_t)tcb->stack_alloc_ptr + stack_size;
 
-      tcb->adj_stack_size = stack_size;
+      /* Align the top of stack to STACK_ALIGNMENT. */
+
+      top_of_stack  = STACK_ALIGN_DOWN(top_of_stack);
+      size_of_stack = top_of_stack - (uintptr_t)tcb->stack_alloc_ptr;
+
+      /* Save the adjusted stack values in the struct tcb_s */
+
       tcb->stack_base_ptr = tcb->stack_alloc_ptr;
+      tcb->adj_stack_size = size_of_stack;
 
 #ifdef CONFIG_STACK_COLORATION
       /* If stack debug is enabled, then fill the stack with a

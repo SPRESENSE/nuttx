@@ -50,8 +50,16 @@
 #  include "esp32s2_tim_lowerhalf.h"
 #endif
 
+#ifdef CONFIG_ESP32S2_I2C
+#  include "esp32s2_i2c.h"
+#endif
+
 #ifdef CONFIG_ESP32S2_RT_TIMER
 #  include "esp32s2_rt_timer.h"
+#endif
+
+#ifdef CONFIG_WATCHDOG
+#  include "esp32s2_board_wdt.h"
 #endif
 
 #include "esp32s2-saola-1.h"
@@ -96,6 +104,16 @@ int esp32s2_bringup(void)
     {
       syslog(LOG_ERR, "ERROR: Failed to mount tmpfs at %s: %d\n",
              CONFIG_LIBC_TMPDIR, ret);
+    }
+#endif
+
+#ifdef CONFIG_WATCHDOG
+  /* Configure watchdog timer */
+
+  ret = board_wdt_init();
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "Failed to initialize watchdog timer: %d\n", ret);
     }
 #endif
 
@@ -177,6 +195,27 @@ int esp32s2_bringup(void)
     }
 
 #endif /* CONFIG_ONESHOT */
+
+#ifdef CONFIG_I2C_DRIVER
+  /* Configure I2C peripheral interfaces */
+
+  ret = board_i2c_init();
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "Failed to initialize I2C driver: %d\n", ret);
+    }
+#endif
+
+#ifdef CONFIG_SENSORS_BMP180
+  /* Try to register BMP180 device in I2C0 */
+
+  ret = board_bmp180_initialize(0, ESP32S2_I2C0);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR,
+             "Failed to initialize BMP180 driver for I2C0: %d\n", ret);
+    }
+#endif
 
   /* If we got here then perhaps not all initialization was successful, but
    * at least enough succeeded to bring-up NSH with perhaps reduced

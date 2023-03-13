@@ -33,66 +33,86 @@
 
 #ifndef __ASSEMBLY__
 #  include <stdint.h>
-#endif
-
-#include <arch/csr.h>
-
-#ifdef CONFIG_ARCH_RV32IM
-#  include <arch/rv32im/arch.h>
-#endif
-
-#ifdef CONFIG_ARCH_RV64GC
-#  include <arch/rv64gc/arch.h>
+#  include <stddef.h>
 #endif
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
-/* Macros to get the core and vendor ID, HART, arch and ISA codes, etc.
- */
+/* Provide the maximum amount of page table levels per MMU type */
 
-#ifdef CONFIG_RV32IM_SYSTEM_CSRRS_SUPPORT
-
-uint32_t up_getmisa(void);
-uint32_t up_getarchid(void);
-uint32_t up_getimpid(void);
-uint32_t up_getvendorid(void);
-uint32_t up_gethartid(void);
-
-#else
-
-#define up_getmisa() 0
-#define up_getarchid() 0
-#define up_getimpid() 0
-#define up_getvendorid() 0
-#define up_gethartid() 0
-
+#ifdef CONFIG_ARCH_MMU_TYPE_SV39
+#  define ARCH_PGT_MAX_LEVELS (3)
 #endif
 
-/****************************************************************************
- * Inline functions
- ****************************************************************************/
+/* Amount of static page tables allocated for an address environment */
+
+#ifdef CONFIG_ARCH_ADDRENV
+#  define ARCH_SPGTS          (ARCH_PGT_MAX_LEVELS - 1)
+#endif
 
 /****************************************************************************
  * Public Types
  ****************************************************************************/
 
+#ifdef CONFIG_ARCH_ADDRENV
+#ifndef __ASSEMBLY__
+
+/* A task group must have its L1 table in memory always, and the rest can
+ * be dynamically committed to memory (and even swapped).
+ *
+ * In this implementation every level tables besides the final level N are
+ * kept in memory always, while the level N tables are dynamically allocated.
+ *
+ * The implications ? They depend on the MMU type.
+ *
+ * For Sv39 this means that:
+ * - A task can not have more than 1GB of memory allocated. This should be
+ *   plenty enough...
+ * - The minimum amount of memory needed for page tables per task is 12K,
+ *   which gives access to 2MB of memory. This is plenty for many tasks.
+ */
+
+struct group_addrenv_s
+{
+  /* Pointers to MAX_LEVELS-1 tables here, one of each are allocated for the
+   * task when it is created.
+   */
+
+  uintptr_t spgtables[ARCH_SPGTS];
+
+  /* For convenience store the text base here */
+
+  uintptr_t textvbase;
+
+  /* For convenience store the data base here */
+
+  uintptr_t datavbase;
+
+  /* For convenience store the heap base and initial size here */
+
+  uintptr_t heapvbase;
+  size_t    heapsize;
+
+  /* For convenience store the satp value here */
+
+  uintptr_t satp;
+};
+
+typedef struct group_addrenv_s group_addrenv_t;
+
+/* If an address environment needs to be saved, saving the satp register
+ * will suffice. The register width is architecture dependent
+ */
+
+typedef uintptr_t save_addrenv_t;
+#endif /* __ASSEMBLY__ */
+#endif /* CONFIG_ARCH_ADDRENV */
+
 /****************************************************************************
  * Public Function Prototypes
  ****************************************************************************/
-
-#ifdef CONFIG_RV32IM_HW_MULDIV
-uint32_t up_hard_mul(uint32_t a, uint32_t b);
-uint32_t up_hard_mulh(uint32_t a, uint32_t b);
-uint32_t up_hard_mulhsu(uint32_t a, uint32_t b);
-uint32_t up_hard_mulhu(uint32_t a, uint32_t b);
-uint32_t up_hard_div(uint32_t a, uint32_t b);
-uint32_t up_hard_rem(uint32_t a, uint32_t b);
-uint32_t up_hard_divu(uint32_t a, uint32_t b);
-uint32_t up_hard_remu(uint32_t a, uint32_t b);
-uint32_t time_hard_mul(uint32_t a, uint32_t b, uint32_t *t);
-#endif
 
 #ifdef __cplusplus
 #define EXTERN extern "C"

@@ -43,8 +43,7 @@
 #include <arch/board/board.h>
 
 #include "hardware/mpfs_corepwm.h"
-
-#include "riscv_arch.h"
+#include "riscv_internal.h"
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -424,7 +423,7 @@ static int pwm_timer(struct mpfs_pwmtimer_s *priv,
   for (i = 0; i < CONFIG_PWM_NCHANNELS; i++)
     {
       ub32_t    duty;
-      uint8_t   channel;
+      int8_t   channel;
       uint32_t  neg_edge;
 
       channel   = info->channels[i].channel;
@@ -435,6 +434,13 @@ static int pwm_timer(struct mpfs_pwmtimer_s *priv,
 
       duty      = ub16toub32(info->channels[i].duty);
       neg_edge  = b32toi(duty * period + b32HALF);
+
+      /* Break the loop if all following channels are not configured */
+
+      if (channel == -1)
+        {
+          break;
+        }
 
       if (channel == 0)   /* A value of zero means to skip this channel */
         {
@@ -627,7 +633,12 @@ static int pwm_start(struct pwm_lowerhalf_s *dev,
         {
           /* Set output if channel configured */
 
-          uint8_t chan = info->channels[i].channel;
+          int8_t chan = info->channels[i].channel;
+
+          if (chan == -1)
+            {
+              break;
+            }
 
           if (chan != 0 && chan <= priv->nchannels)
             {

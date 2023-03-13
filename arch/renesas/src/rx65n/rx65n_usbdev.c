@@ -47,9 +47,7 @@
 #include <arch/chip/types.h>
 
 #include "chip.h"
-#include "up_arch.h"
 #include "up_internal.h"
-
 #include "rx65n_usbdev.h"
 
 /****************************************************************************
@@ -3138,6 +3136,7 @@ static int rx65n_epsubmit(FAR struct usbdev_ep_s *ep, FAR struct
         {
           privreq->req.len = CDC_CLASS_DATA_LENGTH;
           rx65n_rdrequest(epno, priv, privep);
+          leave_critical_section(flags);
           return OK;
         }
 
@@ -3146,6 +3145,7 @@ static int rx65n_epsubmit(FAR struct usbdev_ep_s *ep, FAR struct
       if (!privep->txbusy)
         {
           ret = rx65n_wrrequest(epno, priv, privep);
+          leave_critical_section(flags);
           return OK;
         }
     }
@@ -3159,6 +3159,7 @@ static int rx65n_epsubmit(FAR struct usbdev_ep_s *ep, FAR struct
       if (priv->ep0state == EP0STATE_RDREQUEST)
         {
           rx65n_rdrequest(epno, priv, privep);
+          leave_critical_section(flags);
           return OK;
         }
 
@@ -5835,7 +5836,7 @@ static int rx65n_usbinterrupt(int irq, FAR void *context, FAR void *arg)
       if (USB_ATTACH == usb_pstd_chk_vbsts())
         {
           priv->attached = 1;
-          connected_times ++;
+          connected_times++;
           syslog (LOG_INFO, "NuttX: USB Device Connected. %d\n",
                   connected_times);
           uinfo("Device attached\n");

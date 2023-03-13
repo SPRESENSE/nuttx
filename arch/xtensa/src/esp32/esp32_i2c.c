@@ -41,6 +41,7 @@
 #include <nuttx/irq.h>
 #include <nuttx/clock.h>
 #include <nuttx/semaphore.h>
+#include <nuttx/spinlock.h>
 #include <nuttx/i2c/i2c_master.h>
 
 #include <arch/board/board.h>
@@ -77,6 +78,9 @@
 #ifdef CONFIG_I2C_POLLED
 #define TIMESPEC_TO_US(sec, nano)  ((sec * USEC_PER_SEC) + (nano / NSEC_PER_USEC))
 #endif
+
+#define ESP32_I2CTIMEOTICKS \
+    (SEC2TICK(CONFIG_ESP32_I2CTIMEOSEC) + MSEC2TICK(CONFIG_ESP32_I2CTIMEOMS))
 
 /* Default option */
 
@@ -218,6 +222,8 @@ struct esp32_i2c_priv_s
   bool ready_read;             /* If I2C has read data */
 
   uint32_t clk_freq;           /* Current I2C Clock frequency */
+
+  spinlock_t lock;             /* Device specific lock */
 
   /* I2C trace support */
 
@@ -720,31 +726,9 @@ static void esp32_i2c_reset_fsmc(struct esp32_i2c_priv_s *priv)
 #ifndef CONFIG_I2C_POLLED
 static int esp32_i2c_sem_waitdone(struct esp32_i2c_priv_s *priv)
 {
-  int ret;
-  struct timespec abstime;
-
-  /* Get the current absolute time and adds a offset as timeout */
-
-  clock_gettime(CLOCK_REALTIME, &abstime);
-
-#if CONFIG_ESP32_I2CTIMEOSEC > 0
-  abstime.tv_sec += CONFIG_ESP32_I2CTIMEOSEC;
-#endif
-
-#if CONFIG_ESP32_I2CTIMEOMS > 0
-  abstime.tv_nsec += CONFIG_ESP32_I2CTIMEOMS * NSEC_PER_MSEC;
-  if (abstime.tv_nsec >= 1000 * NSEC_PER_MSEC)
-    {
-      abstime.tv_sec++;
-      abstime.tv_nsec -= 1000 * NSEC_PER_MSEC;
-    }
-#endif
-
   /* Wait on ISR semaphore */
 
-  ret = nxsem_timedwait_uninterruptible(&priv->sem_isr, &abstime);
-
-  return ret;
+  return nxsem_tickwait_uninterruptible(&priv->sem_isr, ESP32_I2CTIMEOTICKS);
 }
 #endif
 
@@ -769,10 +753,8 @@ static int esp32_i2c_sem_waitdone(struct esp32_i2c_priv_s *priv)
 static int esp32_i2c_polling_waitdone(struct esp32_i2c_priv_s *priv)
 {
   int ret;
-  struct timespec current_time;
-  struct timespec timeout;
-  uint64_t current_us;
-  uint64_t timeout_us;
+  clock_t current;
+  clock_t timeout;
   uint32_t status = 0;
 
   /* Get the current absolute time and add an offset as timeout.
@@ -781,23 +763,14 @@ static int esp32_i2c_polling_waitdone(struct esp32_i2c_priv_s *priv)
    * forward and backwards.
    */
 
-  #ifdef CONFIG_CLOCK_MONOTONIC
-    clock_gettime(CLOCK_MONOTONIC, &current_time);
-  #else
-    clock_gettime(CLOCK_REALTIME, &current_time);
-  #endif
-
-  timeout.tv_sec  = current_time.tv_sec  + 10;
-  timeout.tv_nsec = current_time.tv_nsec +  0;
-
-  current_us = TIMESPEC_TO_US(current_time.tv_sec, current_time.tv_nsec);
-  timeout_us = TIMESPEC_TO_US(timeout.tv_sec, timeout.tv_nsec);
+  current = clock_systime_ticks();
+  timeout = current + SEC2TICK(10);
 
   /* Loop while a transfer is in progress
    * and an error didn't occur within the timeout
    */
 
-  while ((current_us < timeout_us) && (priv->error == 0))
+  while ((current < timeout) && (priv->error == 0))
     {
       /* Check if any interrupt triggered, clear them
        * process the operation.
@@ -826,12 +799,7 @@ static int esp32_i2c_polling_waitdone(struct esp32_i2c_priv_s *priv)
 
       /* Update current time */
 
-      #ifdef CONFIG_CLOCK_MONOTONIC
-        clock_gettime(CLOCK_MONOTONIC, &current_time);
-      #else
-        clock_gettime(CLOCK_REALTIME, &current_time);
-      #endif
-      current_us = TIMESPEC_TO_US(current_time.tv_sec, current_time.tv_nsec);
+      current = clock_systime_ticks();
     }
 
   /* Return a negated value in case of timeout, and in the other scenarios
@@ -840,7 +808,7 @@ static int esp32_i2c_polling_waitdone(struct esp32_i2c_priv_s *priv)
    * scenarios.
    */
 
-  if (current_us >= timeout_us)
+  if (current >= timeout)
     {
       ret = -ETIMEDOUT;
     }
@@ -1172,7 +1140,7 @@ static int esp32_i2c_reset(struct i2c_master_s *dev)
 
   DEBUGASSERT(priv->refs > 0);
 
-  flags = enter_critical_section();
+  flags = spin_lock_irqsave(&priv->lock);
 
   esp32_i2c_deinit(priv);
 
@@ -1185,7 +1153,7 @@ static int esp32_i2c_reset(struct i2c_master_s *dev)
   priv->bytes = 0;
   priv->ready_read = 0;
 
-  leave_critical_section(flags);
+  spin_unlock_irqrestore(&priv->lock, flags);
 
   return OK;
 }
@@ -1428,7 +1396,7 @@ static inline void esp32_i2c_process(struct esp32_i2c_priv_s *priv,
       esp32_i2c_traceevent(priv, I2CEVENT_ERROR, priv->error,
                            esp32_i2c_get_reg(priv, I2C_SR_OFFSET));
       esp32_i2c_set_reg(priv, I2C_INT_ENA_OFFSET, 0);
-#ifndef CONFIG_I2C_POLLED      
+#ifndef CONFIG_I2C_POLLED
       nxsem_post(&priv->sem_isr);
 #endif
     }
@@ -1553,11 +1521,11 @@ struct i2c_master_s *esp32_i2cbus_initialize(int port)
       return NULL;
     }
 
-  flags = enter_critical_section();
+  flags = spin_lock_irqsave(&priv->lock);
 
   if ((volatile int)priv->refs++ != 0)
     {
-      leave_critical_section(flags);
+      spin_unlock_irqrestore(&priv->lock, flags);
 
       return (struct i2c_master_s *)priv;
     }
@@ -1574,7 +1542,7 @@ struct i2c_master_s *esp32_i2cbus_initialize(int port)
     {
       /* Failed to allocate a CPU interrupt of this type */
 
-      leave_critical_section(flags);
+      spin_unlock_irqrestore(&priv->lock, flags);
 
       return NULL;
     }
@@ -1584,7 +1552,7 @@ struct i2c_master_s *esp32_i2cbus_initialize(int port)
     {
       esp32_teardown_irq(priv->cpu, config->periph, priv->cpuint);
 
-      leave_critical_section(flags);
+      spin_unlock_irqrestore(&priv->lock, flags);
 
       return NULL;
     }
@@ -1596,7 +1564,7 @@ struct i2c_master_s *esp32_i2cbus_initialize(int port)
 
   esp32_i2c_init(priv);
 
-  leave_critical_section(flags);
+  spin_unlock_irqrestore(&priv->lock, flags);
 
   return (struct i2c_master_s *)priv;
 }
@@ -1621,15 +1589,15 @@ int esp32_i2cbus_uninitialize(struct i2c_master_s *dev)
       return ERROR;
     }
 
-  flags = enter_critical_section();
+  flags = spin_lock_irqsave(&priv->lock);
 
   if (--priv->refs)
     {
-      leave_critical_section(flags);
+      spin_unlock_irqrestore(&priv->lock, flags);
       return OK;
     }
 
-  leave_critical_section(flags);
+  spin_unlock_irqrestore(&priv->lock, flags);
 
 #ifndef CONFIG_I2C_POLLED
   up_disable_irq(priv->config->irq);

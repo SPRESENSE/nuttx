@@ -33,12 +33,11 @@
 #include <queue.h>
 #include <debug.h>
 
-#include <nuttx/sched.h>
-#include <nuttx/tls.h>
-
 #include "sched/sched.h"
+#include "environ/environ.h"
 #include "group/group.h"
 #include "task/task.h"
+#include "tls/tls.h"
 
 /* vfork() requires architecture-specific support as well as waipid(). */
 
@@ -94,9 +93,8 @@
 FAR struct task_tcb_s *nxtask_setup_vfork(start_t retaddr)
 {
   FAR struct tcb_s *ptcb = this_task();
-  FAR struct task_tcb_s *parent;
+  FAR struct tcb_s *parent;
   FAR struct task_tcb_s *child;
-  FAR struct task_info_s *info;
   size_t stack_size;
   uint8_t ttype;
   int priority;
@@ -111,7 +109,7 @@ FAR struct task_tcb_s *nxtask_setup_vfork(start_t retaddr)
       /* Fork'ed from a kernel thread */
 
       ttype = TCB_FLAG_TTYPE_KERNEL;
-      parent = (FAR struct task_tcb_s *)ptcb;
+      parent = ptcb;
     }
   else
     {
@@ -120,12 +118,11 @@ FAR struct task_tcb_s *nxtask_setup_vfork(start_t retaddr)
       ttype = TCB_FLAG_TTYPE_TASK;
       if ((ptcb->flags & TCB_FLAG_TTYPE_MASK) == TCB_FLAG_TTYPE_TASK)
         {
-          parent = (FAR struct task_tcb_s *)ptcb;
+          parent = ptcb;
         }
       else
         {
-          parent = (FAR struct task_tcb_s *)
-              nxsched_get_tcb(ptcb->group->tg_pid);
+          parent = nxsched_get_tcb(ptcb->group->tg_pid);
           if (parent == NULL)
             {
               ret = -ENOENT;
@@ -152,6 +149,14 @@ FAR struct task_tcb_s *nxtask_setup_vfork(start_t retaddr)
       goto errout_with_tcb;
     }
 
+  /* Duplicate the parent tasks environment */
+
+  ret = env_dup(child->cmn.group, environ);
+  if (ret < 0)
+    {
+      goto errout_with_tcb;
+    }
+
   /* Associate file descriptors with the new task */
 
   ret = group_setuptaskfiles(child);
@@ -173,15 +178,11 @@ FAR struct task_tcb_s *nxtask_setup_vfork(start_t retaddr)
 
   /* Setup thread local storage */
 
-  info = up_stack_frame(&child->cmn, sizeof(struct task_info_s));
-  if (info == NULL)
+  ret = tls_dup_info(&child->cmn, parent);
+  if (ret < OK)
     {
-      ret = -ENOMEM;
       goto errout_with_tcb;
     }
-
-  DEBUGASSERT(info == child->cmn.stack_alloc_ptr);
-  memcpy(info, parent->cmn.stack_alloc_ptr, sizeof(struct task_info_s));
 
   /* Get the priority of the parent task */
 
@@ -203,21 +204,19 @@ FAR struct task_tcb_s *nxtask_setup_vfork(start_t retaddr)
 
   /* Setup to pass parameters to the new task */
 
-  nxtask_setup_arguments(child, parent->argv[0], &parent->argv[1]);
+  ret = nxtask_setup_arguments(child, parent->group->tg_info->argv[0],
+                               &parent->group->tg_info->argv[1]);
+  if (ret < OK)
+    {
+      goto errout_with_tcb;
+    }
 
   /* Now we have enough in place that we can join the group */
 
-  ret = group_initialize(child);
-  if (ret < OK)
-    {
-      goto errout_with_list;
-    }
-
+  group_initialize(child);
   sinfo("parent=%p, returning child=%p\n", parent, child);
   return child;
 
-errout_with_list:
-  dq_rem((FAR dq_entry_t *)child, (FAR dq_queue_t *)&g_inactivetasks);
 errout_with_tcb:
   nxsched_release_tcb((FAR struct tcb_s *)child, ttype);
 errout:
@@ -280,7 +279,7 @@ pid_t nxtask_start_vfork(FAR struct task_tcb_s *child)
 
   /* Get the assigned pid before we start the task */
 
-  pid = (int)child->cmn.pid;
+  pid = child->cmn.pid;
 
   /* Eliminate a race condition by disabling pre-emption.  The child task
    * can be instantiated, but cannot run until we call waitpid().  This

@@ -58,7 +58,6 @@
 
 #include <nuttx/irq.h>
 #include <nuttx/cancelpt.h>
-#include <nuttx/pthread.h>
 
 #include "sched/sched.h"
 #include "semaphore/semaphore.h"
@@ -141,14 +140,7 @@ bool enter_cancellation_point(void)
               if ((tcb->flags & TCB_FLAG_TTYPE_MASK) ==
                   TCB_FLAG_TTYPE_PTHREAD)
                 {
-                  tcb->flags &= ~TCB_FLAG_CANCEL_PENDING;
-                  tcb->flags |= TCB_FLAG_CANCEL_DOING;
-#if !defined(CONFIG_BUILD_FLAT) && defined(__KERNEL__)
-                  up_pthread_exit(((FAR struct pthread_tcb_s *)tcb)->exit,
-                                  PTHREAD_CANCELED);
-#else
                   pthread_exit(PTHREAD_CANCELED);
-#endif
                 }
               else
 #endif
@@ -235,14 +227,7 @@ void leave_cancellation_point(void)
               if ((tcb->flags & TCB_FLAG_TTYPE_MASK) ==
                   TCB_FLAG_TTYPE_PTHREAD)
                 {
-                  tcb->flags &= ~TCB_FLAG_CANCEL_PENDING;
-                  tcb->flags |= TCB_FLAG_CANCEL_DOING;
-#if !defined(CONFIG_BUILD_FLAT) && defined(__KERNEL__)
-                  up_pthread_exit(((FAR struct pthread_tcb_s *)tcb)->exit,
-                                  PTHREAD_CANCELED);
-#else
                   pthread_exit(PTHREAD_CANCELED);
-#endif
                 }
               else
 #endif
@@ -413,7 +398,7 @@ bool nxnotify_cancellation(FAR struct tcb_s *tcb)
            */
 
           else if (tcb->task_state == TSTATE_WAIT_MQNOTEMPTY ||
-                  tcb->task_state == TSTATE_WAIT_MQNOTFULL)
+                   tcb->task_state == TSTATE_WAIT_MQNOTFULL)
             {
               nxmq_wait_irq(tcb, ECANCELED);
             }

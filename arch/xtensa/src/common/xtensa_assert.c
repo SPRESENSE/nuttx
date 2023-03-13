@@ -112,14 +112,15 @@ static void xtensa_assert(void)
 
   if (CURRENT_REGS || running_task()->flink == NULL)
     {
+#if CONFIG_BOARD_RESET_ON_ASSERT >= 1
+      board_reset(CONFIG_BOARD_ASSERT_RESET_VALUE);
+#endif
+
       /* Blink the LEDs forever */
 
       up_irq_save();
       for (; ; )
         {
-#if CONFIG_BOARD_RESET_ON_ASSERT >= 1
-          board_reset(CONFIG_BOARD_ASSERT_RESET_VALUE);
-#endif
 #ifdef CONFIG_ARCH_LEDS
           board_autoled_on(LED_PANIC);
           up_mdelay(250);
@@ -189,6 +190,8 @@ void up_assert(const char *filename, int lineno)
 
 void xtensa_panic(int xptcode, uint32_t *regs)
 {
+  CURRENT_REGS = regs;
+
   /* We get here when a un-dispatch-able, irrecoverable exception occurs */
 
   board_autoled_on(LED_ASSERTION);
@@ -203,7 +206,6 @@ void xtensa_panic(int xptcode, uint32_t *regs)
   _alert("Unhandled Exception %d\n", xptcode);
 #endif
 
-  CURRENT_REGS = regs;
   xtensa_assert(); /* Should not return */
   for (; ; );
 }
@@ -290,6 +292,8 @@ void xtensa_panic(int xptcode, uint32_t *regs)
 
 void xtensa_user_panic(int exccause, uint32_t *regs)
 {
+  CURRENT_REGS = regs;
+
   /* We get here when a un-dispatch-able, irrecoverable exception occurs */
 
   board_autoled_on(LED_ASSERTION);
@@ -305,7 +309,6 @@ void xtensa_user_panic(int exccause, uint32_t *regs)
   _alert("User Exception: EXCCAUSE=%04x\n", exccause);
 #endif
 
-  CURRENT_REGS = regs;
   xtensa_assert(); /* Should not return */
   for (; ; );
 }

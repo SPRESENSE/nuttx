@@ -83,25 +83,25 @@ int file_vioctl(FAR struct file *filep, int req, va_list ap)
           FAR int *nonblock = (FAR int *)(uintptr_t)arg;
           if (nonblock && *nonblock)
             {
-              ret = file_fcntl(filep, F_SETFL,
-                              file_fcntl(filep, F_GETFL) | O_NONBLOCK);
+              filep->f_oflags |= O_NONBLOCK;
             }
           else
             {
-              ret = file_fcntl(filep, F_SETFL,
-                              file_fcntl(filep, F_GETFL) & ~O_NONBLOCK);
+              filep->f_oflags &= ~O_NONBLOCK;
             }
+
+          ret = OK;
         }
         break;
 
       case FIOCLEX:
-        ret = file_fcntl(filep, F_SETFD,
-                         file_fcntl(filep, F_GETFD) | FD_CLOEXEC);
+        filep->f_oflags |= O_CLOEXEC;
+        ret = OK;
         break;
 
       case FIONCLEX:
-        ret = file_fcntl(filep, F_SETFD,
-                         file_fcntl(filep, F_GETFD) & ~FD_CLOEXEC);
+        filep->f_oflags &= ~O_CLOEXEC;
+        ret = OK;
         break;
 
       case FIOC_FILEPATH:
@@ -110,6 +110,20 @@ int file_vioctl(FAR struct file *filep, int req, va_list ap)
             ret = inode_getpath(inode, (FAR char *)(uintptr_t)arg);
           }
         break;
+
+#ifndef CONFIG_DISABLE_MOUNTPOINT
+      case BIOC_BLKSSZGET:
+        if (inode->u.i_ops != NULL && inode->u.i_ops->ioctl != NULL)
+          {
+            struct geometry geo;
+            ret = inode->u.i_ops->ioctl(filep, BIOC_GEOMETRY,
+                                        (unsigned long)(uintptr_t)&geo);
+            if (ret >= 0)
+              {
+                *(FAR blksize_t *)(uintptr_t)arg = geo.geo_sectorsize;
+              }
+          }
+#endif
     }
 
   return ret;

@@ -32,7 +32,7 @@
 #include <nuttx/usb/usbdev.h>
 #include <nuttx/usb/usbdev_trace.h>
 
-#include "arm_arch.h"
+#include "arm_internal.h"
 #include "metro-m4.h"
 #include <arch/board/board.h>
 
@@ -65,7 +65,7 @@ void sam_usbinitialize(void)
  *
  ****************************************************************************/
 
-int sam_usbpullup(FAR struct usbdev_s *dev, bool enable)
+int sam_usbpullup(struct usbdev_s *dev, bool enable)
 {
   usbtrace(TRACE_DEVPULLUP, (uint16_t)enable);
   return OK;
@@ -82,7 +82,7 @@ int sam_usbpullup(FAR struct usbdev_s *dev, bool enable)
  *
  ****************************************************************************/
 
-void sam_usbsuspend(FAR struct usbdev_s *dev, bool resume)
+void sam_usbsuspend(struct usbdev_s *dev, bool resume)
 {
   uinfo("resume: %d\n", resume);
 }

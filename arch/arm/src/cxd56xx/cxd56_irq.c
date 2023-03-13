@@ -37,10 +37,7 @@
 #include "chip.h"
 #include "nvic.h"
 #include "ram_vectors.h"
-#include "arm_arch.h"
 #include "arm_internal.h"
-
-#include "cxd56_irq.h"
 
 #ifdef CONFIG_SMP
 #  include "init/init.h"
@@ -72,15 +69,11 @@
  * CURRENT_REGS for portability.
  */
 
-#ifdef CONFIG_SMP
 /* For the case of configurations with multiple CPUs, then there must be one
  * such value for each processor that can receive an interrupt.
  */
 
 volatile uint32_t *g_current_regs[CONFIG_SMP_NCPUS];
-#else
-volatile uint32_t *g_current_regs[1];
-#endif
 
 #ifdef CONFIG_SMP
 static volatile int8_t g_cpu_for_irq[CXD56_IRQ_NIRQS];
@@ -191,7 +184,7 @@ static void cxd56_dumpnvic(const char *msg, int irq)
  ****************************************************************************/
 
 #ifdef CONFIG_DEBUG_FEATURES
-static int cxd56_nmi(int irq, FAR void *context, FAR void *arg)
+static int cxd56_nmi(int irq, void *context, void *arg)
 {
   up_irq_save();
   _err("PANIC!!! NMI received\n");
@@ -199,7 +192,7 @@ static int cxd56_nmi(int irq, FAR void *context, FAR void *arg)
   return 0;
 }
 
-static int cxd56_busfault(int irq, FAR void *context, FAR void *arg)
+static int cxd56_busfault(int irq, void *context, void *arg)
 {
   up_irq_save();
   _err("PANIC!!! Bus fault received\n");
@@ -207,7 +200,7 @@ static int cxd56_busfault(int irq, FAR void *context, FAR void *arg)
   return 0;
 }
 
-static int cxd56_usagefault(int irq, FAR void *context, FAR void *arg)
+static int cxd56_usagefault(int irq, void *context, void *arg)
 {
   up_irq_save();
   _err("PANIC!!! Usage fault received\n");
@@ -215,7 +208,7 @@ static int cxd56_usagefault(int irq, FAR void *context, FAR void *arg)
   return 0;
 }
 
-static int cxd56_pendsv(int irq, FAR void *context, FAR void *arg)
+static int cxd56_pendsv(int irq, void *context, void *arg)
 {
   up_irq_save();
   _err("PANIC!!! PendSV received\n");
@@ -223,7 +216,7 @@ static int cxd56_pendsv(int irq, FAR void *context, FAR void *arg)
   return 0;
 }
 
-static int cxd56_dbgmonitor(int irq, FAR void *context, FAR void *arg)
+static int cxd56_dbgmonitor(int irq, void *context, void *arg)
 {
   up_irq_save();
   _err("PANIC!!! Debug Monitor received\n");
@@ -231,7 +224,7 @@ static int cxd56_dbgmonitor(int irq, FAR void *context, FAR void *arg)
   return 0;
 }
 
-static int cxd56_reserved(int irq, FAR void *context, FAR void *arg)
+static int cxd56_reserved(int irq, void *context, void *arg)
 {
   up_irq_save();
   _err("PANIC!!! Reserved interrupt\n");

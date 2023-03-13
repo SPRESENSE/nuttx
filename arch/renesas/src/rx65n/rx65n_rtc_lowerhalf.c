@@ -33,7 +33,7 @@
 #include <nuttx/timers/rtc.h>
 #include "chip.h"
 #include <rx65n_rtc.h>
-#include "up_arch.h"
+#include "up_internal.h"
 
 #ifdef CONFIG_RTC_DRIVER
 
@@ -467,7 +467,7 @@ static int rx65n_setrelative(FAR struct rtc_lowerhalf_s *lower,
 
           /* And convert the time back to broken out format */
 
-          (void)gmtime_r(&seconds, (FAR struct tm *)&setalarm.time);
+          gmtime_r(&seconds, (FAR struct tm *)&setalarm.time);
 
           /* The set the alarm using this absolute time */
 

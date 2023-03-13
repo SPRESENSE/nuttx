@@ -22,10 +22,10 @@ config FS_PROCFS_REGISTER
 		system.
 
 config FS_PROCFS_MAX_TASKS
-	int "The maxinum number of active tasks for procfs snapshot"
+	int "The maximum number of active tasks for procfs snapshot"
 	default 128
 	---help---
-		The maxinum number of active tasks for procfs snapshot.
+		The maximum number of active tasks for procfs snapshot.
 
 menu "Exclude individual procfs entries"
 
@@ -96,6 +96,10 @@ config FS_PROCFS_EXCLUDE_MEMINFO
 	bool "Exclude meminfo"
 	default n
 
+config FS_PROCFS_EXCLUDE_MEMDUMP
+	bool "Exclude memdump"
+	default n
+
 config FS_PROCFS_INCLUDE_PROGMEM
 	bool "Include prog mem"
 	default n
@@ -129,6 +133,11 @@ config FS_PROCFS_EXCLUDE_ROUTE
 config FS_PROCFS_EXCLUDE_SMARTFS
 	bool "Exclude fs/smartfs"
 	depends on FS_SMARTFS
+	default n
+
+config FS_PROCFS_EXCLUDE_TCBINFO
+	bool "Exclude tcbinfo procfs"
+	depends on DEBUG_TCBINFO
 	default n
 
 endmenu # Exclude individual procfs entries

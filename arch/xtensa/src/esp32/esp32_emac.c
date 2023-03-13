@@ -44,6 +44,7 @@
 #include <nuttx/wqueue.h>
 #include <nuttx/signal.h>
 #include <nuttx/list.h>
+#include <nuttx/spinlock.h>
 #include <nuttx/net/ioctl.h>
 #include <nuttx/net/net.h>
 #include <nuttx/net/mii.h>
@@ -111,10 +112,6 @@
 /* Transmit ethernet frame timeout = 60 seconds = 1 minute */
 
 #define EMAC_TX_TO              (60 * CLK_TCK)
-
-/* TCP/IP periodic poll process = 1 seconds */
-
-#define EMAC_WDDELAY            (1 * CLK_TCK)
 
 /* Ethernet control frame pause timeout */
 
@@ -200,7 +197,6 @@ struct esp32_emac_s
   uint8_t               mbps100 : 1; /* 100MBps operation (vs 10 MBps) */
   uint8_t               fduplex : 1; /* Full (vs. half) duplex */
 
-  struct wdog_s         txpoll;      /* TX poll timer */
   struct wdog_s         txtimeout;   /* TX timeout timer */
 
   struct work_s         txwork;      /* For deferring TX work to the work queue */
@@ -231,6 +227,10 @@ struct esp32_emac_s
   /* RX and TX buffer allocations */
 
   uint8_t alloc[EMAC_BUF_NUM * EMAC_BUF_LEN];
+
+  /* Device specific lock. */
+
+  spinlock_t lock;
 };
 
 /****************************************************************************
@@ -247,7 +247,6 @@ static int emac_ifdown(struct net_driver_s *dev);
 static int emac_ifup(struct net_driver_s *dev);
 static void emac_dopoll(struct esp32_emac_s *priv);
 static void emac_txtimeout_expiry(wdparm_t arg);
-static void emac_poll_expiry(wdparm_t arg);
 
 /****************************************************************************
  * External Function Prototypes
@@ -402,11 +401,11 @@ static inline uint8_t *emac_alloc_buffer(struct esp32_emac_s *priv)
 
   /* Allocate a buffer by returning the head of the free buffer list */
 
-  flags = enter_critical_section();
+  flags = spin_lock_irqsave(&priv->lock);
 
   p = (uint8_t *)sq_remfirst(&priv->freeb);
 
-  leave_critical_section(flags);
+  spin_unlock_irqrestore(&priv->lock, flags);
 
   return p;
 }
@@ -1444,7 +1443,7 @@ static void emac_rx_interrupt_work(void *arg)
       else
 #endif
 #ifdef CONFIG_NET_ARP
-      if (eth_hdr->type == htons(ETHTYPE_ARP))
+      if (eth_hdr->type == HTONS(ETHTYPE_ARP))
         {
           ninfo("ARP frame\n");
 
@@ -1693,7 +1692,7 @@ static void emac_dopoll(struct esp32_emac_s *priv)
 
       dev->d_len = EMAC_BUF_LEN;
 
-      devif_timer(dev, 0, emac_txpoll);
+      devif_poll(dev, emac_txpoll);
 
       if (dev->d_buf)
         {
@@ -1739,101 +1738,6 @@ static void emac_txavail_work(void *arg)
     }
 
   net_unlock();
-}
-
-/****************************************************************************
- * Function: emac_txavail_work
- *
- * Description:
- *   Perform an out-of-cycle poll on the worker thread.
- *
- * Input Parameters:
- *   arg  - Reference to the NuttX driver state structure (cast to void*)
- *
- * Returned Value:
- *   None
- *
- * Assumptions:
- *   Called on the higher priority worker thread.
- *
- ****************************************************************************/
-
-static void emac_poll_work(void *arg)
-{
-  int ret;
-  struct esp32_emac_s *priv = (struct esp32_emac_s *)arg;
-  struct net_driver_s *dev = &priv->dev;
-
-  ninfo("ifup: %d\n", priv->ifup);
-
-  /* Ignore the notification if the interface is not yet up */
-
-  net_lock();
-
-  /* Poll the network for new XMIT data */
-
-  if (!TX_IS_BUSY(priv))
-    {
-      DEBUGASSERT(dev->d_len == 0 && dev->d_buf == NULL);
-
-      dev->d_buf = (uint8_t *)emac_alloc_buffer(priv);
-      if (!dev->d_buf)
-        {
-          /* never reach */
-
-          return ;
-        }
-
-      dev->d_len = EMAC_BUF_LEN;
-
-      devif_timer(dev, EMAC_WDDELAY , emac_txpoll);
-
-      if (dev->d_buf)
-        {
-          emac_free_buffer(priv, dev->d_buf);
-
-          dev->d_buf = NULL;
-          dev->d_len = 0;
-        }
-    }
-
-  ret = wd_start(&priv->txpoll, EMAC_WDDELAY,
-                 emac_poll_expiry, (wdparm_t)priv);
-  if (ret)
-    {
-      nerr("ERROR: Failed to start TX poll timer");
-    }
-
-  net_unlock();
-}
-
-/****************************************************************************
- * Function: emac_poll_expiry
- *
- * Description:
- *   Periodic timer handler.  Called from the timer interrupt handler.
- *
- * Input Parameters:
- *   arg  - The argument
- *
- * Returned Value:
- *   None
- *
- * Assumptions:
- *   Global interrupts are disabled by the watchdog logic.
- *
- ****************************************************************************/
-
-static void emac_poll_expiry(wdparm_t arg)
-{
-  struct esp32_emac_s *priv = (struct esp32_emac_s *)arg;
-
-  /* Schedule to perform the interrupt processing on the worker thread. */
-
-  if (priv->ifup)
-    {
-      work_queue(ETHWORK, &priv->pollwork, emac_poll_work, priv, 0);
-    }
 }
 
 /****************************************************************************
@@ -1897,11 +1801,6 @@ static int emac_ifup(struct net_driver_s *dev)
 
   emac_start();
 
-  /* Set and activate a timer process */
-
-  wd_start(&priv->txpoll, EMAC_WDDELAY,
-           emac_poll_expiry, (wdparm_t)priv);
-
   /* Enable the Ethernet interrupt */
 
   up_enable_irq(ESP32_IRQ_EMAC);
@@ -1945,9 +1844,8 @@ static int emac_ifdown(struct net_driver_s *dev)
 
   up_disable_irq(priv->cpuint);
 
-  /* Cancel the TX poll timer and TX timeout timers */
+  /* Cancel the TX timeout timers */
 
-  wd_cancel(&priv->txpoll);
   wd_cancel(&priv->txtimeout);
 
   /* Reset ethernet MAC and disable clock */

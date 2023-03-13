@@ -34,7 +34,7 @@
 #include <arch/board/board.h>
 
 #include "chip.h"
-#include "arm_arch.h"
+#include "arm_internal.h"
 #include "kinetis_pwm.h"
 
 #ifdef CONFIG_PWM
@@ -53,7 +53,7 @@
 
 int k66_pwm_setup(void)
 {
-  FAR struct pwm_lowerhalf_s *pwm;
+  struct pwm_lowerhalf_s *pwm;
   static bool initialized = false;
   int ret;
 

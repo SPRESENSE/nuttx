@@ -45,16 +45,12 @@
 
 struct mm_delaynode_s
 {
-  FAR struct mm_delaynode_s *flink;
+  struct mm_delaynode_s *flink;
 };
 
 struct mm_heap_s
 {
-#ifdef CONFIG_SMP
   struct mm_delaynode_s *mm_delaylist[CONFIG_SMP_NCPUS];
-#else
-  struct mm_delaynode_s *mm_delaylist[1];
-#endif
 
 #if defined(CONFIG_FS_PROCFS) && !defined(CONFIG_FS_PROCFS_EXCLUDE_MEMINFO)
   struct procfs_meminfo_entry_s mm_procfs;
@@ -65,10 +61,10 @@ struct mm_heap_s
  * Private Functions
  ****************************************************************************/
 
-static void mm_add_delaylist(FAR struct mm_heap_s *heap, FAR void *mem)
+static void mm_add_delaylist(struct mm_heap_s *heap, void *mem)
 {
 #if defined(CONFIG_BUILD_FLAT) || defined(__KERNEL__)
-  FAR struct mm_delaynode_s *tmp = mem;
+  struct mm_delaynode_s *tmp = mem;
   irqstate_t flags;
 
   /* Delay the deallocation until a more appropriate time. */
@@ -82,10 +78,10 @@ static void mm_add_delaylist(FAR struct mm_heap_s *heap, FAR void *mem)
 #endif
 }
 
-static void mm_free_delaylist(FAR struct mm_heap_s *heap)
+static void mm_free_delaylist(struct mm_heap_s *heap)
 {
 #if defined(CONFIG_BUILD_FLAT) || defined(__KERNEL__)
-  FAR struct mm_delaynode_s *tmp;
+  struct mm_delaynode_s *tmp;
   irqstate_t flags;
 
   /* Move the delay list to local */
@@ -101,7 +97,7 @@ static void mm_free_delaylist(FAR struct mm_heap_s *heap)
 
   while (tmp)
     {
-      FAR void *address;
+      void *address;
 
       /* Get the first delayed deallocation */
 
@@ -140,20 +136,19 @@ static void mm_free_delaylist(FAR struct mm_heap_s *heap)
  *
  ****************************************************************************/
 
-FAR struct mm_heap_s *mm_initialize(FAR const char *name,
-                                    FAR void *heap_start, size_t heap_size)
+struct mm_heap_s *mm_initialize(const char *name,
+                                    void *heap_start, size_t heap_size)
 {
-  FAR struct mm_heap_s *heap;
+  struct mm_heap_s *heap;
 
-  heap = host_memalign(sizeof(FAR void *), sizeof(*heap));
+  heap = host_memalign(sizeof(void *), sizeof(*heap));
   DEBUGASSERT(heap);
 
   memset(heap, 0, sizeof(struct mm_heap_s));
 
 #if defined(CONFIG_FS_PROCFS) && !defined(CONFIG_FS_PROCFS_EXCLUDE_MEMINFO)
   heap->mm_procfs.name = name;
-  heap->mm_procfs.mallinfo = (FAR void *)mm_mallinfo;
-  heap->mm_procfs.user_data = heap;
+  heap->mm_procfs.heap = heap;
   procfs_register_meminfo(&heap->mm_procfs);
 #endif
 
@@ -178,7 +173,7 @@ FAR struct mm_heap_s *mm_initialize(FAR const char *name,
  *
  ****************************************************************************/
 
-void mm_addregion(FAR struct mm_heap_s *heap, FAR void *heapstart,
+void mm_addregion(struct mm_heap_s *heap, void *heapstart,
                   size_t heapsize)
 {
 }
@@ -194,7 +189,7 @@ void mm_addregion(FAR struct mm_heap_s *heap, FAR void *heapstart,
  *
  ****************************************************************************/
 
-FAR void *mm_malloc(FAR struct mm_heap_s *heap, size_t size)
+void *mm_malloc(struct mm_heap_s *heap, size_t size)
 {
   return mm_realloc(heap, NULL, size);
 }
@@ -208,7 +203,7 @@ FAR void *mm_malloc(FAR struct mm_heap_s *heap, size_t size)
  *
  ****************************************************************************/
 
-FAR void mm_free(FAR struct mm_heap_s *heap, FAR void *mem)
+void mm_free(struct mm_heap_s *heap, void *mem)
 {
 #if defined(CONFIG_BUILD_FLAT) || defined(__KERNEL__)
   /* Check current environment */
@@ -260,7 +255,7 @@ FAR void mm_free(FAR struct mm_heap_s *heap, FAR void *mem)
  *
  ****************************************************************************/
 
-FAR void *mm_realloc(FAR struct mm_heap_s *heap, FAR void *oldmem,
+void *mm_realloc(struct mm_heap_s *heap, void *oldmem,
                     size_t size)
 {
   mm_free_delaylist(heap);
@@ -275,7 +270,7 @@ FAR void *mm_realloc(FAR struct mm_heap_s *heap, FAR void *oldmem,
  *
  ****************************************************************************/
 
-FAR void *mm_calloc(FAR struct mm_heap_s *heap, size_t n, size_t elem_size)
+void *mm_calloc(struct mm_heap_s *heap, size_t n, size_t elem_size)
 {
   size_t size = n * elem_size;
 
@@ -295,9 +290,9 @@ FAR void *mm_calloc(FAR struct mm_heap_s *heap, size_t n, size_t elem_size)
  *
  ****************************************************************************/
 
-FAR void *mm_zalloc(FAR struct mm_heap_s *heap, size_t size)
+void *mm_zalloc(struct mm_heap_s *heap, size_t size)
 {
-  FAR void *ptr;
+  void *ptr;
 
   ptr = mm_malloc(heap, size);
   if (ptr != NULL)
@@ -321,7 +316,7 @@ FAR void *mm_zalloc(FAR struct mm_heap_s *heap, size_t size)
  *
  ****************************************************************************/
 
-FAR void *mm_memalign(FAR struct mm_heap_s *heap, size_t alignment,
+void *mm_memalign(struct mm_heap_s *heap, size_t alignment,
                       size_t size)
 {
   mm_free_delaylist(heap);
@@ -345,7 +340,7 @@ FAR void *mm_memalign(FAR struct mm_heap_s *heap, size_t alignment,
  *
  ****************************************************************************/
 
-bool mm_heapmember(FAR struct mm_heap_s *heap, FAR void *mem)
+bool mm_heapmember(struct mm_heap_s *heap, void *mem)
 {
   return true;
 }
@@ -359,7 +354,7 @@ bool mm_heapmember(FAR struct mm_heap_s *heap, FAR void *mem)
  *
  ****************************************************************************/
 
-FAR void *mm_brkaddr(FAR struct mm_heap_s *heap, int region)
+void *mm_brkaddr(struct mm_heap_s *heap, int region)
 {
   return NULL;
 }
@@ -373,7 +368,7 @@ FAR void *mm_brkaddr(FAR struct mm_heap_s *heap, int region)
  *
  ****************************************************************************/
 
-void mm_extend(FAR struct mm_heap_s *heap, FAR void *mem, size_t size,
+void mm_extend(struct mm_heap_s *heap, void *mem, size_t size,
                int region)
 {
 }
@@ -386,11 +381,23 @@ void mm_extend(FAR struct mm_heap_s *heap, FAR void *mem, size_t size,
  *
  ****************************************************************************/
 
-int mm_mallinfo(FAR struct mm_heap_s *heap, FAR struct mallinfo *info)
+int mm_mallinfo(struct mm_heap_s *heap, struct mallinfo *info)
 {
   memset(info, 0, sizeof(struct mallinfo));
   host_mallinfo(&info->aordblks, &info->uordblks);
   return 0;
+}
+
+/****************************************************************************
+ * Name: mm_memdump
+ *
+ * Description:
+ *   mm_memdump returns a memory info about specified pid of task/thread.
+ *
+ ****************************************************************************/
+
+void mm_memdump(struct mm_heap_s *heap, pid_t pid)
+{
 }
 
 #ifdef CONFIG_DEBUG_MM
@@ -403,7 +410,7 @@ int mm_mallinfo(FAR struct mm_heap_s *heap, FAR struct mallinfo *info)
  *
  ****************************************************************************/
 
-void mm_checkcorruption(FAR struct mm_heap_s *heap)
+void mm_checkcorruption(struct mm_heap_s *heap)
 {
 }
 
@@ -413,7 +420,7 @@ void mm_checkcorruption(FAR struct mm_heap_s *heap)
  * Name: malloc_size
  ****************************************************************************/
 
-size_t mm_malloc_size(FAR void *mem)
+size_t mm_malloc_size(void *mem)
 {
   return host_malloc_size(mem);
 }

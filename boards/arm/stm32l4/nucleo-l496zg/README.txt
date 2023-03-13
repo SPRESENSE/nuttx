@@ -147,7 +147,6 @@ Hardware
   LED_PANIC            The system has crashed    ON   OFF   OFF (flashing 2Hz)
   LED_IDLE             MCU is is sleep mode      ON   OFF   OFF
 
-
 OFF -    means that the OS is still initializing. Initialization is very fast
          so if you see this at all, it probably means that the system is
          hanging up somewhere in the initialization phases.
@@ -164,7 +163,6 @@ VIOLET - If a recovered assertion occurs, the RED and blue LED will be
 
 Flashing RED - In the event of a fatal crash, all other LEDs will be
           extinguished and RED LED will FLASH at a 2Hz rate.
-
 
   Thus if the GREEN LED is lit, NuttX has successfully booted and is,
   apparently, running normally.  If the RED LED is flashing at
@@ -293,7 +291,7 @@ nsh:
      for Linux.  That can easily be reconfigured, of course.
 
      CONFIG_HOST_LINUX=y                     : Builds under Linux
-     CONFIG_ARMV7M_TOOLCHAIN_GNU_EABIL=y     : ARM GNU for Linux
+     CONFIG_ARMV7M_TOOLCHAIN_GNU_EABI=y      : ARM GNU for Linux
 
   3. Although the default console is LPUART1 (which would correspond to
      the Virtual COM port) I have done all testing with the console

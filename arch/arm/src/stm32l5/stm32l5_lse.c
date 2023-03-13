@@ -24,8 +24,7 @@
 
 #include <nuttx/config.h>
 
-#include "arm_arch.h"
-
+#include "arm_internal.h"
 #include "stm32l5_pwr.h"
 #include "stm32l5_rcc.h"
 #include "stm32l5_waste.h"
@@ -182,6 +181,6 @@ void stm32l5_rcc_enablelse(void)
 
       /* Disable backup domain access if it was disabled on entry */
 
-      (void)stm32l5_pwr_enablebkp(writable);
+      stm32l5_pwr_enablebkp(writable);
     }
 }

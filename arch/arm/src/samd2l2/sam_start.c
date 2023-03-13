@@ -30,9 +30,7 @@
 
 #include <nuttx/init.h>
 
-#include "arm_arch.h"
 #include "arm_internal.h"
-
 #include "sam_config.h"
 #include "sam_lowputc.h"
 #include "sam_clockconfig.h"
@@ -86,7 +84,7 @@ const uintptr_t g_idle_topstack = IDLE_STACK;
  ****************************************************************************/
 
 /****************************************************************************
- * Name: _start
+ * Name: __start
  *
  * Description:
  *   This is the reset entry point.

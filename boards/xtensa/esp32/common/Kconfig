@@ -2,6 +2,7 @@
 # For a description of the syntax of this configuration file,
 # see the file kconfig-language.txt in the NuttX tools repository.
 #
+
 config ESP32_MERGE_BINS
 	bool "Merge raw binary files into a single file"
 	default n
@@ -14,29 +15,48 @@ config ESP32_MERGE_BINS
 config ESP32_QEMU_IMAGE
 	bool "ESP32 binary image for QEMU"
 	default n
+	select ESP32_MERGE_BINS
 	---help---
 		Create a binary flash image used for QEMU.
 
 choice ESP32_SPIFLASH_FS
-	prompt "SPIFLASH File System"
+	prompt "Mount SPI Flash MTD on bring-up"
 	default ESP32_SPIFLASH_SMARTFS
 	depends on ESP32_SPIFLASH
+	optional
+	---help---
+		Mount the SPI Flash MTD with the selected File System format on board
+		bring-up.
+		If not selected, the MTD will be registered as a device node on /dev.
 
 	config ESP32_SPIFLASH_SMARTFS
 		bool "SmartFS"
-		depends on FS_SMARTFS
+		select FS_SMARTFS
+		select MTD_SMART
+		depends on !ESP32_SECURE_FLASH_ENC_ENABLED
+
+	comment "SmartFS not supported with Flash Encryption"
+		depends on ESP32_SECURE_FLASH_ENC_ENABLED
 
 	config ESP32_SPIFLASH_NXFFS
 		bool "NXFFS"
-		depends on FS_NXFFS
+		select FS_NXFFS
+		depends on !ESP32_SECURE_FLASH_ENC_ENABLED
+
+	comment "NXFFS not supported with Flash Encryption"
+		depends on ESP32_SECURE_FLASH_ENC_ENABLED
 
 	config ESP32_SPIFLASH_SPIFFS
 		bool "SPIFFS"
-		depends on FS_SPIFFS
+		select FS_SPIFFS
+		depends on !ESP32_SECURE_FLASH_ENC_ENABLED
+
+	comment "SPIFFS not supported with Flash Encryption"
+		depends on ESP32_SECURE_FLASH_ENC_ENABLED
 
 	config ESP32_SPIFLASH_LITTLEFS
 		bool "LittleFS"
-		depends on FS_LITTLEFS
+		select FS_LITTLEFS
 
 endchoice
 

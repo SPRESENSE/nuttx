@@ -24,12 +24,9 @@
 
 #include <nuttx/config.h>
 
-#include <stdio.h>
-#include <unistd.h>
 #include <assert.h>
 #include <errno.h>
 
-#include <nuttx/streams.h>
 #include <nuttx/mm/iob.h>
 #include <nuttx/syslog/syslog.h>
 
@@ -56,11 +53,6 @@ static int syslogstream_flush(FAR struct lib_syslogstream_s *stream)
 
   if (iob != NULL && iob->io_len > 0)
     {
-      /* Ensure the buffer is zero terminated */
-
-      DEBUGASSERT(iob->io_len < CONFIG_IOB_BUFSIZE);
-      iob->io_data[iob->io_len] = '\0';
-
       /* Yes write the buffered data */
 
       do
@@ -105,7 +97,7 @@ static void syslogstream_addchar(FAR struct lib_syslogstream_s *stream,
 
   /* Is the buffer full? */
 
-  if (iob->io_len >= CONFIG_IOB_BUFSIZE - 1)
+  if (iob->io_len >= CONFIG_IOB_BUFSIZE)
     {
       /* Yes.. then flush the buffer */
 

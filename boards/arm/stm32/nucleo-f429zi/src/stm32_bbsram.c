@@ -235,7 +235,7 @@ typedef struct
   fault_flags_t flags;                  /* What is in the dump */
   uintptr_t     current_regs;           /* Used to validate the dump */
   int           lineno;                 /* __LINE__ to up_assert */
-  int           pid;                    /* Process ID */
+  pid_t         pid;                    /* Process ID */
   uint32_t      regs[XCPTCONTEXT_REGS]; /* Interrupt register save area */
   stack_t       stacks;                 /* Stack info */
 #if CONFIG_TASK_NAME_SIZE > 0
@@ -277,7 +277,7 @@ static uint8_t g_sdata[STM32F4_BBSRAM_SIZE];
 
 static int hardfault_get_desc(struct bbsramd_s *desc)
 {
-  FAR struct file filestruct;
+  struct file filestruct;
   int ret;
 
   ret = file_open(&filestruct, HARDFAULT_PATH, O_RDONLY);
@@ -379,16 +379,16 @@ int stm32_bbsram_int(void)
  ****************************************************************************/
 
 #if defined(CONFIG_STM32F4_SAVE_CRASHDUMP)
-void board_crashdump(uintptr_t currentsp, FAR void *tcb,
-                     FAR const char *filename, int lineno)
+void board_crashdump(uintptr_t currentsp, void *tcb,
+                     const char *filename, int lineno)
 {
   fullcontext_t *pdump = (fullcontext_t *)&g_sdata;
-  FAR struct tcb_s *rtcb;
+  struct tcb_s *rtcb;
   int rv;
 
   enter_critical_section();
 
-  rtcb = (FAR struct tcb_s *)tcb;
+  rtcb = (struct tcb_s *)tcb;
 
   /* Zero out everything */
 

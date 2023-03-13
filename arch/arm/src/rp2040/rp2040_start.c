@@ -31,9 +31,7 @@
 #include <nuttx/init.h>
 #include <arch/board/board.h>
 
-#include "arm_arch.h"
 #include "arm_internal.h"
-
 #include "rp2040_config.h"
 #include "rp2040_clock.h"
 #include "rp2040_uart.h"
@@ -74,7 +72,7 @@ const uintptr_t g_idle_topstack = IDLE_STACK;
  ****************************************************************************/
 
 /****************************************************************************
- * Name: _start
+ * Name: __start
  *
  * Description:
  *   This is the reset entry point.

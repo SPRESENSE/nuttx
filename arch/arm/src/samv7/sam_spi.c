@@ -45,8 +45,6 @@
 #include <nuttx/spi/spi.h>
 
 #include "arm_internal.h"
-#include "arm_arch.h"
-
 #include "sam_gpio.h"
 #include "sam_xdmac.h"
 #include "sam_periphclks.h"
@@ -254,9 +252,9 @@ static int      spi_lock(struct spi_dev_s *dev, bool lock);
 static void     spi_select(struct spi_dev_s *dev, uint32_t devid,
                   bool selected);
 static uint32_t spi_setfrequency(struct spi_dev_s *dev, uint32_t frequency);
-#ifdef CONFIG_SPI_CS_DELAY_CONTROL
+#ifdef CONFIG_SPI_DELAY_CONTROL
 static int      spi_setdelay(struct spi_dev_s *dev, uint32_t a, uint32_t b,
-                             uint32_t c);
+                             uint32_t c, uint32_t i);
 #endif
 #ifdef CONFIG_SPI_HWFEATURES
 static int      spi_hwfeatures(struct spi_dev_s *dev, uint8_t features);
@@ -311,7 +309,7 @@ static const struct spi_ops_s g_spi0ops =
   .lock              = spi_lock,
   .select            = spi_select,
   .setfrequency      = spi_setfrequency,
-#ifdef CONFIG_SPI_CS_DELAY_CONTROL
+#ifdef CONFIG_SPI_DELAY_CONTROL
   .setdelay          = spi_setdelay,
 #endif
   .setmode           = spi_setmode,
@@ -353,7 +351,7 @@ static const struct spi_ops_s g_spi1ops =
   .lock              = spi_lock,
   .select            = spi_select,
   .setfrequency      = spi_setfrequency,
-#ifdef CONFIG_SPI_CS_DELAY_CONTROL
+#ifdef CONFIG_SPI_DELAY_CONTROL
   .setdelay          = spi_setdelay,
 #endif
   .setmode           = spi_setmode,
@@ -1105,15 +1103,17 @@ static uint32_t spi_setfrequency(struct spi_dev_s *dev, uint32_t frequency)
  *   startdelay - The delay between CS active and first CLK
  *   stopdelay  - The delay between last CLK and CS inactive
  *   csdelay    - The delay between CS inactive and CS active again
+ *   ifdelay    - The delay between frames
  *
  * Returned Value:
  *   Returns 0 if ok
  *
  ****************************************************************************/
 
-#ifdef CONFIG_SPI_CS_DELAY_CONTROL
+#ifdef CONFIG_SPI_DELAY_CONTROL
 static int spi_setdelay(struct spi_dev_s *dev, uint32_t startdelay,
-                        uint32_t stopdelay, uint32_t csdelay)
+                        uint32_t stopdelay, uint32_t csdelay,
+                        uint32_t ifdelay)
 {
   struct sam_spics_s *spics = (struct sam_spics_s *)dev;
   struct sam_spidev_s *spi = spi_device(spics);
@@ -1126,6 +1126,7 @@ static int spi_setdelay(struct spi_dev_s *dev, uint32_t startdelay,
   spiinfo("cs=%d startdelay=%d\n", spics->cs, startdelay);
   spiinfo("cs=%d stopdelay=%d\n", spics->cs, stopdelay);
   spiinfo("cs=%d csdelay=%d\n", spics->cs, csdelay);
+  spiinfo("cs=%d ifdelay=%d\n", spics->cs, ifdelay);
 
   offset = (unsigned int)g_csroffset[spics->cs];
 
@@ -1804,7 +1805,7 @@ static void spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
   regaddr = spi_regaddr(spics, SAM_SPI_RDR_OFFSET);
   memaddr = (uintptr_t)rxbuffer;
 
-  ret = sam_dmarxsetup(spics->rxdma, regaddr, memaddr, nwords);
+  ret = sam_dmarxsetup(spics->rxdma, regaddr, memaddr, nbytes);
   if (ret < 0)
     {
       dmaerr("ERROR: sam_dmarxsetup failed: %d\n", ret);
@@ -1818,7 +1819,7 @@ static void spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
   regaddr = spi_regaddr(spics, SAM_SPI_TDR_OFFSET);
   memaddr = (uintptr_t)txbuffer;
 
-  ret = sam_dmatxsetup(spics->txdma, regaddr, memaddr, nwords);
+  ret = sam_dmatxsetup(spics->txdma, regaddr, memaddr, nbytes);
   if (ret < 0)
     {
       dmaerr("ERROR: sam_dmatxsetup failed: %d\n", ret);
@@ -1989,10 +1990,10 @@ static void spi_recvblock(struct spi_dev_s *dev, void *buffer, size_t nwords)
  *
  ****************************************************************************/
 
-FAR struct spi_dev_s *sam_spibus_initialize(int port)
+struct spi_dev_s *sam_spibus_initialize(int port)
 {
-  FAR struct sam_spidev_s *spi;
-  FAR struct sam_spics_s *spics;
+  struct sam_spidev_s *spi;
+  struct sam_spics_s *spics;
   int csno  = (port & __SPI_CS_MASK) >> __SPI_CS_SHIFT;
   int spino = (port & __SPI_SPI_MASK) >> __SPI_SPI_SHIFT;
   irqstate_t flags;

@@ -42,9 +42,7 @@
 #include <arch/board/board.h>
 
 #include "chip.h"
-#include "arm_arch.h"
 #include "arm_internal.h"
-
 #include "kinetis_config.h"
 #include "chip.h"
 #include "hardware/kinetis_i2c.h"
@@ -134,14 +132,14 @@ static void kinetis_i2c_putreg(struct kinetis_i2cdev_s *priv,
 
 /* Exclusion Helpers */
 
-static inline void kinetis_i2c_sem_init(FAR struct kinetis_i2cdev_s *priv);
+static inline void kinetis_i2c_sem_init(struct kinetis_i2cdev_s *priv);
 static inline void
-  kinetis_i2c_sem_destroy(FAR struct kinetis_i2cdev_s *priv);
-static inline int kinetis_i2c_sem_wait(FAR struct kinetis_i2cdev_s *priv);
+kinetis_i2c_sem_destroy(struct kinetis_i2cdev_s *priv);
+static inline int kinetis_i2c_sem_wait(struct kinetis_i2cdev_s *priv);
 
 #ifdef CONFIG_I2C_RESET
 static int
-  kinetis_i2c_sem_wait_noncancelable(FAR struct kinetis_i2cdev_s *priv);
+kinetis_i2c_sem_wait_noncancelable(struct kinetis_i2cdev_s *priv);
 #endif
 
 static inline void kinetis_i2c_sem_post(struct kinetis_i2cdev_s *priv);
@@ -153,8 +151,8 @@ static inline void kinetis_i2c_wait(struct kinetis_i2cdev_s *priv);
 
 /* I2C helpers */
 
-static int kinetis_i2c_init(FAR struct kinetis_i2cdev_s *priv);
-static int kinetis_i2c_deinit(FAR struct kinetis_i2cdev_s *priv);
+static int kinetis_i2c_init(struct kinetis_i2cdev_s *priv);
+static int kinetis_i2c_deinit(struct kinetis_i2cdev_s *priv);
 
 static void kinetis_i2c_setfrequency(struct kinetis_i2cdev_s *priv,
                                      uint32_t frequency);
@@ -313,7 +311,7 @@ static void kinetis_i2c_putreg(struct kinetis_i2cdev_s *priv, uint8_t value,
  *
  ****************************************************************************/
 
-static inline void kinetis_i2c_sem_init(FAR struct kinetis_i2cdev_s *priv)
+static inline void kinetis_i2c_sem_init(struct kinetis_i2cdev_s *priv)
 {
   nxsem_init(&priv->mutex, 0, 1);
 
@@ -333,7 +331,7 @@ static inline void kinetis_i2c_sem_init(FAR struct kinetis_i2cdev_s *priv)
  *
  ****************************************************************************/
 
-static inline void kinetis_i2c_sem_destroy(FAR struct kinetis_i2cdev_s *priv)
+static inline void kinetis_i2c_sem_destroy(struct kinetis_i2cdev_s *priv)
 {
   nxsem_destroy(&priv->mutex);
   nxsem_destroy(&priv->wait);
@@ -348,7 +346,7 @@ static inline void kinetis_i2c_sem_destroy(FAR struct kinetis_i2cdev_s *priv)
  *
  ****************************************************************************/
 
-static inline int kinetis_i2c_sem_wait(FAR struct kinetis_i2cdev_s *priv)
+static inline int kinetis_i2c_sem_wait(struct kinetis_i2cdev_s *priv)
 {
   return nxsem_wait(&priv->mutex);
 }
@@ -363,7 +361,7 @@ static inline int kinetis_i2c_sem_wait(FAR struct kinetis_i2cdev_s *priv)
  ****************************************************************************/
 
 static int
-  kinetis_i2c_sem_wait_noncancelable(FAR struct kinetis_i2cdev_s *priv)
+kinetis_i2c_sem_wait_noncancelable(struct kinetis_i2cdev_s *priv)
 {
   return nxsem_wait_uninterruptible(&priv->mutex);
 }
@@ -416,7 +414,7 @@ static inline void kinetis_i2c_endwait(struct kinetis_i2cdev_s *priv)
  *
  ****************************************************************************/
 
-static int kinetis_i2c_init(FAR struct kinetis_i2cdev_s *priv)
+static int kinetis_i2c_init(struct kinetis_i2cdev_s *priv)
 {
   uint32_t regval;
 
@@ -477,7 +475,7 @@ static int kinetis_i2c_init(FAR struct kinetis_i2cdev_s *priv)
  *
  ****************************************************************************/
 
-static int kinetis_i2c_deinit(FAR struct kinetis_i2cdev_s *priv)
+static int kinetis_i2c_deinit(struct kinetis_i2cdev_s *priv)
 {
   /* Disable I2C */
 

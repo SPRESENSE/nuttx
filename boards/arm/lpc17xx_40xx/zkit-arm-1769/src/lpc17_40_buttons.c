@@ -33,7 +33,6 @@
 #include <nuttx/irq.h>
 #include <arch/board/board.h>
 
-#include "arm_arch.h"
 #include "arm_internal.h"
 #include "lpc17_40_gpio.h"
 #include "zkit-arm-1769.h"
@@ -140,7 +139,7 @@ uint32_t board_buttons(void)
  ****************************************************************************/
 
 #if defined CONFIG_ARCH_IRQBUTTONS && CONFIG_LPC17_40_GPIOIRQ
-int board_button_irq(int id, xcpt_t irqhandler, FAR void *arg)
+int board_button_irq(int id, xcpt_t irqhandler, void *arg)
 {
   irqstate_t flags;
   int ret = -EINVAL;

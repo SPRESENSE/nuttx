@@ -46,15 +46,19 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-#if defined(CONFIG_SCHED_CRITMONITOR_MAXTIME_WQUEUE) && CONFIG_SCHED_CRITMONITOR_MAXTIME_WQUEUE > 0
+#ifndef CONFIG_SCHED_CRITMONITOR_MAXTIME_WQUEUE
+#  define CONFIG_SCHED_CRITMONITOR_MAXTIME_WQUEUE 0
+#endif
+
+#if CONFIG_SCHED_CRITMONITOR_MAXTIME_WQUEUE > 0
 #  define CALL_WORKER(worker, arg) \
      do \
        { \
          uint32_t start; \
          uint32_t elapsed; \
-         start = up_critmon_gettime(); \
+         start = up_perf_gettime(); \
          worker(arg); \
-         elapsed = up_critmon_gettime() - start; \
+         elapsed = up_perf_gettime() - start; \
          if (elapsed > CONFIG_SCHED_CRITMONITOR_MAXTIME_WQUEUE) \
            { \
              serr("WORKER %p execute too long %"PRIu32"\n", \
@@ -73,13 +77,23 @@
 #if defined(CONFIG_SCHED_HPWORK)
 /* The state of the kernel mode, high priority work queue(s). */
 
-struct hp_wqueue_s g_hpwork;
+struct hp_wqueue_s g_hpwork =
+{
+  {},
+  NXSEM_INITIALIZER(0, PRIOINHERIT_FLAGS_DISABLE),
+};
+
 #endif /* CONFIG_SCHED_HPWORK */
 
 #if defined(CONFIG_SCHED_LPWORK)
 /* The state of the kernel mode, low priority work queue(s). */
 
-struct lp_wqueue_s g_lpwork;
+struct lp_wqueue_s g_lpwork =
+{
+  {},
+  NXSEM_INITIALIZER(0, PRIOINHERIT_FLAGS_DISABLE),
+};
+
 #endif /* CONFIG_SCHED_LPWORK */
 
 /****************************************************************************
@@ -195,16 +209,13 @@ static int work_thread_create(FAR const char *name, int priority,
                               FAR struct kwork_wqueue_s *wqueue)
 {
   FAR char *argv[2];
-  char args[16];
+  char args[32];
   int wndx;
   int pid;
 
-  snprintf(args, 16, "0x%" PRIxPTR, (uintptr_t)wqueue);
+  snprintf(args, sizeof(args), "0x%" PRIxPTR, (uintptr_t)wqueue);
   argv[0] = args;
   argv[1] = NULL;
-
-  nxsem_init(&wqueue->sem, 0, 0);
-  nxsem_set_protocol(&wqueue->sem, SEM_PRIO_NONE);
 
   /* Don't permit any of the threads to run until we have fully initialized
    * g_hpwork and g_lpwork.
@@ -225,9 +236,7 @@ static int work_thread_create(FAR const char *name, int priority,
           return pid;
         }
 
-#ifdef CONFIG_PRIORITY_INHERITANCE
       wqueue->worker[wndx].pid  = pid;
-#endif
     }
 
   sched_unlock();
@@ -237,6 +246,55 @@ static int work_thread_create(FAR const char *name, int priority,
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
+
+/****************************************************************************
+ * Name: work_foreach
+ *
+ * Description:
+ *   Enumerate over each work thread and provide the tid of each task to a
+ *   user callback functions.
+ *
+ * Input Parameters:
+ *   qid     - The work queue ID
+ *   handler - The function to be called with the pid of each task
+ *   arg     - The function callback
+ *
+ * Returned Value:
+ *   None
+ *
+ ****************************************************************************/
+
+void work_foreach(int qid, work_foreach_t handler, FAR void *arg)
+{
+  FAR struct kwork_wqueue_s *wqueue;
+  int nthread;
+  int wndx;
+
+#ifdef CONFIG_SCHED_HPWORK
+  if (qid == HPWORK)
+    {
+      wqueue  = (FAR struct kwork_wqueue_s *)&g_hpwork;
+      nthread = CONFIG_SCHED_HPNTHREADS;
+    }
+  else
+#endif
+#ifdef CONFIG_SCHED_LPWORK
+  if (qid == LPWORK)
+    {
+      wqueue  = (FAR struct kwork_wqueue_s *)&g_lpwork;
+      nthread = CONFIG_SCHED_LPNTHREADS;
+    }
+  else
+#endif
+    {
+      return;
+    }
+
+  for (wndx = 0; wndx < nthread; wndx++)
+    {
+      handler(wqueue->worker[wndx].pid, arg);
+    }
+}
 
 /****************************************************************************
  * Name: work_start_highpri

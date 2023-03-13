@@ -36,10 +36,15 @@
 #include <stdio.h>
 
 #include <errno.h>
+#if defined(CONFIG_ESP32_EFUSE)
+#include <nuttx/efuse/efuse.h>
+#endif
 #include <nuttx/fs/fs.h>
 #include <nuttx/himem/himem.h>
 
-#include "esp32_spiflash.h"
+#if defined(CONFIG_ESP32_EFUSE)
+#include "esp32_efuse.h"
+#endif
 #include "esp32_partition.h"
 
 #ifdef CONFIG_USERLED
@@ -62,20 +67,44 @@
 #  include "esp32_board_wdt.h"
 #endif
 
+#ifdef CONFIG_ESP32_SPIFLASH
+#  include "esp32_board_spiflash.h"
+#endif
+
 #ifdef CONFIG_ESP32_BLE
 #  include "esp32_ble.h"
 #endif
 
-#ifdef CONFIG_ESP32_WIRELESS
+#ifdef CONFIG_ESP32_WIFI
 #  include "esp32_board_wlan.h"
+#endif
+
+#ifdef CONFIG_ESP32_WIFI_BT_COEXIST
+#  include "esp32_wifi_adapter.h"
 #endif
 
 #ifdef CONFIG_ESP32_I2C
 #  include "esp32_board_i2c.h"
 #endif
 
+#ifdef CONFIG_I2CMULTIPLEXER_TCA9548A
+#  include "esp32_tca9548a.h"
+#endif
+
 #ifdef CONFIG_SENSORS_BMP180
 #  include "esp32_bmp180.h"
+#endif
+
+#ifdef CONFIG_SENSORS_BMP280
+#  include "esp32_bmp280.h"
+#endif
+
+#ifdef CONFIG_SENSORS_SHT3X
+#  include "esp32_sht3x.h"
+#endif
+
+#ifdef CONFIG_SENSORS_MS5611
+#  include "esp32_ms5611.h"
 #endif
 
 #ifdef CONFIG_LCD_HT16K33
@@ -203,12 +232,31 @@ int esp32_bringup(void)
     }
 #endif
 
-#ifdef CONFIG_ESP32_PARTITION
+#ifdef CONFIG_ESP32_PARTITION_TABLE
   ret = esp32_partition_init();
   if (ret < 0)
     {
       syslog(LOG_ERR, "ERROR: Failed to initialize partition error=%d\n",
              ret);
+    }
+#endif
+
+#ifdef CONFIG_ESP32_LEDC
+  ret = esp32_pwm_setup();
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: esp32_pwm_setup() failed: %d\n", ret);
+    }
+#endif /* CONFIG_ESP32_LEDC */
+
+#ifdef CONFIG_ESP32_TWAI
+
+  /* Initialize TWAI and register the TWAI driver. */
+
+  ret = esp32_twai_setup();
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: esp32_twai_setup failed: %d\n", ret);
     }
 #endif
 
@@ -220,15 +268,24 @@ int esp32_bringup(void)
     }
 #endif
 
+#ifdef CONFIG_ESP32_WIFI_BT_COEXIST
+  ret = esp32_wifi_bt_coexist_init();
+  if (ret)
+    {
+      syslog(LOG_ERR, "ERROR: Failed to initialize Wi-Fi and BT "
+             "coexistence support\n");
+    }
+#endif
+
 #ifdef CONFIG_ESP32_BLE
   ret = esp32_ble_initialize();
   if (ret)
     {
-      syslog(LOG_ERR, "ERROR: Failed to initialize BLE: %d \n", ret);
+      syslog(LOG_ERR, "ERROR: Failed to initialize BLE: %d\n", ret);
     }
 #endif
 
-#ifdef CONFIG_ESP32_WIRELESS
+#ifdef CONFIG_ESP32_WIFI
   ret = board_wlan_init();
   if (ret < 0)
     {
@@ -337,6 +394,21 @@ int esp32_bringup(void)
     }
 #endif
 
+  /* Register the TCA9548A Multiplexer before others I2C drivers to allow it
+   * be used by other drivers. Look at esp32_ms5611.c how to use it.
+   */
+
+#ifdef CONFIG_I2CMULTIPLEXER_TCA9548A
+  /* Add the TCA9548A Mux as device 0 (0x70) in I2C Bus 0 */
+
+  ret = board_tca9548a_initialize(0, 0);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "Failed to initialize TCA9548A driver: %d\n", ret);
+      return ret;
+    }
+#endif
+
 #ifdef CONFIG_I2C_DRIVER
 
 #ifdef CONFIG_ESP32_I2C0
@@ -367,6 +439,40 @@ int esp32_bringup(void)
   if (ret < 0)
     {
       syslog(LOG_ERR, "Failed to initialize BMP180 driver: %d\n", ret);
+    }
+#endif
+
+#ifdef CONFIG_SENSORS_BMP280
+  /* Try to register BMP280 device in I2C0 */
+
+  ret = board_bmp280_initialize(0, 0);
+
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "Failed to initialize BMP280 driver: %d\n", ret);
+    }
+#endif
+
+#ifdef CONFIG_SENSORS_SHT3X
+  /* Try to register SHT3x device in I2C0 */
+
+  ret = board_sht3x_initialize(0, 0);
+
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "Failed to initialize SHT3X driver: %d\n", ret);
+    }
+#endif
+
+#ifdef CONFIG_SENSORS_MS5611
+  /* Try to register MS5611 device in I2C0 as device 0: I2C addr 0x77 */
+
+  ret = board_ms5611_initialize(0, 0);
+
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "Failed to initialize MS5611 driver: %d\n", ret);
+      return ret;
     }
 #endif
 

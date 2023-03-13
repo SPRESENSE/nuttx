@@ -28,7 +28,7 @@
 
 #include <nuttx/board.h>
 
-#include "arm_arch.h"
+#include "arm_internal.h"
 #include "stm32l562e-dk.h"
 #include "stm32l5_pwr.h"
 
@@ -85,6 +85,6 @@ void board_late_initialize(void)
 {
   /* Perform board-specific initialization here if so configured */
 
-  (void)stm32_bringup();
+  stm32_bringup();
 }
 #endif

@@ -44,9 +44,7 @@
 
 #include <arch/board/board.h>
 
-#include "arm_arch.h"
 #include "arm_internal.h"
-
 #include "hardware/tms570_sci.h"
 #include "tms570_lowputc.h"
 
@@ -128,7 +126,7 @@ static int  tms570_setup(struct uart_dev_s *dev);
 static void tms570_shutdown(struct uart_dev_s *dev);
 static int  tms570_attach(struct uart_dev_s *dev);
 static void tms570_detach(struct uart_dev_s *dev);
-static int  tms570_interrupt(int irq, void *context, FAR void *arg);
+static int  tms570_interrupt(int irq, void *context, void *arg);
 static int  tms570_ioctl(struct file *filep, int cmd, unsigned long arg);
 static int  tms570_receive(struct uart_dev_s *dev, uint32_t *status);
 static void tms570_rxint(struct uart_dev_s *dev, bool enable);
@@ -407,7 +405,7 @@ static void tms570_detach(struct uart_dev_s *dev)
  *
  ****************************************************************************/
 
-static int tms570_interrupt(int irq, void *context, FAR void *arg)
+static int tms570_interrupt(int irq, void *context, void *arg)
 {
   struct uart_dev_s *dev = (struct uart_dev_s *)arg;
   struct tms570_dev_s *priv;
@@ -512,7 +510,7 @@ static int tms570_ioctl(struct file *filep, int cmd, unsigned long arg)
   struct inode      *inode = filep->f_inode;
   struct uart_dev_s *dev   = inode->i_private;
 #endif
-  int                ret    = OK;
+  int                ret   = OK;
 
   switch (cmd)
     {
@@ -536,7 +534,7 @@ static int tms570_ioctl(struct file *filep, int cmd, unsigned long arg)
     case TCGETS:
       {
         struct termios  *termiosp = (struct termios *)arg;
-        struct tms570_dev_s *priv    = (struct tms570_dev_s *)dev->priv;
+        struct tms570_dev_s *priv = (struct tms570_dev_s *)dev->priv;
 
         if (!termiosp)
           {
@@ -588,7 +586,7 @@ static int tms570_ioctl(struct file *filep, int cmd, unsigned long arg)
     case TCSETS:
       {
         struct termios  *termiosp = (struct termios *)arg;
-        struct tms570_dev_s *priv    = (struct tms570_dev_s *)dev->priv;
+        struct tms570_dev_s *priv = (struct tms570_dev_s *)dev->priv;
         uint32_t baud;
         uint32_t ints;
         uint8_t parity;

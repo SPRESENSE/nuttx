@@ -153,10 +153,11 @@ static int ieee802154_setup(FAR struct socket *psock, int protocol)
    * connection structure, it is unallocated at this point.  It will not
    * actually be initialized until the socket is connected.
    *
-   * Only SOCK_DGRAM is supported (since the MAC header is stripped)
+   * SOCK_DGRAM and SOCK_CTRL are supported
+   * (since the MAC header is stripped)
    */
 
-  if (psock->s_type == SOCK_DGRAM)
+  if (psock->s_type == SOCK_DGRAM || psock->s_type == SOCK_CTRL)
     {
       return ieee802154_sockif_alloc(psock);
     }
@@ -206,7 +207,7 @@ static void ieee802154_addref(FAR struct socket *psock)
   FAR struct ieee802154_conn_s *conn;
 
   DEBUGASSERT(psock != NULL && psock->s_conn != NULL &&
-              psock->s_type == SOCK_DGRAM);
+              (psock->s_type == SOCK_DGRAM || psock->s_type == SOCK_CTRL));
 
   conn = (FAR struct ieee802154_conn_s *)psock->s_conn;
   DEBUGASSERT(conn->crefs > 0 && conn->crefs < 255);
@@ -357,8 +358,8 @@ static int ieee802154_bind(FAR struct socket *psock,
                            socklen_t addrlen)
 {
   FAR const struct sockaddr_ieee802154_s *iaddr;
-  FAR struct radio_driver_s *radio;
   FAR struct ieee802154_conn_s *conn;
+  FAR struct radio_driver_s *radio;
 
   DEBUGASSERT(psock != NULL && addr != NULL);
 
@@ -373,9 +374,12 @@ static int ieee802154_bind(FAR struct socket *psock,
       return -EBADF;
     }
 
+  conn = (FAR struct ieee802154_conn_s *)psock->s_conn;
+
   /* Bind a PF_IEEE802154 socket to an network device. */
 
-  if (psock->s_type != SOCK_DGRAM)
+  if (conn == NULL ||
+      (psock->s_type != SOCK_DGRAM && psock->s_type != SOCK_CTRL))
     {
       nerr("ERROR: Invalid socket type: %u\n", psock->s_type);
       return -EBADF;
@@ -383,7 +387,7 @@ static int ieee802154_bind(FAR struct socket *psock,
 
   /* Verify that the socket is not already bound. */
 
-  if (_SS_ISBOUND(psock->s_flags))
+  if (_SS_ISBOUND(conn->sconn.s_flags))
     {
       nerr("ERROR: Already bound\n");
       return -EINVAL;
@@ -402,8 +406,6 @@ static int ieee802154_bind(FAR struct socket *psock,
       nerr("ERROR: No address provided\n");
       return -EADDRNOTAVAIL;
     }
-
-  conn = (FAR struct ieee802154_conn_s *)psock->s_conn;
 
   /* Find the device associated with the requested address */
 
@@ -627,6 +629,7 @@ static int ieee802154_close(FAR struct socket *psock)
   switch (psock->s_type)
     {
       case SOCK_DGRAM:
+      case SOCK_CTRL:
         {
           FAR struct ieee802154_conn_s *conn = psock->s_conn;
 

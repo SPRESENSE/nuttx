@@ -39,7 +39,7 @@
 #include <nuttx/wqueue.h>
 
 #include "chip.h"
-#include "arm_arch.h"
+#include "arm_internal.h"
 
 #include <arch/board/board.h>
 #include <arch/chip/pin.h>
@@ -83,7 +83,8 @@ static struct work_s g_sdcard_work;
 #endif
 
 static struct pm_cpu_freqlock_s g_hv_lock =
-  PM_CPUFREQLOCK_INIT(PM_CPUFREQLOCK_TAG('S','D',0), PM_CPUFREQLOCK_FLAG_HV);
+  PM_CPUFREQLOCK_INIT(PM_CPUFREQLOCK_TAG('S', 'D', 0),
+                      PM_CPUFREQLOCK_FLAG_HV);
 
 /****************************************************************************
  * Private Functions
@@ -97,7 +98,7 @@ static struct pm_cpu_freqlock_s g_hv_lock =
  *
  ****************************************************************************/
 
-static void board_sdcard_enable(FAR void *arg)
+static void board_sdcard_enable(void *arg)
 {
   struct stat stat_sdio;
   int ret = OK;
@@ -189,7 +190,7 @@ release_frequency_lock:
  *
  ****************************************************************************/
 
-static void board_sdcard_disable(FAR void *arg)
+static void board_sdcard_disable(void *arg)
 {
   int ret;
 
@@ -252,7 +253,7 @@ static bool board_sdcard_inserted(int slotno)
  *
  ****************************************************************************/
 
-static int board_sdcard_detect_int(int irq, FAR void *context, FAR void *arg)
+static int board_sdcard_detect_int(int irq, void *context, void *arg)
 {
   bool inserted;
 
@@ -363,7 +364,7 @@ int board_sdcard_initialize(void)
                              NULL);
   if (ret < 0)
     {
-      _err("ERROR: Failed to configure GPIO int. \n");
+      _err("ERROR: Failed to configure GPIO int.\n");
     }
 
   /* Enabling Interrupt */

@@ -196,7 +196,7 @@ static int rpcclnt_socket(FAR struct rpcclnt *rpc, in_port_t rport)
       if (rport != 0)
         {
           sin = (FAR struct sockaddr_in6 *)&raddr;
-          sin->sin6_port = htons(rport);
+          sin->sin6_port = HTONS(rport);
         }
 
       sin = (FAR struct sockaddr_in6 *)&laddr;
@@ -210,7 +210,7 @@ static int rpcclnt_socket(FAR struct rpcclnt *rpc, in_port_t rport)
       if (rport != 0)
         {
           sin = (FAR struct sockaddr_in *)&raddr;
-          sin->sin_port = htons(rport);
+          sin->sin_port = HTONS(rport);
         }
 
       sin = (FAR struct sockaddr_in *)&laddr;
@@ -588,7 +588,8 @@ int rpcclnt_connect(FAR struct rpcclnt *rpc)
 
   /* Do RPC to mountd. */
 
-  strncpy(request.mountd.mount.rpath, rpc->rc_path, 90);
+  strlcpy(request.mountd.mount.rpath, rpc->rc_path,
+          sizeof(request.mountd.mount.rpath));
   request.mountd.mount.len =
     txdr_unsigned(sizeof(request.mountd.mount.rpath));
 
@@ -716,7 +717,8 @@ void rpcclnt_disconnect(FAR struct rpcclnt *rpc)
 
   /* Do RPC to umountd. */
 
-  strncpy(request.mountd.umount.rpath, rpc->rc_path, 90);
+  strlcpy(request.mountd.umount.rpath, rpc->rc_path,
+          sizeof(request.mountd.umount.rpath));
   request.mountd.umount.len =
     txdr_unsigned(sizeof(request.mountd.umount.rpath));
 

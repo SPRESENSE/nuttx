@@ -102,7 +102,8 @@
 #define STM32_UART5_BASE     0x40005000     /* 0x40005000-0x400053ff: UART5 */
 #define STM32_I2C1_BASE      0x40005400     /* 0x40005400-0x400057ff: I2C1 */
 #define STM32_I2C2_BASE      0x40005800     /* 0x40005800-0x40005bff: I2C2 */
-#define STM32_USB_BASE       0x40005c00     /* 0x40005c00-0x400063ff: USB and USB SRAM */
+#define STM32_USB_BASE       0x40005c00     /* 0x40005c00-0x40005fff: USB */
+#define STM32_USBRAM_BASE    0x40006000     /* 0x40006000-0x400063ff: USB SRAM */
 #define STM32_FDCAN1_BASE    0x40006400     /* 0x40006400-0x400067ff: FDCAN1 */
 #define STM32_FDCAN2_BASE    0x40006800     /* 0x40006800-0x40006bff: FDCAN2 */
 #define STM32_FDCAN3_BASE    0x40006c00     /* 0x40006c00-0x40006fff: FDCAN3 */
@@ -112,7 +113,7 @@
 #define STM32_LPUART1_BASE   0x40008000     /* 0x40008000-0x400083ff: LPUART1 */
 #define STM32_I2C4_BASE      0x40008400     /* 0x40008400-0x400087ff: I2C4 */
 #define STM32_UCPD1_BASE     0x4000a000     /* 0x4000a000-0x4000a3ff: UCPD1 */
-#define STM32_SRAMCAN_BASE   0x4000a400     /* 0x4000a400-0x4000afff: FDCANs Message RAM */
+#define STM32_CANRAM_BASE    0x4000a400     /* 0x4000a400-0x4000afff: FDCANs Message RAM */
 
 /* APB2 Base Addresses ******************************************************/
 

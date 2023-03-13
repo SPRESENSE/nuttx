@@ -41,7 +41,7 @@
  * Name: spi_status
  ****************************************************************************/
 
-static inline uint8_t spi_status(FAR struct spi_dev_s *dev, uint32_t devid)
+static inline uint8_t spi_status(struct spi_dev_s *dev, uint32_t devid)
 {
   uint8_t status = 0;
 
@@ -52,7 +52,7 @@ static inline uint8_t spi_status(FAR struct spi_dev_s *dev, uint32_t devid)
     }
 #endif
 
-#ifdef CONFIG_LCD_ILI9341
+#if defined(CONFIG_LCD_ILI9341) || defined(CONFIG_LCD_SSD1680)
   if (devid == SPIDEV_DISPLAY(0))
     {
        status |= SPI_STATUS_PRESENT;
@@ -68,10 +68,10 @@ static inline uint8_t spi_status(FAR struct spi_dev_s *dev, uint32_t devid)
 
 #ifdef CONFIG_SPI_CMDDATA
 
-static inline int spi_cmddata(FAR struct spi_dev_s *dev, uint32_t devid,
+static inline int spi_cmddata(struct spi_dev_s *dev, uint32_t devid,
                               bool cmd)
 {
-#ifdef CONFIG_LCD_ILI9341
+#if defined(CONFIG_LCD_ILI9341) || defined(CONFIG_LCD_SSD1680) || defined(CONFIG_LCD_ST7789) 
   if (devid == SPIDEV_DISPLAY(0))
     {
       /*  This is the Data/Command control pad which determines whether the
@@ -79,7 +79,6 @@ static inline int spi_cmddata(FAR struct spi_dev_s *dev, uint32_t devid,
        */
 
       esp32_gpiowrite(DISPLAY_DC, !cmd);
-
       return OK;
     }
 #endif
@@ -99,7 +98,7 @@ static inline int spi_cmddata(FAR struct spi_dev_s *dev, uint32_t devid,
 
 #ifdef CONFIG_ESP32_SPI2
 
-uint8_t esp32_spi2_status(FAR struct spi_dev_s *dev, uint32_t devid)
+uint8_t esp32_spi2_status(struct spi_dev_s *dev, uint32_t devid)
 {
   return spi_status(dev, devid);
 }
@@ -112,7 +111,7 @@ uint8_t esp32_spi2_status(FAR struct spi_dev_s *dev, uint32_t devid)
 
 #if defined(CONFIG_ESP32_SPI2) && defined(CONFIG_SPI_CMDDATA)
 
-int esp32_spi2_cmddata(FAR struct spi_dev_s *dev, uint32_t devid, bool cmd)
+int esp32_spi2_cmddata(struct spi_dev_s *dev, uint32_t devid, bool cmd)
 {
   spiinfo("devid: %" PRIu32 " CMD: %s\n", devid, cmd ? "command" :
           "data");
@@ -128,7 +127,7 @@ int esp32_spi2_cmddata(FAR struct spi_dev_s *dev, uint32_t devid, bool cmd)
 
 #ifdef CONFIG_ESP32_SPI3
 
-uint8_t esp32_spi3_status(FAR struct spi_dev_s *dev, uint32_t devid)
+uint8_t esp32_spi3_status(struct spi_dev_s *dev, uint32_t devid)
 {
   return spi_status(dev, devid);
 }
@@ -141,7 +140,7 @@ uint8_t esp32_spi3_status(FAR struct spi_dev_s *dev, uint32_t devid)
 
 #if defined(CONFIG_ESP32_SPI3) && defined(CONFIG_SPI_CMDDATA)
 
-int esp32_spi3_cmddata(FAR struct spi_dev_s *dev, uint32_t devid, bool cmd)
+int esp32_spi3_cmddata(struct spi_dev_s *dev, uint32_t devid, bool cmd)
 {
   spiinfo("devid: %" PRIu32 " CMD: %s\n", devid, cmd ? "command" :
           "data");

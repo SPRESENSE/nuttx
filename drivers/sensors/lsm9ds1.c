@@ -562,8 +562,6 @@ static int lsm9ds1mag_setsamplerate(FAR struct lsm9ds1_dev_s *priv,
 
 /* Character Driver Methods */
 
-static int     lsm9ds1_open(FAR struct file *filep);
-static int     lsm9ds1_close(FAR struct file *filep);
 static ssize_t lsm9ds1_read(FAR struct file *filep, FAR char *buffer,
                             size_t buflen);
 static ssize_t lsm9ds1_write(FAR struct file *filep, FAR const char *buffer,
@@ -584,15 +582,15 @@ static int lsm9ds1_register(FAR const char *devpath,
 
 static const struct file_operations g_fops =
 {
-  lsm9ds1_open,
-  lsm9ds1_close,
-  lsm9ds1_read,
-  lsm9ds1_write,
-  NULL,
-  lsm9ds1_ioctl,
-  NULL,
+  NULL,            /* open */
+  NULL,            /* close */
+  lsm9ds1_read,    /* read */
+  lsm9ds1_write,   /* write */
+  NULL,            /* seek */
+  lsm9ds1_ioctl,   /* ioctl */
+  NULL             /* poll */
 #ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  NULL,
+  , NULL           /* unlink */
 #endif
 };
 
@@ -1193,32 +1191,6 @@ static int lsm9ds1mag_setsamplerate(FAR struct lsm9ds1_dev_s *priv,
 
   return lsm9ds1_modifyreg8(priv, LSM9DS1_CTRL_REG1_M,
                             LSM9DS1_CTRL_REG1_M_DO_MASK, setbits);
-}
-
-/****************************************************************************
- * Name: lsm9ds1_open
- *
- * Description:
- *   This method is called when the device is opened.
- *
- ****************************************************************************/
-
-static int lsm9ds1_open(FAR struct file *filep)
-{
-  return OK;
-}
-
-/****************************************************************************
- * Name: lsm9ds1_close
- *
- * Description:
- *   This method is called when the device is closed.
- *
- ****************************************************************************/
-
-static int lsm9ds1_close(FAR struct file *filep)
-{
-  return OK;
 }
 
 /****************************************************************************

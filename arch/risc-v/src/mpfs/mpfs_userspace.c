@@ -29,8 +29,11 @@
 
 #include <nuttx/userspace.h>
 
+#include <arch/board/board_memorymap.h>
+
 #include "mpfs_userspace.h"
 #include "riscv_internal.h"
+#include "riscv_mmu.h"
 
 #ifdef CONFIG_BUILD_PROTECTED
 
@@ -38,21 +41,85 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-/* Configuration ************************************************************/
+/* Physical and virtual addresses to page tables (vaddr = paddr mapping) */
 
-/* TODO: get user space mem layout info from ld script or Configuration ? */
+#define PGT_L1_PBASE    (uint64_t)&m_l1_pgtable
+#define PGT_L2_PBASE    (uint64_t)&m_l2_pgtable
+#define PGT_L3_ROMPBASE (uint64_t)&m_l3_romtbl
+#define PGT_L3_RAMPBASE (uint64_t)&m_l3_ramtbl
+#define PGT_L1_VBASE    PGT_L1_PBASE
+#define PGT_L2_VBASE    PGT_L2_PBASE
+#define PGT_L3_ROMVBASE PGT_L3_ROMPBASE
+#define PGT_L3_RAMVBASE PGT_L3_RAMPBASE
 
-#ifndef CONFIG_NUTTX_USERSPACE_SIZE
-#  define CONFIG_NUTTX_USERSPACE_SIZE        (0x00100000)
-#endif
+#define PGT_L1_SIZE     (512)  /* Enough to map 512 GiB */
+#define PGT_L2_SIZE     (512)  /* Enough to map 1 GiB */
+#define PGT_L3_SIZE     (512)  /* Enough to map 2 MiB */
 
-#ifndef CONFIG_NUTTX_USERSPACE_RAM_START
-#  define CONFIG_NUTTX_USERSPACE_RAM_START   (0x00100000)
-#endif
+/****************************************************************************
+ * Private Functions
+ ****************************************************************************/
 
-#ifndef CONFIG_NUTTX_USERSPACE_RAM_SIZE
-#  define CONFIG_NUTTX_USERSPACE_RAM_SIZE    (0x00100000)
-#endif
+/****************************************************************************
+ * Name: configure_mpu
+ *
+ * Description:
+ *   This function configures the MPU for for kernel- / userspace separation.
+ *   It will also grant access to the page table memory for the supervisor.
+ *
+ ****************************************************************************/
+
+static void configure_mpu(void);
+
+/****************************************************************************
+ * Name: configure_mmu
+ *
+ * Description:
+ *   This function configures the MMU and page tables for kernel- / userspace
+ *   separation.
+ *
+ ****************************************************************************/
+
+static void configure_mmu(void);
+
+/****************************************************************************
+ * Name: map_region
+ *
+ * Description:
+ *   Map a region of physical memory to the L3 page table
+ *
+ * Input Parameters:
+ *   l3base - L3 page table physical base address
+ *   paddr - Beginning of the physical address mapping
+ *   vaddr - Beginning of the virtual address mapping
+ *   size - Size of the region in bytes
+ *   mmuflags - The MMU flags to use in the mapping
+ *
+ ****************************************************************************/
+
+static void map_region(uintptr_t l3base, uintptr_t paddr, uintptr_t vaddr,
+                       size_t size, uint32_t mmuflags);
+
+/****************************************************************************
+ * Private Data
+ ****************************************************************************/
+
+/* With a 3 level page table setup the total available memory is 512GB.
+ * However, this is overkill. A single L3 page table can map 2MB of memory,
+ * and for MPFS, this user space is plenty enough. If more memory is needed,
+ * simply increase the size of the L3 page table (n * 512), where each 'n'
+ * provides 2MB of memory.
+ */
+
+/* L1-L3 tables must be in memory always for this to work */
+
+static uint64_t         m_l1_pgtable[PGT_L1_SIZE] locate_data(".pgtables");
+static uint64_t         m_l2_pgtable[PGT_L2_SIZE] locate_data(".pgtables");
+
+/* Allocate separate tables for ROM/RAM mappings */
+
+static uint64_t         m_l3_romtbl[PGT_L3_SIZE]  locate_data(".pgtables");
+static uint64_t         m_l3_ramtbl[PGT_L3_SIZE]  locate_data(".pgtables");
 
 /****************************************************************************
  * Public Functions
@@ -103,25 +170,94 @@ void mpfs_userspace(void)
       *dest++ = *src++;
     }
 
-  /* Configure the PMP to permit user-space access to its ROM and RAM.
-   * Now this is done by simply adding the whole memory area to PMP.
-   * 1. no access for the 1st 4KB
-   * 2. "RX" for the left space until 1MB
-   * 3. "RW" for the user RAM area
-   * TODO: more accurate memory size control.
-   */
+  /* Configure MPU / PMP to grant access to the userspace */
 
-  riscv_config_pmp_region(0, PMPCFG_A_NAPOT,
-                          0,
-                          0x1000);
+  configure_mpu();
+  configure_mmu();
+}
 
-  riscv_config_pmp_region(1, PMPCFG_A_TOR | PMPCFG_X | PMPCFG_R,
-                          0 + CONFIG_NUTTX_USERSPACE_SIZE,
-                          0);
+/****************************************************************************
+ * Name: configure_mpu
+ *
+ * Description:
+ *   This function configures the MPU for for kernel- / userspace separation.
+ *   It will also grant access to the page table memory for the supervisor.
+ *
+ ****************************************************************************/
 
-  riscv_config_pmp_region(2, PMPCFG_A_NAPOT | PMPCFG_W | PMPCFG_R,
-                          CONFIG_NUTTX_USERSPACE_RAM_START,
-                          CONFIG_NUTTX_USERSPACE_RAM_SIZE);
+static void configure_mpu(void)
+{
+  /* Open everything for PMP */
+
+  WRITE_CSR(pmpaddr0, UINT64_C(~0));
+  WRITE_CSR(pmpcfg0, (PMPCFG_A_NAPOT | PMPCFG_R | PMPCFG_W | PMPCFG_X));
+}
+
+/****************************************************************************
+ * Name: configure_mmu
+ *
+ * Description:
+ *   This function configures the MMU and page tables for kernel- / userspace
+ *   separation.
+ *
+ ****************************************************************************/
+
+static void configure_mmu(void)
+{
+  /* Setup MMU for user */
+
+  /* Setup the L3 references for executable memory */
+
+  map_region(PGT_L3_ROMPBASE, UFLASH_START, UFLASH_START, UFLASH_SIZE,
+             MMU_UTEXT_FLAGS);
+
+  /* Setup the L3 references for data memory */
+
+  map_region(PGT_L3_RAMPBASE, USRAM_START, USRAM_START, USRAM_SIZE,
+             MMU_UDATA_FLAGS);
+
+  /* Connect the L1 and L2 page tables */
+
+  mmu_ln_setentry(1, PGT_L1_VBASE, PGT_L2_PBASE, UFLASH_START, PTE_G);
+
+  /* Enable MMU */
+
+  mmu_enable(PGT_L1_PBASE, 0);
+}
+
+/****************************************************************************
+ * Name: map_region
+ *
+ * Description:
+ *   Map a region of physical memory to the L3 page table
+ *
+ * Input Parameters:
+ *   l3base - L3 page table physical base address
+ *   paddr - Beginning of the physical address mapping
+ *   vaddr - Beginning of the virtual address mapping
+ *   size - Size of the region in bytes
+ *   mmuflags - The MMU flags to use in the mapping
+ *
+ ****************************************************************************/
+
+static void map_region(uintptr_t l3base, uintptr_t paddr, uintptr_t vaddr,
+                       size_t size, uint32_t mmuflags)
+{
+  uintptr_t end_vaddr;
+
+  /* Map the region to the L3 table as a whole */
+
+  mmu_ln_map_region(3, l3base, paddr, vaddr, size, mmuflags);
+
+  /* Connect to L2 table */
+
+  end_vaddr = vaddr + size;
+  while (vaddr < end_vaddr)
+    {
+      mmu_ln_setentry(2, PGT_L2_VBASE, l3base, vaddr, PTE_G);
+      l3base += RV_MMU_L3_PAGE_SIZE;
+      vaddr += RV_MMU_L2_PAGE_SIZE;
+    }
 }
 
 #endif /* CONFIG_BUILD_PROTECTED */

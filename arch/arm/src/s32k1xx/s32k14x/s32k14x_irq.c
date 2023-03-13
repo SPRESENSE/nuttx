@@ -36,9 +36,7 @@
 #include "chip.h"
 #include "nvic.h"
 #include "ram_vectors.h"
-#include "arm_arch.h"
 #include "arm_internal.h"
-
 #include "s32k1xx_pin.h"
 #include "s32k14x/s32k14x_irq.h"
 
@@ -187,7 +185,7 @@ static void s32k14x_dumpnvic(const char *msg, int irq)
  ****************************************************************************/
 
 #ifdef CONFIG_DEBUG_FEATURES
-static int s32k14x_nmi(int irq, FAR void *context, FAR void *arg)
+static int s32k14x_nmi(int irq, void *context, void *arg)
 {
   up_irq_save();
   _err("PANIC!!! NMI received\n");
@@ -195,7 +193,7 @@ static int s32k14x_nmi(int irq, FAR void *context, FAR void *arg)
   return 0;
 }
 
-static int s32k14x_busfault(int irq, FAR void *context, FAR void *arg)
+static int s32k14x_busfault(int irq, void *context, void *arg)
 {
   up_irq_save();
   _err("PANIC!!! Bus fault received\n");
@@ -203,7 +201,7 @@ static int s32k14x_busfault(int irq, FAR void *context, FAR void *arg)
   return 0;
 }
 
-static int s32k14x_usagefault(int irq, FAR void *context, FAR void *arg)
+static int s32k14x_usagefault(int irq, void *context, void *arg)
 {
   up_irq_save();
   _err("PANIC!!! Usage fault received\n");
@@ -211,7 +209,7 @@ static int s32k14x_usagefault(int irq, FAR void *context, FAR void *arg)
   return 0;
 }
 
-static int s32k14x_pendsv(int irq, FAR void *context, FAR void *arg)
+static int s32k14x_pendsv(int irq, void *context, void *arg)
 {
   up_irq_save();
   _err("PANIC!!! PendSV received\n");
@@ -219,7 +217,7 @@ static int s32k14x_pendsv(int irq, FAR void *context, FAR void *arg)
   return 0;
 }
 
-static int s32k14x_dbgmonitor(int irq, FAR void *context, FAR void *arg)
+static int s32k14x_dbgmonitor(int irq, void *context, void *arg)
 {
   up_irq_save();
   _err("PANIC!!! Debug Monitor received\n");
@@ -227,7 +225,7 @@ static int s32k14x_dbgmonitor(int irq, FAR void *context, FAR void *arg)
   return 0;
 }
 
-static int s32k14x_reserved(int irq, FAR void *context, FAR void *arg)
+static int s32k14x_reserved(int irq, void *context, void *arg)
 {
   up_irq_save();
   _err("PANIC!!! Reserved interrupt\n");

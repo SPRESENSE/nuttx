@@ -340,9 +340,9 @@ int bl_os_task_create(const char *name,
 
 void bl_os_task_delete(void *task_handle)
 {
-  pid_t task = (int)task_handle;
+  pid_t pid = (pid_t)((uintptr_t)task_handle);
 
-  task_delete((pid_t)task);
+  task_delete(pid);
 }
 
 /****************************************************************************
@@ -358,7 +358,9 @@ void bl_os_task_delete(void *task_handle)
 
 void *bl_os_task_get_current_task(void)
 {
-  return (void *)0;
+  pid_t pid = getpid();
+
+  return (void *)((uintptr_t)pid);
 }
 
 /****************************************************************************
@@ -1101,7 +1103,7 @@ int bl_os_workqueue_submit_hpwork(void *work,
       return -EINVAL;
     }
 
-  return work_queue(OS_HPWORK, work, (worker_t)worker, argv, tick);
+  return work_queue(OS_HPWORK, work, worker, argv, tick);
 }
 
 /****************************************************************************
@@ -1130,7 +1132,7 @@ int bl_os_workqueue_submit_lpwork(void *work,
       return -EINVAL;
     }
 
-  return work_queue(OS_LPWORK, work, (worker_t)worker, argv, tick);
+  return work_queue(OS_LPWORK, work, worker, argv, tick);
 }
 
 /****************************************************************************
@@ -1147,7 +1149,7 @@ int bl_os_workqueue_submit_lpwork(void *work,
 uint64_t bl_os_clock_gettime_ms(void)
 {
   struct timespec ts;
-  clock_gettime(CLOCK_REALTIME, &ts);
+  clock_systime_timespec(&ts);
   return ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
 }
 
@@ -1216,7 +1218,7 @@ void bl_os_irq_attach(int32_t n, void *f, void *arg)
 
   if (!adapter)
     {
-      DEBUGASSERT(0);
+      DEBUGPANIC();
     }
 
   adapter->func = f;
@@ -1226,7 +1228,7 @@ void bl_os_irq_attach(int32_t n, void *f, void *arg)
 
   if (ret != OK)
     {
-      DEBUGASSERT(0);
+      DEBUGPANIC();
     }
 }
 
@@ -1459,7 +1461,6 @@ void bl_os_sem_delete(void *semphr)
 int32_t bl_os_sem_take(void *semphr, uint32_t ticks)
 {
   int ret;
-  struct timespec timeout;
   sem_t *sem = (sem_t *)semphr;
 
   if (ticks == BL_OS_WAITING_FOREVER)
@@ -1472,19 +1473,7 @@ int32_t bl_os_sem_take(void *semphr, uint32_t ticks)
     }
   else
     {
-      ret = clock_gettime(CLOCK_REALTIME, &timeout);
-      if (ret < 0)
-        {
-          wlerr("ERROR: Failed to get time\n");
-          return false;
-        }
-
-      if (ticks)
-        {
-          bl_os_update_time(&timeout, ticks);
-        }
-
-      ret = nxsem_timedwait(sem, &timeout);
+      ret = nxsem_tickwait(sem, ticks);
       if (ret)
         {
           wlerr("ERROR: Failed to wait sem in %lu ticks\n", ticks);

@@ -35,19 +35,14 @@ else ifeq ($(CONFIG_LIBCXX),y)
 include libcxx.defs
 else
 include libcxxmini.defs
+ifeq ($(CONFIG_ETL),y)
+include etl.defs
+endif
 endif
 
 ifeq ($(CONFIG_LIBCXXABI),y)
 include libcxxabi.defs
 endif
-
-ifeq ($(CONFIG_LIBSUPCXX),y)
-CXXSRCS += libxx_impure.cxx
-else
-CXXSRCS += libxx_eabi_atexit.cxx
-endif
-
-CXXSRCS += libxx_cxa_atexit.cxx
 
 # Object Files
 

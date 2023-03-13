@@ -34,8 +34,6 @@
 #include <nuttx/arch.h>
 
 #include "arm_internal.h"
-#include "arm_arch.h"
-
 #include "chip.h"
 
 #include "lpc43_ccu.h"
@@ -176,7 +174,7 @@ static void lpc43_dmadone(struct lpc43_dmach_s *dmach)
  *
  ****************************************************************************/
 
-static int gpdma_interrupt(int irq, FAR void *context, FAR void *arg)
+static int gpdma_interrupt(int irq, void *context, void *arg)
 {
   struct lpc43_dmach_s *dmach;
   uint32_t regval;

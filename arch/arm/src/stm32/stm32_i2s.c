@@ -68,8 +68,6 @@
 #include <arch/board/board.h>
 
 #include "arm_internal.h"
-#include "arm_arch.h"
-
 #include "stm32_dma.h"
 #include "stm32_spi.h"
 #include "stm32_rcc.h"
@@ -533,7 +531,7 @@ static bool i2s_checkreg(struct stm32_i2s_s *priv, bool wr, uint16_t regval,
  *
  ****************************************************************************/
 
-static inline uint16_t i2s_getreg(FAR struct stm32_i2s_s *priv,
+static inline uint16_t i2s_getreg(struct stm32_i2s_s *priv,
                                   uint8_t offset)
 {
   uint32_t regaddr = priv->base + offset;
@@ -565,7 +563,7 @@ static inline uint16_t i2s_getreg(FAR struct stm32_i2s_s *priv,
  *
  ****************************************************************************/
 
-static inline void i2s_putreg(FAR struct stm32_i2s_s *priv, uint8_t offset,
+static inline void i2s_putreg(struct stm32_i2s_s *priv, uint8_t offset,
                               uint16_t regval)
 {
   uint32_t regaddr = priv->base + offset;
@@ -1946,7 +1944,7 @@ errout_with_buf:
 #endif
 }
 
-static int roundf(float num)
+static int stm32_i2s_roundf(float num)
 {
   if (((int)(num + 0.5f)) > num)
     {
@@ -2209,8 +2207,8 @@ static uint32_t i2s_mckdivider(struct stm32_i2s_s *priv)
             {
               for (n = 2; n <= 256; ++n)
                 {
-                  napprox = roundf(priv->samplerate / 1000000.0f *
-                                   (8 * 32 * R * (2 * n + od)));
+                  napprox = stm32_i2s_roundf(priv->samplerate / 1000000.0f *
+                                             (8 * 32 * R * (2 * n + od)));
                   if ((napprox > 432) || (napprox < 50))
                     {
                       continue;
@@ -2567,9 +2565,9 @@ static void i2s3_configure(struct stm32_i2s_s *priv)
  *
  ****************************************************************************/
 
-FAR struct i2s_dev_s *stm32_i2sbus_initialize(int port)
+struct i2s_dev_s *stm32_i2sbus_initialize(int port)
 {
-  FAR struct stm32_i2s_s *priv = NULL;
+  struct stm32_i2s_s *priv = NULL;
   irqstate_t flags;
   int ret;
 
@@ -2625,6 +2623,7 @@ FAR struct i2s_dev_s *stm32_i2sbus_initialize(int port)
 #endif
     {
       i2serr("ERROR: Unsupported I2S port: %d\n", port);
+      leave_critical_section(flags);
       return NULL;
     }
 
@@ -2646,6 +2645,7 @@ FAR struct i2s_dev_s *stm32_i2sbus_initialize(int port)
   /* Failure exits */
 
 errout_with_alloc:
+  leave_critical_section(flags);
   nxsem_destroy(&priv->exclsem);
   kmm_free(priv);
   return NULL;

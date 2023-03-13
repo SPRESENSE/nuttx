@@ -36,13 +36,13 @@
 
 static char g_serialstr[CONFIG_BOARDCTL_UNIQUEID_SIZE * 2 + 1];
 
-FAR const char *board_usbdev_serialstr(void)
+const char *board_usbdev_serialstr(void)
 {
   uint8_t uid[CONFIG_BOARDCTL_UNIQUEID_SIZE];
 
   cxd56_get_uniqueid(uid);
 
-  snprintf(g_serialstr, CONFIG_BOARDCTL_UNIQUEID_SIZE * 2 + 1,
+  snprintf(g_serialstr, sizeof(g_serialstr),
            "%02X%02X%02X%02X%02X",
            uid[0], uid[1], uid[2], uid[3], uid[4]);
 

@@ -48,9 +48,7 @@
 #include <arch/board/board.h>
 
 #include "chip.h"
-#include "arm_arch.h"
 #include "arm_internal.h"
-
 #include "hardware/s32k1xx_lpuart.h"
 #include "hardware/s32k1xx_pinmux.h"
 #include "s32k1xx_config.h"
@@ -133,12 +131,6 @@
 #  define CONFIG_S32K1XX_PM_SERIAL_ACTIVITY 10
 #endif
 
-#if defined(CONFIG_PM)
-#ifndef PM_IDLE_DOMAIN
-#  define PM_IDLE_DOMAIN      0 /* Revisit */
-#endif
-#endif
-
 #if defined(CONFIG_PM_SERIAL0_STANDBY) || defined(CONFIG_PM_SERIAL0_SLEEP)
 #   define CONFIG_PM_SERIAL0
 #endif
@@ -197,7 +189,7 @@ static int  s32k1xx_setup(struct uart_dev_s *dev);
 static void s32k1xx_shutdown(struct uart_dev_s *dev);
 static int  s32k1xx_attach(struct uart_dev_s *dev);
 static void s32k1xx_detach(struct uart_dev_s *dev);
-static int  s32k1xx_interrupt(int irq, void *context, FAR void *arg);
+static int  s32k1xx_interrupt(int irq, void *context, void *arg);
 static int  s32k1xx_ioctl(struct file *filep, int cmd, unsigned long arg);
 static int  s32k1xx_receive(struct uart_dev_s *dev, unsigned int *status);
 static void s32k1xx_rxint(struct uart_dev_s *dev, bool enable);
@@ -628,7 +620,7 @@ static void s32k1xx_detach(struct uart_dev_s *dev)
  *
  ****************************************************************************/
 
-static int s32k1xx_interrupt(int irq, void *context, FAR void *arg)
+static int s32k1xx_interrupt(int irq, void *context, void *arg)
 {
   struct uart_dev_s *dev = (struct uart_dev_s *)arg;
   struct s32k1xx_uart_s *priv;

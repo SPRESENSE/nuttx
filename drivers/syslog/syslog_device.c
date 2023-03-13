@@ -38,7 +38,7 @@
 #include <nuttx/arch.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/fs/fs.h>
-#include <nuttx/semaphore.h>
+#include <nuttx/mutex.h>
 #include <nuttx/syslog/syslog.h>
 #include <nuttx/compiler.h>
 
@@ -54,10 +54,6 @@
  */
 
 #define SYSLOG_OFLAGS (O_WRONLY | O_CREAT | O_APPEND)
-
-/* An invalid thread ID */
-
-#define NO_HOLDER     ((pid_t)-1)
 
 /****************************************************************************
  * Private Types
@@ -83,8 +79,7 @@ struct syslog_dev_s
   uint8_t      sl_state;    /* See enum syslog_dev_state */
   uint8_t      sl_oflags;   /* Saved open mode (for re-open) */
   uint16_t     sl_mode;     /* Saved open flags (for re-open) */
-  sem_t        sl_sem;      /* Enforces mutually exclusive access */
-  pid_t        sl_holder;   /* PID of the thread that holds the semaphore */
+  rmutex_t     sl_lock;     /* Enforces mutually exclusive access */
   struct file  sl_file;     /* The syslog file structure */
   FAR char    *sl_devpath;  /* Full path to the character device */
 };
@@ -129,38 +124,24 @@ static const uint8_t g_syscrlf[2] =
 
 static inline int syslog_dev_takesem(FAR struct syslog_dev_s *syslog_dev)
 {
-  pid_t me = getpid();
-  int ret;
-
-  /* Does this thread already hold the semaphore?  That could happen if
+  /* Does this thread already hold the lock?  That could happen if
    * we were called recursively, i.e., if the logic kicked off by
    * file_write() where to generate more debug output.  Return an
    * error in that case.
    */
 
-  if (syslog_dev->sl_holder == me)
+  if (nxrmutex_is_hold(&syslog_dev->sl_lock))
     {
       /* Return an error (instead of deadlocking) */
 
       return -EWOULDBLOCK;
     }
 
-  /* Either the semaphore is available or is currently held by another
+  /* Either the lock is available or is currently held by another
    * thread.  Wait for it to become available.
    */
 
-  ret = nxsem_wait(&syslog_dev->sl_sem);
-  if (ret < 0)
-    {
-      return ret;
-    }
-
-  /* We hold the semaphore.  We can safely mark ourself as the holder
-   * of the semaphore.
-   */
-
-  syslog_dev->sl_holder = me;
-  return OK;
+  return nxrmutex_lock(&syslog_dev->sl_lock);
 }
 
 /****************************************************************************
@@ -169,15 +150,7 @@ static inline int syslog_dev_takesem(FAR struct syslog_dev_s *syslog_dev)
 
 static inline void syslog_dev_givesem(FAR struct syslog_dev_s *syslog_dev)
 {
-#ifdef CONFIG_DEBUG_ASSERTIONS
-  pid_t me = getpid();
-  DEBUGASSERT(syslog_dev->sl_holder == me);
-#endif
-
-  /* Relinquish the semaphore */
-
-  syslog_dev->sl_holder = NO_HOLDER;
-  nxsem_post(&syslog_dev->sl_sem);
+  nxrmutex_unlock(&syslog_dev->sl_lock);
 }
 
 /****************************************************************************
@@ -272,9 +245,8 @@ static int syslog_dev_open(FAR struct syslog_dev_s *syslog_dev,
 
   /* The SYSLOG device is open and ready for writing. */
 
-  nxsem_init(&syslog_dev->sl_sem, 0, 1);
-  syslog_dev->sl_holder = NO_HOLDER;
-  syslog_dev->sl_state  = SYSLOG_OPENED;
+  nxrmutex_init(&syslog_dev->sl_lock);
+  syslog_dev->sl_state = SYSLOG_OPENED;
   return OK;
 }
 
@@ -303,7 +275,7 @@ static int syslog_dev_open(FAR struct syslog_dev_s *syslog_dev,
  *     close the device, and set it for later re-opening.
  *
  * NOTE: That the third case is different.  It applies only to the thread
- * that currently holds the sl_sem semaphore.  Other threads should wait.
+ * that currently holds the sl_lock.  Other threads should wait.
  * that is why that case is handled in syslog_semtake().
  *
  * Input Parameters:
@@ -321,7 +293,7 @@ static int syslog_dev_outputready(FAR struct syslog_dev_s *syslog_dev)
 
   /* Cases (4) and (5) */
 
-  if (up_interrupt_context() || getpid() == 0)
+  if (up_interrupt_context() || sched_idletask())
     {
       return -ENOSYS;
     }
@@ -352,7 +324,7 @@ static int syslog_dev_outputready(FAR struct syslog_dev_s *syslog_dev)
       if (syslog_dev->sl_state == SYSLOG_FAILURE)
         {
           file_close(&syslog_dev->sl_file);
-          nxsem_destroy(&syslog_dev->sl_sem);
+          nxrmutex_destroy(&syslog_dev->sl_lock);
 
           syslog_dev->sl_state = SYSLOG_REOPEN;
         }
@@ -451,58 +423,71 @@ static ssize_t syslog_dev_write(FAR struct syslog_channel_s *channel,
 
       if (*endptr == '\r' || *endptr == '\n')
         {
+          /* Write everything up to the position of the special
+           * character.
+           *
+           * - buffer points to next byte to output.
+           * - endptr points to the special character.
+           */
+
+          writelen = (size_t)((uintptr_t)endptr - (uintptr_t)buffer);
+          if (writelen > 0)
+            {
+              nwritten = file_write(&syslog_dev->sl_file,
+                                    buffer, writelen);
+              if (nwritten < 0)
+                {
+                  ret = (int)nwritten;
+                  goto errout_with_sem;
+                }
+            }
+
           /* Check for pre-formatted CR-LF sequence */
 
           if (remaining > 1 &&
               ((endptr[0] == '\r' && endptr[1] == '\n') ||
                (endptr[0] == '\n' && endptr[1] == '\r')))
             {
-              /* Just skip over pre-formatted CR-LF or LF-CR sequence */
+              writelen = sizeof(g_syscrlf);
+
+              /* Skip over pre-formatted CR-LF or LF-CR sequence */
 
               endptr++;
               remaining--;
             }
           else
             {
-              /* Write everything up to the position of the special
-               * character.
-               *
-               * - buffer points to next byte to output.
-               * - endptr points to the special character.
-               */
-
-              writelen = (size_t)((uintptr_t)endptr - (uintptr_t)buffer);
-              if (writelen > 0)
-                {
-                  nwritten = file_write(&syslog_dev->sl_file,
-                                        buffer, writelen);
-                  if (nwritten < 0)
-                    {
-                      ret = (int)nwritten;
-                      goto errout_with_sem;
-                    }
-                }
-
               /* Ignore the carriage return, but for the linefeed, output
                * both a carriage return and a linefeed.
                */
 
-              if (*endptr == '\n')
+              writelen = *endptr == '\n' ? sizeof(g_syscrlf) : 0;
+            }
+
+          if (writelen > 0)
+            {
+              nwritten = file_write(&syslog_dev->sl_file,
+                                    g_syscrlf, writelen);
+
+              /* Synchronize the file when each CR-LF is encountered
+               * (i.e., implements line buffering always).
+               */
+
+              if (nwritten > 0)
                 {
-                  nwritten = file_write(&syslog_dev->sl_file,
-                                        g_syscrlf, 2);
-                  if (nwritten < 0)
-                    {
-                      ret = (int)nwritten;
-                      goto errout_with_sem;
-                    }
+                  syslog_dev_flush(channel);
                 }
 
-              /* Adjust pointers */
-
-               writelen++;         /* Skip the special character */
-               buffer += writelen; /* Points past the special character */
+              if (nwritten < 0)
+                {
+                  ret = (int)nwritten;
+                  goto errout_with_sem;
+                }
             }
+
+          /* Adjust pointers */
+
+          buffer = endptr + 1;
         }
     }
 
@@ -599,12 +584,10 @@ static int syslog_dev_putc(FAR struct syslog_channel_s *channel, int ch)
        * implements line buffering always).
        */
 
-#ifndef CONFIG_DISABLE_MOUNTPOINT
       if (nbytes > 0)
         {
           syslog_dev_flush(channel);
         }
-#endif
     }
   else
     {
@@ -675,6 +658,8 @@ static int syslog_dev_flush(FAR struct syslog_channel_s *channel)
    */
 
   file_fsync(&syslog_dev->sl_file);
+#else
+  UNUSED(channel);
 #endif
 
   return OK;
@@ -757,9 +742,9 @@ void syslog_dev_uninitialize(FAR struct syslog_channel_s *channel)
    * interrupt context.
    */
 
-  if (up_interrupt_context() || getpid() == 0)
+  if (up_interrupt_context() || sched_idletask())
     {
-      DEBUGASSERT(!up_interrupt_context() && getpid() != 0);
+      DEBUGASSERT(!up_interrupt_context() && !sched_idletask());
       return;
     }
 
@@ -784,7 +769,7 @@ void syslog_dev_uninitialize(FAR struct syslog_channel_s *channel)
       syslog_dev->sl_state == SYSLOG_FAILURE)
     {
       file_close(&syslog_dev->sl_file);
-      nxsem_destroy(&syslog_dev->sl_sem);
+      nxrmutex_destroy(&syslog_dev->sl_lock);
     }
 
   /* Set the device in UNINITIALIZED state. */

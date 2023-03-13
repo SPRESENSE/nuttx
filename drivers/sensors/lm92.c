@@ -82,14 +82,12 @@ static int     lm92_writeconf(FAR struct lm92_dev_s *priv, uint8_t conf);
 
 /* Character driver methods */
 
-static int     lm92_open(FAR struct file *filep);
-static int     lm92_close(FAR struct file *filep);
 static ssize_t lm92_read(FAR struct file *filep, FAR char *buffer,
                          size_t buflen);
 static ssize_t lm92_write(FAR struct file *filep, FAR const char *buffer,
                           size_t buflen);
-static int     lm92_ioctl(FAR struct file *filep,
-                          int cmd, unsigned long arg);
+static int     lm92_ioctl(FAR struct file *filep, int cmd,
+                          unsigned long arg);
 
 /****************************************************************************
  * Private Data
@@ -97,13 +95,16 @@ static int     lm92_ioctl(FAR struct file *filep,
 
 static const struct file_operations g_lm92fops =
 {
-  lm92_open,
-  lm92_close,
-  lm92_read,
-  lm92_write,
-  NULL,
-  lm92_ioctl,
-  NULL
+  NULL,            /* open */
+  NULL,            /* close */
+  lm92_read,       /* read */
+  lm92_write,      /* write */
+  NULL,            /* seek */
+  lm92_ioctl,      /* ioctl */
+  NULL             /* poll */
+#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
+  , NULL           /* unlink */
+#endif
 };
 
 /****************************************************************************
@@ -371,32 +372,6 @@ static int lm92_readid(FAR struct lm92_dev_s *priv, FAR uint16_t *id)
 
   *id = (uint16_t)buffer[0] << 8 | (uint16_t)buffer[1];
   sninfo("id: %04x ret: %d\n", *id, ret);
-  return OK;
-}
-
-/****************************************************************************
- * Name: lm92_open
- *
- * Description:
- *   This function is called whenever the LM92 device is opened.
- *
- ****************************************************************************/
-
-static int lm92_open(FAR struct file *filep)
-{
-  return OK;
-}
-
-/****************************************************************************
- * Name: lm92_close
- *
- * Description:
- *   This function is called whenever the LM92 device is closed.
- *
- ****************************************************************************/
-
-static int lm92_close(FAR struct file *filep)
-{
   return OK;
 }
 

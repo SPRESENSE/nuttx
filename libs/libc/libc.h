@@ -18,8 +18,8 @@
  *
  ****************************************************************************/
 
-#ifndef __LIBC_LIBC_H
-#define __LIBC_LIBC_H
+#ifndef __LIBS_LIBC_LIBC_H
+#define __LIBS_LIBC_LIBC_H
 
 /****************************************************************************
  * Included Files
@@ -77,8 +77,8 @@ extern "C"
 /* Defined in lib_streamsem.c */
 
 #ifdef CONFIG_FILE_STREAM
-void  stream_semtake(FAR struct streamlist *list);
-void  stream_semgive(FAR struct streamlist *list);
+void  lib_stream_semtake(FAR struct streamlist *list);
+void  lib_stream_semgive(FAR struct streamlist *list);
 #endif
 
 /* Defined in lib_dtoa.c */
@@ -158,9 +158,13 @@ ssize_t lib_parse_hostfile(FAR FILE *stream, FAR struct hostent *host,
 int lib_restoredir(void);
 #endif
 
+/* Defined in lib_cxx_initialize.c */
+
+void lib_cxx_initialize(void);
+
 #undef EXTERN
 #if defined(__cplusplus)
 }
 #endif
 
-#endif /* __LIBC_LIBC_H */
+#endif /* __LIBS_LIBC_LIBC_H */

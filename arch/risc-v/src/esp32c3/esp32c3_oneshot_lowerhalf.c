@@ -114,20 +114,26 @@ static void esp32c3_oneshot_lh_handler(void *arg)
 {
   struct esp32c3_oneshot_lowerhalf_s *priv =
     (struct esp32c3_oneshot_lowerhalf_s *)arg;
+  oneshot_callback_t callback;
+  void *cb_arg;
 
   DEBUGASSERT(priv != NULL);
   DEBUGASSERT(priv->callback != NULL);
 
   tmrinfo("Oneshot LH handler triggered\n");
 
-  /* Call the callback */
+  /* Sample and nullify BEFORE executing callback (in case the callback
+   * restarts the oneshot).
+   */
 
-  priv->callback(&priv->lh, priv->arg);
-
-  /* Restore state */
-
+  callback       = priv->callback;
+  cb_arg         = priv->arg;
   priv->callback = NULL;
-  priv->arg = NULL;
+  priv->arg      = NULL;
+
+  /* Then perform the callback */
+
+  callback(&priv->lh, cb_arg);
 }
 
 /****************************************************************************
@@ -335,7 +341,7 @@ static int oneshot_lh_current(struct oneshot_lowerhalf_s *lower,
  ****************************************************************************/
 
 struct oneshot_lowerhalf_s *oneshot_initialize(int chan,
-                                                   uint16_t resolution)
+                                               uint16_t resolution)
 {
   struct esp32c3_oneshot_lowerhalf_s *priv;
   int ret;

@@ -18,8 +18,8 @@
  *
  ****************************************************************************/
 
-#ifndef __INCLUDE_AMEBA_HCI_BOARD_H
-#define __INCLUDE_AMEBA_HCI_BOARD_H
+#ifndef __ARCH_ARM_SRC_RTL8720C_AMEBA_HCI_BOARD_H
+#define __ARCH_ARM_SRC_RTL8720C_AMEBA_HCI_BOARD_H
 
 /****************************************************************************
  * Included Files
@@ -45,13 +45,12 @@
 
 int hci_check_iqk(void);
 int hci_start_iqk(void);
-int hci_set_init_config_mac(FAR uint8_t *addr, uint8_t diffvalue);
-int hci_get_baudrate(FAR uint32_t *bt_baudrate,
-                         FAR uint32_t *uart_baudrate);
+int hci_set_init_config_mac(uint8_t *addr, uint8_t diffvalue);
+int hci_get_baudrate(uint32_t *bt_baudrate,
+                     uint32_t *uart_baudrate);
 int hci_find_fw_patch(uint8_t chipid);
 int hci_get_efuse_iqk_data(uint8_t *data);
 int hci_board_init(void);
 int hci_board_init_done(void);
 
-#endif /* __INCLUDE_AMEBA_FLASH_H */
-
+#endif /* __ARCH_ARM_SRC_RTL8720C_AMEBA_HCI_BOARD_H */

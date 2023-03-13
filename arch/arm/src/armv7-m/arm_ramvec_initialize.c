@@ -35,7 +35,6 @@
 #include "ram_vectors.h"
 
 #include "chip.h"             /* May redefine VECTAB fields */
-#include "arm_arch.h"
 #include "arm_internal.h"
 
 #ifdef CONFIG_ARCH_RAMVECTORS
@@ -130,7 +129,7 @@ void arm_ramvec_initialize(void)
    * protect against NULL pointer references.
    */
 
-  src  = (const CODE up_vector_t *)getreg32(NVIC_VECTAB);
+  src  = (const up_vector_t *)getreg32(NVIC_VECTAB);
   dest = g_ram_vectors;
 
   irqinfo("src=%p dest=%p\n", src, dest);

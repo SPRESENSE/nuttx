@@ -28,7 +28,7 @@
 #include <nuttx/arch.h>
 #include <arch/board/board.h>
 
-#include "riscv_arch.h"
+#include "riscv_internal.h"
 #include "k210_clockconfig.h"
 #include "k210_userspace.h"
 #include "k210.h"
@@ -53,22 +53,23 @@
  */
 
 uintptr_t g_idle_topstack = K210_IDLESTACK0_TOP;
-volatile bool g_serial_ok = false;
-
-extern void k210_cpu_boot(uint32_t);
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: k210_start
+ * Name: __k210_start
  ****************************************************************************/
 
 void __k210_start(uint32_t mhartid)
 {
   const uint32_t *src;
   uint32_t *dest;
+
+  /* Configure FPU */
+
+  riscv_fpuconfig();
 
   if (0 < mhartid)
     {
@@ -111,8 +112,6 @@ void __k210_start(uint32_t mhartid)
 
   showprogress('B');
 
-  g_serial_ok = true;
-
   /* Do board initialization */
 
   k210_boardinitialize();
@@ -139,7 +138,7 @@ cpu1:
   showprogress('a');
 
 #if defined(CONFIG_SMP) && (CONFIG_SMP_NCPUS == 2)
-  k210_cpu_boot(mhartid);
+  riscv_cpu_boot(mhartid);
 #endif
 
   while (true)

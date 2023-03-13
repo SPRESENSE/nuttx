@@ -28,8 +28,7 @@
 #include <nuttx/spinlock.h>
 
 #include "hardware/rp2040_sio.h"
-
-#include "arm_arch.h"
+#include "arm_internal.h"
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -60,7 +59,7 @@
  *
  ****************************************************************************/
 
-spinlock_t up_testset(volatile FAR spinlock_t *lock)
+spinlock_t up_testset(volatile spinlock_t *lock)
 {
   spinlock_t ret;
 

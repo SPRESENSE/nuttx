@@ -18,8 +18,8 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_XTENSA_SRC_ESP32_HARDWARE_ESP32_SOC_H
-#define __ARCH_XTENSA_SRC_ESP32_HARDWARE_ESP32_SOC_H
+#ifndef __ARCH_XTENSA_SRC_ESP32_HARDWARE_ESP32S2_SOC_H
+#define __ARCH_XTENSA_SRC_ESP32_HARDWARE_ESP32S2_SOC_H
 
 /****************************************************************************
  * Included Files
@@ -190,7 +190,7 @@
 
 /* Helper to place a value in a field */
 
-#define VALUE_TO_FIELD(_value, _field) ((_value << (_field##_S)) & (_field##_M))
+#define VALUE_TO_FIELD(_value, _field) (((_value) << (_field##_S)) & (_field##_M))
 
 /* Periheral Clock */
 
@@ -298,6 +298,8 @@
 #define SOC_RTC_DATA_HIGH       0x50002000
 #define SOC_EXTRAM_DATA_LOW     0x3f500000
 #define SOC_EXTRAM_DATA_HIGH    0x3ff80000
+
+#define SOC_EXTRAM_DATA_SIZE (SOC_EXTRAM_DATA_HIGH - SOC_EXTRAM_DATA_LOW)
 
 /* Virtual address 0 */
 
@@ -521,24 +523,14 @@ extern void rom_i2c_writereg_mask(uint8_t block, uint8_t host_id,
 /* Core voltage needs to be increased in two cases:
  * 1. running at 240 MHz
  * 2. running with 80MHz Flash frequency
- * There is a record in efuse which indicates the
- * proper voltage for these two cases.
  */
 
-#define RTC_CNTL_DBIAS_HP_VOLT      (RTC_CNTL_DBIAS_1V25 - \
-                                    (REG_GET_FIELD(EFUSE_BLK0_RDATA5_REG, \
-                                     EFUSE_RD_VOL_LEVEL_HP_INV)))
-
-#ifdef CONFIG_ESPTOOLPY_FLASHFREQ_80M
-#define DIG_DBIAS_80M_160M          RTC_CNTL_DBIAS_HP_VOLT
+#ifdef CONFIG_ESP32S2_FLASH_FREQ_80M
+#define DIG_DBIAS_80M_160M          RTC_CNTL_DBIAS_1V25
 #else
 #define DIG_DBIAS_80M_160M          RTC_CNTL_DBIAS_1V10
 #endif
-#define DIG_DBIAS_240M              RTC_CNTL_DBIAS_HP_VOLT
-#define DIG_DBIAS_XTAL              RTC_CNTL_DBIAS_1V10
-#define DIG_DBIAS_2M                RTC_CNTL_DBIAS_1V00
-
-#define DIG_DBIAS_240M              RTC_CNTL_DBIAS_HP_VOLT
+#define DIG_DBIAS_240M              RTC_CNTL_DBIAS_1V25
 #define DIG_DBIAS_XTAL              RTC_CNTL_DBIAS_1V10
 #define DIG_DBIAS_2M                RTC_CNTL_DBIAS_1V00
 
@@ -647,7 +639,7 @@ extern void rom_i2c_writereg_mask(uint8_t block, uint8_t host_id,
 #define BB_DC_EST_FORCE_PD_V        1
 #define BB_DC_EST_FORCE_PD_S        0
 
-/* Some of the WiFi RX control registers.
+/* Some of the Wi-Fi RX control registers.
  * PU/PD fields defined here are used in sleep related functions.
  */
 
@@ -764,4 +756,4 @@ static inline bool IRAM_ATTR esp32s2_ptr_exec(const void *p)
       || (ip >= SOC_RTC_IRAM_LOW && ip < SOC_RTC_IRAM_HIGH);
 }
 
-#endif /* __ARCH_XTENSA_SRC_ESP32_HARDWARE_ESP32_SOC_H */
+#endif /* __ARCH_XTENSA_SRC_ESP32_HARDWARE_ESP32S2_SOC_H */

@@ -160,10 +160,13 @@ static int bmp280_putreg8(FAR struct bmp280_dev_s *priv, uint8_t regaddr,
 /* Sensor methods */
 
 static int bmp280_set_interval(FAR struct sensor_lowerhalf_s *lower,
-                               FAR unsigned int *period_us);
+                               FAR struct file *filep,
+                               FAR unsigned long *period_us);
 static int bmp280_activate(FAR struct sensor_lowerhalf_s *lower,
+                           FAR struct file *filep,
                            bool enable);
 static int bmp280_fetch(FAR struct sensor_lowerhalf_s *lower,
+                        FAR struct file *filep,
                         FAR char *buffer, size_t buflen);
 
 /****************************************************************************
@@ -504,7 +507,8 @@ static uint32_t bmp280_compensate_press(FAR struct bmp280_dev_s *priv,
  ****************************************************************************/
 
 static int bmp280_set_interval(FAR struct sensor_lowerhalf_s *lower,
-                               FAR unsigned int *period_us)
+                               FAR struct file *filep,
+                               FAR unsigned long *period_us)
 {
   FAR struct bmp280_dev_s *priv = container_of(lower,
                                                FAR struct bmp280_dev_s,
@@ -557,6 +561,7 @@ static int bmp280_set_interval(FAR struct sensor_lowerhalf_s *lower,
  ****************************************************************************/
 
 static int bmp280_activate(FAR struct sensor_lowerhalf_s *lower,
+                           FAR struct file *filep,
                            bool enable)
 {
   FAR struct bmp280_dev_s *priv = container_of(lower,
@@ -591,6 +596,7 @@ static int bmp280_activate(FAR struct sensor_lowerhalf_s *lower,
  ****************************************************************************/
 
 static int bmp280_fetch(FAR struct sensor_lowerhalf_s *lower,
+                        FAR struct file *filep,
                         FAR char *buffer, size_t buflen)
 {
   FAR struct bmp280_dev_s *priv = container_of(lower,
@@ -602,7 +608,7 @@ static int bmp280_fetch(FAR struct sensor_lowerhalf_s *lower,
   int32_t temp;
   int ret;
   struct timespec ts;
-  struct sensor_event_baro baro_data;
+  struct sensor_baro baro_data;
 
   if (buflen != sizeof(baro_data))
     {
@@ -643,11 +649,7 @@ static int bmp280_fetch(FAR struct sensor_lowerhalf_s *lower,
   temp = bmp280_compensate_temp(priv, temp);
   press = bmp280_compensate_press(priv, press);
 
-#ifdef CONFIG_CLOCK_MONOTONIC
-  clock_gettime(CLOCK_MONOTONIC, &ts);
-#else
-  clock_gettime(CLOCK_REALTIME, &ts);
-#endif
+  clock_systime_timespec(&ts);
 
   baro_data.timestamp = 1000000ull * ts.tv_sec + ts.tv_nsec / 1000;
   baro_data.pressure = press / 100.0f;

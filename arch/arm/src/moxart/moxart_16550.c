@@ -36,13 +36,13 @@
 #include <nuttx/serial/mxser.h>
 
 #include "arm.h"
-#include "arm_arch.h"
+#include "arm_internal.h"
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
-void uart_decodeirq(int irq, FAR void *context)
+void uart_decodeirq(int irq, void *context)
 {
   int i;
   uint32_t status;

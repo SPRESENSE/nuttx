@@ -32,7 +32,7 @@
 
 #include <arch/board/board.h>
 
-#include "arm_arch.h"
+#include "arm_internal.h"
 #include "nucleo-f446re.h"
 
 /****************************************************************************
@@ -52,6 +52,10 @@
 
 void stm32_boardinitialize(void)
 {
+#ifdef CONFIG_SEGGER_SYSVIEW
+  up_perf_init((void *)STM32_SYSCLK_FREQUENCY);
+#endif
+
 #ifdef CONFIG_ARCH_LEDS
   /* Configure on-board LEDs if LED support has been selected. */
 

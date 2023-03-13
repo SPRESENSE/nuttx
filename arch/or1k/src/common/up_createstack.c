@@ -37,26 +37,7 @@
 #include <nuttx/board.h>
 #include <arch/board/board.h>
 
-#include "up_arch.h"
 #include "up_internal.h"
-
-/****************************************************************************
- * Pre-processor Macros
- ****************************************************************************/
-
-/* Configuration */
-
-/* For use with EABI and floating point, the stack must be aligned to 8-byte
- * addresses.
- */
-
-#define CONFIG_STACK_ALIGNMENT 8
-
-/* Stack alignment macros */
-
-#define STACK_ALIGN_MASK    (CONFIG_STACK_ALIGNMENT-1)
-#define STACK_ALIGN_DOWN(a) ((a) & ~STACK_ALIGN_MASK)
-#define STACK_ALIGN_UP(a)   (((a) + STACK_ALIGN_MASK) & ~STACK_ALIGN_MASK)
 
 /****************************************************************************
  * Public Functions
@@ -100,7 +81,7 @@
  *
  ****************************************************************************/
 
-int up_create_stack(FAR struct tcb_s *tcb, size_t stack_size, uint8_t ttype)
+int up_create_stack(struct tcb_s *tcb, size_t stack_size, uint8_t ttype)
 {
 #ifdef CONFIG_TLS_ALIGNED
   /* The allocated stack size must not exceed the maximum possible for the
@@ -220,14 +201,32 @@ int up_create_stack(FAR struct tcb_s *tcb, size_t stack_size, uint8_t ttype)
  ****************************************************************************/
 
 #ifdef CONFIG_STACK_COLORATION
-void up_stack_color(FAR void *stackbase, size_t nbytes)
+void up_stack_color(void *stackbase, size_t nbytes)
 {
-  /* Take extra care that we do not write outsize the stack boundaries */
+  uint32_t *stkptr;
+  uintptr_t stkend;
+  size_t    nwords;
+  uintptr_t sp;
 
-  uint32_t *stkptr = (uint32_t *)(((uintptr_t)stackbase + 3) & ~3);
-  uintptr_t stkend = nbytes ? (((uintptr_t)stackbase + nbytes) & ~3) :
-                     up_getsp(); /* 0: colorize the running stack */
-  size_t    nwords = (stkend - (uintptr_t)stackbase) >> 2;
+  /* Take extra care that we do not write outside the stack boundaries */
+
+  stkptr = (uint32_t *)STACK_ALIGN_UP((uintptr_t)stackbase);
+
+  if (nbytes == 0) /* 0: colorize the running stack */
+    {
+      stkend = up_getsp();
+      if (stkend > (uintptr_t)&sp)
+        {
+          stkend = (uintptr_t)&sp;
+        }
+    }
+  else
+    {
+      stkend = (uintptr_t)stackbase + nbytes;
+    }
+
+  stkend = STACK_ALIGN_DOWN(stkend);
+  nwords = (stkend - (uintptr_t)stackbase) >> 2;
 
   /* Set the entire stack to the coloration value */
 

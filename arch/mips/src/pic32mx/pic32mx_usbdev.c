@@ -51,7 +51,7 @@
 
 #include <nuttx/irq.h>
 
-#include "mips_arch.h"
+#include "mips_internal.h"
 #include "pic32mx.h"
 #include "pic32mx_usbotg.h"
 
@@ -484,7 +484,7 @@ static void pic32mx_ep0outcomplete(struct pic32mx_usbdev_s *priv);
 static void pic32mx_ep0incomplete(struct pic32mx_usbdev_s *priv);
 static void pic32mx_ep0transfer(struct pic32mx_usbdev_s *priv,
                 uint16_t ustat);
-static int  pic32mx_interrupt(int irq, void *context, FAR void *arg);
+static int  pic32mx_interrupt(int irq, void *context, void *arg);
 
 /* Endpoint helpers *********************************************************/
 
@@ -2697,7 +2697,7 @@ static void pic32mx_ep0transfer(struct pic32mx_usbdev_s *priv,
  * Name: pic32mx_interrupt
  ****************************************************************************/
 
-static int pic32mx_interrupt(int irq, void *context, FAR void *arg)
+static int pic32mx_interrupt(int irq, void *context, void *arg)
 {
   /* For now there is only one USB controller, but we will always refer to
    * it using a pointer to make any future ports to multiple USB controllers

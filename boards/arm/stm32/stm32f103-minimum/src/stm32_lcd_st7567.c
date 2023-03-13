@@ -35,9 +35,7 @@
 #include <nuttx/lcd/lcd.h>
 #include <nuttx/lcd/st7567.h>
 
-#include "arm_arch.h"
 #include "arm_internal.h"
-
 #include "stm32_gpio.h"
 #include "stm32_spi.h"
 #include "stm32f103_minimum.h"
@@ -58,8 +56,8 @@
  * Private Data
  ****************************************************************************/
 
-FAR struct spi_dev_s *g_spidev;
-FAR struct lcd_dev_s *g_lcddev;
+struct spi_dev_s *g_spidev;
+struct lcd_dev_s *g_lcddev;
 
 /****************************************************************************
  * Public Functions
@@ -94,7 +92,7 @@ int board_lcd_initialize(void)
  * Name: board_lcd_getdev
  ****************************************************************************/
 
-FAR struct lcd_dev_s *board_lcd_getdev(int lcddev)
+struct lcd_dev_s *board_lcd_getdev(int lcddev)
 {
   g_lcddev = st7567_initialize(g_spidev, lcddev);
   if (!g_lcddev)

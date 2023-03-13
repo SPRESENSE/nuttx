@@ -28,7 +28,7 @@
 
 #include <arch/board/board.h>
 #include <mpfs_gpio.h>
-#include "mpfsicicle.h"
+#include "board_config.h"
 
 /****************************************************************************
  * Public Functions
@@ -58,7 +58,7 @@ void board_autoled_initialize(void)
  * Name: board_autoled_on
  *
  * Description:
- *    Turn on the LED specificed.
+ *    Turn on the LED specified.
  *
  * Input Parameters:
  *   led - The LED which is under this control
@@ -115,7 +115,7 @@ void board_autoled_on(int led)
  * Name: board_autoled_off
  *
  * Description:
- *    Turn off the LED specificed.
+ *    Turn off the LED specified.
  *
  * Input Parameters:
  *   led - The LED which is under this control

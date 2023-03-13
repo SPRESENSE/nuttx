@@ -60,9 +60,9 @@ static const struct file_operations g_nxmq_fileops =
   NULL,             /* write */
   NULL,             /* seek */
   NULL,             /* ioctl */
-  nxmq_file_poll,   /* poll */
+  nxmq_file_poll    /* poll */
 #ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  NULL,             /* unlink */
+  , NULL            /* unlink */
 #endif
 };
 
@@ -177,6 +177,13 @@ static int file_mq_vopen(FAR struct file *mq, FAR const char *mq_name,
       goto errout;
     }
 
+  if (sizeof(CONFIG_FS_MQUEUE_VFS_PATH) + 1 + strlen(mq_name)
+      >= MAX_MQUEUE_PATH)
+    {
+      ret = -ENAMETOOLONG;
+      goto errout;
+    }
+
   /* Were we asked to create it? */
 
   if ((oflags & O_CREAT) != 0)
@@ -192,7 +199,7 @@ static int file_mq_vopen(FAR struct file *mq, FAR const char *mq_name,
   mode &= ~umask;
 
   /* Skip over any leading '/'.  All message queue paths are relative to
-   * CONFIG_FS_MQUEUE_MPATH.
+   * CONFIG_FS_MQUEUE_VFS_PATH.
    */
 
   while (*mq_name == '/')
@@ -202,7 +209,8 @@ static int file_mq_vopen(FAR struct file *mq, FAR const char *mq_name,
 
   /* Get the full path to the message queue */
 
-  snprintf(fullpath, MAX_MQUEUE_PATH, CONFIG_FS_MQUEUE_MPATH "/%s", mq_name);
+  snprintf(fullpath, MAX_MQUEUE_PATH,
+           CONFIG_FS_MQUEUE_VFS_PATH "/%s", mq_name);
 
   /* Make sure that the check for the existence of the message queue
    * and the creation of the message queue are atomic with respect to
@@ -289,10 +297,9 @@ static int file_mq_vopen(FAR struct file *mq, FAR const char *mq_name,
        * be created with a reference count of zero.
        */
 
-      msgq = (FAR struct mqueue_inode_s *)nxmq_alloc_msgq(attr);
-      if (!msgq)
+      ret = nxmq_alloc_msgq(attr, &msgq);
+      if (ret < 0)
         {
-          ret = -ENOSPC;
           goto errout_with_inode;
         }
 
@@ -363,6 +370,7 @@ static mqd_t nxmq_vopen(FAR const char *mq_name, int oflags, va_list ap)
  * Public Functions
  ****************************************************************************/
 
+#if CONFIG_FS_MQUEUE_NPOLLWAITERS > 0
 void nxmq_pollnotify(FAR struct mqueue_inode_s *msgq, pollevent_t eventset)
 {
   int i;
@@ -388,6 +396,7 @@ void nxmq_pollnotify(FAR struct mqueue_inode_s *msgq, pollevent_t eventset)
         }
     }
 }
+#endif
 
 /****************************************************************************
  * Name: file_mq_open

@@ -18,8 +18,8 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_ARM_SRC_LPC43XX_LPC43_CAN_H_
-#define __ARCH_ARM_SRC_LPC43XX_LPC43_CAN_H_
+#ifndef __ARCH_ARM_SRC_LPC43XX_LPC43_CAN_H
+#define __ARCH_ARM_SRC_LPC43XX_LPC43_CAN_H
 
 /****************************************************************************
  * Included Files
@@ -57,7 +57,7 @@ extern "C"
 
 #if defined(CONFIG_CAN) && (defined(CONFIG_LPC43_CAN0) || defined(CONFIG_LPC43_CAN1))
 struct can_dev_s;
-FAR struct can_dev_s *lpc43_caninitialize(int port);
+struct can_dev_s *lpc43_caninitialize(int port);
 #endif
 
 #ifdef __cplusplus
@@ -65,4 +65,4 @@ FAR struct can_dev_s *lpc43_caninitialize(int port);
 #endif
 #endif /* __ASSEMBLY__ */
 
-#endif /* __ARCH_ARM_SRC_LPC43XX_LPC43_CAN_H_ */
+#endif /* __ARCH_ARM_SRC_LPC43XX_LPC43_CAN_H */

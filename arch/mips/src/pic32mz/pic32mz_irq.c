@@ -35,9 +35,7 @@
 #include <arch/irq.h>
 #include <arch/pic32mz/cp0.h>
 
-#include "mips_arch.h"
 #include "mips_internal.h"
-
 #include "hardware/pic32mz_int.h"
 #include "pic32mz_gpio.h"
 
@@ -67,7 +65,7 @@
  * CURRENT_REGS for portability.
  */
 
-volatile uint32_t *g_current_regs[1];
+volatile uint32_t *g_current_regs;
 
 /****************************************************************************
  * Private Data

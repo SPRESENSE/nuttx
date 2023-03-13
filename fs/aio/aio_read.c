@@ -31,7 +31,7 @@
 #include <errno.h>
 #include <debug.h>
 
-#include <nuttx/net/net.h>
+#include <nuttx/fs/fs.h>
 
 #include "aio/aio.h"
 

@@ -51,7 +51,7 @@
 #include "esp32c3_dma.h"
 #endif
 
-#include "riscv_arch.h"
+#include "riscv_internal.h"
 #include "hardware/esp32c3_gpio_sigmap.h"
 #include "hardware/esp32c3_pinmap.h"
 #include "hardware/esp32c3_spi.h"
@@ -462,7 +462,7 @@ static void spislave_setmode(struct spi_slave_ctrlr_s *ctrlr,
 
           default:
             spierr("Invalid mode: %d\n", mode);
-            DEBUGASSERT(false);
+            DEBUGPANIC();
             return;
         }
 
@@ -933,7 +933,7 @@ void spislave_dma_init(struct spislave_priv_s *priv)
     {
       spierr("Failed to allocate GDMA channel\n");
 
-      DEBUGASSERT(false);
+      DEBUGPANIC();
     }
 
   /* Disable segment transaction mode for SPI Slave */

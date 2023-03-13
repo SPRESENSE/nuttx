@@ -120,6 +120,7 @@ static inline int poll_setup(FAR struct pollfd *fds, nfds_t nfds,
       fds[i].sem     = sem;
       fds[i].revents = 0;
       fds[i].priv    = NULL;
+      fds[i].events |= POLLERR | POLLHUP;
 
       /* Check for invalid descriptors. "If the value of fd is less than 0,
        * events shall be ignored, and revents shall be set to 0 in that entry
@@ -419,7 +420,7 @@ int nx_poll(FAR struct pollfd *fds, unsigned int nfds, int timeout)
            * will return immediately.
            */
 
-          ret = nxsem_tickwait(&sem, clock_systime_ticks(), ticks);
+          ret = nxsem_tickwait(&sem, ticks);
           if (ret < 0)
             {
               if (ret == -ETIMEDOUT)

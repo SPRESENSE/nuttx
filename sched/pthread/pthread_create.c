@@ -40,12 +40,12 @@
 #include <nuttx/semaphore.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/pthread.h>
-#include <nuttx/tls.h>
 
 #include "sched/sched.h"
 #include "group/group.h"
 #include "clock/clock.h"
 #include "pthread/pthread.h"
+#include "tls/tls.h"
 
 /****************************************************************************
  * Public Data
@@ -79,7 +79,6 @@ const pthread_attr_t g_default_pthread_attr = PTHREAD_ATTR_INITIALIZER;
  *   tcb        - Address of the new task's TCB
  *   trampoline - User space pthread startup function
  *   arg        - The argument to provide to the pthread on startup.
- *   exit       - The user-space pthread exit function
  *
  * Returned Value:
  *  None
@@ -88,8 +87,7 @@ const pthread_attr_t g_default_pthread_attr = PTHREAD_ATTR_INITIALIZER;
 
 static inline void pthread_tcb_setup(FAR struct pthread_tcb_s *ptcb,
                                      pthread_trampoline_t trampoline,
-                                     pthread_addr_t arg,
-                                     pthread_exitroutine_t exit)
+                                     pthread_addr_t arg)
 {
 #if CONFIG_TASK_NAME_SIZE > 0
   /* Copy the pthread name into the TCB */
@@ -104,7 +102,6 @@ static inline void pthread_tcb_setup(FAR struct pthread_tcb_s *ptcb,
 
   ptcb->trampoline = trampoline;
   ptcb->arg        = arg;
-  ptcb->exit       = exit;
 }
 
 /****************************************************************************
@@ -154,21 +151,9 @@ static inline void pthread_addjoininfo(FAR struct task_group_s *group,
 static void pthread_start(void)
 {
   FAR struct pthread_tcb_s *ptcb = (FAR struct pthread_tcb_s *)this_task();
-  FAR struct task_group_s *group = ptcb->cmn.group;
   FAR struct join_s *pjoin = (FAR struct join_s *)ptcb->joininfo;
 
-  DEBUGASSERT(group != NULL && pjoin != NULL);
-
-  /* Successfully spawned, add the pjoin to our data set. */
-
-  pthread_sem_take(&group->tg_joinsem, NULL, false);
-  pthread_addjoininfo(group, pjoin);
-  pthread_sem_give(&group->tg_joinsem);
-
-  /* Report to the spawner that we successfully started. */
-
-  pjoin->started = true;
-  pthread_sem_give(&pjoin->data_sem);
+  DEBUGASSERT(pjoin != NULL);
 
   /* The priority of this thread may have been boosted to avoid priority
    * inversion problems.  If that is the case, then drop to the correct
@@ -196,12 +181,7 @@ static void pthread_start(void)
   /* The thread has returned (should never happen) */
 
   DEBUGPANIC();
-#ifndef CONFIG_BUILD_FLAT
-  ptcb->cmn.flags &= ~TCB_FLAG_CANCEL_PENDING;
-  ptcb->cmn.flags |= TCB_FLAG_CANCEL_DOING;
-
-  up_pthread_exit(ptcb->exit, NULL);
-#endif
+  pthread_exit(NULL);
 }
 
 /****************************************************************************
@@ -223,7 +203,6 @@ static void pthread_start(void)
  *                 for the new thread
  *    entry      - The new thread starts execution by invoking entry
  *    arg        - It is passed as the sole argument of entry
- *    exit       - The user-space pthread exit function
  *
  * Returned Value:
  *   OK (0) on success; a (non-negated) errno value on failure. The errno
@@ -233,11 +212,9 @@ static void pthread_start(void)
 
 int nx_pthread_create(pthread_trampoline_t trampoline, FAR pthread_t *thread,
                       FAR const pthread_attr_t *attr,
-                      pthread_startroutine_t entry, pthread_addr_t arg,
-                      pthread_exitroutine_t exit)
+                      pthread_startroutine_t entry, pthread_addr_t arg)
 {
   FAR struct pthread_tcb_s *ptcb;
-  FAR struct tls_info_s *info;
   FAR struct join_s *pjoin;
   struct sched_param param;
   int policy;
@@ -247,7 +224,6 @@ int nx_pthread_create(pthread_trampoline_t trampoline, FAR pthread_t *thread,
   bool group_joined = false;
 
   DEBUGASSERT(trampoline != NULL);
-  DEBUGASSERT(exit != NULL);
 
   /* If attributes were not supplied, use the default attributes */
 
@@ -314,8 +290,7 @@ int nx_pthread_create(pthread_trampoline_t trampoline, FAR pthread_t *thread,
     {
       /* Allocate the stack for the TCB */
 
-      ret = up_create_stack((FAR struct tcb_s *)ptcb,
-                            sizeof(struct tls_info_s) + attr->stacksize,
+      ret = up_create_stack((FAR struct tcb_s *)ptcb, attr->stacksize,
                             TCB_FLAG_TTYPE_PTHREAD);
     }
 
@@ -327,18 +302,12 @@ int nx_pthread_create(pthread_trampoline_t trampoline, FAR pthread_t *thread,
 
   /* Initialize thread local storage */
 
-  info = up_stack_frame(&ptcb->cmn, sizeof(struct tls_info_s));
-  if (info == NULL)
+  ret = tls_init_info(&ptcb->cmn);
+  if (ret != OK)
     {
-      errcode = ENOMEM;
+      errcode = -ret;
       goto errout_with_join;
     }
-
-  DEBUGASSERT(info == ptcb->cmn.stack_alloc_ptr);
-
-  /* Attach per-task info in group to TLS */
-
-  info->tl_task = ptcb->cmn.group->tg_info;
 
   /* Should we use the priority and scheduler specified in the pthread
    * attributes?  Or should we use the current thread's priority and
@@ -447,6 +416,17 @@ int nx_pthread_create(pthread_trampoline_t trampoline, FAR pthread_t *thread,
       goto errout_with_join;
     }
 
+#if defined(CONFIG_ARCH_ADDRENV) && defined(CONFIG_BUILD_KERNEL)
+  /* Allocate the kernel stack */
+
+  ret = up_addrenv_kstackalloc(&ptcb->cmn);
+  if (ret < 0)
+    {
+      errcode = ENOMEM;
+      goto errout_with_join;
+    }
+#endif
+
 #ifdef CONFIG_SMP
   /* pthread_setup_scheduler() will set the affinity mask by inheriting the
    * setting from the parent task.  We need to override this setting
@@ -465,7 +445,7 @@ int nx_pthread_create(pthread_trampoline_t trampoline, FAR pthread_t *thread,
    * passed by value
    */
 
-  pthread_tcb_setup(ptcb, trampoline, arg, exit);
+  pthread_tcb_setup(ptcb, trampoline, arg);
 
   /* Join the parent's task group */
 
@@ -524,40 +504,31 @@ int nx_pthread_create(pthread_trampoline_t trampoline, FAR pthread_t *thread,
    * as well.
    */
 
-  pid = (int)ptcb->cmn.pid;
+  pid = ptcb->cmn.pid;
   pjoin->thread = (pthread_t)pid;
 
-  /* Initialize the semaphores in the join structure to zero. */
+  /* Initialize the semaphore in the join structure to zero. */
 
-  ret = nxsem_init(&pjoin->data_sem, 0, 0);
-  if (ret == OK)
-    {
-      ret = nxsem_init(&pjoin->exit_sem, 0, 0);
-    }
+  ret = nxsem_init(&pjoin->exit_sem, 0, 0);
 
   if (ret < 0)
     {
       ret = -ret;
     }
 
-  /* Thse semaphores are used for signaling and, hence, should not have
+  /* Thse semaphore are used for signaling and, hence, should not have
    * priority inheritance enabled.
    */
 
-  if (ret == OK)
-    {
-      ret = nxsem_set_protocol(&pjoin->data_sem, SEM_PRIO_NONE);
+    if (ret == OK)
+      {
+        ret = nxsem_set_protocol(&pjoin->exit_sem, SEM_PRIO_NONE);
+      }
 
-      if (ret == OK)
-        {
-          ret = nxsem_set_protocol(&pjoin->exit_sem, SEM_PRIO_NONE);
-        }
-
-      if (ret < 0)
-        {
-          ret = -ret;
-        }
-    }
+    if (ret < 0)
+      {
+        ret = -ret;
+      }
 
   /* If the priority of the new pthread is lower than the priority of the
    * parent thread, then starting the pthread could result in both the
@@ -588,13 +559,10 @@ int nx_pthread_create(pthread_trampoline_t trampoline, FAR pthread_t *thread,
   sched_lock();
   if (ret == OK)
     {
+      nxsem_wait_uninterruptible(&ptcb->cmn.group->tg_joinsem);
+      pthread_addjoininfo(ptcb->cmn.group, pjoin);
+      pthread_sem_give(&ptcb->cmn.group->tg_joinsem);
       nxtask_activate((FAR struct tcb_s *)ptcb);
-
-      /* Wait for the task to actually get running and to register
-       * its join structure.
-       */
-
-      pthread_sem_take(&pjoin->data_sem, NULL, false);
 
       /* Return the thread information to the caller */
 
@@ -603,19 +571,12 @@ int nx_pthread_create(pthread_trampoline_t trampoline, FAR pthread_t *thread,
           *thread = (pthread_t)pid;
         }
 
-      if (!pjoin->started)
-        {
-          ret = EINVAL;
-        }
-
       sched_unlock();
-      nxsem_destroy(&pjoin->data_sem);
     }
   else
     {
       sched_unlock();
       dq_rem((FAR dq_entry_t *)ptcb, (FAR dq_queue_t *)&g_inactivetasks);
-      nxsem_destroy(&pjoin->data_sem);
       nxsem_destroy(&pjoin->exit_sem);
 
       errcode = EIO;

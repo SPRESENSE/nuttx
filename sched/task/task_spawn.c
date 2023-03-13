@@ -182,7 +182,8 @@ errout:
  *      task_restart() would still be an issue.
  *
  * Input Parameters:
- *   Standard task start-up parameters
+ *   argc, argv - Ignored. The task's start-up parameters are passed via the
+ *     semaphore-protected global structure g_spawn_parms.
  *
  * Returned Value:
  *   Standard task return value.
@@ -197,6 +198,9 @@ static int nxtask_spawn_proxy(int argc, FAR char *argv[])
    * if the file_actions parameter to task_spawn[p] was non-NULL and/or the
    * option to change the signal mask was selected.
    */
+
+  UNUSED(argc);
+  UNUSED(argv);
 
   DEBUGASSERT(g_spawn_parms.file_actions ||
               (g_spawn_parms.attr &&
@@ -292,7 +296,8 @@ static int nxtask_spawn_proxy(int argc, FAR char *argv[])
  *     array of pointers to null-terminated strings. The list is terminated
  *     with a null pointer.
  *
- *   envp - The envp[] argument is not used by NuttX and may be NULL.
+ *   envp - envp[] is an array of character pointers to null-terminated
+ *     strings that provide the environment for the new process image.
  *
  * Returned Value:
  *   task_spawn() will return process ID of new task on success.
@@ -365,6 +370,7 @@ int task_spawn(FAR const char *name, main_t entry,
   g_spawn_parms.file_actions = file_actions ? *file_actions : NULL;
   g_spawn_parms.attr         = attr;
   g_spawn_parms.argv         = argv;
+  g_spawn_parms.envp         = envp;
   g_spawn_parms.u.task.name  = name;
   g_spawn_parms.u.task.entry = entry;
 

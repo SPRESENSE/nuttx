@@ -54,7 +54,7 @@
 #  include <nuttx/spinlock.h>
 #endif
 
-#if defined(CONFIG_BUILD_PROTECTED) && defined(CONFIG_FS_BINFS)
+#if defined(CONFIG_BUILD_PROTECTED) && defined(CONFIG_BUILTIN)
 #  include <nuttx/lib/builtin.h>
 #endif
 
@@ -592,13 +592,13 @@ int boardctl(unsigned int cmd, uintptr_t arg)
        * ARG:           A pointer to an instance of struct boardioc_builtin_s
        * CONFIGURATION: This BOARDIOC command is always available when
        *                CONFIG_BUILTIN is enabled, but does nothing unless
-       *                CONFIG_BUILD_KERNEL and CONFIG_FS_BINFS are selected.
+       *                CONFIG_BUILD_KERNEL is selected.
        * DEPENDENCIES:  None
        */
 
       case BOARDIOC_BUILTINS:
         {
-#if defined(CONFIG_BUILD_PROTECTED) && defined(CONFIG_FS_BINFS)
+#if defined(CONFIG_BUILD_PROTECTED)
           FAR const struct boardioc_builtin_s *builtin =
             (FAR const struct boardioc_builtin_s *)arg;
 
@@ -657,7 +657,7 @@ int boardctl(unsigned int cmd, uintptr_t arg)
        * ARG:           A reference readable instance of struct
        *                boardioc_vncstart_s
        * CONFIGURATION: CONFIG_VNCSERVER
-       * DEPENDENCIES:  VNC server provides vnc_default_fbinitialize()
+       * DEPENDENCIES:  VNC server provides nx_vnc_fbinitialize()
        */
 
       case BOARDIOC_VNC_START:
@@ -673,7 +673,7 @@ int boardctl(unsigned int cmd, uintptr_t arg)
             {
               /* Setup the VNC server to support keyboard/mouse inputs */
 
-              ret = vnc_default_fbinitialize(vnc->display, vnc->handle);
+              ret = nx_vnc_fbinitialize(vnc->display, vnc->handle);
             }
         }
         break;
@@ -777,6 +777,27 @@ int boardctl(unsigned int cmd, uintptr_t arg)
         break;
 #endif
 
+#ifdef CONFIG_BOARDCTL_RESET_CAUSE
+      /* CMD:           BOARDIOC_RESET_CAUSE
+       * DESCRIPTION:   Get the cause of last-time board reset
+       * ARG:           A pointer to an instance of struct
+       *                boardioc_reset_cause_s
+       * CONFIGURATION: CONFIG_BOARDCTL_RESET_CAUSE
+       * DEPENDENCIES:  Board logic must provide the
+       *                board_reset_cause() interface.
+       */
+
+      case BOARDIOC_RESET_CAUSE:
+        {
+          FAR struct boardioc_reset_cause_s *cause =
+            (FAR struct boardioc_reset_cause_s *)arg;
+
+          DEBUGASSERT(cause != NULL);
+          ret = board_reset_cause(cause);
+        }
+        break;
+#endif
+
        default:
          {
 #ifdef CONFIG_BOARDCTL_IOCTL
@@ -802,7 +823,7 @@ int boardctl(unsigned int cmd, uintptr_t arg)
       return ERROR;
     }
 
-  return OK;
+  return ret;
 }
 
 #endif /* CONFIG_BOARDCTL */

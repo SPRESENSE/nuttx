@@ -29,8 +29,7 @@
 
 #include "hardware/cxd56_sph.h"
 #include "cxd56_sph.h"
-
-#include "arm_arch.h"
+#include "arm_internal.h"
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -46,7 +45,7 @@
  * Name: up_testset2
  ****************************************************************************/
 
-spinlock_t up_testset2(volatile FAR spinlock_t *lock)
+spinlock_t up_testset2(volatile spinlock_t *lock)
 {
   register uintptr_t ret asm("r0") = (uintptr_t)(lock);
 
@@ -91,7 +90,7 @@ spinlock_t up_testset2(volatile FAR spinlock_t *lock)
  *
  ****************************************************************************/
 
-spinlock_t up_testset(volatile FAR spinlock_t *lock)
+spinlock_t up_testset(volatile spinlock_t *lock)
 {
 #ifdef CONFIG_CXD56_TESTSET_WITH_HWSEM
   spinlock_t ret;

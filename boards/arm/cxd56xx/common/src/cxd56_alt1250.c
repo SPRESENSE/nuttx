@@ -38,6 +38,7 @@
 
 #include <arch/board/board.h>
 #include <arch/board/cxd56_alt1250.h>
+#include <arch/chip/pm.h>
 
 #include "cxd56_spi.h"
 #include "cxd56_dmac.h"
@@ -77,8 +78,10 @@
  * Private Function Prototypes
  ****************************************************************************/
 
-static FAR struct spi_dev_s *alt1250_poweron(void);
+static struct spi_dev_s *alt1250_poweron(void);
 static void alt1250_poweroff(void);
+static bool alt1250_powerstatus(void);
+static int  alt1250_hibernation_mode(bool enable);
 static void alt1250_reset(void);
 static void alt1250_irqattach(xcpt_t handler);
 static void alt1250_irqenable(bool enable);
@@ -95,6 +98,8 @@ static const struct alt1250_lower_s g_alt1250_lower =
 {
   .poweron      = alt1250_poweron,
   .poweroff     = alt1250_poweroff,
+  .powerstatus  = alt1250_powerstatus,
+  .hiber_mode   = alt1250_hibernation_mode,
   .reset        = alt1250_reset,
   .irqattach    = alt1250_irqattach,
   .irqenable    = alt1250_irqenable,
@@ -174,7 +179,7 @@ static void spi_pincontrol(int bus, bool on)
  *
  ****************************************************************************/
 
-static void set_spiparam(FAR struct spi_dev_s *spidev)
+static void set_spiparam(struct spi_dev_s *spidev)
 {
   SPI_LOCK(spidev, true);
   SPI_SETMODE(spidev, SPIDEV_MODE0);
@@ -191,9 +196,9 @@ static void set_spiparam(FAR struct spi_dev_s *spidev)
  *
  ****************************************************************************/
 
-static FAR struct spi_dev_s *alt1250_poweron(void)
+static struct spi_dev_s *alt1250_poweron(void)
 {
-  FAR struct spi_dev_s *spi;
+  struct spi_dev_s *spi;
 #if defined(CONFIG_CXD56_LTE_SPI4_DMAC) || defined(CONFIG_CXD56_LTE_SPI5_DMAC)
   DMA_HANDLE            hdl;
   dma_config_t          conf;
@@ -290,6 +295,43 @@ static void alt1250_poweroff(void)
   /* power off Altair modem device */
 
   board_alt1250_poweroff();
+}
+
+/****************************************************************************
+ * Name: alt1250_powerstatus
+ *
+ * Description:
+ *   Get the power status for the Altair modem device on the board.
+ *
+ ****************************************************************************/
+
+static bool alt1250_powerstatus(void)
+{
+  return board_alt1250_powerstatus();
+}
+
+/****************************************************************************
+ * Name: alt1250_hibernation_mode
+ *
+ * Description:
+ *   Set power manager for entering hibernation mode.
+ *
+ ****************************************************************************/
+
+static int alt1250_hibernation_mode(bool enable)
+{
+  uint32_t bootmask = 0;
+
+  if (enable)
+    {
+      /* Set GPIO interrupt for wake-up */
+
+      bootmask = up_pm_get_bootmask();
+      bootmask |= PM_BOOT_COLD_GPIO;
+      up_pm_set_bootmask(bootmask);
+    }
+
+  return board_alt1250_powerkeep(enable);
 }
 
 /****************************************************************************
@@ -411,7 +453,7 @@ static void alt1250_set_wakeup(bool on)
  *
  ****************************************************************************/
 
-int board_alt1250_initialize(FAR const char *devpath)
+int board_alt1250_initialize(const char *devpath)
 {
   m_info("Initializing ALT1250..\n");
 

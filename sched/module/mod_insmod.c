@@ -175,7 +175,6 @@ FAR void *insmod(FAR const char *filename, FAR const char *modname)
 
   if (modlib_registry_find(modname) != NULL)
     {
-      modlib_registry_unlock();
       ret = -EEXIST;
       goto errout_with_lock;
     }
@@ -193,15 +192,17 @@ FAR void *insmod(FAR const char *filename, FAR const char *modname)
   /* Allocate a module registry entry to hold the module data */
 
   modp = (FAR struct module_s *)kmm_zalloc(sizeof(struct module_s));
-  if (ret != 0)
+  if (modp == NULL)
     {
-      binfo("Failed to initialize for load of ELF program: %d\n", ret);
+      berr("Failed to allocate struct module_s\n");
       goto errout_with_loadinfo;
     }
 
+#ifdef HAVE_MODLIB_NAMES
   /* Save the module name in the registry entry */
 
-  strncpy(modp->modname, modname, MODLIB_NAMEMAX);
+  strlcpy(modp->modname, modname, sizeof(modp->modname));
+#endif
 
   /* Load the program binary */
 

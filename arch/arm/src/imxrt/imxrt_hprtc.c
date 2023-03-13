@@ -39,8 +39,7 @@
 
 #include <arch/board/board.h>
 
-#include "arm_arch.h"
-
+#include "arm_internal.h"
 #include "hardware/imxrt_snvs.h"
 #include "imxrt_periphclks.h"
 #include "imxrt_lpsrtc.h"
@@ -95,7 +94,7 @@ bool g_hprtc_timset;  /* True:  time has been set since power up */
  ****************************************************************************/
 
 #if defined(CONFIG_RTC_ALARM) && defined(CONFIG_RTC_DRIVER)
-static int imxrt_snvs_interrupt(int irq, void *context, FAR void *arg)
+static int imxrt_snvs_interrupt(int irq, void *context, void *arg)
 {
   hprtc_alarm_callback_t cb;
 
@@ -232,7 +231,7 @@ time_t up_rtc_time(void)
  *
  ****************************************************************************/
 
-int up_rtc_settime(FAR const struct timespec *ts)
+int up_rtc_settime(const struct timespec *ts)
 {
   uint32_t regval;
 
@@ -513,7 +512,7 @@ uint32_t imxrt_hprtc_getalarm(void)
  ****************************************************************************/
 
 #if defined(CONFIG_RTC_ALARM) && defined(CONFIG_RTC_DRIVER)
-int imxrt_hprtc_setalarm(FAR struct timespec *ts, hprtc_alarm_callback_t cb)
+int imxrt_hprtc_setalarm(struct timespec *ts, hprtc_alarm_callback_t cb)
 {
   irqstate_t flags;
   uint32_t regval;
@@ -538,6 +537,7 @@ int imxrt_hprtc_setalarm(FAR struct timespec *ts, hprtc_alarm_callback_t cb)
   if ((uint32_t)ts->tv_sec <= now)
     {
       rtcwarn("WARNING: time is in the past\n");
+      spin_unlock_irqrestore(NULL, flags);
       return -EINVAL;
     }
 

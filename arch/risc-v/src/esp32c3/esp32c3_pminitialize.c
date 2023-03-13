@@ -34,7 +34,7 @@
  ****************************************************************************/
 
 /****************************************************************************
- * Name: xtensa_pminitialize
+ * Name: riscv_pminitialize
  *
  * Description:
  *   Initialize the power management subsystem.
@@ -43,11 +43,7 @@
 
 void riscv_pminitialize(void)
 {
-  /* Initialize RTC parameters */
-
-  esp32c3_pminit();
-
-  /* Then initialize the NuttX power management subsystem proper */
+  /* Initialize the NuttX power management subsystem proper */
 
   pm_initialize();
 }

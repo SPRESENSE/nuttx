@@ -156,7 +156,7 @@ void board_isx012_release_sleep(void)
   nxsig_usleep(SLEEP_CANCEL_TIME);
 }
 
-int isx012_register(FAR struct i2c_master_s *i2c);
+int isx012_register(struct i2c_master_s *i2c);
 int isx012_unregister(void);
 
 struct i2c_master_s *board_isx012_initialize(void)

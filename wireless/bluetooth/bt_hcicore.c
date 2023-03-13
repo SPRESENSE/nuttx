@@ -76,8 +76,7 @@
  * to be adjusted.
  */
 
-#define TIMEOUT_SEC    2
-#define TIMEOUT_NSEC   500 * 1024 * 1024
+#define TIMEOUT_MSEC   2500
 
 /****************************************************************************
  * Public Data
@@ -1438,7 +1437,6 @@ static int hci_initialize(void)
 
 static void cmd_queue_init(void)
 {
-  pid_t pid;
   int ret;
 
   /* When there is a command to be sent to the Bluetooth driver, it queued on
@@ -1448,17 +1446,16 @@ static void cmd_queue_init(void)
   ret = bt_queue_open(BT_HCI_TX, O_RDWR | O_CREAT,
                       CONFIG_BLUETOOTH_TXCMD_NMSGS, &g_btdev.tx_queue);
   DEBUGASSERT(ret >= 0);
-  UNUSED(ret);
 
   nxsem_init(&g_btdev.ncmd_sem, 0, 1);
   nxsem_set_protocol(&g_btdev.ncmd_sem, SEM_PRIO_NONE);
 
   g_btdev.ncmd = 1;
-  pid = kthread_create("BT HCI Tx", CONFIG_BLUETOOTH_TXCMD_PRIORITY,
+  ret = kthread_create("BT HCI Tx", CONFIG_BLUETOOTH_TXCMD_PRIORITY,
                        CONFIG_BLUETOOTH_TXCMD_STACKSIZE,
                        hci_tx_kthread, NULL);
-  DEBUGASSERT(pid > 0);
-  UNUSED(pid);
+  DEBUGASSERT(ret > 0);
+  UNUSED(ret);
 }
 
 /****************************************************************************
@@ -1622,7 +1619,7 @@ int bt_receive(FAR struct bt_driver_s *btdev, enum bt_buf_type_e type,
    * queue.
    */
 
-  buf = bt_buf_alloc(type, NULL, 0);
+  buf = bt_buf_alloc(type, NULL, BLUETOOTH_H4_HDRLEN);
   if (buf == NULL)
     {
       return -ENOMEM;
@@ -1744,15 +1741,6 @@ int bt_hci_cmd_send(uint16_t opcode, FAR struct bt_buf_s *buf)
           return -ENOBUFS;
         }
     }
-  else
-    {
-      /* We manage the refcount the same for supplied and created
-       * buffers so increment the supplied count so we can manage
-       * it as-if we created it.
-       */
-
-      bt_buf_addref(buf);
-    }
 
   wlinfo("opcode %04x len %u\n", opcode, buf->len);
 
@@ -1796,10 +1784,6 @@ int bt_hci_cmd_send_sync(uint16_t opcode, FAR struct bt_buf_s *buf,
           return -ENOBUFS;
         }
     }
-  else
-    {
-      bt_buf_addref(buf);
-    }
 
   wlinfo("opcode %04x len %u\n", opcode, buf->len);
 
@@ -1818,8 +1802,6 @@ int bt_hci_cmd_send_sync(uint16_t opcode, FAR struct bt_buf_s *buf,
     }
   else
     {
-      struct timespec abstime;
-
       /* Wait for the response to the command.  An I/O error will be
        * declared if the response does not occur within the timeout
        * interval.
@@ -1827,38 +1809,10 @@ int bt_hci_cmd_send_sync(uint16_t opcode, FAR struct bt_buf_s *buf,
        * REVISIT: The cause of the timeout could be a failure to receive a
        * response to a sent frame or, perhaps, a failure to send the frame.
        * Should there also be logic to flush any unsent Tx packets?
-       *
-       * Get the current time.  Not that we lock the scheduler here so that
-       * we can be assured that there will be no context switches will occur
-       * between the time that we calculate the delay time and until we get
-       * to the wait.
        */
 
-      sched_lock();
-      ret = clock_gettime(CLOCK_REALTIME, &abstime);
-      if (ret >= 0)
-        {
-          /* Add the offset to the time in the future */
-
-          abstime.tv_sec  += TIMEOUT_SEC;
-          abstime.tv_nsec += TIMEOUT_NSEC;
-
-          /* Handle carry from nanoseconds to seconds */
-
-          if (abstime.tv_nsec >= NSEC_PER_SEC)
-            {
-              abstime.tv_nsec -= NSEC_PER_SEC;
-              abstime.tv_sec++;
-            }
-
-          /* Now wait for the response.  The scheduler lock will be
-           * released while we are waiting.
-           */
-
-          ret = nxsem_timedwait_uninterruptible(&sync_sem, &abstime);
-        }
-
-      sched_unlock();
+      ret = nxsem_tickwait_uninterruptible(&sync_sem,
+                                           MSEC2TICK(TIMEOUT_MSEC));
     }
 
   /* Indicate failure if we failed to get the response */
@@ -1894,7 +1848,6 @@ int bt_hci_cmd_send_sync(uint16_t opcode, FAR struct bt_buf_s *buf,
       bt_buf_release(buf->u.hci.sync);
     }
 
-  bt_buf_release(buf);
   return ret;
 }
 

@@ -68,7 +68,7 @@ int rexec_af(FAR char **ahost, int inport, FAR const char *user,
       return -1;
     }
 
-  snprintf(port_str, sizeof(port_str), "%d", ntohs(inport));
+  snprintf(port_str, sizeof(port_str), "%d", NTOHS(inport));
 
   memset(&hints, 0, sizeof(hints));
   hints.ai_family = af;
@@ -158,7 +158,7 @@ int rexec_af(FAR char **ahost, int inport, FAR const char *user,
 conn_out:
   close(sock);
 sock_out:
-  free(ahost);
+  free(*ahost);
 addr_out:
   freeaddrinfo(res);
   return -1;
@@ -173,7 +173,7 @@ addr_out:
  *   standard name of the host. If a username and password are both
  *   specified, then these are used to authenticate to the foreign host;
  *   otherwise the environment and then the .netrc file in user's home
- *   direcotry are searched for appropiate information. If all the fails,
+ *   directory are searched for appropiate information. If all that fails,
  *   the user is prompted for the information.
  *
  *   The port inport specifies which well-known DARPA Internet port to

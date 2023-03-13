@@ -29,7 +29,6 @@
 
 #include "chip.h"
 #include "z80_internal.h"
-#include "z80_arch.h"
 
 /****************************************************************************
  * Public Functions
@@ -55,7 +54,7 @@ void up_initial_state(struct tcb_s *tcb)
 
   /* Initialize the idle thread stack */
 
-  if (tcb->pid == 0)
+  if (tcb->pid == IDLE_PROCESS_ID)
     {
       char *stack_ptr = (char *)CONFIG_STACK_BASE;
 #ifdef CONFIG_STACK_COLORATION

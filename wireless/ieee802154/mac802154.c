@@ -329,7 +329,7 @@ void mac802154_createdatareq(FAR struct ieee802154_privmac_s *priv,
    * progession.
    */
 
-  memcpy(&txdesc->destaddr, &coordaddr, sizeof(struct ieee802154_addr_s));
+  memcpy(&txdesc->destaddr, coordaddr, sizeof(struct ieee802154_addr_s));
 
   /* Save a reference of the tx descriptor */
 
@@ -1516,7 +1516,7 @@ static void mac802154_rxdatareq(FAR struct ieee802154_privmac_s *priv,
             }
           else
             {
-              DEBUGASSERT(false);
+              DEBUGPANIC();
             }
         }
 
@@ -1578,7 +1578,7 @@ static void mac802154_rxdatareq(FAR struct ieee802154_privmac_s *priv,
     }
   else
     {
-      DEBUGASSERT(false);
+      DEBUGPANIC();
     }
 
   /* Set the destination addr mode inside the frame control field */

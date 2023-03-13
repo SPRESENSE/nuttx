@@ -111,13 +111,14 @@ sim_rptun_get_resource(struct rptun_dev_s *dev)
       rsc->rpmsg_vdev.dfeatures     = 1 << VIRTIO_RPMSG_F_NS
                                     | 1 << VIRTIO_RPMSG_F_ACK
                                     | 1 << VIRTIO_RPMSG_F_BUFSZ;
+      rsc->rpmsg_vdev.config_len    = sizeof(struct fw_rsc_config);
       rsc->rpmsg_vdev.num_of_vrings = 2;
       rsc->rpmsg_vring0.align       = 8;
       rsc->rpmsg_vring0.num         = 8;
       rsc->rpmsg_vring1.align       = 8;
       rsc->rpmsg_vring1.num         = 8;
-      rsc->config.rxbuf_size        = 0x800;
-      rsc->config.txbuf_size        = 0x800;
+      rsc->config.r2h_buf_size      = 0x800;
+      rsc->config.h2r_buf_size      = 0x800;
 
       priv->shmem->base              = (uintptr_t)priv->shmem;
     }
@@ -224,16 +225,20 @@ void up_rptun_loop(void)
     {
       if (dev->shmem != NULL)
         {
+          bool should_notify = false;
+
           if (dev->master && dev->seq != dev->shmem->seqs)
             {
               dev->seq = dev->shmem->seqs;
+              should_notify = true;
             }
           else if (!dev->master && dev->seq != dev->shmem->seqm)
             {
               dev->seq = dev->shmem->seqm;
+              should_notify = true;
             }
 
-          if (dev->callback != NULL)
+          if (should_notify && dev->callback != NULL)
             {
               dev->callback(dev->arg, RPTUN_NOTIFY_ALL);
             }

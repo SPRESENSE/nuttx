@@ -27,7 +27,6 @@
 #include <time.h>
 #include <debug.h>
 #include <stdio.h>
-#include <queue.h>
 
 #include "bcmf_utils.h"
 
@@ -85,68 +84,5 @@ void bcmf_hexdump(uint8_t *data, unsigned int len, unsigned long offset)
 
 int bcmf_sem_wait(sem_t *sem, unsigned int timeout_ms)
 {
-  struct timespec abstime;
-  unsigned int timeout_sec;
-
-  /* Get the current time */
-
-  clock_gettime(CLOCK_REALTIME, &abstime);
-
-  timeout_sec      = timeout_ms / 1000;
-  abstime.tv_sec  += timeout_sec;
-  abstime.tv_nsec += 1000 * 1000 * (timeout_ms % 1000);
-
-  if (abstime.tv_nsec >= 1000 * 1000 * 1000)
-    {
-      abstime.tv_sec++;
-      abstime.tv_nsec -= 1000 * 1000 * 1000;
-    }
-
-  return nxsem_timedwait(sem, &abstime);
-}
-
-void bcmf_dqueue_push(dq_queue_t *queue, dq_entry_t *entry)
-{
-  if (queue->head == NULL)
-    {
-      /* List is empty */
-
-      queue->tail = entry;
-
-      entry->flink = entry;
-      entry->blink = entry;
-    }
-  else
-    {
-      /* Insert entry at list head */
-
-      entry->flink = queue->head;
-      entry->blink = queue->tail;
-
-      queue->head->blink = entry;
-    }
-
-  queue->head = entry;
-}
-
-dq_entry_t *bcmf_dqueue_pop_tail(dq_queue_t *queue)
-{
-  dq_entry_t *entry = queue->tail;
-
-  if (queue->head == queue->tail)
-    {
-      /* List is empty */
-
-      queue->head = NULL;
-      queue->tail = NULL;
-    }
-  else
-    {
-      /* Pop from queue tail */
-
-      queue->tail = entry->blink;
-      entry->blink->flink = queue->head;
-    }
-
-  return entry;
+  return nxsem_tickwait_uninterruptible(sem, MSEC2TICK(timeout_ms));
 }

@@ -37,10 +37,7 @@
 #include <arch/io.h>
 
 #include "z80_internal.h"
-#include "z80_arch.h"
-
 #include "chip.h"
-
 #include "ez80_spi.h"
 
 /****************************************************************************
@@ -95,7 +92,7 @@ static const struct spi_ops_s g_spiops =
   spi_lock,            /* lock() */
   ez80_spiselect,      /* select(): Provided externally by board logic */
   spi_setfrequency,    /* setfrequency() */
-#ifdef CONFIG_SPI_CS_DELAY_CONTROL
+#ifdef CONFIG_SPI_DELAY_CONTROL
   NULL,                /* setdelay() */
 #endif
   spi_setmode,

@@ -367,6 +367,15 @@ static int progmem_ioctl(FAR struct mtd_dev_s *dev, int cmd,
         }
         break;
 
+      case MTDIOC_ERASESTATE:
+        {
+          FAR uint8_t *result = (FAR uint8_t *)arg;
+          *result = up_progmem_erasestate();
+
+          ret = OK;
+        }
+        break;
+
       default:
         ret = -ENOTTY; /* Bad command */
         break;

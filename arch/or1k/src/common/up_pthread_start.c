@@ -27,7 +27,8 @@
 #include <nuttx/arch.h>
 #include <assert.h>
 
-#include "svcall.h"
+#include <arch/syscall.h>
+
 #include "up_internal.h"
 
 #if !defined(CONFIG_BUILD_FLAT) && defined(__KERNEL__) && \
@@ -64,7 +65,7 @@
 
 void up_pthread_start(pthread_startroutine_t entrypt, pthread_addr_t arg)
 {
-  /* Let sys_call3() do all of the work */
+  /* Let sys_call2() do all of the work */
 
   sinfo("entry %p arg %p\n", entrypt, arg);
 

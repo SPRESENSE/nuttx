@@ -524,7 +524,6 @@ i2c address of the sensor, the following hardware setup is necessary.
   |        |                                            |         |
   ---------                                             -----------
 
-
 DS18B20 sensor support:
 ======================
 
@@ -543,8 +542,6 @@ ds18b20 on 1wire bus number 2. The following hardware setup is necessary.
   |       |----- TX2 A02 -------.------.------- DQ ----|         |
   |       |                                            |         |
   --------                                             -----------
-
-
 
 USB Console support:
 ====================
@@ -776,7 +773,7 @@ STM32F103 Minimum - specific Configuration Options
     CONFIG_STM32_SPI_INTERRUPTS - Select to enable interrupt driven SPI
       support. Non-interrupt-driven, poll-waiting is recommended if the
       interrupt rate would be to high in the interrupt driven case.
-    CONFIG_STM32_SPI_DMA - Use DMA to improve SPI transfer performance.
+    CONFIG_STM32_SPIx_DMA - Use DMA to improve SPIx transfer performance.
       Cannot be used with CONFIG_STM32_SPI_INTERRUPT.
 
 Configurations
@@ -836,7 +833,7 @@ Configurations
 
        CONFIG_HOST_WINDOWS=y                   : Builds under Windows
        CONFIG_WINDOWS_CYGWIN=y                 : Using Cygwin
-       CONFIG_ARMV7M_TOOLCHAIN_GNU_EABIW=y     : GNU EABI toolchain for Windows
+       CONFIG_ARMV7M_TOOLCHAIN_GNU_EABI=y      : GNU EABI toolchain for Windows
 
     3. This configuration does have UART2 output enabled and set up as
        the system logging device:

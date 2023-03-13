@@ -34,6 +34,18 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
+/* Configuration ************************************************************/
+
+/* procfs File System */
+
+#ifdef CONFIG_FS_PROCFS
+#  ifdef CONFIG_NSH_PROC_MOUNTPOINT
+#    define NRF52_PROCFS_MOUNTPOINT CONFIG_NSH_PROC_MOUNTPOINT
+#  else
+#    define NRF52_PROCFS_MOUNTPOINT "/proc"
+#  endif
+#endif
+
 /* LED definitions **********************************************************/
 
 /* Definitions to configure LED GPIO as outputs */
@@ -162,7 +174,7 @@ int nrf52_lpwaninitialize(void);
  ****************************************************************************/
 
 #ifdef CONFIG_TIMER
-int nrf52_timer_driver_setup(FAR const char *devpath, int timer);
+int nrf52_timer_driver_setup(const char *devpath, int timer);
 #endif
 
 /****************************************************************************

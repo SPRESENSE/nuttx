@@ -18,8 +18,8 @@
  *
  ****************************************************************************/
 
-#ifndef __FS_INODE_H
-#define __FS_INODE_H
+#ifndef __FS_INODE_INODE_H
+#define __FS_INODE_INODE_H
 
 /****************************************************************************
  * Included Files
@@ -258,7 +258,7 @@ int inode_stat(FAR struct inode *inode, FAR struct stat *buf, int resolve);
  *   inode   - The inode of interest
  *   buf     - The caller provide location in which to apply information
  *             about the inode.
- *   flags   - The vaild field in buf
+ *   flags   - The valid field in buf
  *   resolve - Whether to resolve the symbolic link
  *
  * Returned Value:
@@ -424,4 +424,4 @@ int files_allocate(FAR struct inode *inode, int oflags, off_t pos,
 }
 #endif
 
-#endif /* __FS_INODE_H */
+#endif /* __FS_INODE_INODE_H */

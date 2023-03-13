@@ -36,12 +36,10 @@
 #include <nuttx/spinlock.h>
 #include <nuttx/sched_note.h>
 
-#include "arm_arch.h"
 #include "nvic.h"
 #include "sched/sched.h"
 #include "init/init.h"
 #include "arm_internal.h"
-
 #include "lc823450_syscontrol.h"
 
 #if defined(CONFIG_BUILD_FLAT) && defined(CONFIG_ARM_MPU)
@@ -71,7 +69,7 @@ extern volatile spinlock_t g_cpu_wait[CONFIG_SMP_NCPUS];
  * Private Functions
  ****************************************************************************/
 
-extern int lc823450_pause_handler(int irq, void *c, FAR void *arg);
+extern int lc823450_pause_handler(int irq, void *c, void *arg);
 
 /****************************************************************************
  * Name: cpu1_boot

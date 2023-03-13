@@ -178,4 +178,35 @@ config MM_CIRCBUF
 	---help---
 		Build in support for the circular buffer management.
 
+config MM_KASAN
+	bool "Kernel Address Sanitizer"
+	default n
+	---help---
+		KASan is a fast compiler-based tool for detecting memory
+		bugs in native code. After turn on this option, Please
+		add -fsanitize=kernel-address to CFLAGS/CXXFLAGS too.
+
+config MM_BACKTRACE
+	int "The depth of backtrace"
+	default -1
+	---help---
+		Config the depth of backtrace in memory block by specified this
+		config: disable backtrace by -1, only record pid info by zero and
+		enable record backtrace info by 8(fixed depth).
+
+config MM_BACKTRACE_DEFAULT
+	bool "Enable the backtrace record by default"
+	default n
+	depends on MM_BACKTRACE > 0
+
+config MM_DUMP_ON_FAILURE
+	bool "Dump heap info on allocation failure"
+	default n
+	depends on DEBUG_MM
+
+config MM_PANIC_ON_FAILURE
+	bool "Panic on allocation failure"
+	default n
+	depends on DEBUG_MM
+
 source "mm/iob/Kconfig"

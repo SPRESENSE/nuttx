@@ -20,22 +20,20 @@
 
 include $(TOPDIR)/Make.defs
 include chip/Make.defs
+ifeq ($(CONFIG_OPENSBI),y)
+include opensbi/Make.defs
+endif
 
-ifeq ($(CONFIG_ARCH_RV32I),y)           # Base Integer support
-ARCH_SUBDIR = rv32i
-else ifeq ($(CONFIG_ARCH_RV32IM),y)     # Integer + math support
-ARCH_SUBDIR = rv32im
-else ifeq ($(CONFIG_ARCH_RV64GC),y)     # GC=IMAFDC
-ARCH_SUBDIR = rv64gc
-else
-ARCH_SUBDIR = rv32i                     # Default to base RV32I core
+# Kernel runs in supervisor mode or machine mode ?
+
+ifeq ($(CONFIG_ARCH_USE_S_MODE),y)
+include common/supervisor/Make.defs
 endif
 
 ARCH_SRCDIR = $(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src
 
 INCLUDES += ${shell $(INCDIR) "$(CC)" $(ARCH_SRCDIR)$(DELIM)chip}
 INCLUDES += ${shell $(INCDIR) "$(CC)" $(ARCH_SRCDIR)$(DELIM)common}
-INCLUDES += ${shell $(INCDIR) "$(CC)" $(ARCH_SRCDIR)$(DELIM)$(ARCH_SUBDIR)}
 INCLUDES += ${shell $(INCDIR) "$(CC)" $(TOPDIR)$(DELIM)sched}
 
 CPPFLAGS += $(INCLUDES)
@@ -43,11 +41,7 @@ CFLAGS += $(INCLUDES)
 CXXFLAGS += $(INCLUDES)
 AFLAGS += $(INCLUDES)
 
-ifeq ($(CONFIG_CYGWIN_WINTOOL),y)
-  NUTTX = "${shell cygpath -w $(TOPDIR)$(DELIM)nuttx$(EXEEXT)}"
-else
-  NUTTX = "$(TOPDIR)$(DELIM)nuttx$(EXEEXT)"
-endif
+NUTTX = $(call CONVERT_PATH,$(TOPDIR)$(DELIM)nuttx$(EXEEXT))
 
 # Additional rules for system call wrapper
 
@@ -62,10 +56,10 @@ STARTUP_OBJS ?= $(HEAD_OBJ)
 
 # Flat build or kernel-mode objects
 
-ASRCS = $(CHIP_ASRCS) $(CMN_ASRCS)
+ASRCS = $(CHIP_ASRCS) $(CMN_ASRCS) $(SBI_ASRCS)
 AOBJS = $(ASRCS:.S=$(OBJEXT))
 
-CSRCS = $(CHIP_CSRCS) $(CMN_CSRCS)
+CSRCS = $(CHIP_CSRCS) $(CMN_CSRCS) $(SBI_CSRCS)
 COBJS = $(CSRCS:.c=$(OBJEXT))
 
 SRCS = $(ASRCS) $(CSRCS)
@@ -85,25 +79,23 @@ UOBJS = $(UAOBJS) $(UCOBJS)
 KBIN = libkarch$(LIBEXT)
 BIN  = libarch$(LIBEXT)
 
-LDFLAGS += $(ARCHSCRIPT) $(EXTRALINKCMDS)
+LDFLAGS += $(addprefix -T,$(call CONVERT_PATH,$(ARCHSCRIPT))) $(EXTRALINKCMDS)
 
-LDSTARTGROUP ?= --start-group
-LDENDGROUP ?= --end-group
+ifeq ($(LD),$(CC))
+  LDSTARTGROUP ?= -Wl,--start-group
+  LDENDGROUP   ?= -Wl,--end-group
+  LDFLAGS      := $(addprefix -Xlinker ,$(LDFLAGS))
+  LDFLAGS      += $(CFLAGS)
+else
+  LDSTARTGROUP ?= --start-group
+  LDENDGROUP   ?= --end-group
+endif
 
 BOARDMAKE = $(if $(wildcard board$(DELIM)Makefile),y,)
 
-ifeq ($(CONFIG_CYGWIN_WINTOOL),y)
-  LIBPATHS += -L"${shell cygpath -w "$(TOPDIR)$(DELIM)staging"}"
+LIBPATHS += -L $(call CONVERT_PATH,$(TOPDIR)$(DELIM)staging)
 ifeq ($(BOARDMAKE),y)
-  LIBPATHS += -L"${shell cygpath -w "$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)board"}"
-endif
-
-else
-  LIBPATHS += -L"$(TOPDIR)$(DELIM)staging"
-ifeq ($(BOARDMAKE),y)
-  LIBPATHS += -L"$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)board"
-endif
-
+  LIBPATHS += -L $(call CONVERT_PATH,$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)board)
 endif
 
 LDLIBS = $(patsubst %.a,%,$(patsubst lib%,-l%,$(LINKLIBS)))
@@ -113,6 +105,7 @@ endif
 
 VPATH += chip
 VPATH += common
+VPATH += $(SBI_DIR)
 VPATH += $(ARCH_SUBDIR)
 VPATH += $(CHIP_DIR)
 
@@ -124,6 +117,9 @@ $(AOBJS) $(UAOBJS) $(HEAD_OBJ): %$(OBJEXT): %.S
 	$(call ASSEMBLE, $<, $@)
 
 $(COBJS) $(UCOBJS): %$(OBJEXT): %.c
+	$(call COMPILE, $<, $@)
+
+crt0$(OBJEXT): %$(OBJEXT): %.c
 	$(call COMPILE, $<, $@)
 
 ifeq ($(CONFIG_BUILD_FLAT),y)
@@ -140,11 +136,29 @@ $(KBIN): $(OBJS)
 board/libboard$(LIBEXT):
 	$(Q) $(MAKE) -C board libboard$(LIBEXT) EXTRAFLAGS="$(EXTRAFLAGS)"
 
-nuttx$(EXEEXT): $(HEAD_OBJ) board/libboard$(LIBEXT)
+define LINK_ALLSYMS
+	$(Q) $(TOPDIR)/tools/mkallsyms.sh $(NUTTX) $(CROSSDEV) > allsyms.tmp
+	$(Q) $(call COMPILE, -x c allsyms.tmp, allsyms$(OBJEXT))
+	$(Q) $(LD) --entry=__start $(LDFLAGS) $(LIBPATHS) $(EXTRA_LIBPATHS) \
+		-o $(NUTTX) $(HEAD_OBJ) allsyms$(OBJEXT) $(EXTRA_OBJS) \
+		$(LDSTARTGROUP) $(LDLIBS) $(EXTRA_LIBS) $(LDENDGROUP)
+	$(Q) $(call DELFILE, allsyms.tmp allsyms$(OBJEXT))
+endef
+
+nuttx$(EXEEXT): $(HEAD_OBJ) board/libboard$(LIBEXT) $(ARCHSCRIPT)
 	$(Q) echo "LD: nuttx"
+ifneq ($(CONFIG_ALLSYMS),y)
 	$(Q) $(LD) --entry=__start $(LDFLAGS) $(LIBPATHS) $(EXTRA_LIBPATHS) \
 		-o $(NUTTX) $(HEAD_OBJ) $(EXTRA_OBJS) \
 		$(LDSTARTGROUP) $(LDLIBS) $(EXTRA_LIBS) $(LDENDGROUP)
+else
+	$(Q) # Link and generate default table
+	$(Q) $(if $(wildcard $(shell echo $(NUTTX))),,$(call LINK_ALLSYMS,$^))
+	$(Q) # Extract all symbols
+	$(Q) $(call LINK_ALLSYMS, $^)
+	$(Q) # Extract again since the table offset may changed
+	$(Q) $(call LINK_ALLSYMS, $^)
+endif
 ifneq ($(CONFIG_WINDOWS_NATIVE),y)
 	$(Q) $(NM) $(NUTTX) | \
 	grep -v '\(compiled\)\|\(\$(OBJEXT)$$\)\|\( [aUw] \)\|\(\.\.ng$$\)\|\(LASH[RL]DI\)' | \
@@ -155,7 +169,7 @@ endif
 # Note that there may not be a head object if layout is handled
 # by the linker configuration.
 
-export_startup: board/libboard$(LIBEXT) $(STARTUP_OBJS)
+export_startup: $(STARTUP_OBJS)
 ifneq ($(STARTUP_OBJS),)
 	$(Q) if [ -d "$(EXPORT_DIR)/startup" ]; then \
 		cp -f $(STARTUP_OBJS) "$(EXPORT_DIR)/startup/."; \
@@ -197,10 +211,5 @@ ifeq ($(BOARDMAKE),y)
 endif
 	$(call DELFILE, Make.dep)
 	$(call DELFILE, .depend)
-
-info:
-	@echo $(HEAD_OBJ)
-	@echo $(ASRCS)
-	@echo $(CONFIG_ARCH_CHIP)
 
 -include Make.dep

@@ -40,10 +40,7 @@
 #include <arch/board/board.h>
 
 #include "up_internal.h"
-#include "up_arch.h"
-
 #include "chip.h"
-#include "up_arch.h"
 #include "rx65n_definitions.h"
 #include "rx65n_rspi.h"
 #include "rx65n_dtc.h"
@@ -2547,7 +2544,6 @@ FAR struct spi_dev_s *rx65n_rspibus_initialize(int bus)
 #endif
     {
       spierr("ERROR: Unsupported RSPI bus: %d\n", bus);
-      return NULL;
     }
 
   leave_critical_section(flags);

@@ -36,7 +36,6 @@
 
 #include "sched/sched.h"
 #include "up_internal.h"
-#include "up_arch.h"
 
 /****************************************************************************
  * Public Functions
@@ -60,13 +59,6 @@ void up_sigdeliver(void)
 #else
   uint32_t regs[XCPTCONTEXT_REGS];
 #endif
-
-  /* Save the errno.  This must be preserved throughout the signal handling
-   * so that the user code final gets the correct errno value (probably
-   * EINTR).
-   */
-
-  int saved_errno = get_errno();
 
   board_autoled_on(LED_SIGNAL);
 
@@ -97,7 +89,6 @@ void up_sigdeliver(void)
 
   sinfo("Resuming\n");
   up_irq_save();
-  set_errno(saved_errno);
 
   /* Modify the saved return state with the actual saved values in the
    * TCB.  This depends on the fact that nested signal handling is

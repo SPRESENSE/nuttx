@@ -43,8 +43,6 @@
 #include <nuttx/semaphore.h>
 
 #include "arm_internal.h"
-#include "arm_arch.h"
-
 #include "sam_gclk.h"
 #include "sam_periphclks.h"
 #include "sam_port.h"
@@ -342,7 +340,7 @@ void tc_bridge_enable(int tc)
 
 static void tc_wait_synchronization(struct sam_tc_dev_s *priv)
 {
-  while ((getreg32(priv->attr->base +  SAM_TC_SYNCBUSY_OFFSET) & 0x7) != 0);
+  while ((getreg32(priv->attr->base + SAM_TC_SYNCBUSY_OFFSET) & 0x7) != 0);
 }
 
 /****************************************************************************
@@ -384,7 +382,7 @@ void tc_coreclk_configure(int tc, int coregen, bool wrlock)
  *
  ****************************************************************************/
 
-static int tc_interrupt(int irq, void *context, FAR void *arg)
+static int tc_interrupt(int irq, void *context, void *arg)
 {
   struct sam_tc_dev_s *priv = (struct sam_tc_dev_s *)arg;
   uint8_t flags;
@@ -659,7 +657,7 @@ TC_HANDLE sam_tc_allocate(int tc, int frequency)
       /* Initialize the TC driver structure */
 
       priv->flags = 0;
-      (void)nxsem_init(&priv->exclsem, 0, 1);
+      nxsem_init(&priv->exclsem, 0, 1);
 
       /* Enable clocking to the TC module in PCHCTRL */
 
@@ -731,7 +729,7 @@ TC_HANDLE sam_tc_allocate(int tc, int frequency)
 
   /* Return an opaque reference to the tc */
 
-  tmrinfo("Returning 0x%p\n", priv);
+  tmrinfo("Returning %p\n", priv);
   return (TC_HANDLE)priv;
 }
 
@@ -760,7 +758,7 @@ void sam_tc_free(TC_HANDLE handle)
    * is stopped and disabled.
    */
 
-  sam_tc_attach(handle, NULL, NULL, 0);
+  sam_tc_detach(handle);
   sam_tc_stop(handle);
 
   /* Mark the channel as available */

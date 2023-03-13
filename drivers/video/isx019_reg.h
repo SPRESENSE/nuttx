@@ -159,8 +159,8 @@
 
 #define ISX019_I2C_FLOCKREQ_LEN      (6)
 #define ISX019_I2C_FLOCKRES_LEN      (2)
-#define ISX019_I2C_FLOCKREQ_TOTALLEN ISX019_I2C_TOTALLEN(ISX019_I2C_FLOCKREQ_LEN) 
-#define ISX019_I2C_FLOCKRES_TOTALLEN ISX019_I2C_TOTALLEN(ISX019_I2C_FLOCKRES_LEN) 
+#define ISX019_I2C_FLOCKREQ_TOTALLEN ISX019_I2C_TOTALLEN(ISX019_I2C_FLOCKREQ_LEN)
+#define ISX019_I2C_FLOCKRES_TOTALLEN ISX019_I2C_TOTALLEN(ISX019_I2C_FLOCKRES_LEN)
 
 #define ISX019_I2C_FWRREQ_LEN        (2)
 #define ISX019_I2C_FWRRES_LEN        (2)
@@ -236,6 +236,7 @@
 /* For CAT_CATAE */
 
 #define AEMODE            (0x0000)
+#define SPOT_FRM_NUM      (0x0003)
 #define SHT_PRIMODE       (0x0008)
 #define GAIN_PRIMODE      (0x000c)
 
@@ -321,28 +322,28 @@
 #define NOT_STREAM_SENSPOST (0)
 #define NOT_STREAM_IO       (0)
 
-#define NORM_30FPS_SENS     (2)     
-#define NORM_30FPS_POST     (2)     
+#define NORM_30FPS_SENS     (2)
+#define NORM_30FPS_POST     (2)
 #define NORM_30FPS_SENSPOST (2)
 #define NORM_30FPS_IO       (2)
 
-#define DOL2_30FPS_SENS     (6)     
-#define DOL2_30FPS_POST     (2)     
+#define DOL2_30FPS_SENS     (6)
+#define DOL2_30FPS_POST     (2)
 #define DOL2_30FPS_SENSPOST (24)
 #define DOL2_30FPS_IO       (2)
 
-#define DOL3_30FPS_SENS     (44)    
-#define DOL3_30FPS_POST     (125)   
+#define DOL3_30FPS_SENS     (44)
+#define DOL3_30FPS_POST     (125)
 #define DOL3_30FPS_SENSPOST (160)
 #define DOL3_30FPS_IO       (2)
 
-#define NORM_25FPS_SENS     (3)     
-#define NORM_25FPS_POST     (8)     
+#define NORM_25FPS_SENS     (3)
+#define NORM_25FPS_POST     (8)
 #define NORM_25FPS_SENSPOST (8)
 #define NORM_25FPS_IO       (2)
 
-#define DOL2_25FPS_SENS     (7)     
-#define DOL2_25FPS_POST     (8)     
+#define DOL2_25FPS_SENS     (7)
+#define DOL2_25FPS_POST     (8)
 #define DOL2_25FPS_SENSPOST (30)
 #define DOL2_25FPS_IO       (2)
 

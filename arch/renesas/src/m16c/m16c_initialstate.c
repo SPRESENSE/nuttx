@@ -31,7 +31,6 @@
 #include <arch/board/board.h>
 
 #include "up_internal.h"
-#include "up_arch.h"
 
 /****************************************************************************
  * Public Functions
@@ -58,7 +57,7 @@ void up_initial_state(FAR struct tcb_s *tcb)
 
   /* Initialize the idle thread stack */
 
-  if (tcb->pid == 0)
+  if (tcb->pid == IDLE_PROCESS_ID)
     {
       char *stack_ptr = (char *)(g_idle_topstack -
                                  CONFIG_IDLETHREAD_STACKSIZE);

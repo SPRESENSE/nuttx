@@ -42,14 +42,16 @@
  * Private Function Prototypes
  ****************************************************************************/
 
-static size_t do_stackcheck(uintptr_t alloc, size_t size);
-
 /****************************************************************************
  * Private Function
  ****************************************************************************/
 
 /****************************************************************************
- * Name: do_stackcheck
+ * Public Functions
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: or1k_stack_check
  *
  * Description:
  *   Determine (approximately) how much stack has been used be searching the
@@ -65,11 +67,11 @@ static size_t do_stackcheck(uintptr_t alloc, size_t size);
  *
  ****************************************************************************/
 
-static size_t do_stackcheck(uintptr_t alloc, size_t size)
+size_t or1k_stack_check(uintptr_t alloc, size_t size)
 {
-  FAR uintptr_t start;
-  FAR uintptr_t end;
-  FAR uint32_t *ptr;
+  uintptr_t start;
+  uintptr_t end;
+  uint32_t *ptr;
   size_t mark;
 
   if (size == 0)
@@ -86,7 +88,7 @@ static size_t do_stackcheck(uintptr_t alloc, size_t size)
 
   size  = end - start;
 
-  for (ptr = (FAR uint32_t *)start, mark = (size >> 2);
+  for (ptr = (uint32_t *)start, mark = (size >> 2);
        *ptr == STACK_COLOR && mark > 0;
        ptr++, mark--);
 
@@ -94,10 +96,6 @@ static size_t do_stackcheck(uintptr_t alloc, size_t size)
 
   return mark << 2;
 }
-
-/****************************************************************************
- * Public Functions
- ****************************************************************************/
 
 /****************************************************************************
  * Name: up_check_stack and friends
@@ -115,31 +113,32 @@ static size_t do_stackcheck(uintptr_t alloc, size_t size)
  *
  ****************************************************************************/
 
-size_t up_check_tcbstack(FAR struct tcb_s *tcb)
+size_t up_check_tcbstack(struct tcb_s *tcb)
 {
-  return do_stackcheck((uintptr_t)tcb->stack_base_ptr, tcb->adj_stack_size);
+  return or1k_stack_check((uintptr_t)tcb->stack_base_ptr,
+                          tcb->adj_stack_size);
 }
 
-ssize_t up_check_tcbstack_remain(FAR struct tcb_s *tcb)
+ssize_t up_check_tcbstack_remain(struct tcb_s *tcb)
 {
   return tcb->adj_stack_size - up_check_tcbstack(tcb);
 }
 
 size_t up_check_stack(void)
 {
-  return up_check_tcbstack(this_task());
+  return up_check_tcbstack(running_task());
 }
 
 ssize_t up_check_stack_remain(void)
 {
-  return up_check_tcbstack_remain(this_task());
+  return up_check_tcbstack_remain(running_task());
 }
 
 #if CONFIG_ARCH_INTERRUPTSTACK > 3
 size_t up_check_intstack(void)
 {
-  return do_stackcheck((uintptr_t)&g_intstackalloc,
-                       (CONFIG_ARCH_INTERRUPTSTACK & ~3));
+  return or1k_stack_check((uintptr_t)&g_intstackalloc,
+                          (CONFIG_ARCH_INTERRUPTSTACK & ~3));
 }
 
 size_t up_check_intstack_remain(void)

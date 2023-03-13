@@ -30,18 +30,17 @@
 #include <debug.h>
 
 #include <nuttx/arch.h>
-#include <arch/irq.h>
+#include <nuttx/irq.h>
 
 #include "riscv_internal.h"
-#include "riscv_arch.h"
-
 #include "mpfs.h"
+#include "mpfs_plic.h"
 
 /****************************************************************************
  * Public Data
  ****************************************************************************/
 
-volatile uint64_t *g_current_regs[1];
+volatile uintptr_t *g_current_regs[1];
 
 /****************************************************************************
  * Public Functions
@@ -57,49 +56,20 @@ void up_irqinitialize(void)
 
   up_irq_save();
 
-  /* Disable timer interrupt (in case of hotloading with debugger) */
-
-  up_disable_irq(MPFS_IRQ_MTIMER);
-
-  /* enable access from supervisor mode */
-
-  putreg32(0x1, MPFS_PLIC_CTRL);
-
   /* Disable all global interrupts for current hart */
 
-  uint64_t hart_id = READ_CSR(mhartid);
+  uintptr_t iebase = mpfs_plic_get_iebase();
 
-  uint32_t *miebase;
-  if (hart_id == 0)
-    {
-      miebase = (uint32_t *)MPFS_PLIC_H0_MIE0;
-    }
-  else
-    {
-      miebase = (uint32_t *)(MPFS_PLIC_H1_MIE0 +
-                             (hart_id - 1)  * MPFS_HART_MIE_OFFSET);
-    }
-
-  putreg32(0x0, miebase + 0);
-  putreg32(0x0, miebase + 1);
-  putreg32(0x0, miebase + 2);
-  putreg32(0x0, miebase + 3);
-  putreg32(0x0, miebase + 4);
-  putreg32(0x0, miebase + 5);
+  putreg32(0x0, iebase + 0);
+  putreg32(0x0, iebase + 4);
+  putreg32(0x0, iebase + 8);
+  putreg32(0x0, iebase + 12);
+  putreg32(0x0, iebase + 16);
+  putreg32(0x0, iebase + 20);
 
   /* Clear pendings in PLIC (for current hart) */
 
-  uintptr_t claim_address;
-  if (hart_id == 0)
-    {
-      claim_address = MPFS_PLIC_H0_MCLAIM;
-    }
-  else
-    {
-      claim_address = MPFS_PLIC_H1_MCLAIM +
-        ((hart_id - 1) * MPFS_PLIC_NEXTHART_OFFSET);
-    }
-
+  uintptr_t claim_address = mpfs_plic_get_claimbase();
   uint32_t val = getreg32(claim_address);
   putreg32(val, claim_address);
 
@@ -121,31 +91,16 @@ void up_irqinitialize(void)
 
   /* Set irq threshold to 0 (permits all global interrupts) */
 
-  uint32_t *threshold_address;
-  if (hart_id == 0)
-    {
-      threshold_address = (uint32_t *)MPFS_PLIC_H0_MTHRESHOLD;
-    }
-  else
-    {
-      threshold_address = (uint32_t *)(MPFS_PLIC_H1_MTHRESHOLD +
-                                       ((hart_id - 1) *
-                                        MPFS_PLIC_NEXTHART_OFFSET));
-    }
-
+  uintptr_t threshold_address = mpfs_plic_get_thresholdbase();
   putreg32(0, threshold_address);
 
   /* currents_regs is non-NULL only while processing an interrupt */
 
   CURRENT_REGS = NULL;
 
-  /* Attach the ecall interrupt handler */
+  /* Attach the common interrupt handler */
 
-  irq_attach(MPFS_IRQ_ECALLM, riscv_swint, NULL);
-
-#ifdef CONFIG_BUILD_PROTECTED
-  irq_attach(MPFS_IRQ_ECALLU, riscv_swint, NULL);
-#endif
+  riscv_exception_attach();
 
 #ifndef CONFIG_SUPPRESS_INTERRUPTS
 
@@ -166,19 +121,18 @@ void up_irqinitialize(void)
 void up_disable_irq(int irq)
 {
   int extirq = 0;
-  uint64_t oldstat = 0;
 
-  if (irq == MPFS_IRQ_MSOFT)
+  if (irq == RISCV_IRQ_SOFT)
     {
-      /* Read mstatus & clear machine software interrupt enable in mie */
+      /* Read m/sstatus & clear machine software interrupt enable in m/sie */
 
-      asm volatile ("csrrc %0, mie, %1": "=r" (oldstat) : "r"(MIE_MSIE));
+      CLEAR_CSR(CSR_IE, IE_SIE);
     }
-  else if (irq == MPFS_IRQ_MTIMER)
+  else if (irq == RISCV_IRQ_TIMER)
     {
-      /* Read mstatus & clear machine timer interrupt enable in mie */
+      /* Read m/sstatus & clear timer interrupt enable in m/sie */
 
-      asm volatile ("csrrc %0, mie, %1": "=r" (oldstat) : "r"(MIE_MTIE));
+      CLEAR_CSR(CSR_IE, IE_TIE);
     }
   else if (irq >= MPFS_IRQ_EXT_START)
     {
@@ -186,22 +140,11 @@ void up_disable_irq(int irq)
 
       /* Clear enable bit for the irq */
 
-      uint64_t hart_id = READ_CSR(mhartid);
-      uintptr_t miebase;
-
-      if (hart_id == 0)
-        {
-          miebase =  MPFS_PLIC_H0_MIE0;
-        }
-      else
-        {
-          miebase = MPFS_PLIC_H1_MIE0 +
-            ((hart_id - 1) * MPFS_HART_MIE_OFFSET);
-        }
+      uintptr_t iebase = mpfs_plic_get_iebase();
 
       if (0 <= extirq && extirq <= NR_IRQS - MPFS_IRQ_EXT_START)
         {
-          modifyreg32(miebase + (4 * (extirq / 32)), 1 << (extirq % 32), 0);
+          modifyreg32(iebase + (4 * (extirq / 32)), 1 << (extirq % 32), 0);
         }
       else
         {
@@ -221,19 +164,18 @@ void up_disable_irq(int irq)
 void up_enable_irq(int irq)
 {
   int extirq;
-  uint64_t oldstat;
 
-  if (irq == MPFS_IRQ_MSOFT)
+  if (irq == RISCV_IRQ_SOFT)
     {
-      /* Read mstatus & set machine software interrupt enable in mie */
+      /* Read m/sstatus & set machine software interrupt enable in m/sie */
 
-      asm volatile ("csrrs %0, mie, %1": "=r" (oldstat) : "r"(MIE_MSIE));
+      SET_CSR(CSR_IE, IE_SIE);
     }
-  else if (irq == MPFS_IRQ_MTIMER)
+  else if (irq == RISCV_IRQ_TIMER)
     {
-      /* Read mstatus & set machine timer interrupt enable in mie */
+      /* Read m/sstatus & set timer interrupt enable in m/sie */
 
-      asm volatile ("csrrs %0, mie, %1": "=r" (oldstat) : "r"(MIE_MTIE));
+      SET_CSR(CSR_IE, IE_TIE);
     }
   else if (irq >= MPFS_IRQ_EXT_START)
     {
@@ -241,53 +183,17 @@ void up_enable_irq(int irq)
 
       /* Set enable bit for the irq */
 
-      uint64_t hart_id = READ_CSR(mhartid);
-      uintptr_t miebase;
-
-      if (hart_id == 0)
-        {
-          miebase = MPFS_PLIC_H0_MIE0;
-        }
-      else
-        {
-          miebase = MPFS_PLIC_H1_MIE0 +
-            ((hart_id - 1) * MPFS_HART_MIE_OFFSET);
-        }
+      uintptr_t iebase = mpfs_plic_get_iebase();
 
       if (0 <= extirq && extirq <= NR_IRQS - MPFS_IRQ_EXT_START)
         {
-          modifyreg32(miebase + (4 * (extirq / 32)), 0, 1 << (extirq % 32));
+          modifyreg32(iebase + (4 * (extirq / 32)), 0, 1 << (extirq % 32));
         }
       else
         {
           ASSERT(false);
         }
     }
-}
-
-/****************************************************************************
- * Name: riscv_get_newintctx
- *
- * Description:
- *   Return initial mstatus when a task is created.
- *
- ****************************************************************************/
-
-uint32_t riscv_get_newintctx(void)
-{
-  /* Set machine previous privilege mode to machine mode. Reegardless of
-   * how NuttX is configured and of what kind of thread is being started.
-   * That is because all threads, even user-mode threads will start in
-   * kernel trampoline at nxtask_start() or pthread_start().
-   * The thread's privileges will be dropped before transitioning to
-   * user code. Also set machine previous interrupt enable.
-   */
-
-#ifdef CONFIG_ARCH_FPU
-  return (MSTATUS_FS_INIT | MSTATUS_MPPM | MSTATUS_MPIE);
-#else
-  return (MSTATUS_MPPM | MSTATUS_MPIE);
-#endif
 }
 
 /****************************************************************************
@@ -312,14 +218,15 @@ void riscv_ack_irq(int irq)
 
 irqstate_t up_irq_enable(void)
 {
-  uint64_t oldstat;
+  irqstate_t oldstat;
 
-  /* Enable MEIE (machine external interrupt enable) */
+  /* Enable external interrupts (mie/sie) */
 
-  asm volatile ("csrrs %0, mie, %1": "=r" (oldstat) : "r"(MIE_MEIE));
+  SET_CSR(CSR_IE, IE_EIE);
 
-  /* Read mstatus & set machine interrupt enable (MIE) in mstatus */
+  /* Read and enable global interrupts (M/SIE) in m/sstatus */
 
-  asm volatile ("csrrs %0, mstatus, %1": "=r" (oldstat) : "r"(MSTATUS_MIE));
+  oldstat = READ_AND_SET_CSR(CSR_STATUS, STATUS_IE);
+
   return oldstat;
 }
