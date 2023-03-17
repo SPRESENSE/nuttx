@@ -246,10 +246,6 @@ static int nrf52_gpiote_isr(int irq, void *context, void *arg)
  *  - func:        When non-NULL, generate interrupt
  *  - arg:         Argument passed to the interrupt callback
  *
- * Returned Value:
- *   Zero (OK) on success; a negated errno value on failure indicating the
- *   nature of the failure.
- *
  ****************************************************************************/
 
 void nrf52_gpiote_set_pin_event(uint32_t pinset, xcpt_t func, void *arg)
@@ -284,10 +280,6 @@ void nrf52_gpiote_set_pin_event(uint32_t pinset, xcpt_t func, void *arg)
  *  - pinset:      GPIO port will be extracted from this parameter
  *  - func:        When non-NULL, generate interrupt
  *  - arg:         Argument passed to the interrupt callback
- *
- * Returned Value:
- *   Zero (OK) on success; a negated errno value on failure indicating the
- *   nature of the failure.
  *
  ****************************************************************************/
 
@@ -350,15 +342,11 @@ void nrf52_gpiote_set_port_event(uint32_t pinset, xcpt_t func, void *arg)
  *
  * Input Parameters:
  *  - pinset:      GPIO pin configuration
+ *  - channel:     GPIOTE channel used to capture events
  *  - risingedge:  Enables interrupt on rising edges
  *  - fallingedge: Enables interrupt on falling edges
- *  - event:       Generate event when set
  *  - func:        When non-NULL, generate interrupt
  *  - arg:         Argument passed to the interrupt callback
- *
- * Returned Value:
- *   Zero (OK) on success; a negated errno value on failure indicating the
- *   nature of the failure.
  *
  ****************************************************************************/
 
@@ -445,6 +433,61 @@ void nrf52_gpiote_set_ch_event(uint32_t pinset, int channel,
 }
 
 /****************************************************************************
+ * Name: nrf52_gpiote_set_event
+ *
+ * Description:
+ *   Configures a GPIOTE channel in EVENT mode, assigns it to a given pin
+ *   and sets a handler for the first availalbe GPIOTE channel
+ *
+ * Input Parameters:
+ *  - pinset:      GPIO pin configuration
+ *  - risingedge:  Enables interrupt on rising edges
+ *  - fallingedge: Enables interrupt on falling edges
+ *  - func:        When non-NULL, generate interrupt
+ *  - arg:         Argument passed to the interrupt callback
+ *
+ * Returned Value:
+ *   Zero (OK) on success; a negated errno value on failure indicating the
+ *   nature of the failure.
+ *
+ ****************************************************************************/
+
+int nrf52_gpiote_set_event(uint32_t pinset,
+                           bool risingedge, bool fallingedge,
+                           xcpt_t func, void *arg)
+{
+  irqstate_t flags;
+  int ret = -ENOMEM;
+  int i = 0;
+
+  flags = enter_critical_section();
+
+  /* Get free channel */
+
+  for (i = 0; i < GPIOTE_CHANNELS; i++)
+    {
+      if (g_gpiote_ch_callbacks[i].callback == NULL)
+        {
+          /* Configure channel */
+
+          nrf52_gpiote_set_ch_event(pinset, i,
+                                    risingedge, fallingedge,
+                                    func, arg);
+
+          /* Return the channel index */
+
+          ret = i;
+
+          break;
+        }
+    }
+
+  leave_critical_section(flags);
+
+  return ret;
+}
+
+/****************************************************************************
  * Name: nrf52_gpio_set_task
  *
  * Description:
@@ -456,14 +499,10 @@ void nrf52_gpiote_set_ch_event(uint32_t pinset, int channel,
  *   Finally, a given pin should only be assigned to a given channel.
  *
  * Input Parameters:
- *  - pinset: gpio pin configuration (only port + pin is important here)
- *  - channel: the GPIOTE channel used to control the given pin
+ *  - pinset:      gpio pin configuration (only port + pin is important here)
+ *  - channel:     the GPIOTE channel used to control the given pin
  *  - output_high: set pin initially to output HIGH or LOW.
- *  - outcfg: configure pin behavior one OUT task is triggered
- *
- * Returned Value:
- *   Zero (OK) on success; a negated errno value on failure indicating the
- *   nature of the failure.
+ *  - outcfg:      configure pin behavior one OUT task is triggered
  *
  ****************************************************************************/
 

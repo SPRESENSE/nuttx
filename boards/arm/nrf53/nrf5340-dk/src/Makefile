@@ -36,4 +36,14 @@ else
 CSRCS += nrf53_userleds.c
 endif
 
+ifeq ($(CONFIG_TIMER),y)
+ifeq ($(CONFIG_NRF53_TIMER),y)
+CSRCS += nrf53_timer.c
+endif
+endif
+
+ifeq ($(CONFIG_PWM),y)
+CSRCS += nrf53_pwm.c
+endif
+
 include $(TOPDIR)/boards/Board.mk
