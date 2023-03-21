@@ -41,22 +41,12 @@
 
 /* 2nd stage bootloader iram_loader_seg start address */
 
-#define SRAM_DRAM_END       0x403d0000 - I_D_SRAM_OFFSET
+#define SRAM_DRAM_END       (0x403ce710 - I_D_SRAM_OFFSET)
 
 #define SRAM_IRAM_ORG       (SRAM_IRAM_START + ICACHE_SIZE)
 #define SRAM_DRAM_ORG       (SRAM_DRAM_START + ICACHE_SIZE)
 
-#define I_D_SRAM_SIZE       SRAM_DRAM_END - SRAM_DRAM_ORG
-
-#ifdef CONFIG_ESPRESSIF_FLASH_2M
-#  define FLASH_SIZE        0x200000
-#elif defined (CONFIG_ESPRESSIF_FLASH_4M)
-#  define FLASH_SIZE        0x400000
-#elif defined (CONFIG_ESPRESSIF_FLASH_8M)
-#  define FLASH_SIZE        0x800000
-#elif defined (CONFIG_ESPRESSIF_FLASH_16M)
-#  define FLASH_SIZE        0x1000000
-#endif
+#define I_D_SRAM_SIZE       (SRAM_DRAM_END - SRAM_DRAM_ORG)
 
 MEMORY
 {
@@ -77,7 +67,7 @@ MEMORY
    * constraint that (paddr % 64KB == vaddr % 64KB).
    */
 
-  irom0_0_seg (RX) :      org = 0x42000020, len = FLASH_SIZE - 0x20
+  irom0_0_seg (RX) :      org = 0x42000020, len = 0x800000 - 0x20
 
   /* Shared data RAM, excluding memory reserved for ROM bss/data/stack. */
 
@@ -92,7 +82,7 @@ MEMORY
    * constraint that (paddr % 64KB == vaddr % 64KB).
    */
 
-  drom0_0_seg (R) :      org = 0x3c000020, len = FLASH_SIZE - 0x20
+  drom0_0_seg (R) :      org = 0x3c000020, len = 0x800000 - 0x20
 
   /* RTC fast memory. Persists over deep sleep. */
 

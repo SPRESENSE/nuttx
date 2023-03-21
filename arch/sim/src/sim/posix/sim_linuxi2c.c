@@ -269,14 +269,14 @@ struct i2c_master_s *sim_i2cbus_initialize(int bus)
   struct linux_i2cbus_master_s *priv;
   char filename[20];
 
-  priv = (struct linux_i2cbus_master_s *)malloc(sizeof(priv));
+  priv = (struct linux_i2cbus_master_s *)malloc(sizeof(*priv));
   if (priv == NULL)
     {
       ERROR("Failed to allocate private i2c master driver");
       return NULL;
     }
 
-  snprintf(filename, 19, "/dev/i2c-%d", bus);
+  snprintf(filename, sizeof(filename), "/dev/i2c-%d", bus);
   priv->file = open(filename, O_RDWR);
   if (priv->file < 0)
     {

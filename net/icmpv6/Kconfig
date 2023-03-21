@@ -88,6 +88,13 @@ config ICMPv6_AUTOCONF_DELAYMSEC
 		when an Router Solicitation is sent until the Router
 		Advertisement is received.
 
+config ICMPv6_AUTOCONF_RDNSS
+	bool "ICMPv6 handle RDNSS field in router advertise"
+	default n
+	---help---
+		Handle the RDNSS field in the Router Advertisement and add it to
+		netdb DNS Server.
+
 endif # NET_ICMPv6_AUTOCONF
 
 config NET_ICMPv6_ROUTER
@@ -194,6 +201,13 @@ config NET_ICMPv6_PREFIX_8
 		This the IPv6 address prefix that will be provided in the IPv6 Router
 		Advertisement message.  This is the last of the 8-values.  The
 		default for all eight values is fc00::0.
+
+config NET_ICMPv6_ROUTER_RDNSS
+	bool "Fill the RDNSS into Router Advertisement"
+	default n
+	---help---
+		Fill the RDNSS from the netdb DNS Server into the Router
+		Advertisement.
 
 endif # NET_ICMPv6_ROUTER_MANUAL
 endif # NET_ICMPv6_ROUTER
