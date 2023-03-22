@@ -151,7 +151,7 @@ static struct note_filter_s g_note_filter =
   {
     CONFIG_SCHED_INSTRUMENTATION_FILTER_DEFAULT_MODE
 #ifdef CONFIG_SMP
-    , CONFIG_SCHED_INSTRUMENTATION_CPUSET
+    , (cpu_set_t)CONFIG_SCHED_INSTRUMENTATION_CPUSET
 #endif
   }
 };
@@ -736,7 +736,7 @@ void sched_note_suspend(FAR struct tcb_s *tcb)
 
   for (driver = g_note_drivers; *driver; driver++)
     {
-      if (!note_suspend(*driver, tcb))
+      if (note_suspend(*driver, tcb))
         {
           continue;
         }

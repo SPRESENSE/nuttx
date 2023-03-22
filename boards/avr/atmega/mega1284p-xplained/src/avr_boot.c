@@ -1,5 +1,5 @@
 /****************************************************************************
- * libs/libc/time/lib_settimeofday.c
+ * boards/avr/atmega/mega1284p-xplained/src/avr_boot.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -24,56 +24,54 @@
 
 #include <nuttx/config.h>
 
-#include <sys/time.h>
-#include <errno.h>
+#include <debug.h>
 
-#include <nuttx/clock.h>
+#include <arch/board/board.h>
+
+#include "avr_internal.h"
+#include "atmega.h"
+#include "mega1284p_xplained.h"
+
+/****************************************************************************
+ * Pre-processor Definitions
+ ****************************************************************************/
+
+/****************************************************************************
+ * Private Functions
+ ****************************************************************************/
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: settimeofday
+ * Name: atmega_boardinitialize
  *
  * Description:
- *   Set the current time
- *
- *   Conforming to SVr4, 4.3BSD. POSIX.1-2001 describes gettimeofday() but
- *   not settimeofday().
- *
- *   NuttX implements settimeofday() as a thin layer around clock_settime();
- *
- * Input Parameters:
- *   tv - The net to time to be set
- *   tz - Ignored
- *
- * Returned Value:
- *   Zero (OK) on success;  -1 is returned on failure with the errno variable
- *   set appropriately.
+ *  All ATMega architectures must provide the following entry point.
+ *  This entry point is called early in the initialization -- after all
+ *  memory has been configured and mapped but before any devices have been
+ *  initialized.
  *
  ****************************************************************************/
 
-int settimeofday(FAR const struct timeval *tv, FAR const struct timezone *tz)
+void atmega_boardinitialize(void)
 {
-  struct timespec ts;
+  /* Configure SSP chip selects if 1) at least one SSP is enabled, and 2)
+   * the weak function atmega_spidev_initialize() has been brought into the
+   * link.
+   */
 
-  UNUSED(tz);
-
-#ifdef CONFIG_DEBUG_FEATURES
-  if (!tv || tv->tv_usec >= USEC_PER_SEC)
+#if defined(CONFIG_AVR_SPI1) || defined(CONFIG_AVR_SPI2)
+  if (atmega_spidev_initialize)
     {
-      set_errno(EINVAL);
-      return ERROR;
+      atmega_spidev_initialize();
     }
 #endif
 
-  /* Convert the timeval to a timespec */
+  /* Configure on-board LEDs if LED support has been selected. */
 
-  ts.tv_sec  = tv->tv_sec;
-  ts.tv_nsec = tv->tv_usec * NSEC_PER_USEC;
-
-  /* Let clock_settime do the work */
-
-  return clock_settime(CLOCK_REALTIME, &ts);
+#ifdef CONFIG_ARCH_LEDS
+  atmega_led_initialize();
+#endif
 }
