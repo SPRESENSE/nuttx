@@ -177,7 +177,7 @@ static void pg_callback(FAR struct tcb_s *tcb, int result)
   /* Signal the page fill worker thread (in any event) */
 
   pginfo("Signaling worker. PID: %d\n", g_pgworker);
-  nxsig_kill(g_pgworker, SIGWORK);
+  nxsig_kill(g_pgworker, SIGPAGING);
 }
 #endif
 
@@ -523,7 +523,7 @@ static inline void pg_fillcomplete(void)
  *
  ****************************************************************************/
 
-int pg_worker(int argc, char *argv[])
+int pg_worker(int argc, FAR char *argv[])
 {
   FAR struct tcb_s *wtcb = this_task();
 

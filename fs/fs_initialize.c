@@ -23,10 +23,43 @@
  ****************************************************************************/
 
 #include <nuttx/config.h>
+#include <nuttx/reboot_notifier.h>
 
 #include "rpmsgfs/rpmsgfs.h"
 #include "inode/inode.h"
 #include "aio/aio.h"
+
+/****************************************************************************
+ * Private Functions
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: sync_reboot_handler
+ ****************************************************************************/
+
+static int sync_reboot_handler(FAR struct notifier_block *nb,
+                               unsigned long action, FAR void *data)
+{
+  if (action == SYS_DOWN || action == SYS_RESTART)
+    {
+      sync();
+    }
+
+  return 0;
+}
+
+/****************************************************************************
+ * Private Data
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: fs_sync_reboot_nb
+ ****************************************************************************/
+
+static struct notifier_block g_sync_nb =
+{
+  sync_reboot_handler
+};
 
 /****************************************************************************
  * Public Functions
@@ -57,4 +90,6 @@ void fs_initialize(void)
 #ifdef CONFIG_FS_RPMSGFS_SERVER
   rpmsgfs_server_init();
 #endif
+
+  register_reboot_notifier(&g_sync_nb);
 }
