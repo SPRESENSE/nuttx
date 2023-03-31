@@ -24,7 +24,9 @@
 
 #include <nuttx/config.h>
 
+#include <debug.h>
 #include <errno.h>
+#include <inttypes.h>
 #include <poll.h>
 #include <string.h>
 
@@ -1025,7 +1027,15 @@ static void usrsock_rpmsg_poll_setup(FAR struct pollfd *pfds,
                                      pollevent_t events)
 {
   FAR struct usrsock_rpmsg_s *priv = (FAR struct usrsock_rpmsg_s *)pfds->arg;
+  FAR struct socket *psock = &priv->socks[pfds->fd];
   int ret = 0;
+
+  /* No poll for SOCK_CTRL. */
+
+  if (psock->s_type == SOCK_CTRL)
+    {
+      return;
+    }
 
   net_lock();
 
@@ -1035,7 +1045,7 @@ static void usrsock_rpmsg_poll_setup(FAR struct pollfd *pfds,
         {
           pfds->revents = 0;
           pfds->events = events;
-          ret = psock_poll(&priv->socks[pfds->fd], pfds, true);
+          ret = psock_poll(psock, pfds, true);
         }
       else
         {
@@ -1045,12 +1055,18 @@ static void usrsock_rpmsg_poll_setup(FAR struct pollfd *pfds,
   else
     {
       pfds->events = 0;
-      ret = psock_poll(&priv->socks[pfds->fd], pfds, false);
+      ret = psock_poll(psock, pfds, false);
+    }
+
+  if (ret < 0)
+    {
+      nerr("psock_poll failed. ret %d domain %u type %u pfds->fd %d"
+           ", pfds->events %08" PRIx32 ", pfds->revents %08" PRIx32,
+           ret, psock->s_domain, psock->s_type, pfds->fd,
+           pfds->events, pfds->revents);
     }
 
   net_unlock();
-
-  DEBUGASSERT(ret >= 0);
 }
 
 static void usrsock_rpmsg_poll_cb(FAR struct pollfd *pfds)

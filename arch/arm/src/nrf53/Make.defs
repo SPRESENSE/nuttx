@@ -22,7 +22,12 @@ include armv8-m/Make.defs
 
 ifeq ($(CONFIG_NRF53_SYSTIMER_SYSTICK),y)
 CHIP_CSRCS += nrf53_systick.c
+else
+ifeq ($(CONFIG_NRF53_SYSTIMER_RTC),y)
+CHIP_CSRCS += nrf53_tickless_rtc.c
 endif
+endif
+
 CHIP_CSRCS += nrf53_start.c nrf53_clockconfig.c nrf53_irq.c nrf53_utils.c
 CHIP_CSRCS += nrf53_allocateheap.c nrf53_lowputc.c nrf53_gpio.c
 CHIP_CSRCS += nrf53_uid.c
@@ -33,6 +38,10 @@ endif
 
 ifneq ($(CONFIG_ARCH_IDLE_CUSTOM),y)
 CHIP_CSRCS += nrf53_idle.c
+endif
+
+ifeq ($(CONFIG_NRF53_GPIOTE),y)
+CHIP_CSRCS += nrf53_gpiote.c
 endif
 
 ifeq ($(CONFIG_NRF53_UART),y)
@@ -64,6 +73,10 @@ endif
 
 ifeq ($(CONFIG_NRF53_SAADC),y)
 CHIP_CSRCS += nrf53_adc.c
+endif
+
+ifeq ($(CONFIG_NRF53_RTC),y)
+CHIP_CSRCS += nrf53_rtc.c
 endif
 
 ifeq ($(CONFIG_PM),y)
