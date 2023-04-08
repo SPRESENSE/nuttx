@@ -2949,7 +2949,7 @@ static void esp_nvs_close(uint32_t handle)
 #ifdef CONFIG_ESP32S3_WIFI_SAVE_PARAM
   struct nvs_adpt *nvs_adpt = (struct nvs_adpt *)handle;
 
-  kmm_free(nvs_adpt->index_name);
+  lib_free(nvs_adpt->index_name);
   kmm_free(nvs_adpt);
 #else
   DEBUGPANIC();
@@ -3011,7 +3011,7 @@ static int32_t esp_nvs_set_blob(uint32_t handle,
       if (ret != -ENOENT)
         {
           wlerr("Failed to unlink %s error=%d\n", dir, ret);
-          kmm_free(dir);
+          lib_free(dir);
           return -1;
         }
     }
@@ -3020,7 +3020,7 @@ static int32_t esp_nvs_set_blob(uint32_t handle,
   if (ret < 0)
     {
       wlerr("Failed to set open %s\n", dir);
-      kmm_free(dir);
+      lib_free(dir);
       return -1;
     }
 
@@ -3028,12 +3028,12 @@ static int32_t esp_nvs_set_blob(uint32_t handle,
   if (ret < 0)
     {
       wlerr("Failed to write to %s\n", dir);
-      kmm_free(dir);
+      lib_free(dir);
       file_close(&file);
       return -1;
     }
 
-  kmm_free(dir);
+  lib_free(dir);
   file_close(&file);
 
   return 0;
@@ -3086,11 +3086,11 @@ static int32_t esp_nvs_get_blob(uint32_t handle,
       if (ret == -ENOENT)
         {
           wlinfo("No file %s\n", dir);
-          kmm_free(dir);
+          lib_free(dir);
           return ESP_ERR_NVS_NOT_FOUND;
         }
       wlerr("Failed to get open %s\n", dir);
-      kmm_free(dir);
+      lib_free(dir);
       return -1;
     }
 
@@ -3098,7 +3098,7 @@ static int32_t esp_nvs_get_blob(uint32_t handle,
   if (ret <= 0)
     {
       wlerr("Failed to write to %s\n", dir);
-      kmm_free(dir);
+      lib_free(dir);
       file_close(&file);
       return -1;
     }
@@ -3107,7 +3107,7 @@ static int32_t esp_nvs_get_blob(uint32_t handle,
       *length = ret;
     }
 
-  kmm_free(dir);
+  lib_free(dir);
   file_close(&file);
 
   return 0;
@@ -3152,11 +3152,11 @@ static int32_t esp_nvs_erase_key(uint32_t handle, const char *key)
   if (ret < 0)
     {
       wlerr("Failed to delete NVS file %s\n", dir);
-      kmm_free(dir);
+      lib_free(dir);
       return -1;
     }
 
-  kmm_free(dir);
+  lib_free(dir);
 
   return 0;
 #else
@@ -3981,13 +3981,24 @@ static IRAM_ATTR void esp_wifi_tx_done_cb(uint8_t ifidx, uint8_t *data,
     }
   else
 #endif /* ESP32S3_WLAN_HAS_STA */
+
+#ifdef ESP32S3_WLAN_HAS_SOFTAP
+  if (ifidx == ESP_IF_WIFI_AP)
+    {
+      if (g_softap_txdone_cb)
+        {
+          g_softap_txdone_cb(data, len, txstatus);
+        }
+    }
+  else
+#endif /* ESP32S3_WLAN_HAS_SOFTAP */
     {
       wlerr("ifidx=%d is error\n", ifidx);
     }
 }
 
 /****************************************************************************
- * Name: esp_wifi_set_auth_param
+ * Name: esp_wifi_auth_trans
  *
  * Description:
  *   Converts a ESP32-S3 authenticate mode values to WEXT authenticate mode.
@@ -4028,7 +4039,7 @@ static int esp_wifi_auth_trans(uint32_t wifi_auth)
 }
 
 /****************************************************************************
- * Name: esp_wifi_set_auth_param
+ * Name: esp_wifi_cipher_trans
  *
  * Description:
  *   Converts a ESP32-S3 cipher type values to WEXT cipher type values.

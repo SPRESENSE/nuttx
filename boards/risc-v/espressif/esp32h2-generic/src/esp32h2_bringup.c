@@ -38,8 +38,16 @@
 #  include "esp_wdt.h"
 #endif
 
-#ifdef CONFIG_ESPRESSIF_HR_TIMER
-#  include "esp_hr_timer.h"
+#ifdef CONFIG_TIMER
+#  include "esp_timer.h"
+#endif
+
+#ifdef CONFIG_ONESHOT
+#  include "esp_oneshot.h"
+#endif
+
+#ifdef CONFIG_RTC_DRIVER
+#  include "esp_rtc.h"
 #endif
 
 #include "esp32h2-generic.h"
@@ -105,11 +113,37 @@ int esp_bringup(void)
     }
 #endif
 
-#ifdef CONFIG_ESPRESSIF_HR_TIMER
-  ret = esp_hr_timer_init();
+#ifdef CONFIG_TIMER
+  ret = esp_timer_initialize(0);
   if (ret < 0)
     {
-      _err("Failed to initialize HR timer: %d\n", ret);
+      _err("Failed to initialize Timer 0: %d\n", ret);
+    }
+
+#ifndef CONFIG_ONESHOT
+  ret = esp_timer_initialize(1);
+  if (ret < 0)
+    {
+      _err("Failed to initialize Timer 1: %d\n", ret);
+    }
+#endif
+#endif
+
+#ifdef CONFIG_ONESHOT
+  ret = esp_oneshot_initialize();
+  if (ret < 0)
+    {
+      _err("Failed to initialize Oneshot Timer: %d\n", ret);
+    }
+#endif
+
+#ifdef CONFIG_RTC_DRIVER
+  /* Initialize the RTC driver */
+
+  ret = esp_rtc_driverinit();
+  if (ret < 0)
+    {
+      _err("Failed to initialize the RTC driver: %d\n", ret);
     }
 #endif
 

@@ -36,7 +36,13 @@ CHIP_ASRCS  = esp_vectors.S
 CHIP_CSRCS  = esp_allocateheap.c esp_start.c esp_idle.c
 CHIP_CSRCS += esp_irq.c esp_gpio.c esp_libc_stubs.c
 CHIP_CSRCS += esp_lowputc.c esp_serial.c
-CHIP_CSRCS += esp_timerisr.c esp_systemreset.c
+CHIP_CSRCS += esp_systemreset.c
+
+ifeq ($(CONFIG_SCHED_TICKLESS),y)
+CHIP_CSRCS += esp_tickless.c
+else
+CHIP_CSRCS += esp_timerisr.c
+endif
 
 ifeq ($(CONFIG_WATCHDOG),y)
 CHIP_CSRCS += esp_wdt.c
@@ -44,6 +50,18 @@ endif
 
 ifneq ($(CONFIG_DEV_RANDOM)$(CONFIG_DEV_URANDOM_ARCH),)
 CHIP_CSRCS += esp_random.c
+endif
+
+ifeq ($(CONFIG_TIMER),y)
+CHIP_CSRCS += esp_timer.c
+endif
+
+ifeq ($(CONFIG_ONESHOT),y)
+CHIP_CSRCS += esp_oneshot.c
+endif
+
+ifeq ($(CONFIG_RTC),y)
+CHIP_CSRCS += esp_rtc.c
 endif
 
 ifeq ($(CONFIG_ESPRESSIF_HR_TIMER),y)

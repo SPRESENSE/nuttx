@@ -19,6 +19,7 @@ config ESPRESSIF_ESP32C3
 	select ARCH_HAVE_MPU
 	select ARCH_HAVE_RESET
 	select ARCH_HAVE_RNG
+	select ARCH_HAVE_TICKLESS
 	select LIBC_ARCH_ATOMIC
 	select LIBC_ARCH_MEMCPY
 	select LIBC_ARCH_MEMCHR
@@ -46,6 +47,7 @@ config ESPRESSIF_ESP32C6
 	select ARCH_HAVE_MPU
 	select ARCH_HAVE_RESET
 	select ARCH_HAVE_RNG
+	select ARCH_HAVE_TICKLESS
 	select LIBC_ARCH_MEMCPY
 	select LIBC_ARCH_MEMCHR
 	select LIBC_ARCH_MEMCMP
@@ -71,6 +73,7 @@ config ESPRESSIF_ESP32H2
 	select ARCH_HAVE_MPU
 	select ARCH_HAVE_RESET
 	select ARCH_HAVE_RNG
+	select ARCH_HAVE_TICKLESS
 	select LIBC_ARCH_ATOMIC
 	select LIBC_ARCH_MEMCPY
 	select LIBC_ARCH_MEMCHR
@@ -214,8 +217,8 @@ config ESPRESSIF_UART1
 	select ARCH_HAVE_SERIAL_TERMIOS
 
 config ESPRESSIF_HR_TIMER
-	bool "High-Resolution Timer"
-	default n
+	bool
+	default y if RTC_DRIVER
 	---help---
 		A high-resolution hardware timer for supporting the management of
 		kernel events.
