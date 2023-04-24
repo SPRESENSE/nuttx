@@ -30,6 +30,7 @@
 #include <poll.h>
 #include <errno.h>
 #include <debug.h>
+#include <termios.h>
 
 #include <nuttx/kmalloc.h>
 #include <nuttx/kthread.h>
@@ -125,6 +126,7 @@ struct telnet_dev_s
 #ifdef HAVE_SIGNALS
   pid_t             td_pid;
 #endif
+  tcflag_t          td_lflag;     /* Local modes */
   FAR struct socket td_psock;     /* A clone of the internal socket structure */
   char td_rxbuffer[CONFIG_TELNET_RXBUFFER_SIZE];
   char td_txbuffer[CONFIG_TELNET_TXBUFFER_SIZE];
@@ -311,18 +313,11 @@ static void telnet_getchar(FAR struct telnet_dev_s *priv, uint8_t ch,
 {
   register int index;
 
-#ifndef CONFIG_TELNET_CHARACTER_MODE
-  /* Ignore carriage returns */
+  /* Add all characters to the destination buffer */
 
-  if (ch != TELNET_CR)
-#endif
-    {
-      /* Add all other characters to the destination buffer */
-
-      index = *nread;
-      dest[index++] = ch;
-      *nread = index;
-    }
+  index = *nread;
+  dest[index++] = ch;
+  *nread = index;
 }
 
 /****************************************************************************
@@ -420,25 +415,16 @@ static ssize_t telnet_receive(FAR struct telnet_dev_s *priv,
             break;
 
           case STATE_DO:
-#ifdef CONFIG_TELNET_CHARACTER_MODE
-            if (ch == TELNET_SGA || ch == TELNET_ECHO)
+
+            if ((priv->td_lflag & ECHO) != 0 && ch == TELNET_ECHO)
               {
-                /* If it received 'ECHO' or 'Suppress Go Ahead', then do
-                 * nothing.
-                 */
+                telnet_sendopt(priv, TELNET_WONT, ch);
               }
             else
               {
-                /* Reply with a WONT */
-
-                telnet_sendopt(priv, TELNET_WONT, ch);
-                ninfo("WONT: 0x%02X\n", ch);
+                telnet_sendopt(priv, TELNET_WILL, ch);
               }
-#else
-            /* Reply with a WONT */
 
-            telnet_sendopt(priv, TELNET_WONT, ch);
-#endif
             priv->td_state = STATE_NORMAL;
             break;
 
@@ -983,6 +969,10 @@ static int telnet_session(FAR struct telnet_session_s *session)
       goto errout_with_lock;
     }
 
+  /* Setting terminal attributes */
+
+  priv->td_lflag = ECHO;
+
   /* Register the driver */
 
   ret = register_driver(session->ts_devpath, &g_telnet_fops, 0666, priv);
@@ -999,11 +989,6 @@ static int telnet_session(FAR struct telnet_session_s *session)
 
 #ifdef CONFIG_TELNET_SUPPORT_NAWS
   telnet_sendopt(priv, TELNET_DO, TELNET_NAWS);
-#endif
-
-#ifdef CONFIG_TELNET_CHARACTER_MODE
-  telnet_sendopt(priv, TELNET_WILL, TELNET_SGA);
-  telnet_sendopt(priv, TELNET_WILL, TELNET_ECHO);
 #endif
 
   /* Save ourself in the list of Telnet client threads */
@@ -1052,6 +1037,7 @@ static int telnet_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 {
   FAR struct inode *inode = filep->f_inode;
   FAR struct telnet_dev_s *priv = inode->i_private;
+  FAR struct termios *termiosp;
   int ret = OK;
 
   switch (cmd)
@@ -1088,6 +1074,48 @@ static int telnet_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
         }
       break;
 #endif
+
+    /* Handle TERMIOS command */
+
+    case TCGETS:
+      {
+        termiosp = (FAR struct termios *)((uintptr_t)arg);
+        DEBUGASSERT(termiosp != NULL);
+
+        cfmakeraw(termiosp);
+
+        termiosp->c_lflag = priv->td_lflag;
+      }
+      break;
+
+    case TCSETS:
+      {
+        termiosp = (FAR struct termios *)((uintptr_t)arg);
+        DEBUGASSERT(termiosp != NULL);
+
+        /* Save the termios settings */
+
+        priv->td_lflag = termiosp->c_lflag;
+
+        if ((priv->td_lflag & ECHO) != 0)
+          {
+            /* If ECHO is set, then we need to send the won't echo option
+             * to the client, let the client do echo to emulate
+             * the behavior of a real terminal.
+             */
+
+            telnet_sendopt(priv, TELNET_WONT, TELNET_ECHO);
+          }
+        else
+          {
+            /* Otherwise, we need to send the will echo option to the
+             * client, let the client don't echo to disable the echo.
+             */
+
+            telnet_sendopt(priv, TELNET_WILL, TELNET_ECHO);
+          }
+      }
+      break;
 
     default:
       ret = psock_ioctl(&priv->td_psock, cmd, arg);

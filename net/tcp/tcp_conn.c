@@ -754,6 +754,28 @@ FAR struct tcp_conn_s *tcp_alloc(uint8_t domain)
 
       nxsem_init(&conn->snd_sem, 0, 0);
 #endif
+
+      /* Set the default value of mss to max, this field will changed when
+       * receive SYN.
+       */
+
+#ifdef CONFIG_NET_IPv4
+#ifdef CONFIG_NET_IPv6
+      if (domain == PF_INET)
+#endif
+        {
+          conn->mss = MIN_IPv4_TCP_INITIAL_MSS;
+        }
+#endif /* CONFIG_NET_IPv4 */
+
+#ifdef CONFIG_NET_IPv6
+#ifdef CONFIG_NET_IPv4
+      else
+#endif
+        {
+          conn->mss = MIN_IPv6_TCP_INITIAL_MSS;
+        }
+#endif /* CONFIG_NET_IPv6 */
     }
 
   return conn;
@@ -983,7 +1005,8 @@ FAR struct tcp_conn_s *tcp_nextconn(FAR struct tcp_conn_s *conn)
  ****************************************************************************/
 
 FAR struct tcp_conn_s *tcp_alloc_accept(FAR struct net_driver_s *dev,
-                                        FAR struct tcp_hdr_s *tcp)
+                                        FAR struct tcp_hdr_s *tcp,
+                                        FAR struct tcp_conn_s *listener)
 {
   FAR struct tcp_conn_s *conn;
   uint8_t domain;
@@ -1016,9 +1039,6 @@ FAR struct tcp_conn_s *tcp_alloc_accept(FAR struct net_driver_s *dev,
         {
           FAR struct ipv6_hdr_s *ip = IPv6BUF;
 
-          /* Set the IPv6 specific MSS and the IPv6 locally bound address */
-
-          conn->mss = TCP_IPv6_INITIAL_MSS(dev);
           net_ipv6addr_copy(conn->u.ipv6.raddr, ip->srcipaddr);
           net_ipv6addr_copy(conn->u.ipv6.laddr, ip->destipaddr);
 
@@ -1044,9 +1064,6 @@ FAR struct tcp_conn_s *tcp_alloc_accept(FAR struct net_driver_s *dev,
         {
           FAR struct ipv4_hdr_s *ip = IPv4BUF;
 
-          /* Set the IPv6 specific MSS and the IPv4 bound remote address. */
-
-          conn->mss = TCP_IPv4_INITIAL_MSS(dev);
           net_ipv4addr_copy(conn->u.ipv4.raddr,
                             net_ip4addr_conv32(ip->srcipaddr));
 
@@ -1086,27 +1103,48 @@ FAR struct tcp_conn_s *tcp_alloc_accept(FAR struct net_driver_s *dev,
           return NULL;
         }
 
+      /* Inherits the necessary fields from listener conn for
+       * the new connection.
+       */
+
+#ifdef CONFIG_NET_SOCKOPTS
+      conn->sconn.s_rcvtimeo = listener->sconn.s_rcvtimeo;
+      conn->sconn.s_sndtimeo = listener->sconn.s_sndtimeo;
+#  ifdef CONFIG_NET_BINDTODEVICE
+      conn->sconn.s_boundto  = listener->sconn.s_boundto;
+#  endif
+#endif
+
+      conn->sconn.s_tos      = listener->sconn.s_tos;
+#if CONFIG_NET_RECV_BUFSIZE > 0
+      conn->rcv_bufs         = listener->rcv_bufs;
+#endif
+#if CONFIG_NET_SEND_BUFSIZE > 0
+      conn->snd_bufs         = listener->snd_bufs;
+#endif
+      conn->mss              = listener->mss;
+
       /* Fill in the necessary fields for the new connection. */
 
-      conn->rto           = TCP_RTO;
-      conn->sa            = 0;
-      conn->sv            = 4;
-      conn->nrtx          = 0;
-      conn->lport         = tcp->destport;
-      conn->rport         = tcp->srcport;
-      conn->tcpstateflags = TCP_SYN_RCVD;
+      conn->rto              = TCP_RTO;
+      conn->sa               = 0;
+      conn->sv               = 4;
+      conn->nrtx             = 0;
+      conn->lport            = tcp->destport;
+      conn->rport            = tcp->srcport;
+      conn->tcpstateflags    = TCP_SYN_RCVD;
 
       tcp_initsequence(conn->sndseq);
 #if !defined(CONFIG_NET_TCP_WRITE_BUFFERS)
-      conn->rexmit_seq = tcp_getsequence(conn->sndseq);
+      conn->rexmit_seq       = tcp_getsequence(conn->sndseq);
 #endif
 
-      conn->tx_unacked    = 1;
+      conn->tx_unacked       = 1;
 #ifdef CONFIG_NET_TCP_WRITE_BUFFERS
-      conn->expired       = 0;
-      conn->isn           = 0;
-      conn->sent          = 0;
-      conn->sndseq_max    = 0;
+      conn->expired          = 0;
+      conn->isn              = 0;
+      conn->sent             = 0;
+      conn->sndseq_max       = 0;
 #endif
 
       /* rcvseq should be the seqno from the incoming packet + 1. */
@@ -1277,9 +1315,6 @@ int tcp_connect(FAR struct tcp_conn_s *conn, FAR const struct sockaddr *addr)
       FAR const struct sockaddr_in *inaddr =
         (FAR const struct sockaddr_in *)addr;
 
-      /* Save MSS and the port from the sockaddr (already in network order) */
-
-      conn->mss    = MIN_IPv4_TCP_INITIAL_MSS;
       conn->rport  = inaddr->sin_port;
 
       /* The sockaddr address is 32-bits in network order.
@@ -1311,9 +1346,6 @@ int tcp_connect(FAR struct tcp_conn_s *conn, FAR const struct sockaddr *addr)
       FAR const struct sockaddr_in6 *inaddr =
         (FAR const struct sockaddr_in6 *)addr;
 
-      /* Save MSS and the port from the sockaddr (already in network order) */
-
-      conn->mss     = MIN_IPv6_TCP_INITIAL_MSS;
       conn->rport   = inaddr->sin6_port;
 
       /* The sockaddr address is 128-bits in network order.

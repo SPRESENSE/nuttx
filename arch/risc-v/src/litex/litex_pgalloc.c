@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/common/arm_saveusercontext.c
+ * arch/risc-v/src/litex/litex_pgalloc.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -22,29 +22,46 @@
  * Included Files
  ****************************************************************************/
 
+#include <nuttx/arch.h>
 #include <nuttx/config.h>
+#include <nuttx/pgalloc.h>
 
-#include <arch/syscall.h>
+#include <assert.h>
+#include <debug.h>
+
+#include <arch/board/board_memorymap.h>
+
+/****************************************************************************
+ * Pre-processor Definitions
+ ****************************************************************************/
+
+/****************************************************************************
+ * Private Data
+ ****************************************************************************/
+
+/****************************************************************************
+ * Public Data
+ ****************************************************************************/
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: up_saveusercontext
+ * Name: up_allocate_pgheap
  *
  * Description:
- *   Save the current thread context.  Full prototype is:
- *
- *   int  up_saveusercontext(void *saveregs);
- *
- * Returned Value:
- *   0: Normal return
- *   1: Context switch return
+ *   If there is a page allocator in the configuration, then this function
+ *   must be provided by the platform-specific code.  The OS initialization
+ *   logic will call this function early in the initialization sequence to
+ *   get the page heap information needed to configure the page allocator.
  *
  ****************************************************************************/
 
-int up_saveusercontext(void *saveregs)
+void up_allocate_pgheap(void **heap_start, size_t *heap_size)
 {
-  return sys_call1(SYS_save_context, (uintptr_t)saveregs);
+  DEBUGASSERT(heap_start && heap_size);
+
+  *heap_start = (void *)PGPOOL_START;
+  *heap_size  = (size_t)PGPOOL_SIZE;
 }

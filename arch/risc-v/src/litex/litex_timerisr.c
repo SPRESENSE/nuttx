@@ -23,19 +23,17 @@
  ****************************************************************************/
 
 #include <nuttx/config.h>
-
-#include <stdint.h>
-#include <time.h>
-#include <debug.h>
-
-#include <nuttx/arch.h>
 #include <nuttx/clock.h>
-#include <nuttx/spinlock.h>
-#include <arch/board/board.h>
+#include <nuttx/timers/arch_alarm.h>
+#include <nuttx/init.h>
 
+#include <debug.h>
 #include "riscv_internal.h"
+
 #include "litex.h"
 #include "litex_clockconfig.h"
+#include "hardware/litex_timer.h"
+#include "riscv_mtimer.h"
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -47,101 +45,66 @@
  * Private Data
  ****************************************************************************/
 
-static bool _b_tick_started = false;
-
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
-
-/* litex mmio registers are a bit odd, by default they are byte-wide
- * registers that are on 32-bit word boundaries. So a "32-bit" registers
- * is actually broken into four bytes spanning a total address space of
- * 16 bytes.
- */
-
-static inline uint64_t litex_clint_time_read(void)
-{
-  uint64_t r = getreg32(LITEX_CLINT_MTIME);
-  r <<= 32;
-  r |= getreg32(LITEX_CLINT_MTIME + 0x04);
-  return r;
-}
-
-static inline uint64_t litex_clint_time_cmp_read(void)
-{
-  uint64_t r = getreg32(LITEX_CLINT_MTIMECMP);
-  r <<= 32;
-  r |= getreg32(LITEX_CLINT_MTIMECMP + 0x04);
-  return r;
-}
-
-static inline void litex_clint_time_cmp_write(uint64_t v)
-{
-  putreg32(v >> 32, LITEX_CLINT_MTIMECMP);
-  putreg32(v, LITEX_CLINT_MTIMECMP + 0x04);
-}
-
-/* helper function to set/clear csr */
-
-#define csr_clear(csr, val)					\
-({								\
-  unsigned long __v = (unsigned long)(val);		\
-  __asm__ __volatile__ ("csrc " #csr ", %0"		\
-            : : "rK" (__v));			\
-})
-
-#define csr_set(csr, val)					\
-({								\
-  unsigned long __v = (unsigned long)(val);		\
-  __asm__ __volatile__ ("csrs " #csr ", %0"		\
-            : : "rK" (__v));			\
-})
-
-/****************************************************************************
- * Name:  litex_reload_mtimecmp
- ****************************************************************************/
-
-static void litex_reload_mtimecmp(void)
-{
-  irqstate_t flags = spin_lock_irqsave(NULL);
-
-  uint64_t current;
-  uint64_t next;
-
-  if (!_b_tick_started)
-    {
-      _b_tick_started = true;
-      putreg32(1, LITEX_CLINT_LATCH);
-      current = litex_clint_time_read();
-    }
-  else
-    {
-      current = litex_clint_time_cmp_read();
-    }
-
-  next = current + TICK_COUNT;
-
-  litex_clint_time_cmp_write(next);
-  putreg32(1, LITEX_CLINT_LATCH);
-  csr_set(mie, MIE_MTIE);
-  csr_clear(mip, MIP_MTIP);
-
-  spin_unlock_irqrestore(NULL, flags);
-}
 
 /****************************************************************************
  * Name:  litex_timerisr
  ****************************************************************************/
 
+#ifdef CONFIG_LITEX_CORE_VEXRISCV_SMP
+static void litex_mtimer_initialise(void)
+{
+  struct oneshot_lowerhalf_s *lower = riscv_mtimer_initialize(
+    LITEX_CLINT_MTIME, LITEX_CLINT_MTIMECMP,
+    RISCV_IRQ_TIMER, litex_get_hfclk());
+
+  DEBUGASSERT(lower);
+
+  up_alarm_set_lowerhalf(lower);
+}
+
+#else
+
 static int litex_timerisr(int irq, void *context, void *arg)
 {
-  litex_reload_mtimecmp();
+  /* Clear timer interrupt */
+
+  putreg32(0xffffffff, LITEX_TIMER0_EV_PENDING);
 
   /* Process timer interrupt */
 
   nxsched_process_timer();
   return 0;
 }
+
+static void litex_timer0_initialize(void)
+{
+  /* Disable the timer and clear any pending interrupt */
+
+  putreg32(0, LITEX_TIMER0_EN);
+  putreg32(getreg32(LITEX_TIMER0_EV_PENDING), LITEX_TIMER0_EV_PENDING);
+
+  /* Set the timer period */
+
+  putreg32(TICK_COUNT, LITEX_TIMER0_RELOAD);
+  putreg32(getreg32(LITEX_TIMER0_RELOAD), LITEX_TIMER0_LOAD);
+
+  /* Attach timer interrupt handler */
+
+  irq_attach(LITEX_IRQ_TIMER0, litex_timerisr, NULL);
+
+  /* Enable the timer */
+
+  putreg32(1, LITEX_TIMER0_EN);
+
+  /* And enable the timer interrupt */
+
+  putreg32(1, LITEX_TIMER0_EV_ENABLE);
+  up_enable_irq(LITEX_IRQ_TIMER0);
+}
+#endif
 
 /****************************************************************************
  * Public Functions
@@ -158,15 +121,9 @@ static int litex_timerisr(int irq, void *context, void *arg)
 
 void up_timer_initialize(void)
 {
-  /* Attach timer interrupt handler */
-
-  irq_attach(RISCV_IRQ_MTIMER, litex_timerisr, NULL);
-
-  /* Reload CLINT mtimecmp */
-
-  litex_reload_mtimecmp();
-
-  /* And enable the timer interrupt */
-
-  up_enable_irq(RISCV_IRQ_MTIMER);
+#ifdef CONFIG_LITEX_CORE_VEXRISCV_SMP
+  litex_mtimer_initialise();
+#else
+  litex_timer0_initialize();
+#endif
 }

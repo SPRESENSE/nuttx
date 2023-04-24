@@ -54,6 +54,14 @@
 #include "nrf52_nvmc.h"
 
 /****************************************************************************
+ * Pre-processor Definitions
+ ****************************************************************************/
+
+#ifndef CONFIG_ALLOW_BSD_COMPONENTS
+#  error "This file requires Kconfig ALLOW_BSD_COMPONENTS"
+#endif
+
+/****************************************************************************
  * Private Functions
  ****************************************************************************/
 
@@ -101,78 +109,6 @@ static inline void nrf_mem_barrier(void)
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
-
-/****************************************************************************
- * Name: nrf_nvmc_enable_icache
- *
- * Description:
- *   Enable I-Cache for Flash
- *
- * Input Parameter:
- *   flag - Flag to enable or disable.
- *
- * Returned Values:
- *   None
- *
- ****************************************************************************/
-
-void nrf_nvmc_enable_icache(bool flag)
-{
-  uint32_t value;
-
-  /* Read the current icache configuration */
-
-  value = getreg32(NRF52_NVMC_ICACHECNF);
-
-  if (flag)
-    {
-      value |= NVMC_ICACHECNF_CACHEEN;
-    }
-  else
-    {
-      value &= ~NVMC_ICACHECNF_CACHEEN;
-    }
-
-  /* Setup the new icache configuration */
-
-  putreg32(value, NRF52_NVMC_ICACHECNF);
-}
-
-/****************************************************************************
- * Name: nrf_nvmc_enable_profile
- *
- * Description:
- *   Enable profiling I-Cache for flash
- *
- * Input Parameter:
- *   flag - Flag to enable or disable.
- *
- * Returned Values:
- *   None
- *
- ****************************************************************************/
-
-void nrf_nvmc_enable_profile(bool flag)
-{
-  uint32_t value;
-
-  /* Read the current icache configuration */
-
-  value = getreg32(NRF52_NVMC_ICACHECNF);
-
-  if (flag)
-    {
-      value |= NVMC_ICACHECNF_CACHEPROFEN;
-    }
-  else
-    {
-      value &= ~NVMC_ICACHECNF_CACHEPROFEN;
-    }
-
-  /* Setup the new icache configuration */
-
-  putreg32(value, NRF52_NVMC_ICACHECNF);
-}
 
 /****************************************************************************
  * Name: nrf_nvmc_get_profiling_ihit

@@ -93,7 +93,7 @@ static inline void local_delay(void)
     }
 }
 
-#ifdef CONFIG_ARCH_HAVE_MMU
+#if defined (CONFIG_ARCH_HAVE_MMU) || defined (CONFIG_ARCH_HAVE_MPU)
 static void flush_boot_params(void)
 {
   uintptr_t flush_start;
@@ -103,11 +103,6 @@ static void flush_boot_params(void)
   flush_end     = flush_start + sizeof(cpu_boot_params);
 
   up_flush_dcache(flush_start, flush_end);
-}
-#else
-static void flush_boot_params(void)
-{
-  /* TODO: Flush at MPU platform */
 }
 #endif
 
@@ -267,6 +262,8 @@ void arm64_boot_secondary_c_routine(void)
 #endif
 
   arm64_gic_secondary_init();
+
+  arm64_arch_timer_secondary_init();
 
   up_perf_init(NULL);
 
