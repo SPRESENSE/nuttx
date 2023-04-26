@@ -147,7 +147,8 @@ config IMX_ENET_NTXBUFFERS
 
 config IMX_ENET_ENHANCEDBD
 	bool # not optional
-	default n
+	default n if ARMV7A_DCACHE_DISABLE
+	default y if !ARMV7A_DCACHE_DISABLE
 
 config IMX_ENET_NETHIFS
 	int  # Not optional
@@ -163,6 +164,10 @@ config IMX_ENET_PHYINIT
 		the configuration then the board specific logic must provide
 		imx_phy_boardinitialize();  The i.MX6 ENET driver will call this
 		function one time before it first uses the PHY.
+
+config IMX_ENET_WITH_QEMU
+       bool "With QEMU"
+       default y
 
 endmenu # IMX_ENET
 

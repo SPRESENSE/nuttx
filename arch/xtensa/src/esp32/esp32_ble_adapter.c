@@ -451,8 +451,8 @@ extern uint8_t _bss_start_btdm[];
 extern uint8_t _bss_end_btdm[];
 extern uint8_t _data_start_btdm[];
 extern uint8_t _data_end_btdm[];
-extern const uint8_t _data_start_btdm_rom[];
-extern const uint8_t _data_end_btdm_rom[];
+extern const uint32_t _data_start_btdm_rom;
+extern const uint32_t _data_end_btdm_rom;
 
 extern uint8_t _bt_bss_start[];
 extern uint8_t _bt_bss_end[];
@@ -884,8 +884,9 @@ static void esp32_ints_on(uint32_t mask)
       bit = 1 << i;
       if (bit & mask)
       {
-        wlinfo("Enabled bit %d\n", i);
-        up_enable_irq(i);
+        int irq = i + XTENSA_IRQ_FIRSTPERIPH;
+        wlinfo("Enabled bit %d\n", irq);
+        up_enable_irq(irq);
       }
     }
 }
@@ -1142,7 +1143,7 @@ static void *semphr_create_wrapper(uint32_t max, uint32_t init)
       return NULL;
     }
 
-  ret = sem_init(sem, 0, init);
+  ret = nxsem_init(sem, 0, init);
   if (ret)
     {
       wlerr("ERROR: Failed to initialize sem error=%d\n", ret);
@@ -1170,7 +1171,7 @@ static void *semphr_create_wrapper(uint32_t max, uint32_t init)
 static void semphr_delete_wrapper(void *semphr)
 {
   sem_t *sem = (sem_t *)semphr;
-  sem_destroy(sem);
+  nxsem_destroy(sem);
   kmm_free(sem);
 }
 
@@ -2027,11 +2028,11 @@ static void btdm_controller_mem_init(void)
 
   /* initialise .data section */
 
-  memcpy(_data_start_btdm, _data_start_btdm_rom,
+  memcpy(_data_start_btdm, (void *)_data_start_btdm_rom,
          _data_end_btdm - _data_start_btdm);
 
   wlinfo(".data initialise [0x%08x] <== [0x%08x]\n",
-         (uint32_t)_data_start_btdm, (uint32_t)_data_start_btdm_rom);
+         (uint32_t)_data_start_btdm, _data_start_btdm_rom);
 
   /* initial em, .bss section */
 
@@ -2879,4 +2880,3 @@ void coex_bb_reset_unlock_wrapper(uint32_t restore)
   coex_bb_reset_unlock(restore);
 #endif
 }
-

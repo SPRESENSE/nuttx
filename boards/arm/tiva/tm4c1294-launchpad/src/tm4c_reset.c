@@ -1,5 +1,5 @@
 /****************************************************************************
- * include/nuttx/fs/binfs.h
+ * boards/arm/tiva/tm4c1294-launchpad/src/tm4c_reset.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,53 +18,45 @@
  *
  ****************************************************************************/
 
-#ifndef __INCLUDE_NUTTX_FS_BINFS_H
-#define __INCLUDE_NUTTX_FS_BINFS_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
-#ifdef CONFIG_FS_BINFS
+#include <nuttx/arch.h>
+#include <nuttx/board.h>
+
+#ifdef CONFIG_BOARDCTL_RESET
 
 /****************************************************************************
- * Pre-processor Definitions
+ * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Type Definitions
+ * Name: board_reset
+ *
+ * Description:
+ *   Reset board.  Support for this function is required by board-level
+ *   logic if CONFIG_BOARDCTL_RESET is selected.
+ *
+ * Input Parameters:
+ *   status - Status information provided with the reset event.  This
+ *            meaning of this status information is board-specific.  If not
+ *            used by a board, the value zero may be provided in calls to
+ *            board_reset().
+ *
+ * Returned Value:
+ *   If this function returns, then it was not possible to power-off the
+ *   board due to some constraints.  The return value in this case is a
+ *   board-specific reason for the failure to shutdown.
+ *
  ****************************************************************************/
 
-/****************************************************************************
- * Public Data
- ****************************************************************************/
-
-#ifdef __cplusplus
-#define EXTERN extern "C"
-extern "C"
+int board_reset(int status)
 {
-#else
-#define EXTERN extern
-#endif
-
-/* The "bindir" is file system that supports access to the builtin
- * applications.
- * It is typically mounted under /bin.
- */
-
-struct mountpt_operations;
-EXTERN const struct mountpt_operations binfs_operations;
-
-/****************************************************************************
- * Public Function Prototypes
- ****************************************************************************/
-
-#undef EXTERN
-#ifdef __cplusplus
+  up_systemreset();
+  return 0;
 }
-#endif
 
-#endif /* CONFIG_FS_BINFS */
-#endif /* __INCLUDE_NUTTX_FS_BINFS_H */
+#endif /* CONFIG_BOARDCTL_RESET */
