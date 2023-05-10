@@ -2495,7 +2495,7 @@ static int set_spot_position(FAR isx019_dev_t *priv,
   uint16_t clip_h;
   uint16_t offset_x;
   uint16_t offset_y;
-  uint16_t x = (uint16_t)((val.value32 & 0xffff0000) >> 16);
+  uint16_t x = (uint16_t)(val.value32 >> 16);
   uint16_t y = (uint16_t)(val.value32 & 0xffff);
   int split;
 
@@ -3146,7 +3146,7 @@ static int get_meter(FAR isx019_dev_t *priv,
   return OK;
 }
 
-static uint16_t restore_spot_position(uint16_t regval,
+static uint32_t restore_spot_position(uint16_t regval,
                                       uint16_t basis,
                                       uint16_t sz,
                                       uint16_t clip_sz,
@@ -3199,8 +3199,8 @@ static int get_spot_position(FAR isx019_dev_t *priv,
   uint8_t regy;
   uint16_t w;
   uint16_t h;
-  uint16_t x;
-  uint16_t y;
+  uint32_t x;
+  uint32_t y;
   uint16_t clip_w;
   uint16_t clip_h;
   uint16_t offset_x;
@@ -3219,7 +3219,7 @@ static int get_spot_position(FAR isx019_dev_t *priv,
   split = ISX019_SPOT_POSITION_SPLIT_NUM_Y;
   y = restore_spot_position(regy, ISX019_HEIGHT, h, clip_h, offset_y, split);
 
-  val->value32 = (x << 16) | y;
+  val->value32 = (int32_t)((x << 16) | y);
   return OK;
 }
 

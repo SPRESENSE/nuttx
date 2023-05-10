@@ -2030,7 +2030,7 @@ static void get_current_framesize(FAR struct isx012_dev_s *priv,
   *h = isx012_getreg(priv, h_addr, 2);
 }
 
-static uint16_t restore_spot_position(uint8_t regval,
+static uint32_t restore_spot_position(uint8_t regval,
                                       uint16_t w,
                                       uint16_t split)
 {
@@ -2042,8 +2042,8 @@ static int32_t get_spot_position(FAR struct isx012_dev_s *priv)
   uint16_t regval;
   uint16_t reg_x;
   uint16_t reg_y;
-  uint16_t x;
-  uint16_t y;
+  uint32_t x;
+  uint32_t y;
   uint16_t w;
   uint16_t h;
 
@@ -2056,7 +2056,7 @@ static int32_t get_spot_position(FAR struct isx012_dev_s *priv)
   x = restore_spot_position(reg_x, w, ISX012_SPOT_POSITION_SPLIT_NUM_X);
   y = restore_spot_position(reg_y, h, ISX012_SPOT_POSITION_SPLIT_NUM_Y);
 
-  return ((x << 16) | y);
+  return (int32_t)((x << 16) | y);
 }
 
 static int isx012_get_value(FAR struct imgsensor_s *sensor,
@@ -2442,7 +2442,7 @@ static int set_spot_position(FAR struct isx012_dev_s *priv, int32_t val)
 {
   uint16_t w;
   uint16_t h;
-  uint16_t x = (uint16_t)((val & 0xffff0000) >> 16);
+  uint16_t x = (uint16_t)(val >> 16);
   uint16_t y = (uint16_t)(val & 0xffff);
   uint8_t reg_x;
   uint8_t reg_y;
