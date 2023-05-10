@@ -42,6 +42,7 @@
 #include "devif/devif.h"
 #include "udp/udp.h"
 #include "socket/socket.h"
+#include "utils/utils.h"
 
 /****************************************************************************
  * Private Types
@@ -61,63 +62,46 @@ struct udp_recvfrom_s
  * Private Functions
  ****************************************************************************/
 
+#ifdef CONFIG_NET_SOCKOPTS
 static void udp_recvpktinfo(FAR struct udp_recvfrom_s *pstate,
                             FAR void *srcaddr, uint8_t ifindex)
 {
-  FAR struct msghdr     *msg      = pstate->ir_msg;
-  FAR struct udp_conn_s *conn     = pstate->ir_conn;
-  FAR struct cmsghdr    *control  = msg->msg_control;
-  size_t                 cmsg_len = 0;
-
-  if (!(conn->flags & _UDP_FLAG_PKTINFO))
-    {
-      goto out;
-    }
+  FAR struct msghdr     *msg  = pstate->ir_msg;
+  FAR struct udp_conn_s *conn = pstate->ir_conn;
 
 #ifdef CONFIG_NET_IPv4
-  if (conn->domain == PF_INET)
+  if (conn->domain == PF_INET &&
+      _SO_GETOPT(conn->sconn.s_options, IP_PKTINFO))
     {
-      FAR struct sockaddr_in *infrom  = srcaddr;
-      FAR struct in_pktinfo *pkt_info = CMSG_DATA(control);
+      FAR struct sockaddr_in *infrom = srcaddr;
+      FAR struct in_pktinfo   pktinfo;
 
-      if (msg->msg_controllen < CMSG_LEN(sizeof(struct in_pktinfo)))
-        {
-          goto out;
-        }
+      pktinfo.ipi_ifindex         = ifindex;
+      pktinfo.ipi_addr.s_addr     = infrom->sin_addr.s_addr;
+      pktinfo.ipi_spec_dst.s_addr = conn->u.ipv4.laddr;
 
-      cmsg_len                      = CMSG_LEN(sizeof(struct in_pktinfo));
-      control->cmsg_level           = IPPROTO_IP;
-      control->cmsg_type            = IP_PKTINFO;
-      control->cmsg_len             = cmsg_len;
-      pkt_info->ipi_ifindex         = ifindex;
-      pkt_info->ipi_addr.s_addr     = infrom->sin_addr.s_addr;
-      pkt_info->ipi_spec_dst.s_addr = conn->u.ipv4.laddr;
+      cmsg_append(msg, IPPROTO_IP, IP_PKTINFO, &pktinfo, sizeof(pktinfo));
     }
 #endif
 
 #ifdef CONFIG_NET_IPv6
-  if (conn->domain == PF_INET6)
+  if (conn->domain == PF_INET6 &&
+      _SO_GETOPT(conn->sconn.s_options, IPV6_RECVPKTINFO))
     {
-      FAR struct sockaddr_in6 *infrom  = srcaddr;
-      FAR struct in6_pktinfo *pkt_info = CMSG_DATA(control);
+      FAR struct sockaddr_in6 *infrom = srcaddr;
+      FAR struct in6_pktinfo   pktinfo;
 
-      if (msg->msg_controllen < CMSG_LEN(sizeof(struct in6_pktinfo)))
-        {
-          goto out;
-        }
+      pktinfo.ipi6_ifindex = ifindex;
+      net_ipv6addr_copy(&pktinfo.ipi6_addr, infrom->sin6_addr.s6_addr);
 
-      cmsg_len               = CMSG_LEN(sizeof(struct in6_pktinfo));
-      control->cmsg_level    = IPPROTO_IPV6;
-      control->cmsg_type     = IPV6_PKTINFO;
-      control->cmsg_len      = cmsg_len;
-      pkt_info->ipi6_ifindex = ifindex;
-      net_ipv6addr_copy(&pkt_info->ipi6_addr, infrom->sin6_addr.s6_addr);
+      cmsg_append(msg, IPPROTO_IPV6, IPV6_PKTINFO, &pktinfo,
+                  sizeof(pktinfo));
     }
 #endif
-
-out:
-  msg->msg_controllen = cmsg_len;
 }
+#else
+#define udp_recvpktinfo(p, s, i) {(void)(p); (void)(s); (void)(i);}
+#endif
 
 /****************************************************************************
  * Name: udp_recvfrom_newdata
@@ -187,14 +171,12 @@ static inline void udp_readahead(struct udp_recvfrom_s *pstate)
       FAR void *srcaddr;
       uint8_t ifindex;
 
-      DEBUGASSERT(iob->io_pktlen > 0);
-
       /* Unflatten saved connection information */
 
 #ifdef CONFIG_NETDEV_IFINDEX
       ifindex = iob->io_data[offset++];
 #else
-      ifindex = 0;
+      ifindex = 1;
 #endif
       src_addr_size = iob->io_data[offset++];
       srcaddr = &iob->io_data[offset];
@@ -339,7 +321,7 @@ static inline void udp_sender(FAR struct net_driver_s *dev,
 #ifdef CONFIG_NETDEV_IFINDEX
   udp_recvpktinfo(pstate, srcaddr, dev->d_ifindex);
 #else
-  udp_recvpktinfo(pstate, srcaddr, 0);
+  udp_recvpktinfo(pstate, srcaddr, 1);
 #endif
 }
 

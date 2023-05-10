@@ -242,7 +242,7 @@ int nxsig_timedwait(FAR const sigset_t *set, FAR struct siginfo *info,
   sigset_t intersection;
   FAR sigpendq_t *sigpend;
   irqstate_t flags;
-  int32_t waitticks;
+  sclock_t waitticks;
   bool switch_needed;
   int ret;
 
@@ -320,13 +320,10 @@ int nxsig_timedwait(FAR const sigset_t *set, FAR struct siginfo *info,
            * time in nanoseconds.
            */
 
-#ifdef CONFIG_HAVE_LONG_LONG
-          uint64_t waitticks64 = ((uint64_t)timeout->tv_sec * NSEC_PER_SEC +
-                                  (uint64_t)timeout->tv_nsec +
-                                  NSEC_PER_TICK - 1) /
-                                 NSEC_PER_TICK;
-          DEBUGASSERT(waitticks64 <= UINT32_MAX);
-          waitticks = (uint32_t)waitticks64;
+#ifdef CONFIG_SYSTEM_TIME64
+          waitticks = ((uint64_t)timeout->tv_sec * NSEC_PER_SEC +
+                      (uint64_t)timeout->tv_nsec + NSEC_PER_TICK - 1) /
+                      NSEC_PER_TICK;
 #else
           uint32_t waitmsec;
 

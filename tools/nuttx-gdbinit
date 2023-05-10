@@ -20,7 +20,7 @@
 
 # NOTE: you need to use gdb configured '--with-python'
 # usage: gdb -ix=./tools/nuttx-gdbinit nuttx
-# new commands: info_nxthreads, nxthread pid, nxcontinue, nxthread_all_bt
+# new commands: nxthread pid, nxthread_all_bt
 
 # Do not stop with SIGUSR1 which is used for the NuttX sim SMP
 handle SIGUSR1 "nostop" "pass" "noprint"
@@ -59,8 +59,7 @@ define _examine_target
   if ($_target_examined == 0x0)
     _examine_arch
 
-    set $_tcb0 = g_pidhash[0]
-    set $_xcp_nregs = sizeof($_tcb0->xcp.regs) / sizeof($_tcb0->xcp.regs[0])
+    set $_xcp_nregs = sizeof(g_last_regs) / sizeof(void *)
     set $_target_has_fpu = 0
 
     if ($_streq($_target_arch, "armv7e-m") == 1)
@@ -79,41 +78,31 @@ define _examine_target
     python if (type(gdb.lookup_global_symbol("g_assignedtasks")) is gdb.Symbol) : \
     gdb.execute("set $_target_has_smp = 1")
 
-    set $_target_max_tasks = g_npidhash
-
-    python if (type(gdb.lookup_global_symbol("up_check_tcbstack")) is gdb.Symbol) : \
-    gdb.execute("set $_target_has_stack_coloration = 1")
-
-    printf "target examined\n"
-    python print("_target_arch.name=" + _target_arch.name())
-
-    # NOTE: i386:x86-64 (qemu) does not work
-    #printf "$_target_arch : %s\n", $_target_arch
-
-    printf "$_target_has_fpu : %d\n", $_target_has_fpu
-    printf "$_target_has_smp : %d\n", $_target_has_smp
     set $_target_examined = 1
+  end
+end
+
+define _running_task
+  if ($_target_has_smp == 0)
+    set $rtcb = (struct tcb_s *)g_readytorun->head
+  else
+    set $rtcb = (struct tcb_s *)g_assignedtasks[up_cpu_index()]->head
   end
 end
 
 define _print_thread
   set $tcb = (struct tcb_s *)$arg0
+  _running_task
 
-  if ($tcb == $_current_tcb)
+  if ($tcb == $rtcb)
     printf "* "
   else
     printf "  "
   end
 
-  if ($_target_has_stack_coloration)
-    set $stack_used = up_check_tcbstack($tcb)
-  else
-    set $stack_used = 0
-  end
-
-  printf "%d Thread 0x%x  (Name: %s, State: %s, Priority: %d, Stack: %d/%d) PC: 0x%x in ", \
+  printf "%d Thread 0x%x  (Name: %s, State: %s, Priority: %d, Stack: %d) PC: 0x%x in ", \
   $tcb->pid, $tcb, $tcb->name, g_statenames[$tcb->task_state], $tcb->sched_priority, \
-  $stack_used, $tcb->adj_stack_size, $tcb->xcp.regs[$_pc_reg_idx]
+  $tcb->adj_stack_size, $tcb->xcp.regs[$_pc_reg_idx]
   python _symbol = gdb.execute("info symbol $tcb->xcp.regs[$_pc_reg_idx]", to_string=True); \
   print(_symbol.split()[0] + "()")
 end
@@ -147,21 +136,13 @@ define _save_current_tcb
   _examine_target
 
   if ($_current_tcb == 0)
-    if ($_target_has_smp == 0)
-      set $tcb = (struct tcb_s *)g_readytorun->head
-      _save_tcb $tcb
-    else
-      set $cpu = up_cpu_index()
-      set $tcb = (struct tcb_s *)g_assignedtasks[$cpu]->head
-      _save_tcb $tcb
-    end
-    printf "saved current_tcb (pid=%d)\n", $tcb->pid
-    set $_current_tcb = $tcb
+    _running_task
+    _save_tcb $rtcb
+    set $_current_tcb = $rtcb
   end
 end
 
 define _switch_tcb
-  _examine_target
   _save_current_tcb
 
   # set the current frame to the newest before switching
@@ -196,46 +177,46 @@ end
 # see nuttx/arch/arm/include/armv7-a/irq.h
 define _save_tcb_armv7-a
   set $tcb = (struct tcb_s *)$arg0
-  set $tcb.xcp.regs[0] = $r0
-  set $tcb.xcp.regs[1] = $r1
-  set $tcb.xcp.regs[2] = $r2
-  set $tcb.xcp.regs[3] = $r3
-  set $tcb.xcp.regs[4] = $r4
-  set $tcb.xcp.regs[5] = $r5
-  set $tcb.xcp.regs[6] = $r6
-  set $tcb.xcp.regs[7] = $r7
-  set $tcb.xcp.regs[8] = $r8
-  set $tcb.xcp.regs[9] = $r9
-  set $tcb.xcp.regs[10] = $r10
-  set $tcb.xcp.regs[11] = $r11
-  set $tcb.xcp.regs[12] = $r12
-  set $tcb.xcp.regs[13] = $r13
-  set $tcb.xcp.regs[14] = $r14
+  set $tcb.xcp.regs[0] = $r13
+  set $tcb.xcp.regs[1] = $r14
+  set $tcb.xcp.regs[2] = $r0
+  set $tcb.xcp.regs[3] = $r1
+  set $tcb.xcp.regs[4] = $r2
+  set $tcb.xcp.regs[5] = $r3
+  set $tcb.xcp.regs[6] = $r4
+  set $tcb.xcp.regs[7] = $r5
+  set $tcb.xcp.regs[8] = $r6
+  set $tcb.xcp.regs[9] = $r7
+  set $tcb.xcp.regs[10] = $r8
+  set $tcb.xcp.regs[11] = $r9
+  set $tcb.xcp.regs[12] = $r10
+  set $tcb.xcp.regs[13] = $r11
+  set $tcb.xcp.regs[14] = $r12
   set $tcb.xcp.regs[15] = $r15
-  # TODO: xPSR
+  set $tcb.xcp.regs[16] = $cpsr
 
   set $_pc_reg_idx = 15
 end
 
 define _switch_tcb_armv7-a
   set $tcb = (struct tcb_s *)$arg0
-  set $r0 = $tcb.xcp.regs[0]
-  set $r1 = $tcb.xcp.regs[1]
-  set $r2 = $tcb.xcp.regs[2]
-  set $r3 = $tcb.xcp.regs[3]
-  set $r4 = $tcb.xcp.regs[4]
-  set $r5 = $tcb.xcp.regs[5]
-  set $r6 = $tcb.xcp.regs[6]
-  set $r7 = $tcb.xcp.regs[7]
-  set $r8 = $tcb.xcp.regs[8]
-  set $r9 = $tcb.xcp.regs[9]
-  set $r10 = $tcb.xcp.regs[10]
-  set $r11 = $tcb.xcp.regs[11]
-  set $r12 = $tcb.xcp.regs[12]
-  set $r13 = $tcb.xcp.regs[13]
-  set $r14 = $tcb.xcp.regs[14]
+  set $r13 = $tcb.xcp.regs[0]
+  set $r14 = $tcb.xcp.regs[1]
+  set $r0 = $tcb.xcp.regs[2]
+  set $r1 = $tcb.xcp.regs[3]
+  set $r2 = $tcb.xcp.regs[4]
+  set $r3 = $tcb.xcp.regs[5]
+  set $r4 = $tcb.xcp.regs[6]
+  set $r5 = $tcb.xcp.regs[7]
+  set $r6 = $tcb.xcp.regs[8]
+  set $r7 = $tcb.xcp.regs[9]
+  set $r8 = $tcb.xcp.regs[10]
+  set $r9 = $tcb.xcp.regs[11]
+  set $r10 = $tcb.xcp.regs[12]
+  set $r11 = $tcb.xcp.regs[13]
+  set $r12 = $tcb.xcp.regs[14]
   set $r15 = $tcb.xcp.regs[15]
-  # TODO: xPSR
+  set $cpsr = $tcb.xcp.regs[16]
 end
 
 # see nuttx/arch/arm/include/armv7-m/irq_cmnvector.h
@@ -416,36 +397,31 @@ define _switch_tcb_simx86
 end
 
 define _restore_current_tcb
-  # TODO: SMP
-  set $tcb = g_readytorun->head
-  _switch_tcb $tcb
+  _examine_target
+  _running_task
+  _switch_tcb $rtcb
   set $_current_tcb = 0x0
 end
 
 define nxthread
-  _examine_target
-  _save_current_tcb
-  set $hash = ($arg0 & ($_target_max_tasks - 1))
+  set $hash = ($arg0 & (g_npidhash - 1))
   set $tcb = g_pidhash[$hash]
   if ($tcb != 0x0)
+    _switch_tcb $tcb
     _print_thread $tcb
-    if ($argc == 1)
-      _switch_tcb $tcb
-    end
     if ($argc == 2)
       if ($arg1 == 1)
-	_switch_tcb $tcb
-	where
+        _switch_tcb $tcb
+        where
       end
     end
   end
-  _restore_current_tcb
 end
 
 define nxthread_all_bt
   _save_current_tcb
   set $i = 0
-  while ($i < $_target_max_tasks)
+  while ($i < g_npidhash)
     # 1: backtrace
     nxthread $i 1
     set $i = $i + 1
@@ -453,10 +429,10 @@ define nxthread_all_bt
   _restore_current_tcb
 end
 
-define info_nxthreads
+define info threads
   _save_current_tcb
   set $i = 0
-  while ($i < $_target_max_tasks)
+  while ($i < g_npidhash)
     # dummy : 0 0
     nxthread $i 0 0
     set $i = $i + 1
@@ -464,8 +440,19 @@ define info_nxthreads
   _restore_current_tcb
 end
 
-define nxcontinue
-  printf "nxcontinue\n"
+define c
   _restore_current_tcb
   continue
+end
+
+define thread
+  _save_current_tcb
+  if ($argc == 0)
+    _running_task
+    set $pid = $rtcb->pid
+  else
+    set $pid = $arg0
+  end
+
+  nxthread $pid
 end

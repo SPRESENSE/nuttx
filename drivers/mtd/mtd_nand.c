@@ -39,8 +39,7 @@
 #include <nuttx/config.h>
 #include <nuttx/mtd/nand_config.h>
 
-#include <sys/types.h>
-#include <stdint.h>
+#include <inttypes.h>
 #include <string.h>
 #include <assert.h>
 #include <errno.h>
@@ -48,12 +47,9 @@
 
 #include <nuttx/kmalloc.h>
 #include <nuttx/fs/ioctl.h>
-#include <nuttx/mtd/mtd.h>
 #include <nuttx/mtd/nand.h>
 #include <nuttx/mtd/onfi.h>
-#include <nuttx/mtd/nand_raw.h>
 #include <nuttx/mtd/nand_scheme.h>
-#include <nuttx/mtd/nand_model.h>
 #include <nuttx/mtd/nand_ecc.h>
 
 /****************************************************************************
@@ -79,33 +75,34 @@
 
 /* Bad block checking */
 
-#ifdef CONFIG_MTD_NAND_BLOCKCHECK
+static int     nand_markblock(FAR struct nand_dev_s *nand, off_t block);
 static int     nand_checkblock(FAR struct nand_dev_s *nand, off_t block);
+#ifdef CONFIG_MTD_NAND_BLOCKCHECK
 static int     nand_devscan(FAR struct nand_dev_s *nand);
-#else
-#  define      nand_checkblock(n,b) (GOODBLOCK)
 #endif
 
 /* Misc. NAND helpers */
 
-static uint32_t nand_chipid(struct nand_raw_s *raw);
+static uint32_t nand_chipid(FAR struct nand_raw_s *raw);
 static int      nand_eraseblock(FAR struct nand_dev_s *nand,
-                  off_t block, bool scrub);
+                                off_t block, bool scrub);
 static int      nand_readpage(FAR struct nand_dev_s *nand, off_t block,
-                  unsigned int page, FAR uint8_t *data);
+                              unsigned int page, FAR uint8_t *data);
 static int      nand_writepage(FAR struct nand_dev_s *nand, off_t block,
-                  unsigned int page, FAR const void *data);
+                               unsigned int page, FAR const void *data);
 
 /* MTD driver methods */
 
-static int     nand_erase(struct mtd_dev_s *dev, off_t startblock,
-                 size_t nblocks);
-static ssize_t nand_bread(struct mtd_dev_s *dev, off_t startblock,
-                 size_t nblocks, uint8_t *buffer);
-static ssize_t nand_bwrite(struct mtd_dev_s *dev, off_t startblock,
-                 size_t nblocks, const uint8_t *buffer);
-static int     nand_ioctl(struct mtd_dev_s *dev, int cmd,
-                 unsigned long arg);
+static int     nand_erase(FAR struct mtd_dev_s *dev, off_t startblock,
+                          size_t nblocks);
+static ssize_t nand_bread(FAR struct mtd_dev_s *dev, off_t startblock,
+                          size_t nblocks, uint8_t *buffer);
+static ssize_t nand_bwrite(FAR struct mtd_dev_s *dev, off_t startblock,
+                           size_t nblocks, const uint8_t *buffer);
+static int     nand_ioctl(FAR struct mtd_dev_s *dev, int cmd,
+                          unsigned long arg);
+static int     nand_isbad(FAR struct mtd_dev_s *dev, off_t block);
+static int     nand_markbad(FAR struct mtd_dev_s *dev, off_t block);
 
 /****************************************************************************
  * Private Data
@@ -114,6 +111,48 @@ static int     nand_ioctl(struct mtd_dev_s *dev, int cmd,
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
+
+/****************************************************************************
+ * Name: nand_markblock
+ *
+ * Description:
+ *   Mark a block as bad.
+ *
+ * Input Parameters:
+ *   nand  - Pointer to a struct nand_dev_s instance.
+ *   block - Number of block to mark.
+ *
+ * Returned Value:
+ *   Returns negated errno value on any failure.
+ *
+ ****************************************************************************/
+
+static int nand_markblock(FAR struct nand_dev_s *nand, off_t block)
+{
+  uint8_t spare[CONFIG_MTD_NAND_MAXPAGESPARESIZE];
+  FAR const struct nand_scheme_s *scheme;
+  FAR struct nand_model_s *model;
+  FAR struct nand_raw_s *raw;
+  int ret;
+
+  /* Retrieve the model and scheme */
+
+  raw    = nand->raw;
+  model  = &raw->model;
+  scheme = nandmodel_getscheme(model);
+
+  /* Try to mark the block as BAD */
+
+  memset(spare, 0xff, CONFIG_MTD_NAND_MAXPAGESPARESIZE);
+  nandscheme_writebadblockmarker(scheme, spare, NAND_BLOCKSTATUS_BAD);
+  ret = NAND_WRITEPAGE(nand->raw, block, 0, 0, spare);
+  if (ret < 0)
+    {
+      ferr("ERROR: Failed bo marke block %" PRIdOFF " as BAD\n", block);
+    }
+
+  return ret;
+}
 
 /****************************************************************************
  * Name: nand_checkblock
@@ -132,7 +171,6 @@ static int     nand_ioctl(struct mtd_dev_s *dev, int cmd,
  *
  ****************************************************************************/
 
-#ifdef CONFIG_MTD_NAND_BLOCKCHECK
 static int nand_checkblock(FAR struct nand_dev_s *nand, off_t block)
 {
   uint8_t spare[CONFIG_MTD_NAND_MAXPAGESPARESIZE];
@@ -155,14 +193,14 @@ static int nand_checkblock(FAR struct nand_dev_s *nand, off_t block)
   ret = NAND_RAWREAD(raw, block, 0, 0, spare);
   if (ret < 0)
     {
-      ferr("ERROR: Failed to read page 0 of block %d\n", block);
+      ferr("ERROR: Failed to read page 0 of block %" PRIdOFF "\n", block);
       return ret;
     }
 
   nandscheme_readbadblockmarker(scheme, spare, &marker);
   if (marker != 0xff)
     {
-      finfo("Page 0 block %d marker=%02x\n", block, marker);
+      finfo("Page 0 block %" PRIdOFF " marker=%02x\n", block, marker);
       return BADBLOCK;
     }
 
@@ -171,20 +209,19 @@ static int nand_checkblock(FAR struct nand_dev_s *nand, off_t block)
   ret = NAND_RAWREAD(raw, block, 1, 0, spare);
   if (ret < 0)
     {
-      ferr("ERROR: Failed to read page 1 of block %d\n", block);
+      ferr("ERROR: Failed to read page 1 of block %" PRIdOFF "\n", block);
       return ret;
     }
 
   nandscheme_readbadblockmarker(scheme, spare, &marker);
   if (marker != 0xff)
     {
-      finfo("Page 1 block %d marker=%02x\n", block, marker);
+      finfo("Page 1 block %" PRIdOFF " marker=%02x\n", block, marker);
       return BADBLOCK;
     }
 
   return GOODBLOCK;
 }
-#endif /* CONFIG_MTD_NAND_BLOCKCHECK */
 
 /****************************************************************************
  * Name: nand_devscan
@@ -214,8 +251,8 @@ static int nand_devscan(FAR struct nand_dev_s *nand)
   off_t nblocks;
   off_t block;
 #if defined(CONFIG_DEBUG_INFO) && defined(CONFIG_DEBUG_FS)
-  off_t good;
-  unsigned int ngood;
+  off_t good = 0;
+  unsigned int ngood = 0;
 #endif
   int ret;
 
@@ -230,13 +267,9 @@ static int nand_devscan(FAR struct nand_dev_s *nand)
 
   /* Initialize block statuses */
 
-  finfo("Retrieving bad block information. nblocks=%d\n", nblocks);
+  finfo("Retrieving bad block information. nblocks=%" PRIdOFF "\n", nblocks);
 
   /* Retrieve block status from their first page spare area */
-
-#if defined(CONFIG_DEBUG_INFO) && defined(CONFIG_DEBUG_FS)
-  ngood = 0;
-#endif
 
   for (block = 0; block < nblocks; block++)
     {
@@ -301,7 +334,7 @@ static int nand_devscan(FAR struct nand_dev_s *nand)
  *
  ****************************************************************************/
 
-static uint32_t nand_chipid(struct nand_raw_s *raw)
+static uint32_t nand_chipid(FAR struct nand_raw_s *raw)
 {
   uint8_t id[5];
 
@@ -344,10 +377,6 @@ static uint32_t nand_chipid(struct nand_raw_s *raw)
 static int nand_eraseblock(FAR struct nand_dev_s *nand, off_t block,
                            bool scrub)
 {
-  uint8_t spare[CONFIG_MTD_NAND_MAXPAGESPARESIZE];
-  FAR const struct nand_scheme_s *scheme;
-  FAR struct nand_model_s *model;
-  FAR struct nand_raw_s *raw;
   int ret;
 
   /* finfo("Block %d\n", block); */
@@ -355,7 +384,7 @@ static int nand_eraseblock(FAR struct nand_dev_s *nand, off_t block,
   DEBUGASSERT(nand && nand->raw);
 
 #ifdef CONFIG_MTD_NAND_BLOCKCHECK
-  if (scrub)
+  if (!scrub)
     {
       /* Check block status */
 
@@ -372,25 +401,11 @@ static int nand_eraseblock(FAR struct nand_dev_s *nand, off_t block,
   ret = NAND_ERASEBLOCK(nand->raw, block);
   if (ret < 0)
     {
-      int tmp;
-
-      ferr("ERROR: Cannot erase block %ld\n", (long)block);
-
-      /* Retrieve the model and scheme */
-
-      raw    = nand->raw;
-      model  = &raw->model;
-      scheme = nandmodel_getscheme(model);
+      ferr("ERROR: Cannot erase block %" PRIdOFF "\n", block);
 
       /* Try to mark the block as BAD */
 
-      memset(spare, 0xff, CONFIG_MTD_NAND_MAXPAGESPARESIZE);
-      nandscheme_writebadblockmarker(scheme, spare, NAND_BLOCKSTATUS_BAD);
-      tmp = NAND_WRITEPAGE(nand->raw, block, 0, 0, spare);
-      if (tmp < 0)
-        {
-          ferr("ERROR: Failed bo marke block %ld as BAD\n", (long)block);
-        }
+      ret = nand_markblock(nand, block);
     }
 
   return ret;
@@ -512,7 +527,7 @@ static int nand_writepage(FAR struct nand_dev_s *nand, off_t block,
  *
  ****************************************************************************/
 
-static int nand_erase(struct mtd_dev_s *dev, off_t startblock,
+static int nand_erase(FAR struct mtd_dev_s *dev, off_t startblock,
                       size_t nblocks)
 {
   FAR struct nand_dev_s *nand = (FAR struct nand_dev_s *)dev;
@@ -552,12 +567,13 @@ static int nand_erase(struct mtd_dev_s *dev, off_t startblock,
  *
  ****************************************************************************/
 
-static ssize_t nand_bread(struct mtd_dev_s *dev, off_t startpage,
+static ssize_t nand_bread(FAR struct mtd_dev_s *dev, off_t startpage,
                           size_t npages, FAR uint8_t *buffer)
 {
   FAR struct nand_dev_s *nand = (FAR struct nand_dev_s *)dev;
   FAR struct nand_raw_s *raw;
   FAR struct nand_model_s *model;
+  bool fixedecc = false;
   unsigned int pagesperblock;
   unsigned int page;
   uint16_t pagesize;
@@ -566,13 +582,13 @@ static ssize_t nand_bread(struct mtd_dev_s *dev, off_t startpage,
   off_t block;
   int ret;
 
-  finfo("startpage: %ld npages: %d\n", (long)startpage, (int)npages);
+  finfo("startpage: %" PRIdOFF " npages: %zu\n", startpage, npages);
   DEBUGASSERT(nand && nand->raw);
 
   /* Retrieve the model */
 
-  raw    = nand->raw;
-  model  = &raw->model;
+  raw   = nand->raw;
+  model = &raw->model;
 
   /* Get the number of pages in one block, the size of one page, and
    * the number of blocks on the device.
@@ -609,10 +625,14 @@ static ssize_t nand_bread(struct mtd_dev_s *dev, off_t startpage,
       /* Read the next page from NAND */
 
       ret = nand_readpage(nand, block, page, buffer);
-      if (ret < 0)
+      if (ret == -EUCLEAN)
         {
-          ferr("ERROR: nand_readpage failed block=%ld page=%d: %d\n",
-               (long)block, page, ret);
+          fixedecc = true;
+        }
+      else if (ret < 0)
+        {
+          ferr("ERROR: nand_readpage failed block=%" PRIdOFF
+               " page=%d: %d\n", block, page, ret);
           goto errout_with_lock;
         }
 
@@ -633,7 +653,7 @@ static ssize_t nand_bread(struct mtd_dev_s *dev, off_t startpage,
     }
 
   nxmutex_unlock(&nand->lock);
-  return npages;
+  return fixedecc ? -EUCLEAN : npages;
 
 errout_with_lock:
   nxmutex_unlock(&nand->lock);
@@ -648,7 +668,7 @@ errout_with_lock:
  *
  ****************************************************************************/
 
-static ssize_t nand_bwrite(struct mtd_dev_s *dev, off_t startpage,
+static ssize_t nand_bwrite(FAR struct mtd_dev_s *dev, off_t startpage,
                            size_t npages, const uint8_t *buffer)
 {
   FAR struct nand_dev_s *nand = (FAR struct nand_dev_s *)dev;
@@ -662,13 +682,13 @@ static ssize_t nand_bwrite(struct mtd_dev_s *dev, off_t startpage,
   off_t block;
   int ret;
 
-  finfo("startpage: %08lx npages: %d\n", (long)startpage, (int)npages);
+  finfo("startpage: %" PRIdOFF " npages: %zu\n", startpage, npages);
   DEBUGASSERT(nand && nand->raw);
 
   /* Retrieve the model */
 
-  raw    = nand->raw;
-  model  = &raw->model;
+  raw   = nand->raw;
+  model = &raw->model;
 
   /* Get the number of pages in one block, the size of one page, and
    * the number of blocks on the device.
@@ -740,7 +760,7 @@ errout_with_lock:
  * Name: nand_ioctl
  ****************************************************************************/
 
-static int nand_ioctl(struct mtd_dev_s *dev, int cmd, unsigned long arg)
+static int nand_ioctl(FAR struct mtd_dev_s *dev, int cmd, unsigned long arg)
 {
   FAR struct nand_dev_s *nand = (FAR struct nand_dev_s *)dev;
   FAR struct nand_raw_s *raw;
@@ -755,7 +775,7 @@ static int nand_ioctl(struct mtd_dev_s *dev, int cmd, unsigned long arg)
     {
       case MTDIOC_GEOMETRY:
         {
-          FAR struct mtd_geometry_s *geo = (struct mtd_geometry_s *)arg;
+          FAR struct mtd_geometry_s *geo = (FAR struct mtd_geometry_s *)arg;
           if (geo)
             {
               memset(geo, 0, sizeof(*geo));
@@ -782,9 +802,7 @@ static int nand_ioctl(struct mtd_dev_s *dev, int cmd, unsigned long arg)
             (FAR struct partition_info_s *)arg;
           if (info != NULL)
             {
-              info->numsectors  = nandmodel_getdevblocks(model) *
-                                  nandmodel_getbyteblocksize(model) /
-                                  model->pagesize;
+              info->numsectors  = nandmodel_getdevpagesize(model);
               info->sectorsize  = model->pagesize;
               info->startsector = 0;
               info->parent[0]   = '\0';
@@ -801,6 +819,21 @@ static int nand_ioctl(struct mtd_dev_s *dev, int cmd, unsigned long arg)
         }
         break;
 
+      case MTDIOC_ERASESTATE:
+        {
+          FAR uint8_t *result = (FAR uint8_t *)arg;
+          *result = 0xff;
+          ret = OK;
+        }
+        break;
+
+      case MTDIOC_ERASESECTORS:
+        {
+          FAR struct mtd_erase_s *erase = (FAR struct mtd_erase_s *)arg;
+          ret = nand_erase(dev, erase->startblock, erase->nblocks);
+        }
+        break;
+
       default:
         ret = -ENOTTY; /* Bad command */
         break;
@@ -810,8 +843,102 @@ static int nand_ioctl(struct mtd_dev_s *dev, int cmd, unsigned long arg)
 }
 
 /****************************************************************************
+ * Name: nand_isbad
+ ****************************************************************************/
+
+static int nand_isbad(FAR struct mtd_dev_s *dev, off_t block)
+{
+  FAR struct nand_dev_s *nand = (FAR struct nand_dev_s *)dev;
+  int ret;
+
+  nxmutex_lock(&nand->lock);
+  ret = nand_checkblock(nand, block);
+  nxmutex_unlock(&nand->lock);
+
+  if (ret == GOODBLOCK)
+    {
+      ret = 0;
+    }
+  else if (ret == BADBLOCK)
+    {
+      ret = 1;
+    }
+
+  return ret;
+}
+
+/****************************************************************************
+ * Name: nand_markbad
+ ****************************************************************************/
+
+static int nand_markbad(FAR struct mtd_dev_s *dev, off_t block)
+{
+  FAR struct nand_dev_s *nand = (FAR struct nand_dev_s *)dev;
+  int ret;
+
+  nxmutex_lock(&nand->lock);
+  ret = nand_markblock(nand, block);
+  nxmutex_unlock(&nand->lock);
+
+  return ret;
+}
+
+/****************************************************************************
  * Public Functions
  ****************************************************************************/
+
+/****************************************************************************
+ * Name: nand_raw_initialize
+ *
+ * Description:
+ *   Initialize NAND without probing.
+ *
+ * Input Parameters:
+ *   raw      - Lower-half, raw NAND FLASH interface
+ *
+ * Returned Value:
+ *   A non-NULL MTD driver instance is returned on success.  NULL is
+ *   returned on any failaure.
+ *
+ ****************************************************************************/
+
+FAR struct mtd_dev_s *nand_raw_initialize(FAR struct nand_raw_s *raw)
+{
+  FAR struct nand_dev_s *nand;
+
+  /* Allocate an NAND MTD device structure */
+
+  nand = (FAR struct nand_dev_s *)kmm_zalloc(sizeof(struct nand_dev_s));
+  if (!nand)
+    {
+      ferr("ERROR: Failed to allocate the NAND MTD device structure\n");
+      return NULL;
+    }
+
+  /* Initialize the NAND MTD device structure */
+
+  nand->mtd.erase   = nand_erase;
+  nand->mtd.bread   = nand_bread;
+  nand->mtd.bwrite  = nand_bwrite;
+  nand->mtd.ioctl   = nand_ioctl;
+  nand->mtd.isbad   = nand_isbad;
+  nand->mtd.markbad = nand_markbad;
+  nand->raw         = raw;
+
+  nxmutex_init(&nand->lock);
+
+#if defined(CONFIG_MTD_NAND_BLOCKCHECK) && defined(CONFIG_DEBUG_INFO) && \
+    defined(CONFIG_DEBUG_FS)
+
+  /* Scan the device for bad blocks */
+
+  nand_devscan(nand);
+#endif
+
+  /* Return the implementation-specific state structure as the MTD device */
+
+  return &nand->mtd;
+}
 
 /****************************************************************************
  * Name: nand_initialize
@@ -821,11 +948,6 @@ static int nand_ioctl(struct mtd_dev_s *dev, int cmd, unsigned long arg)
  *
  * Input Parameters:
  *   raw      - Lower-half, raw NAND FLASH interface
- *   cmdaddr  - NAND command address base
- *   addraddr - NAND address address base
- *   dataaddr - NAND data address
- *   model    - A pointer to the model data (probably in the raw MTD
- *              driver instance.
  *
  * Returned Value:
  *   A non-NULL MTD driver instance is returned on success.  NULL is
@@ -835,7 +957,6 @@ static int nand_ioctl(struct mtd_dev_s *dev, int cmd, unsigned long arg)
 
 FAR struct mtd_dev_s *nand_initialize(FAR struct nand_raw_s *raw)
 {
-  FAR struct nand_dev_s *nand;
   struct onfi_pgparam_s onfi;
   int ret;
 
@@ -921,40 +1042,11 @@ FAR struct mtd_dev_s *nand_initialize(FAR struct nand_raw_s *raw)
             break;
         }
 
-      /* Disable any internal, embedded ECC function */
+      /* Enable any internal, embedded ECC function */
 
       onfi_embeddedecc(&onfi, raw->cmdaddr, raw->addraddr, raw->dataaddr,
                                                            true);
     }
 
-  /* Allocate an NAND MTD device structure */
-
-  nand = (FAR struct nand_dev_s *)kmm_zalloc(sizeof(struct nand_dev_s));
-  if (!nand)
-    {
-      ferr("ERROR: Failed to allocate the NAND MTD device structure\n");
-      return NULL;
-    }
-
-  /* Initialize the NAND MTD device structure */
-
-  nand->mtd.erase  = nand_erase;
-  nand->mtd.bread  = nand_bread;
-  nand->mtd.bwrite = nand_bwrite;
-  nand->mtd.ioctl  = nand_ioctl;
-  nand->raw        = raw;
-
-  nxmutex_init(&nand->lock);
-
-#if defined(CONFIG_MTD_NAND_BLOCKCHECK) && defined(CONFIG_DEBUG_INFO) && \
-    defined(CONFIG_DEBUG_FS)
-
-    /* Scan the device for bad blocks */
-
-  nand_devscan(nand);
-#endif
-
-  /* Return the implementation-specific state structure as the MTD device */
-
-  return &nand->mtd;
+  return nand_raw_initialize(raw);
 }

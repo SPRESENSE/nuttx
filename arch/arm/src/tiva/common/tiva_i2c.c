@@ -973,7 +973,8 @@ static void tiva_i2c_tracedump(struct tiva_i2c_priv_s *priv)
     {
       trace = &priv->trace[i];
       syslog(LOG_DEBUG,
-             "%2d. STATUS: %08x COUNT: %3d EVENT: %2d PARM: %08x TIME: %d\n",
+             "%2d. STATUS: %08lx COUNT: %3ld EVENT: %2d PARM: %08lx "
+             "TIME: %ld\n",
              i + 1, trace->status, trace->count,  trace->event, trace->parm,
              trace->time - priv->ttime);
     }
@@ -1283,6 +1284,7 @@ static int tiva_i2c_process(struct tiva_i2c_priv_s *priv, uint32_t status)
                            * change
                            */
 
+                          priv->mptr = priv->msgv->buffer;
                           tiva_i2c_nextxfr(priv, 0);
                         }
                       else

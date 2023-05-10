@@ -667,7 +667,7 @@ static int inet_get_socketlevel_option(FAR struct socket *psock, int option,
               return -EINVAL;
             }
 
-#if defined(CONFIG_NET_TCP) && !defined(CONFIG_NET_TCP_NO_STACK)
+#ifdef NET_TCP_HAVE_STACK
           if (psock->s_type == SOCK_STREAM)
             {
               FAR struct tcp_conn_s *tcp = psock->s_conn;
@@ -675,7 +675,7 @@ static int inet_get_socketlevel_option(FAR struct socket *psock, int option,
             }
           else
 #endif
-#if defined(CONFIG_NET_UDP) && !defined(CONFIG_NET_UDP_NO_STACK)
+#ifdef NET_UDP_HAVE_STACK
           if (psock->s_type == SOCK_DGRAM)
             {
               FAR struct udp_conn_s *udp = psock->s_conn;
@@ -698,7 +698,7 @@ static int inet_get_socketlevel_option(FAR struct socket *psock, int option,
               return -EINVAL;
             }
 
-#if defined(CONFIG_NET_TCP) && !defined(CONFIG_NET_TCP_NO_STACK)
+#ifdef NET_TCP_HAVE_STACK
           if (psock->s_type == SOCK_STREAM)
             {
               FAR struct tcp_conn_s *tcp = psock->s_conn;
@@ -706,7 +706,7 @@ static int inet_get_socketlevel_option(FAR struct socket *psock, int option,
             }
           else
 #endif
-#if defined(CONFIG_NET_UDP) && !defined(CONFIG_NET_UDP_NO_STACK)
+#ifdef NET_UDP_HAVE_STACK
           if (psock->s_type == SOCK_DGRAM)
             {
               FAR struct udp_conn_s *udp = psock->s_conn;
@@ -931,7 +931,7 @@ static int inet_set_socketlevel_option(FAR struct socket *psock, int option,
 
           net_lock();
 
-#if defined(CONFIG_NET_TCP) && !defined(CONFIG_NET_TCP_NO_STACK)
+#ifdef NET_TCP_HAVE_STACK
           if (psock->s_type == SOCK_STREAM)
             {
               FAR struct tcp_conn_s *tcp = psock->s_conn;
@@ -942,7 +942,7 @@ static int inet_set_socketlevel_option(FAR struct socket *psock, int option,
             }
           else
 #endif
-#if defined(CONFIG_NET_UDP) && !defined(CONFIG_NET_UDP_NO_STACK)
+#ifdef NET_UDP_HAVE_STACK
           if (psock->s_type == SOCK_DGRAM)
             {
               FAR struct udp_conn_s *udp = psock->s_conn;
@@ -988,7 +988,7 @@ static int inet_set_socketlevel_option(FAR struct socket *psock, int option,
 
           net_lock();
 
-#if defined(CONFIG_NET_TCP) && !defined(CONFIG_NET_TCP_NO_STACK)
+#ifdef NET_TCP_HAVE_STACK
           if (psock->s_type == SOCK_STREAM)
             {
               FAR struct tcp_conn_s *tcp = psock->s_conn;
@@ -999,7 +999,7 @@ static int inet_set_socketlevel_option(FAR struct socket *psock, int option,
             }
           else
 #endif
-#if defined(CONFIG_NET_UDP) && !defined(CONFIG_NET_UDP_NO_STACK)
+#ifdef NET_UDP_HAVE_STACK
           if (psock->s_type == SOCK_DGRAM)
             {
               FAR struct udp_conn_s *udp = psock->s_conn;
@@ -1904,7 +1904,7 @@ static int inet_ioctl(FAR struct socket *psock, int cmd, unsigned long arg)
       return -EBADF;
     }
 
-#if defined(CONFIG_NET_TCP) && !defined(CONFIG_NET_TCP_NO_STACK)
+#ifdef NET_TCP_HAVE_STACK
   if (psock->s_type == SOCK_STREAM ||
       (psock->s_type == SOCK_CTRL &&
       (psock->s_proto == 0 || psock->s_proto == IPPROTO_TCP)))
@@ -2123,7 +2123,7 @@ static ssize_t inet_sendfile(FAR struct socket *psock,
                              FAR struct file *infile, FAR off_t *offset,
                              size_t count)
 {
-#if defined(CONFIG_NET_TCP) && !defined(CONFIG_NET_TCP_NO_STACK)
+#ifdef NET_TCP_HAVE_STACK
   if (psock->s_type == SOCK_STREAM)
     {
       return tcp_sendfile(psock, infile, offset, count);
@@ -2410,8 +2410,8 @@ inet_sockif(sa_family_t family, int type, int protocol)
 #if defined(HAVE_PFINET6_SOCKETS) && defined(CONFIG_NET_ICMPv6_SOCKET)
   /* PF_INET, ICMP data gram sockets are a special case of raw sockets */
 
-  if (family == PF_INET6 && (type == SOCK_DGRAM || type == SOCK_CTRL) &&
-      protocol == IPPROTO_ICMP6)
+  if (family == PF_INET6 && (type == SOCK_DGRAM || type == SOCK_CTRL ||
+      type == SOCK_RAW) && protocol == IPPROTO_ICMPV6)
     {
       return &g_icmpv6_sockif;
     }

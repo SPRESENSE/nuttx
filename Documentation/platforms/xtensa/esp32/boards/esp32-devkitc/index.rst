@@ -203,7 +203,7 @@ browser:
 
 After successfully built and flashed, connect the board to the Wi-Fi network::
 
-    nsh> wapi psk wlan0 mypasswd 1
+    nsh> wapi psk wlan0 mypasswd 3
     nsh> wapi essid wlan0 myssid 1
     nsh> renew wlan0
 
@@ -524,7 +524,7 @@ From the host, start the broker and subscribe to the :code:`test` topic.  Using
 
 From the NSH, connect to an access point::
 
-    nsh> wapi psk wlan0 mypasswd 1
+    nsh> wapi psk wlan0 mypasswd 3
     nsh> wapi essid wlan0 myssid 1
     nsh> renew wlan0
 
@@ -602,7 +602,7 @@ The ``nxlooper`` application captures data from the audio device with receiving
 capabilities (the I2S1 on this example) and forwards the audio data frame to
 the audio device with transmitting capabilities (the I2S0 on this example).
 
-After successfully built and flashed, run on the boards's terminal::
+After successfully built and flashed, run on the boards' terminal::
 
   nsh> nxlooper
   nxlooper> loopback
@@ -757,6 +757,10 @@ to connect your smartphone or laptop to your board::
 In this case, you are creating the access point ``nuttxapp`` in your board and to
 connect to it on your smartphone you will be required to type the password ``mypasswd``
 using WPA2.
+
+.. tip:: Please refer to :ref:`ESP32 Wi-Fi SoftAP Mode <esp32_wi-fi_softap>`
+  for more information.
+
 The ``dhcpd_start`` is necessary to let your board to associate an IP to your smartphone.
 
 tickless
@@ -832,6 +836,9 @@ at runtime::
     nsh> wapi psk wlan0 mypasswd 3
     nsh> wapi essid wlan0 myssid 1
     nsh> renew wlan0
+
+.. tip:: Please refer to :ref:`ESP32 Wi-Fi Station Mode <esp32_wi-fi_sta>`
+  for more information.
 
 wifi_smp
 --------

@@ -162,6 +162,38 @@ To test it, just run the ``oneshot`` example::
     Waiting...
     Finished
 
+psram_quad
+----------
+
+This config tests the PSRAM driver over SPIRAM interface in quad mode.
+You can use the mm command to test the PSRAM memory::
+
+    nsh> mm
+        mallinfo:
+          Total space allocated from system = 8803232
+          Number of non-inuse chunks        = 2
+          Largest non-inuse chunk           = 8388592
+          Total allocated space             = 9672
+          Total non-inuse space             = 8793560
+    (0)Allocating 5011 bytes
+
+    ......
+
+    (31)Releasing memory at 0x3fc8c088 (size=24 bytes)
+        mallinfo:
+          Total space allocated from system = 8803232
+          Number of non-inuse chunks        = 2
+          Largest non-inuse chunk           = 8388592
+          Total allocated space             = 9672
+          Total non-inuse space             = 8793560
+    TEST COMPLETE
+
+psram_octal
+-----------
+
+Similar to the ```psram_quad``` configuration but using the SPIRAM
+interface in octal mode.
+
 pwm
 ---
 
@@ -233,6 +265,10 @@ to connect your smartphone or laptop to your board::
 In this case, you are creating the access point ``nuttxapp`` in your board and to
 connect to it on your smartphone you will be required to type the password ``mypasswd``
 using WPA2.
+
+.. tip:: Please refer to :ref:`ESP32 Wi-Fi SoftAP Mode <esp32_wi-fi_softap>`
+  for more information.
+
 The ``dhcpd_start`` is necessary to let your board to associate an IP to your smartphone.
 
 tickless
@@ -270,6 +306,9 @@ at runtime::
     nsh> wapi psk wlan0 mypasswd 3
     nsh> wapi essid wlan0 myssid 1
     nsh> renew wlan0
+
+.. tip:: Please refer to :ref:`ESP32 Wi-Fi Station Mode <esp32_wi-fi_sta>`
+  for more information.
 
 watchdog
 --------

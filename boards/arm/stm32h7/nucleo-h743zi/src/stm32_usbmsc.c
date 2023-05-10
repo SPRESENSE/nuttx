@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/risc-v/src/common/riscv_saveusercontext.c
+ * boards/arm/stm32h7/nucleo-h743zi/src/stm32_usbmsc.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -24,27 +24,36 @@
 
 #include <nuttx/config.h>
 
-#include <arch/syscall.h>
+#include <stdio.h>
+#include <syslog.h>
+#include <errno.h>
+
+#include <nuttx/board.h>
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: up_saveusercontext
+ * Name: board_usbmsc_initialize
  *
  * Description:
- *   Save the current thread context.  Full prototype is:
- *
- *   int  up_saveusercontext(void *saveregs);
- *
- * Returned Value:
- *   0: Normal return
- *   1: Context switch return
+ *   Perform architecture specific initialization as needed to establish
+ *   the mass storage device that will be exported by the USB MSC device.
  *
  ****************************************************************************/
 
-int up_saveusercontext(void *saveregs)
+int board_usbmsc_initialize(int port)
 {
-  return sys_call1(SYS_save_context, (uintptr_t)saveregs);
+  /* If system/usbmsc is built as an NSH command, then SD slot should
+   * already have been initialized in board_app_initialize()
+   * (see stm32_appinit.c).
+   * In this case, there is nothing further to be done here.
+   */
+
+#ifndef CONFIG_NSH_BUILTIN_APPS
+  stm32_mmcsd_initialize(0);
+#else
+  return OK;
+#endif
 }
