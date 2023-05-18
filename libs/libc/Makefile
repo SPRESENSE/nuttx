@@ -45,6 +45,7 @@ include obstack/Make.defs
 include pthread/Make.defs
 include pwd/Make.defs
 include queue/Make.defs
+include regex/Make.defs
 include sched/Make.defs
 include semaphore/Make.defs
 include signal/Make.defs
@@ -81,6 +82,7 @@ else
 endif
 
 CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)libs$(DELIM)libc
+AFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)libs$(DELIM)libc
 
 # Rule for the symbol table generation
 
