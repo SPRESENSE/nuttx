@@ -95,18 +95,6 @@
 int nrf53_bringup(void);
 
 /****************************************************************************
- * Name: nrf53_timer_driver_setup
- *
- * Description:
- *   Initialize TIMER driver.
- *
- ****************************************************************************/
-
-#ifdef CONFIG_TIMER
-int nrf53_timer_driver_setup(const char *devpath, int timer);
-#endif
-
-/****************************************************************************
  * Name: nrf53_pwm_setup
  *
  * Description:
@@ -128,6 +116,18 @@ int nrf53_pwm_setup(void);
 
 #ifdef CONFIG_ADC
 int nrf53_adc_setup(void);
+#endif
+
+/****************************************************************************
+ * Name: nrf53_mx25_initialize
+ *
+ * Description:
+ *   Initialize the MX25RXX QSPI memeory
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_NRF53_QSPI
+int nrf53_mx25_initialize(void);
 #endif
 
 #endif /* __ASSEMBLY__ */

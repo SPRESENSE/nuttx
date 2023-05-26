@@ -1,5 +1,5 @@
 ############################################################################
-# boards/arm/nrf53/thingy53/src/Makefile
+# boards/arm/nrf53/thingy53/src/Make.defs
 #
 # Licensed to the Apache Software Foundation (ASF) under one or more
 # contributor license agreements.  See the NOTICE file distributed with
@@ -34,4 +34,14 @@ ifeq ($(CONFIG_ARCH_BUTTONS),y)
 CSRCS += nrf53_buttons.c
 endif
 
-include $(TOPDIR)/boards/Board.mk
+ifeq ($(CONFIG_USBDEV),y)
+CSRCS += nrf53_usb.c
+endif
+
+ifeq ($(CONFIG_USBDEV_COMPOSITE),y)
+CSRCS += nrf53_composite.c
+endif
+
+DEPPATH += --dep-path board
+VPATH += :board
+CFLAGS += $(shell $(INCDIR) "$(CC)" $(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)board$(DELIM)board)

@@ -4009,6 +4009,12 @@ endif
 if ARCH_CHIP_RP2040
 source "boards/arm/rp2040/common/Kconfig"
 endif
+if ARCH_CHIP_NRF52
+source "boards/arm/nrf52/common/Kconfig"
+endif
+if ARCH_CHIP_NRF53
+source "boards/arm/nrf53/common/Kconfig"
+endif
 endif
 
 config BOARD_CRASHDUMP
@@ -4027,6 +4033,30 @@ config BOARD_CRASHDUMP
 		what memory is trashed? So all we can expect to do is save the
 		"machine state" in a place where on the next reset can write it
 		to more sophisticated storage in a sane operating environment.
+
+config BOARD_COREDUMP
+	bool "Enable Core Dump after assert"
+	default n
+	depends on ELF_COREDUMP
+	---help---
+		Enable to support for the dump core information after assert.
+
+if BOARD_COREDUMP
+
+config BOARD_COREDUMP_FULL
+	bool "Core Dump all thread registers and stacks"
+	default y
+	---help---
+		Enable to support for the dump all task registers and stacks.
+
+config BOARD_COREDUMP_COMPRESSION
+	bool "Enable Core Dump compression"
+	default y
+	select LIBC_LZF
+	---help---
+		Enable LZF compression algorithm for core dump content
+
+endif # BOARD_COREDUMP
 
 config BOARD_ENTROPY_POOL
 	bool "Enable Board level storing of entropy pool structure"
