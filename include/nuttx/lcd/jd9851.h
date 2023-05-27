@@ -1,5 +1,5 @@
 /****************************************************************************
- * binfmt/libelf/libelf_verify.c
+ * include/nuttx/lcd/jd9851.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,93 +18,55 @@
  *
  ****************************************************************************/
 
+#ifndef __INCLUDE_NUTTX_LCD_JD9851_H
+#define __INCLUDE_NUTTX_LCD_JD9851_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
-
-#include <string.h>
-#include <debug.h>
-#include <errno.h>
-
-#include <nuttx/elf.h>
-#include <nuttx/binfmt/elf.h>
+#include <stdbool.h>
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
 /****************************************************************************
- * Private Constant Data
+ * Public Types
  ****************************************************************************/
 
-static const char g_elfmagic[EI_MAGIC_SIZE] =
+/****************************************************************************
+ * Public Data
+ ****************************************************************************/
+
+#ifdef __cplusplus
+extern "C"
 {
-    0x7f, 'E', 'L', 'F'
-};
+#endif
 
 /****************************************************************************
- * Private Functions
+ * Public Function Prototypes
  ****************************************************************************/
 
 /****************************************************************************
- * Public Functions
- ****************************************************************************/
-
-/****************************************************************************
- * Name: elf_verifyheader
+ * Name:  jd9851_initialize
  *
  * Description:
- *   Given the header from a possible ELF executable, verify that it
- *   is an ELF executable.
+ *   Initialize the JD9851 video hardware.  The initial state of the
+ *   LCD is fully initialized, display memory cleared, and the LCD ready
+ *   to use, but with the power setting at 0 (full off == sleep mode).
  *
  * Returned Value:
- *   0 (OK) is returned on success and a negated errno is returned on
- *   failure.
  *
- *   -ENOEXEC  : Not an ELF file
- *   -EINVAL : Not a relocatable ELF file or not supported by the current,
- *               configured architecture.
+ *   On success, this function returns a reference to the LCD object for
+ *   the specified LCD.  NULL is returned on any failure.
  *
  ****************************************************************************/
 
-int elf_verifyheader(FAR const Elf_Ehdr *ehdr)
-{
-  if (!ehdr)
-    {
-      berr("NULL ELF header!");
-      return -ENOEXEC;
-    }
+FAR struct lcd_dev_s *jd9851_lcdinitialize(FAR struct spi_dev_s *spi);
 
-  /* Verify that the magic number indicates an ELF file */
-
-  if (memcmp(ehdr->e_ident, g_elfmagic, EI_MAGIC_SIZE) != 0)
-    {
-      binfo("Not ELF magic {%02x, %02x, %02x, %02x}\n",
-            ehdr->e_ident[0], ehdr->e_ident[1], ehdr->e_ident[2],
-            ehdr->e_ident[3]);
-      return -ENOEXEC;
-    }
-
-  /* Verify that this is a relocatable file */
-
-  if ((ehdr->e_type != ET_REL) && (ehdr->e_type != ET_EXEC))
-    {
-      berr("Not a relocatable or executable file: e_type=%d\n",
-                                        ehdr->e_type);
-      return -EINVAL;
-    }
-
-  /* Verify that this file works with the currently configured architecture */
-
-  if (!up_checkarch(ehdr))
-    {
-      berr("Not a supported architecture\n");
-      return -ENOEXEC;
-    }
-
-  /* Looks good so far... we still might find some problems later. */
-
-  return OK;
+#ifdef __cplusplus
 }
+#endif
+
+#endif /* __INCLUDE_NUTTX_LCD_JD9851_H */
