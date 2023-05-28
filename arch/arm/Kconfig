@@ -718,6 +718,7 @@ config ARCH_CORTEXM0
 config ARCH_ARMV7M
 	bool
 	default n
+	select ARCH_HAVE_CPUINFO
 
 config ARCH_CORTEXM3
 	bool
@@ -771,6 +772,7 @@ config ARCH_CORTEXM7
 config ARCH_ARMV7A
 	bool
 	default n
+	select ARCH_HAVE_CPUINFO
 	select ARM_HAVE_WFE_SEV
 
 config ARCH_CORTEXA5
@@ -819,6 +821,7 @@ config ARCH_CORTEXA9
 config ARCH_ARMV7R
 	bool
 	default n
+	select ARCH_HAVE_CPUINFO
 
 config ARCH_CORTEXR4
 	bool
@@ -850,6 +853,7 @@ config ARCH_CORTEXR7
 config ARCH_ARMV8M
 	bool
 	default n
+	select ARCH_HAVE_CPUINFO
 
 config ARCH_CORTEXM23
 	bool
