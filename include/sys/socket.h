@@ -51,8 +51,6 @@
 #define PF_IEEE802154 36         /* Low level IEEE 802.15.4 radio frame interface */
 #define PF_PKTRADIO   64         /* Low level packet radio interface */
 #define PF_RPMSG      65         /* Remote core communication */
-#define PF_USRSOCK    70         /* UsrSock API communication */
-#define PF_SMSSOCK    71         /* Short Message Service sockets */
 
 /* Supported Address Families. Opengroup.org requires only AF_UNSPEC,
  * AF_UNIX, AF_INET and AF_INET6.
@@ -71,8 +69,6 @@
 #define AF_IEEE802154  PF_IEEE802154
 #define AF_PKTRADIO    PF_PKTRADIO
 #define AF_RPMSG       PF_RPMSG
-#define AF_USRSOCK     PF_USRSOCK
-#define AF_SMSSOCK     PF_SMSSOCK
 
 /* The socket created by socket() has the indicated type, which specifies
  * the communication semantics.
@@ -99,6 +95,9 @@
 #define SOCK_CTRL      6        /* SOCK_CTRL is the preferred socket type to use
                                  * when we just want a socket for performing driver
                                  * ioctls. This definition is not POSIX compliant.
+                                 */
+#define SOCK_SMS       7        /* Support SMS(Short Message Service) socket.
+                                 * This definition is not POSIX compliant.
                                  */
 #define SOCK_PACKET   10        /* Obsolete and should not be used in new programs */
 
