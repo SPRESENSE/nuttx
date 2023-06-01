@@ -1,5 +1,5 @@
 /****************************************************************************
-* boards/arm/nrf53/nrf5340-audio-dk/scripts/flash_config_net.ld
+ * boards/arm/nrf53/common/scripts/flash_app.ld
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,12 +18,41 @@
  *
  ****************************************************************************/
 
+#include <nuttx/config.h>
+
+#define FLASH_CPUAPP_START_ADDR 0x00000000
+#define RAM_CPUAPP_START_ADDR   0x20000000
+
+/* Image format configuration */
+
+#ifdef CONFIG_NRF53_APP_FORMAT_MCUBOOT
+#  define MCUBOOT_HEADER_SIZE   CONFIG_NRF53_MCUBOOT_HEADER_SIZE
+#  ifdef CONFIG_BOARDCTL_BOOT_IMAGE
+#    define FLASH_OFFSET        0
+#    define FLASH_IMG_SIZE      CONFIG_NRF53_OTA_PRIMARY_SLOT_OFFSET
+#  else
+#    define FLASH_OFFSET        (CONFIG_NRF53_OTA_PRIMARY_SLOT_OFFSET + MCUBOOT_HEADER_SIZE)
+#    define FLASH_IMG_SIZE      (CONFIG_NRF53_OTA_SLOT_SIZE - MCUBOOT_HEADER_SIZE)
+#  endif
+#else
+#  define FLASH_OFFSET          0
+#  define FLASH_IMG_SIZE        CONFIG_NRF53_CPUAPP_MEM_FLASH_SIZE
+#endif
+
+/* Shared memory configuration */
+
+#ifdef CONFIG_RPTUN
+#  define RPTUN_SHMEM 0x8000
+#else
+#  define RPTUN_SHMEM 0
+#endif
+
 MEMORY
 {
-    app_progmem (rx)  : ORIGIN = 0x00000000, LENGTH = 1024K
-    app_datamem (rwx) : ORIGIN = 0x20000000, LENGTH = 512K
-    progmem (rx)  : ORIGIN = 0x01000000, LENGTH = 256K
-    datamem (rwx) : ORIGIN = 0x21000000, LENGTH = 64K
+    progmem (rx)  : ORIGIN = FLASH_CPUAPP_START_ADDR + FLASH_OFFSET,
+                    LENGTH = FLASH_IMG_SIZE
+    datamem (rwx) : ORIGIN = RAM_CPUAPP_START_ADDR,
+                    LENGTH = CONFIG_NRF53_CPUAPP_MEM_RAM_SIZE - RPTUN_SHMEM
 }
 
 OUTPUT_ARCH(arm)

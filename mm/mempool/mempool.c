@@ -30,6 +30,7 @@
 
 #include <nuttx/kmalloc.h>
 #include <nuttx/mm/mempool.h>
+#include <nuttx/sched.h>
 
 #include "kasan/kasan.h"
 
@@ -415,20 +416,15 @@ mempool_info_task(FAR struct mempool_s *pool,
       info.aordblks += count;
       info.uordblks += count * pool->blocksize;
     }
+#if CONFIG_MM_BACKTRACE < 0
   else if (dump->pid == MM_BACKTRACE_ALLOC_PID)
     {
-#if CONFIG_MM_BACKTRACE >= 0
-      size_t count = list_length(&pool->alist);
-#else
       size_t count = pool->nalloc;
-#endif
 
       info.aordblks += count;
       info.uordblks += count * pool->blocksize;
-      info.aordblks -= pool->nexpend;
-      info.uordblks -= pool->totalsize;
     }
-#if CONFIG_MM_BACKTRACE >= 0
+#else
   else
     {
       FAR struct mempool_backtrace_s *buf;
@@ -436,12 +432,15 @@ mempool_info_task(FAR struct mempool_s *pool,
       list_for_every_entry(&pool->alist, buf, struct mempool_backtrace_s,
                            node)
         {
-          if (buf->pid == dump->pid &&
-              buf->seqno >= dump->seqmin &&
-              buf->seqno <= dump->seqmax)
+          if (dump->pid == buf->pid || dump->pid == MM_BACKTRACE_ALLOC_PID ||
+              (dump->pid == MM_BACKTRACE_INVALID_PID &&
+               nxsched_get_tcb(buf->pid) == NULL))
             {
-              info.aordblks++;
-              info.uordblks += pool->blocksize;
+              if (buf->seqno >= dump->seqmin && buf->seqno <= dump->seqmax)
+                {
+                  info.aordblks++;
+                  info.uordblks += pool->blocksize;
+                }
             }
         }
     }

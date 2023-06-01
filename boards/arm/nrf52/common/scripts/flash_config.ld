@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/arm/nrf53/thingy53/scripts/flash_rptun_net.ld
+ * boards/arm/nrf52/common/scripts/flash_config.ld
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,13 +18,31 @@
  *
  ****************************************************************************/
 
+#include <nuttx/config.h>
+
+#define FLASH_START_ADDR        0x00000000
+#define RAM_START_ADDR          0x20000000
+
+#ifdef CONFIG_NRF52_APP_FORMAT_MCUBOOT
+#  define MCUBOOT_HEADER_SIZE   CONFIG_NRF52_MCUBOOT_HEADER_SIZE
+#  ifdef CONFIG_BOARDCTL_BOOT_IMAGE
+#    define FLASH_OFFSET        0
+#    define FLASH_IMG_SIZE      CONFIG_NRF52_OTA_PRIMARY_SLOT_OFFSET
+#  else
+#    define FLASH_OFFSET        (CONFIG_NRF52_OTA_PRIMARY_SLOT_OFFSET + MCUBOOT_HEADER_SIZE)
+#    define FLASH_IMG_SIZE      (CONFIG_NRF52_OTA_SLOT_SIZE - MCUBOOT_HEADER_SIZE)
+#  endif
+#else
+#  define FLASH_OFFSET          0
+#  define FLASH_IMG_SIZE        CONFIG_NRF52_MEM_FLASH_SIZE
+#endif
+
 MEMORY
 {
-    app_progmem (rx)  : ORIGIN = 0x00000000, LENGTH = 1024K
-    app_datamem (rwx) : ORIGIN = 0x20000000, LENGTH = 512K-32K
-    shared (rwx)  : ORIGIN = 0x20078000, LENGTH = 32K
-    progmem (rx)  : ORIGIN = 0x01000000, LENGTH = 256K
-    datamem (rwx) : ORIGIN = 0x21000000, LENGTH = 64K
+    progmem (rx)  : ORIGIN = FLASH_START_ADDR + FLASH_OFFSET,
+                    LENGTH = FLASH_IMG_SIZE
+    datamem (rwx) : ORIGIN = RAM_START_ADDR,
+                    LENGTH = CONFIG_NRF52_MEM_RAM_SIZE
 }
 
 OUTPUT_ARCH(arm)
