@@ -33,6 +33,7 @@
 #include <nuttx/wireless/lte/lte.h>
 
 #include "altcom_cmd.h"
+#include "altcom_errno.h"
 
 /****************************************************************************
  * Private Functions
@@ -249,7 +250,7 @@ int32_t altcom_fwcommon_pkt_parse(FAR struct alt1250_dev_s *dev,
    * Zero indicates command successed or size of injected data
    */
 
-  result_cmd = ntohl(in->api_result);
+  result_cmd = altcom_geterrcode(in->api_result);
   injection_retcode = ntohs(in->ltefw_result);
 
   return (injection_retcode != 0) ? -injection_retcode : result_cmd;

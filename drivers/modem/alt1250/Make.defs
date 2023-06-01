@@ -36,6 +36,7 @@ CSRCS += altcom_hdlr_firmware.c
 CSRCS += altcom_hdlr_log.c
 CSRCS += altcom_hdlr_other.c
 CSRCS += altcom_lwm2m_hdlr.c
+CSRCS += altcom_errno.c
 CSRCS += altmdm.c
 CSRCS += altmdm_event.c
 CSRCS += altmdm_spi.c

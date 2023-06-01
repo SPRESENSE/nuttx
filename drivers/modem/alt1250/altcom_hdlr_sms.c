@@ -31,6 +31,7 @@
 #include <arpa/inet.h>
 
 #include "altcom_cmd_sms.h"
+#include "altcom_errno.h"
 
 /****************************************************************************
  * Public Functions
@@ -186,7 +187,7 @@ int32_t altcom_smscommon_pkt_parse(FAR struct alt1250_dev_s *dev,
   FAR struct apicmd_sms_res_s *in =
     (FAR struct apicmd_sms_res_s *)pktbuf;
 
-  return ntohl(in->result);
+  return altcom_geterrcode(in->result);
 }
 
 int32_t altcom_smssend_pkt_parse(FAR struct alt1250_dev_s *dev,
@@ -198,7 +199,7 @@ int32_t altcom_smssend_pkt_parse(FAR struct alt1250_dev_s *dev,
     (FAR struct apicmd_sms_sendres_s *)pktbuf;
   FAR struct sms_refids_s *refid = (FAR struct sms_refids_s *)arg[0];
   uint16_t msglen = *((FAR uint16_t *)arg[1]);
-  int32_t sendresult = ntohl(in->result);
+  int32_t sendresult = altcom_geterrcode(in->result);
 
   if (sendresult >= 0)
     {
