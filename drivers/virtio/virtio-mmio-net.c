@@ -394,6 +394,14 @@ static int virtnet_transmit(FAR struct virtnet_driver_s *priv)
 
   wd_start(&priv->vnet_txtimeout, VIRTNET_TXTIMEOUT,
            virtnet_txtimeout_expiry, (wdparm_t)priv);
+
+  /* Wait for completion */
+
+  while (priv->txq->avail->idx != priv->txq->used->idx)
+    {
+      virtio_mb();
+    }
+
   return OK;
 }
 
@@ -413,7 +421,7 @@ static int virtnet_transmit(FAR struct virtnet_driver_s *priv)
  *   dev - Reference to the NuttX driver state structure
  *
  * Returned Value:
- *   OK on success; a negated errno on failure
+ *   Always OK
  *
  * Assumptions:
  *   The network is locked.
@@ -435,9 +443,11 @@ static int virtnet_txpoll(FAR struct net_driver_s *dev)
 
   virtnet_reply(priv);
 
-  /* Stop the poll now because we only have one tx buffer (g_pktbuf) */
+  /* NOTE: Since virtnet_transmit() now waits for TX completion,
+   * this method should return OK to continue.
+   */
 
-  return -EBUSY;
+  return OK;
 }
 
 /****************************************************************************
