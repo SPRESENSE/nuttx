@@ -214,3 +214,4 @@ int altcom_geterrcode(int32_t err_code)
 
   return err;
 }
+

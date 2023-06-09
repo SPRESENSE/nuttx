@@ -277,7 +277,8 @@ static ssize_t read_data(FAR struct alt1250_dev_s *dev,
  ****************************************************************************/
 
 static void write_evtbitmap(FAR struct alt1250_dev_s *dev,
-                            uint64_t bitmap, FAR struct alt_container_s *container)
+                            uint64_t bitmap,
+                            FAR struct alt_container_s *container)
 {
   nxmutex_lock(&dev->evtmaplock);
 
