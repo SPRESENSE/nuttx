@@ -114,6 +114,8 @@ static const struct file_operations g_wiznet_fops =
   wizdev_write, /* write */
   NULL,         /* seek */
   wizdev_ioctl, /* ioctl */
+  NULL,         /* mmap */
+  NULL,         /* truncate */
   wizdev_poll,  /* poll */
   NULL          /* unlink */
 };
