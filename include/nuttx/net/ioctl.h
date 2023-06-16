@@ -126,7 +126,7 @@
 
 #define SIOCSCELLNETDEV    _SIOC(0x0032)  /* Set cellular Netowrk Interface */
 
-/* Network socket control ****************************************************/
+/* Network socket control ***************************************************/
 
 #define SIOCDENYINETSOCK _SIOC(0x0033) /* Deny network socket. */
 
