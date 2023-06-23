@@ -847,14 +847,14 @@ static int procfs_readdir(FAR struct inode *mountpt,
           FAR struct tcb_s *tcb = nxsched_get_tcb(pid);
           if (!tcb)
             {
-              ferr("ERROR: PID %d is no longer valid\n", (int)pid);
+              ferr("ERROR: PID %d is no longer valid\n", pid);
               return -ENOENT;
             }
 
           /* Save the filename=pid and file type=directory */
 
           entry->d_type = DTYPE_DIRECTORY;
-          procfs_snprintf(entry->d_name, NAME_MAX + 1, "%d", (int)pid);
+          procfs_snprintf(entry->d_name, NAME_MAX + 1, "%d", pid);
 
           /* Set up the next directory entry offset.  NOTE that we could use
            * the standard f_pos instead of our own private index.
@@ -1005,7 +1005,6 @@ static int procfs_statfs(FAR struct inode *mountpt, FAR struct statfs *buf)
 {
   /* Fill in the statfs info */
 
-  memset(buf, 0, sizeof(struct statfs));
   buf->f_type    = PROCFS_MAGIC;
   buf->f_bsize   = 0;
   buf->f_blocks  = 0;

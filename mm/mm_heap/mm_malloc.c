@@ -27,7 +27,6 @@
 #include <assert.h>
 #include <debug.h>
 #include <string.h>
-#include <malloc.h>
 
 #include <nuttx/arch.h>
 #include <nuttx/mm/mm.h>
@@ -79,14 +78,14 @@ static void free_delaylist(FAR struct mm_heap_s *heap)
 void mm_dump_handler(FAR struct tcb_s *tcb, FAR void *arg)
 {
   struct mallinfo_task info;
-  struct mm_memdump_s dump;
+  struct malltask task;
 
-  dump.pid = tcb ? tcb->pid : MM_BACKTRACE_INVALID_PID;
-  dump.seqmin = 0;
-  dump.seqmax = ULONG_MAX;
-  info = mm_mallinfo_task(arg, &dump);
+  task.pid = tcb ? tcb->pid : PID_MM_LEAK;
+  task.seqmin = 0;
+  task.seqmax = ULONG_MAX;
+  info = mm_mallinfo_task(arg, &task);
   mwarn("pid:%5d, used:%10d, nused:%10d\n",
-        dump.pid, info.uordblks, info.aordblks);
+        task.pid, info.uordblks, info.aordblks);
 }
 #endif
 
@@ -275,14 +274,14 @@ FAR void *mm_malloc(FAR struct mm_heap_s *heap, size_t size)
 #  ifdef CONFIG_MM_DUMP_DETAILS_ON_FAILURE
       struct mm_memdump_s dump =
       {
-        MM_BACKTRACE_ALLOC_PID, 0, ULONG_MAX
+        PID_MM_ALLOC, 0, ULONG_MAX
       };
 #  endif
 #endif
 
       mwarn("WARNING: Allocation failed, size %zu\n", alignsize);
 #ifdef CONFIG_MM_DUMP_ON_FAILURE
-      mm_mallinfo(heap, &minfo);
+      minfo = mm_mallinfo(heap);
       mwarn("Total:%d, used:%d, free:%d, largest:%d, nused:%d, nfree:%d\n",
             minfo.arena, minfo.uordblks, minfo.fordblks,
             minfo.mxordblk, minfo.aordblks, minfo.ordblks);
