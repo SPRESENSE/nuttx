@@ -26,9 +26,7 @@
  ****************************************************************************/
 
 #include <nuttx/config.h>
-#include <nuttx/fs/ioctl.h>
-#include <nuttx/sensors/ioctl.h>
-#include <nuttx/i2c/i2c_master.h>
+#include <stdint.h>
 
 /****************************************************************************
  * Public Types
@@ -60,9 +58,6 @@ struct cxd5610_gnss_lowerops_s
 struct cxd5610_gnss_lowerhalf_s
 {
   FAR const struct cxd5610_gnss_lowerops_s *ops;
-  FAR struct i2c_master_s *i2c; /* I2C interface */
-  uint8_t       addr;           /* I2C address */
-  int           freq;           /* I2C frequency */
 };
 
 #ifdef __cplusplus
