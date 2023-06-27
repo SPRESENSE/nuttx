@@ -25,8 +25,9 @@
 #include <nuttx/config.h>
 
 #include <stdio.h>
-#include <debug.h>
+#include <stdint.h>
 #include <errno.h>
+#include <debug.h>
 #include <nuttx/sensors/cxd5610_gnss.h>
 #include <nuttx/i2c/i2c_master.h>
 #include <arch/chip/pin.h>
@@ -72,6 +73,8 @@ static struct cxd5610_gnss_lowerhalf_s g_gnss_addon_lowerhalf =
   &g_gnss_addon_ops
 };
 
+static struct i2c_master_s *g_i2c;
+
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
@@ -82,13 +85,13 @@ static int cxd5610_gnss_i2csend(struct cxd5610_gnss_lowerhalf_s *lower,
   struct i2c_msg_s msg;
   int ret;
 
-  msg.frequency = lower->freq;
-  msg.addr      = lower->addr;
+  msg.frequency = CXD5610_I2C_FREQ;
+  msg.addr      = CXD5610_I2C_ADDR;
   msg.flags     = 0;
   msg.buffer    = buffer;
   msg.length    = buflen;
 
-  ret = I2C_TRANSFER(lower->i2c, &msg, 1);
+  ret = I2C_TRANSFER(g_i2c, &msg, 1);
 
   return ret;
 }
@@ -99,13 +102,13 @@ static int cxd5610_gnss_i2crecv(struct cxd5610_gnss_lowerhalf_s *lower,
   struct i2c_msg_s msg;
   int ret;
 
-  msg.frequency = lower->freq;
-  msg.addr      = lower->addr;
+  msg.frequency = CXD5610_I2C_FREQ;
+  msg.addr      = CXD5610_I2C_ADDR;
   msg.flags     = I2C_M_READ;
   msg.buffer    = buffer;
   msg.length    = buflen;
 
-  ret = I2C_TRANSFER(lower->i2c, &msg, 1);
+  ret = I2C_TRANSFER(g_i2c, &msg, 1);
   return ret;
 }
 
@@ -138,22 +141,17 @@ static int cxd5610_gnss_disableint(struct cxd5610_gnss_lowerhalf_s *lower)
 int board_gnss_addon_initialize(const char *devpath, int bus)
 {
   int ret;
-  struct i2c_master_s *i2c;
 
   sninfo("Initializing CXD5610 GNSS...\n");
 
   /* Initialize i2c device */
 
-  i2c = cxd56_i2cbus_initialize(bus);
-  if (!i2c)
+  g_i2c = cxd56_i2cbus_initialize(bus);
+  if (!g_i2c)
     {
       snerr("ERROR: Failed to initialize i2c%d.\n", bus);
       return -ENODEV;
     }
-
-  g_gnss_addon_lowerhalf.i2c = i2c;
-  g_gnss_addon_lowerhalf.addr = CXD5610_I2C_ADDR;
-  g_gnss_addon_lowerhalf.freq = CXD5610_I2C_FREQ;
 
   ret = cxd5610_gnss_register(devpath, &g_gnss_addon_lowerhalf);
   if (ret < 0)
