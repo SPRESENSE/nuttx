@@ -101,7 +101,8 @@ const struct sock_intf_s g_local_sockif =
   local_close,       /* si_close */
   local_ioctl,       /* si_ioctl */
   local_socketpair,  /* si_socketpair */
-  local_shutdown     /* si_shutdown */
+  local_shutdown,    /* si_shutdown */
+  NULL               /* si_available */
 #ifdef CONFIG_NET_SOCKOPTS
   , local_getsockopt /* si_getsockopt */
   , local_setsockopt /* si_setsockopt */

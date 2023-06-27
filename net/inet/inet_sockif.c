@@ -125,7 +125,8 @@ static const struct sock_intf_s g_inet_sockif =
   inet_close,       /* si_close */
   inet_ioctl,       /* si_ioctl */
   inet_socketpair,  /* si_socketpair */
-  inet_shutdown     /* si_shutdown */
+  inet_shutdown,    /* si_shutdown */
+  NULL              /* si_available */
 #ifdef CONFIG_NET_SOCKOPTS
   , inet_getsockopt /* si_getsockopt */
   , inet_setsockopt /* si_setsockopt */

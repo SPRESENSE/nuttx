@@ -666,6 +666,22 @@ int usrsock_ioctl(FAR struct socket *psock, int cmd, unsigned long arg);
 
 int usrsock_shutdown(FAR struct socket *psock, int how);
 
+/****************************************************************************
+ * Name: usrsock_available
+ *
+ * Description:
+ *   The available() function retrieves whether the usrsock is available or
+ *   not according to Domain, Type, Protocol and Daemon status.
+ *
+ * Input Parameters:
+ *   domain   (see sys/socket.h)
+ *   type     (see sys/socket.h)
+ *   protocol (see sys/socket.h)
+ *
+ ****************************************************************************/
+
+bool usrsock_available(int domain, int type, int protocol);
+
 #undef EXTERN
 #ifdef __cplusplus
 }
