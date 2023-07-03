@@ -74,13 +74,15 @@
 #  error "Select LTE SPI 4 or 5"
 #endif
 
-#define ACTIVE_SHUTDOWN_TIME (100)  /* ms */
+#define POWER_ON_WAIT_TIME   (2)   /* ms */
+#define ACTIVE_SHUTDOWN_TIME (100) /* ms */
+#define TIME_TO_STABLE_VDDIO (10)  /* ms */
 
 /****************************************************************************
  * Private Function Prototypes
  ****************************************************************************/
 
-static struct spi_dev_s *alt1250_poweron(void);
+static struct spi_dev_s *alt1250_poweron(bool keep_on);
 static void alt1250_poweroff(void);
 static bool alt1250_powerstatus(void);
 static int  alt1250_hibernation_mode(bool enable);
@@ -198,7 +200,7 @@ static void set_spiparam(struct spi_dev_s *spidev)
  *
  ****************************************************************************/
 
-static struct spi_dev_s *alt1250_poweron(void)
+static struct spi_dev_s *alt1250_poweron(bool keep_on)
 {
   struct spi_dev_s *spi;
 #if defined(CONFIG_CXD56_LTE_SPI4_DMAC) || defined(CONFIG_CXD56_LTE_SPI5_DMAC)
@@ -206,19 +208,37 @@ static struct spi_dev_s *alt1250_poweron(void)
   dma_config_t          conf;
 #endif
 
-  /* Drive SHUTDOWN and WAKEUP signal Low before power-on */
+  /* Hi-Z SHUTDOWN and PowerBTN signals before power-on */
 
   cxd56_gpio_config(ALT1250_SHUTDOWN, false);
-  cxd56_gpio_write(ALT1250_SHUTDOWN, 0);
-  cxd56_gpio_write(ALT1250_WAKEUP, false);
 
-  /* power on altair modem device */
+  /* power on alt1250 modem device and wait until the power is distributed */
 
   board_alt1250_poweron();
+  up_mdelay(POWER_ON_WAIT_TIME);
 
-  /* Keep the SHUTDOWN signal low until enough time for the power stable */
+  /* If keep_on is enabled, skip setting the SHUTDOWN signal to low
+   * because the ALT1250 is already in the power-on state.
+   */
+
+  if (!keep_on)
+    {
+      /* Drive SHUTDOWN signal low */
+
+      cxd56_gpio_write(ALT1250_SHUTDOWN, 0);
+    }
+
+  /* Keep the SHUTDOWN signal low for reset period */
 
   up_mdelay(ACTIVE_SHUTDOWN_TIME);
+
+  /* Undrive SHUTDOWN signal to rise up to high by pull-up */
+
+  cxd56_gpio_write_hiz(ALT1250_SHUTDOWN);
+
+  /* Wait VDDIO on Alt1250 stable */
+
+  up_mdelay(TIME_TO_STABLE_VDDIO);
 
   /* Initialize spi deivce */
 
@@ -276,10 +296,6 @@ static struct spi_dev_s *alt1250_poweron(void)
 
   spi_pincontrol(SPI_CH, true);
   set_spiparam(spi);
-
-  /* Undrive SHUTDOWN signal to rise up to high by pull-up */
-
-  cxd56_gpio_write_hiz(ALT1250_SHUTDOWN);
 
   return spi;
 }
