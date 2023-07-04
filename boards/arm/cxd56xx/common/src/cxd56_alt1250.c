@@ -74,6 +74,8 @@
 #  error "Select LTE SPI 4 or 5"
 #endif
 
+#define ACTIVE_SHUTDOWN_TIME (100)  /* ms */
+
 /****************************************************************************
  * Private Function Prototypes
  ****************************************************************************/
@@ -204,6 +206,20 @@ static struct spi_dev_s *alt1250_poweron(void)
   dma_config_t          conf;
 #endif
 
+  /* Drive SHUTDOWN and WAKEUP signal Low before power-on */
+
+  cxd56_gpio_config(ALT1250_SHUTDOWN, false);
+  cxd56_gpio_write(ALT1250_SHUTDOWN, 0);
+  cxd56_gpio_write(ALT1250_WAKEUP, false);
+
+  /* power on altair modem device */
+
+  board_alt1250_poweron();
+
+  /* Keep the SHUTDOWN signal low until enough time for the power stable */
+
+  up_mdelay(ACTIVE_SHUTDOWN_TIME);
+
   /* Initialize spi deivce */
 
   spi = cxd56_spibus_initialize(SPI_CH);
@@ -233,10 +249,6 @@ static struct spi_dev_s *alt1250_poweron(void)
     }
 #endif
 
-  /* power on altair modem device */
-
-  board_alt1250_poweron();
-
   /* Input enable */
 
   cxd56_gpio_config(ALT1250_SLAVE_REQ, true);
@@ -263,8 +275,11 @@ static struct spi_dev_s *alt1250_poweron(void)
   /* enable the SPI pin */
 
   spi_pincontrol(SPI_CH, true);
-
   set_spiparam(spi);
+
+  /* Undrive SHUTDOWN signal to rise up to high by pull-up */
+
+  cxd56_gpio_write_hiz(ALT1250_SHUTDOWN);
 
   return spi;
 }
