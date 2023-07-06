@@ -199,8 +199,8 @@ static int sim_loop_task(int argc, char **argv)
       sim_audio_loop();
 #endif
 
-#ifdef CONFIG_SIM_VIDEO
-      sim_video_loop();
+#ifdef CONFIG_SIM_CAMERA
+      sim_camera_loop();
 #endif
 
 #ifdef CONFIG_SIM_USB_DEV
@@ -299,6 +299,11 @@ void up_initialize(void)
 
   audio_register("pcm1p", sim_audio_initialize(true, true));
   audio_register("pcm1c", sim_audio_initialize(false, true));
+
+  /* register independent mixer device, simulate amixer ioctl */
+
+  audio_register("mixer", sim_audio_initialize(false, false));
+
 #endif
 
 #ifdef CONFIG_SIM_USB_DEV

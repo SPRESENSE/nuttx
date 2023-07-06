@@ -1,5 +1,5 @@
 /****************************************************************************
- * libs/libc/signal/sig_andset.c
+ * sched/clock/clock_getcpuclockid.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -22,48 +22,53 @@
  * Included Files
  ****************************************************************************/
 
-#include <signal.h>
+#include <nuttx/config.h>
+
+#include <time.h>
 #include <errno.h>
+#include <unistd.h>
+
+#include "clock/clock.h"
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: sigandset
+ * Name: clock_getcpuclockid
  *
  * Description:
- *   This function returns the intersection of right and left in dest.
- *
- *   This is a non-standard function that may be provided by glibc if
- *   _GNU_SOURCE is defined.
+ *   The function shall return clock id of the CPU-time clock of the process
+ *   specified by pid
  *
  * Input Parameters:
- *   dest        - Location to store the intersection
- *   left, right - The two sets to use in the intersection
+ *   pid - the specified process id
+ *   clockid - the clock type that need to setup
  *
  * Returned Value:
- *   This is an internal OS interface and should not be used by applications.
- *   It follows the NuttX internal error return policy:  Zero (OK) is
- *   returned on success.  A negated errno value is returned on failure.
- *
- *     0 on success and -1 on failure
- *
- * Assumptions:
+ *   Return 0 on success, return error number on error
  *
  ****************************************************************************/
 
-int sigandset(FAR sigset_t *dest, FAR const sigset_t *left,
-              FAR const sigset_t *right)
+int clock_getcpuclockid(pid_t pid, FAR clockid_t *clockid)
 {
-  int ndx;
-
-  /* Add the signal to the dest set */
-
-  for (ndx = 0; ndx < _SIGSET_NELEM; ndx++)
+  if (pid < 0)
     {
-      dest->_elem[ndx] = left->_elem[ndx] & right->_elem[ndx];
+      set_errno(EINVAL);
+      return ERROR;
     }
 
+  /* If the pid is 0, we need to use the pid of current process */
+
+  if (pid == 0)
+    {
+      pid = getpid();
+    }
+
+  /* For clock_getcpuclockid, the clock type are
+   * CLOCK_PROCESS_CPUTIME_ID
+   */
+
+  *clockid = (pid << CLOCK_SHIFT) | CLOCK_PROCESS_CPUTIME_ID;
   return OK;
 }
