@@ -1,5 +1,5 @@
 /****************************************************************************
- * libs/libc/modlib/modlib_uninit.c
+ * boards/xtensa/esp32/common/include/esp32_rgbled.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,88 +18,72 @@
  *
  ****************************************************************************/
 
+#ifndef __BOARDS_XTENSA_ESP32_COMMON_INCLUDE_ESP32_RGBLED_H
+#define __BOARDS_XTENSA_ESP32_COMMON_INCLUDE_ESP32_RGBLED_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
-#include <unistd.h>
-#include <debug.h>
-#include <errno.h>
+/****************************************************************************
+ * Pre-processor Definitions
+ ****************************************************************************/
 
-#include <nuttx/lib/modlib.h>
+#define RGB_LED_TIMER TIMER0
 
-#include "libc.h"
-#include "modlib/modlib.h"
+#define RGB_R_CHANN 0
+#define RGB_G_CHANN 1
+#define RGB_B_CHANN 2
 
 /****************************************************************************
- * Public Functions
+ * Type Definitions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: modlib_uninitialize
+ * Public Types
+ ****************************************************************************/
+
+/****************************************************************************
+ * Public Data
+ ****************************************************************************/
+
+#ifdef __cplusplus
+#define EXTERN extern "C"
+extern "C"
+{
+#else
+#define EXTERN extern
+#endif
+
+/****************************************************************************
+ * Inline Functions
+ ****************************************************************************/
+
+/****************************************************************************
+ * Public Function Prototypes
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: esp32_rgbled_initialize
  *
  * Description:
- *   Releases any resources committed by modlib_initialize().  This
- *   essentially undoes the actions of modlib_initialize.
+ *
+ *
+ * Input Parameters:
+ *   devname - The name under which the RGB led will be registered
  *
  * Returned Value:
- *   0 (OK) is returned on success and a negated errno is returned on
- *   failure.
+ *   Zero (OK) on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
-int modlib_uninitialize(struct mod_loadinfo_s *loadinfo)
-{
-  /* Free all working buffers */
+int esp32_rgbled_initialize(const char *devname);
 
-  modlib_freebuffers(loadinfo);
-
-  /* Close the ELF file */
-
-  if (loadinfo->filfd >= 0)
-    {
-      _NX_CLOSE(loadinfo->filfd);
-    }
-
-  return OK;
+#undef EXTERN
+#ifdef __cplusplus
 }
+#endif
 
-/****************************************************************************
- * Name: modlib_freebuffers
- *
- * Description:
- *  Release all working buffers.
- *
- * Returned Value:
- *   0 (OK) is returned on success and a negated errno is returned on
- *   failure.
- *
- ****************************************************************************/
-
-int modlib_freebuffers(struct mod_loadinfo_s *loadinfo)
-{
-  /* Release all working allocations  */
-
-  if (loadinfo->shdr != NULL)
-    {
-      lib_free((FAR void *)loadinfo->shdr);
-      loadinfo->shdr      = NULL;
-    }
-
-  if (loadinfo->phdr != NULL)
-    {
-      lib_free((FAR void *)loadinfo->phdr);
-      loadinfo->phdr      = NULL;
-    }
-
-  if (loadinfo->iobuffer != NULL)
-    {
-      lib_free((FAR void *)loadinfo->iobuffer);
-      loadinfo->iobuffer  = NULL;
-      loadinfo->buflen    = 0;
-    }
-
-  return OK;
-}
+#endif /* __BOARDS_XTENSA_ESP32_COMMON_INCLUDE_ESP32_RGBLED_H */
