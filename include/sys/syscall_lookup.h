@@ -71,6 +71,8 @@ SYSCALL_LOOKUP(sethostname,                2)
 
 /* Semaphores */
 
+SYSCALL_LOOKUP(nxsem_wait,                 1)
+
 SYSCALL_LOOKUP(sem_destroy,                1)
 SYSCALL_LOOKUP(sem_post,                   1)
 SYSCALL_LOOKUP(sem_clockwait,              3)
@@ -168,8 +170,6 @@ SYSCALL_LOOKUP(clock_nanosleep,            4)
  */
 
 SYSCALL_LOOKUP(clock,                      0)
-SYSCALL_LOOKUP(clock_getcpuclockid,        2)
-SYSCALL_LOOKUP(clock_getres,               2)
 SYSCALL_LOOKUP(clock_gettime,              2)
 SYSCALL_LOOKUP(clock_settime,              2)
 #ifdef CONFIG_CLOCK_TIMEKEEPING
