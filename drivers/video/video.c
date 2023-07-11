@@ -2018,6 +2018,7 @@ static int video_query_ext_ctrl(FAR struct v4l2_query_ext_ctrl *attr)
       attr->maximum       = VIDEO_SCENE_MAX - 1;
       attr->step          = 1;
       attr->default_value = 0;
+      attr->flags         = 0;
       strncpy(attr->name, "Scene Mode", 32);
     }
   else
@@ -2031,6 +2032,7 @@ static int video_query_ext_ctrl(FAR struct v4l2_query_ext_ctrl *attr)
         }
 
       attr->type = value.type;
+      attr->flags = 0;
 
       switch (value.type)
         {
