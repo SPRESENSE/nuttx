@@ -132,6 +132,10 @@
 
 #define COMMAND_WAIT_TIMEOUT  5
 
+/* Boot wait timeout in seconds */
+
+#define BOOT_WAIT_TIMEOUT  1
+
 /****************************************************************************
  * Private Types
  ****************************************************************************/
@@ -156,6 +160,7 @@ struct cxd5610_gnss_dev_s
   sem_t         dev_lock;
   sem_t         buf_lock;
   sem_t         cmd_sync;
+  sem_t         boot_sync;
 #if CONFIG_SENSORS_CXD5610_GNSS_NPOLLWAITERS != 0
   struct pollfd *fds[CONFIG_SENSORS_CXD5610_GNSS_NPOLLWAITERS];
   bool          has_event;
@@ -291,6 +296,9 @@ static int cxd5610_gnss_device_unlock(struct cxd5610_gnss_dev_s *priv);
 static int cxd5610_gnss_buffer_init(struct cxd5610_gnss_dev_s *priv);
 static int cxd5610_gnss_buffer_lock(struct cxd5610_gnss_dev_s *priv);
 static int cxd5610_gnss_buffer_unlock(struct cxd5610_gnss_dev_s *priv);
+static int cxd5610_gnss_init_boot(struct cxd5610_gnss_dev_s *priv);
+static int cxd5610_gnss_wait_boot(struct cxd5610_gnss_dev_s *priv, int sec);
+static int cxd5610_gnss_post_boot(struct cxd5610_gnss_dev_s *priv);
 static int cxd5610_gnss_init_command(struct cxd5610_gnss_dev_s *priv);
 static int cxd5610_gnss_wait_command(struct cxd5610_gnss_dev_s *priv,
                                      int sec);
@@ -971,6 +979,7 @@ static int cxd5610_gnss_thread_loop(struct cxd5610_gnss_dev_s *priv)
           if (pkt[0] == STATE_RESET)
             {
               sninfo("Boot notification\n");
+              cxd5610_gnss_post_boot(priv);
               if (priv->wait_reset)
                 {
                   cxd5610_gnss_post_command(priv);
@@ -1559,6 +1568,7 @@ static int cxd5610_gnss_open(struct file *filep)
 
       if (ret == OK)
         {
+          cxd5610_gnss_wait_boot(priv, BOOT_WAIT_TIMEOUT);
           cxd5610_gnss_set_notify(priv);
         }
     }
@@ -2041,6 +2051,33 @@ static int cxd5610_gnss_buffer_unlock(struct cxd5610_gnss_dev_s *priv)
 }
 
 /****************************************************************************
+ * Name: cxd5610_gnss_init/wait/post_boot
+ ****************************************************************************/
+
+static int cxd5610_gnss_init_boot(struct cxd5610_gnss_dev_s *priv)
+{
+  return nxsem_init(&priv->boot_sync, 0, 0);
+}
+
+static int cxd5610_gnss_wait_boot(struct cxd5610_gnss_dev_s *priv,
+                                     int sec)
+{
+  if (sec <= 0)
+    {
+      return nxsem_wait_uninterruptible(&priv->boot_sync);
+    }
+  else
+    {
+      return nxsem_tickwait_uninterruptible(&priv->boot_sync, SEC2TICK(sec));
+    }
+}
+
+static int cxd5610_gnss_post_boot(struct cxd5610_gnss_dev_s *priv)
+{
+  return nxsem_post(&priv->boot_sync);
+}
+
+/****************************************************************************
  * Name: cxd5610_gnss_init/wait/post_command
  ****************************************************************************/
 
@@ -2127,6 +2164,7 @@ int cxd5610_gnss_register(const char *devpath,
 
   cxd5610_gnss_device_init(priv);
   cxd5610_gnss_buffer_init(priv);
+  cxd5610_gnss_init_boot(priv);
   cxd5610_gnss_init_command(priv);
   cxd5610_gnss_init_interrupt();
 
