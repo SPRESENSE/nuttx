@@ -46,11 +46,21 @@
 #  include "nrf91_modem_at.h"
 #endif
 
+#ifdef CONFIG_NRF91_PROGMEM
+#  include "nrf91_progmem.h"
+#endif
+
+#ifdef CONFIG_TIMER
+#  include "nrf91_timer.h"
+#endif
+
 #include "nrf9160-dk.h"
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
+
+#define NRF91_TIMER (0)
 
 /****************************************************************************
  * Private Functions
@@ -109,6 +119,18 @@ int nrf91_bringup(void)
     }
 #endif
 
+#if defined(CONFIG_TIMER) && defined(CONFIG_NRF91_TIMER)
+  /* Configure TIMER driver */
+
+  ret = nrf91_timer_driver_setup("/dev/timer0", NRF91_TIMER);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR,
+             "ERROR: Failed to initialize timer driver: %d\n",
+             ret);
+    }
+#endif
+
 #ifdef CONFIG_NRF91_MODEM
   /* Initialize modem */
 
@@ -130,6 +152,14 @@ int nrf91_bringup(void)
              "ERROR: Failed to initialize AT interface%d\n",  ret);
     }
 #endif
+
+#ifdef CONFIG_NRF91_PROGMEM
+  ret = nrf91_progmem_init();
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: Failed to initialize MTD progmem: %d\n", ret);
+    }
+#endif /* CONFIG_MTD */
 
   UNUSED(ret);
   return OK;

@@ -65,6 +65,13 @@ if(NOT DEFINED BOARD_CONFIG)
   message(FATAL_ERROR "Please define configuration with BOARD_CONFIG")
 endif()
 
+find_program(KCONFIGLIB olddefconfig)
+if(NOT KCONFIGLIB)
+  message(
+    FATAL_ERROR "Kconfig environment depends on kconfiglib, Please install:
+  $ pip install kconfiglib")
+endif()
+
 if(EXISTS ${BOARD_CONFIG} AND EXISTS ${BOARD_CONFIG}/defconfig)
   get_filename_component(NUTTX_BOARD_ABS_DIR ${BOARD_CONFIG} ABSOLUTE BASE_DIR
                          ${NUTTX_DIR})
@@ -107,6 +114,11 @@ else()
     GLOB NUTTX_BOARD_DIR
     LIST_DIRECTORIES true
     "${NUTTX_DIR}/boards/*/*/${NUTTX_BOARD}")
+
+  file(
+    GLOB NUTTX_COMMON_DIR
+    LIST_DIRECTORIES true
+    "${NUTTX_DIR}/boards/*/*/common")
 
   if(EXISTS ${NUTTX_BOARD_DIR}/configs/${NUTTX_CONFIG}/defconfig)
     set(NUTTX_DEFCONFIG ${NUTTX_BOARD_DIR}/configs/${NUTTX_CONFIG}/defconfig)
@@ -476,6 +488,7 @@ add_subdirectory(openamp)
 add_subdirectory(arch)
 add_subdirectory(audio)
 add_subdirectory(binfmt)
+add_subdirectory(crypto)
 add_subdirectory(drivers)
 add_subdirectory(fs)
 add_subdirectory(graphics)
