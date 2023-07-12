@@ -134,7 +134,7 @@
 
 /* Boot wait timeout in seconds */
 
-#define BOOT_WAIT_TIMEOUT  1
+#define BOOT_WAIT_TIMEOUT  2
 
 /****************************************************************************
  * Private Types
