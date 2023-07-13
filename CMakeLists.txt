@@ -115,11 +115,6 @@ else()
     LIST_DIRECTORIES true
     "${NUTTX_DIR}/boards/*/*/${NUTTX_BOARD}")
 
-  file(
-    GLOB NUTTX_COMMON_DIR
-    LIST_DIRECTORIES true
-    "${NUTTX_DIR}/boards/*/*/common")
-
   if(EXISTS ${NUTTX_BOARD_DIR}/configs/${NUTTX_CONFIG}/defconfig)
     set(NUTTX_DEFCONFIG ${NUTTX_BOARD_DIR}/configs/${NUTTX_CONFIG}/defconfig)
   endif()
@@ -253,6 +248,15 @@ if(EXISTS ${NUTTX_BOARD_ABS_DIR}/../drivers
 else()
   file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/drivers/platform)
   file(TOUCH ${CMAKE_BINARY_DIR}/drivers/platform/Kconfig)
+endif()
+
+# board common directory
+
+if(CONFIG_ARCH_BOARD_COMMON)
+  file(
+    GLOB NUTTX_COMMON_DIR
+    LIST_DIRECTORIES true
+    "${NUTTX_DIR}/boards/${CONFIG_ARCH}/${CONFIG_ARCH_CHIP}/common")
 endif()
 
 # Custom chip ###################################################
@@ -525,6 +529,28 @@ endif()
 
 # Get linker script to use
 get_property(ldscript GLOBAL PROPERTY LD_SCRIPT)
+
+# Pre-compile linker script
+if(DEFINED PREPROCES)
+  get_filename_component(LD_SCRIPT_NAME ${ldscript} NAME)
+  set(LD_SCRIPT_TMP "${CMAKE_BINARY_DIR}/${LD_SCRIPT_NAME}.tmp")
+
+  add_custom_command(
+    OUTPUT ${LD_SCRIPT_TMP}
+    DEPENDS ${ldscript}
+    COMMAND
+      ${PREPROCES}
+      -I${CMAKE_BINARY_DIR}/include
+      -I${NUTTX_CHIP_ABS_DIR}
+      ${ldscript} > ${LD_SCRIPT_TMP}
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+  )
+
+  add_custom_target(ldscript_tmp DEPENDS ${LD_SCRIPT_TMP})
+  add_dependencies(nuttx ldscript_tmp)
+
+  set(ldscript ${LD_SCRIPT_TMP})
+endif()
 
 # Perform link
 
