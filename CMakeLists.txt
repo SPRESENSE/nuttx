@@ -40,6 +40,12 @@ if(POLICY CMP0115)
   cmake_policy(SET CMP0115 NEW)
 endif()
 
+# Avoid warning about DOWNLOAD_EXTRACT_TIMESTAMP in CMake 3.24:
+
+if (CMAKE_VERSION VERSION_GREATER_EQUAL "3.24.0")
+  cmake_policy(SET CMP0135 NEW)
+endif()
+
 # Basic CMake configuration ##################################################
 
 set(CMAKE_CXX_STANDARD 14)
@@ -603,6 +609,10 @@ if(NOT CONFIG_ARCH_SIM)
   endif()
 elseif(WIN32)
   target_link_options(nuttx PUBLIC /SAFESEH:NO)
+  math(EXPR LINK_STACKSIZE
+       "${CONFIG_SIM_STACKSIZE_ADJUSTMENT} + ${CONFIG_IDLETHREAD_STACKSIZE}"
+       OUTPUT_FORMAT DECIMAL)
+  target_link_options(nuttx PUBLIC /STACK:${LINK_STACKSIZE},${LINK_STACKSIZE})
   set(nuttx_libs_paths)
   foreach(lib ${nuttx_libs})
     list(APPEND nuttx_libs_paths $<TARGET_FILE:${lib}>)

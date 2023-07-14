@@ -18,7 +18,6 @@
 #
 ############################################################################
 
-
 set(SRCS stm32_boot.c stm32_bringup.c)
 
 if(CONFIG_ARCH_LEDS)
@@ -40,12 +39,12 @@ if(CONFIG_STM32_FOC)
 endif()
 
 if(CONFIG_STM32_FDCAN)
-if(CONFIG_STM32_FDCAN_CHARDRIVER)
-  list(APPEND SRCS stm32_can.c)
-endif()
-if(CONFIG_STM32_FDCAN_SOCKET)
-  list(APPEND SRCS stm32_cansock.c)
-endif()
+  if(CONFIG_STM32_FDCAN_CHARDRIVER)
+    list(APPEND SRCS stm32_can.c)
+  endif()
+  if(CONFIG_STM32_FDCAN_SOCKET)
+    list(APPEND SRCS stm32_cansock.c)
+  endif()
 endif()
 
 target_sources(board PRIVATE ${SRCS})
