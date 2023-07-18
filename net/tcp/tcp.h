@@ -289,11 +289,10 @@ struct tcp_conn_s
 
   /* Read-ahead buffering.
    *
-   *   readahead - A singly linked list of type struct iob_s
-   *               where the TCP/IP read-ahead data is retained.
+   *   readahead - An IOB chain where the TCP/IP read-ahead data is retained.
    */
 
-  struct iob_s *readahead;   /* Read-ahead buffering */
+  FAR struct iob_s *readahead;   /* Read-ahead buffering */
 
 #ifdef CONFIG_NET_TCP_OUT_OF_ORDER
 
@@ -1372,21 +1371,6 @@ uint16_t tcp_callback(FAR struct net_driver_s *dev,
 uint16_t tcp_datahandler(FAR struct net_driver_s *dev,
                          FAR struct tcp_conn_s *conn,
                          uint16_t offset);
-
-/****************************************************************************
- * Name: tcp_dataconcat
- *
- * Description:
- *   Concatenate iob_s chain iob2 to iob1, if CONFIG_NET_TCP_RECV_PACK is
- *   endabled, pack all data in the I/O buffer chain.
- *
- * Returned Value:
- *   The number of bytes actually buffered is returned.  This will be either
- *   zero or equal to iob1->io_pktlen.
- *
- ****************************************************************************/
-
-uint16_t tcp_dataconcat(FAR struct iob_s **iob1, FAR struct iob_s **iob2);
 
 /****************************************************************************
  * Name: tcp_backlogcreate

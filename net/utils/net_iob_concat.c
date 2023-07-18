@@ -1,5 +1,5 @@
 /****************************************************************************
- * net/udp/udp_ioctl.c
+ * net/utils/net_iob_concat.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -24,77 +24,51 @@
 
 #include <nuttx/config.h>
 
-#include <stdint.h>
-#include <stdbool.h>
-#include <debug.h>
-#include <errno.h>
+#include <sys/types.h>
 
-#include <net/if.h>
-
-#include <nuttx/fs/ioctl.h>
 #include <nuttx/mm/iob.h>
-#include <nuttx/net/net.h>
 
-#include "udp/udp.h"
+#ifdef CONFIG_MM_IOB
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: udp_ioctl
+ * Name: net_iob_concat
  *
  * Description:
- *   This function performs udp specific ioctl() operations.
+ *   Concatenate iob_s chain iob2 to iob1, if CONFIG_NET_RECV_PACK is
+ *   endabled, pack all data in the I/O buffer chain.
  *
- * Parameters:
- *   conn     The TCP connection of interest
- *   cmd      The ioctl command
- *   arg      The argument of the ioctl cmd
+ * Returned Value:
+ *   The number of bytes actually buffered is returned.  This will be either
+ *   zero or equal to iob->io_pktlen.
  *
  ****************************************************************************/
 
-int udp_ioctl(FAR struct udp_conn_s *conn, int cmd, unsigned long arg)
+uint16_t net_iob_concat(FAR struct iob_s **iob1, FAR struct iob_s **iob2)
 {
-  FAR struct iob_s *iob;
-  int ret = OK;
-
-  net_lock();
-
-  switch (cmd)
+  if (*iob1 == NULL)
     {
-      case FIONREAD:
-        iob = conn->readahead;
-        if (iob)
-          {
-            uint16_t datalen;
-            iob_copyout((FAR uint8_t *)&datalen, iob, sizeof(datalen), 0);
-            *(FAR int *)((uintptr_t)arg) = datalen;
-          }
-        else
-          {
-            *(FAR int *)((uintptr_t)arg) = 0;
-          }
-        break;
-      case FIONSPACE:
-#ifdef CONFIG_NET_UDP_WRITE_BUFFERS
-#  if CONFIG_NET_SEND_BUFSIZE == 0
-        *(FAR int *)((uintptr_t)arg) =
-                                iob_navail(true) * CONFIG_IOB_BUFSIZE;
-#  else
-        *(FAR int *)((uintptr_t)arg) =
-                        conn->sndbufs - udp_wrbuffer_inqueue_size(conn);
-#  endif
-#else
-        *(FAR int *)((uintptr_t)arg) = MIN_UDP_MSS;
-#endif
-        break;
-      default:
-        ret = -ENOTTY;
-        break;
+      *iob1 = *iob2;
+    }
+  else
+    {
+      iob_concat(*iob1, *iob2);
     }
 
-  net_unlock();
+  *iob2 = NULL;
 
-  return ret;
+#ifdef CONFIG_NET_RECV_PACK
+  /* Merge an iob chain into a continuous space, thereby reducing iob
+   * consumption.
+   */
+
+  *iob1 = iob_pack(*iob1);
+#endif
+
+  return (*iob1)->io_pktlen;
 }
+
+#endif /* CONFIG_MM_IOB */
