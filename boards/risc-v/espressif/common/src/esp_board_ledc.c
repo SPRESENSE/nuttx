@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/xtensa/esp32s3/common/src/esp32s3_board_wdt.c
+ * boards/risc-v/espressif/common/src/esp_board_ledc.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -25,25 +25,39 @@
 #include <nuttx/config.h>
 
 #include <sys/types.h>
+#include <errno.h>
 #include <debug.h>
 
-#include "esp32s3_board_wdt.h"
-#include "esp32s3_wdt_lowerhalf.h"
-#include "esp32s3_wdt.h"
+#include <nuttx/board.h>
+#include <nuttx/timers/pwm.h>
+
+#include <arch/board/board.h>
+
+#include "esp_ledc.h"
+
+#include "esp_board_ledc.h"
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
+
+#define LEDC_TIMER0 0
+#define LEDC_TIMER1 1
+#define LEDC_TIMER2 2
+#define LEDC_TIMER3 3
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: board_wdt_init
+ * Name: board_ledc_setup
  *
  * Description:
- *   Configure the watchdog timer driver.
+ *   Initialize LEDC PWM and register the PWM device.
+ *
+ * Input Parameters:
+ *   None.
  *
  * Returned Value:
  *   Zero (OK) is returned on success; A negated errno value is returned
@@ -51,36 +65,82 @@
  *
  ****************************************************************************/
 
-int board_wdt_init(void)
+int board_ledc_setup(void)
 {
   int ret = OK;
+  struct pwm_lowerhalf_s *pwm;
 
-#ifdef CONFIG_ESP32S3_MWDT0
-  ret = esp32s3_wdt_initialize("/dev/watchdog0", ESP32S3_WDT_MWDT0);
+#ifdef CONFIG_ESPRESSIF_LEDC_TIMER0
+  pwm = esp_ledc_init(LEDC_TIMER0);
+  if (!pwm)
+    {
+      syslog(LOG_ERR, "ERROR: Failed to get the LEDC PWM 0 lower half\n");
+      return -ENODEV;
+    }
+
+  /* Register the PWM driver at "/dev/pwm0" */
+
+  ret = pwm_register("/dev/pwm0", pwm);
   if (ret < 0)
     {
-      syslog(LOG_ERR, "Failed to initialize MWDT0: %d\n", ret);
+      syslog(LOG_ERR, "ERROR: pwm_register failed: %d\n", ret);
       return ret;
     }
-#endif /* CONFIG_ESP32S3_MWDT0 */
+#endif
 
-#ifdef CONFIG_ESP32S3_MWDT1
-  ret = esp32s3_wdt_initialize("/dev/watchdog1", ESP32S3_WDT_MWDT1);
+#ifdef CONFIG_ESPRESSIF_LEDC_TIMER1
+  pwm = esp_ledc_init(LEDC_TIMER1);
+  if (!pwm)
+    {
+      syslog(LOG_ERR, "ERROR: Failed to get the LEDC PWM 1 lower half\n");
+      return -ENODEV;
+    }
+
+  /* Register the PWM driver at "/dev/pwm1" */
+
+  ret = pwm_register("/dev/pwm1", pwm);
   if (ret < 0)
     {
-      syslog(LOG_ERR, "Failed to initialize MWDT1: %d\n", ret);
+      syslog(LOG_ERR, "ERROR: pwm_register failed: %d\n", ret);
       return ret;
     }
-#endif /* CONFIG_ESP32S3_MWDT1 */
+#endif
 
-#ifdef CONFIG_ESP32S3_RWDT
-  ret = esp32s3_wdt_initialize("/dev/watchdog2", ESP32S3_WDT_RWDT);
+#ifdef CONFIG_ESPRESSIF_LEDC_TIMER2
+  pwm = esp_ledc_init(LEDC_TIMER2);
+  if (!pwm)
+    {
+      syslog(LOG_ERR, "ERROR: Failed to get the LEDC PWM 2 lower half\n");
+      return -ENODEV;
+    }
+
+  /* Register the PWM driver at "/dev/pwm2" */
+
+  ret = pwm_register("/dev/pwm2", pwm);
   if (ret < 0)
     {
-      syslog(LOG_ERR, "Failed to initialize RWDT: %d\n", ret);
+      syslog(LOG_ERR, "ERROR: pwm_register failed: %d\n", ret);
       return ret;
     }
-#endif /* CONFIG_ESP32S3_RWDT */
+#endif
+
+#ifdef CONFIG_ESPRESSIF_LEDC_TIMER3
+  pwm = esp_ledc_init(LEDC_TIMER3);
+  if (!pwm)
+    {
+      syslog(LOG_ERR, "ERROR: Failed to get the LEDC PWM 3 lower half\n");
+      return -ENODEV;
+    }
+
+  /* Register the PWM driver at "/dev/pwm3" */
+
+  ret = pwm_register("/dev/pwm3", pwm);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: pwm_register failed: %d\n", ret);
+      return ret;
+    }
+#endif
 
   return ret;
 }

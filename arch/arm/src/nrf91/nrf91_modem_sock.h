@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/xtensa/esp32s3/common/src/esp32s3_board_bmp180.c
+ * arch/arm/src/nrf91/nrf91_modem_sock.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -24,51 +24,6 @@
 
 #include <nuttx/config.h>
 
-#include <debug.h>
-#include <stdio.h>
-
-#include <nuttx/arch.h>
-#include <nuttx/i2c/i2c_master.h>
-#include <nuttx/sensors/bmp180.h>
-
-#include "esp32s3_i2c.h"
-
 /****************************************************************************
- * Public Functions
+ * Pre-processor Definitions
  ****************************************************************************/
-
-/****************************************************************************
- * Name: board_bmp180_initialize
- *
- * Description:
- *   Initialize and register the BMP180 Pressure Sensor driver.
- *
- * Input Parameters:
- *   devno - The device number, used to build the device path as /dev/pressN
- *   busno - The I2C bus number
- *
- * Returned Value:
- *   Zero (OK) on success; a negated errno value on failure.
- *
- ****************************************************************************/
-
-int board_bmp180_initialize(int devno, int busno)
-{
-  struct i2c_master_s *i2c;
-  char devpath[12];
-
-  /* Initialize BMP180 */
-
-  i2c = esp32s3_i2cbus_initialize(busno);
-  if (i2c == NULL)
-    {
-      return -ENODEV;
-    }
-
-  /* Register the barometer sensor */
-
-  (void)snprintf(devpath, sizeof(devpath), "/dev/press%d", devno);
-
-  return bmp180_register(devpath, i2c);
-}
-

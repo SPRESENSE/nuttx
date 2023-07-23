@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/xtensa/esp32s3/common/src/esp32s3_board_wdt.c
+ * boards/risc-v/espressif/common/include/esp_board_ledc.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,32 +18,42 @@
  *
  ****************************************************************************/
 
+#ifndef __BOARDS_RISCV_ESPRESSIF_COMMON_INCLUDE_ESP_BOARD_LEDC_H
+#define __BOARDS_RISCV_ESPRESSIF_COMMON_INCLUDE_ESP_BOARD_LEDC_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
-#include <sys/types.h>
-#include <debug.h>
-
-#include "esp32s3_board_wdt.h"
-#include "esp32s3_wdt_lowerhalf.h"
-#include "esp32s3_wdt.h"
-
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
+#ifndef __ASSEMBLY__
+
+#undef EXTERN
+#if defined(__cplusplus)
+#define EXTERN extern "C"
+extern "C"
+{
+#else
+#define EXTERN extern
+#endif
+
 /****************************************************************************
- * Public Functions
+ * Public Function Prototypes
  ****************************************************************************/
 
 /****************************************************************************
- * Name: board_wdt_init
+ * Name: board_ledc_setup
  *
  * Description:
- *   Configure the watchdog timer driver.
+ *   Initialize LEDC PWM and register the PWM device.
+ *
+ * Input Parameters:
+ *   None.
  *
  * Returned Value:
  *   Zero (OK) is returned on success; A negated errno value is returned
@@ -51,37 +61,14 @@
  *
  ****************************************************************************/
 
-int board_wdt_init(void)
-{
-  int ret = OK;
+#ifdef CONFIG_ESPRESSIF_LEDC
+int board_ledc_setup(void);
+#endif
 
-#ifdef CONFIG_ESP32S3_MWDT0
-  ret = esp32s3_wdt_initialize("/dev/watchdog0", ESP32S3_WDT_MWDT0);
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "Failed to initialize MWDT0: %d\n", ret);
-      return ret;
-    }
-#endif /* CONFIG_ESP32S3_MWDT0 */
-
-#ifdef CONFIG_ESP32S3_MWDT1
-  ret = esp32s3_wdt_initialize("/dev/watchdog1", ESP32S3_WDT_MWDT1);
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "Failed to initialize MWDT1: %d\n", ret);
-      return ret;
-    }
-#endif /* CONFIG_ESP32S3_MWDT1 */
-
-#ifdef CONFIG_ESP32S3_RWDT
-  ret = esp32s3_wdt_initialize("/dev/watchdog2", ESP32S3_WDT_RWDT);
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "Failed to initialize RWDT: %d\n", ret);
-      return ret;
-    }
-#endif /* CONFIG_ESP32S3_RWDT */
-
-  return ret;
+#undef EXTERN
+#if defined(__cplusplus)
 }
+#endif
 
+#endif /* __ASSEMBLY__ */
+#endif /* __BOARDS_RISCV_ESPRESSIF_COMMON_INCLUDE_ESP_BOARD_LEDC_H */

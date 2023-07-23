@@ -1,5 +1,5 @@
 ############################################################################
-# boards/arm/nrf53/thingy53/src/CMakeLists.txt
+# boards/arm/nrf52/nrf52840-dongle/src/CMakeLists.txt
 #
 # Licensed to the Apache Software Foundation (ASF) under one or more
 # contributor license agreements.  See the NOTICE file distributed with
@@ -8,7 +8,7 @@
 # "License"); you may not use this file except in compliance with the
 # License.  You may obtain a copy of the License at
 #
-#   http://www.apache.org/licenses/LICENSE-2.0
+#  http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
@@ -18,40 +18,30 @@
 #
 ############################################################################
 
-set(SRCS nrf53_boot.c nrf53_bringup.c)
+set(SRCS nrf52_boot.c nrf52_bringup.c)
 
 if(CONFIG_BOARDCTL)
-  list(APPEND SRCS nrf53_appinit.c)
+  list(APPEND SRCS nrf52_appinit.c)
 endif()
 
-if(CONFIG_NRF53_APPCORE)
-  list(APPEND SRCS nrf53_cpunet_boot.c)
-endif()
-
-if(CONFIG_ARCH_BUTTONS)
-  list(APPEND SRCS nrf53_buttons.c)
+if(CONFIG_ARCH_LEDS)
+  list(APPEND SRCS nrf52_autoleds.c)
+else()
+  list(APPEND SRCS nrf52_userleds.c)
 endif()
 
 if(CONFIG_USBDEV)
-  list(APPEND SRCS nrf53_usb.c)
+  list(APPEND SRCS nrf52_usb.c)
 endif()
 
 if(CONFIG_USBDEV_COMPOSITE)
-  list(APPEND SRCS nrf53_composite.c)
+  list(APPEND SRCS nrf52_composite.c)
 endif()
 
 target_sources(board PRIVATE ${SRCS})
 
 if(CONFIG_ARCH_BOARD_COMMON)
-  if(CONFIG_ARCH_CHIP_NRF5340_CPUAPP)
-    set_property(GLOBAL PROPERTY LD_SCRIPT "${NUTTX_COMMON_DIR}/scripts/flash_app.ld")
-  else()
-    set_property(GLOBAL PROPERTY LD_SCRIPT "${NUTTX_COMMON_DIR}/scripts/flash_net.ld")
-  endif()
+  set_property(GLOBAL PROPERTY LD_SCRIPT "${NUTTX_COMMON_DIR}/scripts/flash_config.ld")
 else()
-  if(CONFIG_ARCH_CHIP_NRF5340_CPUAPP)
-    set_property(GLOBAL PROPERTY LD_SCRIPT "${NUTTX_BOARD_DIR}/scripts/flash_app.ld")
-  else()
-    set_property(GLOBAL PROPERTY LD_SCRIPT "${NUTTX_BOARD_DIR}/scripts/flash_net.ld")
-  endif()
+  set_property(GLOBAL PROPERTY LD_SCRIPT "${NUTTX_BOARD_DIR}/scripts/flash_config.ld")
 endif()

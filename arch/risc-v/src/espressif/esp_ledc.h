@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/xtensa/esp32s3/common/src/esp32s3_board_wdt.c
+ * arch/risc-v/src/espressif/esp_ledc.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,70 +18,35 @@
  *
  ****************************************************************************/
 
+#ifndef __ARCH_RISCV_SRC_ESPRESSIF_ESP_LEDC_H
+#define __ARCH_RISCV_SRC_ESPRESSIF_ESP_LEDC_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
-
-#include <sys/types.h>
-#include <debug.h>
-
-#include "esp32s3_board_wdt.h"
-#include "esp32s3_wdt_lowerhalf.h"
-#include "esp32s3_wdt.h"
+#include <nuttx/timers/pwm.h>
 
 /****************************************************************************
- * Pre-processor Definitions
+ * Public functions
  ****************************************************************************/
 
 /****************************************************************************
- * Public Functions
- ****************************************************************************/
-
-/****************************************************************************
- * Name: board_wdt_init
+ * Name: esp_ledc_init
  *
  * Description:
- *   Configure the watchdog timer driver.
+ *   Initialize one LEDC timer for use with the upper_level PWM driver.
+ *
+ * Input Parameters:
+ *   timer - A number identifying the timer use.
  *
  * Returned Value:
- *   Zero (OK) is returned on success; A negated errno value is returned
- *   to indicate the nature of any failure.
+ *   On success, a pointer to the ESP LEDC lower half PWM driver is
+ *   returned. NULL is returned on any failure.
  *
  ****************************************************************************/
 
-int board_wdt_init(void)
-{
-  int ret = OK;
+struct pwm_lowerhalf_s *esp_ledc_init(int timer);
 
-#ifdef CONFIG_ESP32S3_MWDT0
-  ret = esp32s3_wdt_initialize("/dev/watchdog0", ESP32S3_WDT_MWDT0);
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "Failed to initialize MWDT0: %d\n", ret);
-      return ret;
-    }
-#endif /* CONFIG_ESP32S3_MWDT0 */
-
-#ifdef CONFIG_ESP32S3_MWDT1
-  ret = esp32s3_wdt_initialize("/dev/watchdog1", ESP32S3_WDT_MWDT1);
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "Failed to initialize MWDT1: %d\n", ret);
-      return ret;
-    }
-#endif /* CONFIG_ESP32S3_MWDT1 */
-
-#ifdef CONFIG_ESP32S3_RWDT
-  ret = esp32s3_wdt_initialize("/dev/watchdog2", ESP32S3_WDT_RWDT);
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "Failed to initialize RWDT: %d\n", ret);
-      return ret;
-    }
-#endif /* CONFIG_ESP32S3_RWDT */
-
-  return ret;
-}
-
+#endif /* __ARCH_RISCV_SRC_ESPRESSIF_ESP_LEDC_H */
