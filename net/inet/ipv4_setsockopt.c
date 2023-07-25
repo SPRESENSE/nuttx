@@ -38,6 +38,7 @@
 #include "igmp/igmp.h"
 #include "inet/inet.h"
 #include "socket/socket.h"
+#include "udp/udp.h"
 
 #if defined(CONFIG_NET_IPv4) && defined(CONFIG_NET_SOCKOPTS)
 
@@ -178,8 +179,12 @@ int ipv4_setsockopt(FAR struct socket *psock, int option,
 #ifdef NET_UDP_HAVE_STACK
       case IP_MULTICAST_TTL:          /* Set/read the time-to-live value of
                                        * outgoing multicast packets */
+#endif
+      case IP_TTL:                    /* The IP TTL (time to live) of IP
+                                       * packets sent by the network stack */
         {
           FAR struct socket_conn_s *conn;
+          int ttl;
 
           if (value == NULL || value_len == 0)
             {
@@ -202,7 +207,6 @@ int ipv4_setsockopt(FAR struct socket *psock, int option,
             }
         }
         break;
-#endif
 
       /* The following IPv4 socket options are defined, but not implemented */
 

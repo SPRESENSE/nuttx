@@ -77,6 +77,16 @@ config ALLOW_BSDNORDIC_COMPONENTS
 		NOTE: Please check that the license for each enabled
 		component matches your project license.
 
+config ALLOW_ECLIPSE_COMPONENTS
+	bool "Use components that have Eclipse Public Licenses"
+	default n
+	---help---
+		When this option is enabled the project will allow the use
+		of components that have EPL licenses.
+
+		NOTE: Please check that the license for each enabled
+		component matches your project license.
+
 endmenu # License Setup
 
 menu "Build Setup"
@@ -1618,6 +1628,44 @@ config DEBUG_RC_INFO
 		Enable RC driver informational output to SYSLOG.
 
 endif # DEBUG_RC
+
+config DEBUG_RMT
+	bool "RMT Debug Features"
+	default n
+	depends on ESP32_RMT
+	---help---
+		Enable RMT debug features.
+
+		Support for this debug option is architecture-specific and may not
+		be available for some MCUs.
+
+if DEBUG_RMT
+
+config DEBUG_RMT_ERROR
+	bool "RMT Error Output"
+	default n
+	depends on DEBUG_ERROR
+	---help---
+		Enable RMT driver error output to SYSLOG.
+
+		Support for this debug option is architecture-specific and may not
+		be available for some MCUs.
+
+config DEBUG_RMT_WARN
+	bool "RMT Warnings Output"
+	default n
+	depends on DEBUG_WARN
+	---help---
+		Enable RMT driver warning output to SYSLOG.
+
+config DEBUG_RMT_INFO
+	bool "RMT Informational Output"
+	default n
+	depends on DEBUG_INFO
+	---help---
+		Enable RMT driver informational output to SYSLOG.
+
+endif # DEBUG_RMT
 
 config DEBUG_RTC
 	bool "RTC Debug Features"
