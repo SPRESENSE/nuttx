@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/armv7-r/arm_tcbinfo.c
+ * arch/x86_64/src/common/x86_64_tcbinfo.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -34,65 +34,29 @@
 
 static const uint16_t g_reg_offs[] =
 {
-  TCB_REG_OFF(REG_R0),
-  TCB_REG_OFF(REG_R1),
-  TCB_REG_OFF(REG_R2),
-  TCB_REG_OFF(REG_R3),
-  TCB_REG_OFF(REG_R4),
-  TCB_REG_OFF(REG_R5),
-  TCB_REG_OFF(REG_R6),
-  TCB_REG_OFF(REG_R7),
-  TCB_REG_OFF(REG_R8),
-  TCB_REG_OFF(REG_R9),
-  TCB_REG_OFF(REG_R10),
-  TCB_REG_OFF(REG_R11),
-  TCB_REG_OFF(REG_R12),
-  TCB_REG_OFF(REG_R13),
-  TCB_REG_OFF(REG_R14),
-  TCB_REG_OFF(REG_R15),
-  TCB_REG_OFF(REG_CPSR),
-
-#ifdef CONFIG_ARCH_FPU
-  TCB_REG_OFF(REG_D0),
-  TCB_REG_OFF(REG_D1),
-  TCB_REG_OFF(REG_D2),
-  TCB_REG_OFF(REG_D3),
-  TCB_REG_OFF(REG_D4),
-  TCB_REG_OFF(REG_D5),
-  TCB_REG_OFF(REG_D6),
-  TCB_REG_OFF(REG_D7),
-  TCB_REG_OFF(REG_D8),
-  TCB_REG_OFF(REG_D9),
-  TCB_REG_OFF(REG_D10),
-  TCB_REG_OFF(REG_D11),
-  TCB_REG_OFF(REG_D12),
-  TCB_REG_OFF(REG_D13),
-  TCB_REG_OFF(REG_D14),
-  TCB_REG_OFF(REG_D15),
-#endif
-
-#ifdef CONFIG_ARM_DPFPU32
-  TCB_REG_OFF(REG_D16),
-  TCB_REG_OFF(REG_D17),
-  TCB_REG_OFF(REG_D18),
-  TCB_REG_OFF(REG_D19),
-  TCB_REG_OFF(REG_D20),
-  TCB_REG_OFF(REG_D21),
-  TCB_REG_OFF(REG_D22),
-  TCB_REG_OFF(REG_D23),
-  TCB_REG_OFF(REG_D24),
-  TCB_REG_OFF(REG_D25),
-  TCB_REG_OFF(REG_D26),
-  TCB_REG_OFF(REG_D27),
-  TCB_REG_OFF(REG_D28),
-  TCB_REG_OFF(REG_D29),
-  TCB_REG_OFF(REG_D30),
-  TCB_REG_OFF(REG_D31),
-#endif
-
-#ifdef CONFIG_ARCH_FPU
-  TCB_REG_OFF(REG_FPSCR),
-#endif
+  TCB_REG_OFF(REG_RAX),    /* RAX */
+  TCB_REG_OFF(REG_RBX),    /* RBX */
+  TCB_REG_OFF(REG_RCX),    /* RCX */
+  TCB_REG_OFF(REG_RDX),    /* RDX */
+  TCB_REG_OFF(REG_RSI),    /* RSI */
+  TCB_REG_OFF(REG_RDI),    /* RDI */
+  TCB_REG_OFF(REG_RBP),    /* RBP */
+  TCB_REG_OFF(REG_RSP),    /* RSP */
+  TCB_REG_OFF(REG_R8),     /* R8 */
+  TCB_REG_OFF(REG_R9),     /* R9 */
+  TCB_REG_OFF(REG_R10),    /* R10 */
+  TCB_REG_OFF(REG_R11),    /* R11 */
+  TCB_REG_OFF(REG_R12),    /* R12 */
+  TCB_REG_OFF(REG_R13),    /* R13 */
+  TCB_REG_OFF(REG_R14),    /* R14 */
+  TCB_REG_OFF(REG_R15),    /* R15 */
+  TCB_REG_OFF(REG_RIP),    /* RIP */
+  TCB_REG_OFF(REG_RFLAGS), /* EFLAGS */
+  TCB_REG_OFF(REG_CS),     /* CS */
+  TCB_REG_OFF(REG_SS),     /* SS */
+  TCB_REG_OFF(REG_DS),     /* DS */
+  TCB_REG_OFF(REG_ES),     /* ES */
+  TCB_REG_OFF(REG_FS),     /* FS */
 };
 
 /****************************************************************************
@@ -108,7 +72,7 @@ const struct tcbinfo_s g_tcbinfo =
   .stack_off      = TCB_STACK_OFF,
   .stack_size_off = TCB_STACK_SIZE_OFF,
   .regs_off       = TCB_REGS_OFF,
-  .basic_num      = 17,
+  .basic_num      = nitems(g_reg_offs),
   .total_num      = nitems(g_reg_offs),
   {
     .p = g_reg_offs,
