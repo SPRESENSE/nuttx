@@ -1,5 +1,5 @@
 /****************************************************************************
- * mm/umm_heap/umm_zalloc.c
+ * libs/libc/signal/sig_altstack.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -22,57 +22,52 @@
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
-
-#include <stdlib.h>
-#include <string.h>
+#include <signal.h>
 #include <errno.h>
-#include <nuttx/mm/mm.h>
-
-#include "umm_heap/umm_heap.h"
+#include <string.h>
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: zalloc
+ * Name: sigaltstack
  *
  * Description:
- *   Allocate and zero memory from the user heap.
- *
- * Input Parameters:
- *   size - Size (in bytes) of the memory region to be allocated.
- *
- * Returned Value:
- *   The address of the allocated memory (NULL on failure to allocate)
+ * The sigaltstack() function allows a process to define and examine the
+ * state of an alternate stack for signal handlers for the current thread.
+ * Signals that have been explicitly declared to execute on the alternate
+ * stack shall be delivered on the alternate stack.
  *
  ****************************************************************************/
 
-#undef zalloc /* See mm/README.txt */
-FAR void *zalloc(size_t size)
+int sigaltstack(const stack_t *ss, stack_t *oss)
 {
-#ifdef CONFIG_ARCH_ADDRENV
-  /* Use malloc() because it implements the sbrk() logic */
-
-  FAR void *mem = malloc(size);
-  if (mem)
+  if (ss)
     {
-       memset(mem, 0, size);
+      if (ss->ss_flags & SS_DISABLE)
+        {
+          goto out;
+        }
+
+      if (ss->ss_size < MINSIGSTKSZ)
+        {
+          set_errno(ENOMEM);
+          return ERROR;
+        }
+
+      /* not support SS_ONSTACK now */
+
+      set_errno(EINVAL);
+      return ERROR;
     }
 
-  return mem;
-#else
-  FAR void *ret;
-
-  /* Use mm_zalloc() because it implements the clear */
-
-  ret = mm_zalloc(USR_HEAP, size);
-  if (!ret)
+out:
+  if (oss)
     {
-      set_errno(ENOMEM);
+      memset(oss, 0, sizeof(*oss));
+      oss->ss_flags = SS_DISABLE;
     }
 
-  return ret;
-#endif
+  return OK;
 }
