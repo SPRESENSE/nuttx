@@ -1,5 +1,5 @@
 /****************************************************************************
- * fs/partition/partition.h
+ * libs/libc/pthread/pthread_attr_getscope.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,64 +18,36 @@
  *
  ****************************************************************************/
 
-#ifndef __FS_PARTITION_PARTITION_H
-#define __FS_PARTITION_PARTITION_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/fs/fs.h>
-#include <nuttx/fs/partition.h>
-#include <nuttx/mtd/mtd.h>
-
-#ifndef CONFIG_DISABLE_MOUNTPOINT
+#include <pthread.h>
 
 /****************************************************************************
- * Public Types
+ * Public Functions
  ****************************************************************************/
 
-struct partition_state_s
+/****************************************************************************
+ * Name: pthread_attr_getscope
+ *
+ * Description:
+ *   The function returns the contention scope attribute of the thread
+ *   attributes object referred to by attr in the buffer pointed to
+ *   by scope.
+ *
+ * Input Parameters:
+ *   attr  - The pointer to pthread attr.
+ *   scope - The pointer to scope
+ *
+ * Returned Value:
+ *   On success, these functions return 0; on error, they return a nonzero
+ *   error number.
+ *
+ ****************************************************************************/
+
+int pthread_attr_getscope(FAR const pthread_attr_t *attr, FAR int *scope)
 {
-  FAR struct mtd_dev_s *mtd;
-  FAR struct inode *blk;
-  blkcnt_t nblocks;
-  blksize_t blocksize;
-  size_t erasesize;
-};
-
-/****************************************************************************
- * Public Function Prototypes
- ****************************************************************************/
-
-int read_partition_block(FAR struct partition_state_s *state,
-                         FAR void *buffer, size_t startblock,
-                         size_t nblocks);
-
-#ifdef CONFIG_PTABLE_PARTITION
-int parse_ptable_partition(FAR struct partition_state_s *state,
-                           partition_handler_t handler,
-                           FAR void *arg);
-#endif
-
-#ifdef CONFIG_GPT_PARTITION
-int parse_gpt_partition(FAR struct partition_state_s *state,
-                        partition_handler_t handler,
-                        FAR void *arg);
-#endif
-
-#ifdef CONFIG_MBR_PARTITION
-int parse_mbr_partition(FAR struct partition_state_s *state,
-                        partition_handler_t handler,
-                        FAR void *arg);
-#endif
-
-#ifdef CONFIG_TXTABLE_PARTITION
-int parse_txtable_partition(FAR struct partition_state_s *state,
-                            partition_handler_t handler,
-                            FAR void *arg);
-#endif
-
-#endif /* CONFIG_DISABLE_MOUNTPOINT */
-
-#endif /* __FS_PARTITION_PARTITION_H */
+  *scope = PTHREAD_SCOPE_SYSTEM;
+  return 0;
+}

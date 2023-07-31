@@ -1,5 +1,5 @@
 /****************************************************************************
- * fs/partition/partition.h
+ * boards/xtensa/esp32/common/src/esp32_bme680.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,64 +18,70 @@
  *
  ****************************************************************************/
 
-#ifndef __FS_PARTITION_PARTITION_H
-#define __FS_PARTITION_PARTITION_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/fs/fs.h>
-#include <nuttx/fs/partition.h>
-#include <nuttx/mtd/mtd.h>
+#include <nuttx/config.h>
 
-#ifndef CONFIG_DISABLE_MOUNTPOINT
+#include <stdio.h>
+#include <debug.h>
+
+#include <nuttx/arch.h>
+#include <nuttx/sensors/bme680.h>
+#include <nuttx/i2c/i2c_master.h>
+
+#include "esp32_board_i2c.h"
+#include "esp32_i2c.h"
+#include "esp32_ltr308.h"
 
 /****************************************************************************
- * Public Types
+ * Public Functions
  ****************************************************************************/
 
-struct partition_state_s
+/****************************************************************************
+ * Name: board_bme680_initialize
+ *
+ * Description:
+ *   Initialize and register the BME680 Temperature, Pressure, Humidity
+ *  and Gas Resistance sensor.
+ *
+ * Input Parameters:
+ *   devno - The device number, used to build the device path as
+ *           /dev/uorb/sensor_gas0
+ *   busno - The I2C bus number
+ *
+ * Returned Value:
+ *   Zero (OK) on success; a negated errno value on failure.
+ *
+ ****************************************************************************/
+
+int board_bme680_initialize(int devno, int busno)
 {
-  FAR struct mtd_dev_s *mtd;
-  FAR struct inode *blk;
-  blkcnt_t nblocks;
-  blksize_t blocksize;
-  size_t erasesize;
-};
+  struct i2c_master_s *i2c;
+  int ret;
 
-/****************************************************************************
- * Public Function Prototypes
- ****************************************************************************/
+  sninfo("Initializing BME680!\n");
 
-int read_partition_block(FAR struct partition_state_s *state,
-                         FAR void *buffer, size_t startblock,
-                         size_t nblocks);
+  /* Initialize BME680 */
 
-#ifdef CONFIG_PTABLE_PARTITION
-int parse_ptable_partition(FAR struct partition_state_s *state,
-                           partition_handler_t handler,
-                           FAR void *arg);
-#endif
+  i2c = esp32_i2cbus_initialize(busno);
+  if (i2c != NULL)
+    {
+      /* Then try to register the gas sensor in one of the two I2C
+       * available controllers.
+       */
 
-#ifdef CONFIG_GPT_PARTITION
-int parse_gpt_partition(FAR struct partition_state_s *state,
-                        partition_handler_t handler,
-                        FAR void *arg);
-#endif
+      ret = bme680_register(devno, i2c);
+      if (ret < 0)
+        {
+          snerr("ERROR: Error registering BME680 in I2C%d\n", busno);
+        }
+    }
+  else
+    {
+      ret = -ENODEV;
+    }
 
-#ifdef CONFIG_MBR_PARTITION
-int parse_mbr_partition(FAR struct partition_state_s *state,
-                        partition_handler_t handler,
-                        FAR void *arg);
-#endif
-
-#ifdef CONFIG_TXTABLE_PARTITION
-int parse_txtable_partition(FAR struct partition_state_s *state,
-                            partition_handler_t handler,
-                            FAR void *arg);
-#endif
-
-#endif /* CONFIG_DISABLE_MOUNTPOINT */
-
-#endif /* __FS_PARTITION_PARTITION_H */
+  return ret;
+}

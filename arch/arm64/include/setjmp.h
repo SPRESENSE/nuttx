@@ -1,5 +1,5 @@
 /****************************************************************************
- * fs/partition/partition.h
+ * arch/arm64/include/setjmp.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,64 +18,73 @@
  *
  ****************************************************************************/
 
-#ifndef __FS_PARTITION_PARTITION_H
-#define __FS_PARTITION_PARTITION_H
+#ifndef __ARCH_ARM64_INCLUDE_SETJUMP_H
+#define __ARCH_ARM64_INCLUDE_SETJUMP_H
 
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/fs/fs.h>
-#include <nuttx/fs/partition.h>
-#include <nuttx/mtd/mtd.h>
+#include <nuttx/config.h>
+#include <nuttx/compiler.h>
 
-#ifndef CONFIG_DISABLE_MOUNTPOINT
+#include <sys/types.h>
 
 /****************************************************************************
  * Public Types
  ****************************************************************************/
 
-struct partition_state_s
+struct setjmp_buf_s
 {
-  FAR struct mtd_dev_s *mtd;
-  FAR struct inode *blk;
-  blkcnt_t nblocks;
-  blksize_t blocksize;
-  size_t erasesize;
+  uint64_t x19;
+  uint64_t x20;
+  uint64_t x21;
+  uint64_t x22;
+  uint64_t x23;
+  uint64_t x24;
+  uint64_t x25;
+  uint64_t x26;
+  uint64_t x27;
+  uint64_t x28;
+  uint64_t x29;
+  uint64_t x30;
+  uint64_t x16;
+  uint64_t gap;
+
+#ifdef CONFIG_ARCH_FPU
+  float    q8;
+  float    q9;
+  float    q10;
+  float    q11;
+  float    q12;
+  float    q13;
+  float    q14;
+  float    q15;
+#endif
 };
+
+/* Traditional typedef for setjmp_buf */
+
+typedef struct setjmp_buf_s jmp_buf[1];
 
 /****************************************************************************
  * Public Function Prototypes
  ****************************************************************************/
 
-int read_partition_block(FAR struct partition_state_s *state,
-                         FAR void *buffer, size_t startblock,
-                         size_t nblocks);
-
-#ifdef CONFIG_PTABLE_PARTITION
-int parse_ptable_partition(FAR struct partition_state_s *state,
-                           partition_handler_t handler,
-                           FAR void *arg);
+#ifdef __cplusplus
+#define EXTERN extern "C"
+extern "C"
+{
+#else
+#define EXTERN extern
 #endif
 
-#ifdef CONFIG_GPT_PARTITION
-int parse_gpt_partition(FAR struct partition_state_s *state,
-                        partition_handler_t handler,
-                        FAR void *arg);
+int setjmp(jmp_buf env);
+void longjmp(jmp_buf env, int val) noreturn_function;
+
+#undef EXTERN
+#ifdef __cplusplus
+}
 #endif
 
-#ifdef CONFIG_MBR_PARTITION
-int parse_mbr_partition(FAR struct partition_state_s *state,
-                        partition_handler_t handler,
-                        FAR void *arg);
-#endif
-
-#ifdef CONFIG_TXTABLE_PARTITION
-int parse_txtable_partition(FAR struct partition_state_s *state,
-                            partition_handler_t handler,
-                            FAR void *arg);
-#endif
-
-#endif /* CONFIG_DISABLE_MOUNTPOINT */
-
-#endif /* __FS_PARTITION_PARTITION_H */
+#endif /* __ARCH_ARM64_INCLUDE_SETJUMP_H */
