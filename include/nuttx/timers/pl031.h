@@ -1,5 +1,5 @@
 /****************************************************************************
- * mm/umm_heap/umm_zalloc.c
+ * include/nuttx/timers/pl031.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,61 +18,21 @@
  *
  ****************************************************************************/
 
-/****************************************************************************
- * Included Files
- ****************************************************************************/
-
-#include <nuttx/config.h>
-
-#include <stdlib.h>
-#include <string.h>
-#include <errno.h>
-#include <nuttx/mm/mm.h>
-
-#include "umm_heap/umm_heap.h"
+#ifndef __INCLUDE_NUTTX_TIMER_PL031_H
+#define __INCLUDE_NUTTX_TIMER_PL031_H
 
 /****************************************************************************
- * Public Functions
+ * Public Function Prototypes
  ****************************************************************************/
 
 /****************************************************************************
- * Name: zalloc
+ * Name: pl031_initialize
  *
  * Description:
- *   Allocate and zero memory from the user heap.
- *
- * Input Parameters:
- *   size - Size (in bytes) of the memory region to be allocated.
- *
- * Returned Value:
- *   The address of the allocated memory (NULL on failure to allocate)
+ *   Initialize rtc device.
  *
  ****************************************************************************/
 
-#undef zalloc /* See mm/README.txt */
-FAR void *zalloc(size_t size)
-{
-#ifdef CONFIG_ARCH_ADDRENV
-  /* Use malloc() because it implements the sbrk() logic */
+FAR struct rtc_lowerhalf_s *pl031_initialize(uintptr_t base, int irq);
 
-  FAR void *mem = malloc(size);
-  if (mem)
-    {
-       memset(mem, 0, size);
-    }
-
-  return mem;
-#else
-  FAR void *ret;
-
-  /* Use mm_zalloc() because it implements the clear */
-
-  ret = mm_zalloc(USR_HEAP, size);
-  if (ret == NULL)
-    {
-      set_errno(ENOMEM);
-    }
-
-  return ret;
-#endif
-}
+#endif  //__INCLUDE_NUTTX_TIMER_PL031_H
