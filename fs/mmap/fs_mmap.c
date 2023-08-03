@@ -118,7 +118,8 @@ static int file_mmap_(FAR struct file *filep, FAR void *start,
       return -EBADF;
     }
 
-  if ((filep->f_oflags & O_WROK) == 0 && prot == PROT_WRITE)
+  if ((flags & MAP_SHARED) &&
+      (filep->f_oflags & O_WROK) == 0 && prot == PROT_WRITE)
     {
       ferr("ERROR: Unsupported options for read-only file descriptor,"
            "prot=%x flags=%04x\n", prot, flags);
@@ -269,8 +270,8 @@ FAR void *mmap(FAR void *start, size_t length, int prot, int flags,
 
   if (fd != -1 && fs_getfilep(fd, &filep) < 0)
     {
-      ferr("ERROR: Invalid file descriptor, fd=%d\n", fd);
-      ret = -EBADF;
+      ferr("ERROR: fd:%d referred file whose type is not supported\n", fd);
+      ret = -ENODEV;
       goto errout;
     }
 
