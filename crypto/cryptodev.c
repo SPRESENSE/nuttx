@@ -59,9 +59,13 @@ extern FAR struct cryptocap *crypto_drivers;
 extern int crypto_drivers_num;
 int usercrypto = 1;         /* userland may do crypto requests */
 int userasymcrypto = 1;     /* userland may do asymmetric crypto reqs */
+#ifdef CONFIG_CRYPTO_CRYPTODEV_SOFTWARE
 int cryptodevallowsoft = 1; /* 0 is only use hardware crypto
                              * 1 is use hardware & software crypto
                              */
+#else
+int cryptodevallowsoft = 0;
+#endif
 
 /****************************************************************************
  * Private Types
@@ -265,6 +269,18 @@ static int cryptof_ioctl(FAR struct file *filep,
               break;
             case CRYPTO_AES_128_GMAC:
               thash = &auth_hash_gmac_aes_128;
+              break;
+            case CRYPTO_MD5:
+              thash = &auth_hash_md5;
+              break;
+            case CRYPTO_SHA1:
+              thash = &auth_hash_sha1;
+              break;
+            case CRYPTO_SHA2_256:
+              thash = &auth_hash_sha2_256;
+              break;
+            case CRYPTO_SHA2_512:
+              thash = &auth_hash_sha2_512;
               break;
             default:
               return -EINVAL;
@@ -887,7 +903,10 @@ int csefree(FAR struct csession *cse)
 void devcrypto_register(void)
 {
   register_driver("/dev/crypto", &g_cryptoops, 0666, NULL);
+
+#ifdef CONFIG_CRYPTO_CRYPTODEV_SOFTWARE
   swcr_init();
+#endif
 
 #ifdef CONFIG_CRYPTO_CRYPTODEV_HARDWARE
   hwcr_init();

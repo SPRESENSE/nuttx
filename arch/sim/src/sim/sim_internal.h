@@ -242,6 +242,8 @@ int sim_x11initialize(unsigned short width, unsigned short height,
                       void **fbmem, size_t *fblen, unsigned char *bpp,
                       unsigned short *stride);
 int sim_x11update(void);
+int sim_x11openwindow(void);
+int sim_x11closewindow(void);
 #ifdef CONFIG_FB_CMAP
 int sim_x11cmap(unsigned short first, unsigned short len,
                 unsigned char *red, unsigned char *green,
@@ -356,7 +358,6 @@ int sim_rptun_init(const char *shmemname, const char *cpuname, bool master);
 
 #ifdef CONFIG_SIM_HCISOCKET
 int sim_bthcisock_register(int dev_id);
-int sim_bthcisock_loop(void);
 #endif
 
 /* sim_audio.c **************************************************************/
