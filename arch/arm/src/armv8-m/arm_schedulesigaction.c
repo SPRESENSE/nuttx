@@ -160,8 +160,9 @@ void up_schedule_sigaction(struct tcb_s *tcb, sig_deliver_t sigdeliver)
 #endif
               CURRENT_REGS[REG_XPSR]       = ARMV8M_XPSR_T;
 #ifdef CONFIG_BUILD_PROTECTED
-              CURRENT_REGS[REG_LR]         = EXC_RETURN_PRIVTHR;
-              CURRENT_REGS[REG_EXC_RETURN] = EXC_RETURN_PRIVTHR;
+              CURRENT_REGS[REG_LR]         = EXC_RETURN_THREAD;
+              CURRENT_REGS[REG_EXC_RETURN] = EXC_RETURN_THREAD;
+              CURRENT_REGS[REG_CONTROL]    = getcontrol() & ~CONTROL_NPRIV;
 #endif
             }
         }
@@ -208,7 +209,8 @@ void up_schedule_sigaction(struct tcb_s *tcb, sig_deliver_t sigdeliver)
 #endif
           tcb->xcp.regs[REG_XPSR]    = ARMV8M_XPSR_T;
 #ifdef CONFIG_BUILD_PROTECTED
-          tcb->xcp.regs[REG_LR]      = EXC_RETURN_PRIVTHR;
+          tcb->xcp.regs[REG_LR]      = EXC_RETURN_THREAD;
+          tcb->xcp.regs[REG_CONTROL] = getcontrol() & ~CONTROL_NPRIV;
 #endif
         }
     }
@@ -318,7 +320,8 @@ void up_schedule_sigaction(struct tcb_s *tcb, sig_deliver_t sigdeliver)
 #endif
                   tcb->xcp.regs[REG_XPSR]    = ARMV8M_XPSR_T;
 #ifdef CONFIG_BUILD_PROTECTED
-                  tcb->xcp.regs[REG_LR]      = EXC_RETURN_PRIVTHR;
+                  tcb->xcp.regs[REG_LR]      = EXC_RETURN_THREAD;
+                  tcb->xcp.regs[REG_CONTROL] = getcontrol() & ~CONTROL_NPRIV;
 #endif
                 }
               else
@@ -364,7 +367,8 @@ void up_schedule_sigaction(struct tcb_s *tcb, sig_deliver_t sigdeliver)
 #endif
                   CURRENT_REGS[REG_XPSR]    = ARMV8M_XPSR_T;
 #ifdef CONFIG_BUILD_PROTECTED
-                  CURRENT_REGS[REG_LR]      = EXC_RETURN_PRIVTHR;
+                  CURRENT_REGS[REG_LR]      = EXC_RETURN_THREAD;
+                  CURRENT_REGS[REG_CONTROL] = getcontrol() & ~CONTROL_NPRIV;
 #endif
                 }
 
@@ -430,7 +434,8 @@ void up_schedule_sigaction(struct tcb_s *tcb, sig_deliver_t sigdeliver)
 #endif
           tcb->xcp.regs[REG_XPSR]    = ARMV8M_XPSR_T;
 #ifdef CONFIG_BUILD_PROTECTED
-          tcb->xcp.regs[REG_LR]      = EXC_RETURN_PRIVTHR;
+          tcb->xcp.regs[REG_LR]      = EXC_RETURN_THREAD;
+          tcb->xcp.regs[REG_CONTROL] = getcontrol() & ~CONTROL_NPRIV;
 #endif
         }
     }
