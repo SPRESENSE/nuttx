@@ -33,6 +33,7 @@
 #include <errno.h>
 
 #include <nuttx/fs/fs.h>
+#include <nuttx/lib/lib.h>
 
 #include "inode/inode.h"
 
@@ -118,7 +119,7 @@ next_subdir:
 
           if (subdir != NULL)
             {
-              kmm_free(subdir);
+              lib_free(subdir);
               subdir = NULL;
             }
 
@@ -245,7 +246,7 @@ errout:
   RELEASE_SEARCH(&newdesc);
   if (subdir != NULL)
     {
-      kmm_free(subdir);
+      lib_free(subdir);
     }
 
   return ret;
@@ -351,7 +352,7 @@ next_subdir:
 
               if (subdir != NULL)
                 {
-                   kmm_free(subdir);
+                   lib_free(subdir);
                    subdir = NULL;
                 }
 
@@ -431,7 +432,7 @@ errout_with_newsearch:
   RELEASE_SEARCH(&newdesc);
   if (subdir != NULL)
     {
-      kmm_free(subdir);
+      lib_free(subdir);
     }
 
   return ret;
