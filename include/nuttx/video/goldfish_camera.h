@@ -1,5 +1,5 @@
 /****************************************************************************
- * libs/libc/unistd/lib_geteuid.c
+ * include/nuttx/video/goldfish_camera.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,37 +18,46 @@
  *
  ****************************************************************************/
 
+#ifndef __INCLUDE_NUTTX_VIDEO_GOLDFISH_CAMERA_H
+#define __INCLUDE_NUTTX_VIDEO_GOLDFISH_CAMERA_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
-#include <unistd.h>
-#include <errno.h>
-
 /****************************************************************************
- * Public Functions
+ * Pre-processor Definitions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: geteuid
- *
- * Description:
- *   The geteuid() function will return the effective user ID of the calling
- *   task group.
- *
- * Input Parameters:
- *   None
- *
- * Returned Value:
- *   The effective user ID of the calling task group.
- *
+ * Public Types
  ****************************************************************************/
 
-uid_t geteuid(void)
+/****************************************************************************
+ * Public Data
+ ****************************************************************************/
+
+#ifdef __cplusplus
+#define EXTERN extern "C"
+extern "C"
 {
-  /* Return the user identity 'root' with a uid value of 0. */
+#else
+#define EXTERN extern
+#endif
 
-  return 0;
+/****************************************************************************
+ * Public Function Prototypes
+ ****************************************************************************/
+
+#ifdef CONFIG_GOLDFISH_CAMERA
+int goldfish_camera_initialize(void);
+#endif
+
+#undef EXTERN
+#ifdef __cplusplus
 }
+#endif
+
+#endif /* __INCLUDE_NUTTX_VIDEO_GOLDFISH_CAMERA_H */
