@@ -27,6 +27,12 @@ config DRIVERS_VIRTIO_BLK
 	depends on !DISABLE_MOUNTPOINT
 	default n
 
+config DRIVERS_VIRTIO_GPU
+	bool "Virtio gpu support"
+	default n
+	depends on VIDEO_FB
+	select FB_UPDATE
+
 config DRIVERS_VIRTIO_NET
 	bool "Virtio network support"
 	depends on NETDEVICES
@@ -60,4 +66,20 @@ config DRIVERS_VIRTIO_SERIAL_BUFSIZE
 	int "Virtio serial driver buffer size"
 	default 256
 endif
+
+config DRIVERS_VIRTIO_SOUND
+	bool "Virtio sound support"
+	default n
+	depends on DRIVERS_AUDIO
+
+if DRIVERS_VIRTIO_SOUND
+config DRIVERS_VIRTIO_SOUND_PERIOD_TIME
+	int "Virtio snd driver period time"
+	default 40
+
+config DRIVERS_VIRTIO_SND_BUFFER_COUNT
+	int "Virtio snd driver buffer count"
+	default 6
+endif
+
 endif # DRIVERS_VIRTIO
