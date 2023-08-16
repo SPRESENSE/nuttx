@@ -269,7 +269,11 @@ static void wlan_ipv6multicast(struct wlan_priv_s *priv);
 
 static inline void wlan_cache_txpkt_tail(struct wlan_priv_s *priv)
 {
-    iob_tryadd_queue(priv->dev.d_iob, &priv->txb);
+  if (priv->dev.d_iob)
+    {
+      iob_tryadd_queue(priv->dev.d_iob, &priv->txb);
+    }
+
   netdev_iob_clear(&priv->dev);
 }
 
@@ -444,27 +448,21 @@ static int wlan_rx_done(struct wlan_priv_s *priv, void *buffer,
       goto out;
     }
 
+out:
+
   if (eb != NULL)
     {
       esp_wifi_free_eb(eb);
+    }
+
+  if (ret != OK && iob != NULL)
+    {
+      iob_free_chain(iob);
     }
 
   if (work_available(&priv->rxwork))
     {
       work_queue(WLAN_WORK, &priv->rxwork, wlan_rxpoll, priv, 0);
-    }
-
-  return 0;
-
-out:
-  if (iob != NULL)
-    {
-      iob_free_chain(iob);
-    }
-
-  if (eb != NULL)
-    {
-      esp_wifi_free_eb(eb);
     }
 
   wlan_txavail(&priv->dev);
@@ -634,11 +632,7 @@ static int wlan_txpoll(struct net_driver_s *dev)
   wlan_cache_txpkt_tail(priv);
   wlan_transmit(priv);
 
-  /* If zero is returned, the polling will continue until
-   * all connections have been examined.
-   */
-
-  return 1;
+  return OK;
 }
 
 /****************************************************************************
