@@ -582,6 +582,8 @@ static void mpfs_set_ddr_rpc_regs(struct mpfs_ddr_priv_s *priv)
 
 #endif
 
+  putreg32(LIBERO_SETTING_RPC_156_VALUE, MPFS_CFG_DDR_SGMII_PHY_RPC156);
+
   putreg32(0x2, MPFS_CFG_DDR_SGMII_PHY_RPC27);
   putreg32(0, MPFS_CFG_DDR_SGMII_PHY_RPC203);
 
@@ -3996,6 +3998,11 @@ static int mpfs_ddr_setup(struct mpfs_ddr_priv_s *priv)
         }
     }
   while (retval == -EAGAIN);
+
+  if (retval)
+    {
+      return retval;
+    }
 
   /* DDR_FULL_MTC_CHECK */
 
