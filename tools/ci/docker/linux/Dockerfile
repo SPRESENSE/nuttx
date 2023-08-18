@@ -227,7 +227,7 @@ RUN mkdir wamrc && \
 # Final Docker image used for running CI system.  This includes all toolchains
 # supported by the CI system.
 ###############################################################################
-FROM ubuntu:20.04
+FROM ubuntu:22.04
 LABEL maintainer="dev@nuttx.apache.org"
 
 RUN apt-get update -qq && DEBIAN_FRONTEND="noninteractive" apt-get install -y -qq \
@@ -295,7 +295,7 @@ RUN pip3 install setuptools
 RUN pip3 install wheel
 RUN pip3 install cmake-format
 # Install CodeChecker and use it to statically analyze the code.
-RUN pip3 install CodeChecker
+# RUN pip3 install CodeChecker
 # Install cvt2utf to check for non-UTF characters.
 RUN pip3 install cvt2utf
 # Install pytest
@@ -330,7 +330,7 @@ ENV PATH="/tools/rust/cargo/bin:$PATH"
 
 # ARM toolchain
 COPY --from=nuttx-toolchain-arm /tools/clang-arm-none-eabi/ clang-arm-none-eabi/
-RUN cp /usr/bin/clang-extdef-mapping-10 clang-arm-none-eabi/bin/clang-extdef-mapping
+# RUN cp /usr/bin/clang-extdef-mapping-10 clang-arm-none-eabi/bin/clang-extdef-mapping
 ENV PATH="/tools/clang-arm-none-eabi/bin:$PATH"
 
 COPY --from=nuttx-toolchain-arm /tools/gcc-arm-none-eabi/ gcc-arm-none-eabi/

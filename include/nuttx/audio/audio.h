@@ -155,6 +155,9 @@
 #define AUDIO_FMT_OGG_VORBIS        0x0a
 #define AUDIO_FMT_FLAC              0x0b
 #define AUDIO_FMT_SBC               0x0c
+#define AUDIO_FMT_AAC               0x0d
+#define AUDIO_FMT_MSBC              0x0e
+#define AUDIO_FMT_CVSD              0x0f
 
 /* Audio Sub-Format Types ***************************************************/
 
@@ -351,6 +354,10 @@
 #define AUDIO_APB_OUTPUT_PROCESS    (1 << 1)
 #define AUDIO_APB_DEQUEUED          (1 << 2)
 #define AUDIO_APB_FINAL             (1 << 3) /* Last buffer in the stream */
+
+/* Audio channels range wrapper macro */
+
+#define AUDIO_CHANNELS_RANGE(min, max) ((uint8_t)(((min) << 4) | ((max) & 0xf)))
 
 /****************************************************************************
  * Public Types
