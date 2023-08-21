@@ -163,10 +163,15 @@ void *sim_doirq(int irq, void *regs);
 
 void host_abort(int status);
 int  host_backtrace(void** array, int size);
+int  host_system(char *buf, size_t len, const char *fmt, ...);
 
 #ifdef CONFIG_SIM_IMAGEPATH_AS_CWD
 void host_init_cwd(void);
 #endif
+
+pid_t host_posix_spawn(const char *path,
+                       char *const argv[], char *const envp[]);
+int   host_waitpid(pid_t pid);
 
 /* sim_hostmemory.c *********************************************************/
 
