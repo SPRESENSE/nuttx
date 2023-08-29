@@ -1238,7 +1238,6 @@ static void bmi270_set_normal_imu(FAR struct bmi270_dev_s *priv)
 
 static int bmi270_init_seq(FAR struct bmi270_dev_s *priv)
 {
-  FAR uint8_t *tmp    = NULL;
   uint8_t      regval = 0;
 
   /* Check if initialization already done */
@@ -1258,21 +1257,10 @@ static int bmi270_init_seq(FAR struct bmi270_dev_s *priv)
 
   bmi270_putreg8(priv, BMI270_INIT_CTRL, 0);
 
-  /* Copy configuration to RAM */
-
-  tmp = malloc(sizeof(g_bmi270_config_file));
-  if (tmp == NULL)
-    {
-      snerr("Failed to allocate memory for configuration file\n");
-      return -ENOMEM;
-    }
-
-  memcpy(tmp, g_bmi270_config_file, sizeof(g_bmi270_config_file));
-
   /* Load configuration - start with byte 0 */
 
   bmi270_putregs(priv, BMI270_INIT_DATA,
-                 tmp,
+                 (FAR uint8_t *)g_bmi270_config_file,
                  sizeof(g_bmi270_config_file));
 
   /* Complete config load INIT_CTRL=0x01 */
