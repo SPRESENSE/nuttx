@@ -823,10 +823,9 @@ static int tda19988_open(FAR struct file *filep)
 
   /* Get the private driver state instance */
 
-  DEBUGASSERT(filep != NULL && filep->f_inode != NULL);
   inode = filep->f_inode;
 
-  priv = (FAR struct tda1988_dev_s *)inode->i_private;
+  priv = inode->i_private;
   DEBUGASSERT(priv != NULL);
 
   /* Get exclusive access to the driver instance */
@@ -866,10 +865,9 @@ static int tda19988_close(FAR struct file *filep)
 
   /* Get the private driver state instance */
 
-  DEBUGASSERT(filep != NULL && filep->f_inode != NULL);
   inode = filep->f_inode;
 
-  priv = (FAR struct tda1988_dev_s *)inode->i_private;
+  priv = inode->i_private;
   DEBUGASSERT(priv != NULL);
 
   /* Get exclusive access to the driver */
@@ -923,10 +921,9 @@ static ssize_t tda19988_read(FAR struct file *filep, FAR char *buffer,
 
   /* Get the private driver state instance */
 
-  DEBUGASSERT(filep != NULL && filep->f_inode != NULL);
   inode = filep->f_inode;
 
-  priv = (FAR struct tda1988_dev_s *)inode->i_private;
+  priv = inode->i_private;
   DEBUGASSERT(priv != NULL);
 
   /* Get exclusive access to the driver */
@@ -993,10 +990,9 @@ static off_t tda19988_seek(FAR struct file *filep, off_t offset, int whence)
 
   /* Get the private driver state instance */
 
-  DEBUGASSERT(filep != NULL && filep->f_inode != NULL);
   inode = filep->f_inode;
 
-  priv = (FAR struct tda1988_dev_s *)inode->i_private;
+  priv = inode->i_private;
   DEBUGASSERT(priv != NULL);
 
   /* Get exclusive access to the driver */
@@ -1087,10 +1083,9 @@ static int tda19988_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 
   /* Get the private driver state instance */
 
-  DEBUGASSERT(filep != NULL && filep->f_inode != NULL);
   inode = filep->f_inode;
 
-  priv = (FAR struct tda1988_dev_s *)inode->i_private;
+  priv = inode->i_private;
   DEBUGASSERT(priv != NULL);
 
   /* Get exclusive access to the driver */
@@ -1166,10 +1161,9 @@ static int tda19988_poll(FAR struct file *filep, FAR struct pollfd *fds,
 
   /* Get the private driver state instance */
 
-  DEBUGASSERT(filep != NULL && filep->f_inode != NULL);
   inode = filep->f_inode;
 
-  priv = (FAR struct tda1988_dev_s *)inode->i_private;
+  priv = inode->i_private;
   DEBUGASSERT(priv != NULL);
 
   /* Get exclusive access to the driver */
@@ -1209,8 +1203,8 @@ static int tda19988_unlink(FAR struct inode *inode)
 
   /* Get the private driver state instance */
 
-  DEBUGASSERT(inode != NULL && inode->i_private != NULL);
-  priv = (FAR struct tda1988_dev_s *)inode->i_private;
+  DEBUGASSERT(inode->i_private != NULL);
+  priv = inode->i_private;
 
   /* Get exclusive access to the driver */
 

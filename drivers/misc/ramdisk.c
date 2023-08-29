@@ -167,8 +167,8 @@ static int rd_open(FAR struct inode *inode)
 {
   FAR struct rd_struct_s *dev;
 
-  DEBUGASSERT(inode && inode->i_private);
-  dev = (FAR struct rd_struct_s *)inode->i_private;
+  DEBUGASSERT(inode->i_private);
+  dev = inode->i_private;
 
   /* Increment the open reference count */
 
@@ -192,8 +192,8 @@ static int rd_close(FAR struct inode *inode)
 {
   FAR struct rd_struct_s *dev;
 
-  DEBUGASSERT(inode && inode->i_private);
-  dev = (FAR struct rd_struct_s *)inode->i_private;
+  DEBUGASSERT(inode->i_private);
+  dev = inode->i_private;
 
   /* Increment the open reference count */
 
@@ -233,8 +233,8 @@ static ssize_t rd_read(FAR struct inode *inode, unsigned char *buffer,
 {
   FAR struct rd_struct_s *dev;
 
-  DEBUGASSERT(inode && inode->i_private);
-  dev = (FAR struct rd_struct_s *)inode->i_private;
+  DEBUGASSERT(inode->i_private);
+  dev = inode->i_private;
 
   finfo("sector: %" PRIuOFF " nsectors: %u sectorsize: %d\n",
         start_sector, nsectors, dev->rd_sectsize);
@@ -267,8 +267,8 @@ static ssize_t rd_write(FAR struct inode *inode, const unsigned char *buffer,
 {
   struct rd_struct_s *dev;
 
-  DEBUGASSERT(inode && inode->i_private);
-  dev = (struct rd_struct_s *)inode->i_private;
+  DEBUGASSERT(inode->i_private);
+  dev = inode->i_private;
 
   finfo("sector: %" PRIuOFF " nsectors: %u sectorsize: %d\n",
         start_sector, nsectors, dev->rd_sectsize);
@@ -306,10 +306,9 @@ static int rd_geometry(FAR struct inode *inode, struct geometry *geometry)
 
   finfo("Entry\n");
 
-  DEBUGASSERT(inode);
   if (geometry)
     {
-      dev = (struct rd_struct_s *)inode->i_private;
+      dev = inode->i_private;
 
       memset(geometry, 0, sizeof(*geometry));
 
@@ -347,10 +346,10 @@ static int rd_ioctl(FAR struct inode *inode, int cmd, unsigned long arg)
 
   /* Only one ioctl command is supported */
 
-  DEBUGASSERT(inode && inode->i_private);
+  DEBUGASSERT(inode->i_private);
   if (cmd == BIOC_XIPBASE && ppv)
     {
-      dev  = (FAR struct rd_struct_s *)inode->i_private;
+      dev  = inode->i_private;
       *ppv = (FAR void *)dev->rd_buffer;
 
       finfo("ppv: %p\n", *ppv);
@@ -373,8 +372,8 @@ static int rd_unlink(FAR struct inode *inode)
 {
   FAR struct rd_struct_s *dev;
 
-  DEBUGASSERT(inode && inode->i_private);
-  dev = (FAR struct rd_struct_s *)inode->i_private;
+  DEBUGASSERT(inode->i_private);
+  dev = inode->i_private;
 
   /* Mark the pipe unlinked */
 

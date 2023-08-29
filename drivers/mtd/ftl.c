@@ -212,8 +212,8 @@ static int ftl_open(FAR struct inode *inode)
 {
   FAR struct ftl_struct_s *dev;
 
-  DEBUGASSERT(inode && inode->i_private);
-  dev = (FAR struct ftl_struct_s *)inode->i_private;
+  DEBUGASSERT(inode->i_private);
+  dev = inode->i_private;
 
   dev->refs++;
   return OK;
@@ -230,8 +230,8 @@ static int ftl_close(FAR struct inode *inode)
 {
   FAR struct ftl_struct_s *dev;
 
-  DEBUGASSERT(inode && inode->i_private);
-  dev = (FAR struct ftl_struct_s *)inode->i_private;
+  DEBUGASSERT(inode->i_private);
+  dev = inode->i_private;
 
 #ifdef CONFIG_FTL_WRITEBUFFER
   rwb_flush(&dev->rwb);
@@ -442,9 +442,9 @@ static ssize_t ftl_read(FAR struct inode *inode, unsigned char *buffer,
 
   finfo("sector: %" PRIuOFF " nsectors: %u\n", start_sector, nsectors);
 
-  DEBUGASSERT(inode && inode->i_private);
+  DEBUGASSERT(inode->i_private);
 
-  dev = (FAR struct ftl_struct_s *)inode->i_private;
+  dev = inode->i_private;
 #ifdef FTL_HAVE_RWBUFFER
   return rwb_read(&dev->rwb, start_sector, nsectors, buffer);
 #else
@@ -660,8 +660,8 @@ static ssize_t ftl_write(FAR struct inode *inode,
 
   finfo("sector: %" PRIuOFF " nsectors: %u\n", start_sector, nsectors);
 
-  DEBUGASSERT(inode && inode->i_private);
-  dev = (struct ftl_struct_s *)inode->i_private;
+  DEBUGASSERT(inode->i_private);
+  dev = inode->i_private;
 #ifdef FTL_HAVE_RWBUFFER
   return rwb_write(&dev->rwb, start_sector, nsectors, buffer);
 #else
@@ -683,10 +683,9 @@ static int ftl_geometry(FAR struct inode *inode,
 
   finfo("Entry\n");
 
-  DEBUGASSERT(inode);
   if (geometry)
     {
-      dev = (struct ftl_struct_s *)inode->i_private;
+      dev = inode->i_private;
       geometry->geo_available     = true;
       geometry->geo_mediachanged  = false;
       geometry->geo_writeenabled  = true;
@@ -720,9 +719,9 @@ static int ftl_ioctl(FAR struct inode *inode, int cmd, unsigned long arg)
   int ret;
 
   finfo("Entry\n");
-  DEBUGASSERT(inode && inode->i_private);
+  DEBUGASSERT(inode->i_private);
 
-  dev = (struct ftl_struct_s *)inode->i_private;
+  dev = inode->i_private;
 
   if (cmd == BIOC_FLUSH)
     {
@@ -757,8 +756,8 @@ static int ftl_unlink(FAR struct inode *inode)
 {
   FAR struct ftl_struct_s *dev;
 
-  DEBUGASSERT(inode && inode->i_private);
-  dev = (FAR struct ftl_struct_s *)inode->i_private;
+  DEBUGASSERT(inode->i_private);
+  dev = inode->i_private;
 
   dev->unlinked = true;
   if (dev->refs == 0)

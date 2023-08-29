@@ -440,7 +440,7 @@ static ssize_t noteram_read(FAR struct file *filep, FAR char *buffer,
   do
     {
       irqstate_t flags;
-      uint8_t note[64];
+      uint8_t note[256];
 
       /* Get the next note (removing it from the buffer) */
 
@@ -469,8 +469,7 @@ static ssize_t noteram_read(FAR struct file *filep, FAR char *buffer,
 static int noteram_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 {
   int ret = -ENOSYS;
-  FAR struct noteram_driver_s *drv =
-    (FAR struct noteram_driver_s *)filep->f_inode->i_private;
+  FAR struct noteram_driver_s *drv = filep->f_inode->i_private;
   irqstate_t flags = spin_lock_irqsave_wo_note(&drv->lock);
 
   /* Handle the ioctl commands */

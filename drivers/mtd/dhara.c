@@ -296,8 +296,8 @@ static int dhara_open(FAR struct inode *inode)
 {
   FAR dhara_dev_t *dev;
 
-  DEBUGASSERT(inode && inode->i_private);
-  dev = (FAR dhara_dev_t *) inode->i_private;
+  DEBUGASSERT(inode->i_private);
+  dev = inode->i_private;
   nxmutex_lock(&dev->lock);
   dev->refs++;
   nxmutex_unlock(&dev->lock);
@@ -316,8 +316,8 @@ static int dhara_close(FAR struct inode *inode)
 {
   FAR dhara_dev_t *dev;
 
-  DEBUGASSERT(inode && inode->i_private);
-  dev = (FAR dhara_dev_t *) inode->i_private;
+  DEBUGASSERT(inode->i_private);
+  dev = inode->i_private;
   nxmutex_lock(&dev->lock);
   dev->refs--;
   nxmutex_unlock(&dev->lock);
@@ -349,8 +349,8 @@ static ssize_t dhara_read(FAR struct inode *inode,
   size_t nread = 0;
   int ret = 0;
 
-  DEBUGASSERT(inode && inode->i_private);
-  dev = (FAR dhara_dev_t *)inode->i_private;
+  DEBUGASSERT(inode->i_private);
+  dev = inode->i_private;
 
   nxmutex_lock(&dev->lock);
   while (nsectors-- > 0)
@@ -393,8 +393,8 @@ static ssize_t dhara_write(FAR struct inode *inode,
   size_t nwrite = 0;
   int ret = 0;
 
-  DEBUGASSERT(inode && inode->i_private);
-  dev = (FAR dhara_dev_t *)inode->i_private;
+  DEBUGASSERT(inode->i_private);
+  dev = inode->i_private;
 
   nxmutex_lock(&dev->lock);
   while (nsectors-- > 0)
@@ -433,8 +433,8 @@ static int dhara_geometry(FAR struct inode *inode,
 {
   FAR dhara_dev_t *dev;
 
-  DEBUGASSERT(inode && inode->i_private);
-  dev = (FAR dhara_dev_t *)inode->i_private;
+  DEBUGASSERT(inode->i_private);
+  dev = inode->i_private;
 
   if (geometry)
     {
@@ -466,8 +466,8 @@ static int dhara_ioctl(FAR struct inode *inode,
   FAR dhara_dev_t *dev;
   int ret;
 
-  DEBUGASSERT(inode && inode->i_private);
-  dev = (dhara_dev_t *)inode->i_private;
+  DEBUGASSERT(inode->i_private);
+  dev = inode->i_private;
 
   /* No other block driver ioctl commands are not recognized by this
    * driver.  Other possible MTD driver ioctl commands are passed through
@@ -495,8 +495,8 @@ static int dhara_unlink(FAR struct inode *inode)
 {
   FAR dhara_dev_t *dev;
 
-  DEBUGASSERT(inode && inode->i_private);
-  dev = (FAR dhara_dev_t *)inode->i_private;
+  DEBUGASSERT(inode->i_private);
+  dev = inode->i_private;
   nxmutex_lock(&dev->lock);
   dev->unlinked = true;
   nxmutex_unlock(&dev->lock);
