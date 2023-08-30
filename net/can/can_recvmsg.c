@@ -473,14 +473,12 @@ ssize_t can_recvmsg(FAR struct socket *psock, FAR struct msghdr *msg,
   struct can_recvfrom_s state;
   int ret;
 
-  DEBUGASSERT(psock != NULL && psock->s_conn != NULL);
-
   conn = psock->s_conn;
 
   if (psock->s_type != SOCK_RAW)
     {
       nerr("ERROR: Unsupported socket type: %d\n", psock->s_type);
-      ret = -ENOSYS;
+      return -ENOSYS;
     }
 
   net_lock();

@@ -262,8 +262,7 @@ static void local_addref(FAR struct socket *psock)
 {
   FAR struct local_conn_s *conn;
 
-  DEBUGASSERT(psock != NULL && psock->s_conn != NULL &&
-              psock->s_domain == PF_LOCAL);
+  DEBUGASSERT(psock->s_domain == PF_LOCAL);
 
   conn = psock->s_conn;
   DEBUGASSERT(conn->lc_crefs > 0 && conn->lc_crefs < 255);
@@ -369,9 +368,6 @@ static int local_getsockname(FAR struct socket *psock,
   FAR struct sockaddr_un *unaddr = (FAR struct sockaddr_un *)addr;
   FAR struct local_conn_s *conn;
 
-  DEBUGASSERT(psock != NULL && psock->s_conn != NULL &&
-              unaddr != NULL && addrlen != NULL);
-
   if (*addrlen < sizeof(sa_family_t))
     {
       /* This is apparently not an error */
@@ -467,9 +463,6 @@ static int local_getpeername(FAR struct socket *psock,
   FAR struct sockaddr_un *unaddr = (FAR struct sockaddr_un *)addr;
   FAR struct local_conn_s *conn;
   FAR struct local_conn_s *peer;
-
-  DEBUGASSERT(psock != NULL && psock->s_conn != NULL &&
-              unaddr != NULL && addrlen != NULL);
 
   if (*addrlen < sizeof(sa_family_t))
     {
@@ -574,8 +567,7 @@ static int local_getpeername(FAR struct socket *psock,
 static int local_getsockopt(FAR struct socket *psock, int level, int option,
                             FAR void *value, FAR socklen_t *value_len)
 {
-  DEBUGASSERT(psock != NULL && psock->s_conn != NULL &&
-              psock->s_domain == PF_LOCAL);
+  DEBUGASSERT(psock->s_domain == PF_LOCAL);
 
 #ifdef CONFIG_NET_LOCAL_SCM
   if (level == SOL_SOCKET && option == SO_PEERCRED)
@@ -1019,8 +1011,7 @@ errout:
 
 static int local_shutdown(FAR struct socket *psock, int how)
 {
-  DEBUGASSERT(psock != NULL && psock->s_conn != NULL &&
-              psock->s_domain == PF_LOCAL);
+  DEBUGASSERT(psock->s_domain == PF_LOCAL);
 
   switch (psock->s_type)
     {
