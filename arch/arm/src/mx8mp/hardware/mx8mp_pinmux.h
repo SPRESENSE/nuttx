@@ -40,31 +40,31 @@
 
 /* General Purpose Registers */
 
-#define IMX_IOMUXC_GPR0_OFFSET                0x0000
-#define IMX_IOMUXC_GPR1_OFFSET                0x0004
-#define IMX_IOMUXC_GPR2_OFFSET                0x0008
-#define IMX_IOMUXC_GPR3_OFFSET                0x000c
-#define IMX_IOMUXC_GPR4_OFFSET                0x0010
-#define IMX_IOMUXC_GPR5_OFFSET                0x0014
-#define IMX_IOMUXC_GPR6_OFFSET                0x0018
-#define IMX_IOMUXC_GPR7_OFFSET                0x001c
-#define IMX_IOMUXC_GPR8_OFFSET                0x0020
-#define IMX_IOMUXC_GPR9_OFFSET                0x0024
-#define IMX_IOMUXC_GPR10_OFFSET               0x0028
-#define IMX_IOMUXC_GPR11_OFFSET               0x002c
-#define IMX_IOMUXC_GPR12_OFFSET               0x0030
-#define IMX_IOMUXC_GPR13_OFFSET               0x0034
-#define IMX_IOMUXC_GPR14_OFFSET               0x0038
-#define IMX_IOMUXC_GPR15_OFFSET               0x003c
-#define IMX_IOMUXC_GPR16_OFFSET               0x0040
-#define IMX_IOMUXC_GPR17_OFFSET               0x0044
-#define IMX_IOMUXC_GPR18_OFFSET               0x0048
-#define IMX_IOMUXC_GPR19_OFFSET               0x004c
-#define IMX_IOMUXC_GPR20_OFFSET               0x0050
-#define IMX_IOMUXC_GPR21_OFFSET               0x0054
-#define IMX_IOMUXC_GPR22_OFFSET               0x0058
-#define IMX_IOMUXC_GPR23_OFFSET               0x005c
-#define IMX_IOMUXC_GPR24_OFFSET               0x0060
+#define IOMUXC_GPR0_OFFSET                  0x0000
+#define IOMUXC_GPR1_OFFSET                  0x0004
+#define IOMUXC_GPR2_OFFSET                  0x0008
+#define IOMUXC_GPR3_OFFSET                  0x000c
+#define IOMUXC_GPR4_OFFSET                  0x0010
+#define IOMUXC_GPR5_OFFSET                  0x0014
+#define IOMUXC_GPR6_OFFSET                  0x0018
+#define IOMUXC_GPR7_OFFSET                  0x001c
+#define IOMUXC_GPR8_OFFSET                  0x0020
+#define IOMUXC_GPR9_OFFSET                  0x0024
+#define IOMUXC_GPR10_OFFSET                 0x0028
+#define IOMUXC_GPR11_OFFSET                 0x002c
+#define IOMUXC_GPR12_OFFSET                 0x0030
+#define IOMUXC_GPR13_OFFSET                 0x0034
+#define IOMUXC_GPR14_OFFSET                 0x0038
+#define IOMUXC_GPR15_OFFSET                 0x003c
+#define IOMUXC_GPR16_OFFSET                 0x0040
+#define IOMUXC_GPR17_OFFSET                 0x0044
+#define IOMUXC_GPR18_OFFSET                 0x0048
+#define IOMUXC_GPR19_OFFSET                 0x004c
+#define IOMUXC_GPR20_OFFSET                 0x0050
+#define IOMUXC_GPR21_OFFSET                 0x0054
+#define IOMUXC_GPR22_OFFSET                 0x0058
+#define IOMUXC_GPR23_OFFSET                 0x005c
+#define IOMUXC_GPR24_OFFSET                 0x0060
 
 /* The pin function ID is a tuple that contains in order:
  *  mux_register
@@ -879,28 +879,50 @@
 #define IOMUXC_HDMI_HPD_CAN2_RX                             0x3033024C, 0x4, 0x30330550, 0x3, 0x303304AC
 #define IOMUXC_HDMI_HPD_GPIO3_IO29                          0x3033024C, 0x5, 0x00000000, 0x0, 0x303304AC
 
-/* FSEL - Slew Rate Field
- *  0b0..Slow Slew Rate (SR=1)
- *  0b1..Fast Slew Rate (SR=0)
+/* DSE - Drive Strength Field
+ *  00   x1
+ *  10   x2
+ *  01   x4
+ *  11   x6
  */
-#define IOMUXC_SW_PAD_CTL_PAD_FSEL_MASK          (0x10U)
-#define IOMUXC_SW_PAD_CTL_PAD_FSEL_SHIFT         (4U)
-#define IOMUXC_SW_PAD_CTL_PAD_FSEL(x)            (((uint32_t)(((uint32_t)(x)) << IOMUXC_SW_PAD_CTL_PAD_FSEL_SHIFT)) & IOMUXC_SW_PAD_CTL_PAD_FSEL_MASK)
+#define PAD_CTL_DSE1            (0 << 1)
+#define PAD_CTL_DSE2            (2 << 1)
+#define PAD_CTL_DSE4            (1 << 1)
+#define PAD_CTL_DSE6            (3 << 1)
+
+/* FSEL - Slew Rate Field
+ *  0  Slow Slew Rate (SR=1)
+ *  1  Fast Slew Rate (SR=0)
+ */
+#define PAD_CTL_FSEL            (1 << 4)
+
+/* ODE - Open drain field
+ *  0  Disable
+ *  1  Enable
+ */
+#define PAD_CTL_ODE             (1 << 5)
 
 /* PUE - Pull Up / Down Config. Field
- *  0b0..Weak pull down
- *  0b1..Weak pull up
+ *  0  Weak pull down
+ *  1  Weak pull up
  */
-#define IOMUXC_SW_PAD_CTL_PAD_PUE_MASK           (0x40U)
-#define IOMUXC_SW_PAD_CTL_PAD_PUE_SHIFT          (6U)
-#define IOMUXC_SW_PAD_CTL_PAD_PUE(x)             (((uint32_t)(((uint32_t)(x)) << IOMUXC_SW_PAD_CTL_PAD_PUE_SHIFT)) & IOMUXC_SW_PAD_CTL_PAD_PUE_MASK)
+#define PAD_CTL_PUE             (1 << 6)
+
+/* HYS - Input Select Field
+ *  0  CMOS
+ *  1  Schmitt
+ */
+#define PAD_CTL_HYS             (1 << 7)
 
 /* PE - Pull Select Field
- *  0b0..Pull Disable
- *  0b1..Pull Enable
+ *  0  Pull Disable
+ *  1  Pull Enable
  */
-#define IOMUXC_SW_PAD_CTL_PAD_PE_MASK            (0x100U)
-#define IOMUXC_SW_PAD_CTL_PAD_PE_SHIFT           (8U)
-#define IOMUXC_SW_PAD_CTL_PAD_PE(x)              (((uint32_t)(((uint32_t)(x)) << IOMUXC_SW_PAD_CTL_PAD_PE_SHIFT)) & IOMUXC_SW_PAD_CTL_PAD_PE_MASK)
+#define PAD_CTL_PE              (1 << 8)
+
+/* Helpers for common configurations */
+
+#define GPIO_PAD_CTRL	(PAD_CTL_HYS | PAD_CTL_PUE | PAD_CTL_PE | PAD_CTL_DSE2)
+#define UART_PAD_CTRL	(PAD_CTL_PUE | PAD_CTL_PE)
 
 #endif /* __ARCH_ARM_SRC_MX8MP_HARDWARE_MX8MP_PINMUX_H */

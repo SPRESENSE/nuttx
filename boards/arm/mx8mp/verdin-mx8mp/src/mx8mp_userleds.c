@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/mx8mp/mx8mp_timerisr.c
+ * boards/arm/mx8mp/verdin-mx8mp/src/mx8mp_userleds.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -24,104 +24,114 @@
 
 #include <nuttx/config.h>
 
+#include <stdio.h>
 #include <stdint.h>
-#include <time.h>
-#include <assert.h>
+#include <stdbool.h>
 #include <debug.h>
-
-#include <nuttx/arch.h>
 
 #include <arch/board/board.h>
 
-#include "nvic.h"
-#include "clock/clock.h"
-#include "arm_internal.h"
 #include "chip.h"
-#include "mx8mp_ccm.h"
+#include "arm_internal.h"
+#include "verdin-mx8mp.h"
+
+#ifndef CONFIG_ARCH_LEDS
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
-
-/* The desired timer interrupt frequency is provided by the definition
- * CLK_TCK (see include/time.h).  CLK_TCK defines the desired number of
- * system clock ticks per second.  That value is a user configurable setting
- * that defaults to 100 (100 ticks per second = 10 MS interval).
- */
-
-#define SYSTICK_RELOAD(coreclk) (((coreclk) / CLK_TCK) - 1)
-
-/****************************************************************************
- * Private Function Prototypes
- ****************************************************************************/
-
-static int mx8mp_timerisr(int irq, uint32_t *regs, void *arg);
 
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Function:  mx8mp_timerisr
- *
- * Description:
- *   The timer ISR will perform a variety of services for various portions
- *   of the systems.
- *
+ * Name: led_dumppins
  ****************************************************************************/
 
-static int mx8mp_timerisr(int irq, uint32_t *regs, void *arg)
+#ifdef LED_VERBOSE
+static void led_dumppins(const char *msg)
 {
-  /* Process timer interrupt */
-
-  nxsched_process_timer();
-  return 0;
+  #warning Missing logic
 }
+#else
+#  define led_dumppins(m)
+#endif
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Function:  up_timer_initialize
- *
- * Description:
- *   This function is called during start-up to initialize the timer
- *   interrupt.
- *
+ * Name: board_userled_initialize
  ****************************************************************************/
 
-void up_timer_initialize(void)
+uint32_t board_userled_initialize(void)
 {
-  uint32_t regval;
-  uint32_t coreclk;
-  uint32_t reload;
+  mx8mp_iomuxc_config(IOMUX_LED_1);
+  mx8mp_iomuxc_config(IOMUX_LED_2);
+  mx8mp_iomuxc_config(IOMUX_LED_3);
+  mx8mp_iomuxc_config(IOMUX_LED_4);
 
-  /* Get the reload value */
+  mx8mp_gpio_config(GPIO_LED_1);
+  mx8mp_gpio_config(GPIO_LED_2);
+  mx8mp_gpio_config(GPIO_LED_3);
+  mx8mp_gpio_config(GPIO_LED_4);
 
-  coreclk = mx8mp_ccm_get_clock(ARM_M7_CLK_ROOT);
-  reload = SYSTICK_RELOAD(coreclk);
-
-  /* The size of the reload field is 24 bits. */
-
-  DEBUGASSERT(reload <= 0x00ffffff);
-
-  /* Configure SysTick to interrupt at the requested rate */
-
-  putreg32(reload, NVIC_SYSTICK_RELOAD);
-  putreg32(0, NVIC_SYSTICK_CURRENT);
-
-  /* Attach the timer interrupt vector */
-
-  irq_attach(MX8MP_IRQ_SYSTICK, (xcpt_t)mx8mp_timerisr, NULL);
-
-  /* Enable SysTick interrupts */
-
-  regval = (NVIC_SYSTICK_CTRL_CLKSOURCE | NVIC_SYSTICK_CTRL_TICKINT |
-            NVIC_SYSTICK_CTRL_ENABLE);
-  putreg32(regval, NVIC_SYSTICK_CTRL);
-
-  /* And enable the timer interrupt */
-
-  up_enable_irq(MX8MP_IRQ_SYSTICK);
+  return BOARD_NLEDS;
 }
+
+/****************************************************************************
+ * Name: board_userled
+ ****************************************************************************/
+
+void board_userled(int led, bool on)
+{
+  gpio_pinset_t gpio;
+
+  switch (led)
+    {
+      case BOARD_LED_1:
+        {
+          gpio = GPIO_LED_1;
+        }
+      break;
+
+      case BOARD_LED_2:
+        {
+          gpio = GPIO_LED_2;
+        }
+      break;
+
+      case BOARD_LED_3:
+        {
+          gpio = GPIO_LED_3;
+        }
+      break;
+
+      case BOARD_LED_4:
+        {
+          gpio = GPIO_LED_4;
+        }
+      break;
+
+      default:
+        return;
+    }
+
+    mx8mp_gpio_write(gpio, on);
+}
+
+/****************************************************************************
+ * Name: board_userled_all
+ ****************************************************************************/
+
+void board_userled_all(uint32_t ledset)
+{
+  mx8mp_gpio_write(GPIO_LED_1, (ledset & BOARD_LED_1_BIT) == 0);
+  mx8mp_gpio_write(GPIO_LED_2, (ledset & BOARD_LED_2_BIT) == 0);
+  mx8mp_gpio_write(GPIO_LED_3, (ledset & BOARD_LED_3_BIT) == 0);
+  mx8mp_gpio_write(GPIO_LED_4, (ledset & BOARD_LED_4_BIT) == 0);
+}
+
+#endif /* !CONFIG_ARCH_LEDS */
