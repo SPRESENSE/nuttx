@@ -590,6 +590,7 @@ endif # CDCACM
 menuconfig USBADB
 	bool "USB Android Debug Bridge (ADB) support"
 	default n
+	select USBDEV_FS
 	---help---
 		Enables USB Android Debug Bridge (ADB) support
 
@@ -716,12 +717,6 @@ config USBADB_CONFIGSTR
 config USBADB_INTERFACESTR
 	string "Interface descriptor string"
 	default "ADB Interface"
-
-config USBADB_NPOLLWAITERS
-	int "Number of ADB poll waiters"
-	default 1
-	---help---
-		Maximum number of threads that can be waiting on poll().
 
 endif # USBADB
 
@@ -1209,5 +1204,27 @@ config CDCECM_PRODUCTSTR
 
 endif # !CDCECM_COMPOSITE
 endif # CDCECM
+
+config USBDEV_FS
+	bool
+	default n
+	---help---
+		Enables USBDEV FS support, userspace can use fs to control USB device.
+
+if USBDEV_FS
+
+config USBDEV_FS_EPNUM
+	int "Number of EP for USBDEV FS"
+	default 4
+	---help---
+		Maximum number of eps for USBDEV FS.
+
+config USBDEV_FS_NPOLLWAITERS
+	int "Number of poll waiters for USBDEV FS"
+	default 2
+	---help---
+		Maximum number of threads that can be waiting on poll().
+
+endif #USBDEV_FS
 
 endif # USBDEV

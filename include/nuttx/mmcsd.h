@@ -49,6 +49,7 @@
 #define MMC_RPMB_READ_CNT       0x02
 #define MMC_RPMB_WRITE          0x03
 #define MMC_RPMB_READ           0x04
+#define MMC_RPMB_READ_RESP      0x05
 
 /****************************************************************************
  * Public Types
@@ -72,6 +73,11 @@ struct mmc_ioc_cmd
   unsigned int flags;
   unsigned int blksz;
   unsigned int blocks;
+
+  /* Override driver-computed timeouts.  Note the difference in units! */
+
+  unsigned int data_timeout_ns;
+  unsigned int cmd_timeout_ms;
 
   /* For 64-bit machines, the next member, ``uint64_t data_ptr``, wants to
    * be 8-byte aligned.  Make sure this struct is the same size when

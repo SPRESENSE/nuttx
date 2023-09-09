@@ -34,7 +34,7 @@
  ****************************************************************************/
 
 /****************************************************************************
- * Name: pinephone_bringup
+ * Name: pinephonepro_bringup
  *
  * Description:
  *   Bring up board features
@@ -42,7 +42,7 @@
  ****************************************************************************/
 
 #if defined(CONFIG_BOARDCTL) || defined(CONFIG_BOARD_LATE_INITIALIZE)
-int pinephone_bringup(void);
+int pinephonepro_bringup(void);
 #endif
 
 #endif /* __ASSEMBLY__ */
