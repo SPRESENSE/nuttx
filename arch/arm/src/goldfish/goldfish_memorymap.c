@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/qemu/qemu_boot.c
+ * arch/arm/src/goldfish/goldfish_memorymap.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -22,44 +22,53 @@
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
+#include "mmu.h"
+#include "goldfish_memorymap.h"
 
-#include "arm_internal.h"
+/****************************************************************************
+ * Macro Definitions
+ ****************************************************************************/
 
-#include "qemu_irq.h"
-#include "qemu_memorymap.h"
+#define _NSECTIONS(b)                 (((b)+0x000fffff) >> 20)
 
-#ifdef CONFIG_DEVICE_TREE
-#  include <nuttx/fdt.h>
-#endif
+/****************************************************************************
+ * Private Data
+ ****************************************************************************/
+
+static const struct section_mapping_s g_section_mapping[] =
+{
+  {
+    VIRT_FLASH_PSECTION, VIRT_FLASH_VSECTION,
+    MMU_MEMFLAGS, _NSECTIONS(VIRT_FLASH_SECSIZE)
+  },
+  {
+    VIRT_IO_PSECTION, VIRT_IO_VSECTION,
+    MMU_IOFLAGS, _NSECTIONS(VIRT_IO_SECSIZE)
+  },
+  {
+    VIRT_PCIE_PSECTION, VIRT_PCIE_VSECTION,
+    MMU_IOFLAGS, _NSECTIONS(VIRT_PCIE_SECSIZE)
+  },
+};
+
+static const size_t g_num_mappings =
+             (sizeof(g_section_mapping) / sizeof(struct section_mapping_s));
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: arm_boot
+ * Name: goldfish_setupmappings
  *
  * Description:
- *   Complete boot operations started in arm_head.S
+ *   Initializes the non-code area page table
  *
  ****************************************************************************/
 
-void arm_boot(void)
+int goldfish_setupmappings(void)
 {
-  /* Set the page table for section */
+  mmu_l1_map_regions(g_section_mapping, g_num_mappings);
 
-  qemu_setupmappings();
-
-#ifdef CONFIG_DEVICE_TREE
-  fdt_register((FAR const char *)0x40000000);
-#endif
-
-#ifdef USE_EARLYSERIALINIT
-  /* Perform early serial initialization if we are going to use the serial
-   * driver.
-   */
-
-  arm_earlyserialinit();
-#endif
+  return 0;
 }

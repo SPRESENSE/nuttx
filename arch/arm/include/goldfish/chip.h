@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/qemu/qemu_boot.c
+ * arch/arm/include/goldfish/chip.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,48 +18,29 @@
  *
  ****************************************************************************/
 
+#ifndef __ARCH_ARM_INCLUDE_GOLDFISH_CHIP_H
+#define __ARCH_ARM_INCLUDE_GOLDFISH_CHIP_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
-#include "arm_internal.h"
-
-#include "qemu_irq.h"
-#include "qemu_memorymap.h"
-
-#ifdef CONFIG_DEVICE_TREE
-#  include <nuttx/fdt.h>
-#endif
-
 /****************************************************************************
- * Public Functions
+ * Pre-processor Prototypes
  ****************************************************************************/
 
 /****************************************************************************
- * Name: arm_boot
- *
- * Description:
- *   Complete boot operations started in arm_head.S
- *
+ * Public Types
  ****************************************************************************/
 
-void arm_boot(void)
-{
-  /* Set the page table for section */
+/****************************************************************************
+ * Public Data
+ ****************************************************************************/
 
-  qemu_setupmappings();
+/****************************************************************************
+ * Public Functions Prototypes
+ ****************************************************************************/
 
-#ifdef CONFIG_DEVICE_TREE
-  fdt_register((FAR const char *)0x40000000);
-#endif
-
-#ifdef USE_EARLYSERIALINIT
-  /* Perform early serial initialization if we are going to use the serial
-   * driver.
-   */
-
-  arm_earlyserialinit();
-#endif
-}
+#endif /* __ARCH_ARM_INCLUDE_GOLDFISH_CHIP_H */

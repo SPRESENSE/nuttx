@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/qemu/qemu_boot.c
+ * arch/arm/include/goldfish/irq.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,48 +18,52 @@
  *
  ****************************************************************************/
 
+/* This file should never be included directly but, rather,
+ * only indirectly through nuttx/irq.h
+ */
+
+#ifndef __ARCH_ARM_INCLUDE_GOLDFISH_IRQ_H
+#define __ARCH_ARM_INCLUDE_GOLDFISH_IRQ_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
+/****************************************************************************
+ * Pre-processor Prototypes
+ ****************************************************************************/
 
-#include "arm_internal.h"
-
-#include "qemu_irq.h"
-#include "qemu_memorymap.h"
-
-#ifdef CONFIG_DEVICE_TREE
-#  include <nuttx/fdt.h>
-#endif
+#define NR_IRQS                 220  /* Total number of interrupts */
 
 /****************************************************************************
- * Public Functions
+ * Public Types
  ****************************************************************************/
 
 /****************************************************************************
- * Name: arm_boot
- *
- * Description:
- *   Complete boot operations started in arm_head.S
- *
+ * Inline functions
  ****************************************************************************/
 
-void arm_boot(void)
+/****************************************************************************
+ * Public Data
+ ****************************************************************************/
+
+/****************************************************************************
+ * Public Function Prototypes
+ ****************************************************************************/
+
+#ifndef __ASSEMBLY__
+#ifdef __cplusplus
+#define EXTERN extern "C"
+extern "C"
 {
-  /* Set the page table for section */
-
-  qemu_setupmappings();
-
-#ifdef CONFIG_DEVICE_TREE
-  fdt_register((FAR const char *)0x40000000);
+#else
+#define EXTERN extern
 #endif
 
-#ifdef USE_EARLYSERIALINIT
-  /* Perform early serial initialization if we are going to use the serial
-   * driver.
-   */
-
-  arm_earlyserialinit();
-#endif
+#undef EXTERN
+#ifdef __cplusplus
 }
+#endif
+#endif
+
+#endif /* __ARCH_ARM_INCLUDE_GOLDFISH_IRQ_H */

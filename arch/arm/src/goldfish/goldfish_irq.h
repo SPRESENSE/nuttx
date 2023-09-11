@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/qemu/qemu_boot.c
+ * arch/arm/src/goldfish/goldfish_irq.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,48 +18,34 @@
  *
  ****************************************************************************/
 
-/****************************************************************************
- * Included Files
- ****************************************************************************/
-
-#include <nuttx/config.h>
-
-#include "arm_internal.h"
-
-#include "qemu_irq.h"
-#include "qemu_memorymap.h"
-
-#ifdef CONFIG_DEVICE_TREE
-#  include <nuttx/fdt.h>
-#endif
+#ifndef __ARCH_ARM_SRC_GOLDFISH_GOLDFISH_IRQ_H
+#define __ARCH_ARM_SRC_GOLDFISH_GOLDFISH_IRQ_H
 
 /****************************************************************************
- * Public Functions
+ * Public Function Prototypes
  ****************************************************************************/
 
-/****************************************************************************
- * Name: arm_boot
- *
- * Description:
- *   Complete boot operations started in arm_head.S
- *
- ****************************************************************************/
+#ifndef __ASSEMBLY__
 
-void arm_boot(void)
+#undef EXTERN
+#if defined(__cplusplus)
+#define EXTERN extern "C"
+extern "C"
 {
-  /* Set the page table for section */
-
-  qemu_setupmappings();
-
-#ifdef CONFIG_DEVICE_TREE
-  fdt_register((FAR const char *)0x40000000);
+#else
+#define EXTERN extern
 #endif
 
-#ifdef USE_EARLYSERIALINIT
-  /* Perform early serial initialization if we are going to use the serial
-   * driver.
-   */
+/****************************************************************************
+ * Name: arm_earlyirqinit
+ ****************************************************************************/
 
-  arm_earlyserialinit();
-#endif
+void arm_earlyirqinit(void);
+
+#undef EXTERN
+#if defined(__cplusplus)
 }
+#endif
+
+#endif /* __ASSEMBLY__ */
+#endif /* __ARCH_ARM_SRC_GOLDFISH_GOLDFISH_IRQ_H */

@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/qemu/qemu_boot.c
+ * arch/arm/src/goldfish/goldfish_boot.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -26,8 +26,8 @@
 
 #include "arm_internal.h"
 
-#include "qemu_irq.h"
-#include "qemu_memorymap.h"
+#include "goldfish_irq.h"
+#include "goldfish_memorymap.h"
 
 #ifdef CONFIG_DEVICE_TREE
 #  include <nuttx/fdt.h>
@@ -49,7 +49,7 @@ void arm_boot(void)
 {
   /* Set the page table for section */
 
-  qemu_setupmappings();
+  goldfish_setupmappings();
 
 #ifdef CONFIG_DEVICE_TREE
   fdt_register((FAR const char *)0x40000000);
