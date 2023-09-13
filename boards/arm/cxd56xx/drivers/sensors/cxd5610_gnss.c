@@ -107,6 +107,7 @@
 #define OPC_RECEIVER_VEL_NOTIFY           (0x82)
 #define OPC_SAT_INFO_NOTIFY               (0x83)
 #define OPC_ACCURACY_IDX_NOTIFY           (0x89)
+#define OPC_DISASTER_CRISIS_NOTIFY        (0x8b)
 
 /* Command packet definitions */
 
@@ -175,6 +176,7 @@ struct cxd5610_gnss_dev_s
   uint8_t       *rcvbuf;
   uint8_t       *notifybuf;
   struct cxd56_gnss_positiondata2_s *posdat2;
+  struct cxd56_gnss_dcreport_data_s *dcrdat;
 };
 
 /* Command packets */
@@ -266,6 +268,18 @@ begin_packed_struct struct cmd_notify_acc_s
   uint16_t semimajor16;
   uint16_t semiminor16;
   uint8_t  orientation;
+} end_packed_struct;
+
+begin_packed_struct struct cmd_notify_dcreport_s
+{
+  uint8_t  ver8;
+  uint8_t  nr;
+  struct mt43_data_s
+  {
+    uint8_t svid;
+    uint8_t data[32];
+  }
+  msg[3];
 } end_packed_struct;
 
 /****************************************************************************
@@ -732,6 +746,54 @@ static int cxd5610_gnss_notify_acc(struct cxd5610_gnss_dev_s *priv, int len)
 }
 
 /****************************************************************************
+ * Name: cxd5610_gnss_notify_dcreport
+ ****************************************************************************/
+
+static int
+cxd5610_gnss_notify_dcreport(struct cxd5610_gnss_dev_s *priv, int len)
+{
+  struct cmd_notify_dcreport_s *param =
+                             (struct cmd_notify_dcreport_s *)priv->notifybuf;
+  struct cxd56_gnss_dcreport_data_s *dcrdat = priv->dcrdat;
+  int i;
+
+  /* If the packet is invalid, do not update received data */
+
+  if (IS_NOTIFY_INVALID(param->ver8))
+    {
+      return OK;
+    }
+
+  if (param->nr == 0)
+    {
+      return -ENOENT;
+    }
+
+  /* Only one message is received due to duplicate messages */
+
+  param->nr = 1;
+
+  /* Get exclusive control for buffer access */
+
+  cxd5610_gnss_buffer_lock(priv);
+
+  /* Receive disaster and crisis report information */
+
+  for (i = 0; i < param->nr; i++)
+    {
+      sninfo("svid=%d\n", param->msg[i].svid);
+      dcrdat->svid = param->msg[i].svid;
+      memcpy(dcrdat->sf, param->msg[i].data, sizeof(dcrdat->sf));
+    }
+
+  /* Release exclusive control for buffer access */
+
+  cxd5610_gnss_buffer_unlock(priv);
+
+  return OK;
+}
+
+/****************************************************************************
  * Name: cxd5610_gnss_notify
  ****************************************************************************/
 
@@ -753,6 +815,15 @@ cxd5610_gnss_notify(struct cxd5610_gnss_dev_s *priv, uint8_t opc, int len)
         break;
       case OPC_SAT_INFO_NOTIFY:
         ret = cxd5610_gnss_notify_sat(priv, len);
+        break;
+      case OPC_DISASTER_CRISIS_NOTIFY:
+        ret = cxd5610_gnss_notify_dcreport(priv, len);
+#if CONFIG_SENSORS_CXD5610_GNSS_NSIGNALRECEIVERS != 0
+        if (ret >= 0)
+          {
+            cxd5610_gnss_signalhandler(priv, CXD56_GNSS_SIG_DCREPORT);
+          }
+#endif
         break;
       case OPC_ACCURACY_IDX_NOTIFY:
         ret = cxd5610_gnss_notify_acc(priv, len);
@@ -1317,7 +1388,8 @@ static int cxd5610_gnss_set_notify(struct cxd5610_gnss_dev_s *priv)
     OPC_RECEIVER_POS_NOTIFY,
     OPC_RECEIVER_VEL_NOTIFY,
     OPC_SAT_INFO_NOTIFY,
-    OPC_ACCURACY_IDX_NOTIFY
+    OPC_ACCURACY_IDX_NOTIFY,
+    OPC_DISASTER_CRISIS_NOTIFY
   };
 
   ret = cxd5610_gnss_sendcmd(priv, OPC_BINARY_OUTPUT_SET,
@@ -1505,12 +1577,22 @@ static int cxd5610_gnss_initialize(struct cxd5610_gnss_dev_s *priv)
       goto errout4;
     }
 
+  priv->dcrdat = kmm_zalloc(sizeof(struct cxd56_gnss_dcreport_data_s));
+  if (priv->dcrdat == NULL)
+    {
+      snerr("ERROR: Failed to allocate dcreport data\n");
+      ret = -ENOMEM;
+      goto errout5;
+    }
+
   /* Initialize CXD5610 device */
 
   cxd5610_gnss_core_initialize(priv);
 
   return OK;
 
+errout5:
+  kmm_free(priv->posdat2);
 errout4:
   kmm_free(priv->notifybuf);
 errout3:
@@ -1544,6 +1626,7 @@ static int cxd5610_gnss_finalize(struct cxd5610_gnss_dev_s *priv)
   kmm_free(priv->rcvbuf);
   kmm_free(priv->notifybuf);
   kmm_free(priv->posdat2);
+  kmm_free(priv->dcrdat);
 
   return ret;
 }
@@ -1794,6 +1877,11 @@ static ssize_t cxd5610_gnss_read(struct file *filep, char *buffer,
           len = MIN(sizeof(struct cxd56_gnss_positiondata2_s), len);
           memcpy(buffer, priv->posdat2, len);
         }
+    }
+  else if (type == CXD56_READ_DATA_TYPE_DCREPORT)
+    {
+      len = MIN(sizeof(struct cxd56_gnss_dcreport_data_s), len);
+      memcpy(buffer, priv->dcrdat, len);
     }
 
   /* Release exclusive control for buffer access */
