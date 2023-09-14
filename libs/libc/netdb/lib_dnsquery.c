@@ -597,59 +597,65 @@ static int dns_query_callback(FAR void *arg, FAR struct sockaddr *addr,
   for (retries = 0; retries < CONFIG_NETDB_DNSCLIENT_RETRIES; retries++)
     {
 #ifdef CONFIG_NET_IPv6
-      /* Send the IPv6 query */
-
-      ret = dns_send_query(sd, query->hostname,
-                          (FAR union dns_addr_u *)addr,
-                           DNS_RECTYPE_AAAA, &qinfo);
-      if (ret < 0)
+      if (dns_isavail_queryaddrtype(AF_INET6))
         {
-          nerr("ERROR: IPv6 dns_send_query failed: %d\n", ret);
-          query->result = ret;
-        }
-      else
-        {
-          /* Obtain the IPv6 response */
+          /* Send the IPv6 query */
 
-          ret = dns_recv_response(sd, &query->addr[next],
-                                  CONFIG_NETDB_MAX_IPv6ADDR, &qinfo);
-          if (ret >= 0)
+          ret = dns_send_query(sd, query->hostname,
+                               (FAR union dns_addr_u *)addr,
+                               DNS_RECTYPE_AAAA, &qinfo);
+          if (ret < 0)
             {
-              next += ret;
+              nerr("ERROR: IPv6 dns_send_query failed: %d\n", ret);
+              query->result = ret;
             }
           else
             {
-              nerr("ERROR: IPv6 dns_recv_response failed: %d\n", ret);
-              query->result = ret;
+              /* Obtain the IPv6 response */
+
+              ret = dns_recv_response(sd, &query->addr[next],
+                                      CONFIG_NETDB_MAX_IPv6ADDR, &qinfo);
+              if (ret >= 0)
+                {
+                  next += ret;
+                }
+              else
+                {
+                  nerr("ERROR: IPv6 dns_recv_response failed: %d\n", ret);
+                  query->result = ret;
+                }
             }
         }
 #endif
 
 #ifdef CONFIG_NET_IPv4
-      /* Send the IPv4 query */
-
-      ret = dns_send_query(sd, query->hostname,
-                           (FAR union dns_addr_u *)addr,
-                           DNS_RECTYPE_A, &qinfo);
-      if (ret < 0)
+      if (dns_isavail_queryaddrtype(AF_INET))
         {
-          nerr("ERROR: IPv4 dns_send_query failed: %d\n", ret);
-          query->result = ret;
-        }
-      else
-        {
-          /* Obtain the IPv4 response */
+          /* Send the IPv4 query */
 
-          ret = dns_recv_response(sd, &query->addr[next],
-                                  CONFIG_NETDB_MAX_IPv4ADDR, &qinfo);
-          if (ret >= 0)
+          ret = dns_send_query(sd, query->hostname,
+                               (FAR union dns_addr_u *)addr,
+                               DNS_RECTYPE_A, &qinfo);
+          if (ret < 0)
             {
-              next += ret;
+              nerr("ERROR: IPv4 dns_send_query failed: %d\n", ret);
+              query->result = ret;
             }
           else
             {
-              nerr("ERROR: IPv4 dns_recv_response failed: %d\n", ret);
-              query->result = ret;
+              /* Obtain the IPv4 response */
+
+              ret = dns_recv_response(sd, &query->addr[next],
+                                      CONFIG_NETDB_MAX_IPv4ADDR, &qinfo);
+              if (ret >= 0)
+                {
+                  next += ret;
+                }
+              else
+                {
+                  nerr("ERROR: IPv4 dns_recv_response failed: %d\n", ret);
+                  query->result = ret;
+                }
             }
         }
 #endif /* CONFIG_NET_IPv4 */
