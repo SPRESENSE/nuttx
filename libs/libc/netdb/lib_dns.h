@@ -213,6 +213,23 @@ int dns_query(FAR const char *hostname, FAR union dns_addr_u *addr,
               FAR int *naddr);
 
 /****************************************************************************
+ * Name: dns_isavail_queryaddrtype
+ *
+ * Description:
+ *   Determine if the specified address type is available for DNS query.
+ *
+ * Input Parameters:
+ *   addrtype - The address type. AF_INET or AF_INET6 is specified.
+ *
+ * Returned Value:
+ *   Returns true if the address type specified in the addrtype argument
+ *   is available.
+ *
+ ****************************************************************************/
+
+bool dns_isavail_queryaddrtype(sa_family_t addrtype);
+
+/****************************************************************************
  * Name: dns_save_answer
  *
  * Description:
