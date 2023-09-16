@@ -52,10 +52,10 @@
 
 /* Descriptor strings */
 
-#define COMPOSITE_MANUFACTURERSTRID     (1)
-#define COMPOSITE_PRODUCTSTRID          (2)
-#define COMPOSITE_SERIALSTRID           (3)
-#define COMPOSITE_CONFIGSTRID           (4)
+#define COMPOSITE_MANUFACTURERSTRID   (1)
+#define COMPOSITE_PRODUCTSTRID        (2)
+#define COMPOSITE_SERIALSTRID         (3)
+#define COMPOSITE_CONFIGSTRID         (4)
 
 /****************************************************************************
  * Public Types

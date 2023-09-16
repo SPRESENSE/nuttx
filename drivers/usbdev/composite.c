@@ -39,7 +39,7 @@
 #include <nuttx/usb/usbdev_trace.h>
 
 #ifdef CONFIG_BOARD_USBDEV_SERIALSTR
-#include <nuttx/board.h>
+#  include <nuttx/board.h>
 #endif
 
 #include "composite.h"
