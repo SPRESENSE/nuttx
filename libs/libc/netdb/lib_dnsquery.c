@@ -643,7 +643,7 @@ static int dns_query_callback(FAR void *arg, FAR struct sockaddr *addr,
   for (retries = 0; retries < CONFIG_NETDB_DNSCLIENT_RETRIES; retries++)
     {
 #ifdef CONFIG_NET_IPv6
-      if (dns_isavail_queryaddrtype(AF_INET6))
+      if (dns_is_queryfamily(AF_INET6))
         {
           /* Send the IPv6 query */
 
@@ -689,7 +689,7 @@ static int dns_query_callback(FAR void *arg, FAR struct sockaddr *addr,
 #endif
 
 #ifdef CONFIG_NET_IPv4
-      if (dns_isavail_queryaddrtype(AF_INET))
+      if (dns_is_queryfamily(AF_INET))
         {
           /* Send the IPv4 query */
 
