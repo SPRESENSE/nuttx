@@ -39,6 +39,10 @@
 
 #define BUTTON_BOOT         0
 
+/* I2C Port */
+
+#define I2C_PORT            0
+
 /****************************************************************************
  * Public Types
  ****************************************************************************/
@@ -92,6 +96,100 @@ int board_spiflash_init(void);
 
 #if defined(CONFIG_WS2812) && !defined(CONFIG_WS2812_NON_SPI_DRIVER)
 int board_ws2812_initialize(int devno, int spino, uint16_t nleds);
+#endif
+
+/****************************************************************************
+ * Name: board_lcd_initialize
+ *
+ * Description:
+ *   Initialize LCD.
+ *
+ * Input Parameters:
+ *   None.
+ *
+ * Returned Value:
+ *   Zero (OK) on success; a negated errno value on failure.
+ *
+ ****************************************************************************/
+
+#if defined(CONFIG_ESP32S3_LCD) && defined(CONFIG_ESP32S3_BOARD_IOEXPANDER)
+int board_lcd_initialize(void);
+#endif
+
+/****************************************************************************
+ * Name: board_touchscreen_initialize
+ *
+ * Description:
+ *   Initialize touchpad.
+ *
+ * Input Parameters:
+ *   None.
+ *
+ * Returned Value:
+ *   Zero (OK) on success; a negated errno value on failure.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_ESP32S3_BOARD_TOUCHPAD
+int board_touchscreen_initialize(void);
+#endif
+
+/****************************************************************************
+ * Name: board_ioexpander_set_pin
+ *
+ * Description:
+ *   Configure pin mode through the IO expander.
+ *
+ * Input Parameters:
+ *   input_mask  - pin bit mask which need to be set input, if set pin 0 to
+ *                 to be input, please make: input_mask = (1 << 0)
+ *   output_mask - pin bit mask which need to be set output, if set pin 1 to
+ *                 to be input, please make: output_mask = (1 << 1)
+ *
+ * Returned Value:
+ *   Zero (OK) on success; a negated errno value on failure.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_ESP32S3_BOARD_IOEXPANDER
+int board_ioexpander_set_pin(uint8_t input_mask, uint8_t output_mask);
+#endif
+
+/****************************************************************************
+ * Name: board_ioexpander_output
+ *
+ * Description:
+ *   Set pin output level through the IO expander.
+ *
+ * Input Parameters:
+ *   pin   - pin number
+ *   level - true for high level, false for low.
+ *
+ * Returned Value:
+ *   Zero (OK) on success; a negated errno value on failure.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_ESP32S3_BOARD_IOEXPANDER
+int board_ioexpander_output(int pin, bool level);
+#endif
+
+/****************************************************************************
+ * Name: board_ioexpander_initialize
+ *
+ * Description:
+ *   Initialize IO expander driver.
+ *
+ * Input Parameters:
+ *   None
+ *
+ * Returned Value:
+ *   Zero (OK) on success; a negated errno value on failure.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_ESP32S3_BOARD_IOEXPANDER
+int board_ioexpander_initialize(void);
 #endif
 
 #endif /* __ASSEMBLY__ */
