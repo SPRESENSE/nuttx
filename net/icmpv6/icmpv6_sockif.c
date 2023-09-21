@@ -81,8 +81,7 @@ const struct sock_intf_s g_icmpv6_sockif =
   icmpv6_close,       /* si_close */
   icmpv6_ioctl,       /* si_ioctl */
   NULL,               /* si_socketpair */
-  NULL,               /* si_shutdown */
-  NULL                /* si_available */
+  NULL                /* si_shutdown */
 #ifdef CONFIG_NET_SOCKOPTS
   , icmpv6_getsockopt /* si_getsockopt */
   , icmpv6_setsockopt /* si_setsockopt */
