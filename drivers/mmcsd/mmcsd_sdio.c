@@ -102,41 +102,6 @@
  * Private Types
  ****************************************************************************/
 
-/* This structure is contains the unique state of the MMC/SD block driver */
-
-struct mmcsd_state_s
-{
-  FAR struct sdio_dev_s *dev;      /* The SDIO device bound to this instance */
-  uint8_t  crefs;                  /* Open references on the driver */
-  mutex_t  lock;                   /* Assures mutually exclusive access to the slot */
-
-  /* Status flags */
-
-  uint8_t probed:1;                /* true: mmcsd_probe() discovered a card */
-  uint8_t widebus:1;               /* true: Wide 4-bit bus selected */
-  uint8_t mediachanged:1;          /* true: Media changed since last check */
-  uint8_t wrbusy:1;                /* true: Last transfer was a write, card may be busy */
-  uint8_t wrprotect:1;             /* true: Card is write protected (from CSD) */
-  uint8_t locked:1;                /* true: Media is locked (from R1) */
-  uint8_t dsrimp:1;                /* true: card supports CMD4/DSR setting (from CSD) */
-#ifdef CONFIG_SDIO_DMA
-  uint8_t dma:1;                   /* true: hardware supports DMA */
-#endif
-
-  uint8_t mode:2;                  /* (See MMCSDMODE_* definitions) */
-  uint8_t type:4;                  /* Card type (See MMCSD_CARDTYPE_* definitions) */
-  uint8_t buswidth:4;              /* Bus widths supported (SD only) */
-  sdio_capset_t caps;              /* SDIO driver capabilities/limitations */
-  uint16_t selblocklen;            /* The currently selected block length */
-  uint16_t rca;                    /* Relative Card Address (RCS) register */
-
-  /* Memory card geometry (extracted from the CSD) */
-
-  uint8_t  blockshift;             /* Log2 of blocksize */
-  uint16_t blocksize;              /* Read block length (== block size) */
-  uint32_t nblocks;                /* Number of blocks */
-};
-
 /****************************************************************************
  * Private Function Prototypes
  ****************************************************************************/
@@ -917,17 +882,19 @@ static void mmcsd_decode_cid(FAR struct mmcsd_state_s *priv, uint32_t cid[4])
 
   /* Word 1: Bits 127-96:
    *   mid - 127-120  8-bit Manufacturer ID
-   *   oid - 119-104 16-bit OEM/Application ID (ascii)
-   *   pnm - 103-64  40-bit Product Name (ascii) + null terminator
+   *   cbx - 113-112  2-bit Device/BGA
+   *   oid - 111-104  8-bit OEM/Application ID (ascii)
+   *   pnm - 103-56   48-bit Product Name (ascii) + null terminator
    *         pnm[0] 103:96
    */
 
   decoded.mid    =  cid[0] >> 24;
-  decoded.oid    = (cid[0] >> 8) & 0xffff;
+  decoded.cbx    = (cid[0] >> 16) & 0x3;
+  decoded.oid    = (cid[0] >> 8) & 0xff;
   decoded.pnm[0] =  cid[0] & 0xff;
 
   /* Word 2: Bits 64:95
-   *   pnm - 103-64  40-bit Product Name (ascii) + null terminator
+   *   pnm - 103-56  48-bit Product Name (ascii) + null terminator
    *         pnm[1] 95:88
    *         pnm[2] 87:80
    *         pnm[3] 79:72
@@ -938,30 +905,32 @@ static void mmcsd_decode_cid(FAR struct mmcsd_state_s *priv, uint32_t cid[4])
   decoded.pnm[2] = (cid[1] >> 16) & 0xff;
   decoded.pnm[3] = (cid[1] >> 8) & 0xff;
   decoded.pnm[4] =  cid[1] & 0xff;
-  decoded.pnm[5] = '\0';
 
   /* Word 3: Bits 32-63
-   *   prv -  63-56   8-bit Product revision
-   *   psn -  55-24  32-bit Product serial number
+   *         pnm[5] 63-56
+   *   prv    -  55-48   8-bit Product revision
+   *   psn    -  47-16   32-bit Product serial number
+   *         psn 47-32
    */
 
-  decoded.prv    = cid[2] >> 24;
-  decoded.psn    = cid[2] << 8;
+  decoded.pnm[5] = cid[2] >> 24;
+  decoded.pnm[6] = '\0';
+  decoded.prv    = (cid[2] >> 16) & 0xff;
+  decoded.psn    = cid[2] << 16;
 
   /* Word 4: Bits 0-31
-   *   psn -  55-24  32-bit Product serial number
-   *          23-20   4-bit (reserved)
-   *   mdt -  19:8   12-bit Manufacturing date
+   *          psn 31-16
+   *   mdt -  15:8    8-bit Manufacturing date
    *   crc -   7:1    7-bit CRC7
    */
 
-  decoded.psn   |=  cid[3] >> 24;
-  decoded.mdt    = (cid[3] >> 8) & 0x0fff;
+  decoded.psn   |=  cid[3] >> 16;
+  decoded.mdt    = (cid[3] >> 8) & 0xff;
   decoded.crc    = (cid[3] >> 1) & 0x7f;
 
-  finfo("mid: %02x oid: %04x pnm: %s prv: %d psn: %lu mdt: %02x crc: %02x\n",
-      decoded.mid, decoded.oid, decoded.pnm, decoded.prv,
-      (unsigned long)decoded.psn, decoded.mdt, decoded.crc);
+  finfo("mid: %02x cbx: %01x oid: %01x pnm: %s prv: %d psn: %08x mdt: %02x\
+         crc: %02x\n", decoded.mid, decoded.cbx, decoded.oid, decoded.pnm,
+         decoded.prv, (unsigned long)decoded.psn, decoded.mdt, decoded.crc);
 }
 #endif
 
@@ -2635,8 +2604,6 @@ static int mmcsd_widebus(FAR struct mmcsd_state_s *priv)
 #ifdef CONFIG_MMCSD_MMCSUPPORT
 static int mmcsd_mmcinitialize(FAR struct mmcsd_state_s *priv)
 {
-  uint32_t cid[4];
-  uint32_t csd[4];
   int ret;
 
   /* At this point, slow, ID mode clocking has been supplied to the card
@@ -2655,7 +2622,7 @@ static int mmcsd_mmcinitialize(FAR struct mmcsd_state_s *priv)
   finfo("Initialising MMC card.\n");
 
   mmcsd_sendcmdpoll(priv, MMCSD_CMD2, 0);
-  ret = SDIO_RECVR2(priv->dev, MMCSD_CMD2, cid);
+  ret = SDIO_RECVR2(priv->dev, MMCSD_CMD2, priv->cid);
   if (ret != OK)
     {
       ferr("ERROR: SDIO_RECVR2 for MMC CID failed: %d\n", ret);
@@ -2707,7 +2674,7 @@ static int mmcsd_mmcinitialize(FAR struct mmcsd_state_s *priv)
    */
 
   mmcsd_sendcmdpoll(priv, MMCSD_CMD9, (uint32_t)priv->rca << 16);
-  ret = SDIO_RECVR2(priv->dev, MMCSD_CMD9, csd);
+  ret = SDIO_RECVR2(priv->dev, MMCSD_CMD9, priv->csd);
   if (ret != OK)
     {
       ferr("ERROR: Could not get SD CSD register: %d\n", ret);
@@ -2719,7 +2686,7 @@ static int mmcsd_mmcinitialize(FAR struct mmcsd_state_s *priv)
    * ext_csd commands.
    */
 
-  mmcsd_decode_csd(priv, csd);
+  mmcsd_decode_csd(priv, priv->csd);
 
   /* Set the Driver Stage Register (DSR) if (1) a CONFIG_MMCSD_DSR has been
    * provided and (2) the card supports a DSR register.  If no DSR value
@@ -2777,7 +2744,7 @@ static int mmcsd_mmcinitialize(FAR struct mmcsd_state_s *priv)
         }
     }
 
-  mmcsd_decode_csd(priv, csd);
+  mmcsd_decode_csd(priv, priv->csd);
 
   /* It's up to the driver to act on the widebus request.  mmcsd_widebus()
    * enables the CLOCK_MMC_TRANSFER, so call it here always.
@@ -4196,6 +4163,10 @@ int mmcsd_slotinitialize(int minor, FAR struct sdio_dev_s *dev)
       ferr("ERROR: register_blockdriver failed: %d\n", ret);
       goto errout_with_hwinit;
     }
+
+#ifdef CONFIG_MMCSD_PROCFS
+  mmcsd_initialize_procfs();
+#endif
 
   return OK;
 
