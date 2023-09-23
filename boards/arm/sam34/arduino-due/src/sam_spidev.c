@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/qemu/qemu_boot.c
+ * boards/arm/sam34/arduino-due/src/sam_spidev.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -22,50 +22,25 @@
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
+#include <debug.h>
+#include <arch/board/board.h>
 
-#include "arm_internal.h"
-
-#include "qemu_irq.h"
-#include "qemu_memorymap.h"
-
-#ifdef CONFIG_DEVICE_TREE
-#  include <nuttx/fdt.h>
-#endif
+#include "sam_spi.h"
+#include "hardware/sam3x_pinmap.h"
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
-/****************************************************************************
- * Name: arm_boot
- *
- * Description:
- *   Complete boot operations started in arm_head.S
- *
- ****************************************************************************/
-
-void arm_boot(void)
+void sam_spi0select(uint32_t devid, bool selected)
 {
-  /* Set the page table for section */
+  spiinfo("devid: %08x CS: %s\n",
+          (unsigned int)devid, selected ? "assert" : "de-assert");
+  sam_gpiowrite(GPIO_SPI0_CS, !selected);
+}
 
-  qemu_setupmappings();
-
-  arm_fpuconfig();
-
-#if defined(CONFIG_ARCH_HAVE_PSCI)
-  arm_psci_init("hvc");
-#endif
-
-#ifdef CONFIG_DEVICE_TREE
-  fdt_register((const char *)0x40000000);
-#endif
-
-#ifdef USE_EARLYSERIALINIT
-  /* Perform early serial initialization if we are going to use the serial
-   * driver.
-   */
-
-  arm_earlyserialinit();
-#endif
+uint8_t sam_spi0status(struct spi_dev_s *dev, uint32_t devid)
+{
+  spiinfo("Returning nothing\n");
+  return 0;
 }

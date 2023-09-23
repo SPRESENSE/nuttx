@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/qemu/qemu_boot.c
+ * fs/vfs/fs_syncfs.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -23,49 +23,80 @@
  ****************************************************************************/
 
 #include <nuttx/config.h>
+#include <nuttx/cancelpt.h>
+#include <nuttx/fs/fs.h>
 
-#include "arm_internal.h"
-
-#include "qemu_irq.h"
-#include "qemu_memorymap.h"
-
-#ifdef CONFIG_DEVICE_TREE
-#  include <nuttx/fdt.h>
-#endif
+#include <errno.h>
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: arm_boot
+ * Name: file_syncfs
  *
  * Description:
- *   Complete boot operations started in arm_head.S
+ *   Equivalent to the standard syncsf() function except that is accepts a
+ *   struct file instance instead of a fd descriptor and it does not set
+ *   the errno variable
  *
  ****************************************************************************/
 
-void arm_boot(void)
+int file_syncfs(FAR struct file *filep)
 {
-  /* Set the page table for section */
+  FAR struct inode *inode = filep->f_inode;
 
-  qemu_setupmappings();
+  if (inode != NULL)
+    {
+#ifndef CONFIG_DISABLE_MOUNTPOINT
+      if (INODE_IS_MOUNTPT(inode) && inode->u.i_mops &&
+          inode->u.i_mops->syncfs)
+        {
+          return inode->u.i_mops->syncfs(inode);
+        }
+#endif /* !CONFIG_DISABLE_MOUNTPOINT */
+    }
 
-  arm_fpuconfig();
-
-#if defined(CONFIG_ARCH_HAVE_PSCI)
-  arm_psci_init("hvc");
-#endif
-
-#ifdef CONFIG_DEVICE_TREE
-  fdt_register((const char *)0x40000000);
-#endif
-
-#ifdef USE_EARLYSERIALINIT
-  /* Perform early serial initialization if we are going to use the serial
-   * driver.
-   */
-
-  arm_earlyserialinit();
-#endif
+  return -EBADF;
 }
+
+/****************************************************************************
+ * Name: syncfs
+ *
+ * Description:
+ *   syncfs() is like sync(), but synchronizes just the filesystem
+ *   containing file referred to by the open file descriptor fd.
+ *
+ * Returned Value:
+ *   syncfs() returns 0 on success; on error, it returns -1 and sets
+ *   errno to indicate the error.
+ *
+ * Assumptions:
+ *
+ ****************************************************************************/
+
+int syncfs(int fd)
+{
+  FAR struct file *filep;
+  int ret;
+
+  enter_cancellation_point();
+
+  ret = fs_getfilep(fd, &filep);
+  if (ret == OK)
+    {
+      DEBUGASSERT(filep != NULL);
+      ret = file_syncfs(filep);
+    }
+
+  leave_cancellation_point();
+
+  if (ret < 0)
+    {
+      set_errno(-ret);
+      ret = ERROR;
+    }
+
+  return ret;
+}
+

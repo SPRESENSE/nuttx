@@ -713,6 +713,11 @@ static int dns_query_callback(FAR void *arg, FAR struct sockaddr *addr,
             {
               /* Obtain the IPv4 response */
 
+              if (next >= *query->naddr)
+                {
+                  next = *query->naddr / 2;
+                }
+
               ret = dns_recv_response(sd, &query->addr[next],
                                       CONFIG_NETDB_MAX_IPv4ADDR,
                                       &qdata->qinfo,

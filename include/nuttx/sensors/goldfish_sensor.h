@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/qemu/qemu_boot.c
+ * include/nuttx/sensors/goldfish_sensor.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,54 +18,43 @@
  *
  ****************************************************************************/
 
+#ifndef __INCLUDE_NUTTX_SENSORS_GOLDFISH_SENSOR_H
+#define __INCLUDE_NUTTX_SENSORS_GOLDFISH_SENSOR_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
-#include "arm_internal.h"
+/****************************************************************************
+ * Public Function Prototypes
+ ****************************************************************************/
 
-#include "qemu_irq.h"
-#include "qemu_memorymap.h"
-
-#ifdef CONFIG_DEVICE_TREE
-#  include <nuttx/fdt.h>
+#ifdef __cplusplus
+extern "C"
+{
 #endif
 
 /****************************************************************************
- * Public Functions
- ****************************************************************************/
-
-/****************************************************************************
- * Name: arm_boot
+ * Name: goldfish_sensor_init
  *
  * Description:
- *   Complete boot operations started in arm_head.S
+ *   Goldfish Multi-Sensors driver entrypoint.
+ *
+ * Input Parameters:
+ *   devno       - The user specifies which device of this type, from 0.
+ *   batch_number- The maximum number of batch.
+ *
+ * Returned Value:
+ *   Zero (OK) or positive on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
-void arm_boot(void)
-{
-  /* Set the page table for section */
+int goldfish_sensor_init(int devno, uint32_t batch_number);
 
-  qemu_setupmappings();
-
-  arm_fpuconfig();
-
-#if defined(CONFIG_ARCH_HAVE_PSCI)
-  arm_psci_init("hvc");
-#endif
-
-#ifdef CONFIG_DEVICE_TREE
-  fdt_register((const char *)0x40000000);
-#endif
-
-#ifdef USE_EARLYSERIALINIT
-  /* Perform early serial initialization if we are going to use the serial
-   * driver.
-   */
-
-  arm_earlyserialinit();
-#endif
+#ifdef __cplusplus
 }
+#endif
+
+#endif
