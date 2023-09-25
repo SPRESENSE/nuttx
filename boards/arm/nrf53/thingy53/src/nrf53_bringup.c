@@ -248,6 +248,18 @@ int nrf53_bringup(void)
     }
 #endif
 
+#if defined(CONFIG_I2C) && defined(CONFIG_SYSTEM_I2CTOOL)
+  nrf53_i2ctool();
+#endif
+
+#ifdef CONFIG_RGBLED
+  ret = nrf53_rgbled_initialize();
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: nrf53_rgbled_init failed: %d\n", ret);
+    }
+#endif
+
   UNUSED(ret);
   return OK;
 }
