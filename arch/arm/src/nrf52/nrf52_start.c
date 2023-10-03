@@ -203,6 +203,10 @@ void __start(void)
   nrf52_enable_profile(true);
 #endif
 
+#ifdef CONFIG_ARCH_PERF_EVENTS
+  up_perf_init((void *)BOARD_SYSTICK_CLOCK);
+#endif
+
   showprogress('D');
 
 #ifdef USE_EARLYSERIALINIT

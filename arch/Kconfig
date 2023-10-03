@@ -355,6 +355,10 @@ config ARCH_DMA
 	bool
 	default n
 
+config ARCH_DMA_NO_FLASH_TRANSFER
+	bool
+	default n
+
 config ARCH_HAVE_IRQPRIO
 	bool
 	default n
@@ -498,7 +502,8 @@ config ARCH_HAVE_PERF_EVENTS
 
 config ARCH_PERF_EVENTS
 	bool "Configure hardware performance counting"
-	default y
+	default y if SCHED_CRITMONITOR || SCHED_IRQMONITOR || RPTUN_PING || SEGGER_SYSVIEW
+	default n
 	depends on ARCH_HAVE_PERF_EVENTS
 	---help---
 		Enable hardware performance counter support for perf events. If
