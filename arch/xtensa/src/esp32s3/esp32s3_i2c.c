@@ -257,9 +257,9 @@ static int i2c_sem_waitdone(struct esp32s3_i2c_priv_s *priv);
 #ifdef CONFIG_I2C_POLLED
 static int i2c_polling_waitdone(struct esp32s3_i2c_priv_s *priv);
 #endif
-static void i2c_clear_bus(struct esp32s3_i2c_priv_s *priv);
 static void i2c_reset_fsmc(struct esp32s3_i2c_priv_s *priv);
 #ifdef CONFIG_I2C_RESET
+static void i2c_clear_bus(struct esp32s3_i2c_priv_s *priv);
 static int i2c_reset(struct i2c_master_s *dev);
 #endif
 
@@ -820,8 +820,6 @@ static void i2c_reset_fsmc(struct esp32s3_i2c_priv_s *priv)
   /* Reset FSM machine */
 
   modifyreg32(I2C_CTR_REG(priv->id), 0, I2C_FSM_RST);
-
-  i2c_clear_bus(priv);
 }
 
 /****************************************************************************
@@ -1119,15 +1117,16 @@ static int i2c_transfer(struct i2c_master_s *dev, struct i2c_msg_s *msgs,
  *
  ****************************************************************************/
 
+#ifdef CONFIG_I2C_RESET
 static void i2c_clear_bus(struct esp32s3_i2c_priv_s *priv)
 {
   modifyreg32(I2C_SCL_SP_CONF_REG(priv->id),
               I2C_SCL_RST_SLV_EN | I2C_SCL_RST_SLV_NUM_M,
               VALUE_TO_FIELD(I2C_SCL_CYC_NUM_DEF, I2C_SCL_RST_SLV_NUM));
 
-  modifyreg32(I2C_CTR_REG(priv->id), 0, I2C_CONF_UPGATE);
-
   modifyreg32(I2C_SCL_SP_CONF_REG(priv->id), 0, I2C_SCL_RST_SLV_EN);
+
+  modifyreg32(I2C_CTR_REG(priv->id), 0, I2C_CONF_UPGATE);
 }
 
 /****************************************************************************
@@ -1144,7 +1143,6 @@ static void i2c_clear_bus(struct esp32s3_i2c_priv_s *priv)
  *
  ****************************************************************************/
 
-#ifdef CONFIG_I2C_RESET
 static int i2c_reset(struct i2c_master_s *dev)
 {
   struct esp32s3_i2c_priv_s *priv = (struct esp32s3_i2c_priv_s *)dev;

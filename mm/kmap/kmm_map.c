@@ -82,7 +82,7 @@ static int get_user_pages(FAR void **pages, size_t npages, uintptr_t vaddr)
 
   for (i = 0; i < npages; i++, vaddr += MM_PGSIZE)
     {
-      page = up_addrenv_find_page(&tcb->addrenv_own->addrenv, vaddr);
+      page = up_addrenv_find_page(&tcb->addrenv_curr->addrenv, vaddr);
       if (!page)
         {
           /* Something went wrong, get out */
@@ -125,7 +125,7 @@ static FAR void *map_pages(FAR void **pages, size_t npages, int prot)
 
   /* Find a virtual memory area that fits */
 
-  vaddr = gran_alloc(&g_kmm_map_vpages, size);
+  vaddr = gran_alloc(g_kmm_map_vpages, size);
   if (!vaddr)
     {
       return NULL;
@@ -182,7 +182,7 @@ static FAR void *map_single_user_page(uintptr_t vaddr)
 
   /* Find the page associated with this virtual address */
 
-  page = up_addrenv_find_page(&tcb->addrenv_own->addrenv, vaddr);
+  page = up_addrenv_find_page(&tcb->addrenv_curr->addrenv, vaddr);
   if (!page)
     {
       return NULL;
@@ -190,6 +190,47 @@ static FAR void *map_single_user_page(uintptr_t vaddr)
 
   vaddr = up_addrenv_page_vaddr(page);
   return (FAR void *)vaddr;
+}
+
+/****************************************************************************
+ * Name: map_single_page
+ *
+ * Description:
+ *   Map (find) a single page from the kernel addressable virtual memory
+ *   pool.
+ *
+ * Input Parameters:
+ *   page - The physical page.
+ *
+ * Returned Value:
+ *   The kernel virtual address for the page, or NULL if page is not kernel
+ *   addressable.
+ *
+ ****************************************************************************/
+
+static FAR void *map_single_page(uintptr_t page)
+{
+  return (FAR void *)up_addrenv_page_vaddr(page);
+}
+
+/****************************************************************************
+ * Name: is_kmap_vaddr
+ *
+ * Description:
+ *   Return true if the virtual address, vaddr, lies in the kmap address
+ *   space.
+ *
+ * Input Parameters:
+ *   vaddr - The kernel virtual address where the mapping begins.
+ *
+ * Returned Value:
+ *   True if vaddr is in the kmap address space; false otherwise.
+ *
+ ****************************************************************************/
+
+static bool is_kmap_vaddr(uintptr_t vaddr)
+{
+  return (vaddr >= CONFIG_ARCH_KMAP_VBASE && vaddr < ARCH_KMAP_VEND);
 }
 
 /****************************************************************************
@@ -270,6 +311,13 @@ FAR void *kmm_map(FAR void **pages, size_t npages, int prot)
       return NULL;
     }
 
+  /* A single page can be addressed directly, if it is a kernel page */
+
+  if (npages == 1)
+    {
+      return map_single_page((uintptr_t)pages[0]);
+    }
+
   /* Attempt to map the pages */
 
   vaddr = (uintptr_t)map_pages(pages, npages, prot);
@@ -300,6 +348,15 @@ void kmm_unmap(FAR void *kaddr)
   FAR struct mm_map_entry_s *entry;
   unsigned int               npages;
   int                        ret;
+
+  /* Speed optimization: check that addr is within kmap area */
+
+  if (!is_kmap_vaddr((uintptr_t)kaddr))
+    {
+      /* Nope: get out */
+
+      return;
+    }
 
   /* Lock the mapping list when we fiddle around with it */
 
@@ -348,7 +405,7 @@ void kmm_unmap(FAR void *kaddr)
 
 FAR void *kmm_map_user(FAR void *uaddr, size_t size)
 {
-  FAR void *pages;
+  FAR void **pages;
   uintptr_t vaddr;
   uintptr_t offset;
   size_t    npages;
@@ -385,7 +442,7 @@ FAR void *kmm_map_user(FAR void *uaddr, size_t size)
 
   /* No, the area must be mapped into kernel virtual address space */
 
-  pages = kmm_zalloc(npages * sizeof(FAR void *));
+  pages = (FAR void **)kmm_zalloc(npages * sizeof(FAR void *));
   if (!pages)
     {
       return NULL;
@@ -393,7 +450,7 @@ FAR void *kmm_map_user(FAR void *uaddr, size_t size)
 
   /* Fetch the physical pages for the user virtual address range */
 
-  ret = get_user_pages(&pages, npages, vaddr);
+  ret = get_user_pages(pages, npages, vaddr);
   if (ret < 0)
     {
       goto errout_with_pages;
@@ -401,7 +458,7 @@ FAR void *kmm_map_user(FAR void *uaddr, size_t size)
 
   /* Map the physical pages to kernel memory */
 
-  vaddr = (uintptr_t)map_pages(&pages, npages, PROT_READ | PROT_WRITE);
+  vaddr = (uintptr_t)map_pages(pages, npages, PROT_READ | PROT_WRITE);
   if (!vaddr)
     {
       goto errout_with_pages;
@@ -409,6 +466,7 @@ FAR void *kmm_map_user(FAR void *uaddr, size_t size)
 
   /* Ok, we have a virtual memory area, add the offset back */
 
+  kmm_free(pages);
   return (FAR void *)(vaddr + offset);
 
 errout_with_pages:
