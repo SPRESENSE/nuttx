@@ -1,6 +1,5 @@
 /****************************************************************************
- * include/nuttx/motor/stepper_ioctl.h
- * NuttX Motor-Related IOCTLs definitions
+ * arch/arm/include/samv7/sam_afec.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -19,23 +18,52 @@
  *
  ****************************************************************************/
 
-#ifndef __INCLUDE_NUTTX_MOTOR_STEPPER_IOCTL_H
-#define __INCLUDE_NUTTX_MOTOR_STEPPER_IOCTL_H
+#ifndef __ARCH_ARM_INCLUDE_SAMV7_SAM_AFEC_H
+#define __ARCH_ARM_INCLUDE_SAMV7_SAM_AFEC_H
 
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
-#include <nuttx/fs/ioctl.h>
+#include <nuttx/analog/adc.h>
+
+/* IOCTL Commands ***********************************************************
+ *
+ * Cmd: SAMV7_AFEC_IOCTRL_GAIN           Arg: Channel and Gain
+ *
+ */
+
+#define ANIOC_SAMV7_AFEC_IOCTRL_GAIN           _ANIOC(AN_SAMV7_AFEC_FIRST + 0)
 
 /****************************************************************************
- * Pre-processor Definitions
+ * Public Types
  ****************************************************************************/
 
-#define STEPIOC_IDLE            _STEPIOC(1)
-#define STEPIOC_CLEAR_FAULT     _STEPIOC(2)
-#define STEPIOC_MICROSTEPPING   _STEPIOC(3)
-#define STEPIOC_SET_CURRENT_POS _STEPIOC(4)
+typedef struct sam_afec_gain_param_s
+{
+  uint8_t channel;  /* channel number of aefc instance */
+  uint8_t gain;     /* gain to be set for the channel 0:1, 1:2, 3:4 */
+} sam_afec_gain_param_tds;
 
-#endif /* __INCLUDE_NUTTX_MOTOR_STEPPER_IOCTL_H */
+#ifndef __ASSEMBLY__
+
+/****************************************************************************
+ * Public Function Prototypes
+ ****************************************************************************/
+
+#undef EXTERN
+#if defined(__cplusplus)
+#define EXTERN extern "C"
+extern "C"
+{
+#else
+#define EXTERN extern
+#endif
+
+#undef EXTERN
+#if defined(__cplusplus)
+}
+#endif
+
+#endif /* __ASSEMBLY__ */
+#endif /* __ARCH_ARM_INCLUDE_SAMV7_SAM_AFEC_H */
