@@ -1,5 +1,5 @@
 ############################################################################
-# boards/arm/nrf52/thingy52/src/CMakeLists.txt
+# boards/arm/gd32f4/gd32f470zk-eval/src/Make.defs
 #
 # Licensed to the Apache Software Foundation (ASF) under one or more
 # contributor license agreements.  See the NOTICE file distributed with
@@ -18,18 +18,47 @@
 #
 ############################################################################
 
-set(SRCS nrf52_boot.c nrf52_bringup.c)
+include $(TOPDIR)/Make.defs
 
-if(CONFIG_BOARDCTL)
-  list(APPEND SRCS nrf52_appinit.c)
-endif()
+CSRCS = gd32f4xx_boot.c
 
-if(CONFIG_ARCH_BUTTONS)
-  list(APPEND SRCS nrf52_buttons.c)
-endif()
+ifeq ($(CONFIG_BOARDCTL),y)
+CSRCS += gd32f4xx_appinit.c
+endif
+# ifeq ($(CONFIG_BOARDCTL),y)
+# CSRCS += gd32f4xx_appinit.c gd32f4xx_bringup.c
+# else ifeq ($(CONFIG_BOARD_LATE_INITIALIZE),y)
+# CSRCS += gd32f4xx_bringup.c
+# endif
 
-if(CONFIG_IOEXPANDER_SX1509)
-  list(APPEND SRCS nrf52_sx1509.c)
-endif()
+ifeq ($(CONFIG_ARCH_LEDS),y)
+CSRCS += gd32f4xx_autoleds.c
+else
+CSRCS += gd32f4xx_userleds.c
+endif
 
-target_sources(board PRIVATE ${SRCS})
+ifeq ($(CONFIG_DEV_GPIO),y)
+CSRCS += gd32f4xx_gpio.c
+endif
+
+ifeq ($(CONFIG_ARCH_BUTTONS),y)
+CSRCS += gd32f4xx_buttons.c
+endif
+
+ifeq ($(CONFIG_SPI),y)
+CSRCS += gd32f4xx_spi.c
+endif
+
+ifeq ($(CONFIG_MMCSD),y)
+CSRCS += gd32f4xx_sdio.c
+endif
+
+ifeq ($(CONFIG_MTD_GD25),y)
+CSRCS += gd32f4xx_gd25.c
+endif
+
+ifeq ($(CONFIG_MTD_AT24XX), y)
+CSRCS += gd32f4xx_at24.c
+endif
+
+include $(TOPDIR)/boards/Board.mk
