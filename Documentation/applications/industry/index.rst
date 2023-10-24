@@ -4,10 +4,11 @@ Industrial Applications
 
 .. toctree::
    :glob:
-   :maxdepth: 3
+   :maxdepth: 1
    :titlesonly:
+   :caption: Contents
    
-   abnt_codi/index.rst
+   */index*
 
 - foc - Field Oriented Control user-space library
 - scpi - SCPI instrument side parser

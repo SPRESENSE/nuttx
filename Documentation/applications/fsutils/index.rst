@@ -2,8 +2,15 @@
 File System Utilities
 =====================
 
+.. toctree::
+   :glob:
+   :maxdepth: 1
+   :titlesonly:
+   :caption: Contents
+   
+   */index*
+
 - flash_eraseall - flash_eraseall() function
-- inifile - INI File Parser
 - inih - inih ini file parser
 - ipcfg - IP Configuration File Support
 - libtinycbor - TinyCBOR Library (RFC 8949)
