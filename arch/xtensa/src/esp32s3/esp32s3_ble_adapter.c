@@ -935,7 +935,7 @@ static void *semphr_create_wrapper(uint32_t max, uint32_t init)
 static void semphr_delete_wrapper(void *semphr)
 {
   struct bt_sem_s *bt_sem = (struct bt_sem_s *)semphr;
-  sem_destroy(&bt_sem->sem);
+  nxsem_destroy(&bt_sem->sem);
   kmm_free(bt_sem);
 }
 
@@ -2658,7 +2658,7 @@ int esp32s3_bt_controller_disable(void)
 
   while (!btdm_power_state_active())
     {
-      usleep(1000); /* wait */
+      nxsig_usleep(1000); /* wait */
     }
 
   btdm_controller_disable();
