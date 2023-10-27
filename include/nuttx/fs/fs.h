@@ -866,6 +866,16 @@ void files_releaselist(FAR struct filelist *list);
 int files_duplist(FAR struct filelist *plist, FAR struct filelist *clist);
 
 /****************************************************************************
+ * Name: files_close_onexec
+ *
+ * Description:
+ *   Close specified task's file descriptors with O_CLOEXEC before exec.
+ *
+ ****************************************************************************/
+
+void files_close_onexec(FAR struct tcb_s *tcb);
+
+/****************************************************************************
  * Name: file_allocate_from_tcb
  *
  * Description:
@@ -911,7 +921,7 @@ int file_allocate(FAR struct inode *inode, int oflags, off_t pos,
  *
  ****************************************************************************/
 
-int file_dup(FAR struct file *filep, int minfd, bool cloexec);
+int file_dup(FAR struct file *filep, int minfd, int flags);
 
 /****************************************************************************
  * Name: file_dup2
@@ -969,6 +979,24 @@ int nx_dup2_from_tcb(FAR struct tcb_s *tcb, int fd1, int fd2);
  ****************************************************************************/
 
 int nx_dup2(int fd1, int fd2);
+
+/****************************************************************************
+ * Name: file_dup3
+ *
+ * Description:
+ *   Assign an inode to a specific files structure.  This is the heart of
+ *   dup3.
+ *
+ *   Equivalent to the non-standard dup3() function except that it
+ *   accepts struct file instances instead of file descriptors.
+ *
+ * Returned Value:
+ *   Zero (OK) is returned on success; a negated errno value is return on
+ *   any failure.
+ *
+ ****************************************************************************/
+
+int file_dup3(FAR struct file *filep1, FAR struct file *filep2, int flags);
 
 /****************************************************************************
  * Name: file_open
