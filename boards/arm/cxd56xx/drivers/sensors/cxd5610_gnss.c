@@ -33,8 +33,10 @@
 #include <assert.h>
 #include <debug.h>
 #include <poll.h>
+#include <spawn.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/signal.h>
+#include <nuttx/mutex.h>
 #include <nuttx/sensors/cxd5610_gnss.h>
 #include <arch/chip/gnss.h>
 
@@ -158,8 +160,8 @@ struct cxd5610_gnss_dev_s
 
   pid_t         pid;
   uint8_t       cref;
-  sem_t         dev_lock;
-  sem_t         buf_lock;
+  mutex_t       dev_lock;
+  mutex_t       buf_lock;
   sem_t         cmd_sync;
   sem_t         boot_sync;
 #if CONFIG_SENSORS_CXD5610_GNSS_NPOLLWAITERS != 0
@@ -336,16 +338,15 @@ static void cxd5610_gnss_pollnotify(struct cxd5610_gnss_dev_s *dev);
 
 static const struct file_operations g_cxd5610fops =
 {
-  cxd5610_gnss_open,           /* open */
-  cxd5610_gnss_close,          /* close */
-  cxd5610_gnss_read,           /* read */
-  cxd5610_gnss_write,          /* write */
-  NULL,                        /* seek */
-  cxd5610_gnss_ioctl,          /* ioctl */
-  cxd5610_gnss_poll            /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL                       /* unlink */
-#endif
+  cxd5610_gnss_open,  /* open */
+  cxd5610_gnss_close, /* close */
+  cxd5610_gnss_read,  /* read */
+  cxd5610_gnss_write, /* write */
+  NULL,               /* seek */
+  cxd5610_gnss_ioctl, /* ioctl */
+  NULL,               /* mmap */
+  NULL,               /* truncate */
+  cxd5610_gnss_poll   /* poll */
 };
 
 /* Semaphore for interrupt */
@@ -1532,16 +1533,23 @@ static int cxd5610_gnss_initialize(struct cxd5610_gnss_dev_s *priv)
   int ret = OK;
   char *argv[2];
   char arg1[32];
+  posix_spawnattr_t attr;
 
   /* Create thread for receiving from CXD5610 device */
 
   snprintf(arg1, 16, "0x%" PRIxPTR, (uintptr_t)priv);
   argv[0] = arg1;
   argv[1] = NULL;
-  priv->pid = nxtask_create("cxd5610_gnss_thread",
-                            CONFIG_SENSORS_CXD5610_GNSS_RX_THREAD_PRIORITY,
-                            CONFIG_SENSORS_CXD5610_GNSS_RX_THREAD_STACKSIZE,
-                            cxd5610_gnss_thread, argv);
+
+  posix_spawnattr_init(&attr);
+  attr.priority  = CONFIG_SENSORS_CXD5610_GNSS_RX_THREAD_PRIORITY;
+  attr.stacksize = CONFIG_SENSORS_CXD5610_GNSS_RX_THREAD_STACKSIZE;
+
+  priv->pid = task_spawn("cxd5610_gnss_thread",
+                         cxd5610_gnss_thread,
+                         NULL, &attr, argv, NULL);
+
+  posix_spawnattr_destroy(&attr);
 
   /* Allocate various buffers */
 
@@ -2082,20 +2090,7 @@ static void cxd5610_gnss_signalhandler(struct cxd5610_gnss_dev_s *priv,
 #if CONFIG_SENSORS_CXD5610_GNSS_NPOLLWAITERS != 0
 static void cxd5610_gnss_pollnotify(struct cxd5610_gnss_dev_s *dev)
 {
-  struct pollfd *fds;
-  int i;
-
-  for (i = 0; i < CONFIG_SENSORS_CXD5610_GNSS_NPOLLWAITERS; i++)
-    {
-      fds = dev->fds[i];
-      if (fds)
-        {
-          fds->revents |= POLLIN;
-          sninfo("Report events: %08" PRIx32 "\n", fds->revents);
-          nxsem_post(fds->sem);
-        }
-    }
-
+  poll_notify(dev->fds, CONFIG_SENSORS_CXD5610_GNSS_NPOLLWAITERS, POLLIN);
   dev->has_event = true;
 }
 #endif
@@ -2106,17 +2101,17 @@ static void cxd5610_gnss_pollnotify(struct cxd5610_gnss_dev_s *dev)
 
 static int cxd5610_gnss_device_init(struct cxd5610_gnss_dev_s *priv)
 {
-  return nxsem_init(&priv->dev_lock, 0, 1);
+  return nxmutex_init(&priv->dev_lock);
 }
 
 static int cxd5610_gnss_device_lock(struct cxd5610_gnss_dev_s *priv)
 {
-  return nxsem_wait_uninterruptible(&priv->dev_lock);
+  return nxmutex_lock(&priv->dev_lock);
 }
 
 static int cxd5610_gnss_device_unlock(struct cxd5610_gnss_dev_s *priv)
 {
-  return nxsem_post(&priv->dev_lock);
+  return nxmutex_unlock(&priv->dev_lock);
 }
 
 /****************************************************************************
@@ -2125,17 +2120,17 @@ static int cxd5610_gnss_device_unlock(struct cxd5610_gnss_dev_s *priv)
 
 static int cxd5610_gnss_buffer_init(struct cxd5610_gnss_dev_s *priv)
 {
-  return nxsem_init(&priv->buf_lock, 0, 1);
+  return nxmutex_init(&priv->buf_lock);
 }
 
 static int cxd5610_gnss_buffer_lock(struct cxd5610_gnss_dev_s *priv)
 {
-  return nxsem_wait_uninterruptible(&priv->buf_lock);
+  return nxmutex_lock(&priv->buf_lock);
 }
 
 static int cxd5610_gnss_buffer_unlock(struct cxd5610_gnss_dev_s *priv)
 {
-  return nxsem_post(&priv->buf_lock);
+  return nxmutex_unlock(&priv->buf_lock);
 }
 
 /****************************************************************************
