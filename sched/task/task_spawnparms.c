@@ -149,6 +149,17 @@ int spawn_execattrs(pid_t pid, FAR const posix_spawnattr_t *attr)
    * return an error value, then we would also have to stop the task.
    */
 
+  /* Firstly, set the signal mask if requested to do so */
+
+  if ((attr->flags & POSIX_SPAWN_SETSIGMASK) != 0)
+    {
+      FAR struct tcb_s *tcb = nxsched_get_tcb(pid);
+      if (tcb)
+        {
+          tcb->sigprocmask = attr->sigmask;
+        }
+    }
+
   /* If we are only setting the priority, then call sched_setparm()
    * to set the priority of the of the new task.
    */
@@ -225,29 +236,6 @@ int spawn_execattrs(pid_t pid, FAR const posix_spawnattr_t *attr)
     }
 
   return OK;
-}
-
-/****************************************************************************
- * Name: spawn_proxyattrs
- *
- * Description:
- *   Set attributes of the proxy task before it has started the new child
- *   task.
- *
- * Input Parameters:
- *
- *   attr - The attributes to use
- *
- ****************************************************************************/
-
-void spawn_proxyattrs(FAR const posix_spawnattr_t *attr)
-{
-  /* Check if we need to change the signal mask */
-
-  if (attr != NULL && (attr->flags & POSIX_SPAWN_SETSIGMASK) != 0)
-    {
-      nxsig_procmask(SIG_SETMASK, &attr->sigmask, NULL);
-    }
 }
 
 /****************************************************************************

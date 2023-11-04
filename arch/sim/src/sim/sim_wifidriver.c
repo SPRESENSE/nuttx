@@ -422,8 +422,198 @@ static int mac_addr_a2n(unsigned char *mac_addr, char *arg)
   return OK;
 }
 
+static int utf8_escape(char *outp, int out_size,
+                       const char *inp, size_t in_size)
+{
+  size_t res_size = 0;
+
+  if (!inp || !outp)
+    {
+      return -EINVAL;
+    }
+
+  /* The inp may or may not be NUL terminated, but must be
+   * if 0 size is specified.
+   */
+
+  if (!in_size)
+    {
+      in_size = strlen(inp);
+    }
+
+  while (in_size)
+    {
+      in_size--;
+
+      if (res_size++ >= out_size)
+        {
+          return -EINVAL;
+        }
+
+      switch (*inp)
+        {
+          case '\\':
+          case '\'':
+          case '\"':
+            if (res_size++ >= out_size)
+              {
+                return -EINVAL;
+              }
+
+            *outp++ = '\\';
+
+          default:
+            *outp++ = *inp++;
+            break;
+        }
+    }
+
+  /* NUL terminate if space allows */
+
+  if (res_size < out_size)
+    {
+      *outp = '\0';
+    }
+
+  return 0;
+}
+
+static int hex2nibble(char c)
+{
+  if (c >= '0' && c <= '9')
+    {
+      return c - '0';
+    }
+
+  if (c >= 'a' && c <= 'f')
+    {
+      return c - 'a' + 10;
+    }
+
+  if (c >= 'A' && c <= 'F')
+    {
+      return c - 'A' + 10;
+    }
+
+  return -EINVAL;
+}
+
+static int hex2byte(const char *hex)
+{
+  int a;
+  int b;
+
+  a = hex2nibble(*hex++);
+  if (a < 0)
+    {
+      return -EINVAL;
+    }
+
+  b = hex2nibble(*hex++);
+  if (b < 0)
+    {
+      return -EINVAL;
+    }
+
+  return (a << 4) | b;
+}
+
+static size_t wpa_ssid_decode(uint8_t *buf, size_t maxlen, const char *str)
+{
+  const char *pos = str;
+  size_t len = 0;
+  int val;
+
+  while (*pos)
+    {
+      if (len + 1 >= maxlen)
+        {
+          break;
+        }
+
+      switch (*pos)
+        {
+          case '\\':
+            pos++;
+            switch (*pos)
+              {
+                case '\\':
+                    buf[len++] = '\\';
+                    pos++;
+                    break;
+                case '"':
+                    buf[len++] = '"';
+                    pos++;
+                    break;
+                case 'n':
+                    buf[len++] = '\n';
+                    pos++;
+                    break;
+                case 'r':
+                    buf[len++] = '\r';
+                    pos++;
+                    break;
+                case 't':
+                    buf[len++] = '\t';
+                    pos++;
+                    break;
+                case 'e':
+                    buf[len++] = '\033';
+                    pos++;
+                    break;
+                case 'x':
+                    pos++;
+                    val = hex2byte(pos);
+                    if (val < 0)
+                      {
+                        val = hex2num(*pos);
+                        if (val < 0)
+                            break;
+                        buf[len++] = val;
+                        pos++;
+                      }
+                    else
+                      {
+                        buf[len++] = val;
+                        pos += 2;
+                      }
+                    break;
+                case '0':
+                case '1':
+                case '2':
+                case '3':
+                case '4':
+                case '5':
+                case '6':
+                case '7':
+                    val = *pos++ - '0';
+                    if (*pos >= '0' && *pos <= '7')
+                      {
+                        val = val * 8 + (*pos++ - '0');
+                      }
+
+                    if (*pos >= '0' && *pos <= '7')
+                      {
+                        val = val * 8 + (*pos++ - '0');
+                      }
+
+                    buf[len++] = val;
+                    break;
+                default:
+                    break;
+              }
+            break;
+        default:
+            buf[len++] = *pos++;
+            break;
+      }
+  }
+
+  return len;
+}
+
 static int copy_scan_results(struct sim_scan_result_s *scan_req,
-                                  struct sim_bss_info_s *info)
+                             struct sim_bss_info_s *info)
 {
   int need_len;
   char *pointer;
@@ -504,7 +694,7 @@ static int copy_scan_results(struct sim_scan_result_s *scan_req,
 static int get_bss_info(struct sim_bss_info_s *bss_info, char *buf, int len)
 {
   unsigned char bssid[ETH_ALEN];
-  char str[128];
+  char str[256];
   char *p = NULL;
   char *s = NULL;
   int i = 0;
@@ -541,8 +731,16 @@ static int get_bss_info(struct sim_bss_info_s *bss_info, char *buf, int len)
                                       IEEE80211_CAP_PRIVACY : 0x01;
               break;
           case 4:    /* ssid */
-              memcpy(bss_info->ssid, str, p - s);
-              bss_info->ssid_len = p - s;
+              if (p - s > SSID_MAX_LEN)
+                {
+                  bss_info->ssid_len = wpa_ssid_decode(bss_info->ssid,
+                                                       SSID_MAX_LEN, str);
+                }
+              else
+                {
+                  memcpy(bss_info->ssid, str, p - s);
+                  bss_info->ssid_len = p - s;
+                }
               break;
           default:
               break;
@@ -558,7 +756,7 @@ static int get_scan_results(struct sim_netdev_s *wifidev,
   int ret;
   int size = 4096;
   char *rbuf;
-  char bss[128];
+  char bss[512];
   char *p;
   char *s;
   struct sim_bss_info_s bss_info;
@@ -643,21 +841,11 @@ static bool get_wpa_state(struct sim_netdev_s *wifidev)
   return false;
 }
 
-static int get_wpa_ssid(struct sim_netdev_s *wifidev, struct iw_point *essid)
+static void get_wpa_ssid(struct sim_netdev_s *wifidev,
+                         struct iw_point *essid)
 {
-  int ret;
-  char rbuf[BUF_LEN];
-
-  ret = get_cmd(wifidev, rbuf, BUF_LEN, "%s",
-                "status | grep ^ssid | awk -F'=' '{print $2}'");
-
-  if (ret > 0 && ret <= essid->length)
-    {
-      strlcpy(essid->pointer, rbuf, ret);
-      essid->length = ret - 1;
-    }
-
-  return ret;
+  essid->length = strlen(wifidev->ssid);
+  strlcpy(essid->pointer, wifidev->ssid, essid->length + 1);
 }
 
 static int get_wpa_freq(struct sim_netdev_s *wifidev)
@@ -919,6 +1107,7 @@ static int wifidriver_set_essid(struct sim_netdev_s *wifidev,
                              struct iwreq *pwrq)
 {
   char ssid_buf[SSID_MAX_LEN];
+  char out_ssid[256];
   int ret = 0;
   uint8_t ssid_len = pwrq->u.essid.length;
 
@@ -931,7 +1120,14 @@ static int wifidriver_set_essid(struct sim_netdev_s *wifidev,
 
   if (wifidev->mode == IW_MODE_INFRA)
     {
-      WPA_SET_NETWORK(wifidev, "ssid \\\"%s\\\"", ssid_buf);
+      ret = utf8_escape(out_ssid, sizeof(out_ssid), ssid_buf, ssid_len);
+      if (ret < 0)
+        {
+          return ret;
+        }
+
+      WPA_SET_NETWORK(wifidev, "ssid \"\\\"%s\\\"\"", out_ssid);
+
       WPA_SET_NETWORK(wifidev, "scan_ssid 1");
 
       if (wifidev->psk_flag == 0)
