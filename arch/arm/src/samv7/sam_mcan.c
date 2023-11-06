@@ -30,6 +30,7 @@
 #include <nuttx/config.h>
 
 #include <stdio.h>
+#include <sys/param.h>
 #include <sys/types.h>
 #include <stdint.h>
 #include <inttypes.h>
@@ -41,6 +42,7 @@
 #include <arch/board/board.h>
 #include <nuttx/irq.h>
 #include <nuttx/arch.h>
+#include <nuttx/mutex.h>
 #include <nuttx/semaphore.h>
 #include <nuttx/can/can.h>
 
@@ -57,16 +59,6 @@
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
-
-/* Common definitions *******************************************************/
-
-#ifndef MIN
-#  define MIN(a,b) ((a < b) ? a : b)
-#endif
-
-#ifndef MAX
-#  define MAX(a,b) ((a > b) ? a : b)
-#endif
 
 /* Clock source *************************************************************/
 
@@ -106,9 +98,9 @@
  * occur in multiples of full change lines.
  */
 
-#ifdef CONFIG_ARMV7M_DCACHE
+#ifdef CONFIG_ARCH_DCACHE
 #  define MCAN_ALIGN        ARMV7M_DCACHE_LINESIZE
-#  define MCAN_ALIGN_MASK   (MCAN_ALIGN-1)
+#  define MCAN_ALIGN_MASK   (MCAN_ALIGN - 1)
 #  define MCAN_ALIGN_UP(n)  (((n) + MCAN_ALIGN_MASK) & ~MCAN_ALIGN_MASK)
 
 #  ifndef CONFIG_ARMV7M_DCACHE_WRITETHROUGH
@@ -130,7 +122,7 @@
 
 #  define MCAN0_TSEG1  (CONFIG_SAMV7_MCAN0_PROPSEG + CONFIG_SAMV7_MCAN0_PHASESEG1)
 #  define MCAN0_TSEG2  CONFIG_SAMV7_MCAN0_PHASESEG2
-#  define MCAN0_BRP    ((uint32_t)(((float) SAMV7_MCANCLK_FREQUENCY / \
+#  define MCAN0_BRP    ((uint32_t)(((float)SAMV7_MCANCLK_FREQUENCY / \
                        ((float)(MCAN0_TSEG1 + MCAN0_TSEG2 + 3) * \
                         (float)CONFIG_SAMV7_MCAN0_BITRATE)) - 1))
 #  define MCAN0_SJW    (CONFIG_SAMV7_MCAN0_FSJW - 1)
@@ -147,7 +139,7 @@
 
 #  define MCAN0_DTSEG1 (CONFIG_SAMV7_MCAN0_FPROPSEG + CONFIG_SAMV7_MCAN0_FPHASESEG1)
 #  define MCAN0_DTSEG2 (CONFIG_SAMV7_MCAN0_FPHASESEG2)
-#  define MCAN0_DBRP   ((uint32_t)(((float) SAMV7_MCANCLK_FREQUENCY / \
+#  define MCAN0_DBRP   ((uint32_t)(((float)SAMV7_MCANCLK_FREQUENCY / \
                        ((float)(MCAN0_DTSEG1 + MCAN0_DTSEG2 + 3) * \
                         (float)CONFIG_SAMV7_MCAN0_FBITRATE)) - 1))
 #  define MCAN0_DSJW   (CONFIG_SAMV7_MCAN0_FFSJW - 1)
@@ -383,7 +375,7 @@
      (MCAN0_TXEVENTFIFO_BYTES >> 2)
 
 #  define MCAN0_TXFIFIOQ_BYTES \
-     MCAN_ALIGN_UP(CONFIG_SAMV7_MCAN0_TXFIFOQ_SIZE *  \
+     MCAN_ALIGN_UP(CONFIG_SAMV7_MCAN0_TXFIFOQ_SIZE * \
                    (MCAN0_TXBUFFER_ELEMENT_SIZE + 8))
 #  define MCAN0_TXFIFIOQ_WORDS (MCAN0_TXFIFIOQ_BYTES >> 2)
 
@@ -415,7 +407,7 @@
 
 #  define MCAN1_TSEG1  (CONFIG_SAMV7_MCAN1_PROPSEG + CONFIG_SAMV7_MCAN1_PHASESEG1)
 #  define MCAN1_TSEG2  CONFIG_SAMV7_MCAN1_PHASESEG2
-#  define MCAN1_BRP    ((uint32_t)(((float) SAMV7_MCANCLK_FREQUENCY / \
+#  define MCAN1_BRP    ((uint32_t)(((float)SAMV7_MCANCLK_FREQUENCY / \
                        ((float)(MCAN1_TSEG1 + MCAN1_TSEG2 + 3) * \
                         (float)CONFIG_SAMV7_MCAN1_BITRATE)) - 1))
 #  define MCAN1_SJW    (CONFIG_SAMV7_MCAN1_FSJW - 1)
@@ -432,7 +424,7 @@
 
 #  define MCAN1_DTSEG1 (CONFIG_SAMV7_MCAN1_FPROPSEG + CONFIG_SAMV7_MCAN1_FPHASESEG1)
 #  define MCAN1_DTSEG2 (CONFIG_SAMV7_MCAN1_FPHASESEG2)
-#  define MCAN1_DBRP   ((uint32_t)(((float) SAMV7_MCANCLK_FREQUENCY / \
+#  define MCAN1_DBRP   ((uint32_t)(((float)SAMV7_MCANCLK_FREQUENCY / \
                        ((float)(MCAN1_DTSEG1 + MCAN1_DTSEG2 + 3) * \
                         (float)CONFIG_SAMV7_MCAN1_FBITRATE)) - 1))
 #  define MCAN1_DSJW   (CONFIG_SAMV7_MCAN1_FFSJW - 1)
@@ -668,7 +660,7 @@
      (MCAN1_TXEVENTFIFO_BYTES >> 2)
 
 #  define MCAN1_TXFIFIOQ_BYTES \
-     MCAN_ALIGN_UP(CONFIG_SAMV7_MCAN1_TXFIFOQ_SIZE *  \
+     MCAN_ALIGN_UP(CONFIG_SAMV7_MCAN1_TXFIFOQ_SIZE * \
                    (MCAN1_TXBUFFER_ELEMENT_SIZE + 8))
 #  define MCAN1_TXFIFIOQ_WORDS (MCAN1_TXFIFIOQ_BYTES >> 2)
 
@@ -737,7 +729,7 @@
  */
 
 #define MCAN_RXCOMMON_INTS_REVA (MCAN_INT_CRCE | MCAN_INT_FOE | MCAN_INT_STE)
-#define MCAN_RXCOMMON_INTS (MCAN_INT_PEA | MCAN_INT_PED)
+#define MCAN_RXCOMMON_INTS      (MCAN_INT_PEA | MCAN_INT_PED)
 #define MCAN_RXFIFO0_INTS       (MCAN_INT_RF0N | MCAN_INT_RF0W | MCAN_INT_RF0L)
 #define MCAN_RXFIFO1_INTS       (MCAN_INT_RF1N | MCAN_INT_RF1W | MCAN_INT_RF1L)
 #define MCAN_RXFIFO_INTS        (MCAN_RXFIFO0_INTS | MCAN_RXFIFO1_INTS | \
@@ -746,7 +738,7 @@
 
 #define MCAN_RXERR_INTS_REVA    (MCAN_INT_RF0L | MCAN_INT_RF1L | MCAN_INT_CRCE | \
                                  MCAN_INT_FOE | MCAN_INT_STE)
-#define MCAN_RXERR_INTS    (MCAN_INT_RF0L | MCAN_INT_RF1L | MCAN_INT_PEA | \
+#define MCAN_RXERR_INTS         (MCAN_INT_RF0L | MCAN_INT_RF1L | MCAN_INT_PEA | \
                                  MCAN_INT_PED)
 
 /* TX FIFOQ mode interrupts
@@ -890,7 +882,7 @@ struct sam_mcan_s
   uint8_t nextalloc;        /* Number of allocated extended filters */
 #endif
   uint8_t nstdalloc;        /* Number of allocated standard filters */
-  sem_t locksem;            /* Enforces mutually exclusive access */
+  mutex_t lock;             /* Enforces mutually exclusive access */
   sem_t txfsem;             /* Used to wait for TX FIFO availability */
   uint32_t btp;             /* Current bit timing */
   uint32_t fbtp;            /* Current fast bit timing */
@@ -925,12 +917,6 @@ static void mcan_dumpregs(struct sam_mcan_s *priv, const char *msg);
 #  define mcan_dumpregs(priv,msg)
 #endif
 
-/* Semaphore helpers */
-
-static int mcan_dev_lock(struct sam_mcan_s *priv);
-static int mcan_dev_lock_noncancelable(struct sam_mcan_s *priv);
-#define mcan_dev_unlock(priv) nxsem_post(&priv->locksem)
-
 static void mcan_buffer_reserve(struct sam_mcan_s *priv);
 static void mcan_buffer_release(struct sam_mcan_s *priv);
 
@@ -943,11 +929,11 @@ static uint8_t mcan_bytes2dlc(struct sam_mcan_s *priv, uint8_t nbytes);
 
 #ifdef CONFIG_CAN_EXTID
 static int mcan_add_extfilter(struct sam_mcan_s *priv,
-              struct canioc_extfilter_s *extconfig);
+                              struct canioc_extfilter_s *extconfig);
 static int mcan_del_extfilter(struct sam_mcan_s *priv, int ndx);
 #endif
 static int mcan_add_stdfilter(struct sam_mcan_s *priv,
-              struct canioc_stdfilter_s *stdconfig);
+                              struct canioc_stdfilter_s *stdconfig);
 static int mcan_del_stdfilter(struct sam_mcan_s *priv, int ndx);
 
 /* CAN driver methods */
@@ -958,7 +944,7 @@ static void mcan_shutdown(struct can_dev_s *dev);
 static void mcan_rxint(struct can_dev_s *dev, bool enable);
 static void mcan_txint(struct can_dev_s *dev, bool enable);
 static int  mcan_ioctl(struct can_dev_s *dev, int cmd,
-              unsigned long arg);
+                       unsigned long arg);
 static int  mcan_remoterequest(struct can_dev_s *dev, uint16_t id);
 static int  mcan_send(struct can_dev_s *dev, struct can_msg_s *msg);
 static bool mcan_txready(struct can_dev_s *dev);
@@ -968,7 +954,7 @@ static bool mcan_txempty(struct can_dev_s *dev);
 
 #if 0 /* Not Used */
 static bool mcan_dedicated_rxbuffer_available(struct sam_mcan_s *priv,
-              int bufndx);
+                                              int bufndx);
 #endif
 #ifdef CONFIG_CAN_ERRORS
 static void mcan_error(struct can_dev_s *dev, uint32_t status);
@@ -1000,10 +986,11 @@ static const struct can_ops_s g_mcanops =
 };
 
 #ifdef CONFIG_SAMV7_MCAN0
-/* Message RAM allocation */
+
+/* MCAN0 message RAM allocation */
 
 static uint32_t g_mcan0_msgram[MCAN0_MSGRAM_WORDS]
-#ifdef CONFIG_ARMV7M_DCACHE
+#ifdef CONFIG_ARCH_DCACHE
   __attribute__((aligned(MCAN_ALIGN)));
 #else
   ;
@@ -1011,7 +998,7 @@ static uint32_t g_mcan0_msgram[MCAN0_MSGRAM_WORDS]
 
 /* Constant configuration */
 
-static struct sam_config_s g_mcan0const =
+static const struct sam_config_s g_mcan0const =
 {
   .rxpinset         = GPIO_MCAN0_RX,
   .txpinset         = GPIO_MCAN0_TX,
@@ -1082,16 +1069,27 @@ static struct sam_config_s g_mcan0const =
 
 /* MCAN0 variable driver state */
 
-static struct sam_mcan_s g_mcan0priv;
-static struct can_dev_s g_mcan0dev;
+static struct sam_mcan_s g_mcan0priv =
+{
+  .config           = &g_mcan0const,
+  .lock             = NXMUTEX_INITIALIZER,
+  .txfsem           = SEM_INITIALIZER(CONFIG_SAMV7_MCAN0_TXFIFOQ_SIZE),
+};
+
+static struct can_dev_s g_mcan0dev =
+{
+  .cd_ops           = &g_mcanops,
+  .cd_priv          = &g_mcan0priv,
+};
 
 #endif /* CONFIG_SAMV7_MCAN0 */
 
 #ifdef CONFIG_SAMV7_MCAN1
+
 /* MCAN1 message RAM allocation */
 
 static uint32_t g_mcan1_msgram[MCAN1_MSGRAM_WORDS]
-#ifdef CONFIG_ARMV7M_DCACHE
+#ifdef CONFIG_ARCH_DCACHE
   __attribute__((aligned(MCAN_ALIGN)));
 #else
   ;
@@ -1099,7 +1097,7 @@ static uint32_t g_mcan1_msgram[MCAN1_MSGRAM_WORDS]
 
 /* MCAN1 constant configuration */
 
-static struct sam_config_s g_mcan1const =
+static const struct sam_config_s g_mcan1const =
 {
   .rxpinset         = GPIO_MCAN1_RX,
   .txpinset         = GPIO_MCAN1_TX,
@@ -1152,7 +1150,7 @@ static struct sam_config_s g_mcan1const =
 #ifdef CONFIG_SAMV7_MCAN1_LOOPBACK
   .loopback         = true,
 #endif
-  /* MCAN0 Message RAM */
+  /* MCAN1 Message RAM */
 
   .msgram =
   {
@@ -1167,10 +1165,20 @@ static struct sam_config_s g_mcan1const =
   }
 };
 
-/* MCAN0 variable driver state */
+/* MCAN1 variable driver state */
 
-static struct sam_mcan_s g_mcan1priv;
-static struct can_dev_s g_mcan1dev;
+static struct sam_mcan_s g_mcan1priv =
+{
+  .config           = &g_mcan1const,
+  .lock             = NXMUTEX_INITIALIZER,
+  .txfsem           = SEM_INITIALIZER(CONFIG_SAMV7_MCAN1_TXFIFOQ_SIZE),
+};
+
+static struct can_dev_s g_mcan1dev =
+{
+  .cd_ops           = &g_mcanops,
+  .cd_priv          = &g_mcan1priv,
+};
 
 #endif /* CONFIG_SAMV7_MCAN1 */
 
@@ -1243,7 +1251,7 @@ static uint32_t mcan_getreg(struct sam_mcan_s *priv, int offset)
 
   /* Show the register value read */
 
-  caninfo("%08x->%08x\n", regaddr, regval);
+  caninfo("%08" PRIx32 "->%08" PRIx32 "\n", regaddr, regval);
   return regval;
 }
 
@@ -1281,7 +1289,7 @@ static void mcan_putreg(struct sam_mcan_s *priv, int offset,
 
   /* Show the register value being written */
 
-  caninfo("%08x<-%08x\n", regaddr, regval);
+  caninfo("%08" PRIx32 "<-%08" PRIx32 "\n", regaddr, regval);
 
   /* Write the value */
 
@@ -1293,6 +1301,7 @@ static void mcan_putreg(struct sam_mcan_s *priv, int offset,
                         uint32_t regval)
 {
   const struct sam_config_s *config = priv->config;
+
   putreg32(regval, config->base + offset);
 }
 
@@ -1387,61 +1396,6 @@ static void mcan_dumpregs(struct sam_mcan_s *priv, const char *msg)
           getreg32(config->base + SAM_MCAN_TXEFA_OFFSET));
 }
 #endif
-
-/****************************************************************************
- * Name: mcan_dev_lock
- *
- * Description:
- *   Take the semaphore that enforces mutually exclusive access to device
- *   structures, handling any exceptional conditions
- *
- * Input Parameters:
- *   priv - A reference to the MCAN peripheral state
- *
- * Returned Value:
- *  Normally success (OK) is returned, but the error -ECANCELED may be
- *  return in the event that task has been canceled.
- *
- ****************************************************************************/
-
-static int mcan_dev_lock(struct sam_mcan_s *priv)
-{
-  return nxsem_wait_uninterruptible(&priv->locksem);
-}
-
-/****************************************************************************
- * Name: mcan_dev_lock_noncancelable
- *
- * Description:
- *   This is just a wrapper to handle the annoying behavior of semaphore
- *   waits that return due to the receipt of a signal.  This version also
- *   ignores attempts to cancel the thread.
- *
- ****************************************************************************/
-
-static int mcan_dev_lock_noncancelable(struct sam_mcan_s *priv)
-{
-  int result;
-  int ret = OK;
-
-  do
-    {
-      result = nxsem_wait_uninterruptible(&priv->locksem);
-
-      /* The only expected error is ECANCELED which would occur if the
-       * calling thread were canceled.
-       */
-
-      DEBUGASSERT(result == OK || result == -ECANCELED);
-      if (ret == OK && result < 0)
-        {
-          ret = result;
-        }
-    }
-  while (result < 0);
-
-  return ret;
-}
 
 /****************************************************************************
  * Name: mcan_buffer_reserve
@@ -1650,7 +1604,7 @@ static void mcan_buffer_release(struct sam_mcan_s *priv)
   else
     {
       canerr("ERROR: txfsem would increment beyond %d\n",
-              priv->config->ntxfifoq);
+             priv->config->ntxfifoq);
     }
 }
 
@@ -1810,7 +1764,7 @@ static int mcan_add_extfilter(struct sam_mcan_s *priv,
 
   /* Get exclusive excess to the MCAN hardware */
 
-  ret = mcan_dev_lock(priv);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
@@ -1919,13 +1873,13 @@ static int mcan_add_extfilter(struct sam_mcan_s *priv,
               mcan_putreg(priv, SAM_MCAN_CCCR_OFFSET, regval);
             }
 
-          mcan_dev_unlock(priv);
+          nxmutex_unlock(&priv->lock);
           return ndx;
         }
     }
 
   DEBUGASSERT(priv->nextalloc == priv->config->nextfilters);
-  mcan_dev_unlock(priv);
+  nxmutex_unlock(&priv->lock);
   return -EAGAIN;
 }
 #endif
@@ -1970,7 +1924,7 @@ static int mcan_del_extfilter(struct sam_mcan_s *priv, int ndx)
 
   /* Get exclusive excess to the MCAN hardware */
 
-  ret = mcan_dev_lock(priv);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
@@ -1985,7 +1939,7 @@ static int mcan_del_extfilter(struct sam_mcan_s *priv, int ndx)
     {
       /* No, error out */
 
-      mcan_dev_unlock(priv);
+      nxmutex_unlock(&priv->lock);
       return -ENOENT;
     }
 
@@ -2044,7 +1998,7 @@ static int mcan_del_extfilter(struct sam_mcan_s *priv, int ndx)
   *extfilter++ = 0;
   *extfilter   = 0;
 
-  mcan_dev_unlock(priv);
+  nxmutex_unlock(&priv->lock);
   return OK;
 }
 #endif
@@ -2081,7 +2035,7 @@ static int mcan_add_stdfilter(struct sam_mcan_s *priv,
 
   /* Get exclusive excess to the MCAN hardware */
 
-  ret = mcan_dev_lock(priv);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
@@ -2186,13 +2140,13 @@ static int mcan_add_stdfilter(struct sam_mcan_s *priv,
               mcan_putreg(priv, SAM_MCAN_CCCR_OFFSET, regval);
             }
 
-          mcan_dev_unlock(priv);
+          nxmutex_unlock(&priv->lock);
           return ndx;
         }
     }
 
   DEBUGASSERT(priv->nstdalloc == priv->config->nstdfilters);
-  mcan_dev_unlock(priv);
+  nxmutex_unlock(&priv->lock);
   return -EAGAIN;
 }
 
@@ -2235,7 +2189,7 @@ static int mcan_del_stdfilter(struct sam_mcan_s *priv, int ndx)
 
   /* Get exclusive excess to the MCAN hardware */
 
-  ret = mcan_dev_lock(priv);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
@@ -2250,7 +2204,7 @@ static int mcan_del_stdfilter(struct sam_mcan_s *priv, int ndx)
     {
       /* No, error out */
 
-      mcan_dev_unlock(priv);
+      nxmutex_unlock(&priv->lock);
       return -ENOENT;
     }
 
@@ -2308,7 +2262,7 @@ static int mcan_del_stdfilter(struct sam_mcan_s *priv, int ndx)
   stdfilter  = config->msgram.stdfilters + ndx;
   *stdfilter = 0;
 
-  mcan_dev_unlock(priv);
+  nxmutex_unlock(&priv->lock);
   return OK;
 }
 
@@ -2351,7 +2305,7 @@ static int mcan_start_busoff_recovery_sequence(struct sam_mcan_s *priv)
 
   /* Get exclusive access to the MCAN peripheral */
 
-  ret = mcan_dev_lock(priv);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
@@ -2362,7 +2316,7 @@ static int mcan_start_busoff_recovery_sequence(struct sam_mcan_s *priv)
   regval = mcan_getreg(priv, SAM_MCAN_PSR_OFFSET);
   if (!(regval & MCAN_PSR_BO))
     {
-      mcan_dev_unlock(priv);
+      nxmutex_unlock(&priv->lock);
       return -EPERM;
     }
 
@@ -2372,7 +2326,7 @@ static int mcan_start_busoff_recovery_sequence(struct sam_mcan_s *priv)
   regval &= ~MCAN_CCCR_INIT;
   mcan_putreg(priv, SAM_MCAN_CCCR_OFFSET, regval);
 
-  mcan_dev_unlock(priv);
+  nxmutex_unlock(&priv->lock);
   return OK;
 }
 
@@ -2407,27 +2361,22 @@ static void mcan_reset(struct can_dev_s *dev)
 
   /* Get exclusive access to the MCAN peripheral */
 
-  mcan_dev_lock_noncancelable(priv);
+  nxmutex_lock(&priv->lock);
 
   /* Disable all interrupts */
 
   mcan_putreg(priv, SAM_MCAN_IE_OFFSET, 0);
   mcan_putreg(priv, SAM_MCAN_TXBTIE_OFFSET, 0);
 
-  /* Make sure that all buffers are released.
-   *
-   * REVISIT: What if a thread is waiting for a buffer?  The following
-   * will not wake up any waiting threads.
-   */
+  /* Make sure that all buffers are released. */
 
-  nxsem_destroy(&priv->txfsem);
-  nxsem_init(&priv->txfsem, 0, config->ntxfifoq);
+  nxsem_reset(&priv->txfsem, config->ntxfifoq);
 
   /* Disable peripheral clocking to the MCAN controller */
 
   sam_disableperiph1(priv->config->pid);
   priv->state = MCAN_STATE_RESET;
-  mcan_dev_unlock(priv);
+  nxmutex_unlock(&priv->lock);
 }
 
 /****************************************************************************
@@ -2463,7 +2412,7 @@ static int mcan_setup(struct can_dev_s *dev)
 
   /* Get exclusive access to the MCAN peripheral */
 
-  ret = mcan_dev_lock(priv);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
@@ -2512,7 +2461,7 @@ static int mcan_setup(struct can_dev_s *dev)
 
   up_enable_irq(config->irq0);
   up_enable_irq(config->irq1);
-  mcan_dev_unlock(priv);
+  nxmutex_unlock(&priv->lock);
   return OK;
 }
 
@@ -2546,7 +2495,7 @@ static void mcan_shutdown(struct can_dev_s *dev)
 
   /* Get exclusive access to the MCAN peripheral */
 
-  mcan_dev_lock_noncancelable(priv);
+  nxmutex_lock(&priv->lock);
 
   /* Disable MCAN interrupts at the NVIC */
 
@@ -2566,7 +2515,7 @@ static void mcan_shutdown(struct can_dev_s *dev)
   /* Disable peripheral clocking to the MCAN controller */
 
   sam_disableperiph1(priv->config->pid);
-  mcan_dev_unlock(priv);
+  nxmutex_unlock(&priv->lock);
 }
 
 /****************************************************************************
@@ -2994,7 +2943,7 @@ static int mcan_send(struct can_dev_s *dev, struct can_msg_s *msg)
   config = priv->config;
 
   caninfo("MCAN%d\n", config->port);
-  caninfo("MCAN%d ID: %"PRIu32" DLC: %u\n",
+  caninfo("MCAN%d ID: %" PRIu32 " DLC: %u\n",
           config->port, (uint32_t)msg->cm_hdr.ch_id, msg->cm_hdr.ch_dlc);
 
   /* That that FIFO elements were configured.
@@ -3023,7 +2972,7 @@ static int mcan_send(struct can_dev_s *dev, struct can_msg_s *msg)
 
   /* Get exclusive access to the MCAN peripheral */
 
-  ret = mcan_dev_lock(priv);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       mcan_buffer_release(priv);
@@ -3073,7 +3022,7 @@ static int mcan_send(struct can_dev_s *dev, struct can_msg_s *msg)
     }
 
   txbuffer[0] = regval;
-  reginfo("T0: %08x\n", regval);
+  reginfo("T0: %08" PRIx32 "\n", regval);
 
   /* Format word T1:
    *   Data Length Code (DLC)            - Value from message structure
@@ -3095,7 +3044,7 @@ static int mcan_send(struct can_dev_s *dev, struct can_msg_s *msg)
     }
 #endif
 
-  reginfo("T1: %08x\n", txbuffer[1]);
+  reginfo("T1: %08" PRIx32 "\n", txbuffer[1]);
 
   /* Followed by the amount of data corresponding to the DLC (T2..) */
 
@@ -3125,7 +3074,7 @@ static int mcan_send(struct can_dev_s *dev, struct can_msg_s *msg)
   /* And request to send the packet */
 
   mcan_putreg(priv, SAM_MCAN_TXBAR_OFFSET, (1 << ndx));
-  mcan_dev_unlock(priv);
+  nxmutex_unlock(&priv->lock);
 
   /* Report that the TX transfer is complete to the upper half logic.  Of
    * course, the transfer is not complete, but this early notification
@@ -3166,7 +3115,7 @@ static bool mcan_txready(struct can_dev_s *dev)
 
   /* Get exclusive access to the MCAN peripheral */
 
-  ret = mcan_dev_lock(priv);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return false;
@@ -3191,7 +3140,7 @@ static bool mcan_txready(struct can_dev_s *dev)
               (sval <= priv->config->ntxfifoq));
 #endif
 
-  mcan_dev_unlock(priv);
+  nxmutex_unlock(&priv->lock);
   return notfull;
 }
 
@@ -3229,7 +3178,7 @@ static bool mcan_txempty(struct can_dev_s *dev)
 
   /* Get exclusive access to the MCAN peripheral */
 
-  ret = mcan_dev_lock(priv);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return false;
@@ -3243,9 +3192,9 @@ static bool mcan_txempty(struct can_dev_s *dev)
    */
 
   regval = mcan_getreg(priv, SAM_MCAN_TXFQS_OFFSET);
-  if (((regval & MCAN_TXFQS_TFQF) != 0))
+  if ((regval & MCAN_TXFQS_TFQF) != 0)
     {
-      mcan_dev_unlock(priv);
+      nxmutex_unlock(&priv->lock);
       return false;
     }
 
@@ -3269,7 +3218,7 @@ static bool mcan_txempty(struct can_dev_s *dev)
   empty = (tffl >= priv->config->ntxfifoq);
 #endif
 
-  mcan_dev_unlock(priv);
+  nxmutex_unlock(&priv->lock);
   return empty;
 }
 
@@ -3425,9 +3374,9 @@ static void mcan_error(struct can_dev_s *dev, uint32_t status)
           data[3] |= (CAN_ERROR3_CRCSEQ | CAN_ERROR3_CRCDEL);
         }
 
-      if ((lec == MCAN_PSR_EC_BIT0_ERROR) || \
-          (lec == MCAN_PSR_EC_BIT1_ERROR) || \
-          (dlec == MCAN_PSR_EC_BIT0_ERROR) || \
+      if ((lec == MCAN_PSR_EC_BIT0_ERROR) ||
+          (lec == MCAN_PSR_EC_BIT1_ERROR) ||
+          (dlec == MCAN_PSR_EC_BIT0_ERROR) ||
           (dlec == MCAN_PSR_EC_BIT1_ERROR))
         {
           /* Bit Error */
@@ -3443,8 +3392,8 @@ static void mcan_error(struct can_dev_s *dev, uint32_t status)
           errbits |= CAN_ERROR_NOACK;
         }
 
-      if ((lec == MCAN_PSR_EC_FORM_ERROR) || \
-         (dlec == MCAN_PSR_EC_FORM_ERROR))
+      if ((lec == MCAN_PSR_EC_FORM_ERROR) ||
+          (dlec == MCAN_PSR_EC_FORM_ERROR))
         {
           /* Format Error */
 
@@ -3452,8 +3401,8 @@ static void mcan_error(struct can_dev_s *dev, uint32_t status)
           data[2] |= CAN_ERROR2_FORM;
         }
 
-      if ((lec == MCAN_PSR_EC_STUFF_ERROR) || \
-         (dlec == MCAN_PSR_EC_STUFF_ERROR))
+      if ((lec == MCAN_PSR_EC_STUFF_ERROR) ||
+          (dlec == MCAN_PSR_EC_STUFF_ERROR))
         {
           /* Stuff Error */
 
@@ -3519,10 +3468,10 @@ static void mcan_receive(struct can_dev_s *dev, uint32_t *rxbuffer,
 
   /* Format the CAN header */
 
-  /* Work R0 contains the CAN ID */
+  /* Word R0 contains the CAN ID */
 
   regval = *rxbuffer++;
-  reginfo("R0: %08x\n", regval);
+  reginfo("R0: %08" PRIx32 "\n", regval);
 
 #ifdef CONFIG_CAN_ERRORS
   hdr.ch_error  = 0;
@@ -3570,7 +3519,7 @@ static void mcan_receive(struct can_dev_s *dev, uint32_t *rxbuffer,
   /* Word R1 contains the DLC and timestamp */
 
   regval = *rxbuffer++;
-  reginfo("R1: %08x\n", regval);
+  reginfo("R1: %08" PRIx32 "\n", regval);
 
   hdr.ch_dlc = (regval & BUFFER_R1_DLC_MASK) >> BUFFER_R1_DLC_SHIFT;
 
@@ -3655,7 +3604,7 @@ static int mcan_interrupt(int irq, void *context, void *arg)
           if ((pending & MCAN_TXERR_INTS) != 0)
             {
               psr = mcan_getreg(priv, SAM_MCAN_PSR_OFFSET);
-              canerr("ERROR: TX %08"PRIx32", PSR %08"PRIx32"\n",
+              canerr("ERROR: TX %08" PRIx32 ", PSR %08" PRIx32 "\n",
                      pending & MCAN_TXERR_INTS, psr);
 
               /* An Acknowledge-Error will occur if for example the device
@@ -3699,7 +3648,7 @@ static int mcan_interrupt(int irq, void *context, void *arg)
           if ((pending & MCAN_RXERR_INTS) != 0)
             {
               psr = mcan_getreg(priv, SAM_MCAN_PSR_OFFSET);
-              canerr("ERROR: RX %08"PRIx32", PSR %08"PRIx32"\n",
+              canerr("ERROR: RX %08" PRIx32 ", PSR %08" PRIx32 "\n",
                      pending & MCAN_RXERR_INTS, psr);
 
               /* To prevent Interrupt-Flooding the current active
@@ -3742,8 +3691,8 @@ static int mcan_interrupt(int irq, void *context, void *arg)
                 ie |= MCAN_INT_ACKE;
                 mcan_putreg(priv, SAM_MCAN_IE_OFFSET, ie);
             }
-          else if ((priv->rev == 1) && \
-                  ((ie & (MCAN_INT_PEA | MCAN_INT_PED)) == 0))
+          else if ((priv->rev == 1) &&
+                   ((ie & (MCAN_INT_PEA | MCAN_INT_PED)) == 0))
             {
                 ie |= MCAN_INT_PEA | MCAN_INT_PED;
                 mcan_putreg(priv, SAM_MCAN_IE_OFFSET, ie);
@@ -3903,7 +3852,7 @@ static int mcan_interrupt(int irq, void *context, void *arg)
 
           if ((regval & MCAN_RXF0S_RF0L) != 0)
             {
-              canerr("ERROR: Message lost: %08"PRIx32"\n", regval);
+              canerr("ERROR: Message lost: %08" PRIx32 "\n", regval);
             }
           else
             {
@@ -4273,9 +4222,8 @@ static int mcan_hw_initialize(struct sam_mcan_s *priv)
 
 struct can_dev_s *sam_mcan_initialize(int port)
 {
-  struct can_dev_s *dev;
   struct sam_mcan_s *priv;
-  const struct sam_config_s *config;
+  struct can_dev_s *dev;
   uint32_t regval;
 
   caninfo("MCAN%d\n", port);
@@ -4299,15 +4247,14 @@ struct can_dev_s *sam_mcan_initialize(int port)
     {
       /* Select the MCAN0 device structure */
 
-      dev    = &g_mcan0dev;
-      priv   = &g_mcan0priv;
-      config = &g_mcan0const;
+      dev = &g_mcan0dev;
+      priv = dev->cd_priv;
 
       /* Configure MCAN0 Message RAM Base Address */
 
       regval  = getreg32(SAM_MATRIX_CAN0);
       regval &= MATRIX_CAN0_RESERVED;
-      regval |= (uint32_t)config->msgram.stdfilters &
+      regval |= (uint32_t)priv->config->msgram.stdfilters &
                 MATRIX_CAN0_CAN0DMABA_MASK;
       putreg32(regval, SAM_MATRIX_CAN0);
     }
@@ -4318,15 +4265,14 @@ struct can_dev_s *sam_mcan_initialize(int port)
     {
       /* Select the MCAN1 device structure */
 
-      dev    = &g_mcan1dev;
-      priv   = &g_mcan1priv;
-      config = &g_mcan1const;
+      dev = &g_mcan1dev;
+      priv = dev->cd_priv;
 
       /* Configure MCAN1 Message RAM Base Address */
 
       regval  = getreg32(SAM_MATRIX_CCFG_SYSIO);
       regval &= ~MATRIX_CCFG_CAN1DMABA_MASK;
-      regval |= (uint32_t)config->msgram.stdfilters &
+      regval |= (uint32_t)priv->config->msgram.stdfilters &
                 MATRIX_CCFG_CAN1DMABA_MASK;
       putreg32(regval, SAM_MATRIX_CCFG_SYSIO);
     }
@@ -4343,10 +4289,7 @@ struct can_dev_s *sam_mcan_initialize(int port)
     {
       /* Yes, then perform one time data initialization */
 
-      memset(priv, 0, sizeof(struct sam_mcan_s));
-      priv->config = config;
-
-      /* Get the revision of the chip (A or B ) */
+      /* Get the revision of the chip (A or B) */
 
       regval = getreg32(SAM_CHIPID_CIDR);
       priv->rev = regval & CHIPID_CIDR_VERSION_MASK;
@@ -4359,29 +4302,21 @@ struct can_dev_s *sam_mcan_initialize(int port)
         {
           /* Revision A */
 
-          priv->btp    = config->btp;
-          priv->fbtp   = config->fbtp;
+          priv->btp  = priv->config->btp;
+          priv->fbtp = priv->config->fbtp;
         }
       else if (priv->rev == 1)
         {
           /* Revision B */
 
-          priv->btp    = config->nbtp;
-          priv->fbtp   = config->dbtp;
+          priv->btp  = priv->config->nbtp;
+          priv->fbtp = priv->config->dbtp;
         }
       else
         {
           canerr("ERROR: Incorrect chip revision: %d\n", priv->rev);
           return NULL;
         }
-
-      /* Initialize semaphores */
-
-      nxsem_init(&priv->locksem, 0, 1);
-      nxsem_init(&priv->txfsem, 0, config->ntxfifoq);
-
-      dev->cd_ops  = &g_mcanops;
-      dev->cd_priv = (void *)priv;
 
       /* And put the hardware in the initial state */
 

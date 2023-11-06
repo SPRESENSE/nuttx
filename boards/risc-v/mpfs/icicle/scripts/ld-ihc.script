@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/risc-v/mpfs/icicle/scripts/ld.script
+ * boards/risc-v/mpfs/icicle/scripts/ld-ihc.script
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -77,7 +77,8 @@ SECTIONS
 
     .init_section : ALIGN(4) {
         _sinit = ABSOLUTE(.);
-        KEEP(*(.init_array .init_array.*))
+        KEEP(*(SORT_BY_INIT_PRIORITY(.init_array.*) SORT_BY_INIT_PRIORITY(.ctors.*)))
+        KEEP(*(.init_array .ctors))
         _einit = ABSOLUTE(.);
     } > progmem
 

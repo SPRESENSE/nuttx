@@ -44,11 +44,10 @@
  ****************************************************************************/
 
 static uint16_t recvfrom_event(FAR struct net_driver_s *dev,
-                               FAR void *pvconn, FAR void *pvpriv,
-                               uint16_t flags)
+                               FAR void *pvpriv, uint16_t flags)
 {
   FAR struct usrsock_data_reqstate_s *pstate = pvpriv;
-  FAR struct usrsock_conn_s *conn = pvconn;
+  FAR struct usrsock_conn_s *conn = pstate->reqstate.conn;
 
   if (flags & USRSOCK_EVENT_ABORT)
     {
@@ -60,9 +59,9 @@ static uint16_t recvfrom_event(FAR struct net_driver_s *dev,
 
       /* Stop further callbacks */
 
-      pstate->reqstate.cb->flags   = 0;
-      pstate->reqstate.cb->priv    = NULL;
-      pstate->reqstate.cb->event   = NULL;
+      pstate->reqstate.cb->flags = 0;
+      pstate->reqstate.cb->priv  = NULL;
+      pstate->reqstate.cb->event = NULL;
 
       /* Wake up the waiting thread */
 
@@ -84,8 +83,9 @@ static uint16_t recvfrom_event(FAR struct net_driver_s *dev,
           pstate->valuelen_nontrunc = conn->resp.valuelen_nontrunc;
         }
 
-      if (pstate->reqstate.result >= 0 ||
-          pstate->reqstate.result == -EAGAIN)
+      if (!(flags & USRSOCK_EVENT_RECVFROM_AVAIL) &&
+           (pstate->reqstate.result >= 0 ||
+            pstate->reqstate.result == -EAGAIN))
         {
           /* After reception of data, mark input not ready. Daemon will
            * send event to restore this flag.
@@ -96,9 +96,9 @@ static uint16_t recvfrom_event(FAR struct net_driver_s *dev,
 
       /* Stop further callbacks */
 
-      pstate->reqstate.cb->flags   = 0;
-      pstate->reqstate.cb->priv    = NULL;
-      pstate->reqstate.cb->event   = NULL;
+      pstate->reqstate.cb->flags = 0;
+      pstate->reqstate.cb->priv  = NULL;
+      pstate->reqstate.cb->event = NULL;
 
       /* Wake up the waiting thread */
 
@@ -112,9 +112,9 @@ static uint16_t recvfrom_event(FAR struct net_driver_s *dev,
 
       /* Stop further callbacks */
 
-      pstate->reqstate.cb->flags   = 0;
-      pstate->reqstate.cb->priv    = NULL;
-      pstate->reqstate.cb->event   = NULL;
+      pstate->reqstate.cb->flags = 0;
+      pstate->reqstate.cb->priv  = NULL;
+      pstate->reqstate.cb->event = NULL;
 
       /* Wake up the waiting thread */
 
@@ -128,9 +128,9 @@ static uint16_t recvfrom_event(FAR struct net_driver_s *dev,
 
       /* Stop further callbacks */
 
-      pstate->reqstate.cb->flags   = 0;
-      pstate->reqstate.cb->priv    = NULL;
-      pstate->reqstate.cb->event   = NULL;
+      pstate->reqstate.cb->flags = 0;
+      pstate->reqstate.cb->priv  = NULL;
+      pstate->reqstate.cb->event = NULL;
 
       /* Wake up the waiting thread */
 
@@ -175,7 +175,7 @@ static int do_recvfrom_request(FAR struct usrsock_conn_s *conn,
   bufs[0].iov_base = (FAR void *)&req;
   bufs[0].iov_len = sizeof(req);
 
-  return usrsockdev_do_request(conn, bufs, ARRAY_SIZE(bufs));
+  return usrsock_do_request(conn, bufs, nitems(bufs));
 }
 
 /****************************************************************************
@@ -220,8 +220,6 @@ ssize_t usrsock_recvmsg(FAR struct socket *psock, FAR struct msghdr *msg,
   socklen_t outaddrlen = 0;
   ssize_t ret;
 
-  DEBUGASSERT(conn);
-
   if (fromlen)
     {
       if (*fromlen > 0 && from == NULL)
@@ -247,7 +245,7 @@ ssize_t usrsock_recvmsg(FAR struct socket *psock, FAR struct msghdr *msg,
       goto errout_unlock;
     }
 
-  if (conn->type == SOCK_STREAM || conn->type == SOCK_SEQPACKET)
+  if (psock->s_type == SOCK_STREAM || psock->s_type == SOCK_SEQPACKET)
     {
       if (!conn->connected)
         {
@@ -325,8 +323,9 @@ ssize_t usrsock_recvmsg(FAR struct socket *psock, FAR struct msghdr *msg,
 
           /* Wait for receive-avail (or abort, or timeout, or signal). */
 
-          ret = net_timedwait(&state.reqstate.recvsem,
+          ret = net_sem_timedwait(&state.reqstate.recvsem,
                               _SO_TIMEOUT(conn->sconn.s_rcvtimeo));
+          usrsock_teardown_data_request_callback(&state);
           if (ret < 0)
             {
               if (ret == -ETIMEDOUT)
@@ -341,17 +340,10 @@ ssize_t usrsock_recvmsg(FAR struct socket *psock, FAR struct msghdr *msg,
                 }
               else
                 {
-                  nerr("net_timedwait errno: %zd\n", ret);
+                  nerr("net_sem_timedwait errno: %zd\n", ret);
                   DEBUGPANIC();
                 }
-            }
 
-          usrsock_teardown_data_request_callback(&state);
-
-          /* Did wait timeout or got signal? */
-
-          if (ret != 0)
-            {
               goto errout_unlock;
             }
 
@@ -391,7 +383,7 @@ ssize_t usrsock_recvmsg(FAR struct socket *psock, FAR struct msghdr *msg,
       inbufs[1].iov_base = (FAR void *)buf;
       inbufs[1].iov_len = len;
 
-      usrsock_setup_datain(conn, inbufs, ARRAY_SIZE(inbufs));
+      usrsock_setup_datain(conn, inbufs, nitems(inbufs));
 
       /* MSG_DONTWAIT is only use in usrsock. */
 
@@ -404,7 +396,7 @@ ssize_t usrsock_recvmsg(FAR struct socket *psock, FAR struct msghdr *msg,
         {
           /* Wait for completion of request. */
 
-          net_lockedwait_uninterruptible(&state.reqstate.recvsem);
+          net_sem_wait_uninterruptible(&state.reqstate.recvsem);
           ret = state.reqstate.result;
 
           DEBUGASSERT(ret <= (ssize_t)len);

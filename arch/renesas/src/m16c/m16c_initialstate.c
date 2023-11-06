@@ -30,7 +30,7 @@
 #include <nuttx/arch.h>
 #include <arch/board/board.h>
 
-#include "up_internal.h"
+#include "renesas_internal.h"
 
 /****************************************************************************
  * Public Functions
@@ -49,11 +49,11 @@
  *
  ****************************************************************************/
 
-void up_initial_state(FAR struct tcb_s *tcb)
+void up_initial_state(struct tcb_s *tcb)
 {
-  FAR struct xcptcontext *xcp  = &tcb->xcp;
-  FAR uint8_t            *regs = xcp->regs;
-  uintptr_t               sp;
+  struct xcptcontext *xcp  = &tcb->xcp;
+  uint8_t            *regs = xcp->regs;
+  uintptr_t           sp;
 
   /* Initialize the idle thread stack */
 

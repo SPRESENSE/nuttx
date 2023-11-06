@@ -27,6 +27,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <sched.h>
+#include <sys/param.h>
 #include <assert.h>
 
 #include <nuttx/sched.h>
@@ -35,18 +36,6 @@
 #include "sched/sched.h"
 
 #if CONFIG_RR_INTERVAL > 0
-
-/****************************************************************************
- * Pre-processor Definitions
- ****************************************************************************/
-
-#ifndef MIN
-#  define MIN(a,b) (((a) < (b)) ? (a) : (b))
-#endif
-
-#ifndef MAX
-#  define MAX(a,b) (((a) > (b)) ? (a) : (b))
-#endif
 
 /****************************************************************************
  * Public Functions
@@ -140,12 +129,17 @@ uint32_t nxsched_process_roundrobin(FAR struct tcb_s *tcb, uint32_t ticks,
           if (tcb->flink &&
               tcb->flink->sched_priority >= tcb->sched_priority)
             {
+              FAR struct tcb_s *rtcb = this_task();
+
               /* Just resetting the task priority to its current value.
                * This will cause the task to be rescheduled behind any
                * other tasks at the same priority.
                */
 
-              up_reprioritize_rtr(tcb, tcb->sched_priority);
+              if (nxsched_reprioritize_rtr(tcb, tcb->sched_priority))
+                {
+                  up_switch_context(this_task(), rtcb);
+                }
             }
         }
     }

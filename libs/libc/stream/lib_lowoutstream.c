@@ -41,14 +41,28 @@
  * Name: lowoutstream_putc
  ****************************************************************************/
 
-static void lowoutstream_putc(FAR struct lib_outstream_s *this, int ch)
+static void lowoutstream_putc(FAR struct lib_outstream_s *self, int ch)
 {
-  DEBUGASSERT(this);
+  DEBUGASSERT(self);
 
   if (up_putc(ch) != EOF)
     {
-      this->nput++;
+      self->nput++;
     }
+}
+
+/****************************************************************************
+ * Name: lowoutstream_puts
+ ****************************************************************************/
+
+static int lowoutstream_puts(FAR struct lib_outstream_s *self,
+                             FAR const void *buf, int len)
+{
+  DEBUGASSERT(self);
+
+  self->nput += len;
+  up_nputs(buf, len);
+  return len;
 }
 
 /****************************************************************************
@@ -72,7 +86,8 @@ static void lowoutstream_putc(FAR struct lib_outstream_s *this, int ch)
 
 void lib_lowoutstream(FAR struct lib_outstream_s *stream)
 {
-  stream->put   = lowoutstream_putc;
+  stream->putc  = lowoutstream_putc;
+  stream->puts  = lowoutstream_puts;
   stream->flush = lib_noflush;
   stream->nput  = 0;
 }

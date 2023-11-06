@@ -208,7 +208,7 @@ static void generate_proxy(int nfixed, int nparms)
       fprintf(stream, "#include <stdarg.h>\n");
     }
 
-  if (g_parm[HEADER_INDEX] && strlen(g_parm[HEADER_INDEX]) > 0)
+  if (strlen(g_parm[HEADER_INDEX]) > 0)
     {
       fprintf(stream, "#include <%s>\n", g_parm[HEADER_INDEX]);
     }
@@ -429,7 +429,7 @@ static void generate_stub(int nfixed, int nparms)
   fprintf(stream, "#include <nuttx/config.h>\n");
   fprintf(stream, "#include <stdint.h>\n");
 
-  if (g_parm[HEADER_INDEX] && strlen(g_parm[HEADER_INDEX]) > 0)
+  if (strlen(g_parm[HEADER_INDEX]) > 0)
     {
       fprintf(stream, "#include <%s>\n", g_parm[HEADER_INDEX]);
     }
@@ -588,20 +588,14 @@ static void generate_wrapper(int nfixed, int nparms)
       fprintf(stream, "#include <stdarg.h>\n");
     }
 
-  if (g_parm[HEADER_INDEX] && strlen(g_parm[HEADER_INDEX]) > 0)
+  if (strlen(g_parm[HEADER_INDEX]) > 0)
     {
       fprintf(stream, "#include <%s>\n", g_parm[HEADER_INDEX]);
     }
 
   /* Define macros to get wrapper symbol */
 
-  fprintf(stream, "#include <nuttx/arch.h>\n");
-  fprintf(stream, "#ifndef UP_WRAPSYM\n");
-  fprintf(stream, "#define UP_WRAPSYM(s) __wrap_##s\n");
-  fprintf(stream, "#endif\n");
-  fprintf(stream, "#ifndef UP_REALSYM\n");
-  fprintf(stream, "#define UP_REALSYM(s) __real_##s\n");
-  fprintf(stream, "#endif\n\n");
+  fprintf(stream, "#include <nuttx/arch.h>\n\n");
 
   if (g_parm[COND_INDEX][0] != '\0')
     {

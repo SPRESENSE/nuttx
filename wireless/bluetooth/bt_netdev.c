@@ -40,7 +40,6 @@
 #include <nuttx/signal.h>
 #include <nuttx/wqueue.h>
 #include <nuttx/mm/iob.h>
-#include <nuttx/net/arp.h>
 #include <nuttx/net/netdev.h>
 #include <nuttx/net/radiodev.h>
 #include <nuttx/net/bluetooth.h>
@@ -103,7 +102,6 @@ struct btnet_driver_s
 
   /* For internal use by this driver */
 
-  sem_t bd_exclsem;                  /* Exclusive access to struct */
   bool bd_bifup;                     /* true:ifup false:ifdown */
   struct work_s bd_pollwork;         /* Defer poll work to the work queue */
 
@@ -298,21 +296,18 @@ static void btnet_l2cap_connected(FAR struct bt_conn_s *conn,
                                   FAR void *context, uint16_t cid)
 {
   wlinfo("Connected\n");
-#warning Missing logic
 }
 
 static void btnet_l2cap_disconnected(FAR struct bt_conn_s *conn,
                                      FAR void *context, uint16_t cid)
 {
   wlinfo("Disconnected\n");
-#warning Missing logic
 }
 
 static void btnet_l2cap_encrypt_change(FAR struct bt_conn_s *conn,
                                        FAR void *context, uint16_t cid)
 {
   wlinfo("Encryption change\n");
-#warning Missing logic
 }
 
 /****************************************************************************
@@ -422,7 +417,7 @@ drop:
 
   if (ret < 0)
     {
-      iob_free(frame, IOBUSER_WIRELESS_BLUETOOTH);
+      iob_free(frame);
 
       /* Increment statistics */
 
@@ -465,14 +460,12 @@ static void btnet_hci_connected(FAR struct bt_conn_s *conn,
                                 FAR void *context)
 {
   wlinfo("Connected\n");
-#warning Missing logic
 }
 
 static void btnet_hci_disconnected(FAR struct bt_conn_s *conn,
                                    FAR void *context)
 {
   wlinfo("Disconnected\n");
-#warning Missing logic
 }
 #else
 
@@ -573,7 +566,7 @@ drop:
 
   if (ret < 0)
     {
-      iob_free(frame, IOBUSER_WIRELESS_BLUETOOTH);
+      iob_free(frame);
 
       /* Increment statistics */
 
@@ -1196,7 +1189,7 @@ int bt_netdev_register(FAR struct bt_driver_s *btdev)
 
   /* Get the interface structure associated with this interface number. */
 
-  priv = (FAR struct btnet_driver_s *)
+  btdev->bt_net = priv = (FAR struct btnet_driver_s *)
     kmm_zalloc(sizeof(struct btnet_driver_s));
 
   if (priv == NULL)
@@ -1248,10 +1241,6 @@ int bt_netdev_register(FAR struct bt_driver_s *btdev)
 
   bt_hci_cb_register(hcicb);
 #endif
-
-  /* Setup a locking semaphore for exclusive device driver access */
-
-  nxsem_init(&priv->bd_exclsem, 0, 1);
 
   /* Set the network mask. */
 
@@ -1307,6 +1296,10 @@ int bt_netdev_register(FAR struct bt_driver_s *btdev)
   priv->bd_dev.r_dev.d_buf = g_iobuffer.rb_buf;
 #endif
 
+#ifdef CONFIG_WIRELESS_BLUETOOTH_HOST
+  bt_add_services();
+#endif
+
   /* Register the network device with the OS so that socket IOCTLs can be
    * performed
    */
@@ -1321,13 +1314,63 @@ int bt_netdev_register(FAR struct bt_driver_s *btdev)
 
 errout:
 
-  /* Un-initialize semaphores */
-
-  nxsem_destroy(&priv->bd_exclsem);
+  btnet_ifdown(netdev);
+  bt_driver_unregister(btdev);
 
   /* Free memory and return the error */
 
-  kmm_free(priv);
+  kmm_free(btdev->bt_net);
+  btdev->bt_net = NULL;
+  return ret;
+}
+
+/****************************************************************************
+ * Name: bt_netdev_unregister
+ *
+ * Description:
+ *   Unregister a network a driver registered by bt_netdev_register.
+ *
+ * Input Parameters:
+ *   btdev - An instance of the low-level driver interface structure.
+ *
+ * Returned Value:
+ *   Zero (OK) is returned on success.  Otherwise a negated errno value is
+ *   returned to indicate the nature of the failure.
+ *
+ ****************************************************************************/
+
+int bt_netdev_unregister(FAR struct bt_driver_s *btdev)
+{
+  int ret;
+  FAR struct btnet_driver_s *priv;
+
+  if (!btdev)
+    {
+      return -EINVAL;
+    }
+
+  priv = (FAR struct btnet_driver_s *)btdev->bt_net;
+  if (!priv)
+    {
+      nerr("ERROR: bt_driver_s is probably not registered\n");
+      return -EINVAL;
+    }
+
+  btnet_ifdown(&priv->bd_dev.r_dev);
+
+  ret = netdev_unregister(&priv->bd_dev.r_dev);
+  if (ret < 0)
+    {
+      nerr("ERROR: netdev_unregister bfailed: %d\n", ret);
+    }
+
+  bt_deinitialize();
+
+  bt_driver_unregister(btdev);
+
+  kmm_free(btdev->bt_net);
+  btdev->bt_net = NULL;
+
   return ret;
 }
 

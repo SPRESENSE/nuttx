@@ -34,7 +34,7 @@
 
 #include <nuttx/arch.h>
 #include <nuttx/irq.h>
-#include <nuttx/time.h>
+#include <nuttx/clock.h>
 
 #include "arm_internal.h"
 #include "stm32_rcc.h"
@@ -76,13 +76,13 @@
 
 /* Proxy definitions to make the same code work for all the STM32 series ****/
 
-# define STM32_RCC_XXX       STM32_RCC_BDCR
-# define RCC_XXX_YYYRST      RCC_BDCR_BDRST
-# define RCC_XXX_RTCEN       RCC_BDCR_RTCEN
-# define RCC_XXX_RTCSEL_MASK RCC_BDCR_RTCSEL_MASK
-# define RCC_XXX_RTCSEL_LSE  RCC_BDCR_RTCSEL_LSE
-# define RCC_XXX_RTCSEL_LSI  RCC_BDCR_RTCSEL_LSI
-# define RCC_XXX_RTCSEL_HSE  RCC_BDCR_RTCSEL_HSE
+#  define STM32_RCC_XXX       STM32_RCC_BDCR
+#  define RCC_XXX_YYYRST      RCC_BDCR_BDRST
+#  define RCC_XXX_RTCEN       RCC_BDCR_RTCEN
+#  define RCC_XXX_RTCSEL_MASK RCC_BDCR_RTCSEL_MASK
+#  define RCC_XXX_RTCSEL_LSE  RCC_BDCR_RTCSEL_LSE
+#  define RCC_XXX_RTCSEL_LSI  RCC_BDCR_RTCSEL_LSI
+#  define RCC_XXX_RTCSEL_HSE  RCC_BDCR_RTCSEL_HSE
 
 /* Time conversions */
 
@@ -1205,7 +1205,7 @@ int up_rtc_getdatetime(struct tm *tp)
 
   tmp = (dr & RTC_DR_WDU_MASK) >> RTC_DR_WDU_SHIFT;
   tp->tm_wday = tmp % 7;
-  tp->tm_yday = tp->tm_mday +
+  tp->tm_yday = tp->tm_mday - 1 +
                 clock_daysbeforemonth(tp->tm_mon,
                                       clock_isleapyear(tp->tm_year + 1900));
   tp->tm_isdst = 0;

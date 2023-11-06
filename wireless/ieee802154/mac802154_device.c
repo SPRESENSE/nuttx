@@ -35,6 +35,7 @@
 #include <fcntl.h>
 
 #include <nuttx/arch.h>
+#include <nuttx/mutex.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/signal.h>
 #include <nuttx/mm/iob.h>
@@ -84,7 +85,7 @@ struct mac802154_chardevice_s
 {
   MACHANDLE md_mac;                     /* Saved binding to the mac layer */
   struct mac802154dev_callback_s md_cb; /* Callback information */
-  sem_t md_exclsem;                     /* Exclusive device access */
+  mutex_t md_lock;                      /* Exclusive device access */
 
   /* Hold a list of events */
 
@@ -117,11 +118,6 @@ struct mac802154_chardevice_s
  * Private Function Prototypes
  ****************************************************************************/
 
-/* Semaphore helpers */
-
-static inline int mac802154dev_takesem(sem_t *sem);
-#define mac802154dev_givesem(s) nxsem_post(s);
-
 static int mac802154dev_notify(FAR struct mac802154_maccb_s *maccb,
                                FAR struct ieee802154_primitive_s *primitive);
 static int mac802154dev_rxframe(FAR struct mac802154_chardevice_s *dev,
@@ -140,7 +136,7 @@ static int  mac802154dev_ioctl(FAR struct file *filep, int cmd,
  * Private Data
  ****************************************************************************/
 
-static const struct file_operations mac802154dev_fops =
+static const struct file_operations g_mac802154dev_fops =
 {
   mac802154dev_open,  /* open */
   mac802154dev_close, /* close */
@@ -148,28 +144,11 @@ static const struct file_operations mac802154dev_fops =
   mac802154dev_write, /* write */
   NULL,               /* seek */
   mac802154dev_ioctl, /* ioctl */
-  NULL                /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL               /* unlink */
-#endif
 };
 
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
-
-/****************************************************************************
- * Name: mac802154dev_semtake
- *
- * Description:
- *   Acquire the semaphore used for access serialization.
- *
- ****************************************************************************/
-
-static inline int mac802154dev_takesem(sem_t *sem)
-{
-  return nxsem_wait(sem);
-}
 
 /****************************************************************************
  * Name: mac802154dev_open
@@ -186,7 +165,6 @@ static int mac802154dev_open(FAR struct file *filep)
   FAR struct mac802154dev_open_s *opriv;
   int ret;
 
-  DEBUGASSERT(filep != NULL && filep->f_inode != NULL);
   inode = filep->f_inode;
 
   dev   = inode->i_private;
@@ -194,10 +172,10 @@ static int mac802154dev_open(FAR struct file *filep)
 
   /* Get exclusive access to the MAC driver data structure */
 
-  ret = mac802154dev_takesem(&dev->md_exclsem);
+  ret = nxmutex_lock(&dev->md_lock);
   if (ret < 0)
     {
-      wlerr("ERROR: mac802154dev_takesem failed: %d\n", ret);
+      wlerr("ERROR: nxsem_wait failed: %d\n", ret);
       return ret;
     }
 
@@ -210,7 +188,7 @@ static int mac802154dev_open(FAR struct file *filep)
     {
       wlerr("ERROR: Failed to allocate new open struct\n");
       ret = -ENOMEM;
-      goto errout_with_sem;
+      goto errout_with_lock;
     }
 
   /* Attach the open struct to the device */
@@ -223,8 +201,8 @@ static int mac802154dev_open(FAR struct file *filep)
   filep->f_priv = (FAR void *)opriv;
   ret = OK;
 
-errout_with_sem:
-  mac802154dev_givesem(&dev->md_exclsem);
+errout_with_lock:
+  nxmutex_unlock(&dev->md_lock);
   return ret;
 }
 
@@ -247,11 +225,11 @@ static int mac802154dev_close(FAR struct file *filep)
   bool closing;
   int ret;
 
-  DEBUGASSERT(filep && filep->f_priv && filep->f_inode);
+  DEBUGASSERT(filep->f_priv);
   opriv = filep->f_priv;
   inode = filep->f_inode;
   DEBUGASSERT(inode->i_private);
-  dev = (FAR struct mac802154_chardevice_s *)inode->i_private;
+  dev = inode->i_private;
 
   /* Handle an improbable race conditions with the following atomic test
    * and set.
@@ -277,10 +255,10 @@ static int mac802154dev_close(FAR struct file *filep)
 
   /* Get exclusive access to the driver structure */
 
-  ret = mac802154dev_takesem(&dev->md_exclsem);
+  ret = nxmutex_lock(&dev->md_lock);
   if (ret < 0)
     {
-      wlerr("ERROR: mac802154_takesem failed: %d\n", ret);
+      wlerr("ERROR: nxsem_wait failed: %d\n", ret);
       return ret;
     }
 
@@ -295,7 +273,7 @@ static int mac802154dev_close(FAR struct file *filep)
     {
       wlerr("ERROR: Failed to find open entry\n");
       ret = -ENOENT;
-      goto errout_with_exclsem;
+      goto errout_with_lock;
     }
 
   /* Remove the structure from the device */
@@ -336,8 +314,8 @@ static int mac802154dev_close(FAR struct file *filep)
 
   ret = OK;
 
-errout_with_exclsem:
-  mac802154dev_givesem(&dev->md_exclsem);
+errout_with_lock:
+  nxmutex_unlock(&dev->md_lock);
   return ret;
 }
 
@@ -359,10 +337,9 @@ static ssize_t mac802154dev_read(FAR struct file *filep, FAR char *buffer,
   struct ieee802154_get_req_s req;
   int ret;
 
-  DEBUGASSERT(filep && filep->f_inode);
   inode = filep->f_inode;
   DEBUGASSERT(inode->i_private);
-  dev = (FAR struct mac802154_chardevice_s *)inode->i_private;
+  dev = inode->i_private;
 
   /* Check to make sure the buffer is the right size for the struct */
 
@@ -380,10 +357,10 @@ static ssize_t mac802154dev_read(FAR struct file *filep, FAR char *buffer,
     {
       /* Get exclusive access to the driver structure */
 
-      ret = mac802154dev_takesem(&dev->md_exclsem);
+      ret = nxmutex_lock(&dev->md_lock);
       if (ret < 0)
         {
-          wlerr("ERROR: mac802154dev_takesem failed: %d\n", ret);
+          wlerr("ERROR: nxsem_wait failed: %d\n", ret);
           return ret;
         }
 
@@ -398,7 +375,7 @@ static ssize_t mac802154dev_read(FAR struct file *filep, FAR char *buffer,
 
       if (ind != NULL)
         {
-          mac802154dev_givesem(&dev->md_exclsem);
+          nxmutex_unlock(&dev->md_lock);
           break;
         }
 
@@ -412,12 +389,12 @@ static ssize_t mac802154dev_read(FAR struct file *filep, FAR char *buffer,
 
       if ((filep->f_oflags & O_NONBLOCK) || dev->readpending)
         {
-          mac802154dev_givesem(&dev->md_exclsem);
+          nxmutex_unlock(&dev->md_lock);
           return -EAGAIN;
         }
 
       dev->readpending = true;
-      mac802154dev_givesem(&dev->md_exclsem);
+      nxmutex_unlock(&dev->md_lock);
 
       /* Wait to be signaled when a frame is added to the list */
 
@@ -479,7 +456,7 @@ static ssize_t mac802154dev_read(FAR struct file *filep, FAR char *buffer,
 
   /* Free the IOB */
 
-  iob_free(ind->frame, IOBUSER_WIRELESS_MAC802154_CHARDEV);
+  iob_free(ind->frame);
 
   /* Deallocate the data indication */
 
@@ -505,10 +482,9 @@ static ssize_t mac802154dev_write(FAR struct file *filep,
   FAR struct iob_s *iob;
   int ret;
 
-  DEBUGASSERT(filep && filep->f_inode);
   inode = filep->f_inode;
   DEBUGASSERT(inode->i_private);
-  dev  = (FAR struct mac802154_chardevice_s *)inode->i_private;
+  dev  = inode->i_private;
 
   /* Check if the struct is the correct size */
 
@@ -525,13 +501,8 @@ static ssize_t mac802154dev_write(FAR struct file *filep,
 
   /* Allocate an IOB to put the frame in */
 
-  iob = iob_alloc(false, IOBUSER_WIRELESS_MAC802154_CHARDEV);
+  iob = iob_alloc(false);
   DEBUGASSERT(iob != NULL);
-
-  iob->io_flink  = NULL;
-  iob->io_len    = 0;
-  iob->io_offset = 0;
-  iob->io_pktlen = 0;
 
   /* Get the MAC header length */
 
@@ -551,10 +522,10 @@ static ssize_t mac802154dev_write(FAR struct file *filep,
 
   /* Pass the request to the MAC layer */
 
-  ret = mac802154_req_data(dev->md_mac, &tx->meta, iob, true);
+  ret = mac802154_req_data(dev->md_mac, &tx->meta, iob);
   if (ret < 0)
     {
-      iob_free(iob, IOBUSER_WIRELESS_MAC802154_CHARDEV);
+      iob_free(iob);
       wlerr("ERROR: req_data failed %d\n", ret);
       return ret;
     }
@@ -579,18 +550,18 @@ static int mac802154dev_ioctl(FAR struct file *filep, int cmd,
     (FAR union ieee802154_macarg_u *)((uintptr_t)arg);
   int ret;
 
-  DEBUGASSERT(filep != NULL && filep->f_priv != NULL &&
+  DEBUGASSERT(filep->f_priv != NULL &&
               filep->f_inode != NULL);
   inode = filep->f_inode;
   DEBUGASSERT(inode->i_private);
-  dev = (FAR struct mac802154_chardevice_s *)inode->i_private;
+  dev = inode->i_private;
 
   /* Get exclusive access to the driver structure */
 
-  ret = mac802154dev_takesem(&dev->md_exclsem);
+  ret = nxmutex_lock(&dev->md_lock);
   if (ret < 0)
     {
-      wlerr("ERROR: mac802154dev_takesem failed: %d\n", ret);
+      wlerr("ERROR: nxsem_wait failed: %d\n", ret);
       return ret;
     }
 
@@ -609,7 +580,7 @@ static int mac802154dev_ioctl(FAR struct file *filep, int cmd,
           /* Save the notification events */
 
           dev->md_notify_event      = macarg->event;
-          dev->md_notify_pid        = getpid();
+          dev->md_notify_pid        = nxsched_getpid();
           dev->md_notify_registered = true;
 
           ret = OK;
@@ -660,7 +631,7 @@ static int mac802154dev_ioctl(FAR struct file *filep, int cmd,
                 }
 
               dev->geteventpending = true;
-              mac802154dev_givesem(&dev->md_exclsem);
+              nxmutex_unlock(&dev->md_lock);
 
               /* Wait to be signaled when an event is queued */
 
@@ -675,10 +646,10 @@ static int mac802154dev_ioctl(FAR struct file *filep, int cmd,
                * and pop an event off the queue
                */
 
-                ret = mac802154dev_takesem(&dev->md_exclsem);
+                ret = nxmutex_lock(&dev->md_lock);
                 if (ret < 0)
                   {
-                    wlerr("ERROR: mac802154dev_takesem failed: %d\n", ret);
+                    wlerr("ERROR: nxsem_wait failed: %d\n", ret);
                     return ret;
                   }
             }
@@ -701,7 +672,7 @@ static int mac802154dev_ioctl(FAR struct file *filep, int cmd,
         break;
     }
 
-  mac802154dev_givesem(&dev->md_exclsem);
+  nxmutex_unlock(&dev->md_lock);
   return ret;
 }
 
@@ -736,7 +707,7 @@ static int mac802154dev_notify(FAR struct mac802154_maccb_s *maccb,
        * again
        */
 
-      while (mac802154dev_takesem(&dev->md_exclsem) != 0);
+      while (nxmutex_lock(&dev->md_lock) != 0);
 
       sq_addlast((FAR sq_entry_t *)primitive, &dev->primitive_queue);
 
@@ -757,7 +728,7 @@ static int mac802154dev_notify(FAR struct mac802154_maccb_s *maccb,
                              SI_QUEUE, &dev->md_notify_work);
         }
 
-      mac802154dev_givesem(&dev->md_exclsem);
+      nxmutex_unlock(&dev->md_lock);
       return OK;
     }
 
@@ -787,7 +758,7 @@ static int mac802154dev_rxframe(FAR struct mac802154_chardevice_s *dev,
    * signals so if we see one, just go back to trying to get access again
    */
 
-  while (mac802154dev_takesem(&dev->md_exclsem) != 0);
+  while (nxmutex_lock(&dev->md_lock) != 0);
 
   /* Push the indication onto the list */
 
@@ -805,7 +776,7 @@ static int mac802154dev_rxframe(FAR struct mac802154_chardevice_s *dev,
 
   /* Release the driver */
 
-  mac802154dev_givesem(&dev->md_exclsem);
+  nxmutex_unlock(&dev->md_lock);
   return OK;
 }
 
@@ -848,18 +819,16 @@ int mac802154dev_register(MACHANDLE mac, int minor)
   /* Initialize the new mac driver instance */
 
   dev->md_mac = mac;
-  nxsem_init(&dev->md_exclsem, 0, 1); /* Allow the device to be opened once
-                                       * before blocking */
+  nxmutex_init(&dev->md_lock); /* Allow the device to be opened once
+                                    * before blocking */
 
   nxsem_init(&dev->readsem, 0, 0);
-  nxsem_set_protocol(&dev->readsem, SEM_PRIO_NONE);
   dev->readpending = false;
 
   sq_init(&dev->dataind_queue);
 
   dev->geteventpending = false;
   nxsem_init(&dev->geteventsem, 0, 0);
-  nxsem_set_protocol(&dev->geteventsem, SEM_PRIO_NONE);
 
   sq_init(&dev->primitive_queue);
 
@@ -881,11 +850,7 @@ int mac802154dev_register(MACHANDLE mac, int minor)
   if (ret < 0)
     {
       nerr("ERROR: Failed to bind the MAC callbacks: %d\n", ret);
-
-      /* Free memory and return the error */
-
-      kmm_free(dev);
-      return ret;
+      goto errout_with_priv;
     }
 
   /* Create the character device name */
@@ -894,7 +859,7 @@ int mac802154dev_register(MACHANDLE mac, int minor)
 
   /* Register the mac character driver */
 
-  ret = register_driver(devname, &mac802154dev_fops, 0666, dev);
+  ret = register_driver(devname, &g_mac802154dev_fops, 0666, dev);
   if (ret < 0)
     {
       wlerr("ERROR: register_driver failed: %d\n", ret);
@@ -904,7 +869,7 @@ int mac802154dev_register(MACHANDLE mac, int minor)
   return OK;
 
 errout_with_priv:
-  nxsem_destroy(&dev->md_exclsem);
+  nxmutex_destroy(&dev->md_lock);
   kmm_free(dev);
   return ret;
 }

@@ -32,7 +32,7 @@
 #include <debug.h>
 
 #include <nuttx/arch.h>
-#include <nuttx/semaphore.h>
+#include <nuttx/mutex.h>
 
 #include "chip.h"
 #include "arm_internal.h"
@@ -56,7 +56,7 @@
  * Private Data
  ****************************************************************************/
 
-static sem_t g_ltsem = SEM_INITIALIZER(1);
+static mutex_t g_ltlock = NXMUTEX_INITIALIZER;
 static bool g_used_lna = false;
 static bool g_used_tcxo = true;
 #ifdef CONFIG_BOARDCTL_RESET
@@ -64,7 +64,7 @@ static struct pm_cpu_freqlock_s g_hv_lock =
   PM_CPUFREQLOCK_INIT(PM_CPUFREQLOCK_TAG('B', 'P', 0),
                       PM_CPUFREQLOCK_FLAG_HV);
 #endif
-static uint8_t g_reset_gpo_targets = 0xFF;
+static uint8_t g_reset_gpo_targets = 0xff;
 
 /****************************************************************************
  * Public Data
@@ -158,6 +158,7 @@ int board_power_setup(int status)
       case PM_BOOT_DEEP_WKUPS:
       case PM_BOOT_DEEP_RTC:
       case PM_BOOT_DEEP_OTHERS:
+
         /* Enable USB after wakeup from deep sleeping */
 
         ret = cxd56_pmic_read(PMIC_REG_CNT_USB2, &val, sizeof(val));
@@ -186,7 +187,7 @@ int board_power_setup(int status)
 
   /* Initialize reset GPO targets (reset all) */
 
-  g_reset_gpo_targets = 0xFF;
+  g_reset_gpo_targets = 0xff;
 
   return 0;
 }
@@ -424,7 +425,7 @@ int board_xtal_power_control(bool en)
 
   /* Get exclusive access to the lna / tcxo power control */
 
-  nxsem_wait_uninterruptible(&g_ltsem);
+  nxmutex_lock(&g_ltlock);
 
   if (en)
     {
@@ -450,8 +451,7 @@ int board_xtal_power_control(bool en)
       g_used_tcxo = false;
     }
 
-  nxsem_post(&g_ltsem);
-
+  nxmutex_unlock(&g_ltlock);
   return ret;
 }
 
@@ -482,7 +482,7 @@ int board_lna_power_control(bool en)
 
   /* Get exclusive access to the lna / tcxo power control */
 
-  nxsem_wait_uninterruptible(&g_ltsem);
+  nxmutex_lock(&g_ltlock);
 
   if (en)
     {
@@ -508,8 +508,7 @@ int board_lna_power_control(bool en)
       g_used_lna = false;
     }
 
-  nxsem_post(&g_ltsem);
-
+  nxmutex_unlock(&g_ltlock);
   return ret;
 }
 

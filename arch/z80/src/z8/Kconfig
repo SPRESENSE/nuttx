@@ -47,12 +47,11 @@ config Z8_UART1
 
 config Z8_TOOLCHAIN_ZDSII
 	bool
-	default y if ARCH_CHIP_Z8
-	default n if !ARCH_CHIP_Z8
+	default ARCH_CHIP_Z8
 
 choice
 	prompt "ZDS-II Toolchain version"
-	default EZ80_ZDSII_V522
+	default Z8_ZDSII_V522
 
 config Z8_ZDSII_V500
 	bool "ZDS-II 5.0.0"

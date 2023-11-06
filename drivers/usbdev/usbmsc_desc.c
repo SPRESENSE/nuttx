@@ -33,7 +33,7 @@
 #include <nuttx/usb/usb.h>
 #include <nuttx/usb/usbdev_trace.h>
 
-#ifdef CONFIG_USBMSC_BOARD_SERIALSTR
+#ifdef CONFIG_BOARD_USBDEV_SERIALSTR
 #include <nuttx/board.h>
 #endif
 
@@ -107,7 +107,7 @@ static const struct usb_qualdesc_s g_qualdesc =
 #ifndef CONFIG_USBMSC_COMPOSITE
 const char g_mscvendorstr[]  = CONFIG_USBMSC_VENDORSTR;
 const char g_mscproductstr[] = CONFIG_USBMSC_PRODUCTSTR;
-#ifndef CONFIG_USBMSC_BOARD_SERIALSTR
+#ifndef CONFIG_BOARD_USBDEV_SERIALSTR
 const char g_mscserialstr[]  = CONFIG_USBMSC_SERIALSTR;
 #endif
 #endif
@@ -159,7 +159,7 @@ int usbmsc_mkstrdesc(uint8_t id, struct FAR usb_strdesc_s *strdesc)
       break;
 
     case USBMSC_SERIALSTRID:
-#ifdef CONFIG_USBMSC_BOARD_SERIALSTR
+#ifdef CONFIG_BOARD_USBDEV_SERIALSTR
       str = board_usbdev_serialstr();
 #else
       str = g_mscserialstr;
@@ -313,7 +313,6 @@ int16_t usbmsc_mkcfgdesc(uint8_t *buf,
                         FAR struct usbdev_devinfo_s *devinfo)
 #endif
 {
-  int length = 0;
   bool hispeed = false;
 
 #ifdef CONFIG_USBDEV_DUALSPEED
@@ -359,8 +358,7 @@ int16_t usbmsc_mkcfgdesc(uint8_t *buf,
                         USBMSC_REMOTEWAKEUP;
       dest->mxpower     = (CONFIG_USBDEV_MAXPOWER + 1) / 2; /* Max power (mA/2) */
 
-      buf    += sizeof(struct usb_cfgdesc_s);
-      length += sizeof(struct usb_cfgdesc_s);
+      buf += sizeof(struct usb_cfgdesc_s);
     }
 #endif
 
@@ -381,8 +379,7 @@ int16_t usbmsc_mkcfgdesc(uint8_t *buf,
       dest->protocol = USBMSC_PROTO_BULKONLY;                    /* Interface protocol */
       dest->iif      = devinfo->strbase + USBMSC_INTERFACESTRID; /* iInterface */
 
-      buf    += sizeof(struct usb_ifdesc_s);
-      length += sizeof(struct usb_ifdesc_s);
+      buf += sizeof(struct usb_ifdesc_s);
     }
 
   /* Make the two endpoint configurations */
@@ -395,7 +392,6 @@ int16_t usbmsc_mkcfgdesc(uint8_t *buf,
                                    devinfo, hispeed);
 
       buf += len;
-      length += len;
     }
 
   /* Bulk OUT endpoint descriptor */
@@ -406,7 +402,6 @@ int16_t usbmsc_mkcfgdesc(uint8_t *buf,
                                    hispeed);
 
       buf += len;
-      length += len;
     }
 
   return SIZEOF_USBMSC_CFGDESC;

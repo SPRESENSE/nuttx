@@ -140,8 +140,7 @@ static void mac802154_resetqueues(FAR struct ieee802154_privmac_s *priv)
  ****************************************************************************/
 
 int mac802154_txdesc_alloc(FAR struct ieee802154_privmac_s *priv,
-                           FAR struct ieee802154_txdesc_s **txdesc,
-                           bool allow_interrupt)
+                           FAR struct ieee802154_txdesc_s **txdesc)
 {
   int ret;
   FAR struct ieee802154_primitive_s *primitive;
@@ -162,19 +161,19 @@ int mac802154_txdesc_alloc(FAR struct ieee802154_privmac_s *priv,
     {
       /* Unlock MAC so that other work can be done to free a notification */
 
-      mac802154_unlock(priv)
+      nxmutex_unlock(&priv->lock);
 
       /* Take a count from the tx desc semaphore, waiting if necessary. We
        * only return from here with an error if we are allowing interruptions
        * and we received a signal.
        */
 
-      ret = mac802154_takesem(&priv->txdesc_sem, allow_interrupt);
+      ret = nxsem_wait_uninterruptible(&priv->txdesc_sem);
       if (ret < 0)
         {
           /* MAC is already released */
 
-          wlwarn("WARNING: mac802154_takesem failed: %d\n", ret);
+          wlwarn("WARNING: nxsem_wait_uninterruptible failed: %d\n", ret);
           return ret;
         }
 
@@ -183,12 +182,12 @@ int mac802154_txdesc_alloc(FAR struct ieee802154_privmac_s *priv,
        * re-lock the MAC in order to ensure this happens correctly.
        */
 
-      ret = mac802154_lock(priv, allow_interrupt);
+      ret = nxmutex_lock(&priv->lock);
       if (ret < 0)
         {
-          wlwarn("WARNING: mac802154_lock failed: %d\n", ret);
+          wlwarn("WARNING: nxmutex_lock failed: %d\n", ret);
 
-          mac802154_givesem(&priv->txdesc_sem);
+          nxsem_post(&priv->txdesc_sem);
           return ret;
         }
 
@@ -242,13 +241,8 @@ void mac802154_createdatareq(FAR struct ieee802154_privmac_s *priv,
 
   /* Allocate an IOB to put the frame in */
 
-  iob = iob_alloc(false, IOBUSER_WIRELESS_MAC802154);
+  iob = iob_alloc(false);
   DEBUGASSERT(iob != NULL);
-
-  iob->io_flink  = NULL;
-  iob->io_len    = 0;
-  iob->io_offset = 0;
-  iob->io_pktlen = 0;
 
   /* Set the frame control fields */
 
@@ -377,10 +371,10 @@ static void mac802154_notify_worker(FAR void *arg)
   FAR struct ieee802154_primitive_s *primitive;
   int ret;
 
-  mac802154_lock(priv, false);
+  nxmutex_lock(&priv->lock);
   primitive =
     (FAR struct ieee802154_primitive_s *)sq_remfirst(&priv->primitive_queue);
-  mac802154_unlock(priv);
+  nxmutex_unlock(&priv->lock);
 
   while (primitive != NULL)
     {
@@ -417,8 +411,7 @@ static void mac802154_notify_worker(FAR void *arg)
 
           if (dispose)
             {
-              iob_free(primitive->u.dataind.frame,
-                       IOBUSER_WIRELESS_MAC802154);
+              iob_free(primitive->u.dataind.frame);
               ieee802154_primitive_free(primitive);
             }
         }
@@ -451,10 +444,10 @@ static void mac802154_notify_worker(FAR void *arg)
 
       /* Get the next primitive then loop */
 
-      mac802154_lock(priv, false);
+      nxmutex_lock(&priv->lock);
       primitive = (FAR struct ieee802154_primitive_s *)
                     sq_remfirst(&priv->primitive_queue);
-      mac802154_unlock(priv);
+      nxmutex_unlock(&priv->lock);
     }
 }
 
@@ -723,7 +716,7 @@ static void mac802154_purge_worker(FAR void *arg)
    * signals so don't allow interruptions
    */
 
-  mac802154_lock(priv, false);
+  nxmutex_lock(&priv->lock);
 
   while (1)
     {
@@ -751,7 +744,7 @@ static void mac802154_purge_worker(FAR void *arg)
 
           /* Free the IOB, the notification, and the tx descriptor */
 
-          iob_free(txdesc->frame, IOBUSER_WIRELESS_MAC802154);
+          iob_free(txdesc->frame);
           ieee802154_primitive_free((FAR struct ieee802154_primitive_s *)
                                     txdesc->conf);
           mac802154_txdesc_free(priv, txdesc);
@@ -769,7 +762,7 @@ static void mac802154_purge_worker(FAR void *arg)
         }
     }
 
-  mac802154_unlock(priv);
+  nxmutex_unlock(&priv->lock);
 }
 
 /****************************************************************************
@@ -797,7 +790,7 @@ static int
 
   /* Get exclusive access to the driver structure. Ignore EINTR signals */
 
-  mac802154_lock(priv, false);
+  nxmutex_lock(&priv->lock);
 
   if (gts)
     {
@@ -814,7 +807,7 @@ static int
                   sq_remfirst(&priv->csma_queue);
     }
 
-  mac802154_unlock(priv)
+  nxmutex_unlock(&priv->lock);
 
   if (*txdesc != NULL)
     {
@@ -852,11 +845,11 @@ static void mac802154_txdone(FAR const struct ieee802154_radiocb_s *radiocb,
    * signals so don't allow interruptions
    */
 
-  mac802154_lock(priv, false);
+  nxmutex_lock(&priv->lock);
 
   sq_addlast((FAR sq_entry_t *)txdesc, &priv->txdone_queue);
 
-  mac802154_unlock(priv)
+  nxmutex_unlock(&priv->lock);
 
   /* Schedule work with the work queue to process the completion further */
 
@@ -888,7 +881,7 @@ static void mac802154_txdone_worker(FAR void *arg)
    * signals so don't allow interruptions
    */
 
-  mac802154_lock(priv, false);
+  nxmutex_lock(&priv->lock);
 
   while (1)
     {
@@ -992,11 +985,11 @@ static void mac802154_txdone_worker(FAR void *arg)
 
       /* Free the IOB and the tx descriptor */
 
-      iob_free(txdesc->frame, IOBUSER_WIRELESS_MAC802154);
+      iob_free(txdesc->frame);
       mac802154_txdesc_free(priv, txdesc);
     }
 
-  mac802154_unlock(priv)
+  nxmutex_unlock(&priv->lock);
 }
 
 /****************************************************************************
@@ -1027,7 +1020,7 @@ static void mac802154_rxframe(FAR const struct ieee802154_radiocb_s *radiocb,
    * signals so if we see one, just go back to trying to get access again.
    */
 
-  mac802154_lock(priv, false);
+  nxmutex_lock(&priv->lock);
 
   /* Push the iob onto the tail of the frame list for processing */
 
@@ -1035,7 +1028,7 @@ static void mac802154_rxframe(FAR const struct ieee802154_radiocb_s *radiocb,
 
   wlinfo("Frame received\n");
 
-  mac802154_unlock(priv)
+  nxmutex_unlock(&priv->lock);
 
   /* Schedule work with the work queue to process the completion further */
 
@@ -1063,7 +1056,7 @@ static void mac802154_rxframe_worker(FAR void *arg)
     (FAR struct ieee802154_privmac_s *)arg;
   FAR struct ieee802154_data_ind_s *ind;
   FAR struct iob_s *iob;
-  uint16_t *frame_ctrl;
+  FAR uint16_t *frame_ctrl;
   bool panid_comp;
   uint8_t ftype;
 
@@ -1074,7 +1067,7 @@ static void mac802154_rxframe_worker(FAR void *arg)
        * again.
        */
 
-      mac802154_lock(priv, false);
+      nxmutex_lock(&priv->lock);
 
       /* Pop the data indication from the head of the frame list for
        * processing.   Note: dataind_queue contains ieee802154_primitive_s
@@ -1086,7 +1079,7 @@ static void mac802154_rxframe_worker(FAR void *arg)
 
       /* Once we pop off the indication, we needn't to keep the mac locked */
 
-      mac802154_unlock(priv)
+      nxmutex_unlock(&priv->lock);
 
       if (ind == NULL)
         {
@@ -1101,7 +1094,7 @@ static void mac802154_rxframe_worker(FAR void *arg)
        * the frame control field
        */
 
-      frame_ctrl = (uint16_t *)&iob->io_data[iob->io_offset];
+      frame_ctrl = (FAR uint16_t *)&iob->io_data[iob->io_offset];
       iob->io_offset += 2;
 
       /* We use the data_ind_s as a container for the frame information even
@@ -1285,7 +1278,7 @@ static void mac802154_rxdataframe(FAR struct ieee802154_privmac_s *priv,
 
   /* Get exclusive access to the MAC */
 
-  mac802154_lock(priv, false);
+  nxmutex_lock(&priv->lock);
 
   /* If we are currently performing a POLL operation and we've
    * received a data response, use the addressing information
@@ -1409,7 +1402,7 @@ static void mac802154_rxdataframe(FAR struct ieee802154_privmac_s *priv,
 
       priv->curr_op = MAC802154_OP_NONE;
       priv->cmd_desc = NULL;
-      mac802154_givesem(&priv->opsem);
+      nxsem_post(&priv->opsem);
 
       /* Release the MAC and notify the next highest layer */
 
@@ -1432,7 +1425,7 @@ static void mac802154_rxdataframe(FAR struct ieee802154_privmac_s *priv,
       mac802154_notify(priv, (FAR struct ieee802154_primitive_s *)ind);
     }
 
-  mac802154_unlock(priv)
+  nxmutex_unlock(&priv->lock);
 }
 
 /****************************************************************************
@@ -1445,15 +1438,15 @@ static void mac802154_rxdataframe(FAR struct ieee802154_privmac_s *priv,
  ****************************************************************************/
 
 static void mac802154_rxdatareq(FAR struct ieee802154_privmac_s *priv,
-                                 FAR struct ieee802154_data_ind_s *ind)
+                                FAR struct ieee802154_data_ind_s *ind)
 {
   FAR struct ieee802154_txdesc_s *txdesc;
   FAR struct iob_s *iob;
-  uint16_t *frame_ctrl;
+  FAR uint16_t *frame_ctrl;
 
   /* Get exclusive access to the MAC */
 
-  mac802154_lock(priv, false);
+  nxmutex_lock(&priv->lock);
 
   /* Search the list of indirect transactions to see if there are any waiting
    * for the requesting device.
@@ -1493,7 +1486,7 @@ static void mac802154_rxdatareq(FAR struct ieee802154_privmac_s *priv,
 
                   priv->radio->txdelayed(priv->radio, txdesc, 0);
                   priv->beaconupdate = true;
-                  mac802154_unlock(priv)
+                  nxmutex_unlock(&priv->lock);
                   return;
                 }
             }
@@ -1510,7 +1503,7 @@ static void mac802154_rxdatareq(FAR struct ieee802154_privmac_s *priv,
 
                   priv->radio->txdelayed(priv->radio, txdesc, 0);
                   priv->beaconupdate = true;
-                  mac802154_unlock(priv)
+                  nxmutex_unlock(&priv->lock);
                   return;
                 }
             }
@@ -1533,13 +1526,8 @@ static void mac802154_rxdatareq(FAR struct ieee802154_privmac_s *priv,
 
   /* Allocate an IOB to put the frame in */
 
-  iob = iob_alloc(false, IOBUSER_WIRELESS_MAC802154);
+  iob = iob_alloc(false);
   DEBUGASSERT(iob != NULL);
-
-  iob->io_flink  = NULL;
-  iob->io_len    = 0;
-  iob->io_offset = 0;
-  iob->io_pktlen = 0;
 
   iob->io_len += 2;
 
@@ -1615,13 +1603,13 @@ static void mac802154_rxdatareq(FAR struct ieee802154_privmac_s *priv,
 
   /* Allocate the txdesc, waiting if necessary, allow interruptions */
 
-  mac802154_txdesc_alloc(priv, &txdesc, false);
+  mac802154_txdesc_alloc(priv, &txdesc);
 
   txdesc->frame = iob;
   txdesc->frametype = IEEE802154_FRAME_DATA;
   txdesc->ackreq = false;
 
-  mac802154_unlock(priv)
+  nxmutex_unlock(&priv->lock);
 
   priv->radio->txdelayed(priv->radio, txdesc, 0);
 }
@@ -1652,7 +1640,7 @@ mac802154_edresult(FAR const struct ieee802154_radiocb_s *radiocb,
    * signals so if we see one, just go back to trying to get access again.
    */
 
-  mac802154_lock(priv, false);
+  nxmutex_lock(&priv->lock);
 
   /* If we are actively performing a scan operation, notify the handler */
 
@@ -1663,7 +1651,7 @@ mac802154_edresult(FAR const struct ieee802154_radiocb_s *radiocb,
 
   /* Relinquish control of the private structure */
 
-  mac802154_unlock(priv);
+  nxmutex_unlock(&priv->lock);
 }
 
 static void mac802154_sfevent(FAR const struct ieee802154_radiocb_s *radiocb,
@@ -1680,7 +1668,7 @@ static void mac802154_sfevent(FAR const struct ieee802154_radiocb_s *radiocb,
    * signals so if we see one, just go back to trying to get access again.
    */
 
-  mac802154_lock(priv, false);
+  nxmutex_lock(&priv->lock);
 
   switch (sfevent)
     {
@@ -1706,7 +1694,7 @@ static void mac802154_sfevent(FAR const struct ieee802154_radiocb_s *radiocb,
         break;
     }
 
-  mac802154_unlock(priv)
+  nxmutex_unlock(&priv->lock);
 }
 
 /****************************************************************************
@@ -1903,7 +1891,7 @@ static void mac802154_rxbeaconframe(FAR struct ieee802154_privmac_s *priv,
 
   /* At this point, all relevant info is extracted from the incoming frame */
 
-  mac802154_lock(priv, false);
+  nxmutex_lock(&priv->lock);
 
   if (priv->curr_op == MAC802154_OP_SCAN)
     {
@@ -1926,7 +1914,7 @@ static void mac802154_rxbeaconframe(FAR struct ieee802154_privmac_s *priv,
           /* The beacon is the same as another, so discard it */
 
           ieee802154_primitive_free(primitive);
-          mac802154_unlock(priv);
+          nxmutex_unlock(&priv->lock);
           return;
         }
 
@@ -1981,7 +1969,7 @@ static void mac802154_rxbeaconframe(FAR struct ieee802154_privmac_s *priv,
       if (priv->curr_op == MAC802154_OP_ASSOC && pending_eaddr)
         {
           priv->curr_cmd = IEEE802154_CMD_DATA_REQ;
-          mac802154_txdesc_alloc(priv, &respdesc, false);
+          mac802154_txdesc_alloc(priv, &respdesc);
           mac802154_createdatareq(priv, &priv->pandesc.coordaddr,
                                  IEEE802154_ADDRMODE_EXTENDED, respdesc);
 
@@ -2016,7 +2004,7 @@ static void mac802154_rxbeaconframe(FAR struct ieee802154_privmac_s *priv,
 
               if (pending_saddr | pending_eaddr)
                 {
-                  mac802154_txdesc_alloc(priv, &respdesc, false);
+                  mac802154_txdesc_alloc(priv, &respdesc);
 
                   if (priv->curr_op == MAC802154_OP_POLL)
                     {
@@ -2029,7 +2017,7 @@ static void mac802154_rxbeaconframe(FAR struct ieee802154_privmac_s *priv,
                   else if (priv->curr_op == MAC802154_OP_NONE)
                     {
                       DEBUGASSERT(priv->opsem.semcount == 1);
-                      mac802154_takesem(&priv->opsem, false);
+                      nxsem_wait_uninterruptible(&priv->opsem);
                       priv->curr_op = MAC802154_OP_AUTOEXTRACT;
                       priv->curr_cmd = IEEE802154_CMD_DATA_REQ;
                     }
@@ -2062,7 +2050,7 @@ static void mac802154_rxbeaconframe(FAR struct ieee802154_privmac_s *priv,
 
               if (beacon->payloadlength > 0)
                 {
-                  mac802154_unlock(priv);
+                  nxmutex_unlock(&priv->lock);
                   return;
                 }
             }
@@ -2075,13 +2063,13 @@ static void mac802154_rxbeaconframe(FAR struct ieee802154_privmac_s *priv,
                */
 
               mac802154_notify(priv, primitive);
-              mac802154_unlock(priv);
+              nxmutex_unlock(&priv->lock);
               return; /* Return so that we don't free the primitive */
             }
         }
     }
 
-  mac802154_unlock(priv);
+  nxmutex_unlock(&priv->lock);
   ieee802154_primitive_free(primitive);
   return;
 
@@ -2137,7 +2125,7 @@ MACHANDLE mac802154_create(FAR struct ieee802154_radio_s *radiodev)
 
   /* Allow exclusive access to the privmac struct */
 
-  nxsem_init(&mac->exclsem, 0, 1);
+  nxmutex_init(&mac->lock);
 
   /* Allow exclusive access to the dedicated command transaction */
 

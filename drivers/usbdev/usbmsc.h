@@ -29,12 +29,14 @@
 
 #include <nuttx/config.h>
 
+#include <sys/param.h>
 #include <sys/types.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include <queue.h>
 
 #include <nuttx/fs/fs.h>
+#include <nuttx/queue.h>
+#include <nuttx/mutex.h>
 #include <nuttx/semaphore.h>
 #include <nuttx/usb/storage.h>
 #include <nuttx/usb/usbdev.h>
@@ -171,7 +173,7 @@
 #  ifndef CONFIG_USBMSC_VENDORSTR
 #    warning "No Vendor string specified"
 #    define CONFIG_USBMSC_VENDORSTR  "NuttX"
-# endif
+#  endif
 
 #  ifndef CONFIG_USBMSC_PRODUCTSTR
 #    warning "No Product string specified"
@@ -333,16 +335,6 @@
 #define USBMSC_DRVR_GEOMETRY(l,g) \
   ((l)->inode->u.i_bops->geometry((l)->inode,g))
 
-/* Everpresent MIN/MAX macros ***********************************************/
-
-#ifndef MIN
-#  define MIN(a,b) ((a) < (b) ? (a) : (b))
-#endif
-
-#ifndef MAX
-#  define MAX(a,b) ((a) > (b) ? (a) : (b))
-#endif
-
 /****************************************************************************
  * Public Types
  ****************************************************************************/
@@ -388,7 +380,7 @@ struct usbmsc_dev_s
 
   pid_t             thpid;            /* The worker thread task ID */
   sem_t             thsynch;          /* Used to synchronizer terminal events */
-  sem_t             thlock;           /* Used to get exclusive access to the state data */
+  mutex_t           thlock;           /* Used to get exclusive access to the state data */
   sem_t             thwaitsem;        /* Used to signal worker thread */
   volatile bool     thwaiting;        /* True: worker thread is waiting for an event */
   volatile uint8_t  thstate;          /* State of the worker thread */
@@ -466,7 +458,7 @@ extern "C"
 #ifndef CONFIG_USBMSC_COMPOSITE
 EXTERN const char g_mscvendorstr[];
 EXTERN const char g_mscproductstr[];
-#ifndef CONFIG_USBMSC_BOARD_SERIALSTR
+#ifndef CONFIG_BOARD_USBDEV_SERIALSTR
 EXTERN const char g_mscserialstr[];
 #endif
 
@@ -477,13 +469,13 @@ EXTERN const char g_mscserialstr[];
 #else
 EXTERN const char g_compvendorstr[];
 EXTERN const char g_compproductstr[];
-#ifndef CONFIG_COMPOSITE_BOARD_SERIALSTR
+#ifndef CONFIG_BOARD_USBDEV_SERIALSTR
 EXTERN const char g_compserialstr[];
 #endif
 
 #define g_mscvendorstr  g_compvendorstr
 #define g_mscproductstr g_compproductstr
-#ifndef CONFIG_USBMSC_BOARD_SERIALSTR
+#ifndef CONFIG_BOARD_USBDEV_SERIALSTR
 #define g_mscserialstr  g_compserialstr
 #endif
 #endif
@@ -497,26 +489,6 @@ EXTERN FAR struct usbmsc_dev_s *g_usbmsc_handoff;
 /****************************************************************************
  * Public Function Prototypes
  ****************************************************************************/
-
-/****************************************************************************
- * Name: usbmsc_scsi_lock
- *
- * Description:
- *   Get exclusive access to SCSI state data.
- *
- ****************************************************************************/
-
-int usbmsc_scsi_lock(FAR struct usbmsc_dev_s *priv);
-
-/****************************************************************************
- * Name: usbmsc_scsi_unlock
- *
- * Description:
- *   Relinquish exclusive access to SCSI state data.
- *
- ****************************************************************************/
-
-#define usbmsc_scsi_unlock(priv) nxsem_post(&priv->thlock)
 
 /****************************************************************************
  * Name: usbmsc_scsi_signal

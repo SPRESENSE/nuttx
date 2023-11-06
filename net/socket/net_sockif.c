@@ -75,12 +75,12 @@ net_sockif(sa_family_t family, int type, int protocol)
   switch (family)
     {
 #ifdef HAVE_INET_SOCKETS
-#ifdef HAVE_PFINET_SOCKETS
+#  ifdef HAVE_PFINET_SOCKETS
     case PF_INET:
-#endif
-#ifdef HAVE_PFINET6_SOCKETS
+#  endif
+#  ifdef HAVE_PFINET6_SOCKETS
     case PF_INET6:
-#endif
+#  endif
       sockif = inet_sockif(family, type, protocol);
       break;
 #endif

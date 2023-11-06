@@ -37,7 +37,7 @@
 #include "task/task.h"
 
 /****************************************************************************
- * Public Functions
+ * Private Functions
  ****************************************************************************/
 
 /****************************************************************************
@@ -62,7 +62,8 @@
  *
  ****************************************************************************/
 
-int nxtask_restart(pid_t pid)
+#ifndef CONFIG_BUILD_KERNEL
+static int nxtask_restart(pid_t pid)
 {
   FAR struct tcb_s *rtcb;
   FAR struct task_tcb_s *tcb;
@@ -133,9 +134,9 @@ int nxtask_restart(pid_t pid)
    */
 
 #ifdef CONFIG_SMP
-  tasklist = TLIST_HEAD(tcb->cmn.task_state, tcb->cmn.cpu);
+  tasklist = TLIST_HEAD(&tcb->cmn, tcb->cmn.cpu);
 #else
-  tasklist = TLIST_HEAD(tcb->cmn.task_state);
+  tasklist = TLIST_HEAD(&tcb->cmn);
 #endif
 
   dq_rem((FAR dq_entry_t *)tcb, tasklist);
@@ -144,7 +145,7 @@ int nxtask_restart(pid_t pid)
   /* Deallocate anything left in the TCB's signal queues */
 
   nxsig_cleanup((FAR struct tcb_s *)tcb);  /* Deallocate Signal lists */
-  tcb->cmn.sigprocmask = NULL_SIGNAL_SET;  /* Reset sigprocmask */
+  sigemptyset(&tcb->cmn.sigprocmask);      /* Reset sigprocmask */
 
   /* Reset the current task priority  */
 
@@ -165,9 +166,7 @@ int nxtask_restart(pid_t pid)
 
 #ifdef CONFIG_PRIORITY_INHERITANCE
   tcb->cmn.base_priority = tcb->cmn.init_priority;
-#  if CONFIG_SEM_NNESTPRIO > 0
-  tcb->cmn.npend_reprio = 0;
-#  endif
+  tcb->cmn.boost_priority = 0;
 #endif
 
   /* Re-initialize the processor-specific portion of the TCB.  This will
@@ -178,7 +177,7 @@ int nxtask_restart(pid_t pid)
 
   /* Add the task to the inactive task list */
 
-  dq_addfirst((FAR dq_entry_t *)tcb, (FAR dq_queue_t *)&g_inactivetasks);
+  dq_addfirst((FAR dq_entry_t *)tcb, &g_inactivetasks);
   tcb->cmn.task_state = TSTATE_TASK_INACTIVE;
 
 #ifdef CONFIG_SMP
@@ -208,6 +207,10 @@ errout:
 }
 
 /****************************************************************************
+ * Public Functions
+ ****************************************************************************/
+
+/****************************************************************************
  * Name: task_restart
  *
  * Description:
@@ -230,7 +233,6 @@ errout:
  *
  ****************************************************************************/
 
-#ifndef CONFIG_BUILD_KERNEL
 int task_restart(pid_t pid)
 {
   int ret = nxtask_restart(pid);

@@ -48,11 +48,9 @@
  * Private Data
  ****************************************************************************/
 
-static const struct file_operations ipcc_fops =
+static const struct file_operations g_ipcc_fops =
 {
-#ifdef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  .unlink = NULL,
-#else /* CONFIG_DISABLE_PSEUDOFS_OPERATIONS */
+#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
   .unlink = ipcc_unlink,
 #endif /* CONFIG_DISABLE_PSEUDOFS_OPERATIONS */
   .open   = ipcc_open,
@@ -60,8 +58,6 @@ static const struct file_operations ipcc_fops =
   .poll   = ipcc_poll,
   .read   = ipcc_read,
   .write  = ipcc_write,
-  .ioctl  = NULL,
-  .seek   = NULL
 };
 
 /****************************************************************************
@@ -95,7 +91,7 @@ void ipcc_cleanup(FAR struct ipcc_driver_s *priv)
   nxsem_destroy(&priv->rxsem);
   nxsem_destroy(&priv->txsem);
   priv->ipcc->ops.cleanup(priv->ipcc);
-  nxsem_destroy(&priv->exclsem);
+  nxmutex_destroy(&priv->lock);
   kmm_free(priv);
 }
 
@@ -169,14 +165,14 @@ int ipcc_register(FAR struct ipcc_lower_s *ipcc)
   /* Create the character device name */
 
   snprintf(devname, DEVNAME_FMTLEN, DEVNAME_FMT, ipcc->chan);
-  if ((ret = register_driver(devname, &ipcc_fops, 0666, priv)))
+  if ((ret = register_driver(devname, &g_ipcc_fops, 0666, priv)))
     {
       goto error;
     }
 
   /* nxsem_init can't really fail us if we provide it with valid params */
 
-  nxsem_init(&priv->exclsem, 0, 1);
+  nxmutex_init(&priv->lock);
   nxsem_init(&priv->rxsem, 0, 0);
   nxsem_init(&priv->txsem, 0, 1);
 
@@ -184,6 +180,5 @@ int ipcc_register(FAR struct ipcc_lower_s *ipcc)
 
 error:
   ipcc_cleanup(priv);
-
   return ret;
 }

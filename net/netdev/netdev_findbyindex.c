@@ -56,18 +56,18 @@
 FAR struct net_driver_s *netdev_findbyindex(int ifindex)
 {
   FAR struct net_driver_s *dev;
-  int i;
-
 #ifdef CONFIG_NETDEV_IFINDEX
   /* The bit index is the interface index minus one.  Zero is reserved in
    * POSIX to mean no interface index.
    */
 
-  DEBUGASSERT(ifindex > 0 && ifindex <= MAX_IFINDEX);
   if (ifindex < 1 || ifindex > MAX_IFINDEX)
     {
       return NULL;
     }
+#else
+  int i = 0;
+
 #endif
 
   net_lock();
@@ -84,7 +84,7 @@ FAR struct net_driver_s *netdev_findbyindex(int ifindex)
     }
 #endif
 
-  for (i = 0, dev = g_netdevices; dev; i++, dev = dev->flink)
+  for (dev = g_netdevices; dev; dev = dev->flink)
     {
 #ifdef CONFIG_NETDEV_IFINDEX
       /* Check if the index matches the index assigned when the device was
@@ -99,7 +99,7 @@ FAR struct net_driver_s *netdev_findbyindex(int ifindex)
        * caller keeps the network locked).
        */
 
-      if (i == (ifindex - 1))
+      if (++i == ifindex)
 #endif
         {
           net_unlock();

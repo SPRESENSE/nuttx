@@ -107,10 +107,6 @@ static const struct file_operations g_ads1242_fops =
   ads1242_write,  /* write */
   NULL,           /* seek */
   ads1242_ioctl,  /* ioctl */
-  NULL            /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL          /* unlink */
-#endif
 };
 
 /****************************************************************************
@@ -588,8 +584,7 @@ int ads1242_register(FAR const char *devpath, FAR struct spi_dev_s *spi,
 
   /* Initialize the ADS1242 device structure */
 
-  priv =
-    (FAR struct ads1242_dev_s *)kmm_malloc(sizeof(struct ads1242_dev_s));
+  priv = kmm_malloc(sizeof(struct ads1242_dev_s));
   if (priv == NULL)
     {
        _err("ERROR: Failed to allocate instance\n");

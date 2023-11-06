@@ -38,34 +38,6 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-/* Some environments may return CR as end-of-line, others LF, and others
- * both.  If not specified, the logic here assumes either (but not both) as
- * the default.
- */
-
-#if defined(CONFIG_EOL_IS_CR)
-#  undef  CONFIG_EOL_IS_LF
-#  undef  CONFIG_EOL_IS_BOTH_CRLF
-#  undef  CONFIG_EOL_IS_EITHER_CRLF
-#elif defined(CONFIG_EOL_IS_LF)
-#  undef  CONFIG_EOL_IS_CR
-#  undef  CONFIG_EOL_IS_BOTH_CRLF
-#  undef  CONFIG_EOL_IS_EITHER_CRLF
-#elif defined(CONFIG_EOL_IS_BOTH_CRLF)
-#  undef  CONFIG_EOL_IS_CR
-#  undef  CONFIG_EOL_IS_LF
-#  undef  CONFIG_EOL_IS_EITHER_CRLF
-#elif defined(CONFIG_EOL_IS_EITHER_CRLF)
-#  undef  CONFIG_EOL_IS_CR
-#  undef  CONFIG_EOL_IS_LF
-#  undef  CONFIG_EOL_IS_BOTH_CRLF
-#else
-#  undef  CONFIG_EOL_IS_CR
-#  undef  CONFIG_EOL_IS_LF
-#  undef  CONFIG_EOL_IS_BOTH_CRLF
-#  define CONFIG_EOL_IS_EITHER_CRLF 1
-#endif
-
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
@@ -88,15 +60,9 @@ static void consume_eol(FILE *stream, bool consume)
 
       do
         {
-          ch = fgetc(stream);
+          ch = fgetc_unlocked(stream);
         }
-#if  defined(CONFIG_EOL_IS_LF) || defined(CONFIG_EOL_IS_BOTH_CRLF)
       while (ch != EOF && ch != '\n');
-#elif defined(CONFIG_EOL_IS_CR)
-      while (ch != EOF && ch != '\r');
-#else /* elif defined(CONFIG_EOL_IS_EITHER_CRLF) */
-      while (ch != EOF && ch != '\n' && ch != '\r');
-#endif
     }
 }
 
@@ -127,8 +93,8 @@ static void consume_eol(FILE *stream, bool consume)
  *
  ****************************************************************************/
 
-FAR char *lib_fgets(FAR char *buf, size_t buflen, FILE *stream,
-                    bool keepnl, bool consume)
+FAR char *lib_fgets_unlocked(FAR char *buf, size_t buflen, FILE *stream,
+                             bool keepnl, bool consume)
 {
   size_t nch = 0;
 
@@ -167,21 +133,22 @@ FAR char *lib_fgets(FAR char *buf, size_t buflen, FILE *stream,
     {
       /* Get the next character */
 
-      int ch = fgetc(stream);
+      int ch = fgetc_unlocked(stream);
 
       /* Check for end-of-line.  This is tricky only in that some
        * environments may return CR as end-of-line, others LF, and
        * others both.
        */
 
-#if  defined(CONFIG_EOL_IS_LF) || defined(CONFIG_EOL_IS_BOTH_CRLF)
       if (ch == '\n')
-#elif defined(CONFIG_EOL_IS_CR)
-      if (ch == '\r')
-#else /* elif defined(CONFIG_EOL_IS_EITHER_CRLF) */
-      if (ch == '\n' || ch == '\r')
-#endif
         {
+          /* Convert \r\n to \n */
+
+          if (nch > 0 && buf[nch - 1] == '\r')
+            {
+              --nch;
+            }
+
           if (keepnl)
             {
               /* Store newline is stored in the buffer */
@@ -201,7 +168,7 @@ FAR char *lib_fgets(FAR char *buf, size_t buflen, FILE *stream,
         {
           /* End of file with no data? */
 
-          if (!nch)
+          if (nch == 0)
             {
               /* Yes.. return NULL as the end of file mark */
 
@@ -235,4 +202,16 @@ FAR char *lib_fgets(FAR char *buf, size_t buflen, FILE *stream,
             }
         }
     }
+}
+
+FAR char *lib_fgets(FAR char *buf, size_t buflen, FILE *stream,
+                    bool keepnl, bool consume)
+{
+  FAR char *ret;
+
+  flockfile(stream);
+  ret = lib_fgets_unlocked(buf, buflen, stream, keepnl, consume);
+  funlockfile(stream);
+
+  return ret;
 }

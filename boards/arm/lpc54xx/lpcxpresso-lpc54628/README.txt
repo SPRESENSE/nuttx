@@ -185,7 +185,7 @@ Configurations
          CONFIG_WINDOWS_CYGWIN=y             : Cywin under Windows
 
        System Type -> Toolchain:
-         CONFIG_ARMV7M_TOOLCHAIN_GNU_EABI=y  : GNU ARM EABI toolchain
+         CONFIG_ARM_TOOLCHAIN_GNU_EABI=y  : GNU ARM EABI toolchain
 
   Configuration Sub-directories
   -----------------------------
@@ -447,7 +447,6 @@ Configurations
          CONFIG_LPC54_SDMMC_PWRCTRL=y
          CONFIG_LPC54_SDMMC_DMA=y
 
-         CONFIG_SIG_SIGWORK=17
          CONFIG_SCHED_WORKQUEUE=y
          CONFIG_SCHED_HPWORK=y
          CONFIG_SCHED_HPWORKPRIORITY=224

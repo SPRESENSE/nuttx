@@ -26,11 +26,12 @@
 
 #include <nuttx/config.h>
 
+#include <semaphore.h>
 #include <sys/types.h>
 #include <stdbool.h>
-#include <queue.h>
 
 #include <nuttx/clock.h>
+#include <nuttx/queue.h>
 
 #ifdef CONFIG_SCHED_WORKQUEUE
 
@@ -52,13 +53,15 @@
 struct kworker_s
 {
   pid_t             pid;       /* The task ID of the worker thread */
+  FAR struct work_s *work;     /* The work structure */
+  sem_t             wait;      /* Sync waiting for worker done */
 };
 
 /* This structure defines the state of one kernel-mode work queue */
 
 struct kwork_wqueue_s
 {
-  struct sq_queue_s q;         /* The queue of pending work */
+  struct dq_queue_s q;         /* The queue of pending work */
   sem_t             sem;       /* The counting semaphore of the wqueue */
   struct kworker_s  worker[1]; /* Describes a worker thread */
 };
@@ -70,7 +73,7 @@ struct kwork_wqueue_s
 #ifdef CONFIG_SCHED_HPWORK
 struct hp_wqueue_s
 {
-  struct sq_queue_s q;         /* The queue of pending work */
+  struct dq_queue_s q;         /* The queue of pending work */
   sem_t             sem;       /* The counting semaphore of the wqueue */
 
   /* Describes each thread in the high priority queue's thread pool */
@@ -86,7 +89,7 @@ struct hp_wqueue_s
 #ifdef CONFIG_SCHED_LPWORK
 struct lp_wqueue_s
 {
-  struct sq_queue_s q;         /* The queue of pending work */
+  struct dq_queue_s q;         /* The queue of pending work */
   sem_t             sem;       /* The counting semaphore of the wqueue */
 
   /* Describes each thread in the low priority queue's thread pool */

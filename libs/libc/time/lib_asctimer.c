@@ -25,7 +25,10 @@
 #include <nuttx/config.h>
 
 #include <stdio.h>
-#include <time.h>
+
+#include <sys/param.h>
+
+#include <nuttx/clock.h>
 
 /****************************************************************************
  * Private Data
@@ -72,10 +75,17 @@ FAR char *asctime_r(FAR const struct tm *tp, FAR char *buf)
 {
   char tmp[128];
 
+  if (tp == NULL ||
+      tp->tm_wday >= nitems(g_wday_name) ||
+      tp->tm_mon >= nitems(g_mon_name))
+    {
+      return NULL;
+    }
+
   snprintf(tmp, sizeof(tmp), "%.3s %.3s%3d %.2d:%.2d:%.2d %d\n",
            g_wday_name[tp->tm_wday], g_mon_name[tp->tm_mon],
            tp->tm_mday, tp->tm_hour, tp->tm_min, tp->tm_sec,
-           1900 + tp->tm_year);
+           TM_YEAR_BASE + tp->tm_year);
   strlcpy(buf, tmp, 26);
 
   return buf;

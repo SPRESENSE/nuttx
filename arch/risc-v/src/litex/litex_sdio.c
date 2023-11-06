@@ -32,6 +32,8 @@
 #include <stdint.h>
 #include <string.h>
 
+#include <sys/param.h>
+
 #include <nuttx/arch.h>
 #include <nuttx/cache.h>
 #include <nuttx/clock.h>
@@ -87,9 +89,6 @@
 #ifndef CONFIG_LITEX_SD4BIT_FREQ
 #  define CONFIG_LITEX_SD4BIT_FREQ 50000000  /* 25MHz SD 4-bit, normal clocking */
 #endif
-
-#define max(x, y) (((x) > (y)) ? (x) : (y))
-#define min(x, y) (((x) < (y)) ? (x) : (y))
 
 /****************************************************************************
  * Private Types
@@ -212,6 +211,7 @@ struct litex_dev_s g_sdiodev =
     .callbackenable   = litex_callbackenable,
     .registercallback = litex_registercallback,
   },
+  .waitsem = SEM_INITIALIZER(0),
 };
 
 /****************************************************************************
@@ -625,7 +625,7 @@ static void litex_clock(struct sdio_dev_s *dev, enum sdio_clock_e rate)
   uint32_t divider;
   divider = clk_freq ? litex_get_hfclk() / clk_freq : MAX_DIVIDER;
   divider = litex_pow2roundup(divider);
-  divider = min(max(divider, 2), MAX_DIVIDER);
+  divider = MIN(MAX(divider, 2), MAX_DIVIDER);
 
   /* this is the *effective* new clk_freq */
 
@@ -860,10 +860,12 @@ static int litex_recvsetup(struct sdio_dev_s *dev, uint8_t *buffer,
 
   /* flush CPU d-cache */
 
+#ifndef CONFIG_LITEX_COHERENT_DMA
   up_invalidate_dcache_all();
+#endif
 
   putreg32(0, LITEX_SDBLOCK2MEM_DMA_ENABLE);
-  putreg32((uintptr_t)buffer >> 32, LITEX_SDBLOCK2MEM_DMA_BASE);
+  putreg32((uintptr_t)(&buffer[4]), LITEX_SDBLOCK2MEM_DMA_BASE);
   putreg32((uintptr_t)buffer, LITEX_SDBLOCK2MEM_DMA_BASE + 0x04);
   putreg32(nbytes, LITEX_SDBLOCK2MEM_DMA_LENGTH);
   putreg32(1, LITEX_SDBLOCK2MEM_DMA_ENABLE);
@@ -903,10 +905,12 @@ static int litex_sendsetup(struct sdio_dev_s *dev,
 
   /* flush CPU d-cache */
 
+#ifndef CONFIG_LITEX_COHERENT_DMA
   up_invalidate_dcache_all();
+#endif
 
   putreg32(0, LITEX_SDMEM2BLOCK_DMA_ENABLE);
-  putreg32((uintptr_t)buffer >> 32, LITEX_SDMEM2BLOCK_DMA_BASE);
+  putreg32((uintptr_t)(&buffer[4]), LITEX_SDMEM2BLOCK_DMA_BASE);
   putreg32((uintptr_t)buffer, LITEX_SDMEM2BLOCK_DMA_BASE + 0x04);
   putreg32(nbytes, LITEX_SDMEM2BLOCK_DMA_LENGTH);
   putreg32(1, LITEX_SDMEM2BLOCK_DMA_ENABLE);
@@ -1164,7 +1168,14 @@ static sdio_eventset_t litex_eventwait(struct sdio_dev_s *dev)
 {
   struct litex_dev_s *priv = (struct litex_dev_s *)dev;
   sdio_eventset_t wkupevent = 0;
+  irqstate_t flags;
   int ret;
+
+  /* Use critical section to attempt to handle the case that the event
+   * may have completed before it's waited on.
+   */
+
+  flags = enter_critical_section();
 
   DEBUGASSERT((priv->waitevents != 0 && priv->wkupevent == 0) ||
               (priv->waitevents == 0 && priv->wkupevent != 0));
@@ -1173,9 +1184,9 @@ static sdio_eventset_t litex_eventwait(struct sdio_dev_s *dev)
       ret = nxsem_wait_uninterruptible(&priv->waitsem);
       if (ret < 0)
         {
-          litex_configwaitints(priv, 0, 0, 0);
           wd_cancel(&priv->waitwdog);
-          return SDIOWAIT_ERROR;
+          wkupevent = SDIOWAIT_ERROR;
+          goto errout_with_waitints;
         }
 
       wkupevent = priv->wkupevent;
@@ -1185,7 +1196,9 @@ static sdio_eventset_t litex_eventwait(struct sdio_dev_s *dev)
         }
     }
 
+errout_with_waitints:
   litex_configwaitints(priv, 0, 0, 0);
+  leave_critical_section(flags);
   return wkupevent;
 }
 
@@ -1441,9 +1454,6 @@ struct sdio_dev_s *sdio_initialize(int slotno)
   struct litex_dev_s *priv = &g_sdiodev;
 
   mcinfo("slotno: %d\n", slotno);
-
-  nxsem_init(&priv->waitsem, 0, 0);
-  nxsem_set_protocol(&priv->waitsem, SEM_PRIO_NONE);
 
   litex_reset(&priv->dev);
   return &g_sdiodev.dev;

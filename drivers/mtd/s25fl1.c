@@ -1419,6 +1419,8 @@ static int s25fl1_ioctl(FAR struct mtd_dev_s *dev,
 
           if (geo)
             {
+              memset(geo, 0, sizeof(*geo));
+
               /* Populate the geometry structure with information need to
                * know the capacity and how to access the device.
                *
@@ -1551,7 +1553,7 @@ FAR struct mtd_dev_s *s25fl1_initialize(FAR struct qspi_dev_s *qspi,
    * bus.
    */
 
-  priv = (FAR struct s25fl1_dev_s *)kmm_zalloc(sizeof(struct s25fl1_dev_s));
+  priv = kmm_zalloc(sizeof(struct s25fl1_dev_s));
   if (priv)
     {
       /* Initialize the allocated structure (unsupported methods were

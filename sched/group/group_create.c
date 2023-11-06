@@ -32,7 +32,6 @@
 #include <nuttx/irq.h>
 #include <nuttx/fs/fs.h>
 #include <nuttx/kmalloc.h>
-#include <nuttx/lib/lib.h>
 #include <nuttx/semaphore.h>
 #include <nuttx/sched.h>
 
@@ -52,7 +51,7 @@
  * Public Data
  ****************************************************************************/
 
-#if defined(HAVE_GROUP_MEMBERS) || defined(CONFIG_ARCH_ADDRENV)
+#if defined(HAVE_GROUP_MEMBERS)
 /* This is the head of a list of all group members */
 
 FAR struct task_group_s *g_grouphead;
@@ -91,6 +90,8 @@ static inline void group_inherit_identity(FAR struct task_group_s *group)
   DEBUGASSERT(group != NULL);
   group->tg_uid = rgroup->tg_uid;
   group->tg_gid = rgroup->tg_gid;
+  group->tg_euid = rgroup->tg_euid;
+  group->tg_egid = rgroup->tg_egid;
 }
 #else
 #  define group_inherit_identity(group)
@@ -134,7 +135,7 @@ int group_allocate(FAR struct task_tcb_s *tcb, uint8_t ttype)
 
   /* Allocate the group structure and assign it to the TCB */
 
-  group = (FAR struct task_group_s *)kmm_zalloc(sizeof(struct task_group_s));
+  group = kmm_zalloc(sizeof(struct task_group_s));
   if (!group)
     {
       return -ENOMEM;
@@ -149,24 +150,6 @@ int group_allocate(FAR struct task_tcb_s *tcb, uint8_t ttype)
     {
       group->tg_flags |= GROUP_FLAG_PRIVILEGED;
     }
-
-# if defined(CONFIG_FILE_STREAM)
-  /* In a flat, single-heap build.  The stream list is allocated with the
-   * group structure.  But in a kernel build with a kernel allocator, it
-   * must be separately allocated using a user-space allocator.
-   *
-   * REVISIT:  Kernel threads should not require a stream allocation.  They
-   * should not be using C buffered I/O at all.
-   */
-
-  group->tg_streamlist = (FAR struct streamlist *)
-    group_zalloc(group, sizeof(struct streamlist));
-  if (!group->tg_streamlist)
-    {
-      goto errout_with_group;
-    }
-
-# endif /* defined(CONFIG_FILE_STREAM) */
 #endif /* defined(CONFIG_MM_KERNEL_HEAP) */
 
 #ifdef HAVE_GROUP_MEMBERS
@@ -175,21 +158,13 @@ int group_allocate(FAR struct task_tcb_s *tcb, uint8_t ttype)
   group->tg_members = kmm_malloc(GROUP_INITIAL_MEMBERS * sizeof(pid_t));
   if (!group->tg_members)
     {
-      goto errout_with_stream;
+      goto errout_with_group;
     }
 
   /* Number of members in allocation */
 
   group->tg_mxmembers = GROUP_INITIAL_MEMBERS;
 #endif
-
-  /* Alloc task info for group  */
-
-  ret = task_init_info(group);
-  if (ret < 0)
-    {
-      goto errout_with_member;
-    }
 
   /* Attach the group to the TCB */
 
@@ -203,27 +178,24 @@ int group_allocate(FAR struct task_tcb_s *tcb, uint8_t ttype)
 
   files_initlist(&group->tg_filelist);
 
-#ifdef CONFIG_FILE_STREAM
-  /* Initialize file streams for the task group */
+  /* Alloc task info for group  */
 
-  lib_stream_initialize(group);
-#endif
+  ret = task_init_info(group);
+  if (ret < 0)
+    {
+      goto errout_with_member;
+    }
 
 #ifndef CONFIG_DISABLE_PTHREAD
-  /* Initialize the pthread join semaphore */
+  /* Initialize the pthread join mutex */
 
-  nxsem_init(&group->tg_joinsem, 0, 1);
+  nxmutex_init(&group->tg_joinlock);
 #endif
 
 #if defined(CONFIG_SCHED_WAITPID) && !defined(CONFIG_SCHED_HAVE_PARENT)
-  /* Initialize the exit/wait semaphores
-   *
-   * This semaphore is used for signaling and, hence, should not have
-   * priority inheritance enabled.
-   */
+  /* Initialize the exit/wait semaphores */
 
   nxsem_init(&group->tg_exitsem, 0, 0);
-  nxsem_set_protocol(&group->tg_exitsem, SEM_PRIO_NONE);
 #endif
 
   return OK;
@@ -231,10 +203,6 @@ int group_allocate(FAR struct task_tcb_s *tcb, uint8_t ttype)
 errout_with_member:
 #ifdef HAVE_GROUP_MEMBERS
   kmm_free(group->tg_members);
-errout_with_stream:
-#endif
-#if defined(CONFIG_FILE_STREAM) && defined(CONFIG_MM_KERNEL_HEAP)
-  group_free(group, group->tg_streamlist);
 errout_with_group:
 #endif
   kmm_free(group);
@@ -265,12 +233,17 @@ errout_with_group:
 void group_initialize(FAR struct task_tcb_s *tcb)
 {
   FAR struct task_group_s *group;
-#if defined(HAVE_GROUP_MEMBERS) || defined(CONFIG_ARCH_ADDRENV)
+#if defined(HAVE_GROUP_MEMBERS)
   irqstate_t flags;
 #endif
 
   DEBUGASSERT(tcb && tcb->cmn.group);
   group = tcb->cmn.group;
+
+  /* Allocate mm_map list if required */
+
+  mm_map_initialize(&group->tg_mm_map,
+                    (tcb->cmn.flags & TCB_FLAG_TTYPE_KERNEL) != 0);
 
 #ifdef HAVE_GROUP_MEMBERS
   /* Assign the PID of this new task as a member of the group. */
@@ -290,7 +263,7 @@ void group_initialize(FAR struct task_tcb_s *tcb)
 
   group->tg_nmembers = 1;
 
-#if defined(HAVE_GROUP_MEMBERS) || defined(CONFIG_ARCH_ADDRENV)
+#if defined(HAVE_GROUP_MEMBERS)
   /* Add the initialized entry to the list of groups */
 
   flags = enter_critical_section();

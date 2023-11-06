@@ -37,6 +37,8 @@
  ****************************************************************************/
 
 	.text
+	.syntax	unified
+	.arm
 
 /* Control functions caches and the write buffer c7
  * Register c7 controls the caches and the write buffer. The function of each cache
@@ -69,6 +71,22 @@
  * by r0=start and r1=end.  Cleans the corresponding D-cache lines and invalidates
  * the corresponding I-Cache lines.
  */
+
+	.globl	up_get_dcache_linesize
+	.type   up_get_dcache_linesize, function
+
+up_get_dcache_linesize:
+	mov		r0, #CACHE_DLINESIZE
+	mov		pc, lr
+	.size   up_get_dcache_linesize, .-up_get_dcache_linesize
+
+	.globl	up_get_icache_linesize
+	.type   up_get_icache_linesize, function
+
+up_get_icache_linesize:
+	mov		r0, #CACHE_DLINESIZE
+	mov		pc, lr
+	.size   up_get_icache_linesize, .-up_get_icache_linesize
 
 	.globl	up_coherent_dcache
 	.type	up_coherent_dcache, function

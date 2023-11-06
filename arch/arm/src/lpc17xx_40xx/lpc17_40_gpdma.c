@@ -33,7 +33,7 @@
 
 #include <nuttx/irq.h>
 #include <nuttx/arch.h>
-#include <nuttx/semaphore.h>
+#include <nuttx/mutex.h>
 
 #include "arm_internal.h"
 #include "chip.h"
@@ -67,7 +67,7 @@ struct lpc17_40_dmach_s
 
 struct lpc17_40_gpdma_s
 {
-  sem_t exclsem;           /* For exclusive access to the DMA channel list */
+  mutex_t lock;            /* For exclusive access to the DMA channel list */
 
   /* This is the state of each DMA channel */
 
@@ -84,7 +84,10 @@ struct lpc17_40_gpdma_s
 
 /* The state of the LPC17 DMA block */
 
-static struct lpc17_40_gpdma_s g_gpdma;
+static struct lpc17_40_gpdma_s g_gpdma =
+{
+  .lock = NXMUTEX_INITIALIZER,
+};
 
 /****************************************************************************
  * Public Data
@@ -291,8 +294,6 @@ void weak_function arm_dma_initialize(void)
 
   /* Initialize the DMA state structure */
 
-  nxsem_init(&g_gpdma.exclsem, 0, 1);
-
   for (i = 0; i < LPC17_40_NDMACH; i++)
     {
       g_gpdma.dmach[i].chn   = i;      /* Channel number */
@@ -379,7 +380,7 @@ DMA_HANDLE lpc17_40_dmachannel(void)
 
   /* Get exclusive access to the GPDMA state structure */
 
-  ret = nxsem_wait_uninterruptible(&g_gpdma.exclsem);
+  ret = nxmutex_lock(&g_gpdma.lock);
   if (ret < 0)
     {
       return NULL;
@@ -401,7 +402,7 @@ DMA_HANDLE lpc17_40_dmachannel(void)
 
   /* Return what we found (or not) */
 
-  nxsem_post(&g_gpdma.exclsem);
+  nxmutex_unlock(&g_gpdma.lock);
   return (DMA_HANDLE)dmach;
 }
 
@@ -613,7 +614,7 @@ void lpc17_40_dmastop(DMA_HANDLE handle)
 
   /* Disable this channel and mask any further interrupts from the channel.
    * this channel.  The channel is disabled by clearning the channel
-   * enable bit. Any outstanding data in the FIFO’s is lost.
+   * enable bit. Any outstanding data in the FIFO's is lost.
    */
 
   regaddr = LPC17_40_DMACH_CONFIG((uint32_t)dmach->chn);

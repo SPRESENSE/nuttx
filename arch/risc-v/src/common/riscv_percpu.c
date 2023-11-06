@@ -24,6 +24,7 @@
 
 #include <nuttx/config.h>
 #include <nuttx/irq.h>
+#include <nuttx/queue.h>
 #include <nuttx/spinlock.h>
 
 #include <arch/barriers.h>
@@ -31,8 +32,6 @@
 
 #include <assert.h>
 #include <stdint.h>
-
-#include <queue.h>
 
 #include "riscv_internal.h"
 #include "riscv_percpu.h"
@@ -56,6 +55,7 @@ static_assert(RISCV_PERCPU_IRQSTACK == offsetof(riscv_percpu_t, irq_stack),
 static riscv_percpu_t   g_percpu[HART_CNT];
 static sq_queue_t       g_freelist;
 static uintptr_t        g_initialized;
+static spinlock_t       g_percpu_spin;
 
 /****************************************************************************
  * Private Functions
@@ -77,7 +77,7 @@ static void riscv_percpu_init(void)
 
   /* Need to lock access during configuration */
 
-  flags = spin_lock_irqsave(NULL);
+  flags = spin_lock_irqsave(&g_percpu_spin);
 
   /* Initialize if not done so already */
 
@@ -96,14 +96,14 @@ static void riscv_percpu_init(void)
       /* Set interrupt stack (if any) */
 
 #if CONFIG_ARCH_INTERRUPTSTACK > 15
-      g_percpu[i].irq_stack = (uintptr_t)&g_intstacktop - i * STACK_SIZE;
+      g_percpu[i].irq_stack = (uintptr_t)g_intstacktop - i * STACK_SIZE;
 #endif
 
       sq_addlast((struct sq_entry_s *) &g_percpu[i], &g_freelist);
     }
 
 out_with_lock:
-  spin_unlock_irqrestore(NULL, flags);
+  spin_unlock_irqrestore(&g_percpu_spin, flags);
 }
 
 /****************************************************************************
@@ -132,9 +132,9 @@ void riscv_percpu_add_hart(uintptr_t hartid)
 
   /* Get free entry for this hart, this must not fail */
 
-  flags = spin_lock_irqsave(NULL);
+  flags = spin_lock_irqsave(&g_percpu_spin);
   percpu = (riscv_percpu_t *)sq_remfirst(&g_freelist);
-  spin_unlock_irqrestore(NULL, flags);
+  spin_unlock_irqrestore(&g_percpu_spin, flags);
   DEBUGASSERT(percpu);
 
   /* Assign hartid, stack has already been assigned */
@@ -147,7 +147,7 @@ void riscv_percpu_add_hart(uintptr_t hartid)
 
   /* Make sure it sticks */
 
-  __DMB();
+  __MB();
 }
 
 /****************************************************************************
@@ -191,4 +191,36 @@ uintptr_t riscv_percpu_get_irqstack(void)
               scratch <  (uintptr_t) &g_percpu + sizeof(g_percpu));
 
   return ((riscv_percpu_t *)scratch)->irq_stack;
+}
+
+/****************************************************************************
+ * Name: riscv_percpu_set_kstack
+ *
+ * Description:
+ *   Set current kernel stack, so it can be taken quickly into use when a
+ *   trap is taken. Do this whenever a new process moves to running state.
+ *
+ * Input Parameters:
+ *   ksp - Pointer to the kernel stack
+ *
+ * Returned Value:
+ *   None
+ *
+ ****************************************************************************/
+
+void riscv_percpu_set_kstack(uintptr_t ksp)
+{
+  irqstate_t flags;
+  uintptr_t scratch;
+
+  /* This must be done with interrupts disabled */
+
+  flags   = enter_critical_section();
+  scratch = READ_CSR(CSR_SCRATCH);
+
+  DEBUGASSERT(scratch >= (uintptr_t) &g_percpu &&
+              scratch <  (uintptr_t) &g_percpu + sizeof(g_percpu));
+
+  ((riscv_percpu_t *)scratch)->ksp = ksp;
+  leave_critical_section(flags);
 }

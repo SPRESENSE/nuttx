@@ -50,6 +50,7 @@
 
 #include <stddef.h>
 #include <stdbool.h>
+#include <sys/param.h>
 
 #include "spiffs.h"
 #include "spiffs_mtd.h"
@@ -369,14 +370,6 @@
 
 #define SPIFFS_VIS_NO_WRAP      (1<<2)
 
-#ifndef MIN
-#  define MIN(a,b) ((a) < (b) ? (a) : (b))
-#endif
-
-#ifndef MAX
-#  define MAX(a,b) ((a) > (b) ? (a) : (b))
-#endif
-
 /****************************************************************************
  * Public Types
  ****************************************************************************/
@@ -398,9 +391,9 @@ begin_packed_struct struct spiffs_page_header_s
 /* Object index header page header */
 
 #ifdef CONFIG_SPIFFS_LEADING_SLASH
-#define	SPIFFS_LEADING_SLASH_SIZE	1
+#define SPIFFS_LEADING_SLASH_SIZE   1
 #else
-#define	SPIFFS_LEADING_SLASH_SIZE	0
+#define SPIFFS_LEADING_SLASH_SIZE   0
 #endif
 
 begin_packed_struct struct spiffs_pgobj_ndxheader_s
@@ -423,7 +416,7 @@ begin_packed_struct struct spiffs_page_objndx_s
   struct spiffs_page_header_s phdr;
   uint8_t _align[4 - ((sizeof(struct spiffs_page_header_s) & 3) ==
                  0 ? 4 : (sizeof(struct spiffs_page_header_s) & 3))];
-} begin_packed_struct;
+} end_packed_struct;
 
 /* callback func for object lookup visitor */
 

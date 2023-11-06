@@ -35,6 +35,7 @@
 #include <errno.h>
 
 #include <nuttx/fs/fs.h>
+#include <nuttx/mutex.h>
 #include <nuttx/serial/pty.h>
 
 #include "pty.h"
@@ -62,8 +63,8 @@
 
 struct ptmx_dev_s
 {
+  mutex_t px_lock;                  /* Supports mutual exclusion */
   uint8_t px_next;                  /* Next minor number to allocate */
-  sem_t px_exclsem;                 /* Supports mutual exclusion */
   uint32_t px_alloctab[INDEX_MAX];  /* Set of allocated PTYs */
 };
 
@@ -87,15 +88,12 @@ static const struct file_operations g_ptmx_fops =
   NULL,          /* close */
   ptmx_read,     /* read */
   ptmx_write,    /* write */
-  NULL,          /* seek */
-  NULL,          /* ioctl */
-  NULL           /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL         /* unlink */
-#endif
 };
 
-static struct ptmx_dev_s g_ptmx;
+static struct ptmx_dev_s g_ptmx =
+{
+  NXMUTEX_INITIALIZER,
+};
 
 /****************************************************************************
  * Private Functions
@@ -108,7 +106,7 @@ static struct ptmx_dev_s g_ptmx;
  *   Allocate a new unique PTY minor number.
  *
  * Assumptions:
- *   Caller hold the px_exclsem
+ *   Caller hold the px_lock
  *
  ****************************************************************************/
 
@@ -167,13 +165,13 @@ static int ptmx_minor_allocate(void)
 static int ptmx_open(FAR struct file *filep)
 {
   struct file temp;
-  char devname[16];
+  char devname[32];
   int minor;
   int ret;
 
   /* Get exclusive access */
 
-  ret = nxsem_wait(&g_ptmx.px_exclsem);
+  ret = nxmutex_lock(&g_ptmx.px_lock);
   if (ret < 0)
     {
       return ret;
@@ -185,7 +183,7 @@ static int ptmx_open(FAR struct file *filep)
   if (minor < 0)
     {
       ret = minor;
-      goto errout_with_sem;
+      goto errout_with_lock;
     }
 
   /* Create the master slave pair.  This should create:
@@ -204,9 +202,9 @@ static int ptmx_open(FAR struct file *filep)
 
   /* Open the master device:  /dev/ptyN, where N=minor */
 
-  snprintf(devname, 16, "/dev/pty%d", minor);
+  snprintf(devname, sizeof(devname), "/dev/pty%d", minor);
   memcpy(&temp, filep, sizeof(temp));
-  ret = file_open(filep, devname, O_RDWR);
+  ret = file_open(filep, devname, O_RDWR | O_CLOEXEC);
   DEBUGASSERT(ret >= 0);  /* file_open() should never fail */
 
   /* Close the multiplexor device: /dev/ptmx */
@@ -222,14 +220,14 @@ static int ptmx_open(FAR struct file *filep)
   ret = unregister_driver(devname);
   DEBUGASSERT(ret >= 0 || ret == -EBUSY);  /* unregister_driver() should never fail */
 
-  nxsem_post(&g_ptmx.px_exclsem);
+  nxmutex_unlock(&g_ptmx.px_lock);
   return OK;
 
 errout_with_minor:
   ptmx_minor_free(minor);
 
-errout_with_sem:
-  nxsem_post(&g_ptmx.px_exclsem);
+errout_with_lock:
+  nxmutex_unlock(&g_ptmx.px_lock);
   return ret;
 }
 
@@ -274,10 +272,6 @@ static ssize_t ptmx_write(FAR struct file *filep,
 
 int ptmx_register(void)
 {
-  /* Initialize driver state */
-
-  nxsem_init(&g_ptmx.px_exclsem, 0, 1);
-
   /* Register the PTMX driver */
 
   return register_driver("/dev/ptmx", &g_ptmx_fops, 0666, NULL);
@@ -290,7 +284,7 @@ int ptmx_register(void)
  *   De-allocate a PTY minor number.
  *
  * Assumptions:
- *   Caller hold the px_exclsem
+ *   Caller hold the px_lock
  *
  ****************************************************************************/
 
@@ -299,7 +293,7 @@ void ptmx_minor_free(uint8_t minor)
   int index;
   int bitno;
 
-  nxsem_wait_uninterruptible(&g_ptmx.px_exclsem);
+  nxmutex_lock(&g_ptmx.px_lock);
 
   /* Free the address by clearing the associated bit in the px_alloctab[]; */
 
@@ -316,5 +310,5 @@ void ptmx_minor_free(uint8_t minor)
       g_ptmx.px_next = minor;
     }
 
-  nxsem_post(&g_ptmx.px_exclsem);
+  nxmutex_unlock(&g_ptmx.px_lock);
 }

@@ -33,7 +33,7 @@
 
 #include <nuttx/arch.h>
 #include <nuttx/irq.h>
-#include <nuttx/time.h>
+#include <nuttx/clock.h>
 
 #include <arch/board/board.h>
 
@@ -75,7 +75,7 @@
 #endif
 
 #if !defined(CONFIG_STM32_RTC_MAGIC)
-# define CONFIG_STM32_RTC_MAGIC           (0xfacefeed)
+#  define CONFIG_STM32_RTC_MAGIC          (0xfacefeed)
 #endif
 
 #if !defined(CONFIG_STM32_RTC_MAGIC_TIME_SET)
@@ -83,7 +83,7 @@
 #endif
 
 #if !defined(CONFIG_STM32_RTC_MAGIC_REG)
-# define CONFIG_STM32_RTC_MAGIC_REG       (0)
+#  define CONFIG_STM32_RTC_MAGIC_REG      (0)
 #endif
 
 #define RTC_MAGIC                         CONFIG_STM32_RTC_MAGIC
@@ -1127,7 +1127,7 @@ int stm32_rtc_getdatetime_with_subseconds(struct tm *tp, long *nsec)
 
   tmp = (dr & RTC_DR_WDU_MASK) >> RTC_DR_WDU_SHIFT;
   tp->tm_wday = tmp % 7;
-  tp->tm_yday = tp->tm_mday +
+  tp->tm_yday = tp->tm_mday - 1 +
                 clock_daysbeforemonth(tp->tm_mon,
                                       clock_isleapyear(tp->tm_year + 1900));
   tp->tm_isdst = 0;

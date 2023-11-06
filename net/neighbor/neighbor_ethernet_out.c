@@ -33,16 +33,10 @@
 #include <nuttx/net/netdev.h>
 #include <nuttx/net/neighbor.h>
 
+#include "devif/devif.h"
 #include "route/route.h"
 #include "icmpv6/icmpv6.h"
 #include "neighbor/neighbor.h"
-
-/****************************************************************************
- * Pre-processor Definitions
- ****************************************************************************/
-
-#define ETHBUF  ((FAR struct eth_hdr_s *)dev->d_buf)
-#define IPv6BUF ((FAR struct ipv6_hdr_s *)&dev->d_buf[NET_LL_HDRLEN(dev)])
 
 /****************************************************************************
  * Private Data

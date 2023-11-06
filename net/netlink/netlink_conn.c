@@ -26,7 +26,6 @@
 
 #include <stdint.h>
 #include <string.h>
-#include <queue.h>
 #include <assert.h>
 #include <errno.h>
 #include <debug.h>
@@ -34,6 +33,8 @@
 #include <arch/irq.h>
 
 #include <nuttx/kmalloc.h>
+#include <nuttx/queue.h>
+#include <nuttx/mutex.h>
 #include <nuttx/semaphore.h>
 #include <nuttx/net/netconfig.h>
 #include <nuttx/net/net.h>
@@ -50,14 +51,15 @@
 
 /* The array containing all NetLink connections. */
 
-#ifndef CONFIG_NET_ALLOC_CONNS
-static struct netlink_conn_s g_netlink_connections[CONFIG_NETLINK_CONNS];
+#if CONFIG_NETLINK_PREALLOC_CONNS > 0
+static struct netlink_conn_s
+       g_netlink_connections[CONFIG_NETLINK_PREALLOC_CONNS];
 #endif
 
 /* A list of all free NetLink connections */
 
 static dq_queue_t g_free_netlink_connections;
-static sem_t g_free_sem = SEM_INITIALIZER(1);
+static mutex_t g_free_lock = NXMUTEX_INITIALIZER;
 
 /* A list of all allocated NetLink connections */
 
@@ -66,24 +68,6 @@ static dq_queue_t g_active_netlink_connections;
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
-
-/****************************************************************************
- * Name: _netlink_semtake() and _netlink_semgive()
- *
- * Description:
- *   Take/give semaphore
- *
- ****************************************************************************/
-
-static void _netlink_semtake(FAR sem_t *sem)
-{
-  net_lockedwait_uninterruptible(sem);
-}
-
-static void _netlink_semgive(FAR sem_t *sem)
-{
-  nxsem_post(sem);
-}
 
 /****************************************************************************
  * Name: netlink_response_available
@@ -105,7 +89,7 @@ static void netlink_response_available(FAR void *arg)
 
   /* wakeup the waiter */
 
-  _netlink_semgive(arg);
+  nxsem_post(arg);
 }
 
 /****************************************************************************
@@ -123,10 +107,10 @@ static void netlink_response_available(FAR void *arg)
 
 void netlink_initialize(void)
 {
-#ifndef CONFIG_NET_ALLOC_CONNS
+#if CONFIG_NETLINK_PREALLOC_CONNS > 0
   int i;
 
-  for (i = 0; i < CONFIG_NETLINK_CONNS; i++)
+  for (i = 0; i < CONFIG_NETLINK_PREALLOC_CONNS; i++)
     {
       /* Mark the connection closed and move it to the free list */
 
@@ -148,20 +132,29 @@ void netlink_initialize(void)
 FAR struct netlink_conn_s *netlink_alloc(void)
 {
   FAR struct netlink_conn_s *conn;
-#ifdef CONFIG_NET_ALLOC_CONNS
+#if CONFIG_NETLINK_ALLOC_CONNS > 0
   int i;
 #endif
 
-  /* The free list is protected by a semaphore (that behaves like a mutex). */
+  /* The free list is protected by a mutex. */
 
-  _netlink_semtake(&g_free_sem);
-#ifdef CONFIG_NET_ALLOC_CONNS
+  nxmutex_lock(&g_free_lock);
+#if CONFIG_NETLINK_ALLOC_CONNS > 0
   if (dq_peek(&g_free_netlink_connections) == NULL)
     {
-      conn = kmm_zalloc(sizeof(*conn) * CONFIG_NETLINK_CONNS);
+#if CONFIG_NETLINK_MAX_CONNS > 0
+      if (dq_count(&g_active_netlink_connections) +
+          CONFIG_NETLINK_ALLOC_CONNS >= CONFIG_NETLINK_MAX_CONNS)
+        {
+          nxmutex_unlock(&g_free_lock);
+          return NULL;
+        }
+#endif
+
+      conn = kmm_zalloc(sizeof(*conn) * CONFIG_NETLINK_ALLOC_CONNS);
       if (conn != NULL)
         {
-          for (i = 0; i < CONFIG_NETLINK_CONNS; i++)
+          for (i = 0; i < CONFIG_NETLINK_ALLOC_CONNS; i++)
             {
               dq_addlast(&conn[i].sconn.node, &g_free_netlink_connections);
             }
@@ -178,7 +171,7 @@ FAR struct netlink_conn_s *netlink_alloc(void)
       dq_addlast(&conn->sconn.node, &g_active_netlink_connections);
     }
 
-  _netlink_semgive(&g_free_sem);
+  nxmutex_unlock(&g_free_lock);
   return conn;
 }
 
@@ -195,11 +188,11 @@ void netlink_free(FAR struct netlink_conn_s *conn)
 {
   FAR sq_entry_t *resp;
 
-  /* The free list is protected by a semaphore (that behaves like a mutex). */
+  /* The free list is protected by a mutex. */
 
   DEBUGASSERT(conn->crefs == 0);
 
-  _netlink_semtake(&g_free_sem);
+  nxmutex_lock(&g_free_lock);
 
   /* Remove the connection from the active list */
 
@@ -212,14 +205,24 @@ void netlink_free(FAR struct netlink_conn_s *conn)
       kmm_free(resp);
     }
 
-  /* Reset structure */
+  /* If this is a preallocated or a batch allocated connection store it in
+   * the free connections list. Else free it.
+   */
 
-  memset(conn, 0, sizeof(*conn));
+#if CONFIG_NETLINK_ALLOC_CONNS == 1
+  if (conn < g_netlink_connections || conn >= (g_netlink_connections +
+      CONFIG_NETLINK_PREALLOC_CONNS))
+    {
+      kmm_free(conn);
+    }
+  else
+#endif
+    {
+      memset(conn, 0, sizeof(*conn));
+      dq_addlast(&conn->sconn.node, &g_free_netlink_connections);
+    }
 
-  /* Free the connection */
-
-  dq_addlast(&conn->sconn.node, &g_free_netlink_connections);
-  _netlink_semgive(&g_free_sem);
+  nxmutex_unlock(&g_free_lock);
 }
 
 /****************************************************************************
@@ -429,7 +432,6 @@ netlink_get_response(FAR struct netlink_conn_s *conn)
       /* Set up a semaphore to notify us when a response is queued. */
 
       nxsem_init(&waitsem, 0, 0);
-      nxsem_set_protocol(&waitsem, SEM_PRIO_NONE);
 
       /* Set up a notifier to post the semaphore when a response is
        * received.
@@ -445,7 +447,7 @@ netlink_get_response(FAR struct netlink_conn_s *conn)
         {
           /* Wait for a response to be queued */
 
-          _netlink_semtake(&waitsem);
+          nxsem_post(&waitsem);
         }
 
       /* Clean-up the semaphore */

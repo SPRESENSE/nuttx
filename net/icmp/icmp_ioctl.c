@@ -25,6 +25,7 @@
 #include <nuttx/config.h>
 
 #include <stdint.h>
+#include <stdio.h>
 #include <stdbool.h>
 #include <debug.h>
 #include <errno.h>
@@ -51,12 +52,10 @@
  *   conn     The ICMP connection of interest
  *   cmd      The ioctl command
  *   arg      The argument of the ioctl cmd
- *   arglen   The length of 'arg'
  *
  ****************************************************************************/
 
-int icmp_ioctl(FAR struct socket *psock,
-               int cmd, FAR void *arg, size_t arglen)
+int icmp_ioctl(FAR struct socket *psock, int cmd, unsigned long arg)
 {
   FAR struct icmp_conn_s *conn = psock->s_conn;
   int ret = OK;
@@ -78,6 +77,12 @@ int icmp_ioctl(FAR struct socket *psock,
         break;
       case FIONSPACE:
         *(FAR int *)((uintptr_t)arg) = MIN_UDP_MSS;
+        break;
+      case FIOC_FILEPATH:
+        snprintf((FAR char *)(uintptr_t)arg, PATH_MAX,
+                 "icmp:[dev %s, id %" PRIu16 ", flg %" PRIx8 "]",
+                 conn->dev ? conn->dev->d_ifname : "NULL",
+                 NTOHS(conn->id), conn->sconn.s_flags);
         break;
       default:
         ret = -ENOTTY;

@@ -101,6 +101,7 @@ static inline bool pthread_mutex_islocked(FAR struct pthread_mutex_s *mutex)
 int pthread_mutex_unlock(FAR pthread_mutex_t *mutex)
 {
   int ret = EPERM;
+  irqstate_t flags;
 
   sinfo("mutex=%p\n", mutex);
   DEBUGASSERT(mutex != NULL);
@@ -113,7 +114,7 @@ int pthread_mutex_unlock(FAR pthread_mutex_t *mutex)
    * This all needs to be one atomic action.
    */
 
-  sched_lock();
+  flags = enter_critical_section();
 
   /* The unlock operation is only performed if the mutex is actually locked.
    * EPERM *must* be returned if the mutex type is PTHREAD_MUTEX_ERRORCHECK
@@ -142,7 +143,7 @@ int pthread_mutex_unlock(FAR pthread_mutex_t *mutex)
        * thread owns the semaphore.
        */
 
-      if (mutex->pid != (int)getpid())
+      if (mutex->pid != nxsched_gettid())
 
 #elif defined(CONFIG_PTHREAD_MUTEX_UNSAFE) && defined(CONFIG_PTHREAD_MUTEX_TYPES)
       /* If mutex types are not supported, then all mutexes are NORMAL (or
@@ -150,7 +151,8 @@ int pthread_mutex_unlock(FAR pthread_mutex_t *mutex)
        * non-robust NORMAL mutex type.
        */
 
-      if (mutex->type != PTHREAD_MUTEX_NORMAL && mutex->pid != (int)getpid())
+      if (mutex->type != PTHREAD_MUTEX_NORMAL &&
+          mutex->pid != nxsched_gettid())
 
 #else /* CONFIG_PTHREAD_MUTEX_BOTH */
       /* Skip the error check if this is a non-robust NORMAL mutex */
@@ -164,7 +166,7 @@ int pthread_mutex_unlock(FAR pthread_mutex_t *mutex)
        * the EPERM error?
        */
 
-      if (errcheck && mutex->pid != (int)getpid())
+      if (errcheck && mutex->pid != nxsched_gettid())
 #endif
         {
           /* No... return an EPERM error.
@@ -222,7 +224,7 @@ int pthread_mutex_unlock(FAR pthread_mutex_t *mutex)
         }
     }
 
-  sched_unlock();
+  leave_critical_section(flags);
   sinfo("Returning %d\n", ret);
   return ret;
 }

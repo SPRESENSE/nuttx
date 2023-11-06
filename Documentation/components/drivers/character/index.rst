@@ -65,4 +65,6 @@ Character device drivers have these properties:
   keypad.rst
   note.rst
   foc.rst
+  ws2812.rst
+  se05x.rst
 

@@ -91,13 +91,13 @@ static int as5048b_ioctl(FAR struct qe_lowerhalf_s *lower, int cmd,
 
 static const struct qe_ops_s g_qeops =
 {
-  .setup     = as5048b_setup,
-  .shutdown  = as5048b_shutdown,
-  .position  = as5048b_position,
-  .setposmax = NULL,            /* not supported yet */
-  .reset     = as5048b_reset,
-  .setindex  = NULL,            /* not supported yet */
-  .ioctl     = as5048b_ioctl
+  as5048b_setup,    /* setup */
+  as5048b_shutdown, /* shutdown */
+  as5048b_position, /* position */
+  NULL,             /* setposmax */
+  as5048b_reset,    /* reset */
+  NULL,             /* setindex */
+  as5048b_ioctl     /* ioctl */
 };
 
 /****************************************************************************
@@ -602,7 +602,7 @@ FAR struct qe_lowerhalf_s *as5048b_initialize(FAR struct i2c_master_s *i2c,
 
   /* Initialize the device's structure */
 
-  priv = (FAR struct as5048b_dev_s *)kmm_malloc(sizeof(*priv));
+  priv = kmm_malloc(sizeof(*priv));
   if (priv == NULL)
     {
       snerr("ERROR: Failed to allocate instance\n");

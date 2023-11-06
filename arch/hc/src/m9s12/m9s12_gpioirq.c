@@ -30,7 +30,7 @@
 #include <nuttx/arch.h>
 #include <nuttx/irq.h>
 
-#include "up_internal.h"
+#include "hc_internal.h"
 #include "m9s12.h"
 #include "m9s12_pim.h"
 #include "m9s12_mebi.h"
@@ -220,15 +220,15 @@ void hcs12_gpioirqinitialize(void)
   /* Attach GPIO IRQ interrupt handlers */
 
 #ifdef CONFIG_HCS12_GPIOIRQ
-# ifdef CONFIG_HCS12_PORTG_INTS
+#  ifdef CONFIG_HCS12_PORTG_INTS
   irq_attach(HCS12_IRQ_VPORTG, hcs12_pginterrupt, NULL);
-# endif
-# ifdef CONFIG_HCS12_PORTH_INTS
+#  endif
+#  ifdef CONFIG_HCS12_PORTH_INTS
   irq_attach(HCS12_IRQ_VPORTH, hcs12_phinterrupt, NULL);
-# endif
-# ifdef CONFIG_HCS12_PORTJ_INTS
+#  endif
+#  ifdef CONFIG_HCS12_PORTJ_INTS
   irq_attach(HCS12_IRQ_VPORTJ, hcs12_pjinterrupt, NULL);
-# endif
+#  endif
 #endif /* CONFIG_HCS12_GPIOIRQ */
 }
 

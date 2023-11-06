@@ -32,7 +32,7 @@
 #include <nuttx/arch.h>
 
 #include "sched/sched.h"
-#include "up_internal.h"
+#include "renesas_internal.h"
 
 /****************************************************************************
  * Public Functions
@@ -82,6 +82,8 @@ void up_schedule_sigaction(struct tcb_s *tcb, sig_deliver_t sigdeliver)
 
   if (!tcb->xcp.sigdeliver)
     {
+      tcb->xcp.sigdeliver = sigdeliver;
+
       /* First, handle some special cases when the signal is
        * being delivered to the currently executing task.
        */
@@ -99,6 +101,7 @@ void up_schedule_sigaction(struct tcb_s *tcb, sig_deliver_t sigdeliver)
               /* In this case just deliver the signal now. */
 
               sigdeliver(tcb);
+              tcb->xcp.sigdeliver = NULL;
             }
 
           /* CASE 2:  We are in an interrupt handler AND the
@@ -114,22 +117,21 @@ void up_schedule_sigaction(struct tcb_s *tcb, sig_deliver_t sigdeliver)
                * the signals have been delivered.
                */
 
-              tcb->xcp.sigdeliver   = sigdeliver;
-              tcb->xcp.saved_pc     = g_current_regs[REG_PC];
-              tcb->xcp.saved_sr     = g_current_regs[REG_SR];
+              tcb->xcp.saved_pc       = g_current_regs[REG_PC];
+              tcb->xcp.saved_sr       = g_current_regs[REG_SR];
 
               /* Then set up to vector to the trampoline with interrupts
                * disabled
                */
 
-              g_current_regs[REG_PC]  = (uint32_t)up_sigdeliver;
+              g_current_regs[REG_PC]  = (uint32_t)renesas_sigdeliver;
               g_current_regs[REG_SR] |= 0x000000f0;
 
               /* And make sure that the saved context in the TCB
                * is the same as the interrupt return context.
                */
 
-              up_copystate(tcb->xcp.regs, g_current_regs);
+              renesas_copystate(tcb->xcp.regs, g_current_regs);
             }
         }
 
@@ -146,7 +148,6 @@ void up_schedule_sigaction(struct tcb_s *tcb, sig_deliver_t sigdeliver)
            * the signals have been delivered.
            */
 
-          tcb->xcp.sigdeliver    = sigdeliver;
           tcb->xcp.saved_pc      = tcb->xcp.regs[REG_PC];
           tcb->xcp.saved_sr      = tcb->xcp.regs[REG_SR];
 
@@ -154,7 +155,7 @@ void up_schedule_sigaction(struct tcb_s *tcb, sig_deliver_t sigdeliver)
            * disabled
            */
 
-          tcb->xcp.regs[REG_PC]  = (uint32_t)up_sigdeliver;
+          tcb->xcp.regs[REG_PC]  = (uint32_t)renesas_sigdeliver;
           tcb->xcp.regs[REG_SR] |= 0x000000f0 ;
         }
     }

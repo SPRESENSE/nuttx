@@ -90,7 +90,6 @@ struct can_conn_s
 
   /* CAN-specific content follows */
 
-  uint8_t protocol;                  /* Selected CAN protocol */
   int16_t crefs;                     /* Reference count */
 
   /* The following is a list of poll structures of threads waiting for
@@ -102,14 +101,20 @@ struct can_conn_s
 #ifdef CONFIG_NET_CANPROTO_OPTIONS
   int32_t loopback;
   int32_t recv_own_msgs;
-#ifdef CONFIG_NET_CAN_CANFD
+#  ifdef CONFIG_NET_CAN_CANFD
   int32_t fd_frames;
-#endif
+#  endif
   struct can_filter filters[CONFIG_NET_CAN_RAW_FILTER_MAX];
   int32_t filter_count;
-# ifdef CONFIG_NET_CAN_RAW_TX_DEADLINE
+#  ifdef CONFIG_NET_CAN_ERRORS
+  can_err_mask_t err_mask;
+#  endif
+#  ifdef CONFIG_NET_CAN_RAW_TX_DEADLINE
   int32_t tx_deadline;
-# endif
+#  endif
+#endif
+#ifdef CONFIG_NET_TIMESTAMP
+  int32_t timestamp; /* Socket timestamp enabled/disabled */
 #endif
 };
 
@@ -206,10 +211,8 @@ uint16_t can_callback(FAR struct net_driver_s *dev,
  *   receive the data.
  *
  * Input Parameters:
+ *   dev  - The device which as active when the event was detected.
  *   conn - A pointer to the CAN connection structure
- *   buffer - A pointer to the buffer to be copied to the read-ahead
- *     buffers
- *   buflen - The number of bytes to copy to the read-ahead buffer.
  *
  * Returned Value:
  *   The number of bytes actually buffered is returned.  This will be either
@@ -222,8 +225,8 @@ uint16_t can_callback(FAR struct net_driver_s *dev,
  *
  ****************************************************************************/
 
-uint16_t can_datahandler(FAR struct can_conn_s *conn, FAR uint8_t *buffer,
-                         uint16_t buflen);
+uint16_t can_datahandler(FAR struct net_driver_s *dev,
+                         FAR struct can_conn_s *conn);
 
 /****************************************************************************
  * Name: can_recvmsg
@@ -353,6 +356,7 @@ void can_readahead_signal(FAR struct can_conn_s *conn);
  *
  * Input Parameters:
  *   psock     Socket structure of socket to operate on
+ *   level     Protocol level to set the option
  *   option    identifies the option to set
  *   value     Points to the argument value
  *   value_len The length of the argument value
@@ -365,7 +369,7 @@ void can_readahead_signal(FAR struct can_conn_s *conn);
  ****************************************************************************/
 
 #ifdef CONFIG_NET_CANPROTO_OPTIONS
-int can_setsockopt(FAR struct socket *psock, int option,
+int can_setsockopt(FAR struct socket *psock, int level, int option,
                    FAR const void *value, socklen_t value_len);
 #endif
 
@@ -399,7 +403,7 @@ int can_setsockopt(FAR struct socket *psock, int option,
  ****************************************************************************/
 
 #ifdef CONFIG_NET_CANPROTO_OPTIONS
-int can_getsockopt(FAR struct socket *psock, int option,
+int can_getsockopt(FAR struct socket *psock, int level, int option,
                    FAR void *value, FAR socklen_t *value_len);
 #endif
 

@@ -625,9 +625,11 @@ static void imx_detach(struct uart_dev_s *dev)
  * Name: imx_interrupt (and front-ends)
  *
  * Description:
- *   This is the common UART interrupt handler.  It should cal
- *   uart_transmitchars or uart_receivechar to perform the appropriate data
- *   transfers.
+ *   This is the UART interrupt handler.  It will be invoked when an
+ *   interrupt is received on the 'irq'.  It should call uart_xmitchars or
+ *   uart_recvchars to perform the appropriate data transfers.  The
+ *   interrupt handling logic must be able to map the 'arg' to the
+ *   appropriate uart_dev_s structure in order to call these functions.
  *
  ****************************************************************************/
 
@@ -1088,18 +1090,18 @@ void arm_serialinit(void)
 
 #ifdef TTYS0_DEV
   uart_register("/dev/ttyS0", &TTYS0_DEV);
-# ifdef TTYS1_DEV
+#  ifdef TTYS1_DEV
   uart_register("/dev/ttyS1", &TTYS1_DEV);
-#  ifdef TTYS2_DEV
+#    ifdef TTYS2_DEV
   uart_register("/dev/ttyS2", &TTYS2_DEV);
-#    ifdef TTYS3_DEV
+#      ifdef TTYS3_DEV
   uart_register("/dev/ttyS3", &TTYS2_DEV);
-#      ifdef TTYS4_DEV
+#        ifdef TTYS4_DEV
   uart_register("/dev/ttyS4", &TTYS2_DEV);
+#        endif
 #      endif
 #    endif
 #  endif
-# endif
 #endif
 }
 

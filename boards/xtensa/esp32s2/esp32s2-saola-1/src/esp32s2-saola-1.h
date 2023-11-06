@@ -33,7 +33,7 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-/* ESP32S2-DevKitC GPIOs ****************************************************/
+/* ESP32S2-Saola-1 GPIOs ****************************************************/
 
 /* BOOT Button */
 
@@ -80,6 +80,18 @@
  ****************************************************************************/
 
 int esp32s2_bringup(void);
+
+/****************************************************************************
+ * Name: board_spiflash_init
+ *
+ * Description:
+ *   Initialize the SPIFLASH and register the MTD device.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_ESP32S2_SPIFLASH
+int board_spiflash_init(void);
+#endif
 
 /****************************************************************************
  * Name: esp32s2_gpio_init
@@ -150,6 +162,62 @@ int board_i2c_init(void);
 
 #ifdef CONFIG_SENSORS_BMP180
 int board_bmp180_initialize(int devno, int busno);
+#endif
+
+/****************************************************************************
+ * Name: board_i2sdev_initialize
+ *
+ * Description:
+ *   This function is called by platform-specific, setup logic to configure
+ *   and register the generic I2S audio driver.  This function will register
+ *   the driver as /dev/audio/pcm[x] where x is determined by the I2S port
+ *   number.
+ *
+ * Input Parameters:
+ *   enable_tx  - Register device as TX if true
+ *   enable_rx  - Register device as RX if true
+ *
+ * Returned Value:
+ *   Zero is returned on success.  Otherwise, a negated errno value is
+ *   returned to indicate the nature of the failure.
+ *
+ ****************************************************************************/
+
+#if defined(CONFIG_ESP32S2_I2S) && !defined(CONFIG_AUDIO_CS4344)
+int board_i2sdev_initialize(bool enable_tx, bool enable_rx);
+#endif
+
+/****************************************************************************
+ * Name: esp32s2_cs4344_initialize
+ *
+ * Description:
+ *   This function is called by platform-specific, setup logic to configure
+ *   and register the CS4344 device.  This function will register the driver
+ *   as /dev/audio/pcm[x] where x is determined by the I2S port number.
+ *
+ * Input Parameters:
+ *   None
+ *
+ * Returned Value:
+ *   Zero is returned on success.  Otherwise, a negated errno value is
+ *   returned to indicate the nature of the failure.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_AUDIO_CS4344
+int esp32s2_cs4344_initialize(void);
+#endif
+
+/****************************************************************************
+ * Name: esp32s2_ledc_setup
+ *
+ * Description:
+ *   Initialize LEDC PWM and register the PWM device.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_ESP32S2_LEDC
+int esp32s2_pwm_setup(void);
 #endif
 
 #endif /* __ASSEMBLY__ */

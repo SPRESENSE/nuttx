@@ -51,50 +51,11 @@
 #include "ipforward/ipforward.h"
 #include "inet/inet.h"
 #include "devif/devif.h"
-
-/****************************************************************************
- * Pre-processor Definitions
- ****************************************************************************/
-
-/* Macros */
-
-#define IPv6BUF ((FAR struct ipv6_hdr_s *)&dev->d_buf[NET_LL_HDRLEN(dev)])
-#define PAYLOAD ((FAR uint8_t *)&dev->d_buf[NET_LL_HDRLEN(dev)] + IPv6_HDRLEN)
+#include "ipfrag/ipfrag.h"
 
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
-
-/****************************************************************************
- * Name: ipv6_exthdr
- *
- * Description:
- *   Return true if the next header value is an IPv6 extension header.
- *
- ****************************************************************************/
-
-static bool ipv6_exthdr(uint8_t nxthdr)
-{
-  switch (nxthdr)
-    {
-      case NEXT_HOPBYBOT_EH:    /* Hop-by-Hop Options Header */
-      case NEXT_ENCAP_EH:       /* Encapsulated IPv6 Header */
-      case NEXT_ROUTING_EH:     /* Routing Header */
-      case NEXT_FRAGMENT_EH:    /* Fragment Header */
-      case NEXT_RRSVP_EH:       /* Resource ReSerVation Protocol */
-      case NEXT_ENCAPSEC_EH:    /* Encapsulating Security Payload */
-      case NEXT_AUTH_EH:        /* Authentication Header */
-      case NEXT_DESTOPT_EH:     /* Destination Options Header */
-      case NEXT_MOBILITY_EH:    /* Mobility */
-      case NEXT_HOSTID_EH:      /* Host Identity Protocol */
-      case NEXT_SHIM6_EH:       /* Shim6 Protocol */
-        return true;
-
-      case NEXT_NOHEADER:       /* No next header */
-      default:
-        return false;
-    }
-}
 
 /****************************************************************************
  * Name: check_dev_destipaddr
@@ -188,15 +149,19 @@ static bool check_destipaddr(FAR struct net_driver_s *dev,
 }
 
 /****************************************************************************
- * Public Functions
- ****************************************************************************/
-
-/****************************************************************************
- * Name: ipv6_input
+ * Name: ipv6_in
  *
  * Description:
  *   Receive an IPv6 packet from the network device.  Verify and forward to
  *   L3 packet handling logic if the packet is destined for us.
+ *
+ *   This is the iob buffer version of ipv6_input(),
+ *   this function will support send/receive iob vectors directly between
+ *   the driver and l3/l4 stack to avoid unnecessary memory copies,
+ *   especially on hardware that supports Scatter/gather, which can
+ *   greatly improve performance
+ *   this function will uses d_iob as packets input which used by some
+ *   NICs such as celluler net driver.
  *
  * Input Parameters:
  *   dev   - The device on which the packet was received and which contains
@@ -217,16 +182,18 @@ static bool check_destipaddr(FAR struct net_driver_s *dev,
  *
  ****************************************************************************/
 
-int ipv6_input(FAR struct net_driver_s *dev)
+static int ipv6_in(FAR struct net_driver_s *dev)
 {
   FAR struct ipv6_hdr_s *ipv6 = IPv6BUF;
   FAR uint8_t *payload;
-  uint16_t llhdrlen;
   uint16_t iphdrlen;
   uint16_t paylen;
   uint8_t nxthdr;
 #ifdef CONFIG_NET_IPFORWARD
   int ret;
+#endif
+#ifdef CONFIG_NET_IPFRAG
+  bool isfrag = false;
 #endif
 
   /* This is where the input processing starts. */
@@ -254,14 +221,11 @@ int ipv6_input(FAR struct net_driver_s *dev)
 
   /* Get the size of the packet minus the size of link layer header */
 
-  llhdrlen = NET_LL_HDRLEN(dev);
-  if ((llhdrlen + IPv6_HDRLEN) > dev->d_len)
+  if (IPv6_HDRLEN > dev->d_len)
     {
       nwarn("WARNING: Packet shorter than IPv6 header\n");
       goto drop;
     }
-
-  dev->d_len -= llhdrlen;
 
   /* Make sure that all packet processing logic knows that there is an IPv6
    * packet in the device buffer.
@@ -290,11 +254,12 @@ int ipv6_input(FAR struct net_driver_s *dev)
   paylen = ((uint16_t)ipv6->len[0] << 8) + (uint16_t)ipv6->len[1] +
            IPv6_HDRLEN;
 
-  if (paylen <= dev->d_len)
+  if (paylen < dev->d_len)
     {
+      iob_update_pktlen(dev->d_iob, paylen, false);
       dev->d_len = paylen;
     }
-  else
+  else if (paylen > dev->d_len)
     {
       nwarn("WARNING: IP packet shorter than length in IP header\n");
       goto drop;
@@ -302,9 +267,9 @@ int ipv6_input(FAR struct net_driver_s *dev)
 
   /* Parse IPv6 extension headers (parsed but ignored) */
 
-  payload  = PAYLOAD;     /* Assume payload starts right after IPv6 header */
-  iphdrlen = IPv6_HDRLEN; /* Total length of the IPv6 header */
-  nxthdr   = ipv6->proto; /* Next header determined by IPv6 header prototype */
+  payload  = IPBUF(IPv6_HDRLEN); /* Assume payload starts right after IPv6 header */
+  iphdrlen = IPv6_HDRLEN;        /* Total length of the IPv6 header */
+  nxthdr   = ipv6->proto;        /* Next header determined by IPv6 header prototype */
 
   while (ipv6_exthdr(nxthdr))
     {
@@ -314,7 +279,18 @@ int ipv6_input(FAR struct net_driver_s *dev)
       /* Just skip over the extension header */
 
       exthdr    = (FAR struct ipv6_extension_s *)payload;
-      extlen    = EXTHDR_LEN((unsigned int)exthdr->len);
+      if (nxthdr == NEXT_FRAGMENT_EH)
+        {
+          extlen    = EXTHDR_FRAG_LEN;
+#ifdef CONFIG_NET_IPFRAG
+          isfrag    = true;
+#endif
+        }
+      else
+        {
+          extlen = EXTHDR_LEN((unsigned int)exthdr->len);
+        }
+
       payload  += extlen;
       iphdrlen += extlen;
       nxthdr    = exthdr->nxthdr;
@@ -375,17 +351,17 @@ int ipv6_input(FAR struct net_driver_s *dev)
                * it was received on.
                */
 
-              return OK;
+              goto done;
             }
           else
 #endif
-#if defined(NET_UDP_HAVE_STACK) && defined(CONFIG_NET_UDP_BINDTODEVICE)
-          /* If the UDP protocol specific socket option UDP_BINDTODEVICE
+#if defined(NET_UDP_HAVE_STACK) && defined(CONFIG_NET_BINDTODEVICE)
+          /* If the protocol specific socket option NET_BINDTODEVICE
            * is selected, then we must forward all UDP packets to the bound
            * socket.
            */
 
-          if (nxthdr != IP_PROTO_UDP || !IFF_IS_BOUND(dev->d_flags))
+          if (nxthdr != IP_PROTO_UDP)
 #endif
             {
               /* Not destined for us and not forwardable...
@@ -397,6 +373,16 @@ int ipv6_input(FAR struct net_driver_s *dev)
             }
         }
     }
+
+#ifdef CONFIG_NET_IPFORWARD
+  /* Return success if the packet was forwarded. */
+
+  if (dev->d_len == 0)
+    {
+      goto done;
+    }
+#endif
+
 #ifdef CONFIG_NET_ICMPv6
 
   /* In other cases, the device must be assigned a non-zero IP address
@@ -407,6 +393,23 @@ int ipv6_input(FAR struct net_driver_s *dev)
     {
       nwarn("WARNING: No IP address assigned\n");
       goto drop;
+    }
+#endif
+
+#ifdef CONFIG_NET_IPFRAG
+  if (isfrag)
+    {
+      if (ipv6_fragin(dev) == OK)
+        {
+          return OK;
+        }
+      else
+        {
+#ifdef CONFIG_NET_STATISTICS
+          g_netstats.ipv6.fragerr++;
+#endif
+          goto drop;
+        }
     }
 #endif
 
@@ -508,6 +511,16 @@ int ipv6_input(FAR struct net_driver_s *dev)
         goto drop;
     }
 
+#ifdef CONFIG_NET_IPFORWARD
+done:
+#endif
+
+#ifdef CONFIG_NET_IPFRAG
+  ip_fragout(dev);
+#endif
+
+  devif_out(dev);
+
   /* Return and let the caller do any pending transmission. */
 
   return OK;
@@ -522,5 +535,94 @@ drop:
 #endif
   dev->d_len = 0;
   return OK;
+}
+
+/****************************************************************************
+ * Public Functions
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: ipv6_exthdr
+ *
+ * Description:
+ *   Check whether it is an IPv6 extension header.
+ *
+ * Input Parameters:
+ *   The next header value extracted from an IPv6 frame.
+ *
+ * Returned Value:
+ *   Return true if the next header value is an IPv6 extension header.
+ *
+ ****************************************************************************/
+
+bool ipv6_exthdr(uint8_t nxthdr)
+{
+  switch (nxthdr)
+    {
+      case NEXT_HOPBYBOT_EH:    /* Hop-by-Hop Options Header */
+      case NEXT_ENCAP_EH:       /* Encapsulated IPv6 Header */
+      case NEXT_ROUTING_EH:     /* Routing Header */
+      case NEXT_FRAGMENT_EH:    /* Fragment Header */
+      case NEXT_RRSVP_EH:       /* Resource ReSerVation Protocol */
+      case NEXT_ENCAPSEC_EH:    /* Encapsulating Security Payload */
+      case NEXT_AUTH_EH:        /* Authentication Header */
+      case NEXT_DESTOPT_EH:     /* Destination Options Header */
+      case NEXT_MOBILITY_EH:    /* Mobility */
+      case NEXT_HOSTID_EH:      /* Host Identity Protocol */
+      case NEXT_SHIM6_EH:       /* Shim6 Protocol */
+        return true;
+
+      case NEXT_NOHEADER:       /* No next header */
+      default:
+        return false;
+    }
+}
+
+/****************************************************************************
+ * Name: ipv6_input
+ *
+ * Description:
+ *   Receive an IPv6 packet from the network device.  Verify and forward to
+ *   L3 packet handling logic if the packet is destined for us.
+ *
+ * Input Parameters:
+ *   dev   - The device on which the packet was received and which contains
+ *           the IPv6 packet.
+ * Returned Value:
+ *   OK    - The packet was processed (or dropped) and can be discarded.
+ *   ERROR - Hold the packet and try again later.  There is a listening
+ *           socket but no receive in place to catch the packet yet.  The
+ *           device's d_len will be set to zero in this case as there is
+ *           no outgoing data.
+ *
+ *   If this function returns to the network driver with dev->d_len > 0,
+ *   that is an indication to the driver that there is an outgoing response
+ *   to this input.
+ *
+ * Assumptions:
+ *   The network is locked.
+ *
+ ****************************************************************************/
+
+int ipv6_input(FAR struct net_driver_s *dev)
+{
+  FAR uint8_t *buf;
+  int ret;
+
+  if (dev->d_iob != NULL)
+    {
+      buf = dev->d_buf;
+
+      /* Set the device buffer to l2 */
+
+      dev->d_buf = NETLLBUF;
+      ret = ipv6_in(dev);
+
+      dev->d_buf = buf;
+
+      return ret;
+    }
+
+  return netdev_input(dev, ipv6_in, true);
 }
 #endif /* CONFIG_NET_IPv6 */

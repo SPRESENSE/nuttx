@@ -200,6 +200,9 @@ static const struct qspi_ops_s g_qspiops =
   qspi_flash_setfrequency,      /* setfrequency */
   qspi_flash_setmode,           /* setmode */
   qspi_flash_setbits,           /* setbits */
+#ifdef CONFIG_QSPI_HWFEATURES
+  NULL,                         /* hwfeatures */
+#endif
   qspi_flash_command,           /* command */
   qspi_flash_memory,            /* memory */
   qspi_flash_alloc,             /* alloc */
@@ -570,7 +573,7 @@ static int qspi_flash_command(FAR struct qspi_dev_s *dev,
  *
  ****************************************************************************/
 
-FAR struct qspi_dev_s *qspi_flash_initialize()
+FAR struct qspi_dev_s *qspi_flash_initialize(void)
 {
   FAR struct qspi_flashdev_s *priv = NULL;
 

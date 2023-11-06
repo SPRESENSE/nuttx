@@ -25,6 +25,7 @@
 #include <nuttx/config.h>
 
 #include <string.h>
+#include <sys/param.h>
 #include <assert.h>
 #include <errno.h>
 #include <debug.h>
@@ -32,14 +33,6 @@
 #include <nuttx/mm/iob.h>
 
 #include "iob.h"
-
-/****************************************************************************
- * Pre-processor Definitions
- ****************************************************************************/
-
-#ifndef MIN
-#  define MIN(a,b) ((a) < (b) ? (a) : (b))
-#endif
 
 /****************************************************************************
  * Public Functions
@@ -54,8 +47,7 @@
  *
  ****************************************************************************/
 
-int iob_contig(FAR struct iob_s *iob, unsigned int len,
-               enum iob_user_e producerid)
+int iob_contig(FAR struct iob_s *iob, unsigned int len)
 {
   FAR struct iob_s *next;
   unsigned int ncopy;
@@ -120,7 +112,7 @@ int iob_contig(FAR struct iob_s *iob, unsigned int len,
 
           if (next->io_len == 0)
             {
-              iob->io_flink = iob_free(next, producerid);
+              iob->io_flink = iob_free(next);
             }
         }
       while (len > iob->io_len);

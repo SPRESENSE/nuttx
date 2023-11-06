@@ -36,6 +36,7 @@
 
 #include "devif/devif.h"
 #include "tcp/tcp.h"
+#include "utils/utils.h"
 
 #ifdef NET_TCP_HAVE_STACK
 
@@ -61,13 +62,13 @@ static inline uint16_t
 tcp_data_event(FAR struct net_driver_s *dev, FAR struct tcp_conn_s *conn,
                uint16_t flags)
 {
-  uint16_t ret;
+  uint16_t recvlen;
 
   /* Assume that we will ACK the data.  The data will be ACKed if it is
    * placed in the read-ahead buffer -OR- if it zero length
    */
 
-  ret = (flags & ~TCP_NEWDATA) | TCP_SNDACK;
+  flags = (flags & ~TCP_NEWDATA) | TCP_SNDACK;
 
   /* Is there new data?  With non-zero length?  (Certain connection events
    * can have zero-length with TCP_NEWDATA set just to cause an ACK).
@@ -75,38 +76,15 @@ tcp_data_event(FAR struct net_driver_s *dev, FAR struct tcp_conn_s *conn,
 
   if (dev->d_len > 0)
     {
-      uint8_t *buffer = dev->d_appdata;
-      int      buflen = dev->d_len;
-      uint16_t recvlen;
-
       ninfo("No listener on connection\n");
 
       /* Save as the packet data as in the read-ahead buffer.  NOTE that
        * partial packets will not be buffered.
        */
 
-      recvlen = tcp_datahandler(conn, buffer, buflen);
-      if (recvlen < buflen)
-        {
-          /* There is no handler to receive new data and there are no free
-           * read-ahead buffers to retain the data -- drop the packet.
-           */
-
-          ninfo("Dropped %d/%d bytes\n", buflen - recvlen, buflen);
-
-#ifdef CONFIG_NET_STATISTICS
-          g_netstats.tcp.drop++;
-#endif
-          /* Clear the TCP_SNDACK bit so that no ACK will be sent.
-           * Clear the TCP_CLOSE because we effectively dropped
-           * the FIN as well.
-           *
-           * Revisit: It might make more sense to send a dup ack
-           * to give a hint to the peer.
-           */
-
-          ret &= ~(TCP_SNDACK | TCP_CLOSE);
-        }
+      recvlen = tcp_datahandler(dev, conn,
+                                (dev->d_appdata - dev->d_iob->io_data) -
+                                dev->d_iob->io_offset);
 
       net_incr32(conn->rcvseq, recvlen);
     }
@@ -114,12 +92,157 @@ tcp_data_event(FAR struct net_driver_s *dev, FAR struct tcp_conn_s *conn,
   /* In any event, the new data has now been handled */
 
   dev->d_len = 0;
-  return ret;
+  return flags;
 }
+
+/****************************************************************************
+ * Name: tcp_ofoseg_data_event
+ *
+ * Description:
+ *   Handle out-of-order segment to readahead poll.
+ *
+ * Assumptions:
+ * - This function must be called with the network locked.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_NET_TCP_OUT_OF_ORDER
+static uint16_t tcp_ofoseg_data_event(FAR struct net_driver_s *dev,
+                                      FAR struct tcp_conn_s *conn,
+                                      uint16_t flags)
+{
+  FAR struct tcp_ofoseg_s *seg;
+  uint32_t rcvseq;
+  int i = 0;
+
+  /* Assume that we will ACK the data.  The data will be ACKed if it is
+   * placed in the read-ahead buffer -OR- if it zero length
+   */
+
+  flags |= TCP_SNDACK;
+
+  /* Get the receive sequence number */
+
+  rcvseq = tcp_getsequence(conn->rcvseq);
+
+  ninfo("TCP OFOSEG rcvseq [%" PRIu32 "]\n", rcvseq);
+
+  /* Foreach out-of-order segments */
+
+  while (i < conn->nofosegs)
+    {
+      seg = &conn->ofosegs[i];
+
+      /* rcvseq -->|
+       * ofoseg    |------|
+       */
+
+      if (rcvseq == seg->left)
+        {
+          ninfo("TCP OFOSEG input [%" PRIu32 " : %" PRIu32 " : %u]\n",
+                 seg->left, seg->right, seg->data->io_pktlen);
+          rcvseq = TCP_SEQ_ADD(rcvseq,
+                               seg->data->io_pktlen);
+          net_incr32(conn->rcvseq, seg->data->io_pktlen);
+          net_iob_concat(&conn->readahead, &seg->data);
+        }
+      else if (TCP_SEQ_GT(rcvseq, seg->left))
+        {
+          /* rcvseq       -->|
+           * ofoseg  |------|
+           */
+
+          if (TCP_SEQ_GTE(rcvseq, seg->right))
+            {
+              /* Remove stale segments */
+
+              iob_free_chain(seg->data);
+              seg->data = NULL;
+            }
+
+          /* rcvseq  -->|
+           * ofoseg   |------|
+           */
+
+          else
+            {
+              seg->data =
+                iob_trimhead(seg->data,
+                             TCP_SEQ_SUB(rcvseq, seg->left));
+              seg->left = rcvseq;
+              if (seg->data != NULL)
+                {
+                  ninfo("TCP OFOSEG input "
+                        "[%" PRIu32 " : %" PRIu32 " : %u]\n",
+                        seg->left, seg->right, seg->data->io_pktlen);
+                  rcvseq = TCP_SEQ_ADD(rcvseq,
+                                       seg->data->io_pktlen);
+                  net_incr32(conn->rcvseq, seg->data->io_pktlen);
+                  net_iob_concat(&conn->readahead, &seg->data);
+                }
+            }
+        }
+
+      /* Rebuild out-of-order pool if segment is consumed */
+
+      if (seg->data == NULL)
+        {
+          for (; i < conn->nofosegs - 1; i++)
+            {
+              conn->ofosegs[i] = conn->ofosegs[i + 1];
+            }
+
+          conn->nofosegs--;
+
+          /* Try segments again */
+
+          i = 0;
+        }
+      else
+        {
+          i++;
+        }
+    }
+
+  return flags;
+}
+#endif /* CONFIG_NET_TCP_OUT_OF_ORDER */
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
+
+/****************************************************************************
+ * Name: tcp_ofoseg_bufsize
+ *
+ * Description:
+ *   Calculate the pending size of out-of-order buffer
+ *
+ * Input Parameters:
+ *   conn   - The TCP connection of interest
+ *
+ * Returned Value:
+ *   Total size of out-of-order buffer
+ *
+ * Assumptions:
+ *   This function must be called with the network locked.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_NET_TCP_OUT_OF_ORDER
+int tcp_ofoseg_bufsize(FAR struct tcp_conn_s *conn)
+{
+  int total = 0;
+  int i;
+
+  for (i = 0; i < conn->nofosegs; i++)
+    {
+      total += conn->ofosegs[i].data->io_pktlen;
+    }
+
+  return total;
+}
+#endif /* CONFIG_NET_TCP_OUT_OF_ORDER */
 
 /****************************************************************************
  * Name: tcp_callback
@@ -135,9 +258,16 @@ tcp_data_event(FAR struct net_driver_s *dev, FAR struct tcp_conn_s *conn,
 uint16_t tcp_callback(FAR struct net_driver_s *dev,
                       FAR struct tcp_conn_s *conn, uint16_t flags)
 {
-#ifdef CONFIG_NET_TCP_NOTIFIER
+#if defined(CONFIG_NET_TCP_NOTIFIER) || defined(CONFIG_NET_TCP_OUT_OF_ORDER)
   uint16_t orig = flags;
 #endif
+
+  /* Prepare device buffer */
+
+  if (dev->d_iob == NULL && netdev_iob_prepare(dev, false, 0) != OK)
+    {
+      return 0;
+    }
 
   /* Preserve the TCP_ACKDATA, TCP_CLOSE, and TCP_ABORT in the response.
    * These is needed by the network to handle responses and buffer state.
@@ -166,7 +296,7 @@ uint16_t tcp_callback(FAR struct net_driver_s *dev,
    *                 not set, then dev->d_len should also be cleared).
    */
 
-  flags = devif_conn_event(dev, conn, flags, conn->sconn.list);
+  flags = devif_conn_event(dev, flags, conn->sconn.list);
 
   /* There may be no new data handler in place at them moment that the new
    * incoming data is received.  If the new incoming data was not handled,
@@ -182,6 +312,15 @@ uint16_t tcp_callback(FAR struct net_driver_s *dev,
       flags = tcp_data_event(dev, conn, flags);
     }
 
+#ifdef CONFIG_NET_TCP_OUT_OF_ORDER
+  if ((orig & TCP_NEWDATA) != 0 && conn->nofosegs > 0)
+    {
+      /* Try out-of-order pool if new data is coming */
+
+      flags = tcp_ofoseg_data_event(dev, conn, flags);
+    }
+#endif
+
   /* Check if there is a connection-related event and a connection
    * callback.
    */
@@ -190,7 +329,7 @@ uint16_t tcp_callback(FAR struct net_driver_s *dev,
     {
       /* Perform the callback disconnect callbacks */
 
-      flags = devif_conn_event(dev, conn, flags, conn->connevents);
+      flags = devif_conn_event(dev, flags, conn->connevents);
     }
 
 #ifdef CONFIG_NET_TCP_NOTIFIER
@@ -201,6 +340,13 @@ uint16_t tcp_callback(FAR struct net_driver_s *dev,
       tcp_disconnect_signal(conn);
     }
 #endif
+
+  /* Re-prepare the device buffer if d_iob is consumed by the stack */
+
+  if (dev->d_iob == NULL)
+    {
+      netdev_iob_prepare(dev, false, 0);
+    }
 
   return flags;
 }
@@ -231,85 +377,36 @@ uint16_t tcp_callback(FAR struct net_driver_s *dev,
  *
  ****************************************************************************/
 
-uint16_t tcp_datahandler(FAR struct tcp_conn_s *conn, FAR uint8_t *buffer,
-                         uint16_t buflen)
+uint16_t tcp_datahandler(FAR struct net_driver_s *dev,
+                         FAR struct tcp_conn_s *conn,
+                         uint16_t offset)
 {
-  FAR struct iob_s *iob;
-  uint16_t copied = 0;
-  int ret;
-  unsigned int i;
+  FAR struct iob_s *iob = dev->d_iob;
+  uint16_t buflen;
 
-  /* Try to allocate I/O buffers and copy the data into them
-   * without waiting (and throttling as necessary).
-   */
-
-  iob = conn->readahead;
-  for (i = 0; i < 2; i++)
+  if (offset > 0)
     {
-      bool throttled = i == 0; /* try throttled=true first */
+      /* Remove 'bufoff' bytes from the beginning of the input I/O chain */
 
-      if (!throttled)
-        {
-#if CONFIG_IOB_THROTTLE > 0
-          if (conn->readahead != NULL)
-            {
-              ninfo("Do not use throttled=false because of "
-                    "non-empty readahead\n");
-              break;
-            }
-#else
-          break;
-#endif
-        }
-
-      if (iob == NULL)
-        {
-          iob = iob_tryalloc(throttled, IOBUSER_NET_TCP_READAHEAD);
-          if (iob == NULL)
-            {
-              continue;
-            }
-
-          iob->io_pktlen = 0;
-        }
-
-      if (iob != NULL)
-        {
-          uint32_t olen = iob->io_pktlen;
-
-          ret = iob_trycopyin(iob, buffer + copied, buflen - copied,
-                              olen, throttled,
-                              IOBUSER_NET_TCP_READAHEAD);
-          copied += iob->io_pktlen - olen;
-          if (ret < 0)
-            {
-              /* On a failure, iob_copyin return a negated error value but
-               * does not free any I/O buffers.
-               */
-
-              continue;
-            }
-        }
-
-      break;
+      iob = iob_trimhead(iob, offset);
     }
 
-  DEBUGASSERT(conn->readahead == iob || conn->readahead == NULL);
-  if (iob == NULL)
+  /* Trim tail if l3/l4 header has been removed */
+
+  if (dev->d_len < iob->io_pktlen)
     {
-      nerr("ERROR: Failed to create new I/O buffer chain\n");
-      DEBUGASSERT(copied == 0);
-      return 0;
+      iob = iob_trimtail(iob, iob->io_pktlen - dev->d_len);
     }
 
-  if (copied == 0)
-    {
-      nerr("ERROR: Failed to append new I/O buffer\n");
-      DEBUGASSERT(conn->readahead == iob);
-      return 0;
-    }
+  buflen = iob->io_pktlen;
 
-  conn->readahead = iob;
+  /* Concat the iob to readahead */
+
+  net_iob_concat(&conn->readahead, &iob);
+
+  /* Clear device buffer */
+
+  netdev_iob_clear(dev);
 
 #ifdef CONFIG_NET_TCP_NOTIFIER
   /* Provide notification(s) that additional TCP read-ahead data is
@@ -319,8 +416,8 @@ uint16_t tcp_datahandler(FAR struct tcp_conn_s *conn, FAR uint8_t *buffer,
   tcp_readahead_signal(conn);
 #endif
 
-  ninfo("Buffered %" PRIu16 " bytes\n", copied);
-  return copied;
+  ninfo("Buffered %" PRIu16 " bytes\n", buflen);
+  return buflen;
 }
 
 #endif /* NET_TCP_HAVE_STACK */

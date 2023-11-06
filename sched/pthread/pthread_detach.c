@@ -72,14 +72,9 @@ int pthread_detach(pthread_t thread)
 
   /* Find the entry associated with this pthread. */
 
-  nxsem_wait_uninterruptible(&group->tg_joinsem);
-  pjoin = pthread_findjoininfo(group, (pid_t)thread);
-  if (!pjoin)
-    {
-      serr("ERROR: Could not find thread entry\n");
-      ret = EINVAL;
-    }
-  else
+  nxmutex_lock(&group->tg_joinlock);
+  ret = pthread_findjoininfo(group, (pid_t)thread, &pjoin);
+  if (ret == OK)
     {
       /* Has the thread already terminated? */
 
@@ -107,7 +102,7 @@ int pthread_detach(pthread_t thread)
         }
     }
 
-  pthread_sem_give(&group->tg_joinsem);
+  nxmutex_unlock(&group->tg_joinlock);
 
   sinfo("Returning %d\n", ret);
   return ret;

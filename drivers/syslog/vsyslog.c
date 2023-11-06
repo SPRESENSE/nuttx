@@ -30,8 +30,9 @@
 
 #include <nuttx/arch.h>
 #include <nuttx/init.h>
-#include <nuttx/arch.h>
 #include <nuttx/clock.h>
+#include <nuttx/streams.h>
+#include <nuttx/syslog/syslog.h>
 
 #include "syslog.h"
 
@@ -39,8 +40,22 @@
  * Private Data
  ****************************************************************************/
 
+#if defined(CONFIG_SYSLOG_COLOR_OUTPUT)
+static FAR const char * const g_priority_color[] =
+  {
+    "\e[31;1;5m", /* LOG_EMERG, Red, Bold, Blinking */
+    "\e[31;1m",   /* LOG_ALERT, Red, Bold */
+    "\e[31;1m",   /* LOG_CRIT, Red, Bold */
+    "\e[31m",     /* LOG_ERR, Red */
+    "\e[33m",     /* LOG_WARNING, Yellow */
+    "\e[1m",      /* LOG_NOTICE, Bold */
+    "",           /* LOG_INFO, Normal */
+    "\e[2m",      /* LOG_DEBUG, Dim */
+  };
+#endif
+
 #if defined(CONFIG_SYSLOG_PRIORITY)
-static FAR const char * g_priority_str[] =
+static FAR const char * const g_priority_str[] =
   {
     "EMERG", "ALERT", "CRIT", "ERROR",
     "WARN", "NOTICE", "INFO", "DEBUG"
@@ -66,33 +81,32 @@ static FAR const char * g_priority_str[] =
 
 int nx_vsyslog(int priority, FAR const IPTR char *fmt, FAR va_list *ap)
 {
-  struct lib_syslogstream_s stream;
+  struct lib_syslograwstream_s stream;
   int ret = 0;
 #if CONFIG_TASK_NAME_SIZE > 0 && defined(CONFIG_SYSLOG_PROCESS_NAME)
-  struct tcb_s *tcb;
+  FAR struct tcb_s *tcb = nxsched_get_tcb(nxsched_gettid());
 #endif
 #ifdef CONFIG_SYSLOG_TIMESTAMP
   struct timespec ts;
-#if defined(CONFIG_SYSLOG_TIMESTAMP_FORMATTED)
-  int d_ret;
+#  if defined(CONFIG_SYSLOG_TIMESTAMP_FORMATTED)
   struct tm tm;
   char date_buf[CONFIG_SYSLOG_TIMESTAMP_BUFFER];
-#endif
+#  endif
 #endif
 
   /* Wrap the low-level output in a stream object and let lib_vsprintf
    * do the work.
    */
 
-  syslogstream_create(&stream);
+  lib_syslograwstream_open(&stream);
 
 #ifdef CONFIG_SYSLOG_TIMESTAMP
   ts.tv_sec = 0;
   ts.tv_nsec = 0;
 
-#if defined(CONFIG_SYSLOG_TIMESTAMP_FORMATTED)
+#  if defined(CONFIG_SYSLOG_TIMESTAMP_FORMATTED)
   memset(&tm, 0, sizeof(tm));
-#endif
+#  endif
 
   /* Get the current time.  Since debug output may be generated very early
    * in the start-up sequence, hardware timer support may not yet be
@@ -101,138 +115,160 @@ int nx_vsyslog(int priority, FAR const IPTR char *fmt, FAR va_list *ap)
 
   if (OSINIT_HW_READY())
     {
-#if defined(CONFIG_SYSLOG_TIMESTAMP_REALTIME)
+#  if defined(CONFIG_SYSLOG_TIMESTAMP_REALTIME)
       /* Use CLOCK_REALTIME if so configured */
 
       clock_gettime(CLOCK_REALTIME, &ts);
-
-#else
+#  else
       /* Prefer monotonic when enabled, as it can be synchronized to
        * RTC with clock_resynchronize.
        */
 
       clock_gettime(CLOCK_MONOTONIC, &ts);
-#endif
+#  endif
 
       /* Prepend the message with the current time, if available */
 
-#if defined(CONFIG_SYSLOG_TIMESTAMP_FORMATTED)
-#if defined(CONFIG_SYSLOG_TIMESTAMP_LOCALTIME)
+#  if defined(CONFIG_SYSLOG_TIMESTAMP_FORMATTED)
+#    if defined(CONFIG_SYSLOG_TIMESTAMP_LOCALTIME)
       localtime_r(&ts.tv_sec, &tm);
-#else
+#    else
       gmtime_r(&ts.tv_sec, &tm);
-#endif
-#endif
+#    endif
+#  endif
     }
 
+#  if defined(CONFIG_SYSLOG_TIMESTAMP_FORMATTED)
+  date_buf[0] = '\0';
+  strftime(date_buf, CONFIG_SYSLOG_TIMESTAMP_BUFFER,
+           CONFIG_SYSLOG_TIMESTAMP_FORMAT, &tm);
+#  endif
+#endif
+
+#if defined(CONFIG_SYSLOG_COLOR_OUTPUT) || defined(CONFIG_SYSLOG_TIMESTAMP) || \
+    defined(CONFIG_SMP) || defined(CONFIG_SYSLOG_PROCESSID) || \
+    defined(CONFIG_SYSLOG_PRIORITY) || defined(CONFIG_SYSLOG_PREFIX) || \
+    defined(CONFIG_SYSLOG_PROCESS_NAME)
+
+  ret = lib_sprintf_internal(&stream.common,
 #if defined(CONFIG_SYSLOG_COLOR_OUTPUT)
   /* Reset the terminal style. */
 
-  ret = lib_sprintf(&stream.public, "\e[0m");
+                             "\e[0m"
 #endif
 
-#if defined(CONFIG_SYSLOG_TIMESTAMP_FORMATTED)
-  d_ret = strftime(date_buf, CONFIG_SYSLOG_TIMESTAMP_BUFFER,
-                   CONFIG_SYSLOG_TIMESTAMP_FORMAT, &tm);
-
-  if (d_ret > 0)
-    {
-#if defined(CONFIG_SYSLOG_TIMESTAMP_FORMAT_MICROSECOND)
-      ret += lib_sprintf(&stream.public, "[%s.%06ld] ",
-                         date_buf, ts.tv_nsec / NSEC_PER_USEC);
-#else
-      ret += lib_sprintf(&stream.public, "[%s] ", date_buf);
-#endif
-    }
-#else
-  ret += lib_sprintf(&stream.public, "[%5jd.%06ld] ",
-                     (uintmax_t)ts.tv_sec, ts.tv_nsec / NSEC_PER_USEC);
-#endif
+#ifdef CONFIG_SYSLOG_TIMESTAMP
+#  if defined(CONFIG_SYSLOG_TIMESTAMP_FORMATTED)
+#    if defined(CONFIG_SYSLOG_TIMESTAMP_FORMAT_MICROSECOND)
+                             "[%s.%06ld] "
+#    else
+                             "[%s] "
+#    endif
+#  else
+                             "[%5jd.%06ld] "
+#  endif
 #endif
 
 #if defined(CONFIG_SMP)
-  ret += lib_sprintf(&stream.public, "[CPU%d] ", up_cpu_index());
+                             "[CPU%d] "
 #endif
 
 #if defined(CONFIG_SYSLOG_PROCESSID)
-  /* Prepend the Process ID */
+  /* Prepend the Thread ID */
 
-  ret += lib_sprintf(&stream.public, "[%2d] ", (int)getpid());
+                             "[%2d] "
 #endif
 
 #if defined(CONFIG_SYSLOG_COLOR_OUTPUT)
   /* Set the terminal style according to message priority. */
 
-  switch (priority)
-    {
-      case LOG_EMERG:   /* Red, Bold, Blinking */
-        ret += lib_sprintf(&stream.public, "\e[31;1;5m");
-        break;
-
-      case LOG_ALERT:   /* Red, Bold */
-        ret += lib_sprintf(&stream.public, "\e[31;1m");
-        break;
-
-      case LOG_CRIT:    /* Red, Bold */
-        ret += lib_sprintf(&stream.public, "\e[31;1m");
-        break;
-
-      case LOG_ERR:     /* Red */
-        ret += lib_sprintf(&stream.public, "\e[31m");
-        break;
-
-      case LOG_WARNING: /* Yellow */
-        ret += lib_sprintf(&stream.public, "\e[33m");
-        break;
-
-      case LOG_NOTICE:  /* Bold */
-        ret += lib_sprintf(&stream.public, "\e[1m");
-        break;
-
-      case LOG_INFO:    /* Normal */
-        break;
-
-      case LOG_DEBUG:   /* Dim */
-        ret += lib_sprintf(&stream.public, "\e[2m");
-        break;
-    }
+                             "%s"
 #endif
 
 #if defined(CONFIG_SYSLOG_PRIORITY)
   /* Prepend the message priority. */
 
-  ret += lib_sprintf(&stream.public, "[%6s] ", g_priority_str[priority]);
+                             "[%6s] "
 #endif
 
 #if defined(CONFIG_SYSLOG_PREFIX)
   /* Prepend the prefix, if available */
 
-  ret += lib_sprintf(&stream.public, "[%s] ", CONFIG_SYSLOG_PREFIX_STRING);
+                             "[%s] "
+#endif
+#if CONFIG_TASK_NAME_SIZE > 0 && defined(CONFIG_SYSLOG_PROCESS_NAME)
+  /* Prepend the thread name */
+
+                             "%s: "
+#endif
+#ifdef CONFIG_SYSLOG_TIMESTAMP
+#  if defined(CONFIG_SYSLOG_TIMESTAMP_FORMATTED)
+#    if defined(CONFIG_SYSLOG_TIMESTAMP_FORMAT_MICROSECOND)
+                             , date_buf, ts.tv_nsec / NSEC_PER_USEC
+#    else
+                             , date_buf
+#    endif
+#  else
+                             , (uintmax_t)ts.tv_sec
+                             , ts.tv_nsec / NSEC_PER_USEC
+#  endif
+#endif
+
+#if defined(CONFIG_SMP)
+                             , up_cpu_index()
+#endif
+
+#if defined(CONFIG_SYSLOG_PROCESSID)
+  /* Prepend the Thread ID */
+
+                             , nxsched_gettid()
+#endif
+
+#if defined(CONFIG_SYSLOG_COLOR_OUTPUT)
+  /* Set the terminal style according to message priority. */
+
+                             , g_priority_color[priority]
+#endif
+
+#if defined(CONFIG_SYSLOG_PRIORITY)
+  /* Prepend the message priority. */
+
+                             , g_priority_str[priority]
+#endif
+
+#if defined(CONFIG_SYSLOG_PREFIX)
+  /* Prepend the prefix, if available */
+
+                             , CONFIG_SYSLOG_PREFIX_STRING
 #endif
 
 #if CONFIG_TASK_NAME_SIZE > 0 && defined(CONFIG_SYSLOG_PROCESS_NAME)
-  /* Prepend the process name */
+  /* Prepend the thread name */
 
-  tcb = nxsched_get_tcb(getpid());
-  ret += lib_sprintf(&stream.public, "%s: ",
-                     (tcb != NULL) ? tcb->name : "(null)");
+                             , tcb != NULL ? tcb->name : "(null)"
 #endif
+                    );
+
+#endif /* CONFIG_SYSLOG_COLOR_OUTPUT || CONFIG_SYSLOG_TIMESTAMP || ... */
 
   /* Generate the output */
 
-  ret += lib_vsprintf(&stream.public, fmt, *ap);
+  ret += lib_vsprintf_internal(&stream.common, fmt, *ap);
+
+  if (stream.last_ch != '\n')
+    {
+      lib_stream_putc(&stream.common, '\n');
+      ret++;
+    }
 
 #if defined(CONFIG_SYSLOG_COLOR_OUTPUT)
   /* Reset the terminal style back to normal. */
 
-  ret += lib_sprintf(&stream.public, "\e[0m");
+  ret += lib_stream_puts(&stream.common, "\e[0m", sizeof("\e[0m"));
 #endif
 
-#ifdef CONFIG_SYSLOG_BUFFER
   /* Flush and destroy the syslog stream buffer */
 
-  syslogstream_destroy(&stream);
-#endif
-
+  lib_syslograwstream_close(&stream);
   return ret;
 }

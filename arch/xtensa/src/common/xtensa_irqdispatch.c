@@ -29,13 +29,13 @@
 #include <nuttx/arch.h>
 #include <assert.h>
 
+#include <nuttx/addrenv.h>
 #include <nuttx/board.h>
 #include <arch/board/board.h>
 #include <arch/chip/core-isa.h>
 
 #include "xtensa.h"
 
-#include "group/group.h"
 #include "sched/sched.h"
 
 /****************************************************************************
@@ -66,7 +66,6 @@ uint32_t *xtensa_irq_dispatch(int irq, uint32_t *regs)
 
   irq_dispatch(irq, regs);
 
-#if defined(CONFIG_ARCH_ADDRENV)
   /* Check for a context switch.  If a context switch occurred, then
    * CURRENT_REGS will have a different value than it did on entry.
    */
@@ -80,16 +79,29 @@ uint32_t *xtensa_irq_dispatch(int irq, uint32_t *regs)
        * thread at the head of the ready-to-run list.
        */
 
-      group_addrenv(NULL);
+      addrenv_switch(NULL);
 #endif
+
+      /* Record the new "running" task when context switch occurred.
+       * g_running_tasks[] is only used by assertion logic for reporting
+       * crashes.
+       */
+
+      g_running_tasks[this_cpu()] = this_task();
     }
-#endif
+
+  /* Restore the cpu lock */
+
+  if (regs != CURRENT_REGS)
+    {
+      restore_critical_section();
+      regs = (uint32_t *)CURRENT_REGS;
+    }
 
   /* Set CURRENT_REGS to NULL to indicate that we are no longer in an
    * interrupt handler.
    */
 
-  regs         = (uint32_t *)CURRENT_REGS;
   CURRENT_REGS = NULL;
 #endif
 

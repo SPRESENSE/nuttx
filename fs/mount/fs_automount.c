@@ -80,7 +80,7 @@ struct automounter_state_s
   bool inserted;                             /* True: Media has been inserted */
 
 #ifdef CONFIG_FS_AUTOMOUNTER_DRIVER
-  sem_t exclsem;                             /* Supports exclusive access to the device */
+  mutex_t lock;                              /* Supports exclusive access to the device */
   bool registered;                           /* True: if driver has been registered */
 
   /* The following is a singly linked list of open references to the
@@ -136,7 +136,7 @@ static int  automount_interrupt(FAR const struct automount_lower_s *lower,
  ****************************************************************************/
 
 #ifdef CONFIG_FS_AUTOMOUNTER_DRIVER
-static const struct file_operations automount_fops =
+static const struct file_operations g_automount_fops =
 {
   automount_open,       /* open */
   automount_close,      /* close */
@@ -144,10 +144,6 @@ static const struct file_operations automount_fops =
   NULL,                 /* write */
   NULL,                 /* seek */
   automount_ioctl,      /* ioctl */
-  NULL                  /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL                /* unlink */
-#endif
 };
 #endif /* CONFIG_FS_AUTOMOUNTER_DRIVER */
 
@@ -168,10 +164,10 @@ static void automount_notify(FAR struct automounter_state_s *priv)
 
   /* Get exclusive access to the driver structure */
 
-  ret = nxsem_wait_uninterruptible(&priv->exclsem);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
-      ierr("ERROR: nxsem_wait_uninterruptible failed: %d\n", ret);
+      ferr("ERROR: nxmutex_lock failed: %d\n", ret);
       return;
     }
 
@@ -192,7 +188,7 @@ static void automount_notify(FAR struct automounter_state_s *priv)
         }
     }
 
-  nxsem_post(&priv->exclsem);
+  nxmutex_unlock(&priv->lock);
 }
 
 /****************************************************************************
@@ -208,22 +204,21 @@ static int automount_open(FAR struct file *filep)
 
   /* Get exclusive access to the driver structure */
 
-  ret = nxsem_wait(&priv->exclsem);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
-      ierr("ERROR: nxsem_wait failed: %d\n", ret);
+      ferr("ERROR: nxmutex_lock failed: %d\n", ret);
       return ret;
     }
 
   /* Allocate a new open structure */
 
-  opriv = (FAR struct automounter_open_s *)kmm_zalloc(
-      sizeof(struct automounter_open_s));
+  opriv = kmm_zalloc(sizeof(struct automounter_open_s));
   if (opriv == NULL)
     {
-      ierr("ERROR: Failed to allocate open structure\n");
+      ferr("ERROR: Failed to allocate open structure\n");
       ret = -ENOMEM;
-      goto errout_with_exclsem;
+      goto errout_with_lock;
     }
 
   /* Attach the open structure to the device */
@@ -236,8 +231,8 @@ static int automount_open(FAR struct file *filep)
   filep->f_priv = (FAR void *)opriv;
   ret = OK;
 
-errout_with_exclsem:
-  nxsem_post(&priv->exclsem);
+errout_with_lock:
+  nxmutex_unlock(&priv->lock);
   return ret;
 }
 
@@ -254,18 +249,18 @@ static int automount_close(FAR struct file *filep)
   FAR struct automounter_open_s *prev;
   int ret;
 
-  DEBUGASSERT(filep && filep->f_priv && filep->f_inode);
+  DEBUGASSERT(filep->f_priv);
   opriv = filep->f_priv;
   inode = filep->f_inode;
   DEBUGASSERT(inode->i_private);
-  priv  = (FAR struct automounter_state_s *)inode->i_private;
+  priv  = inode->i_private;
 
   /* Get exclusive access to the driver structure */
 
-  ret = nxsem_wait(&priv->exclsem);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
-      ierr("ERROR: nxsem_wait failed: %d\n", ret);
+      ferr("ERROR: nxmutex_lock failed: %d\n", ret);
       return ret;
     }
 
@@ -278,9 +273,9 @@ static int automount_close(FAR struct file *filep)
   DEBUGASSERT(curr);
   if (curr == NULL)
     {
-      ierr("ERROR: Failed to find open entry\n");
+      ferr("ERROR: Failed to find open entry\n");
       ret = -ENOENT;
-      goto errout_with_exclsem;
+      goto errout_with_lock;
     }
 
   /* Remove the structure from the device */
@@ -304,8 +299,8 @@ static int automount_close(FAR struct file *filep)
 
   ret = OK;
 
-errout_with_exclsem:
-  nxsem_post(&priv->exclsem);
+errout_with_lock:
+  nxmutex_unlock(&priv->lock);
   return ret;
 }
 
@@ -321,18 +316,18 @@ static int automount_ioctl(FAR struct file *filep, int cmd,
   FAR struct automounter_open_s *opriv;
   int ret;
 
-  DEBUGASSERT(filep && filep->f_priv && filep->f_inode);
+  DEBUGASSERT(filep->f_priv);
   opriv = filep->f_priv;
   inode = filep->f_inode;
   DEBUGASSERT(inode->i_private);
-  priv  = (FAR struct automounter_state_s *)inode->i_private;
+  priv  = inode->i_private;
 
   /* Get exclusive access to the driver structure */
 
-  ret = nxsem_wait(&priv->exclsem);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
-      ierr("ERROR: nxsem_wait failed: %d\n", ret);
+      ferr("ERROR: nxmutex_lock failed: %d\n", ret);
       return ret;
     }
 
@@ -362,19 +357,19 @@ static int automount_ioctl(FAR struct file *filep, int cmd,
               opriv->ao_notify.an_mount  = notify->an_mount;
               opriv->ao_notify.an_umount = notify->an_umount;
               opriv->ao_notify.an_event  = notify->an_event;
-              opriv->ao_pid              = getpid();
+              opriv->ao_pid              = nxsched_getpid();
               ret = OK;
             }
         }
         break;
 
       default:
-        ierr("ERROR: Unrecognized command: %d\n", cmd);
+        ferr("ERROR: Unrecognized command: %d\n", cmd);
         ret = -ENOTTY;
         break;
     }
 
-  nxsem_post(&priv->exclsem);
+  nxmutex_unlock(&priv->lock);
   return ret;
 }
 #endif /* CONFIG_FS_AUTOMOUNTER_DRIVER */
@@ -406,7 +401,7 @@ static int automount_findinode(FAR const char *path)
 
   /* Get exclusive access to the in-memory inode tree. */
 
-  ret = inode_semtake();
+  ret = inode_lock();
   if (ret < 0)
     {
       return ret;
@@ -444,7 +439,7 @@ static int automount_findinode(FAR const char *path)
 
   /* Relinquish our exclusive access to the inode try and return the result */
 
-  inode_semgive();
+  inode_unlock();
   RELEASE_SEARCH(&desc);
   return ret;
 }
@@ -823,9 +818,7 @@ FAR void *automount_initialize(FAR const struct automount_lower_s *lower)
 
   /* Allocate an auto-mounter state structure */
 
-  priv = (FAR struct automounter_state_s *)
-    kmm_zalloc(sizeof(struct automounter_state_s));
-
+  priv = kmm_zalloc(sizeof(struct automounter_state_s));
   if (priv == NULL)
     {
       ferr("ERROR: Failed to allocate state structure\n");
@@ -857,13 +850,14 @@ FAR void *automount_initialize(FAR const struct automount_lower_s *lower)
 
   /* Initialize the new automount driver instance */
 
-  nxsem_init(&priv->exclsem, 0, 1);
+  nxmutex_init(&priv->lock);
 
   /* Register driver */
 
-  sprintf(devpath, CONFIG_FS_AUTOMOUNTER_VFS_PATH "%s", lower->mountpoint);
+  snprintf(devpath, sizeof(devpath),
+           CONFIG_FS_AUTOMOUNTER_VFS_PATH "%s", lower->mountpoint);
 
-  ret = register_driver(devpath, &automount_fops, 0444, priv);
+  ret = register_driver(devpath, &g_automount_fops, 0444, priv);
   if (ret < 0)
     {
       ferr("ERROR: Failed to register automount driver: %d\n", ret);
@@ -922,13 +916,13 @@ void automount_uninitialize(FAR void *handle)
     {
       char devpath[PATH_MAX];
 
-      sprintf(devpath, CONFIG_FS_AUTOMOUNTER_VFS_PATH "%s",
-              lower->mountpoint);
+      snprintf(devpath, sizeof(devpath),
+               CONFIG_FS_AUTOMOUNTER_VFS_PATH "%s", lower->mountpoint);
 
       unregister_driver(devpath);
     }
 
-  nxsem_destroy(&priv->exclsem);
+  nxmutex_destroy(&priv->lock);
 #endif /* CONFIG_FS_AUTOMOUNTER_DRIVER */
 
   /* Cancel the watchdog timer */

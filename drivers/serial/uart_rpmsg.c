@@ -30,6 +30,7 @@
 
 #include <nuttx/fs/ioctl.h>
 #include <nuttx/kmalloc.h>
+#include <nuttx/mutex.h>
 #include <nuttx/rptun/openamp.h>
 #include <nuttx/serial/serial.h>
 #include <nuttx/serial/uart_rpmsg.h>
@@ -73,6 +74,7 @@ begin_packed_struct struct uart_rpmsg_wakeup_s
 struct uart_rpmsg_priv_s
 {
   struct rpmsg_endpoint ept;
+  mutex_t               lock;
   FAR const char        *devname;
   FAR const char        *cpuname;
   FAR void              *recv_data;
@@ -159,6 +161,7 @@ static bool uart_rpmsg_rxflowcontrol(FAR struct uart_dev_s *dev,
   FAR struct uart_rpmsg_priv_s *priv = dev->priv;
   FAR struct uart_rpmsg_wakeup_s msg;
 
+  nxmutex_lock(&priv->lock);
   if (!upper && upper != priv->last_upper)
     {
       memset(&msg, 0, sizeof(msg));
@@ -171,6 +174,7 @@ static bool uart_rpmsg_rxflowcontrol(FAR struct uart_dev_s *dev,
     }
 
   priv->last_upper = upper;
+  nxmutex_unlock(&priv->lock);
   return false;
 }
 
@@ -258,10 +262,14 @@ static void uart_rpmsg_dmatxavail(FAR struct uart_dev_s *dev)
 {
   FAR struct uart_rpmsg_priv_s *priv = dev->priv;
 
+  nxmutex_lock(&priv->lock);
+
   if (is_rpmsg_ept_ready(&priv->ept) && dev->dmatx.length == 0)
     {
       uart_xmitchars_dma(dev);
     }
+
+  nxmutex_unlock(&priv->lock);
 }
 
 static void uart_rpmsg_send(FAR struct uart_dev_s *dev, int ch)
@@ -317,7 +325,8 @@ static void uart_rpmsg_device_created(FAR struct rpmsg_device *rdev,
   if (strcmp(priv->cpuname, rpmsg_get_cpuname(rdev)) == 0)
     {
       priv->ept.priv = dev;
-      sprintf(eptname, "%s%s", UART_RPMSG_EPT_PREFIX, priv->devname);
+      snprintf(eptname, sizeof(eptname), "%s%s",
+               UART_RPMSG_EPT_PREFIX, priv->devname);
       rpmsg_create_ept(&priv->ept, rdev, eptname,
                        RPMSG_ADDR_ANY, RPMSG_ADDR_ANY,
                        uart_rpmsg_ept_cb, NULL);
@@ -340,12 +349,15 @@ static int uart_rpmsg_ept_cb(FAR struct rpmsg_endpoint *ept, FAR void *data,
                              size_t len, uint32_t src, FAR void *priv_)
 {
   FAR struct uart_dev_s *dev = priv_;
+  FAR struct uart_rpmsg_priv_s *priv = dev->priv;
   FAR struct uart_rpmsg_header_s *header = data;
   FAR struct uart_rpmsg_write_s *msg = data;
 
   if (header->response)
     {
       /* Get write-cmd response, this tell how many data have sent */
+
+      nxmutex_lock(&priv->lock);
 
       dev->dmatx.nbytes = header->result;
       if (header->result < 0)
@@ -354,6 +366,8 @@ static int uart_rpmsg_ept_cb(FAR struct rpmsg_endpoint *ept, FAR void *data,
         }
 
       uart_xmitchars_done(dev);
+
+      nxmutex_unlock(&priv->lock);
 
       /* If have sent some data succeed, then continue send */
 
@@ -364,8 +378,6 @@ static int uart_rpmsg_ept_cb(FAR struct rpmsg_endpoint *ept, FAR void *data,
     }
   else if (header->command == UART_RPMSG_TTY_WRITE)
     {
-      FAR struct uart_rpmsg_priv_s *priv = dev->priv;
-
       /* Get write-cmd, there are some data, we need receive them */
 
       priv->recv_data = data;
@@ -441,7 +453,9 @@ int uart_rpmsg_init(FAR const char *cpuname, FAR const char *devname,
       goto fail;
     }
 
-  sprintf(dev_name, "%s%s", UART_RPMSG_DEV_PREFIX, devname);
+  nxmutex_init(&priv->lock);
+  snprintf(dev_name, sizeof(dev_name), "%s%s",
+           UART_RPMSG_DEV_PREFIX, devname);
   uart_register(dev_name, dev);
 
   if (dev->isconsole)
@@ -459,15 +473,3 @@ fail:
 
   return ret;
 }
-
-#ifdef CONFIG_RPMSG_SERIALINIT
-/* Dummy function to make linker happy */
-
-void up_earlyserialinit(void)
-{
-}
-
-void up_serialinit(void)
-{
-}
-#endif /* CONFIG_RPMSG_SERIALINIT */

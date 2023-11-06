@@ -142,46 +142,9 @@ int local_sync(FAR struct file *filep)
 {
   size_t readlen;
   uint16_t pktlen;
-  uint8_t sync;
   int ret;
 
-  /* Loop until a valid pre-amble is encountered:  SYNC bytes followed
-   * by one END byte.
-   */
-
-  do
-    {
-      /* Read until we encounter a sync byte */
-
-      do
-        {
-          readlen = sizeof(uint8_t);
-          ret     = local_fifo_read(filep, &sync, &readlen, false);
-          if (ret < 0)
-            {
-              nerr("ERROR: Failed to read sync bytes: %d\n", ret);
-              return ret;
-            }
-        }
-      while (sync != LOCAL_SYNC_BYTE);
-
-      /* Then read to the end of the SYNC sequence */
-
-      do
-        {
-          readlen = sizeof(uint8_t);
-          ret     = local_fifo_read(filep, &sync, &readlen, false);
-          if (ret < 0)
-            {
-              nerr("ERROR: Failed to read sync bytes: %d\n", ret);
-              return ret;
-            }
-        }
-      while (sync == LOCAL_SYNC_BYTE);
-    }
-  while (sync != LOCAL_END_BYTE);
-
-  /* Then read the packet length */
+  /* Read the packet length */
 
   readlen = sizeof(uint16_t);
   ret     = local_fifo_read(filep, (FAR uint8_t *)&pktlen, &readlen, false);
@@ -212,7 +175,7 @@ int local_getaddr(FAR struct local_conn_s *conn, FAR struct sockaddr *addr,
   int totlen;
   int pathlen;
 
-  DEBUGASSERT(conn && addr && addrlen && *addrlen >= sizeof(sa_family_t));
+  DEBUGASSERT(conn && addr && addrlen);
 
   /* Get the length of the path (minus the NUL terminator) and the length
    * of the whole Unix domain address.

@@ -32,6 +32,7 @@
 #include <debug.h>
 
 #include <nuttx/arch.h>
+#include <nuttx/mutex.h>
 
 #include "arm_internal.h"
 #include "stm32_pwm.h"
@@ -222,7 +223,7 @@
 /* FOC ADC trigger on CCR4 **************************************************/
 
 /* PWM channels configuration:
- *   - n channels for phases PWM (CCR1, CCR2, CCR3)
+ *   - 3 channels for phases PWM (CCR1, CCR2, CCR3)
  *   - 1 channel for ADC injection sequence trigger (CCR4)
  */
 
@@ -598,6 +599,74 @@
 #  endif
 #endif
 
+#ifdef CONFIG_MOTOR_FOC_BEMF_SENSE
+
+/* Additional checks for BEMF sensing */
+
+#  if defined(CONFIG_STM32_FOC_FOC0) && defined(CONFIG_STM32_FOC_FOC1)
+#    error BEMF sensing supported only for one FOC instance enabled
+#  endif
+
+#  if defined(CONFIG_STM32_FOC_FOC0_ADC2) || defined(CONFIG_STM32_FOC_FOC0_ADC3)
+#    error FOC must use ADC master
+#  endif
+#  if defined(CONFIG_STM32_FOC_FOC1_ADC2) || defined(CONFIG_STM32_FOC_FOC1_ADC3)
+#    error FOC must use ADC master
+#  endif
+
+/* Additional ADC slave in use */
+
+#  if defined(CONFIG_STM32_FOC_FOC0_ADC1) || defined(CONFIG_STM32_FOC_FOC1_ADC1)
+#    define CONFIG_STM32_FOC_USE_ADC2
+#  endif
+#  if defined(CONFIG_STM32_FOC_FOC0_ADC3) || defined(CONFIG_STM32_FOC_FOC1_ADC3)
+#    define CONFIG_STM32_FOC_USE_ADC4
+#  endif
+
+/* The number of required injected channels */
+
+#  ifdef CONFIG_STM32_FOC_G4_ADCCHAN0_WORKAROUND
+#    define FOC_VADC_INJ_CHAN_REQUIRED (CONFIG_MOTOR_FOC_PHASES + 1)
+#  else
+#    define FOC_VADC_INJ_CHAN_REQUIRED (CONFIG_MOTOR_FOC_PHASES)
+#  endif
+
+/* Slave ADC2 */
+
+#  ifdef CONFIG_STM32_FOC_USE_ADC2
+#    ifndef CONFIG_STM32_ADC2
+#      error ADC2 not supported !
+#    endif
+#    ifndef ADC2_HAVE_JEXTCFG
+#      error ADC2 must support JEXTCFG
+#    endif
+#    if CONFIG_STM32_ADC2_ANIOC_TRIGGER != 1
+#      error CONFIG_STM32_ADC2_ANIOC_TRIGGER must be 1
+#    endif
+#    if CONFIG_STM32_ADC2_INJECTED_CHAN != FOC_VADC_INJ_CHAN_REQUIRED
+#      error Invalid configuration for ADC2 injected channels
+#    endif
+#  endif
+
+/* Slave ADC4 */
+
+#  ifdef CONFIG_STM32_FOC_USE_ADC4
+#    ifndef CONFIG_STM32_ADC4
+#      error ADC4 not supported !
+#    endif
+#    ifndef ADC4_HAVE_JEXTCFG
+#      error ADC4 must support JEXTCFG
+#    endif
+#    if CONFIG_STM32_ADC4_ANIOC_TRIGGER != 1
+#      error CONFIG_STM32_ADC4_ANIOC_TRIGGER must be 1
+#    endif
+#    if CONFIG_STM32_ADC4_INJECTED_CHAN != FOC_VADC_INJ_CHAN_REQUIRED
+#      error Invalid configuration for ADC4 injected channels
+#    endif
+#  endif
+
+#endif
+
 /* Helper macros ************************************************************/
 
 /* Get arch-specific FOC private part */
@@ -621,7 +690,8 @@
 
 /* Get ADC device */
 
-#define ADC_FROM_FOC_DEV_GET(d) (STM32_FOC_DEV_FROM_DEV_GET(d)->adc)
+#define ADC_FROM_FOC_DEV_GET(d)  (STM32_FOC_DEV_FROM_DEV_GET(d)->adc)
+#define VADC_FROM_FOC_DEV_GET(d) (STM32_FOC_DEV_FROM_DEV_GET(d)->vadc)
 
 /* Define PWM all outputs */
 
@@ -673,7 +743,6 @@
 #define PWM_MODE_ADC_TRG   STM32_CHANMODE_PWM1
 #define PWM_MODE_HSLO_LSHI STM32_CHANMODE_OCREFHI
 #define PWM_MODE_HSHI_LSLO STM32_CHANMODE_OCREFLO
-#define PWM_MODE_HIZ       STM32_CHANMODE_FRZN
 
 /****************************************************************************
  * Private Types
@@ -698,6 +767,11 @@ struct stm32_foc_dev_s
   /* Interrupt handler for FOC device */
 
   int (*adc_isr)(struct foc_dev_s *dev);
+
+#ifdef CONFIG_MOTOR_FOC_BEMF_SENSE
+  struct adc_dev_s       *vadc_dev;  /* ADC device reference (voltage ) */
+  struct stm32_adc_dev_s *vadc;      /* STM32 ADC device reference (voltage) */
+#endif
 };
 
 /* STM32 FOC common data */
@@ -705,7 +779,7 @@ struct stm32_foc_dev_s
 struct stm32_foc_adccmn_s
 {
   uint8_t       cntr; /* ADC common counter */
-  sem_t         sem;  /* Lock data */
+  mutex_t       lock; /* Lock data */
 };
 
 /* STM32 FOC volatile data */
@@ -719,6 +793,11 @@ struct stm32_foc_data_s
   uint32_t      adcint_cntr;                          /* ADC interrupt counter */
   uint32_t      curr_offset[CONFIG_MOTOR_FOC_SHUNTS]; /* ADC current offset */
   int16_t       curr_raw[CONFIG_MOTOR_FOC_SHUNTS];    /* ADC current RAW */
+#ifdef CONFIG_MOTOR_FOC_BEMF_SENSE
+  foc_voltage_t volt[CONFIG_MOTOR_FOC_PHASES];        /* Voltage */
+  uint32_t      volt_offset[CONFIG_MOTOR_FOC_PHASES]; /* ADC voltage offset */
+  int16_t       volt_raw[CONFIG_MOTOR_FOC_PHASES];    /* ADC voltage RAW */
+#endif
 };
 
 /* STM32 FOC private */
@@ -765,6 +844,7 @@ static int stm32_foc_shutdown(struct foc_dev_s *dev);
 static int stm32_foc_start(struct foc_dev_s *dev, bool state);
 static int stm32_foc_pwm_duty_set(struct foc_dev_s *dev,
                                   foc_duty_t *duty);
+static int stm32_foc_pwm_off(struct foc_dev_s *dev, bool off);
 static int stm32_foc_ioctl(struct foc_dev_s *dev, int cmd,
                            unsigned long arg);
 static int stm32_foc_bind(struct foc_dev_s *dev,
@@ -785,6 +865,9 @@ static int stm32_foc_worker_handler(struct foc_dev_s *dev);
 
 static void stm32_foc_curr_get(struct foc_dev_s *dev,
                                int16_t *curr, int shunts);
+#ifdef CONFIG_MOTOR_FOC_BEMF_SENSE
+static void stm32_foc_volt_get(struct foc_dev_s *dev, int16_t *volt);
+#endif
 static int stm32_foc_notifier_cfg(struct foc_dev_s *dev, uint32_t freq);
 static int stm32_foc_pwm_cfg(struct foc_dev_s *dev, uint32_t freq);
 static int stm32_foc_adc_cfg(struct foc_dev_s *dev);
@@ -815,7 +898,8 @@ static void stm32_foc_hw_config_get(struct foc_dev_s *dev);
 
 static struct stm32_foc_adccmn_s g_stm32_foc_adccmn123 =
 {
-  .cntr = 0
+  .cntr = 0,
+  .lock = NXMUTEX_INITIALIZER,
 };
 #  endif  /* CONFIG_STM32_HAVE_IP_ADC_V1 */
 
@@ -825,7 +909,8 @@ static struct stm32_foc_adccmn_s g_stm32_foc_adccmn123 =
 
 static struct stm32_foc_adccmn_s g_stm32_foc_adccmn12 =
 {
-  .cntr = 0
+  .cntr = 0,
+  .lock = NXMUTEX_INITIALIZER,
 };
 #    endif  /* CONFIG_STM32_HAVE_ADC1 || CONFIG_STM32_HAVE_ADC2 */
 #    if defined(CONFIG_STM32_HAVE_ADC3) || defined(CONFIG_STM32_HAVE_ADC4)
@@ -833,7 +918,8 @@ static struct stm32_foc_adccmn_s g_stm32_foc_adccmn12 =
 
 static struct stm32_foc_adccmn_s g_stm32_foc_adccmn34 =
 {
-  .cntr = 0
+  .cntr = 0,
+  .lock = NXMUTEX_INITIALIZER,
 };
 #    endif  /* CONFIG_STM32_HAVE_ADC3 || CONFIG_STM32_HAVE_ADC4 */
 #  endif    /* CONFIG_STM32_HAVE_IP_ADC_V2 */
@@ -853,6 +939,7 @@ static struct foc_lower_ops_s g_stm32_foc_ops =
   .shutdown       = stm32_foc_shutdown,
   .start          = stm32_foc_start,
   .pwm_duty_set   = stm32_foc_pwm_duty_set,
+  .pwm_off        = stm32_foc_pwm_off,
   .ioctl          = stm32_foc_ioctl,
   .bind           = stm32_foc_bind,
   .fault_clear    = stm32_foc_fault_clear,
@@ -1062,9 +1149,12 @@ static int stm32_foc_pwm_start(struct foc_dev_s *dev, bool state)
   DEBUGASSERT(board);
   DEBUGASSERT(pwm);
 
-  /* Configure outputs state */
+  if (!dev->state.pwm_off)
+    {
+      /* Enable PWM outputs */
 
-  PWM_ALL_OUTPUTS_ENABLE(pwm, state);
+      PWM_ALL_OUTPUTS_ENABLE(pwm, state);
+    }
 
   /* Call board-specific logic */
 
@@ -1132,7 +1222,7 @@ static int stm32_foc_adc_start(struct foc_dev_s *dev, bool state)
 
 static int stm32_foc_adc_cfg(struct foc_dev_s *dev)
 {
-  struct stm32_foc_dev_s  *foc_dev = STM32_FOC_DEV_FROM_DEV_GET(dev);
+  struct stm32_foc_dev_s *foc_dev = STM32_FOC_DEV_FROM_DEV_GET(dev);
 
   DEBUGASSERT(dev);
   DEBUGASSERT(foc_dev);
@@ -1312,6 +1402,9 @@ static int stm32_foc_setup(struct foc_dev_s *dev)
   struct stm32_foc_board_s *board   = STM32_FOC_BOARD_FROM_DEV_GET(dev);
   struct stm32_foc_priv_s  *priv    = STM32_FOC_PRIV_FROM_DEV_GET(dev);
   struct stm32_adc_dev_s   *adc     = ADC_FROM_FOC_DEV_GET(dev);
+#ifdef CONFIG_MOTOR_FOC_BEMF_SENSE
+  struct stm32_adc_dev_s   *vadc    = VADC_FROM_FOC_DEV_GET(dev);
+#endif
   struct adc_sample_time_s  stime;
   int                       ret     = OK;
 
@@ -1337,10 +1430,34 @@ static int stm32_foc_setup(struct foc_dev_s *dev)
 
   STM32_ADC_SETUP(foc_dev->adc);
 
+#ifdef CONFIG_MOTOR_FOC_BEMF_SENSE
+  /* Setup slave ADC */
+
+  STM32_ADC_SETUP(foc_dev->vadc);
+
+  /* Disable interrupts for slave ADC */
+
+  STM32_ADC_DISABLEINT(foc_dev->vadc);
+
+  /* Disable master and slave ADC */
+
+  STM32_ADC_ENABLE(foc_dev->adc, false);
+  STM32_ADC_ENABLE(foc_dev->vadc, false);
+
+  /* Configure dual injected simultaneous only mode */
+
+  STM32_ADC_MULTICFG(foc_dev->vadc, ADC_MULTIMODE_ISM2);
+
+  /* Enable master and slave ADC */
+
+  STM32_ADC_ENABLE(foc_dev->adc, true);
+  STM32_ADC_ENABLE(foc_dev->vadc, true);
+#endif
+
 #ifdef FOC_ADC_HAVE_CMN
   /* Lock ADC common data */
 
-  ret = nxsem_wait_uninterruptible(&priv->adc_cmn->sem);
+  ret = nxmutex_lock(&priv->adc_cmn->lock);
   if (ret < 0)
     {
       goto errout;
@@ -1361,7 +1478,7 @@ static int stm32_foc_setup(struct foc_dev_s *dev)
 
   /* Unlock ADC common data */
 
-  nxsem_post(&priv->adc_cmn->sem);
+  nxmutex_unlock(&priv->adc_cmn->lock);
 #endif
 
   /* Setup PWM */
@@ -1387,6 +1504,18 @@ static int stm32_foc_setup(struct foc_dev_s *dev)
 
   STM32_ADC_SAMPLETIME_SET(adc, &stime);
   STM32_ADC_SAMPLETIME_WRITE(adc);
+
+#ifdef CONFIG_MOTOR_FOC_BEMF_SENSE
+  /* Configure sample times for BEMF channels */
+
+  memset(&stime, 0, sizeof(struct adc_sample_time_s));
+
+  stime.channels_nbr = board->data->vadc_cfg->nchan;
+  stime.channel      = board->data->vadc_cfg->stime;
+
+  STM32_ADC_SAMPLETIME_SET(vadc, &stime);
+  STM32_ADC_SAMPLETIME_WRITE(vadc);
+#endif
 
   /* Set the priority of the ADC interrupt vector */
 
@@ -1433,6 +1562,9 @@ static int stm32_foc_setup(struct foc_dev_s *dev)
   /* Dump ADC regs */
 
   STM32_ADC_DUMP_REGS(adc);
+#ifdef CONFIG_MOTOR_FOC_BEMF_SENSE
+  STM32_ADC_DUMP_REGS(vadc);
+#endif
 
 errout:
   return ret;
@@ -1448,10 +1580,10 @@ errout:
 
 static int stm32_foc_shutdown(struct foc_dev_s *dev)
 {
-  struct stm32_foc_dev_s    *foc_dev = STM32_FOC_DEV_FROM_DEV_GET(dev);
-  struct stm32_foc_board_s  *board   = STM32_FOC_BOARD_FROM_DEV_GET(dev);
-  struct stm32_foc_priv_s   *priv    = STM32_FOC_PRIV_FROM_DEV_GET(dev);
-  int                        ret     = OK;
+  struct stm32_foc_dev_s   *foc_dev = STM32_FOC_DEV_FROM_DEV_GET(dev);
+  struct stm32_foc_board_s *board   = STM32_FOC_BOARD_FROM_DEV_GET(dev);
+  struct stm32_foc_priv_s  *priv    = STM32_FOC_PRIV_FROM_DEV_GET(dev);
+  int                       ret     = OK;
 
   DEBUGASSERT(dev);
   DEBUGASSERT(foc_dev);
@@ -1474,7 +1606,7 @@ static int stm32_foc_shutdown(struct foc_dev_s *dev)
 #ifdef FOC_ADC_HAVE_CMN
   /* Lock ADC common data */
 
-  ret = nxsem_wait_uninterruptible(&priv->adc_cmn->sem);
+  ret = nxmutex_lock(&priv->adc_cmn->lock);
   if (ret < 0)
     {
       goto errout;
@@ -1497,7 +1629,7 @@ static int stm32_foc_shutdown(struct foc_dev_s *dev)
 #ifdef FOC_ADC_HAVE_CMN
   /* Unlock ADC common data */
 
-  nxsem_post(&priv->adc_cmn->sem);
+  nxmutex_unlock(&priv->adc_cmn->lock);
 #endif
 
   /* Call board-specific shutdown */
@@ -1711,9 +1843,25 @@ static int stm32_foc_worker_handler(struct foc_dev_s *dev)
                                     priv->data.curr_raw,
                                     priv->data.curr);
 
+#ifdef CONFIG_MOTOR_FOC_BEMF_SENSE
+      /* Get raw voltage samples */
+
+      stm32_foc_volt_get(dev, priv->data.volt_raw);
+
+      /* Get BEMF voltages */
+
+      ret = board->ops->voltage_get(dev,
+                                    priv->data.volt_raw,
+                                    priv->data.volt);
+#endif
+
       /* Call upper-half worker callback */
 
-      priv->cb->notifier(dev, priv->data.curr);
+#ifdef CONFIG_MOTOR_FOC_BEMF_SENSE
+      priv->cb->notifier(dev, priv->data.curr, priv->data.volt);
+#else
+      priv->cb->notifier(dev, priv->data.curr, NULL);
+#endif
     }
 
   return ret;
@@ -1734,6 +1882,9 @@ static int stm32_foc_calibration_start(struct foc_dev_s *dev)
   struct stm32_foc_board_s *board   = STM32_FOC_BOARD_FROM_DEV_GET(dev);
   struct stm32_pwm_dev_s   *pwm     = PWM_FROM_FOC_DEV_GET(dev);
   struct stm32_adc_dev_s   *adc     = ADC_FROM_FOC_DEV_GET(dev);
+#ifdef CONFIG_MOTOR_FOC_BEMF_SENSE
+  struct stm32_adc_dev_s   *vadc    = VADC_FROM_FOC_DEV_GET(dev);
+#endif
   uint8_t                   i       = 0;
   uint8_t                   ch      = 0;
   int                       ret     = OK;
@@ -1834,6 +1985,36 @@ static int stm32_foc_calibration_start(struct foc_dev_s *dev)
       STM32_ADC_OFFSET_SET(adc, ch, i, priv->data.curr_offset[i]);
     }
 
+#ifdef CONFIG_MOTOR_FOC_BEMF_SENSE
+
+  /* TODO: BEMF sensing calibartion */
+
+  for (i = 0; i < CONFIG_MOTOR_FOC_PHASES; i += 1)
+    {
+      priv->data.volt_offset[i] = 0;
+    }
+
+  /* Clear last ADC data */
+
+  for (i = 0; i < CONFIG_MOTOR_FOC_PHASES; i += 1)
+    {
+      priv->data.volt_raw[i] = 0;
+    }
+
+  /* Set ADC hardware offset for voltage channels (only injected channels) */
+
+  for (i = 0; i < CONFIG_MOTOR_FOC_PHASES; i += 1)
+    {
+      /* Get channel */
+
+      ch = board->data->vadc_cfg->chan[board->data->vadc_cfg->regch + i];
+
+      /* Write offset */
+
+      STM32_ADC_OFFSET_SET(vadc, ch, i, priv->data.volt_offset[i]);
+    }
+#endif
+
   mtrinfo("ADC offset calibration - DONE!\n");
 
 errout:
@@ -1907,6 +2088,54 @@ static int stm32_foc_pwm_duty_set(struct foc_dev_s *dev,
 }
 
 /****************************************************************************
+ * Name: stm32_foc_pwm_off
+ *
+ * Description:
+ *   Set the 3-phase bridge switches in off state.
+ *
+ ****************************************************************************/
+
+static int stm32_foc_pwm_off(struct foc_dev_s *dev, bool off)
+{
+  struct stm32_pwm_dev_s *pwm = PWM_FROM_FOC_DEV_GET(dev);
+
+  if (off)
+    {
+      /* Force all transistors to low state */
+
+      PWM_MODE_UPDATE(pwm, STM32_PWM_CHAN1, PWM_MODE_HSHI_LSLO);
+      PWM_MODE_UPDATE(pwm, STM32_PWM_CHAN2, PWM_MODE_HSHI_LSLO);
+#if CONFIG_MOTOR_FOC_PHASES > 2
+      PWM_MODE_UPDATE(pwm, STM32_PWM_CHAN3, PWM_MODE_HSHI_LSLO);
+#endif
+#if CONFIG_MOTOR_FOC_PHASES > 3
+      PWM_MODE_UPDATE(pwm, STM32_PWM_CHAN4, PWM_MODE_HSHI_LSLO);
+#endif
+
+      /* Disable complementary outputs */
+
+      PWM_OUTPUTS_ENABLE(pwm, PMW_OUTPUTS_ALL_COMP, false);
+    }
+  else
+    {
+      /* Restore FOC operation modes */
+
+      PWM_ALL_OUTPUTS_ENABLE(pwm, true);
+
+      PWM_MODE_UPDATE(pwm, STM32_PWM_CHAN1, PWM_MODE_FOC);
+      PWM_MODE_UPDATE(pwm, STM32_PWM_CHAN2, PWM_MODE_FOC);
+#if CONFIG_MOTOR_FOC_PHASES > 2
+      PWM_MODE_UPDATE(pwm, STM32_PWM_CHAN3, PWM_MODE_FOC);
+#endif
+#if CONFIG_MOTOR_FOC_PHASES > 3
+      PWM_MODE_UPDATE(pwm, STM32_PWM_CHAN4, PWM_MODE_FOC);
+#endif
+    }
+
+  return OK;
+}
+
+/****************************************************************************
  * Name: stm32_foc_hw_config_get
  *
  * Description:
@@ -1964,6 +2193,61 @@ static void stm32_foc_curr_get(struct foc_dev_s *dev,
 #endif
     }
 }
+
+#ifdef CONFIG_MOTOR_FOC_BEMF_SENSE
+/****************************************************************************
+ * Name: stm32_foc_volt_get
+ *
+ * Description:
+ *   Get voltage samples from ADC
+ *
+ ****************************************************************************/
+
+static void stm32_foc_volt_get(struct foc_dev_s *dev, int16_t *volt)
+{
+  struct stm32_foc_priv_s *priv = STM32_FOC_PRIV_FROM_DEV_GET(dev);
+  struct stm32_adc_dev_s  *vadc  = VADC_FROM_FOC_DEV_GET(dev);
+  int                      i    = 0;
+
+  DEBUGASSERT(dev);
+  DEBUGASSERT(priv);
+  DEBUGASSERT(vadc);
+  DEBUGASSERT(volt);
+
+  /* Make sure the conversion is complete.
+   * It is possible that the ADC master sequence will end in front of
+   * the slave sequence. In that case we just busy-wait.
+   * In the worst case scenario the slave conversion is one channel behind
+   * the master conversion (2 current channels vs 3 voltage channels).
+   *
+   * Another solution is to make sure that both conversions has the same
+   * length, but this makes the code much more complex.
+   */
+
+  while ((FOC_ADC_ISR_FOC & STM32_ADC_INT_GET(vadc)) == 0);
+
+  /* Clear status */
+
+  STM32_ADC_INT_ACK(vadc, FOC_ADC_ISR_FOC);
+
+  for (i = 0; i < CONFIG_MOTOR_FOC_PHASES; i += 1)
+    {
+      /* Get raw voltage samples.
+       * We have ADC offset enabled for injected channels so this
+       * gives us signed values.
+       * NOTE: ADC value is 11 bits + sign.
+       */
+
+#ifdef CONFIG_STM32_FOC_G4_ADCCHAN0_WORKAROUND
+      /* Ignore first channel */
+
+      volt[i] = (int16_t)STM32_ADC_INJDATA_GET(vadc, (i + 1));
+#else
+      volt[i] = (int16_t)STM32_ADC_INJDATA_GET(vadc, i);
+#endif
+    }
+}
+#endif
 
 /****************************************************************************
  * Name: stm32_foc_notifier_cfg
@@ -2108,6 +2392,91 @@ void stm32_foc_trace(struct foc_dev_s *dev, int type, bool state)
 #endif
 
 /****************************************************************************
+ * Name: stm32_foc_adc_init
+ *
+ * Description:
+ *   Initialize ADC instance
+ *
+ ****************************************************************************/
+
+struct adc_dev_s *stm32_foc_adc_init(struct stm32_foc_adc_s *adc_cfg)
+{
+  struct adc_dev_s          *adc_dev   = NULL;
+  int                        i         = 0;
+#ifdef CONFIG_STM32_FOC_G4_ADCCHAN0_WORKAROUND
+  uint8_t                   *adc_chan  = NULL;
+  uint8_t                    adc_nchan = 0;
+#endif
+
+  DEBUGASSERT(adc_cfg);
+  DEBUGASSERT(adc_cfg != NULL);
+  DEBUGASSERT(adc_cfg->pins != NULL);
+  DEBUGASSERT(adc_cfg->chan != NULL);
+
+  /* Configure pins as analog inputs for the selected channels */
+
+  for (i = 0; i < adc_cfg->nchan; i++)
+    {
+      stm32_configgpio(adc_cfg->pins[i]);
+    }
+
+  /* STM32G4 ADC channel 0 unwanted conversion workaround */
+
+#ifdef CONFIG_STM32_FOC_G4_ADCCHAN0_WORKAROUND
+  /* Add one dummy channel to conversion */
+
+  adc_nchan = (adc_cfg->nchan + 1);
+
+  /* Allocate memory for the extended list of channels */
+
+  adc_chan = zalloc(adc_nchan);
+  if (adc_chan == NULL)
+    {
+      goto errout;
+    }
+
+  /* Copy regular channels first */
+
+  for (i = 0; i < adc_cfg->regch; i += 1)
+    {
+      adc_chan[i] = adc_cfg->chan[i];
+    }
+
+  /* Add dummy channel at the beginning of injected channels */
+
+  adc_chan[adc_cfg->regch] = 0;
+
+  /* Copy injected channels */
+
+  for (i = (adc_cfg->regch + 1); i < adc_nchan; i += 1)
+    {
+      adc_chan[i] = adc_cfg->chan[i - 1];
+    }
+#endif  /* CONFIG_STM32_FOC_G4_ADCCHAN0_WORKAROUND */
+
+  /* Get the ADC interface */
+
+#ifdef CONFIG_STM32_FOC_G4_ADCCHAN0_WORKAROUND
+  adc_dev = stm32_adcinitialize(adc_cfg->intf,
+                                adc_chan,
+                                adc_nchan);
+
+  free(adc_chan);
+#else
+  adc_dev = stm32_adcinitialize(adc_cfg->intf,
+                                adc_cfg->chan,
+                                adc_cfg->nchan);
+#endif
+
+  return adc_dev;
+
+#ifdef CONFIG_STM32_FOC_G4_ADCCHAN0_WORKAROUND
+errout:
+  return NULL;
+#endif
+}
+
+/****************************************************************************
  * Public Functions
  ****************************************************************************/
 
@@ -2144,11 +2513,6 @@ stm32_foc_initialize(int inst, struct stm32_foc_board_s *board)
   uint8_t                    pwm_inst  = 0;
   uint8_t                    adc_inst  = 0;
   uint32_t                   pwmfzbit  = 0;
-  int                        i         = 0;
-#ifdef CONFIG_STM32_FOC_G4_ADCCHAN0_WORKAROUND
-  uint8_t                   *adc_chan  = NULL;
-  uint8_t                    adc_nchan = 0;
-#endif
 
   DEBUGASSERT(board != NULL);
   DEBUGASSERT(board->ops != NULL);
@@ -2166,11 +2530,6 @@ stm32_foc_initialize(int inst, struct stm32_foc_board_s *board)
   DEBUGASSERT(board->ops->trace_init);
   DEBUGASSERT(board->ops->trace);
 #endif
-
-  /* Get ADC configuration from board data */
-
-  adc_cfg = board->data->adc_cfg;
-  DEBUGASSERT(adc_cfg);
 
   /* Get FOC instance configuration */
 
@@ -2267,86 +2626,62 @@ stm32_foc_initialize(int inst, struct stm32_foc_board_s *board)
       goto errout;
     }
 
-  /* Configure pins as analog inputs for the selected channels */
+  /* Get ADC configuration */
 
-  DEBUGASSERT(adc_cfg != NULL);
-  DEBUGASSERT(adc_cfg->pins != NULL);
-  DEBUGASSERT(adc_cfg->chan != NULL);
-
-  for (i = 0; i < adc_cfg->nchan; i++)
-    {
-      stm32_configgpio(adc_cfg->pins[i]);
-    }
+  adc_cfg = board->data->adc_cfg;
 
   /* Make sure that we are using the appropriate ADC interface */
 
   if (adc_inst != adc_cfg->intf)
     {
-      mtrerr("Configuration doesn't match %d, %d\n",
+      mtrerr("FOC ADC configuration doesn't match %d, %d\n",
              adc_inst, adc_cfg->intf);
       set_errno(EINVAL);
       goto errout;
     }
 
-  /* STM32G4 ADC channel 0 unwanted conversion workaround */
+  /* Get ADC instance */
 
-#ifdef CONFIG_STM32_FOC_G4_ADCCHAN0_WORKAROUND
-  /* Add one dummy channel to conversion */
-
-  adc_nchan = (adc_cfg->nchan + 1);
-
-  /* Allocate memory for the extended list of channels */
-
-  adc_chan = zalloc(adc_nchan);
-  if (adc_chan == NULL)
+  foc_dev->adc_dev = stm32_foc_adc_init(adc_cfg);
+  if (foc_dev->adc_dev == NULL)
     {
+      mtrerr("Failed to initialize FOC ADC%d interface\n", adc_cfg->intf);
+      set_errno(EINVAL);
       goto errout;
     }
 
-  /* Copy regular channels first */
+    /* Get ADC private part */
 
-  for (i = 0; i < adc_cfg->regch; i += 1)
+    foc_dev->adc = (struct stm32_adc_dev_s *)foc_dev->adc_dev->ad_priv;
+
+#ifdef CONFIG_MOTOR_FOC_BEMF_SENSE
+  /* Get ADC configuration */
+
+  adc_cfg = board->data->vadc_cfg;
+
+  /* Make sure that we are using the slave ADC */
+
+  if (adc_inst != adc_cfg->intf - 1)
     {
-      adc_chan[i] = adc_cfg->chan[i];
+      mtrerr("BEMF ADC must be the first slave instance of the main ADC!");
+      set_errno(EINVAL);
+      goto errout;
     }
 
-  /* Add dummy channel at the beginning of injected channels */
+  /* Get ADC instance */
 
-  adc_chan[adc_cfg->regch] = 0;
-
-  /* Copy injected channels */
-
-  for (i = (adc_cfg->regch + 1); i < adc_nchan; i += 1)
+  foc_dev->vadc_dev = stm32_foc_adc_init(adc_cfg);
+  if (foc_dev->vadc_dev == NULL)
     {
-      adc_chan[i] = adc_cfg->chan[i - 1];
-    }
-
-#endif  /* CONFIG_STM32_FOC_G4_ADCCHAN0_WORKAROUND */
-
-  /* Get the ADC interface */
-
-#ifdef CONFIG_STM32_FOC_G4_ADCCHAN0_WORKAROUND
-  foc_dev->adc_dev = stm32_adcinitialize(adc_inst,
-                                         adc_chan,
-                                         adc_nchan);
-
-  free(adc_chan);
-#else
-  foc_dev->adc_dev = stm32_adcinitialize(adc_inst,
-                                         adc_cfg->chan,
-                                         adc_cfg->nchan);
-#endif
-
-  if (foc_dev->adc_dev == NULL)
-    {
-      mtrerr("Failed to get ADC%d interface\n", adc_cfg->intf);
+      mtrerr("Failed to initialize BEMF ADC%d interface\n", adc_cfg->intf);
       set_errno(EINVAL);
       goto errout;
     }
 
   /* Get ADC private part */
 
-  foc_dev->adc = (struct stm32_adc_dev_s *)foc_dev->adc_dev->ad_priv;
+  foc_dev->vadc = (struct stm32_adc_dev_s *)foc_dev->vadc_dev->ad_priv;
+#endif
 
   /* Froze timer and reset outputs when core is halted.
    * TODO: move this to stm32_pwm.c and configure from Kconfig
@@ -2354,16 +2689,9 @@ stm32_foc_initialize(int inst, struct stm32_foc_board_s *board)
 
   modifyreg32(FOC_PWM_FZ_REG, 0, pwmfzbit);
 
-#ifdef FOC_ADC_HAVE_CMN
-  /* Initialize ADC common data semaphore  */
-
-  nxsem_init(&foc_priv->adc_cmn->sem, 0, 1);
-#endif
-
   /* Initialize calibration semaphore */
 
   nxsem_init(&foc_priv->cal_done_sem, 0, 0);
-  nxsem_set_protocol(&foc_priv->cal_done_sem, SEM_PRIO_NONE);
 
   /* Get FOC device */
 

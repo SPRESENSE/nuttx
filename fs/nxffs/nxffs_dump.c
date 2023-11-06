@@ -27,8 +27,8 @@
 #include <string.h>
 #include <debug.h>
 #include <errno.h>
-#include <crc32.h>
 
+#include <nuttx/crc32.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/fs/ioctl.h>
 #include <nuttx/mtd/mtd.h>
@@ -441,7 +441,7 @@ int nxffs_dump(FAR struct mtd_dev_s *mtd, bool verbose)
 
   /* Allocate a buffer to hold one block */
 
-  blkinfo.buffer = (FAR uint8_t *)kmm_malloc(blkinfo.geo.blocksize);
+  blkinfo.buffer = kmm_malloc(blkinfo.geo.blocksize);
   if (!blkinfo.buffer)
     {
       ferr("ERROR: Failed to allocate block cache\n");

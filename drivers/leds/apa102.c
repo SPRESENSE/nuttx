@@ -75,12 +75,6 @@ static const struct file_operations g_apa102fops =
   NULL,          /* close */
   apa102_read,   /* read */
   apa102_write,  /* write */
-  NULL,          /* seek */
-  NULL,          /* ioctl */
-  NULL           /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL         /* unlink */
-#endif
 };
 
 /****************************************************************************
@@ -238,7 +232,7 @@ int apa102_register(FAR const char *devpath, FAR struct spi_dev_s *spi)
 
   /* Initialize the APA102 device structure */
 
-  priv = (FAR struct apa102_dev_s *)kmm_malloc(sizeof(struct apa102_dev_s));
+  priv = kmm_malloc(sizeof(struct apa102_dev_s));
   if (!priv)
     {
       snerr("ERROR: Failed to allocate instance\n");

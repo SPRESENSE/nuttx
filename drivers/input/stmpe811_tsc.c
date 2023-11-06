@@ -124,10 +124,9 @@ static const struct file_operations g_stmpe811fops =
   NULL,             /* write */
   NULL,             /* seek */
   stmpe811_ioctl,   /* ioctl */
+  NULL,             /* mmap */
+  NULL,             /* truncate */
   stmpe811_poll     /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL            /* unlink */
-#endif
 };
 
 /****************************************************************************
@@ -145,24 +144,13 @@ static const struct file_operations g_stmpe811fops =
 
 static void stmpe811_notify(FAR struct stmpe811_dev_s *priv)
 {
-  int i;
-
   /* If there are threads waiting on poll() for STMPE811 data to become
    * available, then wake them up now.  NOTE: we wake up all waiting threads
    * because we do not know that they are going to do.  If they all try to
    * read the data, then some make end up blocking after all.
    */
 
-  for (i = 0; i < CONFIG_STMPE811_NPOLLWAITERS; i++)
-    {
-      struct pollfd *fds = priv->fds[i];
-      if (fds)
-        {
-          fds->revents |= POLLIN;
-          iinfo("Report events: %08" PRIx32 "\n", fds->revents);
-          nxsem_post(fds->sem);
-        }
-    }
+  poll_notify(priv->fds, CONFIG_STMPE811_NPOLLWAITERS, POLLIN);
 
   /* If there are threads waiting for read data, then signal one of them
    * that the read data is available.
@@ -251,19 +239,20 @@ static inline int stmpe811_waitsample(FAR struct stmpe811_dev_s *priv,
                                       FAR struct stmpe811_sample_s *sample)
 {
   int ret;
+  irqstate_t flags;
 
   /* Disable pre-emption to prevent the worker thread from running
    * asynchronously.
    */
 
-  sched_lock();
+  flags = enter_critical_section();
 
   /* Now release the semaphore that manages mutually exclusive access to
    * the device structure.  This may cause other tasks to become ready to
    * run, but they cannot run yet because pre-emption is disabled.
    */
 
-  nxsem_post(&priv->exclsem);
+  nxmutex_unlock(&priv->lock);
 
   /* Try to get the a sample... if we cannot, then wait on the semaphore
    * that is posted when new sample data is available.
@@ -291,16 +280,15 @@ static inline int stmpe811_waitsample(FAR struct stmpe811_dev_s *priv,
    * Interrupts and pre-emption will be re-enabled while we wait.
    */
 
-  ret = nxsem_wait(&priv->exclsem);
+  ret = nxmutex_lock(&priv->lock);
 
 errout:
-  /* Restore pre-emption.  We might get suspended here but that is okay
-   * because we already have our sample.  Note:  this means that if there
-   * were two threads reading from the STMPE811 for some reason, the data
-   * might be read out of order.
+  /* Then re-enable interrupts.  We might get interrupt here and there
+   * could be a new sample.  But no new threads will run because we still
+   * have pre-emption disabled.
    */
 
-  sched_unlock();
+  leave_critical_section(flags);
   return ret;
 }
 
@@ -320,15 +308,14 @@ static int stmpe811_open(FAR struct file *filep)
   uint8_t                   tmp;
   int                       ret;
 
-  DEBUGASSERT(filep);
   inode = filep->f_inode;
 
-  DEBUGASSERT(inode && inode->i_private);
-  priv  = (FAR struct stmpe811_dev_s *)inode->i_private;
+  DEBUGASSERT(inode->i_private);
+  priv  = inode->i_private;
 
   /* Get exclusive access to the driver data structure */
 
-  ret = nxsem_wait(&priv->exclsem);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       ierr("ERROR: nxsem_wait failed: %d\n", ret);
@@ -343,7 +330,7 @@ static int stmpe811_open(FAR struct file *filep)
       /* More than 255 opens; uint8_t overflows to zero */
 
       ret = -EMFILE;
-      goto errout_with_sem;
+      goto errout_with_lock;
     }
 
   /* When the reference increments to 1, this is the first open event
@@ -354,8 +341,8 @@ static int stmpe811_open(FAR struct file *filep)
 
   priv->crefs = tmp;
 
-errout_with_sem:
-  nxsem_post(&priv->exclsem);
+errout_with_lock:
+  nxmutex_unlock(&priv->lock);
   return ret;
 #else
   return OK;
@@ -377,15 +364,14 @@ static int stmpe811_close(FAR struct file *filep)
   FAR struct stmpe811_dev_s *priv;
   int                       ret;
 
-  DEBUGASSERT(filep);
   inode = filep->f_inode;
 
-  DEBUGASSERT(inode && inode->i_private);
-  priv  = (FAR struct stmpe811_dev_s *)inode->i_private;
+  DEBUGASSERT(inode->i_private);
+  priv  = inode->i_private;
 
   /* Get exclusive access to the driver data structure */
 
-  ret = nxsem_wait(&priv->exclsem);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       ierr("ERROR: nxsem_wait failed: %d\n", ret);
@@ -402,7 +388,7 @@ static int stmpe811_close(FAR struct file *filep)
       priv->crefs--;
     }
 
-  nxsem_post(&priv->exclsem);
+  nxmutex_unlock(&priv->lock);
 #endif
   return OK;
 }
@@ -425,11 +411,10 @@ static ssize_t stmpe811_read(FAR struct file *filep,
   int                        ret;
 
   iinfo("len=%d\n", len);
-  DEBUGASSERT(filep);
   inode = filep->f_inode;
 
-  DEBUGASSERT(inode && inode->i_private);
-  priv  = (FAR struct stmpe811_dev_s *)inode->i_private;
+  DEBUGASSERT(inode->i_private);
+  priv  = inode->i_private;
 
   /* Verify that the caller has provided a buffer large enough to receive
    * the touch data.
@@ -446,7 +431,7 @@ static ssize_t stmpe811_read(FAR struct file *filep,
 
   /* Get exclusive access to the driver data structure */
 
-  ret = nxsem_wait(&priv->exclsem);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       ierr("ERROR: nxsem_wait failed: %d\n", ret);
@@ -531,7 +516,7 @@ static ssize_t stmpe811_read(FAR struct file *filep,
   ret = SIZEOF_TOUCH_SAMPLE_S(1);
 
 errout:
-  nxsem_post(&priv->exclsem);
+  nxmutex_unlock(&priv->lock);
   return ret;
 }
 
@@ -550,15 +535,14 @@ static int stmpe811_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
   int                        ret;
 
   iinfo("cmd: %d arg: %ld\n", cmd, arg);
-  DEBUGASSERT(filep);
   inode = filep->f_inode;
 
-  DEBUGASSERT(inode && inode->i_private);
-  priv  = (FAR struct stmpe811_dev_s *)inode->i_private;
+  DEBUGASSERT(inode->i_private);
+  priv  = inode->i_private;
 
   /* Get exclusive access to the driver data structure */
 
-  ret = nxsem_wait(&priv->exclsem);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       ierr("ERROR: nxsem_wait failed: %d\n", ret);
@@ -585,12 +569,44 @@ static int stmpe811_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
         }
         break;
 
+      case TSIOC_GETOFFSETX:  /* arg: Pointer to int offsetx config value */
+        {
+          FAR int *ptr = (FAR int *)((uintptr_t)arg);
+          DEBUGASSERT(ptr != NULL);
+          *ptr = CONFIG_STMPE811_OFFSETX;
+        }
+        break;
+
+      case TSIOC_GETOFFSETY:  /* arg: Pointer to int offsety config value */
+        {
+          FAR int *ptr = (FAR int *)((uintptr_t)arg);
+          DEBUGASSERT(ptr != NULL);
+          *ptr = CONFIG_STMPE811_OFFSETY;
+        }
+        break;
+
+      case TSIOC_GETTHRESHX:  /* arg: Pointer to int threshx config value */
+        {
+          FAR int *ptr = (FAR int *)((uintptr_t)arg);
+          DEBUGASSERT(ptr != NULL);
+          *ptr = CONFIG_STMPE811_THRESHX;
+        }
+        break;
+
+      case TSIOC_GETTHRESHY:  /* arg: Pointer to int threshy config value */
+        {
+          FAR int *ptr = (FAR int *)((uintptr_t)arg);
+          DEBUGASSERT(ptr != NULL);
+          *ptr = CONFIG_STMPE811_THRESHY;
+        }
+        break;
+
       default:
         ret = -ENOTTY;
         break;
     }
 
-  nxsem_post(&priv->exclsem);
+  nxmutex_unlock(&priv->lock);
   return ret;
 }
 
@@ -611,15 +627,15 @@ static int stmpe811_poll(FAR struct file *filep, FAR struct pollfd *fds,
   int                        i;
 
   iinfo("setup: %d\n", (int)setup);
-  DEBUGASSERT(filep && fds);
+  DEBUGASSERT(fds);
   inode = filep->f_inode;
 
-  DEBUGASSERT(inode && inode->i_private);
-  priv  = (FAR struct stmpe811_dev_s *)inode->i_private;
+  DEBUGASSERT(inode->i_private);
+  priv  = inode->i_private;
 
   /* Are we setting up the poll?  Or tearing it down? */
 
-  ret = nxsem_wait(&priv->exclsem);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       /* This should only happen if the wait was canceled by an signal */
@@ -687,7 +703,7 @@ static int stmpe811_poll(FAR struct file *filep, FAR struct pollfd *fds,
     }
 
 errout:
-  nxsem_post(&priv->exclsem);
+  nxmutex_unlock(&priv->lock);
   return ret;
 }
 
@@ -861,7 +877,7 @@ int stmpe811_register(STMPE811_HANDLE handle, int minor)
 
   /* Get exclusive access to the device structure */
 
-  ret = nxsem_wait(&priv->exclsem);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       ierr("ERROR: nxsem_wait failed: %d\n", ret);
@@ -873,7 +889,7 @@ int stmpe811_register(STMPE811_HANDLE handle, int minor)
   if ((priv->inuse & TSC_PIN_SET) != 0)
     {
       ierr("ERROR: TSC pins is already in-use: %02x\n", priv->inuse);
-      nxsem_post(&priv->exclsem);
+      nxmutex_unlock(&priv->lock);
       return -EBUSY;
     }
 
@@ -891,7 +907,7 @@ int stmpe811_register(STMPE811_HANDLE handle, int minor)
   if (ret < 0)
     {
       ierr("ERROR: Failed to register driver %s: %d\n", devname, ret);
-      nxsem_post(&priv->exclsem);
+      nxmutex_unlock(&priv->lock);
       return ret;
     }
 
@@ -903,7 +919,7 @@ int stmpe811_register(STMPE811_HANDLE handle, int minor)
 
   priv->inuse |= TSC_PIN_SET;                    /* Pins 4-7 are now in-use */
   priv->flags |= STMPE811_FLAGS_TSC_INITIALIZED; /* TSC function is initialized */
-  nxsem_post(&priv->exclsem);
+  nxmutex_unlock(&priv->lock);
   return ret;
 }
 
@@ -934,6 +950,10 @@ void stmpe811_tscworker(FAR struct stmpe811_dev_s *priv, uint8_t intsta)
   /* Check for pen up or down from the TSC_STA bit in STMPE811_TSC_CTRL. */
 
   pendown = !!(stmpe811_getreg8(priv, STMPE811_TSC_CTRL) & TSC_CTRL_TSC_STA);
+
+  /* Get exclusive access to the driver data structure */
+
+  nxmutex_lock(&priv->lock);
 
   /* Handle the change from pen down to pen up */
 
@@ -1069,6 +1089,7 @@ void stmpe811_tscworker(FAR struct stmpe811_dev_s *priv, uint8_t intsta)
    */
 
 ignored:
+  nxmutex_unlock(&priv->lock);
   if (priv->sample.contact == CONTACT_DOWN ||
       priv->sample.contact == CONTACT_MOVE)
     {

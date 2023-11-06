@@ -26,7 +26,6 @@
 
 #include <nuttx/arch.h>
 #include <nuttx/mm/mm.h>
-#include <malloc.h>
 
 #include "esp32_rtcheap.h"
 
@@ -55,11 +54,11 @@ void esp32_rtcheap_initialize(void)
 
   /* These values come from the linker scripts. Check boards/xtensa/esp32. */
 
-  extern uint8_t *_srtcheap;
-  extern uint8_t *_ertcheap;
+  extern uint8_t _srtcheap[];
+  extern uint8_t _ertcheap[];
 
-  start = (void *)&_srtcheap;
-  size  = (size_t)((uintptr_t)&_ertcheap - (uintptr_t)&_srtcheap);
+  start = (void *)_srtcheap;
+  size  = _ertcheap - _srtcheap;
   g_rtcheap = mm_initialize("rtcheap", start, size);
 }
 
@@ -185,7 +184,7 @@ bool esp32_rtcheap_heapmember(void *mem)
  *
  ****************************************************************************/
 
-int esp32_rtcheap_mallinfo(struct mallinfo *info)
+struct mallinfo esp32_rtcheap_mallinfo(void)
 {
-  return mm_mallinfo(g_rtcheap, info);
+  return mm_mallinfo(g_rtcheap);
 }

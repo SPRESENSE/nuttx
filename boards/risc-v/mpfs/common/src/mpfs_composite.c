@@ -252,8 +252,8 @@ void *board_composite_connect(int port, int configid)
       /* Endpoints */
 
       dev[0].devinfo.epno[CDCACM_EP_BULKIN_IDX]  = 3;
-      dev[0].devinfo.epno[CDCACM_EP_BULKOUT_IDX] = 4;
-      dev[0].devinfo.epno[CDCACM_EP_INTIN_IDX]   = 5;
+      dev[0].devinfo.epno[CDCACM_EP_BULKOUT_IDX] = 3;
+      dev[0].devinfo.epno[CDCACM_EP_INTIN_IDX]   = 4;
 
       /* Count up the base numbers */
 
@@ -294,7 +294,7 @@ void *board_composite_connect(int port, int configid)
       ifnobase += dev[1].devinfo.ninterfaces;
       strbase  += dev[1].devinfo.nstrings;
 
-      return composite_initialize(2, dev);
+      return composite_initialize(composite_getdevdescs(), dev, 2);
 #else
       return NULL;
 #endif

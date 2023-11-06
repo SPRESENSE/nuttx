@@ -58,7 +58,7 @@
 #include <debug.h>
 
 #include <nuttx/arch.h>
-#include <nuttx/semaphore.h>
+#include <nuttx/mutex.h>
 #include <nuttx/spi/spi.h>
 
 #include <arch/irq.h>
@@ -96,7 +96,7 @@ struct kinetis_spidev_s
 {
   struct spi_dev_s  spidev;     /* Externally visible part of the SPI interface */
   uint32_t          spibase;    /* Base address of SPI registers */
-  sem_t             exclsem;    /* Held while chip is selected for mutual exclusion */
+  mutex_t           lock;       /* Held while chip is selected for mutual exclusion */
   uint32_t          frequency;  /* Requested clock frequency */
   uint32_t          actual;     /* Actual clock frequency */
   uint8_t           nbits;      /* Width of word in bits (8 to 16) */
@@ -128,8 +128,6 @@ static inline uint16_t spi_getreg16(struct kinetis_spidev_s *priv,
                                     uint8_t offset);
 static inline void     spi_putreg16(struct kinetis_spidev_s *priv,
                                     uint8_t offset, uint16_t value);
-static inline uint8_t  spi_getreg8(struct kinetis_spidev_s *priv,
-                                   uint8_t offset);
 static inline void     spi_putreg8(struct kinetis_spidev_s *priv,
                                    uint8_t offset, uint8_t value);
 static inline uint16_t spi_readword(struct kinetis_spidev_s *priv);
@@ -221,12 +219,13 @@ static const struct spi_ops_s g_spi0ops =
 
 static struct kinetis_spidev_s g_spi0dev =
 {
-  .spidev            =
+  .spidev   =
   {
     &g_spi0ops
   },
-  .spibase           = KINETIS_SPI0_BASE,
-  .ctarsel           = KINETIS_SPI_CTAR0_OFFSET,
+  .spibase  = KINETIS_SPI0_BASE,
+  .lock     = NXMUTEX_INITIALIZER,
+  .ctarsel  = KINETIS_SPI_CTAR0_OFFSET,
 #ifdef CONFIG_KINETIS_SPI_DMA
 #  ifdef CONFIG_KINETIS_SPI0_DMA
   .rxch     = KINETIS_DMA_REQUEST_SRC_SPI0_RX,
@@ -235,6 +234,8 @@ static struct kinetis_spidev_s g_spi0dev =
   .rxch     = 0,
   .txch     = 0,
 #  endif
+  .rxsem    = SEM_INITIALIZER(0),
+  .txsem    = SEM_INITIALIZER(0),
 #endif
 };
 #endif
@@ -270,12 +271,13 @@ static const struct spi_ops_s g_spi1ops =
 
 static struct kinetis_spidev_s g_spi1dev =
 {
-  .spidev            =
+  .spidev   =
   {
     &g_spi1ops
   },
-  .spibase           = KINETIS_SPI1_BASE,
-  .ctarsel           = KINETIS_SPI_CTAR0_OFFSET,
+  .spibase  = KINETIS_SPI1_BASE,
+  .lock     = NXMUTEX_INITIALIZER,
+  .ctarsel  = KINETIS_SPI_CTAR0_OFFSET,
 #ifdef CONFIG_KINETIS_SPI_DMA
 #  ifdef CONFIG_KINETIS_SPI1_DMA
   .rxch     = KINETIS_DMA_REQUEST_SRC_SPI1_RX,
@@ -284,6 +286,8 @@ static struct kinetis_spidev_s g_spi1dev =
   .rxch     = 0,
   .txch     = 0,
 #  endif
+  .rxsem    = SEM_INITIALIZER(0),
+  .txsem    = SEM_INITIALIZER(0),
 #endif
 };
 #endif
@@ -319,12 +323,13 @@ static const struct spi_ops_s g_spi2ops =
 
 static struct kinetis_spidev_s g_spi2dev =
 {
-  .spidev            =
+  .spidev   =
   {
     &g_spi2ops
   },
-  .spibase           = KINETIS_SPI2_BASE,
-  .ctarsel           = KINETIS_SPI_CTAR0_OFFSET,
+  .spibase  = KINETIS_SPI2_BASE,
+  .lock     = NXMUTEX_INITIALIZER,
+  .ctarsel  = KINETIS_SPI_CTAR0_OFFSET,
 #ifdef CONFIG_KINETIS_SPI_DMA
 #  ifdef CONFIG_KINETIS_SPI2_DMA
   .rxch     = KINETIS_DMA_REQUEST_SRC_FTM3_CH6__SPI2_RX,
@@ -333,6 +338,8 @@ static struct kinetis_spidev_s g_spi2dev =
   .rxch     = 0,
   .txch     = 0,
 #  endif
+  .rxsem    = SEM_INITIALIZER(0),
+  .txsem    = SEM_INITIALIZER(0),
 #endif
 };
 #endif
@@ -453,27 +460,6 @@ static inline void spi_putreg16(struct kinetis_spidev_s *priv,
                                 uint16_t value)
 {
   putreg16(value, priv->spibase + offset);
-}
-
-/****************************************************************************
- * Name: spi_getreg8
- *
- * Description:
- *   Get the 8 bit contents of the SPI register at offset
- *
- * Input Parameters:
- *   priv   - private SPI device structure
- *   offset - offset to the register of interest
- *
- * Returned Value:
- *   The contents of the 8-bit register
- *
- ****************************************************************************/
-
-static inline uint8_t spi_getreg8(struct kinetis_spidev_s *priv,
-                                  uint8_t offset)
-{
-  return getreg8(priv->spibase + offset);
 }
 
 /****************************************************************************
@@ -672,11 +658,11 @@ static int spi_lock(struct spi_dev_s *dev, bool lock)
 
   if (lock)
     {
-      ret = nxsem_wait_uninterruptible(&priv->exclsem);
+      ret = nxmutex_lock(&priv->lock);
     }
   else
     {
-      ret = nxsem_post(&priv->exclsem);
+      ret = nxmutex_unlock(&priv->lock);
     }
 
   return ret;
@@ -1222,12 +1208,15 @@ static void spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
   config.flags  = EDMA_CONFIG_LINKTYPE_LINKNONE;
   config.ssize  = adjust == 1 ? EDMA_8BIT : EDMA_16BIT;
   config.dsize  = adjust == 1 ? EDMA_8BIT : EDMA_16BIT;
-  config.ttype  = EDMA_PERIPH2MEM;
   config.nbytes = adjust;
 #ifdef CONFIG_KINETIS_EDMA_ELINK
   config.linkch = NULL;
 #endif
   kinetis_dmach_xfrsetup(priv->rxdma, &config);
+
+  up_invalidate_dcache((uintptr_t)config.daddr,
+                       (uintptr_t)config.daddr +
+                       config.iter * config.nbytes);
 
   config.saddr  = (uint32_t) (txbuffer ? txbuffer : &txdummy);
   config.daddr  = priv->spibase + KINETIS_SPI_PUSHR_OFFSET;
@@ -1237,11 +1226,14 @@ static void spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
   config.flags  = EDMA_CONFIG_LINKTYPE_LINKNONE;
   config.ssize  = adjust == 1 ? EDMA_8BIT : EDMA_16BIT;
   config.dsize  = adjust == 1 ? EDMA_8BIT : EDMA_16BIT;
-  config.ttype  = EDMA_MEM2PERIPH;
   config.nbytes = adjust;
 #ifdef CONFIG_KINETIS_EDMA_ELINK
   config.linkch = NULL;
 #endif
+
+  up_clean_dcache((uintptr_t)config.saddr,
+                  (uintptr_t)config.saddr + nbytes * adjust);
+
   kinetis_dmach_xfrsetup(priv->txdma, &config);
 
   spi_modifyreg(priv, KINETIS_SPI_RSER_OFFSET, 0 ,
@@ -1652,7 +1644,7 @@ struct spi_dev_s *kinetis_spibus_initialize(int port)
 
   /* select mode 0 */
 
-  priv->mode      = SPIDEV_MODE3;
+  priv->mode = SPIDEV_MODE3;
   spi_setmode(&priv->spidev, SPIDEV_MODE0);
 
   /* Select a default frequency of approx. 400KHz */
@@ -1660,25 +1652,11 @@ struct spi_dev_s *kinetis_spibus_initialize(int port)
   priv->frequency = 0;
   spi_setfrequency(&priv->spidev, KINETIS_SPI_CLK_INIT);
 
-  /* Initialize the SPI semaphore that enforces mutually exclusive access */
-
-  nxsem_init(&priv->exclsem, 0, 1);
 #ifdef CONFIG_KINETIS_SPI_DMA
-  /* Initialize the SPI semaphores that is used to wait for DMA completion.
-   * This semaphore is used for signaling and, hence, should not have
-   * priority inheritance enabled.
-   */
-
   if (priv->rxch && priv->txch)
     {
       if (priv->txdma == NULL && priv->rxdma == NULL)
         {
-          nxsem_init(&priv->rxsem, 0, 0);
-          nxsem_init(&priv->txsem, 0, 0);
-
-          nxsem_set_protocol(&priv->rxsem, SEM_PRIO_NONE);
-          nxsem_set_protocol(&priv->txsem, SEM_PRIO_NONE);
-
           priv->txdma = kinetis_dmach_alloc(priv->txch | DMAMUX_CHCFG_ENBL,
                                             0);
           priv->rxdma = kinetis_dmach_alloc(priv->rxch | DMAMUX_CHCFG_ENBL,

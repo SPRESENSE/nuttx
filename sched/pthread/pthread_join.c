@@ -88,7 +88,7 @@ int pthread_join(pthread_t thread, FAR pthread_addr_t *pexit_value)
    * ourself.
    */
 
-  if ((pid_t)thread == getpid())
+  if ((pid_t)thread == nxsched_gettid())
     {
       leave_cancellation_point();
       return EDEADLK;
@@ -100,7 +100,7 @@ int pthread_join(pthread_t thread, FAR pthread_addr_t *pexit_value)
    * because it will also attempt to get this semaphore.
    */
 
-  nxsem_wait_uninterruptible(&group->tg_joinsem);
+  nxmutex_lock(&group->tg_joinlock);
 
   /* Find the join information associated with this thread.
    * This can fail for one of three reasons:  (1) There is no
@@ -109,38 +109,12 @@ int pthread_join(pthread_t thread, FAR pthread_addr_t *pexit_value)
    * was detached and has exited.
    */
 
-  pjoin = pthread_findjoininfo(group, (pid_t)thread);
-  if (pjoin == NULL)
-    {
-      /* Determine what kind of error to return */
-
-      FAR struct tcb_s *tcb = nxsched_get_tcb((pthread_t)thread);
-
-      swarn("WARNING: Could not find thread data\n");
-
-      /* Case (1) or (3) -- we can't tell which.  Assume (3) */
-
-      if (tcb == NULL)
-        {
-          ret = ESRCH;
-        }
-
-      /* The thread is still active but has no join info.  In that
-       * case, it must be a task and not a pthread.
-       */
-
-      else
-        {
-          ret = EINVAL;
-        }
-
-      pthread_sem_give(&group->tg_joinsem);
-    }
-  else
+  ret = pthread_findjoininfo(group, (pid_t)thread, &pjoin);
+  if (ret == OK)
     {
       if (pjoin->detached)
         {
-          pthread_sem_give(&group->tg_joinsem);
+          nxmutex_unlock(&group->tg_joinlock);
           leave_cancellation_point();
           return EINVAL;
         }
@@ -191,7 +165,7 @@ int pthread_join(pthread_t thread, FAR pthread_addr_t *pexit_value)
            * semaphore.
            */
 
-          pthread_sem_give(&group->tg_joinsem);
+          nxmutex_unlock(&group->tg_joinlock);
 
           /* Take the thread's thread exit semaphore.  We will sleep here
            * until the thread exits.  We need to exercise caution because
@@ -219,7 +193,7 @@ int pthread_join(pthread_t thread, FAR pthread_addr_t *pexit_value)
            * pthread_destroyjoin is called.
            */
 
-          nxsem_wait_uninterruptible(&group->tg_joinsem);
+          nxmutex_lock(&group->tg_joinlock);
         }
 
       /* Pre-emption is okay now. The logic still cannot be re-entered
@@ -241,9 +215,10 @@ int pthread_join(pthread_t thread, FAR pthread_addr_t *pexit_value)
           pthread_destroyjoin(group, pjoin);
         }
 
-      pthread_sem_give(&group->tg_joinsem);
       ret = OK;
     }
+
+  nxmutex_unlock(&group->tg_joinlock);
 
   leave_cancellation_point();
   sinfo("Returning %d\n", ret);

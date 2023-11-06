@@ -24,6 +24,7 @@
 
 #include <nuttx/config.h>
 
+#include <sys/param.h>
 #include <sys/types.h>
 #include <inttypes.h>
 #include <stdint.h>
@@ -141,10 +142,6 @@ int g_console_disable;
 #  define HS_DMAACT_ACT2      3
 #endif
 
-#ifndef MIN
-#  define MIN(a, b) ((a) > (b) ? (b) : (a))
-#endif
-
 /****************************************************************************
  * Private Types
  ****************************************************************************/
@@ -168,7 +165,6 @@ struct up_dev_s
   DMA_HANDLE       hrxdma;
   DMA_HANDLE       htxdma;
   sem_t rxdma_wait;
-  sem_t rxpkt_wait;
   sem_t txdma_wait;
 #endif /* CONFIG_HSUART */
   spinlock_t lock;
@@ -253,6 +249,10 @@ static struct up_dev_s g_uart0priv =
   .parity         = CONFIG_UART0_PARITY,
   .bits           = CONFIG_UART0_BITS,
   .stopbits2      = CONFIG_UART0_2STOP,
+#ifdef CONFIG_HSUART
+  .rxdma_wait     = SEM_INITIALIZER(0),
+  .txdma_wait     = SEM_INITIALIZER(1),
+#endif
 };
 
 static uart_dev_t g_uart0port =
@@ -283,6 +283,10 @@ static struct up_dev_s g_uart1priv =
   .parity         = CONFIG_UART1_PARITY,
   .bits           = CONFIG_UART1_BITS,
   .stopbits2      = CONFIG_UART1_2STOP,
+#ifdef CONFIG_HSUART
+  .rxdma_wait     = SEM_INITIALIZER(0),
+  .txdma_wait     = SEM_INITIALIZER(1),
+#endif
 };
 
 static uart_dev_t g_uart1port =
@@ -313,6 +317,10 @@ static struct up_dev_s g_uart2priv =
   .parity         = CONFIG_UART2_PARITY,
   .bits           = CONFIG_UART2_BITS,
   .stopbits2      = CONFIG_UART2_2STOP,
+#ifdef CONFIG_HSUART
+  .rxdma_wait     = SEM_INITIALIZER(0),
+  .txdma_wait     = SEM_INITIALIZER(1),
+#endif
 };
 
 static uart_dev_t g_uart2port =
@@ -646,12 +654,11 @@ static void up_detach(struct uart_dev_s *dev)
  * Name: up_interrupt
  *
  * Description:
- *   This is the UART interrupt handler.  It will be invoked
- *   when an interrupt received on the 'irq'  It should call
- *   uart_transmitchars or uart_receivechar to perform the
- *   appropriate data transfers.  The interrupt handling logic\
- *   must be able to map the 'irq' number into the appropriate
- *   uart_dev_s structure in order to call these functions.
+ *   This is the UART interrupt handler.  It will be invoked when an
+ *   interrupt is received on the 'irq'.  It should call uart_xmitchars or
+ *   uart_recvchars to perform the appropriate data transfers.  The
+ *   interrupt handling logic must be able to map the 'arg' to the
+ *   appropriate uart_dev_s structure in order to call these functions.
  *
  ****************************************************************************/
 
@@ -1060,8 +1067,6 @@ static void  up_hs_detach(struct uart_dev_s *dev)
   lc823450_dmastop(priv->htxdma);
   lc823450_dmastop(priv->hrxdma);
   hs_dmaact = 0;
-
-  return;
 }
 
 /****************************************************************************
@@ -1100,7 +1105,7 @@ static void uart_rxdma_callback(DMA_HANDLE hdma, void *arg, int result)
  * Name: up_hs_dmasetup
  ****************************************************************************/
 
-static void  up_hs_dmasetup()
+static void  up_hs_dmasetup(void)
 {
   irqstate_t flags;
 
@@ -1199,7 +1204,6 @@ static int up_hs_send(struct uart_dev_s *dev, const char *buf, int buflen)
   struct up_dev_s *priv = (struct up_dev_s *)dev->priv;
 
 retry:
-
   nxsem_wait(&priv->txdma_wait);
 
   /* If buflen <= FIFO space, write it by PIO. */
@@ -1330,11 +1334,9 @@ void arm_serialinit(void)
 #ifdef TTYS1_DEV
   uart_register("/dev/ttyS1", &TTYS1_DEV);
 #ifdef CONFIG_HSUART
-  nxsem_init(&g_uart1priv.txdma_wait, 0, 1);
   g_uart1priv.htxdma = lc823450_dmachannel(DMA_CHANNEL_UART1TX);
   lc823450_dmarequest(g_uart1priv.htxdma, DMA_REQUEST_UART1TX);
 
-  nxsem_init(&g_uart1priv.rxdma_wait, 0, 0);
   g_uart1priv.hrxdma = lc823450_dmachannel(DMA_CHANNEL_UART1RX);
   lc823450_dmarequest(g_uart1priv.hrxdma, DMA_REQUEST_UART1RX);
 

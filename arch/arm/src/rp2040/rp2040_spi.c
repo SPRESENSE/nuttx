@@ -36,7 +36,7 @@
 #include <arch/board/board.h>
 #include <nuttx/irq.h>
 #include <nuttx/arch.h>
-#include <nuttx/semaphore.h>
+#include <nuttx/mutex.h>
 #include <nuttx/spi/spi.h>
 
 #include "arm_internal.h"
@@ -73,7 +73,7 @@ struct rp2040_spidev_s
 #ifdef CONFIG_RP2040_SPI_INTERRUPTS
   uint8_t          spiirq;      /* SPI IRQ number */
 #endif
-  sem_t            exclsem;     /* Held while chip is selected for mutual exclusion */
+  mutex_t          lock;        /* Held while chip is selected for mutual exclusion */
   uint32_t         frequency;   /* Requested clock frequency */
   uint32_t         actual;      /* Actual clock frequency */
   uint8_t          nbits;       /* Width of word in bits (4 to 16) */
@@ -177,15 +177,19 @@ static const struct spi_ops_s g_spi0ops =
 static struct rp2040_spidev_s g_spi0dev =
 {
   .spidev            =
-                        {
-                          &g_spi0ops
-                        },
+  {
+    .ops             = &g_spi0ops,
+  },
   .spibase           = RP2040_SPI0_BASE,
   .spibasefreq       = 0,
   .port              = 0,
   .initialized       = 0,
 #ifdef CONFIG_RP2040_SPI_INTERRUPTS
   .spiirq            = RP2040_SPI0_IRQ,
+#endif
+  .lock              = NXMUTEX_INITIALIZER,
+#ifdef CONFIG_RP2040_SPI_DMA
+  .dmasem            = SEM_INITIALIZER(0),
 #endif
 };
 #endif
@@ -222,15 +226,19 @@ static const struct spi_ops_s g_spi1ops =
 static struct rp2040_spidev_s g_spi1dev =
 {
   .spidev            =
-                        {
-                          &g_spi1ops
-                        },
+  {
+    .ops             = &g_spi1ops,
+  },
   .spibase           = RP2040_SPI1_BASE,
   .spibasefreq       = 0,
   .port              = 1,
   .initialized       = 0,
 #ifdef CONFIG_RP2040_SPI_INTERRUPTS
   .spiirq            = RP2040_SPI1_IRQ,
+#endif
+  .lock              = NXMUTEX_INITIALIZER,
+#ifdef CONFIG_RP2040_SPI_DMA
+  .dmasem            = SEM_INITIALIZER(0),
 #endif
 };
 #endif
@@ -320,13 +328,13 @@ static int spi_lock(struct spi_dev_s *dev, bool lock)
 
   if (lock)
     {
-      /* Take the semaphore (perhaps waiting) */
+      /* Take the mutex (perhaps waiting) */
 
-      return nxsem_wait_uninterruptible(&priv->exclsem);
+      return nxmutex_lock(&priv->lock);
     }
   else
     {
-      return nxsem_post(&priv->exclsem);
+      return nxmutex_unlock(&priv->lock);
     }
 }
 
@@ -817,9 +825,6 @@ struct spi_dev_s *rp2040_spibus_initialize(int port)
   /* DMA settings */
 
 #ifdef CONFIG_RP2040_SPI_DMA
-  nxsem_init(&priv->dmasem, 0, 0);
-  nxsem_set_protocol(&priv->dmasem, SEM_PRIO_NONE);
-
   priv->txdmach = rp2040_dmachannel();
   txconf.size = RP2040_DMA_SIZE_BYTE;
   txconf.noincr = false;
@@ -858,10 +863,6 @@ struct spi_dev_s *rp2040_spibus_initialize(int port)
 
   spi_setfrequency((struct spi_dev_s *)priv, 400000);
 
-  /* Initialize the SPI semaphore that enforces mutually exclusive access */
-
-  nxsem_init(&priv->exclsem, 0, 1);
-
   regval = spi_getreg(priv, RP2040_SPI_SSPCR1_OFFSET);
   spi_putreg(priv, RP2040_SPI_SSPCR1_OFFSET, regval | RP2040_SPI_SSPCR1_SSE);
 
@@ -873,7 +874,6 @@ struct spi_dev_s *rp2040_spibus_initialize(int port)
   /* Set a initialized flag */
 
   priv->initialized = 1;
-
   return &priv->spidev;
 }
 

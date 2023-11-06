@@ -27,7 +27,7 @@
 #include <stdint.h>
 
 #include <nuttx/irq.h>
-#include <nuttx/semaphore.h>
+#include <nuttx/mutex.h>
 #include <nuttx/fs/fs.h>
 #include <nuttx/drivers/drivers.h>
 
@@ -48,27 +48,23 @@ static ssize_t lpc54_read(struct file *filep, char *buffer, size_t);
 
 struct rng_dev_s
 {
-  sem_t rd_devsem;      /* Threads can only exclusively access the RNG */
+  mutex_t rd_devlock;   /* Threads can only exclusively access the RNG */
 };
 
 /****************************************************************************
  * Private Data
  ****************************************************************************/
 
-static struct rng_dev_s g_rngdev;
+static struct rng_dev_s g_rngdev =
+{
+  .rd_devlock = NXMUTEX_INITIALIZER,
+};
 
 static const struct file_operations g_rngops =
 {
   NULL,            /* open */
   NULL,            /* close */
   lpc54_read,      /* read */
-  NULL,            /* write */
-  NULL,            /* seek */
-  NULL,            /* ioctl */
-  NULL             /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL           /* unlink */
-#endif
 };
 
 /****************************************************************************
@@ -93,7 +89,7 @@ static ssize_t lpc54_read(struct file *filep, char *buffer, size_t buflen)
 
   /* Get exclusive access to ROM random number generator API */
 
-  ret = nxsem_wait(&g_rngdev.rd_devsem);
+  ret = nxmutex_lock(&g_rngdev.rd_devlock);
   if (ret < 0)
     {
       return ret;
@@ -119,7 +115,7 @@ static ssize_t lpc54_read(struct file *filep, char *buffer, size_t buflen)
         }
     }
 
-  nxsem_post(&g_rngdev.rd_devsem);
+  nxmutex_unlock(&g_rngdev.rd_devlock);
   return buflen;
 }
 
@@ -145,7 +141,6 @@ static ssize_t lpc54_read(struct file *filep, char *buffer, size_t buflen)
 #ifdef CONFIG_DEV_RANDOM
 void devrandom_register(void)
 {
-  nxsem_init(&g_rngdev.rd_devsem, 0, 1);
   register_driver("/dev/random", &g_rngops, 0444, NULL);
 }
 #endif
@@ -167,9 +162,6 @@ void devrandom_register(void)
 #ifdef CONFIG_DEV_URANDOM_ARCH
 void devurandom_register(void)
 {
-#ifndef CONFIG_DEV_RANDOM
-  nxsem_init(&g_rngdev.rd_devsem, 0, 1);
-#endif
   register_driver("/dev/urandom", &g_rngops, 0444, NULL);
 }
 #endif

@@ -621,44 +621,6 @@ int wiznet_convert_error(int value)
 }
 
 /****************************************************************************
- * Name: wiznet_lock_access
- *
- * Description:
- *    Lock access right to wiznet
- *
- * Input Parmeters:
- *   dev  : private data for wiznet driver access
- *
- * Returned Value:
- *   None
- *
- ****************************************************************************/
-
-void wiznet_lock_access(FAR struct wiznet_dev_s *dev)
-{
-  nxsem_wait_uninterruptible(&dev->lock_sem);
-}
-
-/****************************************************************************
- * Name: wiznet_unlock_access
- *
- * Description:
- *    Unlock access right to wiznet
- *
- * Input Parmeters:
- *   dev  : private data for wiznet driver access
- *
- * Returned Value:
- *   None
- *
- ****************************************************************************/
-
-void wiznet_unlock_access(FAR struct wiznet_dev_s *dev)
-{
-  nxsem_post(&dev->lock_sem);
-}
-
-/****************************************************************************
  * Name: wiznet_set_net
  *
  * Description:
@@ -868,9 +830,9 @@ int wiznet_accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
           return -1;
         }
 
-      wiznet_unlock_access(g_wizdev);
+      nxmutex_lock(&g_wizdev->dev_lock);
       nxsig_usleep(WIZNET_ACCEPT_WAIT_US);
-      wiznet_lock_access(g_wizdev);
+      nxmutex_unlock(&g_wizdev->dev_lock);
     }
 
   errno = 0;

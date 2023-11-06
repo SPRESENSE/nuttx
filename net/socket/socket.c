@@ -82,6 +82,11 @@ int psock_socket(int domain, int type, int protocol,
   FAR const struct sock_intf_s *sockif = NULL;
   int ret;
 
+  if (type & ~(SOCK_CLOEXEC | SOCK_NONBLOCK | SOCK_TYPE_MASK))
+    {
+      return -EINVAL;
+    }
+
   /* Initialize the socket structure */
 
   psock->s_domain = domain;
@@ -90,40 +95,27 @@ int psock_socket(int domain, int type, int protocol,
   psock->s_type   = type & SOCK_TYPE_MASK;
 
 #ifdef CONFIG_NET_USRSOCK
-  if (domain != PF_LOCAL && domain != PF_UNSPEC && domain != PF_RPMSG)
+  /* Get the usrsock interface */
+
+  sockif = &g_usrsock_sockif;
+  psock->s_sockif = sockif;
+
+  ret = sockif->si_setup(psock);
+
+  /* When usrsock daemon returns -ENOSYS or -ENOTSUP, it means to use
+   * kernel's network stack, so fallback to kernel socket.
+   */
+
+  if (ret == 0 || (ret != -ENOSYS && ret != -ENOTSUP))
     {
-      /* Handle special setup for USRSOCK sockets (user-space networking
-       * stack).
-       */
-
-      ret = g_usrsock_sockif.si_setup(psock, protocol);
-      if (ret == -EPROTONOSUPPORT)
-        {
-          /* -EPROTONOSUPPORT means that USRSOCK daemon is not running.  Attempt to
-           * open socket with kernel networking stack.
-           */
-
-          psock->s_domain = domain;
-          psock->s_type   = type;
-          psock->s_conn   = NULL;
-        }
-      else
-        {
-          FAR struct socket_conn_s *conn = psock->s_conn;
-
-          psock->s_sockif = &g_usrsock_sockif;
-
-          /* The socket has been successfully initialized */
-
-          conn->s_flags |= _SF_INITD;
-
-          return ret;
-        }
+      return ret;
     }
-#endif /* CONFIG_NET_USRSOCK */
+
+#endif
+
   /* Get the socket interface */
 
-  sockif = net_sockif(domain, psock->s_type, protocol);
+  sockif = net_sockif(domain, psock->s_type, psock->s_proto);
   if (sockif == NULL)
     {
       nerr("ERROR: socket address family unsupported: %d\n", domain);
@@ -137,8 +129,7 @@ int psock_socket(int domain, int type, int protocol,
   DEBUGASSERT(sockif->si_setup != NULL);
   psock->s_sockif = sockif;
 
-  ret = sockif->si_setup(psock, protocol);
-
+  ret = sockif->si_setup(psock);
   if (ret >= 0)
     {
       FAR struct socket_conn_s *conn = psock->s_conn;

@@ -25,18 +25,35 @@
 #include <nuttx/config.h>
 
 #include <stdint.h>
-#include <queue.h>
 #include <assert.h>
 #include <errno.h>
 
 #include <nuttx/irq.h>
 #include <nuttx/arch.h>
 #include <nuttx/clock.h>
+#include <nuttx/queue.h>
 #include <nuttx/wqueue.h>
 
 #include "wqueue/wqueue.h"
 
 #ifdef CONFIG_SCHED_WORKQUEUE
+
+/****************************************************************************
+ * Pre-processor Definitions
+ ****************************************************************************/
+
+#define queue_work(wqueue, work) \
+  do \
+    { \
+      int sem_count; \
+      dq_addlast((FAR dq_entry_t *)(work), &(wqueue).q); \
+      nxsem_get_value(&(wqueue).sem, &sem_count); \
+      if (sem_count < 0) /* There are threads waiting for sem. */ \
+        { \
+          nxsem_post(&(wqueue).sem); \
+        } \
+    } \
+  while (0)
 
 /****************************************************************************
  * Private Functions
@@ -50,8 +67,7 @@
 static void hp_work_timer_expiry(wdparm_t arg)
 {
   irqstate_t flags = enter_critical_section();
-  sq_addlast((FAR sq_entry_t *)arg, &g_hpwork.q);
-  nxsem_post(&g_hpwork.sem);
+  queue_work(g_hpwork, arg);
   leave_critical_section(flags);
 }
 #endif
@@ -64,8 +80,7 @@ static void hp_work_timer_expiry(wdparm_t arg)
 static void lp_work_timer_expiry(wdparm_t arg)
 {
   irqstate_t flags = enter_critical_section();
-  sq_addlast((FAR sq_entry_t *)arg, &g_lpwork.q);
-  nxsem_post(&g_lpwork.sem);
+  queue_work(g_lpwork, arg);
   leave_critical_section(flags);
 }
 #endif
@@ -110,15 +125,18 @@ int work_queue(int qid, FAR struct work_s *work, worker_t worker,
   irqstate_t flags;
   int ret = OK;
 
-  /* Remove the entry from the timer and work queue. */
-
-  work_cancel(qid, work);
-
   /* Interrupts are disabled so that this logic can be called from with
    * task logic or from interrupt handling logic.
    */
 
   flags = enter_critical_section();
+
+  /* Remove the entry from the timer and work queue. */
+
+  if (work->worker != NULL)
+    {
+      work_cancel(qid, work);
+    }
 
   /* Initialize the work structure. */
 
@@ -134,8 +152,7 @@ int work_queue(int qid, FAR struct work_s *work, worker_t worker,
 
       if (!delay)
         {
-          sq_addlast((FAR sq_entry_t *)work, &g_hpwork.q);
-          nxsem_post(&g_hpwork.sem);
+          queue_work(g_hpwork, work);
         }
       else
         {
@@ -152,8 +169,7 @@ int work_queue(int qid, FAR struct work_s *work, worker_t worker,
 
       if (!delay)
         {
-          sq_addlast((FAR sq_entry_t *)work, &g_lpwork.q);
-          nxsem_post(&g_lpwork.sem);
+          queue_work(g_lpwork, work);
         }
       else
         {

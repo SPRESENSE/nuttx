@@ -735,6 +735,8 @@ int mx25rxx_ioctl(FAR struct mtd_dev_s *dev, int cmd, unsigned long arg)
 
           if (geo)
             {
+              memset(geo, 0, sizeof(*geo));
+
               /* Populate the geometry structure with information need to
                * know the capacity and how to access the device.
                *
@@ -1111,7 +1113,7 @@ FAR struct mtd_dev_s *mx25rxx_initialize(FAR struct qspi_dev_s *qspi,
    * bus.
    */
 
-  dev = (FAR struct mx25rxx_dev_s *)kmm_zalloc(sizeof(*dev));
+  dev = kmm_zalloc(sizeof(*dev));
 
   if (dev == NULL)
     {

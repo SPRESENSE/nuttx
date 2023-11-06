@@ -4,13 +4,15 @@
 #
 
 config LIBC_NETDB
-	bool
+	bool "netdb support"
+	depends on NET_IPv4 || NET_IPv6
 	default n
 
 menu "NETDB Support"
 
 config LIBC_GAISTRERROR
 	bool "Enable gai_strerror"
+	depends on LIBC_NETDB
 	default n
 	---help---
 		The gai_strerror() function shall return a text string describing an error
@@ -18,14 +20,24 @@ config LIBC_GAISTRERROR
 		of memory. If this option is not selected, gai_strerror() will still exist in
 		the build but it will not decode error values.
 
+config LIBC_GAISTRERROR_ERRNUM
+	bool "Print unknown error code in gai_strerror()"
+	default !LIBC_GAISTRERROR
+	---help---
+		If this option is selected, then gai_strerror() will print error code
+		for unknown errors like "Unknown error 11". Default enabled when
+		LIBC_GAISTRERROR is not selected.
+
 config NETDB_BUFSIZE
 	int "gethostbyname/gethostbyaddr buffer size"
+	depends on LIBC_NETDB
 	default 256
 
 if NET_IPv4
 
 config NETDB_MAX_IPv4ADDR
 	int "Max number of IPv4 addresses per host"
+	depends on LIBC_NETDB
 	default 1
 	---help---
 		This setting determines the maximum number of IPv4 addresses
@@ -37,6 +49,7 @@ if NET_IPv6
 
 config NETDB_MAX_IPv6ADDR
 	int "Max number of IPv6 addresses per host"
+	depends on LIBC_NETDB
 	default 1
 	---help---
 		This setting determines the maximum number of IPv6 addresses
@@ -97,7 +110,7 @@ config NETDB_DNSCLIENT_ENTRIES
 
 config NETDB_DNSCLIENT_NAMESIZE
 	int "Max size of a cached hostname"
-	default 32
+	default PATH_MAX
 	---help---
 		The size of a hostname string in the DNS resolver cache is fixed.
 		This setting provides the maximum size of a hostname.  Names longer
@@ -118,7 +131,7 @@ config NETDB_DNSCLIENT_LIFESEC
 
 config NETDB_DNSCLIENT_MAXRESPONSE
 	int "Max response size"
-	default NETDB_BUFSIZE
+	default 512
 	---help---
 		This setting determines the maximum size of response message that
 		can be received by the DNS resolver.  The default used to be 96,
@@ -131,6 +144,13 @@ config NETDB_DNSCLIENT_RECV_TIMEOUT
 	---help---
 		This is the timeout value when DNS receives response after
 		dns_send_query, unit: seconds
+
+config NETDB_DNSCLIENT_SEND_TIMEOUT
+	int "DNS send timeout"
+	default NETDB_DNSCLIENT_RECV_TIMEOUT
+	---help---
+		This is the timeout value when DNS send request on dns_send_query,
+		unit: seconds
 
 config NETDB_DNSCLIENT_RETRIES
 	int "Number of retries for DNS request"

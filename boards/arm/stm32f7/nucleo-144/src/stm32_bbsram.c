@@ -36,6 +36,8 @@
 #include <debug.h>
 #include <syslog.h>
 
+#include <sys/param.h>
+
 #include <nuttx/fs/fs.h>
 
 #include "arm_internal.h"
@@ -102,15 +104,13 @@
   0 \
 }
 
-#define ARRAYSIZE(a) (sizeof((a))/sizeof(a[0]))
-
 /* For Assert keep this much of the file name */
 
 #define MAX_FILE_PATH_LENGTH 40
 
 #define HEADER_TIME_FMT      "%Y-%m-%d-%H:%M:%S"
 #define HEADER_TIME_FMT_NUM  (2+ 0+ 0+ 0+ 0+ 0)
-#define HEADER_TIME_FMT_LEN  (((ARRAYSIZE(HEADER_TIME_FMT)-1) + \
+#define HEADER_TIME_FMT_LEN  (((nitems(HEADER_TIME_FMT)-1) + \
                                 HEADER_TIME_FMT_NUM))
 
 /****************************************************************************
@@ -379,16 +379,14 @@ int stm32_bbsram_int(void)
  ****************************************************************************/
 
 #if defined(CONFIG_STM32F7_SAVE_CRASHDUMP)
-void board_crashdump(uintptr_t currentsp, void *tcb,
-                     const char *filename, int lineno)
+void board_crashdump(uintptr_t sp, struct tcb_s *tcb,
+                     const char *filename, int lineno,
+                     const char *msg, void *regs)
 {
   fullcontext_t *pdump = (fullcontext_t *)&g_sdata;
-  struct tcb_s *rtcb;
   int rv;
 
   enter_critical_section();
-
-  rtcb = (struct tcb_s *)tcb;
 
   /* Zero out everything */
 
@@ -408,7 +406,7 @@ void board_crashdump(uintptr_t currentsp, void *tcb,
           offset = len - sizeof(pdump->info.filename);
         }
 
-      strncpy(pdump->info.filename, (char *)&filename[offset],
+      strlcpy(pdump->info.filename, (char *)&filename[offset],
               sizeof(pdump->info.filename));
     }
 
@@ -423,10 +421,10 @@ void board_crashdump(uintptr_t currentsp, void *tcb,
   /* Save Context */
 
 #if CONFIG_TASK_NAME_SIZE > 0
-  strncpy(pdump->info.name, rtcb->name, CONFIG_TASK_NAME_SIZE);
+  strlcpy(pdump->info.name, tcb->name, sizeof(pdump->info.name));
 #endif
 
-  pdump->info.pid = rtcb->pid;
+  pdump->info.pid = tcb->pid;
 
   /* If  current_regs is not NULL then we are in an interrupt context
    * and the user context is in current_regs else we are running in
@@ -435,7 +433,7 @@ void board_crashdump(uintptr_t currentsp, void *tcb,
 
   if (CURRENT_REGS)
     {
-      pdump->info.stacks.interrupt.sp = currentsp;
+      pdump->info.stacks.interrupt.sp = sp;
       pdump->info.flags |= (REGS_PRESENT | USERSTACK_PRESENT | \
                             INTSTACK_PRESENT);
       memcpy(pdump->info.regs, (void *)CURRENT_REGS,
@@ -447,17 +445,17 @@ void board_crashdump(uintptr_t currentsp, void *tcb,
       /* users context */
 
       pdump->info.flags |= USERSTACK_PRESENT;
-      pdump->info.stacks.user.sp = currentsp;
+      pdump->info.stacks.user.sp = sp;
     }
 
-  pdump->info.stacks.user.top = (uint32_t)rtcb->stack_base_ptr +
-                                          rtcb->adj_stack_size;
-  pdump->info.stacks.user.size = (uint32_t)rtcb->adj_stack_size;
+  pdump->info.stacks.user.top = (uint32_t)tcb->stack_base_ptr +
+                                          tcb->adj_stack_size;
+  pdump->info.stacks.user.size = (uint32_t)tcb->adj_stack_size;
 
 #if CONFIG_ARCH_INTERRUPTSTACK > 3
   /* Get the limits on the interrupt stack memory */
 
-  pdump->info.stacks.interrupt.top = (uint32_t)&g_intstacktop;
+  pdump->info.stacks.interrupt.top = (uint32_t)g_intstacktop;
   pdump->info.stacks.interrupt.size = (CONFIG_ARCH_INTERRUPTSTACK & ~3);
 
   /* If In interrupt Context save the interrupt stack data centered
@@ -467,8 +465,8 @@ void board_crashdump(uintptr_t currentsp, void *tcb,
   if ((pdump->info.flags & INTSTACK_PRESENT) != 0)
     {
       stack_word_t *ps = (stack_word_t *) pdump->info.stacks.interrupt.sp;
-      copy_reverse(pdump->istack, &ps[ARRAYSIZE(pdump->istack) / 2],
-                   ARRAYSIZE(pdump->istack));
+      copy_reverse(pdump->istack, &ps[nitems(pdump->istack) / 2],
+                   nitems(pdump->istack));
     }
 
   /* Is it Invalid? */
@@ -489,8 +487,8 @@ void board_crashdump(uintptr_t currentsp, void *tcb,
   if ((pdump->info.flags & USERSTACK_PRESENT) != 0)
     {
       stack_word_t *ps = (stack_word_t *) pdump->info.stacks.user.sp;
-      copy_reverse(pdump->ustack, &ps[ARRAYSIZE(pdump->ustack) / 2],
-                   ARRAYSIZE(pdump->ustack));
+      copy_reverse(pdump->ustack, &ps[nitems(pdump->ustack) / 2],
+                   nitems(pdump->ustack));
     }
 
   /* Is it Invalid? */

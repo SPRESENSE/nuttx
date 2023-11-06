@@ -20,11 +20,13 @@
 
 include $(TOPDIR)/Make.defs
 
+include addrenv/Make.defs
 include clock/Make.defs
 include environ/Make.defs
 include group/Make.defs
 include init/Make.defs
 include irq/Make.defs
+include misc/Make.defs
 include mqueue/Make.defs
 include module/Make.defs
 include paging/Make.defs
@@ -38,7 +40,7 @@ include tls/Make.defs
 include wdog/Make.defs
 include wqueue/Make.defs
 
-CFLAGS += ${shell $(INCDIR) "$(CC)" $(TOPDIR)$(DELIM)sched}
+CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)sched
 
 AOBJS = $(ASRCS:.S=$(OBJEXT))
 COBJS = $(CSRCS:.c=$(OBJEXT))

@@ -22,6 +22,10 @@
 
 CSRCS += serial.c serial_io.c
 
+ifeq ($(CONFIG_UART_PL011),y)
+  CSRCS += serial_pl011.c
+endif
+
 ifeq ($(CONFIG_SERIAL_RXDMA),y)
   CSRCS += serial_dma.c
 else ifeq ($(CONFIG_SERIAL_TXDMA),y)
@@ -49,6 +53,18 @@ endif
 
 ifeq ($(CONFIG_UART_BTH4),y)
   CSRCS += uart_bth4.c
+endif
+
+# Bluetooth H:5 UART driver
+
+ifeq ($(CONFIG_UART_BTH5),y)
+  CSRCS += uart_bth5.c
+endif
+
+# RAM uart support
+
+ifeq ($(CONFIG_RAM_UART),y)
+  CSRCS += uart_ram.c
 endif
 
 # Include serial build support

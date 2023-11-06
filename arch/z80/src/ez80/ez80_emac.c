@@ -46,7 +46,7 @@
 #include <nuttx/wdog.h>
 #include <nuttx/wqueue.h>
 #include <nuttx/net/mii.h>
-#include <nuttx/net/arp.h>
+#include <nuttx/net/ip.h>
 #include <nuttx/net/netdev.h>
 
 #ifdef CONFIG_NET_PKT
@@ -89,8 +89,8 @@
  * into that region.
  */
 
-extern uintptr_t _RAM_ADDR_U_INIT_PARAM;
-#define ETH_RAMADDR (((uintptr_t)&_RAM_ADDR_U_INIT_PARAM << 16) + 0x00c000)
+extern uint8_t _RAM_ADDR_U_INIT_PARAM[];
+#define ETH_RAMADDR (((uintptr_t)_RAM_ADDR_U_INIT_PARAM << 16) + 0x00c000)
 
 #if CONFIG_NET_ETH_PKTSIZE > 1518
 #  error "MAXF size too big for this device"
@@ -247,9 +247,11 @@ extern uintptr_t _RAM_ADDR_U_INIT_PARAM;
 
 #define EMAC_TXTIMEOUT         (60*CLK_TCK)
 
-/* This is a helper pointer for accessing the contents of Ethernet header */
+/* This is a helper pointer for accessing the contents of the Ethernet
+ * header
+ */
 
-#define ETHBUF ((FAR struct eth_hdr_s *)priv->dev.d_buf)
+#define BUF ((FAR struct eth_hdr_s *)&dev->d_buf[0])
 
 /****************************************************************************
  * Private Types
@@ -1155,52 +1157,12 @@ static int ez80emac_txpoll(FAR struct net_driver_s *dev)
 {
   FAR struct ez80emac_driver_s *priv =
     (FAR struct ez80emac_driver_s *)dev->d_private;
-  int ret = 0;
 
-  /* If the polling resulted in data that should be sent out on the network,
-   * the field d_len is set to a value > 0.
+  /* Send the packet.  ez80emac_transmit() will return zero if the
+   * packet was successfully handled.
    */
 
-  ninfo("Poll result: d_len=%d\n", priv->dev.d_len);
-  if (priv->dev.d_len > 0)
-    {
-      /* Look up the destination MAC address and add it to the Ethernet
-       * header.
-       */
-
-#ifdef CONFIG_NET_IPv4
-#ifdef CONFIG_NET_IPv6
-      if (IFF_IS_IPv4(priv->dev.d_flags))
-#endif
-        {
-          arp_out(&priv->dev);
-        }
-#endif /* CONFIG_NET_IPv4 */
-
-#ifdef CONFIG_NET_IPv6
-#ifdef CONFIG_NET_IPv4
-      else
-#endif
-        {
-          neighbor_out(&priv->dev);
-        }
-#endif /* CONFIG_NET_IPv6 */
-
-      if (!devif_loopback(&priv->dev))
-        {
-          /* Send the packet.  ez80emac_transmit() will return zero if the
-           * packet was successfully handled.
-           */
-
-          ret = ez80emac_transmit(priv);
-        }
-    }
-
-  /* If zero is returned, the polling will continue until all connections
-   * have been examined.
-   */
-
-  return ret;
+  return ez80emac_transmit(priv);
 }
 
 /****************************************************************************
@@ -1405,16 +1367,13 @@ static int ez80emac_receive(FAR struct ez80emac_driver_s *priv)
       /* We only accept IP packets of the configured type and ARP packets */
 
 #ifdef CONFIG_NET_IPv4
-      if (ETHBUF->type == HTONS(ETHTYPE_IP))
+      if (BUF->type == HTONS(ETHTYPE_IP))
         {
           ninfo("IPv4 frame\n");
 
-          /* Handle ARP on input then give the IPv4 packet to the network
-           * layer
-           */
+          /* Receive an IPv4 packet from the network device */
 
           EMAC_STAT(priv, rx_ip);
-          arp_ipin(&priv->dev);
           ipv4_input(&priv->dev);
 
           /* If the above function invocation resulted in data that should be
@@ -1424,21 +1383,6 @@ static int ez80emac_receive(FAR struct ez80emac_driver_s *priv)
 
           if (priv->dev.d_len > 0)
             {
-              /* Update the Ethernet header with the correct MAC address */
-
-#ifdef CONFIG_NET_IPv6
-              if (IFF_IS_IPv4(priv->dev.d_flags))
-#endif
-                {
-                  arp_out(&priv->dev);
-                }
-#ifdef CONFIG_NET_IPv6
-              else
-                {
-                  neighbor_out(&priv->dev);
-                }
-#endif
-
               /* And send the packet */
 
               ez80emac_transmit(priv);
@@ -1447,7 +1391,7 @@ static int ez80emac_receive(FAR struct ez80emac_driver_s *priv)
       else
 #endif
 #ifdef CONFIG_NET_IPv6
-      if (ETHBUF->type == HTONS(ETHTYPE_IP6))
+      if (BUF->type == HTONS(ETHTYPE_IP6))
         {
           ninfo("IPv6 frame\n");
 
@@ -1463,21 +1407,6 @@ static int ez80emac_receive(FAR struct ez80emac_driver_s *priv)
 
           if (priv->dev.d_len > 0)
             {
-              /* Update the Ethernet header with the correct MAC address */
-
-#ifdef CONFIG_NET_IPv4
-              if (IFF_IS_IPv4(priv->dev.d_flags))
-                {
-                  arp_out(&priv->dev);
-                }
-              else
-#endif
-#ifdef CONFIG_NET_IPv6
-                {
-                  neighbor_out(&priv->dev);
-                }
-#endif
-
               /* And send the packet */
 
               ez80emac_transmit(priv);
@@ -1486,12 +1415,12 @@ static int ez80emac_receive(FAR struct ez80emac_driver_s *priv)
       else
 #endif
 #ifdef CONFIG_NET_ARP
-      if (ETHBUF->type == HTONS(ETHTYPE_ARP))
+      if (BUF->type == HTONS(ETHTYPE_ARP))
         {
-          ninfo("ARP packet received (%02x)\n", ETHBUF->type);
+          ninfo("ARP packet received (%02x)\n", BUF->type);
           EMAC_STAT(priv, rx_arp);
 
-          arp_arpin(&priv->dev);
+          arp_input(&priv->dev);
 
           /* If the above function invocation resulted in data that should be
            * sent out on the network, the field  d_len will set to a value >
@@ -1506,7 +1435,7 @@ static int ez80emac_receive(FAR struct ez80emac_driver_s *priv)
       else
 #endif
         {
-          ninfo("Unsupported packet type dropped (%02x)\n", ETHBUF->type);
+          ninfo("Unsupported packet type dropped (%02x)\n", BUF->type);
           EMAC_STAT(priv, rx_dropped);
         }
 
@@ -2000,9 +1929,9 @@ static int ez80emac_ifup(FAR struct net_driver_s *dev)
         dev->d_mac.ether.ether_addr_octet[3],
         dev->d_mac.ether.ether_addr_octet[4],
         dev->d_mac.ether.ether_addr_octet[5]);
-  ninfo("             IP  %d.%d.%d.%d\n",
-        dev->d_ipaddr >> 24,       (dev->d_ipaddr >> 16) & 0xff,
-       (dev->d_ipaddr >> 8) & 0xff, dev->d_ipaddr & 0xff);
+  ninfo("             IP  %u.%u.%u.%u\n",
+        ip4_addr1(dev->d_ipaddr), ip4_addr2(dev->d_ipaddr),
+        ip4_addr3(dev->d_ipaddr), ip4_addr4(dev->d_ipaddr));
 
   /* Bring up the interface -- Must be down right now */
 
@@ -2494,7 +2423,7 @@ errout:
  *
  ****************************************************************************/
 
-int up_netinitialize(void)
+int z80_netinitialize(void)
 {
   FAR struct ez80emac_driver_s *priv = &g_emac;
   int ret;
@@ -2552,12 +2481,12 @@ int up_netinitialize(void)
   return OK;
 
 errout:
-  up_netuninitialize();
+  z80_netuninitialize();
   return ret;
 }
 
 /****************************************************************************
- * Function: up_multicastfilter
+ * Function: z80_multicastfilter
  *
  * Description:
  *   Add one MAC address to the multi-cast hash table
@@ -2573,7 +2502,7 @@ errout:
  ****************************************************************************/
 
 #ifdef CONFIG_ARCH_MCFILTER
-int up_multicastfilter(FAR struct net_driver_s *dev, FAR uint8_t *mac,
+int z80_multicastfilter(FAR struct net_driver_s *dev, FAR uint8_t *mac,
                        bool enable)
 {
   FAR struct ez80emac_driver_s *priv =
@@ -2615,7 +2544,7 @@ int up_multicastfilter(FAR struct net_driver_s *dev, FAR uint8_t *mac,
 #endif
 
 /****************************************************************************
- * Function: up_netuninitialize
+ * Function: z80_netuninitialize
  *
  * Description:
  *   Un-initialize the Ethernet driver
@@ -2630,7 +2559,7 @@ int up_multicastfilter(FAR struct net_driver_s *dev, FAR uint8_t *mac,
  *
  ****************************************************************************/
 
-void up_netuninitialize(void)
+void z80_netuninitialize(void)
 {
   FAR struct ez80emac_driver_s *priv = &g_emac;
 

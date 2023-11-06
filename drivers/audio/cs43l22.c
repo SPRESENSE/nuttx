@@ -35,11 +35,11 @@
 #include <assert.h>
 #include <errno.h>
 #include <fixedmath.h>
-#include <queue.h>
 #include <debug.h>
 
 #include <nuttx/kmalloc.h>
 #include <nuttx/mqueue.h>
+#include <nuttx/queue.h>
 #include <nuttx/clock.h>
 #include <nuttx/wqueue.h>
 #include <nuttx/i2c/i2c_master.h>
@@ -61,12 +61,8 @@ static
 uint8_t cs43l22_readreg(FAR struct cs43l22_dev_s *priv, uint8_t regaddr);
 static void cs43l22_writereg(FAR struct cs43l22_dev_s *priv, uint8_t regaddr,
                              uint8_t regval);
-static int  cs43l22_takesem(FAR sem_t *sem);
-static int  cs43l22_forcetake(FAR sem_t *sem);
-#define     cs43l22_givesem(s) nxsem_post(s)
 
 #ifndef CONFIG_AUDIO_EXCLUDE_VOLUME
-static inline uint16_t cs43l22_scalevolume(uint16_t volume, b16_t scale);
 static void cs43l22_setvolume(FAR struct cs43l22_dev_s *priv,
                               uint16_t volume, bool mute);
 #endif
@@ -345,73 +341,6 @@ cs43l22_writereg(FAR struct cs43l22_dev_s *priv, uint8_t regaddr,
       audinfo("retries=%d regaddr=%02x\n", retries, regaddr);
     }
 }
-
-/****************************************************************************
- * Name: cs43l22_takesem
- *
- * Description:
- *  Take a semaphore count, handling the nasty EINTR return if we are
- *  interrupted by a signal.
- *
- ****************************************************************************/
-
-static int cs43l22_takesem(FAR sem_t *sem)
-{
-  return nxsem_wait_uninterruptible(sem);
-}
-
-/****************************************************************************
- * Name: cs43l22_forcetake
- *
- * Description:
- *   This is just another wrapper but this one continues even if the thread
- *   is canceled.  This must be done in certain conditions where were must
- *   continue in order to clean-up resources.
- *
- ****************************************************************************/
-
-static int cs43l22_forcetake(FAR sem_t *sem)
-{
-  int result;
-  int ret = OK;
-
-  do
-    {
-      result = nxsem_wait_uninterruptible(sem);
-
-      /* The only expected error would -ECANCELED meaning that the
-       * parent thread has been canceled.  We have to continue and
-       * terminate the poll in this case.
-       */
-
-      DEBUGASSERT(result == OK || result == -ECANCELED);
-      if (ret == OK && result < 0)
-        {
-          /* Remember the first failure */
-
-          ret = result;
-        }
-    }
-  while (result < 0);
-
-  return ret;
-}
-
-/****************************************************************************
- * Name: cs43l22_scalevolume
- *
- * Description:
- *   Set the right and left volume values in the CS43L22 device based on the
- *   current volume and balance settings.
- *
- ****************************************************************************/
-
-#ifndef CONFIG_AUDIO_EXCLUDE_VOLUME
-static inline uint16_t cs43l22_scalevolume(uint16_t volume, b16_t scale)
-{
-  return b16toi((b16_t) volume * scale);
-}
-#endif
 
 /****************************************************************************
  * Name: cs43l22_setvolume
@@ -1106,7 +1035,7 @@ static int cs43l22_sendbuffer(FAR struct cs43l22_dev_s *priv)
    * only while accessing 'inflight'.
    */
 
-  ret = cs43l22_takesem(&priv->pendsem);
+  ret = nxmutex_lock(&priv->pendlock);
   if (ret < 0)
     {
       return ret;
@@ -1165,7 +1094,7 @@ static int cs43l22_sendbuffer(FAR struct cs43l22_dev_s *priv)
         }
     }
 
-  cs43l22_givesem(&priv->pendsem);
+  nxmutex_unlock(&priv->pendlock);
   return ret;
 }
 
@@ -1371,7 +1300,7 @@ static int cs43l22_enqueuebuffer(FAR struct audio_lowerhalf_s *dev,
   audinfo("Enqueueing: apb=%p curbyte=%d nbytes=%d flags=%04x\n",
           apb, apb->curbyte, apb->nbytes, apb->flags);
 
-  ret = cs43l22_takesem(&priv->pendsem);
+  ret = nxmutex_lock(&priv->pendlock);
   if (ret < 0)
     {
       return ret;
@@ -1385,7 +1314,7 @@ static int cs43l22_enqueuebuffer(FAR struct audio_lowerhalf_s *dev,
 
   apb->flags |= AUDIO_APB_OUTPUT_ENQUEUED;
   dq_addlast(&apb->dq_entry, &priv->pendq);
-  cs43l22_givesem(&priv->pendsem);
+  nxmutex_unlock(&priv->pendlock);
 
   /* Send a message to the worker thread indicating that a new buffer has
    * been enqueued.  If mq is NULL, then the playing has not yet started.
@@ -1500,9 +1429,9 @@ static int cs43l22_reserve(FAR struct audio_lowerhalf_s *dev)
   FAR struct cs43l22_dev_s *priv = (FAR struct cs43l22_dev_s *)dev;
   int ret = OK;
 
-  /* Borrow the APBQ semaphore for thread sync */
+  /* Borrow the APBQ mutex for thread sync */
 
-  ret = cs43l22_takesem(&priv->pendsem);
+  ret = nxmutex_lock(&priv->pendlock);
   if (ret < 0)
     {
       return ret;
@@ -1528,8 +1457,7 @@ static int cs43l22_reserve(FAR struct audio_lowerhalf_s *dev)
       priv->reserved    = true;
     }
 
-  cs43l22_givesem(&priv->pendsem);
-
+  nxmutex_unlock(&priv->pendlock);
   return ret;
 }
 
@@ -1560,14 +1488,14 @@ static int cs43l22_release(FAR struct audio_lowerhalf_s *dev)
       priv->threadid = 0;
     }
 
-  /* Borrow the APBQ semaphore for thread sync */
+  /* Borrow the APBQ mutex for thread sync */
 
-  ret = cs43l22_forcetake(&priv->pendsem);
+  ret = nxmutex_lock(&priv->pendlock);
 
   /* Really we should free any queued buffers here */
 
   priv->reserved = false;
-  cs43l22_givesem(&priv->pendsem);
+  nxmutex_unlock(&priv->pendlock);
 
   return ret;
 }
@@ -1731,7 +1659,7 @@ static void *cs43l22_workerthread(pthread_addr_t pvarg)
 
   /* Return any pending buffers in our pending queue */
 
-  cs43l22_forcetake(&priv->pendsem);
+  nxmutex_lock(&priv->pendlock);
   while ((apb = (FAR struct ap_buffer_s *)dq_remfirst(&priv->pendq)) != NULL)
     {
       /* Release our reference to the buffer */
@@ -1747,7 +1675,7 @@ static void *cs43l22_workerthread(pthread_addr_t pvarg)
 #endif
     }
 
-  cs43l22_givesem(&priv->pendsem);
+  nxmutex_unlock(&priv->pendlock);
 
   /* Return any pending buffers in our done queue */
 
@@ -1989,7 +1917,7 @@ FAR struct audio_lowerhalf_s *
       priv->i2c        = i2c;
       priv->i2s        = i2s;
 
-      nxsem_init(&priv->pendsem, 0, 1);
+      nxmutex_init(&priv->pendlock);
       dq_init(&priv->pendq);
       dq_init(&priv->doneq);
 
@@ -2024,7 +1952,7 @@ FAR struct audio_lowerhalf_s *
   return NULL;
 
 errout_with_dev:
-  nxsem_destroy(&priv->pendsem);
+  nxmutex_destroy(&priv->pendlock);
   kmm_free(priv);
   return NULL;
 }

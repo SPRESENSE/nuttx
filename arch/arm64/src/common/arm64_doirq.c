@@ -28,34 +28,19 @@
 #include <assert.h>
 #include <sched.h>
 #include <debug.h>
+
+#include <nuttx/addrenv.h>
 #include <nuttx/irq.h>
 #include <nuttx/arch.h>
 #include <nuttx/board.h>
 
 #include "task/task.h"
 #include "sched/sched.h"
-#include "group/group.h"
 #include "irq/irq.h"
 #include "arm64_arch.h"
 #include "arm64_internal.h"
 #include "arm64_gic.h"
 #include "arm64_fatal.h"
-
-/****************************************************************************
- * Public data
- ****************************************************************************/
-
-/* g_current_regs[] holds a references to the current interrupt level
- * register storage structure.  If is non-NULL only during interrupt
- * processing.  Access to g_current_regs[] must be through the macro
- * CURRENT_REGS for portability.
- */
-
-/* For the case of configurations with multiple CPUs, then there must be one
- * such value for each processor that can receive an interrupt.
- */
-
-volatile uint64_t *g_current_regs[CONFIG_SMP_NCPUS];
 
 /****************************************************************************
  * Public Functions
@@ -104,15 +89,26 @@ uint64_t *arm64_doirq(int irq, uint64_t * regs)
        * thread at the head of the ready-to-run list.
        */
 
-      group_addrenv(NULL);
+      addrenv_switch(NULL);
 #endif
+
+      /* Record the new "running" task when context switch occurred.
+       * g_running_tasks[] is only used by assertion logic for reporting
+       * crashes.
+       */
+
+      g_running_tasks[this_cpu()] = this_task();
+
+      /* Restore the cpu lock */
+
+      restore_critical_section();
+      regs = (uint64_t *)CURRENT_REGS;
     }
 
   /* Set CURRENT_REGS to NULL to indicate that we are no longer in an
    * interrupt handler.
    */
 
-  regs         = (uint64_t *)CURRENT_REGS;
   CURRENT_REGS = NULL;
 
   return regs;
@@ -138,14 +134,6 @@ void up_irqinitialize(void)
   /* Initialize the Generic Interrupt Controller (GIC) for CPU0 */
 
   arm64_gic_initialize();   /* Initialization common to all CPUs */
-
-  /* currents_regs is non-NULL only while processing an interrupt */
-
-  CURRENT_REGS = NULL;
-
-#ifdef CONFIG_SMP
-  arm64_smp_sgi_init();
-#endif
 
 #ifndef CONFIG_SUPPRESS_INTERRUPTS
 

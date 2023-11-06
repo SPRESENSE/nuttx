@@ -344,8 +344,8 @@ struct lpc43_usbdev_s
 static uint32_t lpc43_getreg(uint32_t addr);
 static void lpc43_putreg(uint32_t val, uint32_t addr);
 #else
-# define lpc43_getreg(addr)     getreg32(addr)
-# define lpc43_putreg(val,addr) putreg32(val,addr)
+#  define lpc43_getreg(addr)     getreg32(addr)
+#  define lpc43_putreg(val,addr) putreg32(val,addr)
 #endif
 
 static inline void lpc43_clrbits(uint32_t mask, uint32_t addr);
@@ -377,8 +377,6 @@ static inline void lpc43_set_address(struct lpc43_usbdev_s *priv,
 static void        lpc43_flushep(struct lpc43_ep_s *privep);
 
 static int         lpc43_progressep(struct lpc43_ep_s *privep);
-static inline void lpc43_abortrequest(struct lpc43_ep_s *privep,
-                     struct lpc43_req_s *privreq, int16_t result);
 static void        lpc43_reqcomplete(struct lpc43_ep_s *privep,
                      struct lpc43_req_s *privreq, int16_t result);
 
@@ -892,30 +890,6 @@ static int lpc43_progressep(struct lpc43_ep_s *privep)
   lpc43_queuedtd(privep->epphy, dtd);
 
   return OK;
-}
-
-/****************************************************************************
- * Name: lpc43_abortrequest
- *
- * Description:
- *   Discard a request
- *
- ****************************************************************************/
-
-static inline void lpc43_abortrequest(struct lpc43_ep_s *privep,
-                                      struct lpc43_req_s *privreq,
-                                      int16_t result)
-{
-  usbtrace(TRACE_DEVERROR(LPC43_TRACEERR_REQABORTED),
-          (uint16_t)privep->epphy);
-
-  /* Save the result in the request structure */
-
-  privreq->req.result = result;
-
-  /* Callback to the request completion handler */
-
-  privreq->req.callback(&privep->ep, &privreq->req);
 }
 
 /****************************************************************************
@@ -2206,7 +2180,7 @@ usbdev_req_s *lpc43_epallocreq(struct usbdev_ep_s *ep)
 
   usbtrace(TRACE_EPALLOCREQ, ((struct lpc43_ep_s *)ep)->epphy);
 
-  privreq = (struct lpc43_req_s *)kmm_malloc(sizeof(struct lpc43_req_s));
+  privreq = kmm_malloc(sizeof(struct lpc43_req_s));
   if (!privreq)
     {
       usbtrace(TRACE_DEVERROR(LPC43_TRACEERR_ALLOCFAIL), 0);
@@ -2844,8 +2818,6 @@ void arm_usbinitialize(void)
   /* Reset/Re-initialize the USB hardware */
 
   lpc43_usbreset(priv);
-
-  return;
 }
 
 /****************************************************************************

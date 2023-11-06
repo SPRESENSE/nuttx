@@ -40,7 +40,7 @@
 #include "rx65n_macrodriver.h"
 #include "arch/rx65n/iodefine.h"
 #include "chip.h"
-#include "up_internal.h"
+#include "renesas_internal.h"
 #include "rx65n_definitions.h"
 #include "rx65n_sci.h"
 #include "arch/rx65n/irq.h"
@@ -281,10 +281,10 @@ static void up_shutdown(struct uart_dev_s *dev);
 static int  up_attach(struct uart_dev_s *dev);
 static void up_detach(struct uart_dev_s *dev);
 static int  up_ioctl(struct file *filep, int cmd, unsigned long arg);
-static int  up_xmtinterrupt(int irq, void *context, FAR void *arg);
-static int  up_rcvinterrupt(int irq, void *context, FAR void *arg);
-static int  up_eriinterrupt(int irq, void *context, FAR void *arg);
-static int  up_teiinterrupt(int irq, void *context, FAR void *arg);
+static int  up_xmtinterrupt(int irq, void *context, void *arg);
+static int  up_rcvinterrupt(int irq, void *context, void *arg);
+static int  up_eriinterrupt(int irq, void *context, void *arg);
+static int  up_teiinterrupt(int irq, void *context, void *arg);
 static int  up_receive(struct uart_dev_s *dev, unsigned int *status);
 static void up_rxint(struct uart_dev_s *dev, bool enable);
 static bool up_rxavailable(struct uart_dev_s *dev);
@@ -1259,16 +1259,15 @@ static int up_rcvinterrupt(int irq, void *context, void *arg)
  * Name: up_xmtinterrupt
  *
  * Description:
- *   This is the SCI interrupt handler.  It will be invoked
- *   when an interrupt received on the 'irq'  It should call
- *   uart_transmitchars or uart_receivechar to perform the
- *   appropriate data transfers.  The interrupt handling logic\
- *   must be able to map the 'irq' number into the appropriate
- *   up_dev_s structure in order to call these functions.
+ *   This is the SCI interrupt handler.  It will be invoked when an
+ *   interrupt is received on the 'irq'.  It should call uart_xmitchars or
+ *   uart_recvchars to perform the appropriate data transfers.  The
+ *   interrupt handling logic must be able to map the 'arg' to the
+ *   appropriate uart_dev_s structure in order to call these functions.
  *
  ****************************************************************************/
 
-static int  up_xmtinterrupt(int irq, void *context, FAR void *arg)
+static int  up_xmtinterrupt(int irq, void *context, void *arg)
 {
   struct uart_dev_s *dev;
   dev = (struct uart_dev_s *)arg;
@@ -1509,16 +1508,16 @@ static bool up_txready(struct uart_dev_s *dev)
  ****************************************************************************/
 
 /****************************************************************************
- * Name: up_earlyconsoleinit
+ * Name: renesas_earlyconsoleinit
  *
  * Description:
  *   Performs the low level SCI initialization early in
  *   debug so that the serial console will be available
- *   during bootup.  This must be called before up_consoleinit.
+ *   during bootup.  This must be called before renesas_consoleinit.
  *
  ****************************************************************************/
 
-void    up_earlyconsoleinit(void)
+void    renesas_earlyconsoleinit(void)
 {
   /* NOTE:  All GPIO configuration for the SCIs was performed in
    * up_lowsetup
@@ -1575,15 +1574,15 @@ void    up_earlyconsoleinit(void)
 }
 
 /****************************************************************************
- * Name: up_serialinit
+ * Name: renesas_serialinit
  *
  * Description:
  *   Register serial console and serial ports.  This assumes
- *   that up_earlyconsoleinit was called previously.
+ *   that renesas_earlyconsoleinit was called previously.
  *
  ****************************************************************************/
 
-void up_serialinit(void)
+void renesas_serialinit(void)
 {
   /* Register all SCIs */
 
@@ -1738,10 +1737,10 @@ int up_putc(int ch)
     {
       /* Add CR */
 
-      up_lowputc('\r');
+      renesas_lowputc('\r');
     }
 
-  up_lowputc(ch);
+  renesas_lowputc(ch);
 #endif
   return ch;
 }

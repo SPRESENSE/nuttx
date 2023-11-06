@@ -31,7 +31,6 @@
 #include <errno.h>
 
 #include <nuttx/board.h>
-#include <nuttx/signal.h>
 #include <nuttx/spi/spi.h>
 #include <nuttx/modem/alt1250.h>
 #include <nuttx/wdog.h>
@@ -44,7 +43,6 @@
  ****************************************************************************/
 
 #define RESET_INTERVAL_TIMEOUT MSEC2TICK(1)
-#define POWERON_DELAY_USEC     10 * 1000
 
 /****************************************************************************
  * Private Data

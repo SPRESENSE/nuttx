@@ -102,9 +102,6 @@ struct sam_chconfig_s
 
 struct sam_tcconfig_s
 {
-  uintptr_t base;          /* TC register base address */
-  uint8_t tc;              /* Timer/counter number */
-
   /* Channels */
 
   struct sam_chconfig_s channel[SAM_TC_NCHANNELS];
@@ -127,7 +124,7 @@ struct sam_chan_s
 
 struct sam_tc_s
 {
-  sem_t exclsem;           /* Assures mutually exclusive access to TC */
+  mutex_t lock;            /* Assures mutually exclusive access to TC */
   uintptr_t base;          /* Register base address */
   uint8_t tc;              /* Timer/channel number {0, 1, 2, 3} */
   bool initialized;        /* True: Timer/counter has been initialized */
@@ -158,11 +155,6 @@ struct mck_divsrc_s
  * Private Function Prototypes
  ****************************************************************************/
 
-/* Low-level helpers ********************************************************/
-
-static int  sam_takesem(struct sam_tc_s *tc);
-#define     sam_givesem(tc) (nxsem_post(&tc->exclsem))
-
 #ifdef CONFIG_SAMV7_TC_REGDEBUG
 static void sam_regdump(struct sam_chan_s *chan, const char *msg);
 static bool sam_checkreg(struct sam_tc_s *tc, bool wr, uint32_t regaddr,
@@ -172,8 +164,6 @@ static bool sam_checkreg(struct sam_tc_s *tc, bool wr, uint32_t regaddr,
 #  define   sam_checkreg(tc,wr,regaddr,regval) (false)
 #endif
 
-static inline uint32_t sam_tc_getreg(struct sam_chan_s *chan,
-                                     unsigned int offset);
 static inline void sam_tc_putreg(struct sam_chan_s *chan,
                                  unsigned int offset, uint32_t regval);
 
@@ -203,8 +193,6 @@ static inline struct sam_chan_s *sam_tc_initialize(int channel);
 #ifdef CONFIG_SAMV7_TC0
 static const struct sam_tcconfig_s g_tc012config =
 {
-  .base    = SAM_TC012_BASE,
-  .tc      = 0,
   .channel =
   {
     [0] =
@@ -280,8 +268,6 @@ static const struct sam_tcconfig_s g_tc012config =
 #ifdef CONFIG_SAMV7_TC1
 static const struct sam_tcconfig_s g_tc345config =
 {
-  .base    = SAM_TC345_BASE,
-  .tc      = 1,
   .channel =
   {
     [0] =
@@ -357,8 +343,6 @@ static const struct sam_tcconfig_s g_tc345config =
 #ifdef CONFIG_SAMV7_TC2
 static const struct sam_tcconfig_s g_tc678config =
 {
-  .base    = SAM_TC678_BASE,
-  .tc      = 2,
   .channel =
   {
     [0] =
@@ -407,7 +391,7 @@ static const struct sam_tcconfig_s g_tc678config =
     },
     [2] =
     {
-      .base    = SAM_TC345_CHAN_BASE(8),
+      .base    = SAM_TC678_CHAN_BASE(8),
       .pid     = SAM_PID_TC8,
       .irq     = SAM_IRQ_TC8,
 
@@ -434,8 +418,6 @@ static const struct sam_tcconfig_s g_tc678config =
 #ifdef CONFIG_SAMV7_TC3
 static const struct sam_tcconfig_s g_tc901config =
 {
-  .base    = SAM_TC901_BASE,
-  .tc      = 3,
   .channel =
   {
     [0] =
@@ -484,7 +466,7 @@ static const struct sam_tcconfig_s g_tc901config =
     },
     [2] =
     {
-      .base    = SAM_TC345_CHAN_BASE(11),
+      .base    = SAM_TC901_CHAN_BASE(11),
       .pid     = SAM_PID_TC11,
       .irq     = SAM_IRQ_TC11,
 
@@ -511,19 +493,39 @@ static const struct sam_tcconfig_s g_tc901config =
 /* Timer/counter state */
 
 #ifdef CONFIG_SAMV7_TC0
-static struct sam_tc_s g_tc012;
+static struct sam_tc_s g_tc012 =
+{
+  .lock    = NXMUTEX_INITIALIZER,
+  .base    = SAM_TC012_BASE,
+  .tc      = 0,
+};
 #endif
 
 #ifdef CONFIG_SAMV7_TC1
-static struct sam_tc_s g_tc345;
+static struct sam_tc_s g_tc345 =
+{
+  .lock    = NXMUTEX_INITIALIZER,
+  .base    = SAM_TC345_BASE,
+  .tc      = 1,
+};
 #endif
 
 #ifdef CONFIG_SAMV7_TC2
-static struct sam_tc_s g_tc678;
+static struct sam_tc_s g_tc678 =
+{
+  .lock    = NXMUTEX_INITIALIZER,
+  .base    = SAM_TC678_BASE,
+  .tc      = 2,
+};
 #endif
 
 #ifdef CONFIG_SAMV7_TC3
-static struct sam_tc_s g_tc901;
+static struct sam_tc_s g_tc901 =
+{
+  .lock    = NXMUTEX_INITIALIZER,
+  .base    = SAM_TC901_BASE,
+  .tc      = 3,
+};
 #endif
 
 /* TC frequency data.  This table provides the frequency for each
@@ -571,26 +573,6 @@ static const uint8_t g_regoffset[TC_NREGISTERS] =
 /****************************************************************************
  * Low-level Helpers
  ****************************************************************************/
-
-/****************************************************************************
- * Name: sam_takesem
- *
- * Description:
- *   Take the wait semaphore (handling false alarm wakeups due to the receipt
- *   of signals).
- *
- * Input Parameters:
- *   dev - Instance of the SDIO device driver state structure.
- *
- * Returned Value:
- *   None
- *
- ****************************************************************************/
-
-static int sam_takesem(struct sam_tc_s *tc)
-{
-  return nxsem_wait_uninterruptible(&tc->exclsem);
-}
 
 /****************************************************************************
  * Name: sam_regdump
@@ -695,31 +677,6 @@ static bool sam_checkreg(struct sam_tc_s *tc, bool wr, uint32_t regaddr,
   return true;
 }
 #endif
-
-/****************************************************************************
- * Name: sam_tc_getreg
- *
- * Description:
- *  Read an TC register
- *
- ****************************************************************************/
-
-static inline uint32_t sam_tc_getreg(struct sam_chan_s *chan,
-                                     unsigned int offset)
-{
-  struct sam_tc_s *tc = chan->tc;
-  uint32_t regaddr    = tc->base + offset;
-  uint32_t regval     = getreg32(regaddr);
-
-#ifdef CONFIG_SAMV7_TC_REGDEBUG
-  if (sam_checkreg(tc, false, regaddr, regval))
-    {
-      tmrinfo("%08x->%08x\n", regaddr, regval);
-    }
-#endif
-
-  return regval;
-}
 
 /****************************************************************************
  * Name: sam_tc_putreg
@@ -944,7 +901,7 @@ static int sam_tc_mcksrc(uint32_t frequency, uint32_t *tcclks,
   uint32_t fnext;
   int ndx = 0;
 
-  tmrinfo("frequency=%ld\n", frequency);
+  tmrinfo("frequency=%" PRId32 "\n", frequency);
 
   /* Satisfy lower bound.  That is, the value of the divider such that:
    *
@@ -1080,13 +1037,6 @@ static inline struct sam_chan_s *sam_tc_initialize(int channel)
   flags = enter_critical_section();
   if (!tc->initialized)
     {
-      /* Initialize the timer counter data structure. */
-
-      memset(tc, 0, sizeof(struct sam_tc_s));
-      nxsem_init(&tc->exclsem, 0, 1);
-      tc->base = tcconfig->base;
-      tc->tc   = tcconfig->tc;
-
       /* Initialize the channels */
 
       for (chndx = 0, ch = chfirst; chndx < SAM_TC_NCHANNELS; chndx++)
@@ -1113,7 +1063,7 @@ static inline struct sam_chan_s *sam_tc_initialize(int channel)
 
   /* Get exclusive access to the timer/count data structure */
 
-  ret = sam_takesem(tc);
+  ret = nxmutex_lock(&tc->lock);
   if (ret < 0)
     {
       leave_critical_section(flags);
@@ -1132,7 +1082,7 @@ static inline struct sam_chan_s *sam_tc_initialize(int channel)
       /* Yes.. return a failure */
 
       tmrerr("ERROR: Channel %d is in-use\n", channel);
-      sam_givesem(tc);
+      nxmutex_unlock(&tc->lock);
       return NULL;
     }
 
@@ -1246,7 +1196,7 @@ TC_HANDLE sam_tc_allocate(int channel, int mode)
 
       sam_chan_putreg(chan, SAM_TC_CMR_OFFSET, mode);
       sam_regdump(chan, "Allocated");
-      sam_givesem(chan->tc);
+      nxmutex_unlock(&chan->tc->lock);
     }
 
   /* Return an opaque reference to the channel */

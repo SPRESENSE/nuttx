@@ -40,6 +40,7 @@
 #ifdef CONFIG_ESP32S2_GPIO_IRQ
 #include "esp32s2_gpio.h"
 #endif
+#include "esp32s2_rtc_gpio.h"
 #include "esp32s2_irq.h"
 #include "hardware/esp32s2_soc.h"
 #include "hardware/esp32s2_system.h"
@@ -79,18 +80,6 @@
 #define ESP32S2_MIN_PRIORITY    1
 #define ESP32S2_MAX_PRIORITY    5
 #define ESP32S2_PRIO_INDEX(p)   ((p) - ESP32S2_MIN_PRIORITY)
-
-/****************************************************************************
- * Public Data
- ****************************************************************************/
-
-/* g_current_regs[] holds a reference to the current interrupt level
- * register storage structure.  It is non-NULL only during interrupt
- * processing.  Access to g_current_regs[] must be through the macro
- * CURRENT_REGS for portability.
- */
-
-volatile uint32_t *g_current_regs[1];
 
 /****************************************************************************
  * Private Data
@@ -310,6 +299,10 @@ void up_irqinitialize(void)
 
   esp32s2_gpioirqinitialize();
 #endif
+
+  /* Initialize RTCIO interrupt support */
+
+  esp32s2_rtcioirqinitialize();
 
 #ifndef CONFIG_SUPPRESS_INTERRUPTS
   /* And finally, enable interrupts.  Also clears PS.EXCM */

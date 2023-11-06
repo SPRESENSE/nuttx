@@ -61,25 +61,7 @@
 #define NVIC_CLRENA_OFFSET (NVIC_IRQ0_31_CLEAR - NVIC_IRQ0_31_ENABLE)
 
 /****************************************************************************
- * Public Data
- ****************************************************************************/
-
-/* g_current_regs[] holds a references to the current interrupt level
- * register storage structure.  If is non-NULL only during interrupt
- * processing.  Access to g_current_regs[] must be through the macro
- * CURRENT_REGS for portability.
- */
-
-volatile uint32_t *g_current_regs[1];
-
-/* This is the address of the  exception vector table (determined by the
- * linker script).
- */
-
-extern uint32_t _vectors[];
-
-/****************************************************************************
- * Private Functions
+ * Private Function
  ****************************************************************************/
 
 /****************************************************************************
@@ -150,7 +132,7 @@ static void efm32_dumpnvic(const char *msg, int irq)
 #endif
 
 /****************************************************************************
- * Name: efm32_nmi, efm32_busfault, efm32_usagefault, efm32_pendsv,
+ * Name: efm32_nmi, efm32_pendsv,
  *       efm32_dbgmonitor, efm32_pendsv, efm32_reserved
  *
  * Description:
@@ -165,22 +147,6 @@ static int efm32_nmi(int irq, void *context, void *arg)
 {
   up_irq_save();
   _err("PANIC!!! NMI received\n");
-  PANIC();
-  return 0;
-}
-
-static int efm32_busfault(int irq, void *context, void *arg)
-{
-  up_irq_save();
-  _err("PANIC!!! Bus fault received: %08x\n", getreg32(NVIC_CFAULTS));
-  PANIC();
-  return 0;
-}
-
-static int efm32_usagefault(int irq, void *context, void *arg)
-{
-  up_irq_save();
-  _err("PANIC!!! Usage fault received: %08x\n", getreg32(NVIC_CFAULTS));
   PANIC();
   return 0;
 }
@@ -360,10 +326,6 @@ void up_irqinitialize(void)
       regaddr += 4;
     }
 
-  /* currents_regs is non-NULL only while processing an interrupt */
-
-  CURRENT_REGS = NULL;
-
   /* Attach the SVCall and Hard Fault exception handlers.  The SVCall
    * exception is used for performing context switches; The Hard Fault
    * must also be caught because a SVCall may show up as a Hard Fault
@@ -395,8 +357,8 @@ void up_irqinitialize(void)
 #ifndef CONFIG_ARM_MPU
   irq_attach(EFM32_IRQ_MEMFAULT, arm_memfault, NULL);
 #endif
-  irq_attach(EFM32_IRQ_BUSFAULT, efm32_busfault, NULL);
-  irq_attach(EFM32_IRQ_USAGEFAULT, efm32_usagefault, NULL);
+  irq_attach(EFM32_IRQ_BUSFAULT, arm_busfault, NULL);
+  irq_attach(EFM32_IRQ_USAGEFAULT, arm_usagefault, NULL);
   irq_attach(EFM32_IRQ_PENDSV, efm32_pendsv, NULL);
   irq_attach(EFM32_IRQ_DBGMONITOR, efm32_dbgmonitor, NULL);
   irq_attach(EFM32_IRQ_RESERVED, efm32_reserved, NULL);

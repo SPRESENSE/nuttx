@@ -894,28 +894,6 @@ static inline void lpc54_serialout(struct lpc54_dev_s *priv,
 }
 
 /****************************************************************************
- * Name: lpc54_modifyreg
- ****************************************************************************/
-
-static inline void lpc54_modifyreg(struct lpc54_dev_s *priv,
-                                   unsigned int offset, uint32_t setbits,
-                                   uint32_t clrbits)
-{
-  irqstate_t flags;
-  uintptr_t regaddr = priv->uartbase + offset;
-  uint32_t regval;
-
-  flags   = enter_critical_section();
-
-  regval  = getreg32(regaddr);
-  regval &= ~clrbits;
-  regval |= setbits;
-  putreg32(regval, regaddr);
-
-  leave_critical_section(flags);
-}
-
-/****************************************************************************
  * Name: lpc54_fifoint_enable
  ****************************************************************************/
 
@@ -1063,10 +1041,10 @@ static void lpc54_detach(struct uart_dev_s *dev)
  * Name: lpc54_interrupt
  *
  * Description:
- *   This is the USART status interrupt handler.  It will be invoked when an
- *   interrupt received on the 'irq'  It should call uart_transmitchars or
- *   uart_receivechar to perform the appropriate data transfers.  The
- *   interrupt handling logic must be able to map the 'irq' number into the
+ *   This is the USART interrupt handler.  It will be invoked when an
+ *   interrupt is received on the 'irq'.  It should call uart_xmitchars or
+ *   uart_recvchars to perform the appropriate data transfers.  The
+ *   interrupt handling logic must be able to map the 'arg' to the
  *   appropriate uart_dev_s structure in order to call these functions.
  *
  ****************************************************************************/
@@ -1150,7 +1128,6 @@ static int lpc54_ioctl(struct file *filep, int cmd, unsigned long arg)
   struct lpc54_dev_s   *priv;
   int                   ret = OK;
 
-  DEBUGASSERT(filep, filep->f_inode);
   inode = filep->f_inode;
   dev   = inode->i_private;
 
@@ -1196,7 +1173,7 @@ static int lpc54_receive(struct uart_dev_s *dev, unsigned int *status)
 
   if (status)
     {
-      *status = fiford && ~USART_FIFORD_RXDATA_MASK;
+      *status = fiford & ~USART_FIFORD_RXDATA_MASK;
     }
 
   /* Then return the actual received data. */

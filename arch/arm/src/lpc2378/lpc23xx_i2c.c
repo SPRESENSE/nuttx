@@ -65,6 +65,7 @@
 
 #include <nuttx/arch.h>
 #include <nuttx/wdog.h>
+#include <nuttx/mutex.h>
 #include <nuttx/semaphore.h>
 #include <nuttx/i2c/i2c_master.h>
 
@@ -114,7 +115,7 @@ struct lpc2378_i2cdev_s
   unsigned int     base;       /* Base address of registers */
   uint16_t         irqid;      /* IRQ for this device */
 
-  sem_t            mutex;      /* Only one thread can access at a time */
+  mutex_t          lock;       /* Only one thread can access at a time */
   sem_t            wait;       /* Place to wait for state machine completion */
   volatile uint8_t state;      /* State of state machine */
   struct wdog_s    timeout;    /* Watchdog to timeout when bus hung */
@@ -144,7 +145,7 @@ static void lpc2378_stopnext(struct lpc2378_i2cdev_s *priv);
 static int  lpc2378_i2c_transfer(struct i2c_master_s *dev,
               struct i2c_msg_s *msgs, int count);
 #ifdef CONFIG_I2C_RESET
-static int  lpc2378_i2c_reset(struct i2c_master_s * dev);
+static int  lpc2378_i2c_reset(struct i2c_master_s *dev);
 #endif
 
 /****************************************************************************
@@ -152,13 +153,25 @@ static int  lpc2378_i2c_reset(struct i2c_master_s * dev);
  ****************************************************************************/
 
 #ifdef CONFIG_LPC2378_I2C0
-static struct lpc2378_i2cdev_s g_i2c0dev;
+static struct lpc2378_i2cdev_s g_i2c0dev =
+{
+  .lock = NXMUTEX_INITIALIZER,
+  .wait = SEM_INITIALIZER(0),
+};
 #endif
 #ifdef CONFIG_LPC2378_I2C1
-static struct lpc2378_i2cdev_s g_i2c1dev;
+static struct lpc2378_i2cdev_s g_i2c1dev =
+{
+  .lock = NXMUTEX_INITIALIZER,
+  .wait = SEM_INITIALIZER(0),
+};
 #endif
 #ifdef CONFIG_LPC2378_I2C2
-static struct lpc2378_i2cdev_s g_i2c2dev;
+static struct lpc2378_i2cdev_s g_i2c2dev =
+{
+  .lock = NXMUTEX_INITIALIZER,
+  .wait = SEM_INITIALIZER(0),
+};
 #endif
 
 struct i2c_ops_s lpc2378_i2c_ops =
@@ -404,7 +417,7 @@ static int lpc2378_i2c_transfer(struct i2c_master_s *dev,
 
   /* Get exclusive access to the I2C bus */
 
-  nxsem_wait(&priv->mutex);
+  nxmutex_lock(&priv->lock);
 
   /* Set up for the transfer */
 
@@ -425,7 +438,7 @@ static int lpc2378_i2c_transfer(struct i2c_master_s *dev,
 
   ret = lpc2378_i2c_start(priv);
 
-  nxsem_post(&priv->mutex);
+  nxmutex_unlock(&priv->lock);
   return ret;
 }
 
@@ -444,7 +457,7 @@ static int lpc2378_i2c_transfer(struct i2c_master_s *dev,
  ****************************************************************************/
 
 #ifdef CONFIG_I2C_RESET
-static int lpc2378_i2c_reset(struct i2c_master_s * dev)
+static int lpc2378_i2c_reset(struct i2c_master_s *dev)
 {
   return OK;
 }
@@ -579,17 +592,6 @@ struct i2c_master_s *lpc2378_i2cbus_initialize(int port)
 
   putreg32(I2C_CONSET_I2EN, priv->base + I2C_CONSET_OFFSET);
 
-  /* Initialize semaphores */
-
-  nxsem_init(&priv->mutex, 0, 1);
-  nxsem_init(&priv->wait, 0, 0);
-
-  /* The wait semaphore is used for signaling and, hence, should not have
-   * priority inheritance enabled.
-   */
-
-  nxsem_set_protocol(&priv->wait, SEM_PRIO_NONE);
-
   /* Attach Interrupt Handler */
 
   irq_attach(priv->irqid, lpc2378_i2c_interrupt, priv);
@@ -612,18 +614,13 @@ struct i2c_master_s *lpc2378_i2cbus_initialize(int port)
  *
  ****************************************************************************/
 
-int lpc2378_i2cbus_uninitialize(struct i2c_master_s * dev)
+int lpc2378_i2cbus_uninitialize(struct i2c_master_s *dev)
 {
-  struct lpc2378_i2cdev_s *priv = (struct lpc2378_i2cdev_s *) dev;
+  struct lpc2378_i2cdev_s *priv = (struct lpc2378_i2cdev_s *)dev;
 
   /* Disable I2C */
 
   putreg32(I2C_CONCLRT_I2ENC, priv->base + I2C_CONCLR_OFFSET);
-
-  /* Reset data structures */
-
-  nxsem_destroy(&priv->mutex);
-  nxsem_destroy(&priv->wait);
 
   /* Cancel the watchdog timer */
 

@@ -124,8 +124,8 @@ GNU Toolchain Options
   a different toolchain, you simply need to add change to one of the following
   configuration options to your .config (or defconfig) file:
 
-    CONFIG_ARMV7A_TOOLCHAIN_BUILDROOT=y  : NuttX buildroot under Linux or Cygwin (default)
-    CONFIG_ARMV7A_TOOLCHAIN_GNU_EABI=y   : Generic GCC ARM EABI toolchain
+    CONFIG_ARM_TOOLCHAIN_BUILDROOT=y  : NuttX buildroot under Linux or Cygwin (default)
+    CONFIG_ARM_TOOLCHAIN_GNU_EABI=y   : Generic GCC ARM EABI toolchain
 
 IDEs
 ====
@@ -492,7 +492,7 @@ Running NuttX from SDRAM
 
   NuttX may be executed from SDRAM.  But this case means that the NuttX
   binary must reside on some other media (typically NAND FLASH, Serial
-  FLASH) or transferred over some interface (perhaps a UARt or even a
+  FLASH) or transferred over some interface (perhaps a UART or even a
   TFTP server).  In these cases, an intermediate bootloader such as U-Boot
   or Barebox must be used to configure the SAMA5D4 clocks and SDRAM and
   then to copy the NuttX binary into SDRAM.
@@ -1487,7 +1487,6 @@ Networking
       CONFIG_NSH_NETINIT_THREAD             : Enable the network initialization thread
       CONFIG_NSH_NETINIT_MONITOR=y          : Enable the network monitor
       CONFIG_NSH_NETINIT_RETRYMSEC=2000     : Configure the network monitor as you like
-      CONFIG_NSH_NETINIT_SIGNO=18
 
 AT25 Serial FLASH
 =================
@@ -3572,7 +3571,7 @@ Configurations
        CONFIG_WINDOWS_CYGWIN=y             : Using Cygwin or other POSIX environment
 
      System Type -> Toolchain:
-       CONFIG_ARMV7A_TOOLCHAIN_GNU_EABI=y  : GNU EABI toolchain
+       CONFIG_ARM_TOOLCHAIN_GNU_EABI=y  : GNU EABI toolchain
 
   4. The SAMA5Dx is running at 528MHz by default in these configurations.
 
@@ -3664,7 +3663,7 @@ Configurations
 
        CONFIG_HOST_WINDOWS=y                   : Windows operating system
        CONFIG_WINDOWS_CYGWIN=y                 : POSIX environment under Windows
-       CONFIG_ARMV7A_TOOLCHAIN_GNU_EABI=y      : GNU EABI toolchain
+       CONFIG_ARM_TOOLCHAIN_GNU_EABI=y      : GNU EABI toolchain
 
        If you are running on Linux, make *certain* that you have
        CONFIG_HOST_LINUX=y *before* the first make or you will create a
@@ -3733,7 +3732,7 @@ Configurations
 
        CONFIG_HOST_WINDOWS=y                   : Windows operating system
        CONFIG_WINDOWS_CYGWIN=y                 : POSIX environment under Windows
-       CONFIG_ARMV7A_TOOLCHAIN_GNU_EABI=y      : GNU EABI toolchain
+       CONFIG_ARM_TOOLCHAIN_GNU_EABI=y      : GNU EABI toolchain
 
        If you are running on Linux, make *certain* that you have
        CONFIG_HOST_LINUX=y *before* the first make or you will create a
@@ -3812,7 +3811,7 @@ Configurations
 
        CONFIG_HOST_WINDOWS=y                   : Windows operating system
        CONFIG_WINDOWS_CYGWIN=y                 : POSIX environment under windows
-       CONFIG_ARMV7A_TOOLCHAIN_GNU_EABI=y     : GNU EABI toolchain
+       CONFIG_ARM_TOOLCHAIN_GNU_EABI=y     : GNU EABI toolchain
 
        If you are running on Linux, make *certain* that you have
        CONFIG_HOST_LINUX=y *before* the first make or you will create a
@@ -3981,7 +3980,7 @@ Configurations
 
        CONFIG_HOST_WINDOWS=y                   : Windows operating system
        CONFIG_WINDOWS_CYGWIN=y                 : POSIX environment under Windows
-       CONFIG_ARMV7A_TOOLCHAIN_GNU_EABI=y      : GNU EABI toolchain
+       CONFIG_ARM_TOOLCHAIN_GNU_EABI=y      : GNU EABI toolchain
 
        If you are running on Linux, make *certain* that you have
        CONFIG_HOST_LINUX=y *before* the first make or you will create a
@@ -4227,7 +4226,7 @@ Configurations
 
        CONFIG_HOST_WINDOWS=y                   : Windows operating system
        CONFIG_WINDOWS_CYGWIN=y                 : POSIX environment under windows
-       CONFIG_ARMV7A_TOOLCHAIN_GNU_EABI=y      : GNU EABI toolchain
+       CONFIG_ARM_TOOLCHAIN_GNU_EABI=y      : GNU EABI toolchain
 
        If you are running on Linux, make *certain* that you have
        CONFIG_HOST_LINUX=y *before* the first make or you will create a
@@ -4879,7 +4878,7 @@ Configurations
 
        CONFIG_HOST_WINDOWS=y                   : Windows operating system
        CONFIG_WINDOWS_CYGWIN=y                 : POSIX environment under Windows
-       CONFIG_ARMV7A_TOOLCHAIN_GNU_EABI=y      : GNU EABI toolchain
+       CONFIG_ARM_TOOLCHAIN_GNU_EABI=y      : GNU EABI toolchain
 
        If you are running on Linux, make *certain* that you have
        CONFIG_HOST_LINUX=y *before* the first make or you will create a

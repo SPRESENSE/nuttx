@@ -34,7 +34,9 @@
 #include <nuttx/mtd/mtd.h>
 #include <nuttx/fs/fs.h>
 #include <nuttx/fs/nxffs.h>
-#include <nuttx/fs/rpmsgfs.h>
+#include <nuttx/drivers/ramdisk.h>
+#include <nuttx/drivers/rpmsgdev.h>
+#include <nuttx/drivers/rpmsgblk.h>
 #include <nuttx/i2c/i2c_master.h>
 #include <nuttx/spi/spi_transfer.h>
 #include <nuttx/rc/lirc_dev.h>
@@ -43,14 +45,17 @@
 #include <nuttx/sensors/mpu60x0.h>
 #include <nuttx/sensors/wtgahrs2.h>
 #include <nuttx/serial/uart_rpmsg.h>
-#include <nuttx/syslog/syslog_rpmsg.h>
 #include <nuttx/timers/oneshot.h>
 #include <nuttx/video/fb.h>
+#include <nuttx/video/video.h>
 #include <nuttx/timers/oneshot.h>
 #include <nuttx/wireless/pktradio.h>
 #include <nuttx/wireless/bluetooth/bt_null.h>
 #include <nuttx/wireless/bluetooth/bt_uart_shim.h>
 #include <nuttx/wireless/ieee802154/ieee802154_loopback.h>
+#include <nuttx/usb/adb.h>
+#include <nuttx/usb/mtp.h>
+#include <nuttx/usb/rndis.h>
 
 #ifdef CONFIG_LCD_DEV
 #include <nuttx/lcd/lcd_dev.h>
@@ -60,7 +65,7 @@
 #include <nuttx/input/buttons.h>
 #endif
 
-#include "up_internal.h"
+#include "sim_internal.h"
 #include "sim.h"
 
 /****************************************************************************
@@ -93,6 +98,9 @@ int sim_bringup(void)
 #endif
 #ifdef CONFIG_RAMMTD
   uint8_t *ramstart;
+#endif
+#if !defined(CONFIG_DISABLE_MOUNTPOINT) && defined(CONFIG_BLK_RPMSG_SERVER)
+  uint8_t *ramdiskstart;
 #endif
 #ifdef CONFIG_SIM_I2CBUS
   struct i2c_master_s *i2cbus;
@@ -152,7 +160,7 @@ int sim_bringup(void)
 #ifdef CONFIG_RAMMTD
   /* Create a RAM MTD device if configured */
 
-  ramstart = (uint8_t *)kmm_malloc(128 * 1024);
+  ramstart = kmm_malloc(128 * 1024);
   if (ramstart == NULL)
     {
       syslog(LOG_ERR, "ERROR: Allocation for RAM MTD failed\n");
@@ -177,14 +185,6 @@ int sim_bringup(void)
               syslog(LOG_ERR, "ERROR: IOCTL MTDIOC_BULKERASE failed\n");
             }
 
-#if defined(CONFIG_MTD_SMART) && defined(CONFIG_FS_SMARTFS)
-          /* Initialize a SMART Flash block device and bind it to the MTD
-           * device.
-           */
-
-          smart_initialize(0, mtd, NULL);
-
-#elif defined(CONFIG_FS_SPIFFS)
           /* Register the MTD driver so that it can be accessed from the
            * VFS.
            */
@@ -196,6 +196,14 @@ int sim_bringup(void)
                      ret);
             }
 
+#if defined(CONFIG_MTD_SMART) && defined(CONFIG_FS_SMARTFS)
+          /* Initialize a SMART Flash block device and bind it to the MTD
+           * device.
+           */
+
+          smart_initialize(0, mtd, NULL);
+
+#elif defined(CONFIG_FS_SPIFFS)
           /* Mount the SPIFFS file system */
 
           ret = nx_mount("/dev/rammtd", "/mnt/spiffs", "spiffs", 0, NULL);
@@ -207,17 +215,6 @@ int sim_bringup(void)
             }
 
 #elif defined(CONFIG_FS_LITTLEFS)
-          /* Register the MTD driver so that it can be accessed from the
-           * VFS.
-           */
-
-          ret = register_mtddriver("/dev/rammtd", mtd, 0755, NULL);
-          if (ret < 0)
-            {
-              syslog(LOG_ERR, "ERROR: Failed to register MTD driver: %d\n",
-                     ret);
-            }
-
           /* Mount the LittleFS file system */
 
           ret = nx_mount("/dev/rammtd", "/mnt/lfs", "littlefs", 0,
@@ -240,6 +237,16 @@ int sim_bringup(void)
             }
 #endif
         }
+    }
+#endif
+
+#if !defined(CONFIG_DISABLE_MOUNTPOINT) && defined(CONFIG_BLK_RPMSG_SERVER)
+  ramdiskstart = kmm_malloc(512 * 2048);
+  ret = ramdisk_register(1, ramdiskstart, 2048, 512,
+                         RDFLAG_WRENABLED | RDFLAG_FUNLINK);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: Failed to register ramdisk: %d\n", ret);
     }
 #endif
 
@@ -286,6 +293,19 @@ int sim_bringup(void)
     {
       syslog(LOG_ERR, "ERROR: fb_register() failed: %d\n", ret);
     }
+#endif
+
+#ifdef CONFIG_SIM_CAMERA
+  /* Initialize and register the simulated video driver */
+
+  sim_camera_initialize();
+
+  ret = video_initialize(CONFIG_SIM_CAMERA_DEV_PATH);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: video_initialize() failed: %d\n", ret);
+    }
+
 #endif
 
 #ifdef CONFIG_LCD
@@ -361,10 +381,10 @@ int sim_bringup(void)
 #ifdef CONFIG_SIM_HCISOCKET
   /* Register the Host Bluetooth network device via HCI socket */
 
-  ret = bthcisock_register(CONFIG_SIM_HCISOCKET_DEVID);
+  ret = sim_bthcisock_register(CONFIG_SIM_HCISOCKET_DEVID);
   if (ret < 0)
     {
-      syslog(LOG_ERR, "ERROR: bthcisock_register() failed: %d\n", ret);
+      syslog(LOG_ERR, "ERROR: sim_bthcisock_register() failed: %d\n", ret);
     }
 #endif
 
@@ -444,17 +464,24 @@ int sim_bringup(void)
 
 #ifdef CONFIG_RPTUN
 #ifdef CONFIG_SIM_RPTUN_MASTER
-  up_rptun_init("server-proxy", "proxy", true);
+  sim_rptun_init("server-proxy", "proxy",
+                 SIM_RPTUN_MASTER | SIM_RPTUN_NOBOOT);
 #else
-  up_rptun_init("server-proxy", "server", false);
+  sim_rptun_init("server-proxy", "server", SIM_RPTUN_SLAVE);
 #endif
 
-#ifdef CONFIG_SYSLOG_RPMSG_SERVER
-  syslog_rpmsg_server_init();
+#ifdef CONFIG_DEV_RPMSG
+  rpmsgdev_register("server", "/dev/console", "/dev/server-console", 0);
+  rpmsgdev_register("server", "/dev/null", "/dev/server-null", 0);
+  rpmsgdev_register("server", "/dev/ttyUSB0", "/dev/ttyUSB0", 0);
 #endif
 
-#if defined(CONFIG_FS_RPMSGFS) && defined(CONFIG_SIM_RPTUN_MASTER)
-  rpmsgfs_server_init();
+#ifdef CONFIG_BLK_RPMSG
+  rpmsgblk_register("server", "/dev/ram1", NULL);
+#endif
+
+#ifdef CONFIG_RPMSGMTD
+  rpmsgmtd_register("server", "/dev/rammtd", NULL);
 #endif
 #endif
 
@@ -472,6 +499,29 @@ int sim_bringup(void)
 
 #ifdef CONFIG_RC_DUMMY
   rc_dummy_initialize(0);
+#endif
+
+#if defined(CONFIG_USBADB) && \
+    !defined(CONFIG_USBADB_COMPOSITE) && \
+    !defined(CONFIG_BOARDCTL_USBDEVCTRL)
+  usbdev_adb_initialize();
+#endif
+
+#if defined(CONFIG_USBMTP) && !defined(CONFIG_USBMTP_COMPOSITE)
+  usbdev_mtp_initialize();
+#endif
+
+#if defined(CONFIG_RNDIS) && !defined(CONFIG_RNDIS_COMPOSITE)
+  /* Set up a MAC address for the RNDIS device. */
+
+  uint8_t mac[6];
+  mac[0] = (CONFIG_SIM_RNDIS_MACADDR >> (8 * 5)) & 0xff;
+  mac[1] = (CONFIG_SIM_RNDIS_MACADDR >> (8 * 4)) & 0xff;
+  mac[2] = (CONFIG_SIM_RNDIS_MACADDR >> (8 * 3)) & 0xff;
+  mac[3] = (CONFIG_SIM_RNDIS_MACADDR >> (8 * 2)) & 0xff;
+  mac[4] = (CONFIG_SIM_RNDIS_MACADDR >> (8 * 1)) & 0xff;
+  mac[5] = (CONFIG_SIM_RNDIS_MACADDR >> (8 * 0)) & 0xff;
+  usbdev_rndis_initialize(mac);
 #endif
 
   return ret;

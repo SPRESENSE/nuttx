@@ -36,16 +36,7 @@
 
 #include "devif/devif.h"
 #include "udp/udp.h"
-
-/****************************************************************************
- * Pre-processor Definitions
- ****************************************************************************/
-
-#define IPv4BUF    ((FAR struct ipv4_hdr_s *)&dev->d_buf[NET_LL_HDRLEN(dev)])
-#define IPv6BUF    ((FAR struct ipv6_hdr_s *)&dev->d_buf[NET_LL_HDRLEN(dev)])
-
-#define UDPIPv4BUF ((FAR struct udp_hdr_s *)&dev->d_buf[NET_LL_HDRLEN(dev) + IPv4_HDRLEN])
-#define UDPIPv6BUF ((FAR struct udp_hdr_s *)&dev->d_buf[NET_LL_HDRLEN(dev) + IPv6_HDRLEN])
+#include "utils/utils.h"
 
 /****************************************************************************
  * Private Functions
@@ -67,40 +58,35 @@ static uint16_t udp_datahandler(FAR struct net_driver_s *dev,
   FAR struct iob_s *iob;
   int ret;
 #ifdef CONFIG_NET_IPv6
-  FAR struct sockaddr_in6 src_addr6 =
+  struct sockaddr_in6 src_addr6 =
   {
     0
   };
 #endif
 
 #ifdef CONFIG_NET_IPv4
-  FAR struct sockaddr_in src_addr4 =
+  struct sockaddr_in src_addr4 =
   {
     0
   };
 #endif
 
-  FAR void  *src_addr;
   uint8_t src_addr_size;
+  FAR void *src_addr;
+  int offset;
 
 #if CONFIG_NET_RECV_BUFSIZE > 0
-  while (iob_get_queue_size(&conn->readahead) > conn->rcvbufs)
+  if (conn->readahead && conn->readahead->io_pktlen > conn->rcvbufs)
     {
-      iob = iob_remove_queue(&conn->readahead);
-      iob_free_chain(iob, IOBUSER_NET_UDP_READAHEAD);
+      netdev_iob_release(dev);
+#ifdef CONFIG_NET_STATISTICS
+      g_netstats.udp.drop++;
+#endif
+      return 0;
     }
 #endif
 
-  /* Allocate on I/O buffer to start the chain (throttling as necessary).
-   * We will not wait for an I/O buffer to become available in this context.
-   */
-
-  iob = iob_tryalloc(true, IOBUSER_NET_UDP_READAHEAD);
-  if (iob == NULL)
-    {
-      nerr("ERROR: Failed to create new I/O buffer chain\n");
-      return 0;
-    }
+  iob = dev->d_iob;
 
 #ifdef CONFIG_NET_IPv6
 #ifdef CONFIG_NET_IPv4
@@ -132,16 +118,16 @@ static uint16_t udp_datahandler(FAR struct net_driver_s *dev,
 
       if (conn->domain == PF_INET6)
         {
-          FAR struct udp_hdr_s *udp   = UDPIPv6BUF;
-          FAR struct ipv6_hdr_s *ipv6 = IPv6BUF;
+          FAR struct udp_hdr_s *udp   = UDPIPv4BUF;
+          FAR struct ipv4_hdr_s *ipv4 = IPv4BUF;
           in_addr_t ipv4addr;
 
-          /* Encode the IPv4 address as an IPv-mapped IPv6 address */
+          /* Encode the IPv4 address as an IPv4-mapped IPv6 address */
 
           src_addr6.sin6_family = AF_INET6;
           src_addr6.sin6_port = udp->srcport;
 
-          ipv4addr = net_ip4addr_conv32(ipv6->srcipaddr);
+          ipv4addr = net_ip4addr_conv32(ipv4->srcipaddr);
           ip6_map_ipv4addr(ipv4addr, src_addr6.sin6_addr.s6_addr16);
 
           src_addr_size = sizeof(src_addr6);
@@ -166,68 +152,57 @@ static uint16_t udp_datahandler(FAR struct net_driver_s *dev,
     }
 #endif /* CONFIG_NET_IPv4 */
 
-  /* Copy the src address info into the I/O buffer chain.  We will not wait
-   * for an I/O buffer to become available in this context.  It there is
-   * any failure to allocated, the entire I/O buffer chain will be discarded.
+  /* Copy the meta info into the I/O buffer chain, just before data.
+   * Layout: |datalen|ifindex|src_addr_size|src_addr|data|
    */
 
-  ret = iob_trycopyin(iob, (FAR const uint8_t *)&src_addr_size,
-                      sizeof(uint8_t), 0, true, IOBUSER_NET_UDP_READAHEAD);
+  offset = (dev->d_appdata - iob->io_data) - iob->io_offset;
+
+  offset -= src_addr_size;
+  ret = iob_trycopyin(iob, src_addr, src_addr_size, offset, true);
   if (ret < 0)
     {
-      /* On a failure, iob_trycopyin return a negated error value but does
-       * not free any I/O buffers.
-       */
-
-      nerr("ERROR: Failed to add data to the I/O buffer chain: %d\n", ret);
-      iob_free_chain(iob, IOBUSER_NET_UDP_READAHEAD);
-      return 0;
+      goto errout;
     }
 
-  ret = iob_trycopyin(iob, (FAR const uint8_t *)src_addr, src_addr_size,
-                      sizeof(uint8_t), true, IOBUSER_NET_UDP_READAHEAD);
+  offset -= sizeof(src_addr_size);
+  ret = iob_trycopyin(iob, &src_addr_size, sizeof(src_addr_size),
+                      offset, true);
   if (ret < 0)
     {
-      /* On a failure, iob_trycopyin return a negated error value but does
-       * not free any I/O buffers.
-       */
-
-      nerr("ERROR: Failed to add data to the I/O buffer chain: %d\n", ret);
-      iob_free_chain(iob, IOBUSER_NET_UDP_READAHEAD);
-      return 0;
+      goto errout;
     }
 
-  if (buflen > 0)
-    {
-      /* Copy the new appdata into the I/O buffer chain */
-
-      ret = iob_trycopyin(iob, buffer, buflen,
-                          src_addr_size + sizeof(uint8_t), true,
-                          IOBUSER_NET_UDP_READAHEAD);
-      if (ret < 0)
-        {
-          /* On a failure, iob_trycopyin return a negated error value but
-           * does not free any I/O buffers.
-           */
-
-          nerr("ERROR: Failed to add data to the I/O buffer chain: %d\n",
-               ret);
-          iob_free_chain(iob, IOBUSER_NET_UDP_READAHEAD);
-          return 0;
-        }
-    }
-
-  /* Add the new I/O buffer chain to the tail of the read-ahead queue */
-
-  ret = iob_tryadd_queue(iob, &conn->readahead);
+#ifdef CONFIG_NETDEV_IFINDEX
+  offset -= sizeof(dev->d_ifindex);
+  ret = iob_trycopyin(iob, &dev->d_ifindex, sizeof(dev->d_ifindex),
+                      offset, true);
   if (ret < 0)
     {
-      nerr("ERROR: Failed to queue the I/O buffer chain: %d\n", ret);
-      iob_free_chain(iob, IOBUSER_NET_UDP_READAHEAD);
-      return 0;
+      goto errout;
     }
+#endif
+
+  offset -= sizeof(buflen);
+  ret = iob_trycopyin(iob, (FAR const uint8_t *)&buflen, sizeof(buflen),
+                      offset, true);
+  if (ret < 0)
+    {
+      goto errout;
+    }
+
+  /* Reset new offset to point at start point. */
+
+  DEBUGASSERT(iob->io_offset + offset >= 0);
+  iob_reserve(iob, iob->io_offset + offset);
+
+  /* Concat the iob to readahead */
+
+  net_iob_concat(&conn->readahead, &iob);
 
 #ifdef CONFIG_NET_UDP_NOTIFIER
+  ninfo("Buffered %d bytes\n", buflen);
+
   /* Provided notification(s) that additional UDP read-ahead data is
    * available.
    */
@@ -235,8 +210,14 @@ static uint16_t udp_datahandler(FAR struct net_driver_s *dev,
   udp_readahead_signal(conn);
 #endif
 
-  ninfo("Buffered %d bytes\n", buflen);
+  netdev_iob_clear(dev);
   return buflen;
+
+errout:
+  nerr("ERROR: Failed to queue the I/O buffer chain: %d\n", ret);
+
+  netdev_iob_release(dev);
+  return 0;
 }
 
 /****************************************************************************
@@ -317,7 +298,7 @@ uint16_t udp_callback(FAR struct net_driver_s *dev,
     {
       /* Perform the callback */
 
-      flags = devif_conn_event(dev, conn, flags, conn->sconn.list);
+      flags = devif_conn_event(dev, flags, conn->sconn.list);
 
       if ((flags & UDP_NEWDATA) != 0)
         {

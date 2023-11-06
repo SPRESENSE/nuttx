@@ -1,5 +1,5 @@
 ############################################################################
-# nuttx/arch/risc-v/src/common/Make.defs
+# arch/risc-v/src/common/Make.defs
 #
 # Licensed to the Apache Software Foundation (ASF) under one or more
 # contributor license agreements.  See the NOTICE file distributed with
@@ -24,18 +24,17 @@ endif
 
 # Specify our general Assembly files
 CMN_ASRCS += riscv_vectors.S riscv_exception_common.S riscv_mhartid.S
+CMN_ASRCS += riscv_saveusercontext.S
 
 # Specify C code within the common directory to be included
 CMN_CSRCS += riscv_initialize.c riscv_swint.c riscv_mtimer.c
-CMN_CSRCS += riscv_allocateheap.c riscv_createstack.c riscv_exit.c
-CMN_CSRCS += riscv_assert.c riscv_blocktask.c riscv_copystate.c riscv_initialstate.c
-CMN_CSRCS += riscv_modifyreg32.c riscv_nputs.c
-CMN_CSRCS += riscv_releasepending.c riscv_reprioritizertr.c
-CMN_CSRCS += riscv_releasestack.c riscv_stackframe.c riscv_schedulesigaction.c
-CMN_CSRCS += riscv_sigdeliver.c riscv_unblocktask.c riscv_usestack.c
-CMN_CSRCS += riscv_idle.c riscv_tcbinfo.c riscv_cpuidlestack.c
-CMN_CSRCS += riscv_exception.c riscv_getnewintctx.c riscv_doirq.c
-CMN_CSRCS += riscv_saveusercontext.c
+CMN_CSRCS += riscv_allocateheap.c riscv_createstack.c riscv_cpuinfo.c
+CMN_CSRCS += riscv_cpuidlestack.c riscv_doirq.c riscv_exit.c riscv_exception.c
+CMN_CSRCS += riscv_getnewintctx.c riscv_getintstack.c riscv_initialstate.c
+CMN_CSRCS += riscv_idle.c riscv_modifyreg32.c riscv_nputs.c riscv_releasestack.c
+CMN_CSRCS += riscv_registerdump.c riscv_stackframe.c riscv_schedulesigaction.c
+CMN_CSRCS += riscv_sigdeliver.c riscv_switchcontext.c
+CMN_CSRCS += riscv_usestack.c riscv_tcbinfo.c
 
 ifneq ($(CONFIG_ALARM_ARCH),y)
   ifneq ($(CONFIG_TIMER_ARCH),y)
@@ -66,9 +65,9 @@ ifeq ($(CONFIG_STACK_COLORATION),y)
 CMN_CSRCS += riscv_checkstack.c
 endif
 
-ifeq ($(CONFIG_ARCH_HAVE_VFORK),y)
-CMN_ASRCS += vfork.S
-CMN_CSRCS += riscv_vfork.c
+ifeq ($(CONFIG_ARCH_HAVE_FORK),y)
+CMN_ASRCS += fork.S
+CMN_CSRCS += riscv_fork.c
 endif
 
 ifeq ($(CONFIG_SCHED_THREAD_LOCAL),y)
@@ -98,9 +97,10 @@ CMN_CSRCS += riscv_mmu.c
 endif
 
 ifeq ($(CONFIG_ARCH_KERNEL_STACK),y)
-CMN_CSRCS += riscv_addrenv_kstack.c
+CMN_CSRCS += riscv_addrenv_kstack.c riscv_ksp.c
 endif
 
 ifeq ($(CONFIG_ARCH_ADDRENV),y)
 CMN_CSRCS += riscv_addrenv.c riscv_pgalloc.c riscv_addrenv_perms.c
+CMN_CSRCS += riscv_addrenv_utils.c riscv_addrenv_shm.c riscv_addrenv_pgmap.c
 endif

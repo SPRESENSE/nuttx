@@ -34,4 +34,16 @@ ifeq ($(CONFIG_FS_AUTOMOUNTER),y)
 CSRCS += litex_automount.c
 endif
 
+ifeq ($(CONFIG_LITEX_PWM),y)
+CSRCS += litex_pwm.c
+endif
+
+ifeq ($(CONFIG_LITEX_APPLICATION_RAMDISK),y)
+CSRCS += litex_ramdisk.c
+endif
+
+ifeq ($(CONFIG_BOARDCTL_RESET),y)
+CSRCS += litex_reset.c
+endif
+
 include $(TOPDIR)/boards/Board.mk

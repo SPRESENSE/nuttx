@@ -40,7 +40,7 @@
 #include <nuttx/random.h>
 
 #ifdef CONFIG_MLX90614_CRC
-#include <crc8.h>
+#include <nuttx/crc8.h>
 #endif
 
 #if defined(CONFIG_I2C) && defined(CONFIG_SENSORS_MLX90614)
@@ -91,10 +91,6 @@ static const struct file_operations g_mlx90614_fops =
   mlx90614_write,  /* write */
   NULL,            /* seek */
   mlx90614_ioctl,  /* ioctl */
-  NULL             /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL            /* unlink */
-#endif
 };
 
 /****************************************************************************
@@ -264,11 +260,10 @@ static ssize_t mlx90614_read(FAR struct file *filep, FAR char *buffer,
   uint8_t cmd;
   int ret;
 
-  DEBUGASSERT(filep);
   inode = filep->f_inode;
 
-  DEBUGASSERT(inode && inode->i_private);
-  priv  = (FAR struct mlx90614_dev_s *)inode->i_private;
+  DEBUGASSERT(inode->i_private);
+  priv  = inode->i_private;
 
   /* Check if the user is reading the right size */
 
@@ -408,7 +403,7 @@ int mlx90614_register(FAR const char *devpath, FAR struct i2c_master_s *i2c,
   /* Initialize the MLX90614 device structure */
 
   FAR struct mlx90614_dev_s *priv =
-    (FAR struct mlx90614_dev_s *)kmm_malloc(sizeof(struct mlx90614_dev_s));
+    kmm_malloc(sizeof(struct mlx90614_dev_s));
 
   if (priv == NULL)
     {

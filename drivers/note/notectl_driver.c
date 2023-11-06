@@ -44,7 +44,7 @@ static int notectl_ioctl(struct file *filep, int cmd, unsigned long arg);
  * Private Data
  ****************************************************************************/
 
-static const struct file_operations notectl_fops =
+static const struct file_operations g_notectl_fops =
 {
   NULL,          /* open */
   NULL,          /* close */
@@ -52,10 +52,6 @@ static const struct file_operations notectl_fops =
   NULL,          /* write */
   NULL,          /* seek */
   notectl_ioctl, /* ioctl */
-  NULL           /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL         /* unlink */
-#endif
 };
 
 /****************************************************************************
@@ -237,5 +233,5 @@ static int notectl_ioctl(struct file *filep, int cmd, unsigned long arg)
 
 int notectl_register(void)
 {
-  return register_driver("/dev/notectl", &notectl_fops, 0666, NULL);
+  return register_driver("/dev/notectl", &g_notectl_fops, 0666, NULL);
 }

@@ -28,9 +28,11 @@
 #include <assert.h>
 #include <errno.h>
 
+#include <nuttx/addrenv.h>
 #include <nuttx/irq.h>
 #include <nuttx/arch.h>
 
+#include "sched/sched.h"
 #include "semaphore/semaphore.h"
 
 /****************************************************************************
@@ -50,6 +52,8 @@
  *   2. From logic associated with sem_timedwait().  This function is called
  *      when the timeout elapses without receiving the semaphore.
  *
+ *   Note: this function should used within critical_section
+ *
  * Input Parameters:
  *   wtcb    - A pointer to the TCB of the task that is waiting on a
  *             semphaphore, but has received a signal or timeout instead.
@@ -65,52 +69,63 @@
 
 void nxsem_wait_irq(FAR struct tcb_s *wtcb, int errcode)
 {
-  irqstate_t flags;
+  FAR struct tcb_s *rtcb = this_task();
+  FAR sem_t *sem = wtcb->waitobj;
 
-  /* Disable interrupts.  This is necessary (unfortunately) because an
-   * interrupt handler may attempt to post the semaphore while we are
-   * doing this.
-   */
+#ifdef CONFIG_ARCH_ADDRENV
+  FAR struct addrenv_s *oldenv;
 
-  flags = enter_critical_section();
+  if (wtcb->addrenv_own)
+    {
+      addrenv_select(wtcb->addrenv_own, &oldenv);
+    }
+#endif
 
   /* It is possible that an interrupt/context switch beat us to the punch
    * and already changed the task's state.
    */
 
-  if (wtcb->task_state == TSTATE_WAIT_SEM)
+  DEBUGASSERT(sem != NULL && sem->semcount < 0);
+
+  /* Restore the correct priority of all threads that hold references
+   * to this semaphore.
+   */
+
+  nxsem_canceled(wtcb, sem);
+
+  /* And increment the count on the semaphore.  This releases the count
+   * that was taken by sem_post().  This count decremented the semaphore
+   * count to negative and caused the thread to be blocked in the first
+   * place.
+   */
+
+  sem->semcount++;
+
+  /* Remove task from waiting list */
+
+  dq_rem((FAR dq_entry_t *)wtcb, SEM_WAITLIST(sem));
+
+#ifdef CONFIG_ARCH_ADDRENV
+  if (wtcb->addrenv_own)
     {
-      sem_t *sem = wtcb->waitsem;
-      DEBUGASSERT(sem != NULL && sem->semcount < 0);
-
-      /* Restore the correct priority of all threads that hold references
-       * to this semaphore.
-       */
-
-      nxsem_canceled(wtcb, sem);
-
-      /* And increment the count on the semaphore.  This releases the count
-       * that was taken by sem_post().  This count decremented the semaphore
-       * count to negative and caused the thread to be blocked in the first
-       * place.
-       */
-
-      sem->semcount++;
-
-      /* Indicate that the semaphore wait is over. */
-
-      wtcb->waitsem = NULL;
-
-      /* Mark the errno value for the thread. */
-
-      wtcb->errcode = errcode;
-
-      /* Restart the task. */
-
-      up_unblock_task(wtcb);
+      addrenv_restore(oldenv);
     }
+#endif
 
-  /* Interrupts may now be enabled. */
+  /* Indicate that the wait is over. */
 
-  leave_critical_section(flags);
+  wtcb->waitobj = NULL;
+
+  /* Mark the errno value for the thread. */
+
+  wtcb->errcode = errcode;
+
+  /* Add the task to ready-to-run task list and
+   * perform the context switch if one is needed
+   */
+
+  if (nxsched_add_readytorun(wtcb))
+    {
+      up_switch_context(wtcb, rtcb);
+    }
 }

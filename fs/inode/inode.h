@@ -35,6 +35,7 @@
 
 #include <nuttx/kmalloc.h>
 #include <nuttx/fs/fs.h>
+#include <nuttx/lib/lib.h>
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -58,7 +59,7 @@
     { \
       if ((d)->buffer != NULL) \
         { \
-          kmm_free((d)->buffer); \
+          lib_free((d)->buffer); \
           (d)->buffer  = NULL; \
         } \
     } \
@@ -147,24 +148,24 @@ EXTERN FAR struct inode *g_root_inode;
 void inode_initialize(void);
 
 /****************************************************************************
- * Name: inode_semtake
+ * Name: inode_lock
  *
  * Description:
  *   Get exclusive access to the in-memory inode tree (tree_sem).
  *
  ****************************************************************************/
 
-int inode_semtake(void);
+int inode_lock(void);
 
 /****************************************************************************
- * Name: inode_semgive
+ * Name: inode_unlock
  *
  * Description:
  *   Relinquish exclusive access to the in-memory inode tree (tree_sem).
  *
  ****************************************************************************/
 
-void inode_semgive(void);
+void inode_unlock(void);
 
 /****************************************************************************
  * Name: inode_checkflags
@@ -278,7 +279,7 @@ int inode_chstat(FAR struct inode *inode,
  *
  ****************************************************************************/
 
-int inode_getpath(FAR struct inode *node, FAR char *path);
+int inode_getpath(FAR struct inode *node, FAR char *path, size_t len);
 
 /****************************************************************************
  * Name: inode_free
@@ -408,16 +409,40 @@ void inode_release(FAR struct inode *inode);
 int foreach_inode(foreach_inode_t handler, FAR void *arg);
 
 /****************************************************************************
- * Name: files_allocate
+ * Name: dir_allocate
  *
  * Description:
- *   Allocate a struct files instance and associate it with an inode
- *   instance.  Returns the file descriptor == index into the files array.
+ *   Allocate a directory instance and bind it to f_priv of filep.
  *
  ****************************************************************************/
 
-int files_allocate(FAR struct inode *inode, int oflags, off_t pos,
-                   FAR void *priv, int minfd);
+int dir_allocate(FAR struct file *filep, FAR const char *relpath);
+
+/****************************************************************************
+ * Name: pseudofile_create
+ *
+ * Description:
+ *   Create the pseudo-file with specified path and mode, and alloc inode
+ *   of this pseudo-file.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_PSEUDOFS_FILE
+int pseudofile_create(FAR struct inode **node, FAR const char *path,
+                      mode_t mode);
+#endif
+
+/****************************************************************************
+ * Name: inode_is_pseudofile
+ *
+ * Description:
+ *    Check inode whether is a pseudo file.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_PSEUDOFS_FILE
+bool inode_is_pseudofile(FAR struct inode *inode);
+#endif
 
 #undef EXTERN
 #if defined(__cplusplus)

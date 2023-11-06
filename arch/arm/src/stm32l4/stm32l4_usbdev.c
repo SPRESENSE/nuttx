@@ -24,6 +24,7 @@
 
 #include <nuttx/config.h>
 
+#include <sys/param.h>
 #include <sys/types.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -217,16 +218,6 @@
 #define STM32L4_TRACEINTID_EP0SETUPOUT        0x001f
 #define STM32L4_TRACEINTID_EP0SETUPOUTDATA    0x0020
 
-/* Ever-present MIN and MAX macros */
-
-#ifndef MIN
-#  define MIN(a,b) (a < b ? a : b)
-#endif
-
-#ifndef MAX
-#  define MAX(a,b) (a > b ? a : b)
-#endif
-
 /* Byte ordering in host-based values */
 
 #ifdef CONFIG_ENDIAN_BIG
@@ -364,10 +355,10 @@ static void stm32l4_putreg(uint16_t val, uint32_t addr);
 static void stm32l4_checksetup(void);
 static void stm32l4_dumpep(int epno);
 #else
-# define stm32l4_getreg(addr)      getreg16(addr)
-# define stm32l4_putreg(val,addr)  putreg16(val,addr)
-# define stm32l4_checksetup()
-# define stm32l4_dumpep(epno)
+#  define stm32l4_getreg(addr)     getreg16(addr)
+#  define stm32l4_putreg(val,addr) putreg16(val,addr)
+#  define stm32l4_checksetup()
+#  define stm32l4_dumpep(epno)
 #endif
 
 /* Low-Level Helpers ********************************************************/
@@ -2827,7 +2818,7 @@ static int stm32l4_epconfigure(struct usbdev_ep_s *ep,
   if (!ep || !desc)
     {
       usbtrace(TRACE_DEVERROR(STM32L4_TRACEERR_INVALIDPARMS), 0);
-      uerr("ERROR: ep=%p desc=%p\n");
+      uerr("ERROR: ep=%p desc=%p\n", ep, desc);
       return -EINVAL;
     }
 #endif
@@ -2965,7 +2956,7 @@ static struct usbdev_req_s *stm32l4_epallocreq(struct usbdev_ep_s *ep)
 
   usbtrace(TRACE_EPALLOCREQ, USB_EPNO(ep->eplog));
 
-  privreq = (struct stm32l4_req_s *)kmm_malloc(sizeof(struct stm32l4_req_s));
+  privreq = kmm_malloc(sizeof(struct stm32l4_req_s));
   if (!privreq)
     {
       usbtrace(TRACE_DEVERROR(STM32L4_TRACEERR_ALLOCFAIL), 0);

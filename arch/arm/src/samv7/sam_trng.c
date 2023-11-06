@@ -32,6 +32,7 @@
 
 #include <nuttx/irq.h>
 #include <nuttx/arch.h>
+#include <nuttx/mutex.h>
 #include <nuttx/semaphore.h>
 #include <nuttx/fs/fs.h>
 #include <nuttx/drivers/drivers.h>
@@ -61,7 +62,7 @@ static ssize_t sam_read(struct file *filep, char *buffer, size_t);
 
 struct trng_dev_s
 {
-  sem_t exclsem;            /* Enforces exclusive access to the TRNG */
+  mutex_t lock;             /* Enforces exclusive access to the TRNG */
   sem_t waitsem;            /* Wait for buffer full  */
   uint32_t *samples;        /* Current buffer being filled */
   size_t maxsamples;        /* Size of the current buffer (in 32-bit words) */
@@ -73,20 +74,17 @@ struct trng_dev_s
  * Private Data
  ****************************************************************************/
 
-static struct trng_dev_s g_trngdev;
+static struct trng_dev_s g_trngdev =
+{
+  .lock = NXMUTEX_INITIALIZER,
+  .waitsem = SEM_INITIALIZER(0),
+};
 
 static const struct file_operations g_trngops =
 {
   NULL,            /* open */
   NULL,            /* close */
   sam_read,        /* read */
-  NULL,            /* write */
-  NULL,            /* seek */
-  NULL,            /* ioctl */
-  NULL             /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL           /* unlink */
-#endif
 };
 
 /****************************************************************************
@@ -236,7 +234,7 @@ static ssize_t sam_read(struct file *filep, char *buffer, size_t buflen)
 
   /* Get exclusive access to the TRNG hardware */
 
-  ret = nxsem_wait(&g_trngdev.exclsem);
+  ret = nxmutex_lock(&g_trngdev.lock);
   if (ret < 0)
     {
       /* This is probably -EINTR meaning that we were awakened by a signal */
@@ -308,7 +306,7 @@ errout:
 
   /* Release our lock on the TRNG hardware */
 
-  nxsem_post(&g_trngdev.exclsem);
+  nxmutex_unlock(&g_trngdev.lock);
 
   finfo("Return %d\n", (int)retval);
   return retval;
@@ -333,21 +331,6 @@ static int sam_rng_initialize(void)
   int ret;
 
   finfo("Initializing TRNG hardware\n");
-
-  /* Initialize the device structure */
-
-  memset(&g_trngdev, 0, sizeof(struct trng_dev_s));
-
-  /* Initialize semaphores */
-
-  nxsem_init(&g_trngdev.exclsem, 0, 1);
-  nxsem_init(&g_trngdev.waitsem, 0, 0);
-
-  /* The waitsem semaphore is used for signaling and, hence, should not have
-   * priority inheritance enabled.
-   */
-
-  nxsem_set_protocol(&g_trngdev.waitsem, SEM_PRIO_NONE);
 
   /* Enable clocking to the TRNG */
 

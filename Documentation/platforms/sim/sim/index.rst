@@ -62,7 +62,7 @@ It is possible to run the LVGL Demo directly in the NuttX simulator ::
 
     $ make distclean
 
-    $ ./tools/configure.sh sim:lvgl
+    $ ./tools/configure.sh sim:lvgl_fb
 
     $ make -j
 
@@ -102,3 +102,12 @@ You should see some squares in different colors displayed in remmina:
    :width: 100%
 
    remmina connected to sim's VNC Server
+
+Supported Boards
+================
+
+.. toctree::
+   :glob:
+   :maxdepth: 1
+
+   boards/*/*

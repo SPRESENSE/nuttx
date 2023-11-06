@@ -15,12 +15,12 @@ config NET_UDP
 
 config NET_UDP_NO_STACK
 	bool "Disable UDP/IP Stack"
-	default n
+	default NET_USRSOCK_UDP if NET_USRSOCK
 	select NET_UDP
 	---help---
 		Build without UDP/IP stack even if UDP networking support enabled.
 
-if NET_UDP
+if NET_UDP && !NET_UDP_NO_STACK
 
 config NET_BROADCAST
 	bool "UDP broadcast Rx support"
@@ -28,33 +28,53 @@ config NET_BROADCAST
 	---help---
 		Incoming UDP broadcast support
 
-endif # NET_UDP
-
-if NET_UDP && !NET_UDP_NO_STACK
-
-config NET_UDP_BINDTODEVICE
-	bool "UDP Bind-to-device support"
-	default n
-	select NET_UDPPROTO_OPTIONS
-	select NETDEV_IFINDEX
-	---help---
-		Enable support for the UDP_BINDTODEVICE socket option.
-		Linux has SO_BINDTODEVICE but in NuttX this option is instead
-		specific to the UDP protocol.
-
 config NET_UDP_CHECKSUMS
 	bool "UDP checksums"
-	default y if NET_IPv6
-	default n if !NET_IPv6
+	default NET_IPv6
 	---help---
 		Enable/disable UDP checksum support.  UDP checksum support is
 		REQUIRED for IPv6.
 
-config NET_UDP_CONNS
-	int "Number of UDP sockets"
+config NET_UDP_PREALLOC_CONNS
+	int "Preallocated UDP sockets"
 	default 8
 	---help---
-		The maximum amount of open concurrent UDP sockets
+		Number of UDP connections (all tasks).
+
+		This number of connections will be pre-allocated during system boot.
+		If dynamic connections allocation is enabled, more connections may
+		be allocated at a later time, as the system needs them. Else this
+		will be the maximum number of connections available to the system
+		at all times.
+
+		Set to 0 to disable (and rely only on dynamic allocations).
+
+config NET_UDP_ALLOC_CONNS
+	int "Dynamic UDP connections allocation"
+	default 0
+	---help---
+		Dynamic memory allocations for UDP.
+
+		When set to 0 all dynamic allocations are disabled.
+
+		When set to 1 a new connection will be allocated every time,
+		and it will be free'd when no longer needed.
+
+		Setting this to 2 or more will allocate the connections in
+		batches (with batch size equal to this config). When a
+		connection is no longer needed, it will be returned to the
+		free connections pool, and it will never be deallocated!
+
+config NET_UDP_MAX_CONNS
+	int "Maximum number of UDP connections"
+	default 0
+	depends on NET_UDP_ALLOC_CONNS > 0
+	---help---
+		If dynamic connections allocation is selected (NET_UDP_ALLOC_CONNS > 0)
+		this will limit the number of connections that can be allocated.
+
+		This is useful in case the system is under very heavy load (or
+		under attack), ensuring that the heap will not be exhausted.
 
 config NET_UDP_NPOLLWAITERS
 	int "Number of UDP poll waiters"

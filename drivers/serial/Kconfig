@@ -41,6 +41,14 @@ config SERIAL_CONSOLE
 	bool
 	default n
 
+menuconfig UART_PL011
+	bool "PL011 Chip support"
+	default n
+
+if UART_PL011
+source "drivers/serial/Kconfig-pl011"
+endif
+
 menuconfig 16550_UART
 	bool "16550 UART Chip support"
 	select ARCH_HAVE_SERIAL_TERMIOS
@@ -73,10 +81,15 @@ config RPMSG_UART
 	select SERIAL_REMOVABLE
 	select SERIAL_IFLOWCONTROL
 
-config RPMSG_SERIALINIT
-	bool "Add dummy up_serialinit for UART rpmsg"
-	default y if !16550_UART && !MCU_SERIAL
+config RPMSG_UART_CONSOLE
+	bool "UART rpmsg console support"
+	default n
 	depends on RPMSG_UART
+	---help---
+		Register the UART rpmsg device as /dev/console so that is will be used
+		as the console device.
+		NOTE: support for this option must be implemented in the board logic by
+		setting the \"isconsole\" argument in the uart_rpmsg_init() function to true.
 
 #
 # Standard serial driver configuration
@@ -84,8 +97,7 @@ config RPMSG_SERIALINIT
 
 config STANDARD_SERIAL
 	bool "Enable standard \"upper-half\" serial driver"
-	default y if MCU_SERIAL
-	default n if !MCU_SERIAL
+	default MCU_SERIAL
 	---help---
 		Enable the standard, upper-half serial driver used by most MCU serial peripherals.
 
@@ -169,9 +181,10 @@ config SERIAL_TERMIOS
 	depends on ARCH_HAVE_SERIAL_TERMIOS
 	default n
 	---help---
-		Serial driver supports termios.h interfaces (tcsetattr, tcflush, etc.).
-		If this is not defined, then the terminal settings (baud, parity, etc).
-		are not configurable at runtime; serial streams cannot be flushed, etc..
+		If this is not defined, then the terminal hardware settings
+		(baud, parity, flow control) are not configurable at runtime.
+		Note: other software settings (echo, \r\n<->\n, break, tcflush)
+		are always supported.
 
 config TTY_LAUNCH
 	bool "Enable feature TTY launch program"
@@ -199,7 +212,7 @@ config TTY_LAUNCH_PRIORITY
 	default INIT_PRIORITY
 
 config TTY_LAUNCH_STACKSIZE
-	hex "TTY launch program stack size"
+	int "TTY launch program stack size"
 	default INIT_STACKSIZE
 
 choice
@@ -676,6 +689,75 @@ source "drivers/serial/Kconfig-lpuart"
 source "drivers/serial/Kconfig-usart"
 source "drivers/serial/Kconfig-sci"
 
+config RAM_UART
+	bool "RAM uart driver"
+	select SERIAL_RXDMA
+	select SERIAL_TXDMA
+	default n
+	---help---
+		It uses the memory block in the kernel as a communication medium,
+		which can communicate between different processes or different CPUs
+
+if RAM_UART
+config RAM_UART_POLLING_INTERVAL
+	int "RAM uart buffer check interval"
+	default USEC_PER_TICK
+	---help---
+		Interval in milliseconds to check for new data on uart ram buffer
+
+config RAM_UART_BUFSIZE
+	int "RAM_UART buffer size"
+	default 1024
+	---help---
+		The size of the RAM_UART buffer in bytes
+
+config RAM_UART0
+	bool "RAM uart driver 0"
+	default n
+	---help---
+		RAM_UART device 0
+
+config RAM_UART0_SLAVE
+	bool "RAM_UART0 is slave"
+	depends on RAM_UART0
+	default n
+	---help---
+		The RAM uart0 is slave
+
+config RAM_UART1
+	bool "RAM uart driver 1"
+	default n
+	---help---
+		RAM uart device 1
+
+config RAM_UART1_SLAVE
+	bool "RAM uart1 is slave"
+	depends on RAM_UART1
+	default n
+	---help---
+		The RAM uart1 is slave
+
+config RAM_UART2
+	bool "RAM uart driver 2"
+	default n
+	---help---
+		RAM uart device 2
+
+config RAM_UART2_SLAVE
+	bool "RAM uart2 is slave"
+	depends on RAM_UART2
+	default n
+	---help---
+		The RAM uart2 is slave
+
+config RAM_UART_BUFFER_SECTION
+	string "RAM uart buffer section name"
+	depends on RAM_UART0 || RAM_UART1 || RAM_UART2
+	---help---
+		The name of the section in the kernel memory block
+
+endif # RAM_UART
+
 menuconfig PSEUDOTERM
 	bool "Pseudo-Terminal (PTY) support"
 	default n
@@ -712,9 +794,9 @@ config PSEUDOTERM_TXBUFSIZE
 endif # PSEUDOTERM
 
 menuconfig UART_BTH4
-	bool "BT H4 uart pseudo device"
+	bool "BT H4 UART Pseudo Device"
 	default n
-	select MM_CIRCBUF
+	depends on DRIVERS_BLUETOOTH
 	---help---
 		Enable support for Bluetooth H4 UART Pseudo Device(eg. /dev/ttyHCI).
 		This instantiates a serial-like interface over an existing bluetooth
@@ -724,24 +806,63 @@ menuconfig UART_BTH4
 if UART_BTH4
 
 config UART_BTH4_TXBUFSIZE
-	int "BT H4 uart TX buffer size"
-	default 1024
+	int "BT H4 UART TX Buffer Size"
+	default 2048
 	---help---
-		H4 UART TX buffer size.  Default: 1024
+		H4 UART TX Buffer Size.  Default: 2048
 
 config UART_BTH4_RXBUFSIZE
-	int "BT H4 uart RX buffer size"
-	default 1024
+	int "BT H4 UART RX Buffer Size"
+	default 8096
 	---help---
-		H4 UART RX buffer size.  Default: 1024
+		H4 UART RX Buffer Size.  Default: 8096
 
 config UART_BTH4_NPOLLWAITERS
-	int "Number of poll threads"
+	int "Number Of Poll Threads"
 	default 2
 	---help---
 		Maximum number of threads than can be waiting for POLL events.
 		Default: 2
 
 endif # UART_BTH4
+
+menuconfig UART_BTH5
+	bool "BT H5 UART Pseudo Device"
+	default n
+	depends on DRIVERS_BLUETOOTH
+	---help---
+		Enable support for Bluetooth H5 UART Pseudo Device(eg. /dev/ttyHCI).
+		This instantiates a serial-like interface over an existing bluetooth
+		controller via HCI interface. Useful for external Bluetooth
+		stacks working this way instead of the socket based interface.
+
+if UART_BTH5
+
+config UART_BTH5_TXBUFSIZE
+	int "BT H5 UART TX Buffer Size"
+	default 2048
+	---help---
+		H5 UART TX Buffer Size.  Default: 2048
+
+config UART_BTH5_TXWIN
+	int "BT H5 Uart TX Window Size"
+	default 4
+	---help---
+		H5 UART TX Window Size.  Default: 4
+
+config UART_BTH5_RXBUFSIZE
+	int "BT H5 Uart RX Buffer Size"
+	default 8096
+	---help---
+		H5 UART RX Buffer Size.  Default: 8096
+
+config UART_BTH5_NPOLLWAITERS
+	int "Number Of Poll Threads"
+	default 2
+	---help---
+		Maximum number of threads than can be waiting for POLL events.
+		Default: 2
+
+endif # UART_BTH5
 
 endif # SERIAL

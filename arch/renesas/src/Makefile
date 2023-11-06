@@ -23,10 +23,10 @@ include chip/Make.defs
 
 ARCH_SRCDIR = $(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src
 
-INCLUDES += ${shell $(INCDIR) "$(CC)" $(ARCH_SRCDIR)$(DELIM)chip}
-INCLUDES += ${shell $(INCDIR) "$(CC)" $(ARCH_SRCDIR)$(DELIM)common}
-INCLUDES += ${shell $(INCDIR) "$(CC)" $(ARCH_SRCDIR)$(DELIM)$(ARCH_SUBDIR)}
-INCLUDES += ${shell $(INCDIR) "$(CC)" $(TOPDIR)$(DELIM)sched}
+INCLUDES += ${INCDIR_PREFIX}$(ARCH_SRCDIR)$(DELIM)chip
+INCLUDES += ${INCDIR_PREFIX}$(ARCH_SRCDIR)$(DELIM)common
+INCLUDES += ${INCDIR_PREFIX}$(ARCH_SRCDIR)$(DELIM)$(ARCH_SUBDIR)
+INCLUDES += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)sched
 
 CPPFLAGS += $(INCLUDES)
 CFLAGS += $(INCLUDES)
@@ -69,7 +69,7 @@ endif
 
 EXTRA_LIBS += ${shell $(CC) $(ARCHCPUFLAGS) --print-libgcc-file-name}
 
-ifneq ($(CONFIG_LIBM),y)
+ifeq ($(CONFIG_LIBM_TOOLCHAIN),y)
   EXTRA_LIBS += ${wildcard ${shell $(CC) $(ARCHCPUFLAGS) --print-file-name=libm.a}}
 endif
 

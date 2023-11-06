@@ -102,10 +102,6 @@ static const struct file_operations g_lm75fops =
   lm75_write,      /* write */
   NULL,            /* seek */
   lm75_ioctl,      /* ioctl */
-  NULL             /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL           /* unlink */
-#endif
 };
 
 /****************************************************************************
@@ -551,7 +547,7 @@ int lm75_register(FAR const char *devpath, FAR struct i2c_master_s *i2c,
 
   /* Initialize the LM-75 device structure */
 
-  priv = (FAR struct lm75_dev_s *)kmm_malloc(sizeof(struct lm75_dev_s));
+  priv = kmm_malloc(sizeof(struct lm75_dev_s));
   if (priv == NULL)
     {
       snerr("ERROR: Failed to allocate instance\n");

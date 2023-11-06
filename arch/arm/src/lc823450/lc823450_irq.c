@@ -73,12 +73,6 @@
  * Public Data
  ****************************************************************************/
 
-/* For the case of configurations with multiple CPUs, then there must be one
- * such value for each processor that can receive an interrupt.
- */
-
-volatile uint32_t *g_current_regs[CONFIG_SMP_NCPUS];
-
 #if defined(CONFIG_SMP) && CONFIG_ARCH_INTERRUPTSTACK > 7
 /* In the SMP configuration, we will need two custom interrupt stacks.
  * These definitions provide the aligned stack allocations.
@@ -177,7 +171,7 @@ static void lc823450_dumpnvic(const char *msg, int irq)
 #endif
 
 /****************************************************************************
- * Name: lc823450_nmi, lc823450_busfault, lc823450_usagefault,
+ * Name: lc823450_nmi,
  *       lc823450_pendsv, lc823450_dbgmonitor, lc823450_pendsv,
  *       lc823450_reserved
  *
@@ -193,22 +187,6 @@ static int lc823450_nmi(int irq, void *context, void *arg)
 {
   enter_critical_section();
   irqinfo("PANIC!!! NMI received\n");
-  PANIC();
-  return 0;
-}
-
-static int lc823450_busfault(int irq, void *context, void *arg)
-{
-  enter_critical_section();
-  irqinfo("PANIC!!! Bus fault received: %08x\n", getreg32(NVIC_CFAULTS));
-  PANIC();
-  return 0;
-}
-
-static int lc823450_usagefault(int irq, void *context, void *arg)
-{
-  enter_critical_section();
-  irqinfo("PANIC!!! Usage fault received: %08x\n", getreg32(NVIC_CFAULTS));
   PANIC();
   return 0;
 }
@@ -284,8 +262,6 @@ static void lc823450_extint_clr(int irq)
 
   regaddr = INTC_REG(EXTINTCLR_BASE, port);
   putreg32(1 << pin, regaddr);
-
-  return;
 }
 
 /****************************************************************************
@@ -507,10 +483,6 @@ void up_irqinitialize(void)
       regaddr += 4;
     }
 
-  /* currents_regs is non-NULL only while processing an interrupt */
-
-  CURRENT_REGS = NULL;
-
   /* Attach the SVCall and Hard Fault exception handlers.  The SVCall
    * exception is used for performing context switches; The Hard Fault
    * must also be caught because a SVCall may show up as a Hard Fault
@@ -542,8 +514,8 @@ void up_irqinitialize(void)
 
 #ifdef CONFIG_DEBUG
   irq_attach(LC823450_IRQ_NMI, lc823450_nmi, NULL);
-  irq_attach(LC823450_IRQ_BUSFAULT, lc823450_busfault, NULL);
-  irq_attach(LC823450_IRQ_USAGEFAULT, lc823450_usagefault, NULL);
+  irq_attach(LC823450_IRQ_BUSFAULT, arm_busfault, NULL);
+  irq_attach(LC823450_IRQ_USAGEFAULT, arm_usagefault, NULL);
   irq_attach(LC823450_IRQ_PENDSV, lc823450_pendsv, NULL);
   irq_attach(LC823450_IRQ_DBGMONITOR, lc823450_dbgmonitor, NULL);
   irq_attach(LC823450_IRQ_RESERVED, lc823450_reserved, NULL);

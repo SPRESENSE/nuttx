@@ -26,7 +26,6 @@
 #if defined(CONFIG_NET) && defined(CONFIG_NET_LOCAL_STREAM)
 
 #include <assert.h>
-#include <queue.h>
 #include <errno.h>
 #include <debug.h>
 
@@ -80,14 +79,16 @@ int local_listen(FAR struct socket *psock, int backlog)
       return -EOPNOTSUPP;
     }
 
-  server = (FAR struct local_conn_s *)psock->s_conn;
+  net_lock();
+
+  server = psock->s_conn;
 
   /* Some sanity checks */
 
   if (server->lc_proto != SOCK_STREAM ||
-      server->lc_state == LOCAL_STATE_UNBOUND ||
-      server->lc_type != LOCAL_TYPE_PATHNAME)
+      server->lc_state == LOCAL_STATE_UNBOUND)
     {
+      net_unlock();
       return -EOPNOTSUPP;
     }
 
@@ -109,14 +110,12 @@ int local_listen(FAR struct socket *psock, int backlog)
 
   if (server->lc_state == LOCAL_STATE_BOUND)
     {
-      /* The connection should not reside in any other list */
-
-      DEBUGASSERT(server->lc_conn.node.flink == NULL);
-
       /* And change the server state to listing */
 
       server->lc_state = LOCAL_STATE_LISTENING;
     }
+
+  net_unlock();
 
   return OK;
 }

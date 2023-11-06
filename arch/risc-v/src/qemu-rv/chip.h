@@ -29,17 +29,6 @@
 
 #include <arch/qemu-rv/chip.h>
 
-#ifndef __ASSEMBLY__
-
-/* Include the chip interrupt definition file */
-
-/* Serial initial function defined in uart_16550.c */
-
-extern void up_earlyserialinit(void);
-extern void up_serialinit(void);
-
-#endif /* __ASSEMBLY__  */
-
 #include "qemu_rv_memorymap.h"
 
 #include "hardware/qemu_rv_clint.h"
@@ -66,7 +55,7 @@ extern void up_serialinit(void);
 
 #if defined(CONFIG_SMP) && CONFIG_ARCH_INTERRUPTSTACK > 15
 .macro  setintstack tmp0, tmp1
-  csrr  \tmp0, mhartid
+  riscv_mhartid \tmp0
   li    \tmp1, STACK_ALIGN_DOWN(CONFIG_ARCH_INTERRUPTSTACK)
   mul   \tmp1, \tmp0, \tmp1
   la    \tmp0, g_intstacktop
@@ -74,12 +63,14 @@ extern void up_serialinit(void);
 .endm
 #endif /* CONFIG_SMP && CONFIG_ARCH_INTERRUPTSTACK > 15 */
 
-#if defined(CONFIG_ARCH_USE_S_MODE) && CONFIG_ARCH_INTERRUPTSTACK > 15
+#if CONFIG_ARCH_INTERRUPTSTACK > 15
+#if !defined(CONFIG_SMP) && defined(CONFIG_ARCH_USE_S_MODE)
 .macro  setintstack tmp0, tmp1
   csrr    \tmp0, CSR_SCRATCH
   REGLOAD sp, RISCV_PERCPU_IRQSTACK(\tmp0)
 .endm
-#endif /* CONFIG_ARCH_USE_S_MODE && CONFIG_ARCH_INTERRUPTSTACK > 15 */
+#endif /* !defined(CONFIG_SMP) && defined(CONFIG_ARCH_USE_S_MODE) */
+#endif /* CONFIG_ARCH_INTERRUPTSTACK > 15 */
 
 #endif /* __ASSEMBLY__  */
 #endif /* __ARCH_RISCV_SRC_QEMU_RV_CHIP_H */

@@ -29,8 +29,6 @@
 
 EXTERN(umm_initialize)
 EXTERN(umm_addregion)
-EXTERN(umm_trysemaphore)
-EXTERN(umm_givesemaphore)
 
 EXTERN(malloc)
 EXTERN(realloc)
@@ -64,7 +62,8 @@ SECTIONS
   .init_section :
   {
     _sinit = ABSOLUTE(.);
-    KEEP(*(.init_array .init_array.*))
+    KEEP(*(SORT_BY_INIT_PRIORITY(.init_array.*) SORT_BY_INIT_PRIORITY(.ctors.*)))
+    KEEP(*(.init_array .ctors))
     _einit = ABSOLUTE(.);
   } > uflash
 

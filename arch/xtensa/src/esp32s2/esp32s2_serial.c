@@ -69,7 +69,7 @@
 #    define CONSOLE_DEV     g_uart0_dev     /* UART0 is console */
 #    define TTYS0_DEV       g_uart0_dev     /* UART0 is ttyS0 */
 #    define UART0_ASSIGNED      1
-# elif defined(CONFIG_UART1_SERIAL_CONSOLE)
+#  elif defined(CONFIG_UART1_SERIAL_CONSOLE)
 #    define CONSOLE_DEV         g_uart1_dev  /* UART1 is console */
 #    define TTYS0_DEV           g_uart1_dev  /* UART1 is ttyS0 */
 #    define UART1_ASSIGNED      1
@@ -220,7 +220,7 @@ static uart_dev_t g_uart1_dev =
  *
  * Description:
  *   This is the UART interrupt handler.  It will be invoked when an
- *   interrupt is received on the 'irq'  It should call uart_xmitchars or
+ *   interrupt is received on the 'irq'.  It should call uart_xmitchars or
  *   uart_recvchars to perform the appropriate data transfers.  The
  *   interrupt handling logic must be able to map the 'irq' number into the
  *   appropriate uart_dev_s structure in order to call these functions.
@@ -613,7 +613,7 @@ static bool esp32s2_rxavailable(struct uart_dev_s *dev)
 
 static bool esp32s2_txready(struct uart_dev_s *dev)
 {
-  return (esp32s2_lowputc_is_tx_fifo_full(dev->priv)) ? false : true;
+  return !esp32s2_lowputc_is_tx_fifo_full(dev->priv);
 }
 
 /****************************************************************************
@@ -639,10 +639,9 @@ static bool esp32s2_txempty(struct uart_dev_s *dev)
   struct esp32s2_uart_s *priv = dev->priv;
 
   reg = getreg32(UART_INT_RAW_REG(priv->id));
+  reg = REG_MASK(reg, UART_TX_DONE_INT_RAW);
 
-  reg =  REG_MASK(reg, UART_TXFIFO_EMPTY_INT_RAW);
-
-  return (reg > 0) ? true : false;
+  return reg > 0;
 }
 
 /****************************************************************************
@@ -1058,7 +1057,7 @@ void xtensa_serialinit(void)
 
   uart_register("/dev/ttyS0", &TTYS0_DEV);
 
-#ifdef	TTYS1_DEV
+#ifdef TTYS1_DEV
   uart_register("/dev/ttyS1", &TTYS1_DEV);
 #endif
 }
@@ -1084,10 +1083,10 @@ int up_putc(int ch)
     {
       /* Add CR */
 
-      up_lowputc('\r');
+      xtensa_lowputc('\r');
     }
 
-  up_lowputc(ch);
+  xtensa_lowputc(ch);
   esp32s2_lowputc_restore_all_uart_int(CONSOLE_DEV.priv, &int_status);
 #endif
   return ch;
@@ -1100,7 +1099,7 @@ int up_putc(int ch)
  *
  * Description:
  *   Stubs that may be needed.  These stubs will be used if all UARTs are
- *   disabled.  In that case, the logic in common/up_initialize() is not
+ *   disabled.  In that case, the logic in common/xtensa_initialize() is not
  *   smart enough to know that there are not UARTs and will still expect
  *   these interfaces to be provided.
  *   This may be a special case where the upper and lower half serial layers

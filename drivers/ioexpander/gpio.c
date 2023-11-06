@@ -64,10 +64,6 @@ static const struct file_operations g_gpio_drvrops =
   gpio_write,  /* write */
   gpio_seek,   /* seek */
   gpio_ioctl,  /* ioctl */
-  NULL         /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL       /* unlink */
-#endif
 };
 
 /****************************************************************************
@@ -119,7 +115,6 @@ static ssize_t gpio_read(FAR struct file *filep, FAR char *buffer,
   FAR struct gpio_dev_s *dev;
   int ret;
 
-  DEBUGASSERT(filep != NULL && filep->f_inode != NULL);
   inode = filep->f_inode;
   DEBUGASSERT(inode->i_private != NULL);
   dev = inode->i_private;
@@ -178,7 +173,6 @@ static ssize_t gpio_write(FAR struct file *filep, FAR const char *buffer,
   int ret;
   bool val;
 
-  DEBUGASSERT(filep != NULL && filep->f_inode != NULL);
   inode = filep->f_inode;
   DEBUGASSERT(inode->i_private != NULL);
   dev = inode->i_private;
@@ -282,7 +276,6 @@ static int gpio_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
   int i;
   int j = 0;
 
-  DEBUGASSERT(filep != NULL && filep->f_inode != NULL);
   inode = filep->f_inode;
   DEBUGASSERT(inode->i_private != NULL);
   dev = inode->i_private;
@@ -354,7 +347,7 @@ static int gpio_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
       case GPIOC_REGISTER:
         if (arg && dev->gp_pintype >= GPIO_INTERRUPT_PIN)
           {
-            pid = getpid();
+            pid = nxsched_getpid();
             flags = spin_lock_irqsave(NULL);
             for (i = 0; i < CONFIG_DEV_GPIO_NSIGNALS; i++)
               {
@@ -406,7 +399,7 @@ static int gpio_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
       case GPIOC_UNREGISTER:
         if (dev->gp_pintype >= GPIO_INTERRUPT_PIN)
           {
-            pid = getpid();
+            pid = nxsched_getpid();
             flags = spin_lock_irqsave(NULL);
             for (i = 0; i < CONFIG_DEV_GPIO_NSIGNALS; i++)
               {
@@ -550,14 +543,57 @@ static int gpio_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
  *   Register GPIO pin device driver at /dev/gpioN, where N is the provided
  *   minor number.
  *
+ * Input Parameters:
+ *   dev    - A pointer to a gpio_dev_s
+ *   minor  - An integer value to be concatenated with '/dev/gpio'
+ *            to form the device name.
+ *
+ * Returned Value:
+ *   Zero on success; A negated errno value is returned on a failure
+ *   all error values returned by inode_reserve:
+ *
+ *   EINVAL - 'path' is invalid for this operation
+ *   EEXIST - An inode already exists at 'path'
+ *   ENOMEM - Failed to allocate in-memory resources for the operation
+ *
  ****************************************************************************/
 
 int gpio_pin_register(FAR struct gpio_dev_s *dev, int minor)
 {
+  char devname[16];
+
+  snprintf(devname, sizeof(devname), "gpio%u", (unsigned int)minor);
+  return gpio_pin_register_byname(dev, devname);
+}
+
+/****************************************************************************
+ * Name: gpio_pin_register_byname
+ *
+ * Description:
+ *   Register GPIO pin device driver with it's pin name.
+ *
+ * Input Parameters:
+ *   dev      - A pointer to a gpio_dev_s
+ *   pinname  - A pointer to the name to be concatenated with '/dev/'
+ *              to form the device name.
+ *
+ * Returned Value:
+ *   Zero on success; A negated errno value is returned on a failure
+ *   all error values returned by inode_reserve:
+ *
+ *   EINVAL - 'path' is invalid for this operation
+ *   EEXIST - An inode already exists at 'path'
+ *   ENOMEM - Failed to allocate in-memory resources for the operation
+ *
+ ****************************************************************************/
+
+int gpio_pin_register_byname(FAR struct gpio_dev_s *dev,
+                             FAR const char *pinname)
+{
   char devname[32];
   int ret;
 
-  DEBUGASSERT(dev != NULL && dev->gp_ops != NULL);
+  DEBUGASSERT(dev != NULL && dev->gp_ops != NULL && pinname != NULL);
 
   switch (dev->gp_pintype)
     {
@@ -594,7 +630,8 @@ int gpio_pin_register(FAR struct gpio_dev_s *dev, int minor)
         break;
     }
 
-  snprintf(devname, sizeof(devname), "/dev/gpio%u", (unsigned int)minor);
+  snprintf(devname, sizeof(devname), "/dev/%s", pinname);
+
   gpioinfo("Registering %s\n", devname);
 
   return register_driver(devname, &g_gpio_drvrops, 0666, dev);
@@ -607,13 +644,54 @@ int gpio_pin_register(FAR struct gpio_dev_s *dev, int minor)
  *   Unregister GPIO pin device driver at /dev/gpioN, where N is the provided
  *   minor number.
  *
+ * Input Parameters:
+ *   dev    - A pointer to a gpio_dev_s
+ *   minor  - An integer value to be concatenated with '/dev/gpio'
+ *            to form the device name.
+ *
+ * Returned Value:
+ *   Zero on success; A negated value is returned on a failure
+ *   (all error values returned by inode_remove):
+ *
+ *   ENOENT - path does not exist.
+ *   EBUSY  - Ref count is not 0;
+ *
  ****************************************************************************/
 
 int gpio_pin_unregister(FAR struct gpio_dev_s *dev, int minor)
 {
+  char devname[16];
+  snprintf(devname, sizeof(devname), "gpio%u", (unsigned int)minor);
+  return gpio_pin_unregister_byname(dev, devname);
+}
+
+/****************************************************************************
+ * Name: gpio_pin_unregister_byname
+ *
+ * Description:
+ *   Unregister GPIO pin device driver at /dev/pinname.
+ *
+ * Input Parameters:
+ *   dev      - A pointer to a gpio_dev_s
+ *   pinname  - A pointer to the name to be concatenated with '/dev/'
+ *              to form the device name.
+ *
+ *
+ * Returned Value:
+ *   Zero on success; A negated value is returned on a failure
+ *   (all error values returned by inode_remove):
+ *
+ *   ENOENT - path does not exist.
+ *   EBUSY  - Ref count is not 0;
+ ****************************************************************************/
+
+int gpio_pin_unregister_byname(FAR struct gpio_dev_s *dev,
+                               FAR const char *pinname)
+{
   char devname[32];
 
-  snprintf(devname, sizeof(devname), "/dev/gpio%u", (unsigned int)minor);
+  snprintf(devname, sizeof(devname), "/dev/%s", pinname);
+
   gpioinfo("Unregistering %s\n", devname);
 
   return unregister_driver(devname);

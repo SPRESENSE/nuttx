@@ -292,8 +292,6 @@ struct lpc17_40_sampleregs_s
 
 /* Low-level helpers ********************************************************/
 
-static int lpc17_40_takesem(struct lpc17_40_dev_s *priv);
-#define     lpc17_40_givesem(priv) (nxsem_post(&priv->waitsem))
 static inline void lpc17_40_setclock(uint32_t clkcr);
 static void lpc17_40_configwaitints(struct lpc17_40_dev_s *priv,
               uint32_t waitmask, sdio_eventset_t waitevents,
@@ -301,7 +299,6 @@ static void lpc17_40_configwaitints(struct lpc17_40_dev_s *priv,
 static void lpc17_40_configxfrints(struct lpc17_40_dev_s *priv,
               uint32_t xfrmask);
 static void lpc17_40_setpwrctrl(uint32_t pwrctrl);
-static inline uint32_t lpc17_40_getpwrctrl(void);
 
 /* DMA Helpers **************************************************************/
 
@@ -447,6 +444,7 @@ struct lpc17_40_dev_s g_scard_dev =
 #endif
 #endif
   },
+  .waitsem = SEM_INITIALIZER(0),
 };
 
 /* Register logging support */
@@ -462,27 +460,6 @@ static struct lpc17_40_sampleregs_s g_sampleregs[DEBUG_NSAMPLES];
 /****************************************************************************
  * Low-level Helpers
  ****************************************************************************/
-
-/****************************************************************************
- * Name: lpc17_40_takesem
- *
- * Description:
- *   Take the wait semaphore (handling false alarm wakeups due to the receipt
- *   of signals).
- *
- * Input Parameters:
- *   dev - Instance of the SD card device driver state structure.
- *
- * Returned Value:
- *   Normally OK, but may return -ECANCELED in the rare event that the task
- *   has been canceled.
- *
- ****************************************************************************/
-
-static int lpc17_40_takesem(struct lpc17_40_dev_s *priv)
-{
-  return nxsem_wait_uninterruptible(&priv->waitsem);
-}
 
 /****************************************************************************
  * Name: lpc17_40_setclock
@@ -616,29 +593,6 @@ static void lpc17_40_setpwrctrl(uint32_t pwrctrl)
   regval &= ~(SDCARD_PWR_CTRL_MASK | SDCARD_PWR_OPENDRAIN | SDCARD_PWR_ROD);
   regval |= pwrctrl;
   putreg32(regval, LPC17_40_SDCARD_PWR);
-}
-
-/****************************************************************************
- * Name: lpc17_40_getpwrctrl
- *
- * Description:
- *   Return the current value of the  the PWRCTRL field of the SD card P
- *   register.  This function can be used to see if the SD card is powered ON
- *   or OFF
- *
- * Input Parameters:
- *   None
- *
- * Returned Value:
- *   The current value of the  the PWRCTRL field of the SD card PWR register.
- *
- ****************************************************************************/
-
-static inline uint32_t lpc17_40_getpwrctrl(void)
-{
-  /* Extract and return the PWRCTRL field of the PWR register. */
-
-  return getreg32(LPC17_40_SDCARD_PWR) & SDCARD_PWR_CTRL_MASK;
 }
 
 /****************************************************************************
@@ -1122,7 +1076,7 @@ static void lpc17_40_endwait(struct lpc17_40_dev_s *priv,
 
   /* Wake up the waiting thread */
 
-  lpc17_40_givesem(priv);
+  nxsem_post(&priv->waitsem);
 }
 
 /****************************************************************************
@@ -1428,7 +1382,11 @@ static int lpc17_40_lock(struct sdio_dev_s *dev, bool lock)
    * bus is part of board support package.
    */
 
-  lpc17_40_muxbus_sdio_lock(lock);
+  /* FIXME: Implement the below function to support bus share:
+   *
+   * lpc17_40_muxbus_sdio_lock(lock);
+   */
+
   return OK;
 }
 #endif
@@ -2350,7 +2308,7 @@ static sdio_eventset_t lpc17_40_eventwait(struct sdio_dev_s *dev)
        * incremented and there will be no wait.
        */
 
-      ret = lpc17_40_takesem(priv);
+      ret = nxsem_wait_uninterruptible(&priv->waitsem);
       if (ret < 0)
         {
           /* Task canceled.  Cancel the wdog (assuming it was started) and
@@ -2765,16 +2723,6 @@ struct sdio_dev_s *sdio_initialize(int slotno)
   putreg32(regval, LPC17_40_SYSCON_PCONP);
 
   /* Initialize the SD card slot structure */
-
-  /* Initialize semaphores */
-
-  nxsem_init(&priv->waitsem, 0, 0);
-
-  /* The waitsem semaphore is used for signaling and, hence, should not have
-   * priority inheritance enabled.
-   */
-
-  nxsem_set_protocol(&priv->waitsem, SEM_PRIO_NONE);
 
 #ifdef CONFIG_LPC17_40_SDCARD_DMA
   /* Configure the SDCARD DMA request */

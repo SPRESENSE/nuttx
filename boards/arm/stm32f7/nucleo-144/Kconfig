@@ -81,25 +81,21 @@ config NUCLEO_CONSOLE_ARDUINO
 	bool "Arduino Connector"
 	select STM32F7_USART6
 	select USART6_SERIALDRIVER
-	select USART6_SERIAL_CONSOLE
 
 config NUCLEO_CONSOLE_VIRTUAL
 	bool "Virtual Comport"
 	select STM32F7_USART3
 	select USART3_SERIALDRIVER
-	select USART3_SERIAL_CONSOLE
 
 config NUCLEO_CONSOLE_MORPHO
 	bool "Morpho Connector"
 	select STM32F7_UART8
 	select UART8_SERIALDRIVER
-	select UART8_SERIAL_CONSOLE
 
 config NUCLEO_CONSOLE_MORPHO_UART4
 	bool "Morpho Connector UART4"
 	select STM32F7_UART4
 	select UART4_SERIALDRIVER
-	select UART4_SERIAL_CONSOLE
 
 config NUCLEO_CONSOLE_NONE
 	bool "No Console"
@@ -259,4 +255,18 @@ endchoice # "SPI BUS 3 Clock Mode"
 
 endif # NUCLEO_SPI3_TEST
 endif # NUCLEO_SPI_TEST
+
+choice
+	prompt "CAN1 pins selection"
+	default NUCLEO_CAN1_MAP_PD0PD1
+	depends on STM32F7_CAN1
+
+config NUCLEO_144_CAN1_MAP_D14D15
+	bool "CAN1_TX=D14 CAN1_RX=D15"
+
+config NUCLEO_CAN1_MAP_PD0PD1
+	bool "CAN1_RX=PD0 CAN1_TX=PD1"
+
+endchoice # CAN1 pins selection
+
 endif # ARCH_BOARD_NUCLEO_144

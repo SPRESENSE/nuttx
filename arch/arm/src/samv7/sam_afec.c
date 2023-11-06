@@ -94,6 +94,7 @@ struct samv7_dev_s
   uint8_t  resolution;                 /* ADC resolution (SAMV7_AFECn_RES) */
   uint8_t  trigger;                    /* ADC trigger (software, timer...) */
   uint8_t  timer_channel;              /* Timer channel to trigger ADC */
+  uint8_t  event_line;                 /* PWM event line to trigger ADC */
   uint32_t frequency;                  /* Frequency of the timer */
   int      irq;                        /* ADC IRQ number */
   int      pid;                        /* ADC PID number */
@@ -161,91 +162,97 @@ static int  afec_interrupt(int irq, void *context, void *arg);
 
 static const struct adc_ops_s g_adcops =
 {
-  .ao_bind     = afec_bind,
-  .ao_reset    = afec_reset,
-  .ao_setup    = afec_setup,
-  .ao_shutdown = afec_shutdown,
-  .ao_rxint    = afec_rxint,
-  .ao_ioctl    = afec_ioctl,
+  .ao_bind       = afec_bind,
+  .ao_reset      = afec_reset,
+  .ao_setup      = afec_setup,
+  .ao_shutdown   = afec_shutdown,
+  .ao_rxint      = afec_rxint,
+  .ao_ioctl      = afec_ioctl,
 };
 
 #ifdef CONFIG_SAMV7_AFEC0
 static struct samv7_dev_s g_adcpriv0 =
 {
-  .irq         = SAM_IRQ_AFEC0,
-  .pid         = SAM_PID_AFEC0,
-  .intf        = 0,
-  .initialized = 0,
-  .resolution  = CONFIG_SAMV7_AFEC0_RES,
-#ifdef CONFIG_SAMV7_AFEC0_SWTRIG
-  .trigger     = 0,
-#else
-  .trigger     = 1,
+  .irq           = SAM_IRQ_AFEC0,
+  .pid           = SAM_PID_AFEC0,
+  .intf          = 0,
+  .initialized   = 0,
+  .resolution    = CONFIG_SAMV7_AFEC0_RES,
+#if defined (CONFIG_SAMV7_AFEC0_PWMTRIG)
+  .trigger       = 2,
+  .event_line    = CONFIG_SAMV7_AFEC0_PWMEVENT,
+#elif defined (CONFIG_SAMV7_AFEC0_TIOATRIG)
+  .trigger       = 1,
   .timer_channel = CONFIG_SAMV7_AFEC0_TIOACHAN,
-  .frequency   = CONFIG_SAMV7_AFEC0_TIOAFREQ,
+  .frequency     = CONFIG_SAMV7_AFEC0_TIOAFREQ,
+#else
+  .trigger       = 0,
 #endif
-  .base        = SAM_AFEC0_BASE,
+  .base          = SAM_AFEC0_BASE,
 };
 
 static struct adc_dev_s g_adcdev0 =
 {
-  .ad_ops      = &g_adcops,
-  .ad_priv     = &g_adcpriv0,
+  .ad_ops        = &g_adcops,
+  .ad_priv       = &g_adcpriv0,
 };
 
 gpio_pinset_t g_adcpinlist0[ADC_MAX_CHANNELS] =
 {
-    GPIO_AFE0_AD0,
-    GPIO_AFE0_AD1,
-    GPIO_AFE0_AD2,
-    GPIO_AFE0_AD3,
-    GPIO_AFE0_AD4,
-    GPIO_AFE0_AD5,
-    GPIO_AFE0_AD6,
-    GPIO_AFE0_AD7,
-    GPIO_AFE0_AD8,
-    GPIO_AFE0_AD9,
-    GPIO_AFE0_AD10,
+  GPIO_AFE0_AD0,
+  GPIO_AFE0_AD1,
+  GPIO_AFE0_AD2,
+  GPIO_AFE0_AD3,
+  GPIO_AFE0_AD4,
+  GPIO_AFE0_AD5,
+  GPIO_AFE0_AD6,
+  GPIO_AFE0_AD7,
+  GPIO_AFE0_AD8,
+  GPIO_AFE0_AD9,
+  GPIO_AFE0_AD10,
 };
 #endif
 
 #ifdef CONFIG_SAMV7_AFEC1
 static struct samv7_dev_s g_adcpriv1 =
 {
-  .irq         = SAM_IRQ_AFEC1,
-  .pid         = SAM_PID_AFEC1,
-  .intf        = 1,
-  .initialized = 0,
-  .resolution  = CONFIG_SAMV7_AFEC1_RES,
-#ifdef CONFIG_SAMV7_AFEC1_SWTRIG
-  .trigger     = 0,
-#else
-  .trigger     = 1,
+  .irq           = SAM_IRQ_AFEC1,
+  .pid           = SAM_PID_AFEC1,
+  .intf          = 1,
+  .initialized   = 0,
+  .resolution    = CONFIG_SAMV7_AFEC1_RES,
+#if defined (CONFIG_SAMV7_AFEC1_PWMTRIG)
+  .trigger       = 2,
+  .event_line    = CONFIG_SAMV7_AFEC0_PWMEVENT,
+#elif defined (CONFIG_SAMV7_AFEC1_TIOATRIG)
+  .trigger       = 1,
   .timer_channel = CONFIG_SAMV7_AFEC1_TIOACHAN,
-  .frequency   = CONFIG_SAMV7_AFEC1_TIOAFREQ,
+  .frequency     = CONFIG_SAMV7_AFEC1_TIOAFREQ,
+#else
+  .trigger       = 0,
 #endif
-  .base        = SAM_AFEC1_BASE,
+  .base          = SAM_AFEC1_BASE,
 };
 
 static struct adc_dev_s g_adcdev1 =
 {
-  .ad_ops      = &g_adcops,
-  .ad_priv     = &g_adcpriv1,
+  .ad_ops        = &g_adcops,
+  .ad_priv       = &g_adcpriv1,
 };
 
 gpio_pinset_t g_adcpinlist1[ADC_MAX_CHANNELS] =
 {
-    GPIO_AFE1_AD0,
-    GPIO_AFE1_AD1,
-    GPIO_AFE1_AD2,
-    GPIO_AFE1_AD3,
-    GPIO_AFE1_AD4,
-    GPIO_AFE1_AD5,
-    GPIO_AFE1_AD6,
-    GPIO_AFE1_AD7,
-    GPIO_AFE1_AD8,
-    GPIO_AFE1_AD9,
-    GPIO_AFE1_AD10,
+  GPIO_AFE1_AD0,
+  GPIO_AFE1_AD1,
+  GPIO_AFE1_AD2,
+  GPIO_AFE1_AD3,
+  GPIO_AFE1_AD4,
+  GPIO_AFE1_AD5,
+  GPIO_AFE1_AD6,
+  GPIO_AFE1_AD7,
+  GPIO_AFE1_AD8,
+  GPIO_AFE1_AD9,
+  GPIO_AFE1_AD10,
 };
 #endif
 
@@ -542,7 +549,7 @@ static int sam_afec_settimer(struct samv7_dev_s *priv, uint32_t frequency,
   priv->tc = sam_tc_allocate(channel, mode);
   if (!priv->tc)
     {
-      aerr("ERROR: Failed to allocate channel %d mode %08lx\n",
+      aerr("ERROR: Failed to allocate channel %d mode %08" PRIx32 "\n",
             channel, mode);
       return -EINVAL;
     }
@@ -624,7 +631,9 @@ static int sam_afec_trigger(struct samv7_dev_s *priv)
       regval &= ~AFEC_MR_TRGSEL_MASK;
       afec_putreg(priv, SAM_AFEC_MR_OFFSET, regval);
     }
-#elif CONFIG_SAMV7_AFEC_TIOATRIG
+
+#endif
+#ifdef CONFIG_SAMV7_AFEC_TIOATRIG
   if (priv->trigger == 1)
     {
       ainfo("Setup timer/counter trigger\n");
@@ -638,23 +647,45 @@ static int sam_afec_trigger(struct samv7_dev_s *priv)
           return ret;
         }
 
-      /* AFEC_MR registr still needs to select corresponding channels with
-       * 1, 2, 3 values (see TRGSEL bitfield description) even if channels
-       * 3, 4 and 5 are selected for AFEC1
+      /* Set trigger for AFECn driver
+       *
+       * Note: AFEC_MR register still needs to select corresponding channels
+       * with 1, 2, 3 values (see TRGSEL bitfield description) even if
+       * channels 3, 4 and 5 are selected for AFEC1
        */
-
-      if (priv->intf == 1)
-        {
-          priv->timer_channel -= 3;
-        }
 
       /* Set trigger for AFECn driver */
 
       regval  = afec_getreg(priv, SAM_AFEC_MR_OFFSET);
       regval &= ~AFEC_MR_TRGSEL_MASK;
 
-      regval |= ((priv->timer_channel + 1) << AFEC_MR_TRGSEL_SHIFT) | \
+      regval |= (((priv->timer_channel % 3) + 1) << AFEC_MR_TRGSEL_SHIFT) |
                 AFEC_MR_TRGEN;
+
+      afec_putreg(priv, SAM_AFEC_MR_OFFSET, regval);
+    }
+
+#endif
+#ifdef CONFIG_SAMV7_AFEC_PWMTRIG
+  if (priv->trigger == 2)
+    {
+      regval = afec_getreg(priv, SAM_AFEC_MR_OFFSET);
+      regval &= ~AFEC_MR_TRGSEL_MASK;
+
+      if (priv->event_line == 1)
+        {
+          /* PWM Event Line 1 is used for AFEC triggering */
+
+          regval |= AFEC_MR_TRGSEL_PWM1;
+        }
+      else
+        {
+          /* PWM Event Line 0 is used for AFEC triggering */
+
+          regval |= AFEC_MR_TRGSEL_PWM0;
+        }
+
+      regval |= AFEC_MR_TRGEN;
 
       afec_putreg(priv, SAM_AFEC_MR_OFFSET, regval);
     }
@@ -753,7 +784,7 @@ static void afec_reset(struct adc_dev_s *dev)
 
   /* Configure Extended Mode register */
 
-  uint32_t afec_emr = AFEC_EMR_TAG | AFEC_EMR_STM | \
+  uint32_t afec_emr = AFEC_EMR_TAG | AFEC_EMR_STM |
                       AFEC_EMR_RES(priv->resolution);
   afec_putreg(priv, SAM_AFEC_EMR_OFFSET, afec_emr);
 
@@ -1022,7 +1053,7 @@ static int afec_interrupt(int irq, void *context, void *arg)
   struct samv7_dev_s *priv = (struct samv7_dev_s *)dev->ad_priv;
   int32_t data;
 
-  if ((afec_getreg(priv, SAM_AFEC_ISR_OFFSET) & \
+  if ((afec_getreg(priv, SAM_AFEC_ISR_OFFSET) &
                    AFEC_CH(priv->chanlist[priv->current])) != 0)
     {
       /* Read data */
@@ -1120,7 +1151,7 @@ struct adc_dev_s *sam_afec_initialize(int intf,
 
 #ifdef CONFIG_SAMV7_AFEC_DMA
   priv->nsamples = priv->nchannels * CONFIG_SAMV7_AFEC_DMASAMPLES;
-  priv->dma = sam_dmachannel(0, DMA_FLAGS | \
+  priv->dma = sam_dmachannel(0, DMA_FLAGS |
                              DMACH_FLAG_PERIPHPID(priv->pid));
 #endif
 

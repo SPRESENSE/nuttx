@@ -1242,40 +1242,40 @@ choice
 		   the larger FLASH part.
 
 config STM32_FLASH_CONFIG_DEFAULT
-			bool "Default"
+	bool "Default"
 
 config STM32_FLASH_CONFIG_4
-			bool "4 16KiB"
+	bool "4 16KiB"
 
 config STM32_FLASH_CONFIG_6
-			bool "6 32KiB"
+	bool "6 32KiB"
 
 config STM32_FLASH_CONFIG_8
-			bool "8 64KiB"
+	bool "8 64KiB"
 
 config STM32_FLASH_CONFIG_B
-			bool "B 128KiB"
+	bool "B 128KiB"
 
 config STM32_FLASH_CONFIG_Z
-			bool "Z 192KiB"
+	bool "Z 192KiB"
 
 config STM32_FLASH_CONFIG_C
-			bool "C 256KiB"
+	bool "C 256KiB"
 
 config STM32_FLASH_CONFIG_D
-			bool "D 384KiB"
+	bool "D 384KiB"
 
 config STM32_FLASH_CONFIG_E
-			bool "E 512KiB"
+	bool "E 512KiB"
 
 config STM32_FLASH_CONFIG_F
-			bool "F 768KiB"
+	bool "F 768KiB"
 
 config STM32_FLASH_CONFIG_G
-			bool "G 1024KiB"
+	bool "G 1024KiB"
 
 config STM32_FLASH_CONFIG_I
-			bool "I 2048KiB"
+	bool "I 2048KiB"
 
 endchoice
 
@@ -2760,7 +2760,7 @@ config STM32_CORDIC
 	bool "CORDIC Accelerator"
 	default n
 	depends on STM32_HAVE_CORDIC
-	select MATH_CORDIC_USE_Q31
+	depends on MATH_CORDIC_USE_Q31
 
 config STM32_BKP
 	bool "BKP"
@@ -3452,6 +3452,26 @@ config STM32_NOEXT_VECTORS
 		Sometimes you may not need any Vector support beyond SysTick
 		and wish to save memory. This applies only to ARMv7-M architectures.
 
+config STM32_USE_LEGACY_PINMAP
+	bool "Use the legacy pinmap with GPIO_SPEED_xxx included."
+	default y
+	---help---
+		In the past, pinmap files included GPIO_SPEED_xxxMhz. These speed
+		settings should have come from the board.h as it describes the wiring
+		of the SoC to the board. The speed is really slew rate control and
+		therefore is related to the layout and can only be properly set
+		in board.h.
+
+		STM32_USE_LEGACY_PINMAP is provided, to allow lazy migration to
+		using pinmaps without speeds. The work required to do this can be aided
+		by running tools/stm32_pinmap_tool.py. The tools will take a board.h
+		file and a legacy pinmap and output the required changes that one needs
+		to make to a board.h file.
+
+		Eventually, STM32_USE_LEGACY_PINMAP will be deprecated and the legacy
+		pinmaps removed from NuttX. Any new boards added should set
+		STM32_USE_LEGACY_PINMAP=n and fully define the pins in board.h
+
 config STM32_SYSCFG_IOCOMPENSATION
 	bool "SYSCFG I/O Compensation"
 	default n
@@ -3673,7 +3693,7 @@ config STM32_FLASH_WORKAROUND_DATA_CACHE_CORRUPTION_ON_RWW
 
 config STM32_FLASH_PREFETCH
 	bool "Enable FLASH Pre-fetch"
-	default y if STM32_STM32F427 || STM32_STM32F429 || STM32_STM32F446
+	default STM32_STM32F427 || STM32_STM32F429 || STM32_STM32F446
 	default n
 	depends on STM32_STM32F20XX || STM32_STM32F4XXX
 	---help---
@@ -3744,7 +3764,7 @@ config STM32_I2SPLL
 
 config STM32_CCMEXCLUDE
 	bool "Exclude CCM SRAM from the heap"
-	default y if  ARCH_DMA || LIBC_ARCH_ELF
+	default ARCH_DMA || LIBC_ARCH_ELF
 	depends on STM32_HAVE_CCM
 	---help---
 		Exclude CCM SRAM from the HEAP because (1) it cannot be used for DMA
@@ -3763,8 +3783,7 @@ config STM32_CCM_PROCFS
 config STM32_DMACAPABLE
 	bool "Workaround non-DMA capable memory"
 	depends on ARCH_DMA
-	default y if STM32_STM32F4XXX && !STM32_CCMEXCLUDE
-	default n if !STM32_STM32F4XXX || STM32_CCMEXCLUDE
+	default STM32_STM32F4XXX && !STM32_CCMEXCLUDE
 	---help---
 		This option enables the DMA interface stm32_dmacapable that can be
 		used to check if it is possible to do DMA from the selected address.
@@ -3779,13 +3798,6 @@ config STM32_EXTERNAL_RAM
 	---help---
 		In addition to internal SRAM, external RAM may be available through the FSMC/FMC.
 
-config STM32_TICKLESS_SYSTICK
-	bool "Tickless via SysTick"
-	default n
-	depends on SCHED_TICKLESS
-	---help---
-		Use SysTick as Tickless clock.
-
 menu "Timer Configuration"
 	depends on STM32_TIM
 
@@ -3795,7 +3807,6 @@ config STM32_TICKLESS_TIMER
 	int "Tickless hardware timer"
 	default 2
 	range 1 14
-	depends on !STM32_TICKLESS_SYSTICK
 	---help---
 		If the Tickless OS feature is enabled, then one clock must be
 		assigned to provided the timer needed by the OS.
@@ -8565,7 +8576,7 @@ config STM32_ADC1_DMA
 config STM32_ADC1_SCAN
 	bool "ADC1 scan mode"
 	depends on STM32_ADC1 && STM32_HAVE_IP_ADC_V1
-	default y if STM32_ADC1_DMA
+	default STM32_ADC1_DMA
 	default n
 
 config STM32_ADC1_DMA_CFG
@@ -8598,7 +8609,7 @@ config STM32_ADC2_DMA
 config STM32_ADC2_SCAN
 	bool "ADC2 scan mode"
 	depends on STM32_ADC2 && STM32_HAVE_IP_ADC_V1
-	default y if STM32_ADC2_DMA
+	default STM32_ADC2_DMA
 	default n
 
 config STM32_ADC2_DMA_CFG
@@ -8631,7 +8642,7 @@ config STM32_ADC3_DMA
 config STM32_ADC3_SCAN
 	bool "ADC3 scan mode"
 	depends on STM32_ADC3 && STM32_HAVE_IP_ADC_V1
-	default y if STM32_ADC3_DMA
+	default STM32_ADC3_DMA
 	default n
 
 config STM32_ADC3_DMA_CFG
@@ -10298,9 +10309,10 @@ config STM32_SERIALBRK_BSDCOMPAT
 	---help---
 		Enable using GPIO on the TX pin to send a BSD compatible break:
 		TIOCSBRK will start the break and TIOCCBRK will end the break.
-		The current STM32 U[S]ARTS have no way to leave the break (TX=LOW)
-		on because the SW starts the break and then the HW automatically clears
-		the break. This makes it is difficult to sent a long break.
+		The current STM32 U[S]ARTS have no way to leave the break on
+		(TX=LOW) because software starts the break and then the hardware
+		automatically clears the break. This makes it difficult to send
+		a long break.
 
 config STM32_USART_SINGLEWIRE
 	bool "Single Wire Support"
@@ -10569,8 +10581,7 @@ menu "I2C Configuration"
 
 config STM32_I2C_ALT
 	bool "Alternate I2C implementation"
-	default n if !STM32_PERFORMANCELINE
-	default y if STM32_PERFORMANCELINE
+	default STM32_PERFORMANCELINE
 	depends on !STM32_STM32F30XX
 	---help---
 		This selection enables an alternative I2C driver.  This alternate
@@ -10646,8 +10657,7 @@ config STM32_SDIO_PULLUP
 
 config STM32_SDIO_DMA
 	bool "Support DMA data transfers"
-	default y if STM32_DMA2
-	default n if !STM32_DMA2
+	default STM32_DMA2
 	select SDIO_DMA
 	depends on STM32_DMA2
 	---help---
@@ -10705,7 +10715,7 @@ menu "RTC Configuration"
 config STM32_RTC_MAGIC_REG
 	int "BKP register"
 	default 0
-	range  0 19
+	range 0 19
 	depends on !STM32_HAVE_RTC_COUNTER
 	---help---
 		The BKP register used to store/check the Magic value to determine if
@@ -10919,7 +10929,7 @@ config STM32_ETH_PTP
 
 config STM32_RMII
 	bool
-	default y if !STM32_MII
+	default !STM32_MII
 
 choice
 	prompt "RMII clock configuration"
@@ -11102,8 +11112,7 @@ endmenu
 
 config STM32_USB_ITRMP
 	bool "Re-map USB interrupt"
-	default n if !STM32_CAN1
-	default y if STM32_CAN1
+	default STM32_CAN1
 	depends on STM32_USB && STM32_STM32F30XX
 	---help---
 		The legacy USB in the F1 series shared interrupt lines with USB
@@ -11539,7 +11548,7 @@ config STM32_FDCAN3_DSJW
 
 endmenu # FDCAN3 device driver options
 
-endmenu  # "FDCAN driver configuration"
+endmenu # "FDCAN driver configuration"
 
 if STM32_LTDC
 
@@ -12024,7 +12033,6 @@ menuconfig STM32_FOC
 	select STM32_ADC_LL_OPS
 	select STM32_ADC_CHANGE_SAMPLETIME
 	select STM32_ADC_NO_STARTUP_CONV
-	select STM32_ADC_FORCE_SCAN if STM32_HAVE_IP_ADC_V1
 
 if STM32_FOC
 

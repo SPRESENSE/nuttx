@@ -530,10 +530,12 @@ static inline uint32_t imxrt_serialin(struct imxrt_uart_s *priv,
                                       uint32_t offset);
 static inline void imxrt_serialout(struct imxrt_uart_s *priv,
                                    uint32_t offset, uint32_t value);
+#if defined(CONFIG_SERIAL_TERMIOS) || defined(CONSOLE_DEV)
 static inline void imxrt_disableuartint(struct imxrt_uart_s *priv,
                                         uint32_t *ie);
 static inline void imxrt_restoreuartint(struct imxrt_uart_s *priv,
                                         uint32_t ie);
+#endif
 
 static int  imxrt_setup(struct uart_dev_s *dev);
 static void imxrt_shutdown(struct uart_dev_s *dev);
@@ -802,15 +804,15 @@ static struct imxrt_uart_s g_lpuart1priv =
         .size       = CONFIG_LPUART1_TXBUFSIZE,
         .buffer     = g_lpuart1txbuffer,
       },
-    #if defined(CONFIG_LPUART1_RXDMA) && defined(CONFIG_LPUART1_TXDMA)
+#  if defined(CONFIG_LPUART1_RXDMA) && defined(CONFIG_LPUART1_TXDMA)
         .ops       = &g_lpuart_rxtxdma_ops,
-    #elif defined(CONFIG_LPUART1_RXDMA) && !defined(CONFIG_LPUART1_TXDMA)
+#  elif defined(CONFIG_LPUART1_RXDMA) && !defined(CONFIG_LPUART1_TXDMA)
         .ops       = &g_lpuart_rxdma_ops,
-    #elif !defined(CONFIG_LPUART1_RXDMA) && defined(CONFIG_LPUART1_TXDMA)
+#  elif !defined(CONFIG_LPUART1_RXDMA) && defined(CONFIG_LPUART1_TXDMA)
         .ops       = &g_lpuart_txdma_ops,
-    #else
+#  else
         .ops       = &g_lpuart_ops,
-    #endif
+#  endif
       .priv         = &g_lpuart1priv,
     },
 
@@ -820,37 +822,38 @@ static struct imxrt_uart_s g_lpuart1priv =
   .parity       = CONFIG_LPUART1_PARITY,
   .bits         = CONFIG_LPUART1_BITS,
   .stopbits2    = CONFIG_LPUART1_2STOP,
-#if defined(CONFIG_SERIAL_OFLOWCONTROL) && defined(CONFIG_LPUART1_OFLOWCONTROL)
+#  if defined(CONFIG_SERIAL_OFLOWCONTROL) && defined(CONFIG_LPUART1_OFLOWCONTROL)
   .oflow        = 1,
   .cts_gpio     = GPIO_LPUART1_CTS,
-#endif
-#if defined(CONFIG_SERIAL_IFLOWCONTROL) && defined(CONFIG_LPUART1_IFLOWCONTROL)
+#  endif
+#  if defined(CONFIG_SERIAL_IFLOWCONTROL) && defined(CONFIG_LPUART1_IFLOWCONTROL)
   .iflow        = 1,
-#endif
-# if ((defined(CONFIG_SERIAL_RS485CONTROL) && defined(CONFIG_LPUART1_RS485RTSCONTROL)) \
+#  endif
+#  if ((defined(CONFIG_SERIAL_RS485CONTROL) && defined(CONFIG_LPUART1_RS485RTSCONTROL)) \
    || (defined(CONFIG_SERIAL_IFLOWCONTROL) && defined(CONFIG_LPUART1_IFLOWCONTROL)))
   .rts_gpio     = GPIO_LPUART1_RTS,
-#endif
-#ifdef CONFIG_IMXRT_LPUART_SINGLEWIRE
+#  endif
+#  ifdef CONFIG_IMXRT_LPUART_SINGLEWIRE
   .tx_gpio      = GPIO_LPUART1_TX,
-#endif
+#  endif
 
-#if (((defined(CONFIG_SERIAL_RS485CONTROL) || defined(CONFIG_SERIAL_IFLOWCONTROL))) \
+#  if (((defined(CONFIG_SERIAL_RS485CONTROL) || defined(CONFIG_SERIAL_IFLOWCONTROL))) \
     && defined(CONFIG_LPUART1_INVERTIFLOWCONTROL))
   .inviflow     = 1,
-#endif
+#  endif
 
-#if defined(CONFIG_SERIAL_RS485CONTROL) && defined(CONFIG_LPUART1_RS485RTSCONTROL)
+#  if defined(CONFIG_SERIAL_RS485CONTROL) && defined(CONFIG_LPUART1_RS485RTSCONTROL)
   .rs485mode    = 1,
-#endif
+#  endif
 
-#ifdef CONFIG_LPUART1_TXDMA
+#  ifdef CONFIG_LPUART1_TXDMA
   .dma_txreqsrc = IMXRT_DMACHAN_LPUART1_TX,
-#endif
-#ifdef CONFIG_LPUART1_RXDMA
+  .txdmasem     = SEM_INITIALIZER(1),
+#  endif
+#  ifdef CONFIG_LPUART1_RXDMA
   .dma_rxreqsrc = IMXRT_DMACHAN_LPUART1_RX,
   .rxfifo        = g_lpuart1rxfifo,
-#endif
+#  endif
 };
 #endif
 
@@ -889,36 +892,37 @@ static struct imxrt_uart_s g_lpuart2priv =
   .parity       = CONFIG_LPUART2_PARITY,
   .bits         = CONFIG_LPUART2_BITS,
   .stopbits2    = CONFIG_LPUART2_2STOP,
-#if defined(CONFIG_SERIAL_OFLOWCONTROL) && defined(CONFIG_LPUART2_OFLOWCONTROL)
+#  if defined(CONFIG_SERIAL_OFLOWCONTROL) && defined(CONFIG_LPUART2_OFLOWCONTROL)
   .oflow        = 1,
   .cts_gpio     = GPIO_LPUART2_CTS,
-#endif
-#if defined(CONFIG_SERIAL_IFLOWCONTROL) && defined(CONFIG_LPUART2_IFLOWCONTROL)
+#  endif
+#  if defined(CONFIG_SERIAL_IFLOWCONTROL) && defined(CONFIG_LPUART2_IFLOWCONTROL)
   .iflow        = 1,
-#endif
-# if ((defined(CONFIG_SERIAL_RS485CONTROL) && defined(CONFIG_LPUART2_RS485RTSCONTROL)) \
+#  endif
+#  if ((defined(CONFIG_SERIAL_RS485CONTROL) && defined(CONFIG_LPUART2_RS485RTSCONTROL)) \
    || (defined(CONFIG_SERIAL_IFLOWCONTROL) && defined(CONFIG_LPUART2_IFLOWCONTROL)))
   .rts_gpio     = GPIO_LPUART2_RTS,
-#endif
-#ifdef CONFIG_IMXRT_LPUART_SINGLEWIRE
+#  endif
+#  ifdef CONFIG_IMXRT_LPUART_SINGLEWIRE
   .tx_gpio      = GPIO_LPUART2_TX,
-#endif
-#if (((defined(CONFIG_SERIAL_RS485CONTROL) || defined(CONFIG_SERIAL_IFLOWCONTROL))) \
+#  endif
+#  if (((defined(CONFIG_SERIAL_RS485CONTROL) || defined(CONFIG_SERIAL_IFLOWCONTROL))) \
     && defined(CONFIG_LPUART2_INVERTIFLOWCONTROL))
   .inviflow     = 1,
-#endif
+#  endif
 
-#if defined(CONFIG_SERIAL_RS485CONTROL) && defined(CONFIG_LPUART2_RS485RTSCONTROL)
+#  if defined(CONFIG_SERIAL_RS485CONTROL) && defined(CONFIG_LPUART2_RS485RTSCONTROL)
   .rs485mode    = 1,
-#endif
+#  endif
 
-#ifdef CONFIG_LPUART2_TXDMA
+#  ifdef CONFIG_LPUART2_TXDMA
   .dma_txreqsrc = IMXRT_DMACHAN_LPUART2_TX,
-#endif
-#ifdef CONFIG_LPUART2_RXDMA
+  .txdmasem     = SEM_INITIALIZER(1),
+#  endif
+#  ifdef CONFIG_LPUART2_RXDMA
   .dma_rxreqsrc = IMXRT_DMACHAN_LPUART2_RX,
   .rxfifo        = g_lpuart2rxfifo,
-#endif
+#  endif
 };
 #endif
 
@@ -937,15 +941,15 @@ static struct imxrt_uart_s g_lpuart3priv =
         .size       = CONFIG_LPUART3_TXBUFSIZE,
         .buffer     = g_lpuart3txbuffer,
       },
-    #if defined(CONFIG_LPUART3_RXDMA) && defined(CONFIG_LPUART3_TXDMA)
+#  if defined(CONFIG_LPUART3_RXDMA) && defined(CONFIG_LPUART3_TXDMA)
         .ops       = &g_lpuart_rxtxdma_ops,
-    #elif defined(CONFIG_LPUART3_RXDMA) && !defined(CONFIG_LPUART3_TXDMA)
+#  elif defined(CONFIG_LPUART3_RXDMA) && !defined(CONFIG_LPUART3_TXDMA)
         .ops       = &g_lpuart_rxdma_ops,
-    #elif !defined(CONFIG_LPUART3_RXDMA) && defined(CONFIG_LPUART3_TXDMA)
+#  elif !defined(CONFIG_LPUART3_RXDMA) && defined(CONFIG_LPUART3_TXDMA)
         .ops       = &g_lpuart_txdma_ops,
-    #else
+#  else
         .ops       = &g_lpuart_ops,
-    #endif
+#  endif
       .priv         = &g_lpuart3priv,
     },
 
@@ -955,36 +959,37 @@ static struct imxrt_uart_s g_lpuart3priv =
   .parity       = CONFIG_LPUART3_PARITY,
   .bits         = CONFIG_LPUART3_BITS,
   .stopbits2    = CONFIG_LPUART3_2STOP,
-#if defined(CONFIG_SERIAL_OFLOWCONTROL) && defined(CONFIG_LPUART3_OFLOWCONTROL)
+#  if defined(CONFIG_SERIAL_OFLOWCONTROL) && defined(CONFIG_LPUART3_OFLOWCONTROL)
   .oflow        = 1,
   .cts_gpio     = GPIO_LPUART3_CTS,
-#endif
-#if defined(CONFIG_SERIAL_IFLOWCONTROL) && defined(CONFIG_LPUART3_IFLOWCONTROL)
+#  endif
+#  if defined(CONFIG_SERIAL_IFLOWCONTROL) && defined(CONFIG_LPUART3_IFLOWCONTROL)
   .iflow        = 1,
-#endif
-# if ((defined(CONFIG_SERIAL_RS485CONTROL) && defined(CONFIG_LPUART3_RS485RTSCONTROL)) \
+#  endif
+#  if ((defined(CONFIG_SERIAL_RS485CONTROL) && defined(CONFIG_LPUART3_RS485RTSCONTROL)) \
    || (defined(CONFIG_SERIAL_IFLOWCONTROL) && defined(CONFIG_LPUART3_IFLOWCONTROL)))
   .rts_gpio     = GPIO_LPUART3_RTS,
-#endif
-#ifdef CONFIG_IMXRT_LPUART_SINGLEWIRE
+#  endif
+#  ifdef CONFIG_IMXRT_LPUART_SINGLEWIRE
   .tx_gpio      = GPIO_LPUART3_TX,
-#endif
-#if (((defined(CONFIG_SERIAL_RS485CONTROL) || defined(CONFIG_SERIAL_IFLOWCONTROL))) \
+#  endif
+#  if (((defined(CONFIG_SERIAL_RS485CONTROL) || defined(CONFIG_SERIAL_IFLOWCONTROL))) \
     && defined(CONFIG_LPUART3_INVERTIFLOWCONTROL))
   .inviflow     = 1,
-#endif
+#  endif
 
-#if defined(CONFIG_SERIAL_RS485CONTROL) && defined(CONFIG_LPUART3_RS485RTSCONTROL)
+#  if defined(CONFIG_SERIAL_RS485CONTROL) && defined(CONFIG_LPUART3_RS485RTSCONTROL)
   .rs485mode    = 1,
-#endif
+#  endif
 
-#ifdef CONFIG_LPUART3_TXDMA
+#  ifdef CONFIG_LPUART3_TXDMA
   .dma_txreqsrc = IMXRT_DMACHAN_LPUART3_TX,
-#endif
-#ifdef CONFIG_LPUART3_RXDMA
+  .txdmasem     = SEM_INITIALIZER(1),
+#  endif
+#  ifdef CONFIG_LPUART3_RXDMA
   .dma_rxreqsrc = IMXRT_DMACHAN_LPUART3_RX,
   .rxfifo        = g_lpuart3rxfifo,
-#endif
+#  endif
 };
 #endif
 
@@ -1021,36 +1026,37 @@ static struct imxrt_uart_s g_lpuart4priv =
   .parity       = CONFIG_LPUART4_PARITY,
   .bits         = CONFIG_LPUART4_BITS,
   .stopbits2    = CONFIG_LPUART4_2STOP,
-#if defined(CONFIG_SERIAL_OFLOWCONTROL) && defined(CONFIG_LPUART4_OFLOWCONTROL)
+#  if defined(CONFIG_SERIAL_OFLOWCONTROL) && defined(CONFIG_LPUART4_OFLOWCONTROL)
   .oflow        = 1,
   .cts_gpio     = GPIO_LPUART4_CTS,
-#endif
-#if defined(CONFIG_SERIAL_IFLOWCONTROL) && defined(CONFIG_LPUART4_IFLOWCONTROL)
+#  endif
+#  if defined(CONFIG_SERIAL_IFLOWCONTROL) && defined(CONFIG_LPUART4_IFLOWCONTROL)
   .iflow        = 1,
-#endif
-# if ((defined(CONFIG_SERIAL_RS485CONTROL) && defined(CONFIG_LPUART4_RS485RTSCONTROL)) \
+#  endif
+#  if ((defined(CONFIG_SERIAL_RS485CONTROL) && defined(CONFIG_LPUART4_RS485RTSCONTROL)) \
    || (defined(CONFIG_SERIAL_IFLOWCONTROL) && defined(CONFIG_LPUART4_IFLOWCONTROL)))
   .rts_gpio     = GPIO_LPUART4_RTS,
-#endif
-#ifdef CONFIG_IMXRT_LPUART_SINGLEWIRE
+#  endif
+#  ifdef CONFIG_IMXRT_LPUART_SINGLEWIRE
   .tx_gpio      = GPIO_LPUART4_TX,
-#endif
-#if (((defined(CONFIG_SERIAL_RS485CONTROL) || defined(CONFIG_SERIAL_IFLOWCONTROL))) \
+#  endif
+#  if (((defined(CONFIG_SERIAL_RS485CONTROL) || defined(CONFIG_SERIAL_IFLOWCONTROL))) \
     && defined(CONFIG_LPUART4_INVERTIFLOWCONTROL))
   .inviflow     = 1,
-#endif
+#  endif
 
-#if defined(CONFIG_SERIAL_RS485CONTROL) && defined(CONFIG_LPUART4_RS485RTSCONTROL)
+#  if defined(CONFIG_SERIAL_RS485CONTROL) && defined(CONFIG_LPUART4_RS485RTSCONTROL)
   .rs485mode    = 1,
-#endif
+#  endif
 
-#ifdef CONFIG_LPUART4_TXDMA
+#  ifdef CONFIG_LPUART4_TXDMA
   .dma_txreqsrc = IMXRT_DMACHAN_LPUART4_TX,
-#endif
-#ifdef CONFIG_LPUART4_RXDMA
+  .txdmasem     = SEM_INITIALIZER(1),
+#  endif
+#  ifdef CONFIG_LPUART4_RXDMA
   .dma_rxreqsrc = IMXRT_DMACHAN_LPUART4_RX,
   .rxfifo        = g_lpuart4rxfifo,
-#endif
+#  endif
 };
 #endif
 
@@ -1069,15 +1075,15 @@ static struct imxrt_uart_s g_lpuart5priv =
           .size       = CONFIG_LPUART5_TXBUFSIZE,
           .buffer     = g_lpuart5txbuffer,
         },
-      #if defined(CONFIG_LPUART5_RXDMA) && defined(CONFIG_LPUART5_TXDMA)
+#  if defined(CONFIG_LPUART5_RXDMA) && defined(CONFIG_LPUART5_TXDMA)
           .ops       = &g_lpuart_rxtxdma_ops,
-      #elif defined(CONFIG_LPUART5_RXDMA) && !defined(CONFIG_LPUART5_TXDMA)
+#  elif defined(CONFIG_LPUART5_RXDMA) && !defined(CONFIG_LPUART5_TXDMA)
           .ops       = &g_lpuart_rxdma_ops,
-      #elif !defined(CONFIG_LPUART5_RXDMA) && defined(CONFIG_LPUART5_TXDMA)
+#  elif !defined(CONFIG_LPUART5_RXDMA) && defined(CONFIG_LPUART5_TXDMA)
           .ops       = &g_lpuart_txdma_ops,
-      #else
+#  else
           .ops       = &g_lpuart_ops,
-      #endif
+#  endif
         .priv         = &g_lpuart5priv,
     },
 
@@ -1087,36 +1093,37 @@ static struct imxrt_uart_s g_lpuart5priv =
   .parity       = CONFIG_LPUART5_PARITY,
   .bits         = CONFIG_LPUART5_BITS,
   .stopbits2    = CONFIG_LPUART5_2STOP,
-#if defined(CONFIG_SERIAL_OFLOWCONTROL) && defined(CONFIG_LPUART5_OFLOWCONTROL)
+#  if defined(CONFIG_SERIAL_OFLOWCONTROL) && defined(CONFIG_LPUART5_OFLOWCONTROL)
   .oflow        = 1,
   .cts_gpio     = GPIO_LPUART5_CTS,
-#endif
-#if defined(CONFIG_SERIAL_IFLOWCONTROL) && defined(CONFIG_LPUART5_IFLOWCONTROL)
+#  endif
+#  if defined(CONFIG_SERIAL_IFLOWCONTROL) && defined(CONFIG_LPUART5_IFLOWCONTROL)
   .iflow        = 1,
-#endif
-# if ((defined(CONFIG_SERIAL_RS485CONTROL) && defined(CONFIG_LPUART5_RS485RTSCONTROL)) \
+#  endif
+#  if ((defined(CONFIG_SERIAL_RS485CONTROL) && defined(CONFIG_LPUART5_RS485RTSCONTROL)) \
    || (defined(CONFIG_SERIAL_IFLOWCONTROL) && defined(CONFIG_LPUART5_IFLOWCONTROL)))
   .rts_gpio     = GPIO_LPUART5_RTS,
-#endif
-#ifdef CONFIG_IMXRT_LPUART_SINGLEWIRE
+#  endif
+#  ifdef CONFIG_IMXRT_LPUART_SINGLEWIRE
   .tx_gpio      = GPIO_LPUART5_TX,
-#endif
-#if (((defined(CONFIG_SERIAL_RS485CONTROL) || defined(CONFIG_SERIAL_IFLOWCONTROL))) \
+#  endif
+#  if (((defined(CONFIG_SERIAL_RS485CONTROL) || defined(CONFIG_SERIAL_IFLOWCONTROL))) \
     && defined(CONFIG_LPUART5_INVERTIFLOWCONTROL))
   .inviflow     = 1,
-#endif
+#  endif
 
-#if defined(CONFIG_SERIAL_RS485CONTROL) && defined(CONFIG_LPUART5_RS485RTSCONTROL)
+#  if defined(CONFIG_SERIAL_RS485CONTROL) && defined(CONFIG_LPUART5_RS485RTSCONTROL)
   .rs485mode    = 1,
-#endif
+#  endif
 
-#ifdef CONFIG_LPUART5_TXDMA
+#  ifdef CONFIG_LPUART5_TXDMA
   .dma_txreqsrc = IMXRT_DMACHAN_LPUART5_TX,
-#endif
-#ifdef CONFIG_LPUART5_RXDMA
+  .txdmasem     = SEM_INITIALIZER(1),
+#  endif
+#  ifdef CONFIG_LPUART5_RXDMA
   .dma_rxreqsrc = IMXRT_DMACHAN_LPUART5_RX,
   .rxfifo        = g_lpuart5rxfifo,
-#endif
+#  endif
 };
 #endif
 
@@ -1135,15 +1142,15 @@ static struct imxrt_uart_s g_lpuart6priv =
         .size       = CONFIG_LPUART6_TXBUFSIZE,
         .buffer     = g_lpuart6txbuffer,
       },
-    #if defined(CONFIG_LPUART6_RXDMA) && defined(CONFIG_LPUART6_TXDMA)
+#  if defined(CONFIG_LPUART6_RXDMA) && defined(CONFIG_LPUART6_TXDMA)
         .ops       = &g_lpuart_rxtxdma_ops,
-    #elif defined(CONFIG_LPUART6_RXDMA) && !defined(CONFIG_LPUART6_TXDMA)
+#  elif defined(CONFIG_LPUART6_RXDMA) && !defined(CONFIG_LPUART6_TXDMA)
         .ops       = &g_lpuart_rxdma_ops,
-    #elif !defined(CONFIG_LPUART6_RXDMA) && defined(CONFIG_LPUART6_TXDMA)
+#  elif !defined(CONFIG_LPUART6_RXDMA) && defined(CONFIG_LPUART6_TXDMA)
         .ops       = &g_lpuart_txdma_ops,
-    #else
+#  else
         .ops       = &g_lpuart_ops,
-    #endif
+#  endif
       .priv         = &g_lpuart6priv,
     },
 
@@ -1153,36 +1160,37 @@ static struct imxrt_uart_s g_lpuart6priv =
   .parity       = CONFIG_LPUART6_PARITY,
   .bits         = CONFIG_LPUART6_BITS,
   .stopbits2    = CONFIG_LPUART6_2STOP,
-#if defined(CONFIG_SERIAL_OFLOWCONTROL) && defined(CONFIG_LPUART6_OFLOWCONTROL)
+#  if defined(CONFIG_SERIAL_OFLOWCONTROL) && defined(CONFIG_LPUART6_OFLOWCONTROL)
   .oflow        = 1,
   .cts_gpio     = GPIO_LPUART6_CTS,
-#endif
-#if defined(CONFIG_SERIAL_IFLOWCONTROL) && defined(CONFIG_LPUART6_IFLOWCONTROL)
+#  endif
+#  if defined(CONFIG_SERIAL_IFLOWCONTROL) && defined(CONFIG_LPUART6_IFLOWCONTROL)
   .iflow        = 1,
-#endif
-# if ((defined(CONFIG_SERIAL_RS485CONTROL) && defined(CONFIG_LPUART6_RS485RTSCONTROL)) \
+#  endif
+#  if ((defined(CONFIG_SERIAL_RS485CONTROL) && defined(CONFIG_LPUART6_RS485RTSCONTROL)) \
    || (defined(CONFIG_SERIAL_IFLOWCONTROL) && defined(CONFIG_LPUART6_IFLOWCONTROL)))
   .rts_gpio     = GPIO_LPUART6_RTS,
-#endif
-#ifdef CONFIG_IMXRT_LPUART_SINGLEWIRE
+#  endif
+#  ifdef CONFIG_IMXRT_LPUART_SINGLEWIRE
   .tx_gpio      = GPIO_LPUART6_TX,
-#endif
-#if (((defined(CONFIG_SERIAL_RS485CONTROL) || defined(CONFIG_SERIAL_IFLOWCONTROL))) \
+#  endif
+#  if (((defined(CONFIG_SERIAL_RS485CONTROL) || defined(CONFIG_SERIAL_IFLOWCONTROL))) \
     && defined(CONFIG_LPUART6_INVERTIFLOWCONTROL))
   .inviflow     = 1,
-#endif
+#  endif
 
-#if defined(CONFIG_SERIAL_RS485CONTROL) && defined(CONFIG_LPUART6_RS485RTSCONTROL)
+#  if defined(CONFIG_SERIAL_RS485CONTROL) && defined(CONFIG_LPUART6_RS485RTSCONTROL)
   .rs485mode    = 1,
-#endif
+#  endif
 
-#ifdef CONFIG_LPUART6_TXDMA
+#  ifdef CONFIG_LPUART6_TXDMA
   .dma_txreqsrc = IMXRT_DMACHAN_LPUART6_TX,
-#endif
-#ifdef CONFIG_LPUART6_RXDMA
+  .txdmasem     = SEM_INITIALIZER(1),
+#  endif
+#  ifdef CONFIG_LPUART6_RXDMA
   .dma_rxreqsrc = IMXRT_DMACHAN_LPUART6_RX,
   .rxfifo        = g_lpuart6rxfifo,
-#endif
+#  endif
 };
 #endif
 
@@ -1201,15 +1209,15 @@ static struct imxrt_uart_s g_lpuart7priv =
         .size       = CONFIG_LPUART7_TXBUFSIZE,
         .buffer     = g_lpuart7txbuffer,
       },
-    #if defined(CONFIG_LPUART7_RXDMA) && defined(CONFIG_LPUART7_TXDMA)
+#  if defined(CONFIG_LPUART7_RXDMA) && defined(CONFIG_LPUART7_TXDMA)
         .ops       = &g_lpuart_rxtxdma_ops,
-    #elif defined(CONFIG_LPUART7_RXDMA) && !defined(CONFIG_LPUART7_TXDMA)
+#  elif defined(CONFIG_LPUART7_RXDMA) && !defined(CONFIG_LPUART7_TXDMA)
         .ops       = &g_lpuart_rxdma_ops,
-    #elif !defined(CONFIG_LPUART7_RXDMA) && defined(CONFIG_LPUART7_TXDMA)
+#  elif !defined(CONFIG_LPUART7_RXDMA) && defined(CONFIG_LPUART7_TXDMA)
         .ops       = &g_lpuart_txdma_ops,
-    #else
+#  else
         .ops       = &g_lpuart_ops,
-    #endif
+#  endif
       .priv         = &g_lpuart7priv,
     },
 
@@ -1219,36 +1227,37 @@ static struct imxrt_uart_s g_lpuart7priv =
   .parity       = CONFIG_LPUART7_PARITY,
   .bits         = CONFIG_LPUART7_BITS,
   .stopbits2    = CONFIG_LPUART7_2STOP,
-#if defined(CONFIG_SERIAL_OFLOWCONTROL) && defined(CONFIG_LPUART7_OFLOWCONTROL)
+#  if defined(CONFIG_SERIAL_OFLOWCONTROL) && defined(CONFIG_LPUART7_OFLOWCONTROL)
   .oflow        = 1,
   .cts_gpio     = GPIO_LPUART7_CTS,
-#endif
-#if defined(CONFIG_SERIAL_IFLOWCONTROL) && defined(CONFIG_LPUART7_IFLOWCONTROL)
+#  endif
+#  if defined(CONFIG_SERIAL_IFLOWCONTROL) && defined(CONFIG_LPUART7_IFLOWCONTROL)
   .iflow        = 1,
-#endif
-# if ((defined(CONFIG_SERIAL_RS485CONTROL) && defined(CONFIG_LPUART7_RS485RTSCONTROL)) \
+#  endif
+#  if ((defined(CONFIG_SERIAL_RS485CONTROL) && defined(CONFIG_LPUART7_RS485RTSCONTROL)) \
    || (defined(CONFIG_SERIAL_IFLOWCONTROL) && defined(CONFIG_LPUART7_IFLOWCONTROL)))
   .rts_gpio     = GPIO_LPUART7_RTS,
-#endif
-#ifdef CONFIG_IMXRT_LPUART_SINGLEWIRE
+#  endif
+#  ifdef CONFIG_IMXRT_LPUART_SINGLEWIRE
   .tx_gpio      = GPIO_LPUART7_TX,
-#endif
-#if (((defined(CONFIG_SERIAL_RS485CONTROL) || defined(CONFIG_SERIAL_IFLOWCONTROL))) \
+#  endif
+#  if (((defined(CONFIG_SERIAL_RS485CONTROL) || defined(CONFIG_SERIAL_IFLOWCONTROL))) \
     && defined(CONFIG_LPUART7_INVERTIFLOWCONTROL))
   .inviflow     = 1,
-#endif
+#  endif
 
-#if defined(CONFIG_SERIAL_RS485CONTROL) && defined(CONFIG_LPUART7_RS485RTSCONTROL)
+#  if defined(CONFIG_SERIAL_RS485CONTROL) && defined(CONFIG_LPUART7_RS485RTSCONTROL)
   .rs485mode    = 1,
-#endif
+#  endif
 
-#ifdef CONFIG_LPUART7_TXDMA
+#  ifdef CONFIG_LPUART7_TXDMA
   .dma_txreqsrc = IMXRT_DMACHAN_LPUART7_TX,
-#endif
-#ifdef CONFIG_LPUART7_RXDMA
+  .txdmasem     = SEM_INITIALIZER(1),
+#  endif
+#  ifdef CONFIG_LPUART7_RXDMA
   .dma_rxreqsrc = IMXRT_DMACHAN_LPUART7_RX,
   .rxfifo        = g_lpuart7rxfifo,
-#endif
+#  endif
 };
 #endif
 
@@ -1267,15 +1276,15 @@ static struct imxrt_uart_s g_lpuart8priv =
         .size       = CONFIG_LPUART8_TXBUFSIZE,
         .buffer     = g_lpuart8txbuffer,
       },
-    #if defined(CONFIG_LPUART8_RXDMA) && defined(CONFIG_LPUART8_TXDMA)
+#  if defined(CONFIG_LPUART8_RXDMA) && defined(CONFIG_LPUART8_TXDMA)
         .ops       = &g_lpuart_rxtxdma_ops,
-    #elif defined(CONFIG_LPUART8_RXDMA) && !defined(CONFIG_LPUART8_TXDMA)
+#  elif defined(CONFIG_LPUART8_RXDMA) && !defined(CONFIG_LPUART8_TXDMA)
         .ops       = &g_lpuart_rxdma_ops,
-    #elif !defined(CONFIG_LPUART8_RXDMA) && defined(CONFIG_LPUART8_TXDMA)
+#  elif !defined(CONFIG_LPUART8_RXDMA) && defined(CONFIG_LPUART8_TXDMA)
         .ops       = &g_lpuart_txdma_ops,
-    #else
+#  else
         .ops       = &g_lpuart_ops,
-    #endif
+#  endif
       .priv         = &g_lpuart8priv,
     },
 
@@ -1285,36 +1294,37 @@ static struct imxrt_uart_s g_lpuart8priv =
   .parity       = CONFIG_LPUART8_PARITY,
   .bits         = CONFIG_LPUART8_BITS,
   .stopbits2    = CONFIG_LPUART8_2STOP,
-#if defined(CONFIG_SERIAL_OFLOWCONTROL) && defined(CONFIG_LPUART8_OFLOWCONTROL)
+#  if defined(CONFIG_SERIAL_OFLOWCONTROL) && defined(CONFIG_LPUART8_OFLOWCONTROL)
   .oflow        = 1,
   .cts_gpio     = GPIO_LPUART8_CTS,
-#endif
-#if defined(CONFIG_SERIAL_IFLOWCONTROL) && defined(CONFIG_LPUART8_IFLOWCONTROL)
+#  endif
+#  if defined(CONFIG_SERIAL_IFLOWCONTROL) && defined(CONFIG_LPUART8_IFLOWCONTROL)
   .iflow        = 1,
-#endif
-# if ((defined(CONFIG_SERIAL_RS485CONTROL) && defined(CONFIG_LPUART8_RS485RTSCONTROL)) \
+#  endif
+#  if ((defined(CONFIG_SERIAL_RS485CONTROL) && defined(CONFIG_LPUART8_RS485RTSCONTROL)) \
    || (defined(CONFIG_SERIAL_IFLOWCONTROL) && defined(CONFIG_LPUART8_IFLOWCONTROL)))
   .rts_gpio     = GPIO_LPUART8_RTS,
-#endif
-#ifdef CONFIG_IMXRT_LPUART_SINGLEWIRE
+#  endif
+#  ifdef CONFIG_IMXRT_LPUART_SINGLEWIRE
   .tx_gpio      = GPIO_LPUART8_TX,
-#endif
-#if (((defined(CONFIG_SERIAL_RS485CONTROL) || defined(CONFIG_SERIAL_IFLOWCONTROL))) \
+#  endif
+#  if (((defined(CONFIG_SERIAL_RS485CONTROL) || defined(CONFIG_SERIAL_IFLOWCONTROL))) \
     && defined(CONFIG_LPUART8_INVERTIFLOWCONTROL))
   .inviflow     = 1,
-#endif
+#  endif
 
-#if defined(CONFIG_SERIAL_RS485CONTROL) && defined(CONFIG_LPUART8_RS485RTSCONTROL)
+#  if defined(CONFIG_SERIAL_RS485CONTROL) && defined(CONFIG_LPUART8_RS485RTSCONTROL)
   .rs485mode    = 1,
-#endif
+#  endif
 
-#ifdef CONFIG_LPUART8_TXDMA
+#  ifdef CONFIG_LPUART8_TXDMA
   .dma_txreqsrc = IMXRT_DMACHAN_LPUART8_TX,
-#endif
-#ifdef CONFIG_LPUART8_RXDMA
+  .txdmasem     = SEM_INITIALIZER(1),
+#  endif
+#  ifdef CONFIG_LPUART8_RXDMA
   .dma_rxreqsrc = IMXRT_DMACHAN_LPUART8_RX,
   .rxfifo        = g_lpuart8rxfifo,
-#endif
+#  endif
 };
 #endif
 
@@ -1372,6 +1382,7 @@ static int imxrt_dma_nextrx(struct imxrt_uart_s *priv)
  * Name: imxrt_disableuartint
  ****************************************************************************/
 
+#if defined(CONFIG_SERIAL_TERMIOS) || defined(CONSOLE_DEV)
 static inline void imxrt_disableuartint(struct imxrt_uart_s *priv,
                                         uint32_t *ie)
 {
@@ -1392,11 +1403,13 @@ static inline void imxrt_disableuartint(struct imxrt_uart_s *priv,
   imxrt_serialout(priv, IMXRT_LPUART_CTRL_OFFSET, regval);
   spin_unlock_irqrestore(NULL, flags);
 }
+#endif
 
 /****************************************************************************
  * Name: imxrt_restoreuartint
  ****************************************************************************/
 
+#if defined(CONFIG_SERIAL_TERMIOS) || defined(CONSOLE_DEV)
 static inline void imxrt_restoreuartint(struct imxrt_uart_s *priv,
                                         uint32_t ie)
 {
@@ -1414,6 +1427,7 @@ static inline void imxrt_restoreuartint(struct imxrt_uart_s *priv,
   imxrt_serialout(priv, IMXRT_LPUART_CTRL_OFFSET, regval);
   spin_unlock_irqrestore(NULL, flags);
 }
+#endif
 
 /****************************************************************************
  * Name: imxrt_dma_setup
@@ -1457,9 +1471,6 @@ static int imxrt_dma_setup(struct uart_dev_s *dev)
             {
               return -EBUSY;
             }
-
-          nxsem_init(&priv->txdmasem, 0, 1);
-          nxsem_set_protocol(&priv->txdmasem, SEM_PRIO_NONE);
         }
 
       /* Enable Tx DMA for the UART */
@@ -1533,7 +1544,7 @@ static int imxrt_dma_setup(struct uart_dev_s *dev)
        * worth of time to claim bytes before they are overwritten.
        */
 
-      imxrt_dmach_start(priv->rxdma, imxrt_dma_rxcallback, (void *)priv);
+      imxrt_dmach_start(priv->rxdma, imxrt_dma_rxcallback, priv);
     }
 #endif
 
@@ -1567,15 +1578,15 @@ static int imxrt_setup(struct uart_dev_s *dev)
   config.parity     = priv->parity;     /* 0=none, 1=odd, 2=even */
   config.bits       = priv->bits;       /* Number of bits (5-9) */
   config.stopbits2  = priv->stopbits2;  /* true: Configure with 2 stop bits instead of 1 */
-#ifdef CONFIG_SERIAL_IFLOWCONTROL
-  config.usects     = priv->iflow;      /* Flow control on inbound side */
-#endif
 #ifdef CONFIG_SERIAL_OFLOWCONTROL
-  /* Flow control on outbound side if not GPIO based */
+  config.usects     = priv->oflow;      /* Flow control on outbound side */
+#endif
+#ifdef CONFIG_SERIAL_IFLOWCONTROL
+  /* Flow control on inbound side if not GPIO based */
 
   if ((priv->rts_gpio & GPIO_MODE_MASK) == GPIO_PERIPH)
     {
-      config.userts = priv->oflow;
+      config.userts = priv->iflow;
     }
 
 #endif
@@ -1660,7 +1671,6 @@ static void imxrt_dma_shutdown(struct uart_dev_s *dev)
 
       imxrt_dmach_free(priv->txdma);
       priv->txdma = NULL;
-      nxsem_destroy(&priv->txdmasem);
     }
 #endif
 }
@@ -1724,9 +1734,11 @@ static void imxrt_detach(struct uart_dev_s *dev)
  * Name: imxrt_interrupt (and front-ends)
  *
  * Description:
- *   This is the common UART interrupt handler.  It should call
- *   uart_transmitchars or uart_receivechar to perform the appropriate data
- *   transfers.
+ *   This is the UART interrupt handler.  It will be invoked when an
+ *   interrupt is received on the 'irq'.  It should call uart_xmitchars or
+ *   uart_recvchars to perform the appropriate data transfers.  The
+ *   interrupt handling logic must be able to map the 'arg' to the
+ *   appropriate imxrt_uart_s structure in order to call these functions.
  *
  ****************************************************************************/
 
@@ -1734,6 +1746,7 @@ static int imxrt_interrupt(int irq, void *context, void *arg)
 {
   struct imxrt_uart_s *priv = (struct imxrt_uart_s *)arg;
   uint32_t usr;
+  uint32_t lsr;
   int passes = 0;
   bool handled;
 
@@ -1759,30 +1772,45 @@ static int imxrt_interrupt(int irq, void *context, void *arg)
        */
 
       usr  = imxrt_serialin(priv, IMXRT_LPUART_STAT_OFFSET);
+
+      /* Removed all W1C from the last sr */
+
+      lsr  = usr & ~(LPUART_STAT_LBKDIF | LPUART_STAT_RXEDGIF |
+                     LPUART_STAT_IDLE   | LPUART_STAT_OR      |
+                     LPUART_STAT_NF     | LPUART_STAT_FE      |
+                     LPUART_STAT_PF     | LPUART_STAT_MA1F    |
+                     LPUART_STAT_MA2F);
+
+      /* Keep what we will service */
+
       usr &= (LPUART_STAT_RDRF | LPUART_STAT_TDRE | LPUART_STAT_OR |
-              LPUART_STAT_FE | LPUART_STAT_NF | LPUART_STAT_PF |
+              LPUART_STAT_FE   | LPUART_STAT_NF   | LPUART_STAT_PF |
               LPUART_STAT_IDLE);
 
       /* Clear serial overrun, parity and framing errors */
 
       if ((usr & LPUART_STAT_OR) != 0)
         {
-          imxrt_serialout(priv, IMXRT_LPUART_STAT_OFFSET, LPUART_STAT_OR);
+          imxrt_serialout(priv, IMXRT_LPUART_STAT_OFFSET,
+                          lsr | LPUART_STAT_OR);
+        }
+
+      if ((usr & LPUART_STAT_NF) != 0)
+        {
+          imxrt_serialout(priv, IMXRT_LPUART_STAT_OFFSET,
+                          lsr | LPUART_STAT_NF);
         }
 
       if ((usr & LPUART_STAT_PF) != 0)
         {
-          imxrt_serialout(priv, IMXRT_LPUART_STAT_OFFSET, LPUART_STAT_NF);
-        }
-
-      if ((usr & LPUART_STAT_PF) != 0)
-        {
-          imxrt_serialout(priv, IMXRT_LPUART_STAT_OFFSET, LPUART_STAT_PF);
+          imxrt_serialout(priv, IMXRT_LPUART_STAT_OFFSET,
+                          lsr | LPUART_STAT_PF);
         }
 
       if ((usr & LPUART_STAT_FE) != 0)
         {
-          imxrt_serialout(priv, IMXRT_LPUART_STAT_OFFSET, LPUART_STAT_FE);
+          imxrt_serialout(priv, IMXRT_LPUART_STAT_OFFSET,
+                          lsr | LPUART_STAT_FE);
         }
 
       if ((usr & (LPUART_STAT_FE | LPUART_STAT_PF | LPUART_STAT_NF)) != 0)
@@ -1797,7 +1825,8 @@ static int imxrt_interrupt(int irq, void *context, void *arg)
 
       if ((usr & LPUART_STAT_IDLE) != 0)
         {
-          imxrt_serialout(priv, IMXRT_LPUART_STAT_OFFSET, LPUART_STAT_IDLE);
+          imxrt_serialout(priv, IMXRT_LPUART_STAT_OFFSET,
+                          lsr | LPUART_STAT_IDLE);
           imxrt_dma_rxcallback(priv->rxdma, priv, false, LPUART_STAT_IDLE);
         }
 #endif
@@ -1862,7 +1891,7 @@ static int imxrt_ioctl(struct file *filep, int cmd, unsigned long arg)
 #ifdef CONFIG_SERIAL_TERMIOS
     case TCGETS:
       {
-        struct termios  *termiosp = (struct termios *)arg;
+        struct termios *termiosp = (struct termios *)arg;
         struct imxrt_uart_s *priv = (struct imxrt_uart_s *)dev;
 
         if (!termiosp)
@@ -1924,7 +1953,7 @@ static int imxrt_ioctl(struct file *filep, int cmd, unsigned long arg)
 
     case TCSETS:
       {
-        struct termios  *termiosp = (struct termios *)arg;
+        struct termios *termiosp = (struct termios *)arg;
         struct imxrt_uart_s *priv = (struct imxrt_uart_s *)dev;
         uint32_t baud;
         uint32_t ie;
@@ -2394,7 +2423,7 @@ static void imxrt_dma_reenable(struct imxrt_uart_s *priv)
    * worth of time to claim bytes before they are overwritten.
    */
 
-  imxrt_dmach_start(priv->rxdma, imxrt_dma_rxcallback, (void *)priv);
+  imxrt_dmach_start(priv->rxdma, imxrt_dma_rxcallback, priv);
 
   /* Clear DMA suspended flag. */
 
@@ -2565,7 +2594,7 @@ static void imxrt_dma_send(struct uart_dev_s *dev)
 
   /* Start transmission with the callback on DMA completion */
 
-  imxrt_dmach_start(priv->txdma, imxrt_dma_txcallback, (void *)priv);
+  imxrt_dmach_start(priv->txdma, imxrt_dma_txcallback, priv);
 }
 #endif
 
@@ -2711,12 +2740,10 @@ static void imxrt_dma_rxcallback(DMACH_HANDLE handle, void *arg, bool done,
 
   sr = imxrt_serialin(priv, IMXRT_LPUART_STAT_OFFSET);
 
-  if ((sr & (LPUART_STAT_OR | LPUART_STAT_NF | LPUART_STAT_FE)) != 0)
+  if ((sr & (LPUART_STAT_OR | LPUART_STAT_NF | LPUART_STAT_FE |
+      LPUART_STAT_PF)) != 0)
     {
-      imxrt_serialout(priv, IMXRT_LPUART_STAT_OFFSET,
-                      sr & (LPUART_STAT_OR |
-                            LPUART_STAT_NF |
-                            LPUART_STAT_FE));
+      imxrt_serialout(priv, IMXRT_LPUART_STAT_OFFSET, sr);
     }
 }
 #endif

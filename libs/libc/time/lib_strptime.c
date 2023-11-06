@@ -35,13 +35,13 @@
 #include <ctype.h>
 #include <locale.h>
 #include <strings.h>
-#include <time.h>
+
+#include <nuttx/clock.h>
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
-#define TM_YEAR_BASE        1900
 #define _ctloc(x)           (g_defaulttimelocale.x)
 
 /* We do not implement alternate representations. However, we always
@@ -50,7 +50,7 @@
 
 #define _ALT_E              0x01
 #define _ALT_O              0x02
-#define _LEGAL_ALT(x)       { if (alt_format & ~(x)) return (0); }
+#define _LEGAL_ALT(x)       { if (alt_format & ~(x)) return (NULL); }
 
 /****************************************************************************
  * Private Data
@@ -172,11 +172,11 @@ static FAR const unsigned char *_strptime(FAR const unsigned char *buf,
           goto literal;
         }
 
-    again:
+again:
       switch (c = *fmt++)
         {
           case '%': /* "%%" is converted to "%". */
-          literal:
+literal:
             if (c != *bp++)
               {
                 return NULL;

@@ -36,7 +36,7 @@
 #include <arpa/inet.h>
 
 #include <nuttx/binfmt/nxflat.h>
-#include <nuttx/binfmt/symtab.h>
+#include <nuttx/symtab.h>
 
 #include "libnxflat.h"
 
@@ -53,9 +53,9 @@
 #endif
 
 #ifdef CONFIG_NXFLAT_DUMPBUFFER
-# define nxflat_dumpbuffer(m,b,n) binfodumpbuffer(m,b,n)
+#  define nxflat_dumpbuffer(m,b,n) binfodumpbuffer(m,b,n)
 #else
-# define nxflat_dumpbuffer(m,b,n)
+#  define nxflat_dumpbuffer(m,b,n)
 #endif
 
 /****************************************************************************
@@ -379,7 +379,7 @@ static inline int nxflat_bindimports(FAR struct nxflat_loadinfo_s *loadinfo,
   FAR struct nxflat_hdr_s    *hdr;
   FAR const struct symtab_s  *symbol;
 
-  char    *symname;
+  FAR char *symname;
   uint32_t offset;
   uint16_t nimports;
 #ifdef CONFIG_ARCH_ADDRENV

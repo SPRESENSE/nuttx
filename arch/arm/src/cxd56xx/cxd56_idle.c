@@ -116,11 +116,13 @@ static void up_idlepm(void)
             break;
 
           case PM_STANDBY:
+
             /* Not supported yet */
 
             break;
 
           case PM_SLEEP:
+
             /* Not supported yet */
 
             break;

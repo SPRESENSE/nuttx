@@ -34,16 +34,37 @@
 #include <nuttx/net/loopback.h>
 #include <nuttx/net/tun.h>
 #include <nuttx/net/telnet.h>
+#include <nuttx/panic_notifier.h>
 #include <nuttx/power/pm.h>
 #include <arch/chip/chip.h>
 
 #include "arm64_arch.h"
+
+#ifdef CONFIG_ARCH_FPU
+#include "arm64_fpu.h"
+#endif
 #include "arm64_internal.h"
 #include "chip.h"
 
 /****************************************************************************
  * Public data
  ****************************************************************************/
+
+/* g_current_regs[] holds a references to the current interrupt level
+ * register storage structure.  If is non-NULL only during interrupt
+ * processing.  Access to g_current_regs[] must be through the macro
+ * CURRENT_REGS for portability.
+ */
+
+/* For the case of configurations with multiple CPUs, then there must be one
+ * such value for each processor that can receive an interrupt.
+ */
+
+volatile uint64_t *g_current_regs[CONFIG_SMP_NCPUS];
+
+#ifdef CONFIG_ARCH_FPU
+static struct notifier_block g_fpu_panic_block;
+#endif
 
 #ifdef CONFIG_SMP
 INIT_STACK_ARRAY_DEFINE(g_cpu_idlestackalloc, CONFIG_SMP_NCPUS,
@@ -112,7 +133,24 @@ static void up_color_intstack(void)
   arm64_stack_color(ptr, INTSTACK_SIZE);
 }
 #else
-# define up_color_intstack()
+#  define up_color_intstack()
+#endif
+
+/****************************************************************************
+ * Name: arm64_panic_disable_fpu
+ *
+ * Description:
+ *   This is called when panic to close fpu.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_ARCH_FPU
+int arm64_panic_disable_fpu(struct notifier_block *block,
+                            unsigned long action, void *data)
+{
+  arm64_fpu_disable();
+  return 0;
+}
 #endif
 
 /****************************************************************************
@@ -174,5 +212,16 @@ void up_initialize(void)
   /* Initialize USB -- device and/or host */
 
   arm64_usbinitialize();
+#endif
+
+#ifdef CONFIG_ARCH_FPU
+  g_fpu_panic_block.notifier_call = arm64_panic_disable_fpu;
+  g_fpu_panic_block.priority = INT_MAX;
+  panic_notifier_chain_register(&g_fpu_panic_block);
+
+#ifdef CONFIG_FS_PROCFS_REGISTER
+  arm64_fpu_procfs_register();
+#endif
+
 #endif
 }

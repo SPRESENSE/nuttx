@@ -26,9 +26,10 @@
 
 #include <assert.h>
 #include <debug.h>
+#include <netinet/arp.h>
+#include <sys/param.h>
 
 #include <nuttx/kmalloc.h>
-#include <nuttx/net/arp.h>
 #include <nuttx/wireless/wireless.h>
 
 #include "esp32_wifi_adapter.h"
@@ -45,7 +46,7 @@
 #define ESP_IW_EVENT_SIZE(field) \
   (offsetof(struct iw_event, u) + sizeof(((union iwreq_data *)0)->field))
 
-#ifdef CONFIG_ESP32_WIFI_SCAN_RESULT_SIZE 
+#ifdef CONFIG_ESP32_WIFI_SCAN_RESULT_SIZE
 #  define WIFI_SCAN_RESULT_SIZE      CONFIG_ESP32_WIFI_SCAN_RESULT_SIZE
 #else
 #  define WIFI_SCAN_RESULT_SIZE      (4096)
@@ -53,10 +54,6 @@
 
 #define SCAN_TIME_SEC                (5)
 #define SSID_LEN                     (33)
-
-#ifndef MIN
-#  define MIN(a,b) ((a) < (b) ? (a) : (b))
-#endif
 
 /* Maximum number of channels for Wi-Fi 2.4Ghz */
 
@@ -87,7 +84,10 @@ struct wifi_scan_result
  * Private Data
  ****************************************************************************/
 
-static struct wifi_scan_result g_scan_priv;
+static struct wifi_scan_result g_scan_priv =
+{
+  .scan_signal = SEM_INITIALIZER(0),
+};
 static uint8_t g_channel_num = 0;
 static uint8_t g_channel_list[CHANNEL_MAX_NUM];
 
@@ -421,7 +421,7 @@ void esp_wifi_scan_event_parse(void)
               /* Copy ESSID */
 
               essid_len = MIN(strlen((const char *)
-                                    ap_list_buffer[bss_count].ssid), 32);
+                                     ap_list_buffer[bss_count].ssid), 32);
               essid_len_aligned = (essid_len + 3) & -4;
               if (result_size < ESP_IW_EVENT_SIZE(essid)+essid_len_aligned)
                 {
@@ -539,44 +539,4 @@ scan_result_full:
 
   priv->scan_status = ESP_SCAN_DONE;
   nxsem_post(&priv->scan_signal);
-}
-
-/****************************************************************************
- * Name: esp_wifi_scan_init
- *
- * Description:
- *   Initialize ESP32 Wi-Fi scan parameter.
- *
- * Input Parameters:
- *   None
- *
- * Returned Value:
- *   OK is returned on success. Otherwise, a negated errno value is returned.
- *
- ****************************************************************************/
-
-int esp_wifi_scan_init(void)
-{
-  int ret;
-  struct wifi_scan_result *scan_priv = &g_scan_priv;
-
-  /* Initialize the scan structure */
-
-  memset(scan_priv, 0, sizeof(*scan_priv));
-
-  /* Init scan signal */
-
-  if ((ret = nxsem_init(&scan_priv->scan_signal, 0, 0)) != OK)
-    {
-      wlerr("ERROR: Initialization scan signal failed: %d\n", ret);
-      return ret;
-    }
-
-  if ((ret = nxsem_set_protocol(&scan_priv->scan_signal,
-                                SEM_PRIO_NONE)) != OK)
-    {
-      wlerr("ERROR: Set semaphore protocol attribute failed: %d\n", ret);
-    }
-
-  return ret;
 }

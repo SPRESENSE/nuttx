@@ -33,11 +33,11 @@
 #include <string.h>
 #include <assert.h>
 #include <errno.h>
-#include <queue.h>
 #include <debug.h>
 
 #include <nuttx/irq.h>
 #include <nuttx/kmalloc.h>
+#include <nuttx/queue.h>
 #include <nuttx/wdog.h>
 #include <nuttx/arch.h>
 #include <nuttx/serial/serial.h>
@@ -162,13 +162,6 @@ static int     cdcacm_requeue_rdrequest(FAR struct cdcacm_dev_s *priv,
                  FAR struct cdcacm_rdreq_s *rdcontainer);
 static int     cdcacm_release_rxpending(FAR struct cdcacm_dev_s *priv);
 static void    cdcacm_rxtimeout(wdparm_t arg);
-
-/* Request helpers **********************************************************/
-
-static struct usbdev_req_s *cdcacm_allocreq(FAR struct usbdev_ep_s *ep,
-                 uint16_t len);
-static void    cdcacm_freereq(FAR struct usbdev_ep_s *ep,
-                 FAR struct usbdev_req_s *req);
 
 /* Flow Control *************************************************************/
 
@@ -471,9 +464,6 @@ static int cdcacm_recvpacket(FAR struct cdcacm_dev_s *priv,
 
   DEBUGASSERT(priv != NULL && rdcontainer != NULL);
 
-  uinfo("head=%d tail=%d nrdq=%d reqlen=%d\n",
-        priv->serdev.recv.head, priv->serdev.recv.tail, priv->nrdq, reqlen);
-
 #ifdef CONFIG_CDCACM_IFLOWCONTROL
   DEBUGASSERT(priv->rxenabled && !priv->iactive);
 #else
@@ -485,6 +475,9 @@ static int cdcacm_recvpacket(FAR struct cdcacm_dev_s *priv,
 
   reqbuf = &req->buf[rdcontainer->offset];
   reqlen = req->xfrd - rdcontainer->offset;
+
+  uinfo("head=%d tail=%d nrdq=%d reqlen=%d\n",
+        priv->serdev.recv.head, priv->serdev.recv.tail, priv->nrdq, reqlen);
 
   serdev = &priv->serdev;
   recv   = &serdev->recv;
@@ -758,56 +751,6 @@ static void cdcacm_rxtimeout(wdparm_t arg)
 
   DEBUGASSERT(priv != NULL);
   cdcacm_release_rxpending(priv);
-}
-
-/****************************************************************************
- * Name: cdcacm_allocreq
- *
- * Description:
- *   Allocate a request instance along with its buffer
- *
- ****************************************************************************/
-
-static struct usbdev_req_s *cdcacm_allocreq(FAR struct usbdev_ep_s *ep,
-                                            uint16_t len)
-{
-  FAR struct usbdev_req_s *req;
-
-  req = EP_ALLOCREQ(ep);
-  if (req != NULL)
-    {
-      req->len = len;
-      req->buf = EP_ALLOCBUFFER(ep, len);
-      if (req->buf == NULL)
-        {
-          EP_FREEREQ(ep, req);
-          req = NULL;
-        }
-    }
-
-  return req;
-}
-
-/****************************************************************************
- * Name: cdcacm_freereq
- *
- * Description:
- *   Free a request instance along with its buffer
- *
- ****************************************************************************/
-
-static void cdcacm_freereq(FAR struct usbdev_ep_s *ep,
-                           FAR struct usbdev_req_s *req)
-{
-  if (ep != NULL && req != NULL)
-    {
-      if (req->buf != NULL)
-        {
-          EP_FREEBUFFER(ep, req->buf);
-        }
-
-      EP_FREEREQ(ep, req);
-    }
 }
 
 /****************************************************************************
@@ -1324,7 +1267,7 @@ static int cdcacm_bind(FAR struct usbdevclass_driver_s *driver,
 
   /* Preallocate control request */
 
-  priv->ctrlreq = cdcacm_allocreq(dev->ep0, CDCACM_MXDESCLEN);
+  priv->ctrlreq = usbdev_allocreq(dev->ep0, CDCACM_MXDESCLEN);
   if (priv->ctrlreq == NULL)
     {
       usbtrace(TRACE_CLSERROR(USBSER_TRACEERR_ALLOCCTRLREQ), 0);
@@ -1391,7 +1334,7 @@ static int cdcacm_bind(FAR struct usbdevclass_driver_s *driver,
   for (i = 0; i < CONFIG_CDCACM_NRDREQS; i++)
     {
       rdcontainer      = &priv->rdreqs[i];
-      rdcontainer->req = cdcacm_allocreq(priv->epbulkout, reqlen);
+      rdcontainer->req = usbdev_allocreq(priv->epbulkout, reqlen);
       if (rdcontainer->req == NULL)
         {
           usbtrace(TRACE_CLSERROR(USBSER_TRACEERR_RDALLOCREQ), -ENOMEM);
@@ -1428,7 +1371,7 @@ static int cdcacm_bind(FAR struct usbdevclass_driver_s *driver,
   for (i = 0; i < CONFIG_CDCACM_NWRREQS; i++)
     {
       wrcontainer      = &priv->wrreqs[i];
-      wrcontainer->req = cdcacm_allocreq(priv->epbulkin, reqlen);
+      wrcontainer->req = usbdev_allocreq(priv->epbulkin, reqlen);
       if (wrcontainer->req == NULL)
         {
           usbtrace(TRACE_CLSERROR(USBSER_TRACEERR_WRALLOCREQ), -ENOMEM);
@@ -1520,19 +1463,11 @@ static void cdcacm_unbind(FAR struct usbdevclass_driver_s *driver,
       cdcacm_resetconfig(priv);
       up_mdelay(50);
 
-      /* Free the interrupt IN endpoint */
-
-      if (priv->epintin)
-        {
-          DEV_FREEEP(dev, priv->epintin);
-          priv->epintin = NULL;
-        }
-
       /* Free the pre-allocated control request */
 
       if (priv->ctrlreq != NULL)
         {
-          cdcacm_freereq(dev->ep0, priv->ctrlreq);
+          usbdev_freereq(dev->ep0, priv->ctrlreq);
           priv->ctrlreq = NULL;
         }
 
@@ -1546,17 +1481,9 @@ static void cdcacm_unbind(FAR struct usbdevclass_driver_s *driver,
           rdcontainer = &priv->rdreqs[i];
           if (rdcontainer->req)
             {
-              cdcacm_freereq(priv->epbulkout, rdcontainer->req);
+              usbdev_freereq(priv->epbulkout, rdcontainer->req);
               rdcontainer->req = NULL;
             }
-        }
-
-      /* Free the bulk OUT endpoint */
-
-      if (priv->epbulkout)
-        {
-          DEV_FREEEP(dev, priv->epbulkout);
-          priv->epbulkout = NULL;
         }
 
       /* Free write requests that are not in use (which should be all
@@ -1571,13 +1498,29 @@ static void cdcacm_unbind(FAR struct usbdevclass_driver_s *driver,
           wrcontainer = (struct cdcacm_wrreq_s *)sq_remfirst(&priv->txfree);
           if (wrcontainer->req != NULL)
             {
-              cdcacm_freereq(priv->epbulkin, wrcontainer->req);
+              usbdev_freereq(priv->epbulkin, wrcontainer->req);
               priv->nwrq--;     /* Number of write requests queued */
             }
         }
 
       DEBUGASSERT(priv->nwrq == 0);
       leave_critical_section(flags);
+
+      /* Free the interrupt IN endpoint */
+
+      if (priv->epintin)
+        {
+          DEV_FREEEP(dev, priv->epintin);
+          priv->epintin = NULL;
+        }
+
+      /* Free the bulk OUT endpoint */
+
+      if (priv->epbulkout)
+        {
+          DEV_FREEEP(dev, priv->epbulkout);
+          priv->epbulkout = NULL;
+        }
 
       /* Free the bulk IN endpoint */
 
@@ -1777,7 +1720,7 @@ static int cdcacm_setup(FAR struct usbdevclass_driver_s *driver,
                        value == CDCACM_DATAALTIFID))
                   {
                     cdcacm_resetconfig(priv);
-                    cdcacm_setconfig(priv, priv->config);
+                    cdcacm_setconfig(priv, CDCACM_CONFIGID);
                     ret = 0;
                   }
               }
@@ -1982,7 +1925,7 @@ static int cdcacm_setup(FAR struct usbdevclass_driver_s *driver,
 #ifndef CONFIG_CDCACM_COMPOSITE
       ret = EP_SUBMIT(dev->ep0, ctrlreq);
 #else
-      ret = composite_ep0submit(driver, dev, ctrlreq);
+      ret = composite_ep0submit(driver, dev, ctrlreq, ctrl);
 #endif
       if (ret < 0)
         {
@@ -2339,9 +2282,6 @@ static int cdcuart_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 
         /* And update with flags from this layer */
 
-        termiosp->c_iflag = serdev->tc_iflag;
-        termiosp->c_oflag = serdev->tc_oflag;
-        termiosp->c_lflag = serdev->tc_lflag;
         termiosp->c_cflag =
             ((priv->linecoding.parity != CDC_PARITY_NONE) ? PARENB : 0) |
             ((priv->linecoding.parity == CDC_PARITY_ODD) ? PARODD : 0) |
@@ -2358,10 +2298,10 @@ static int cdcuart_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 
         termiosp->c_cflag |= (priv->iflow) ? CRTS_IFLOW : 0;
 #endif
-      cfsetispeed(termiosp, (speed_t) priv->linecoding.baud[3] << 24 |
-                            (speed_t) priv->linecoding.baud[2] << 16 |
-                            (speed_t) priv->linecoding.baud[1] << 8  |
-                            (speed_t) priv->linecoding.baud[0]);
+      cfsetispeed(termiosp, (speed_t)priv->linecoding.baud[3] << 24 |
+                            (speed_t)priv->linecoding.baud[2] << 16 |
+                            (speed_t)priv->linecoding.baud[1] << 8  |
+                            (speed_t)priv->linecoding.baud[0]);
       }
       break;
 
@@ -2379,10 +2319,6 @@ static int cdcuart_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
           }
 
         /* Update the flags we keep at this layer */
-
-        serdev->tc_iflag = termiosp->c_iflag;
-        serdev->tc_oflag = termiosp->c_oflag;
-        serdev->tc_lflag = termiosp->c_lflag;
 
 #ifdef CONFIG_CDCACM_OFLOWCONTROL
         /* Handle changes to output flow control */
@@ -2970,13 +2906,17 @@ int cdcacm_classobject(int minor, FAR struct usbdev_devinfo_s *devinfo,
   /* Register the USB serial console */
 
 #ifdef CONFIG_CDCACM_CONSOLE
-  priv->serdev.isconsole = true;
-  ret = uart_register("/dev/console", &priv->serdev);
-  if (ret < 0)
+  if (minor == 0)
     {
-      usbtrace(TRACE_CLSERROR(USBSER_TRACEERR_CONSOLEREGISTER),
-               (uint16_t)-ret);
-      goto errout_with_class;
+      priv->serdev.isconsole = true;
+
+      ret = uart_register("/dev/console", &priv->serdev);
+      if (ret < 0)
+        {
+          usbtrace(TRACE_CLSERROR(USBSER_TRACEERR_CONSOLEREGISTER),
+                   (uint16_t)-ret);
+          goto errout_with_class;
+        }
     }
 #endif
 

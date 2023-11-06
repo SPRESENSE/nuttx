@@ -25,6 +25,7 @@
 #include <nuttx/config.h>
 
 #include <assert.h>
+#include <sys/param.h>
 
 #include <nuttx/userspace.h>
 
@@ -40,14 +41,6 @@
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
-
-#ifndef MAX
-#  define MAX(a,b) a > b ? a : b
-#endif
-
-#ifndef MIN
-#  define MIN(a,b) a < b ? a : b
-#endif
 
 #ifndef CONFIG_ARMV7M_DCACHE
   /*  With Dcache off:
@@ -97,6 +90,10 @@ void imxrt_mpu_initialize(void)
   /* Show MPU information */
 
   mpu_showtype();
+
+  /* Reset MPU if enabled */
+
+  mpu_reset();
 
 #ifdef CONFIG_ARMV7M_DCACHE
   /* Memory barrier */

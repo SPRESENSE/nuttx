@@ -25,6 +25,7 @@
 #include <nuttx/config.h>
 
 #include <string.h>
+#include <sys/param.h>
 #include <assert.h>
 #include <errno.h>
 #include <debug.h>
@@ -34,60 +35,131 @@
 #include "iob.h"
 
 /****************************************************************************
- * Pre-processor Definitions
+ * Static Functions
  ****************************************************************************/
 
-#ifndef MIN
-#  define MIN(a,b) ((a) < (b) ? (a) : (b))
-#endif
+/****************************************************************************
+ * Name: iob_next
+ *
+ * Description:
+ *   Allocate or reinitialize the next node
+ *
+ ****************************************************************************/
+
+static int iob_next(FAR struct iob_s *iob, bool throttled, bool block)
+{
+  FAR struct iob_s *next = iob->io_flink;
+
+  /* Allocate new destination I/O buffer and hook it into the
+   * destination I/O buffer chain.
+   */
+
+  if (next == NULL)
+    {
+      if (block)
+        {
+          next = iob_alloc(throttled);
+        }
+      else
+        {
+          next = iob_tryalloc(throttled);
+        }
+
+      if (next == NULL)
+        {
+          ioberr("ERROR: Failed to allocate an I/O buffer\n");
+          return -ENOMEM;
+        }
+
+      iob->io_flink = next;
+    }
+  else
+    {
+      next->io_len    = 0;
+      next->io_offset = 0;
+      next->io_pktlen = 0;
+    }
+
+  return OK;
+}
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: iob_clone
+ * Name: iob_clone_partial
  *
  * Description:
- *   Duplicate (and pack) the data in iob1 in iob2.  iob2 must be empty.
+ *   Duplicate the data from partial bytes of iob1 to iob2
+ *
+ * Input Parameters:
+ *   iob1      - Pointer to source iob_s
+ *   len       - Number of bytes to copy
+ *   offset1   - Offset of source iobs_s
+ *   iob2      - Pointer to destination iob_s
+ *   offset2   - Offset of destination iobs_s
+ *   throttled - An indication of the IOB allocation is "throttled"
+ *   block     - Flag of Enable/Disable nonblocking operation
+ *
+ * Returned Value:
+ *   == 0  - Partial clone successfully.
+ *   < 0   - No available to clone to destination iob.
  *
  ****************************************************************************/
 
-int iob_clone(FAR struct iob_s *iob1, FAR struct iob_s *iob2, bool throttled,
-              enum iob_user_e consumerid)
+int iob_clone_partial(FAR struct iob_s *iob1, unsigned int len,
+                      int offset1, FAR struct iob_s *iob2,
+                      int offset2, bool throttled, bool block)
 {
   FAR uint8_t *src;
   FAR uint8_t *dest;
   unsigned int ncopy;
   unsigned int avail1;
   unsigned int avail2;
-  unsigned int offset1;
-  unsigned int offset2;
-
-  DEBUGASSERT(iob2->io_len == 0 && iob2->io_offset == 0 &&
-              iob2->io_pktlen == 0 && iob2->io_flink == NULL);
+  int ret;
 
   /* Copy the total packet size from the I/O buffer at the head of the
    * chain.
    */
 
-  iob2->io_pktlen = iob1->io_pktlen;
+  iob2->io_pktlen = len + offset2;
 
   /* Handle special case where there are empty buffers at the head
-   * the list.
+   * the list, Skip I/O buffer containing the data offset.
    */
 
-  while (iob1->io_len <= 0)
+  while (iob1 != NULL && (int)(offset1 - iob1->io_len) >= 0)
     {
-      iob1 = iob1->io_flink;
+      offset1 -= iob1->io_len;
+      iob1     = iob1->io_flink;
+    }
+
+  /* Skip requested offset from the destination iob */
+
+  while (iob2 != NULL)
+    {
+      avail2 = CONFIG_IOB_BUFSIZE - iob2->io_offset;
+      if ((int)(offset2 - avail2) < 0)
+        {
+          break;
+        }
+
+      iob2->io_len = avail2;
+      offset2     -= iob2->io_len;
+
+      ret = iob_next(iob2, throttled, block);
+      if (ret < 0)
+        {
+          return ret;
+        }
+
+      iob2 = iob2->io_flink;
     }
 
   /* Pack each entry from iob1 to iob2 */
 
-  offset1 = 0;
-  offset2 = 0;
-
-  while (iob1)
+  while (iob1 && len > 0)
     {
       /* Get the source I/O buffer pointer and the number of bytes to copy
        * from this address.
@@ -100,22 +172,30 @@ int iob_clone(FAR struct iob_s *iob1, FAR struct iob_s *iob2, bool throttled,
        * copy to that address.
        */
 
-      dest   = &iob2->io_data[offset2];
-      avail2 = CONFIG_IOB_BUFSIZE - offset2;
+      dest   = &iob2->io_data[iob2->io_offset + offset2];
+      avail2 = CONFIG_IOB_BUFSIZE - iob2->io_offset - offset2;
 
       /* Copy the smaller of the two and update the srce and destination
        * offsets.
        */
 
       ncopy = MIN(avail1, avail2);
+      if (ncopy > len)
+        {
+          ncopy = len;
+        }
+
+      len -= ncopy;
+
       memcpy(dest, src, ncopy);
 
-      offset1 += ncopy;
-      offset2 += ncopy;
+      offset1      += ncopy;
+      offset2      += ncopy;
+      iob2->io_len  = offset2;
 
       /* Have we taken all of the data from the source I/O buffer? */
 
-      if (offset1 >= iob1->io_len)
+      if ((int)(offset1 - iob1->io_len) >= 0)
         {
           /* Skip over empty entries in the chain (there should not be any
            * but just to be safe).
@@ -138,26 +218,37 @@ int iob_clone(FAR struct iob_s *iob1, FAR struct iob_s *iob2, bool throttled,
        * transferred?
        */
 
-      if (offset2 >= CONFIG_IOB_BUFSIZE && iob1 != NULL)
+      if ((int)(offset2 + iob2->io_offset - CONFIG_IOB_BUFSIZE) >= 0 &&
+          iob1 != NULL)
         {
-          FAR struct iob_s *next;
-
-          /* Allocate new destination I/O buffer and hook it into the
-           * destination I/O buffer chain.
-           */
-
-          next = iob_alloc(throttled, consumerid);
-          if (!next)
+          ret = iob_next(iob2, throttled, block);
+          if (ret < 0)
             {
-              ioberr("ERROR: Failed to allocate an I/O buffer\n");
-              return -ENOMEM;
+              return ret;
             }
 
-          iob2->io_flink = next;
-          iob2 = next;
+          iob2 = iob2->io_flink;
           offset2 = 0;
         }
     }
 
   return 0;
+}
+
+/****************************************************************************
+ * Name: iob_clone
+ *
+ * Description:
+ *   Duplicate (and pack) the data in iob1 in iob2.  iob2 must be empty.
+ *
+ ****************************************************************************/
+
+int iob_clone(FAR struct iob_s *iob1, FAR struct iob_s *iob2,
+              bool throttled, bool block)
+{
+  DEBUGASSERT(iob2->io_len == 0 && iob2->io_offset == 0 &&
+            iob2->io_pktlen == 0 && iob2->io_flink == NULL);
+
+  return iob_clone_partial(iob1, iob1->io_pktlen, 0,
+                           iob2, 0, throttled, block);
 }

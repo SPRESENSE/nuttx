@@ -31,6 +31,7 @@
 
 #include <nuttx/syslog/syslog.h>
 #include <nuttx/compiler.h>
+#include <nuttx/mutex.h>
 
 #ifdef CONFIG_RAMLOG_SYSLOG
 #  include <nuttx/syslog/ramlog.h>
@@ -41,7 +42,7 @@
 #endif
 
 #ifdef CONFIG_SYSLOG_RTT
-#  include <nuttx/syslog/syslog_rtt.h>
+#  include <nuttx/segger/rtt.h>
 #endif
 
 #ifdef CONFIG_ARCH_LOWPUTC
@@ -81,6 +82,10 @@ static const struct syslog_channel_ops_s g_ramlog_channel_ops =
 static struct syslog_channel_s g_ramlog_channel =
 {
   &g_ramlog_channel_ops
+#  ifdef CONFIG_SYSLOG_IOCTL
+  , "ram"
+  , false
+#  endif
 };
 #endif
 
@@ -90,12 +95,17 @@ static const struct syslog_channel_ops_s g_rpmsg_channel_ops =
   syslog_rpmsg_putc,
   syslog_rpmsg_putc,
   syslog_rpmsg_flush,
+  syslog_rpmsg_write,
   syslog_rpmsg_write
 };
 
 static struct syslog_channel_s g_rpmsg_channel =
 {
   &g_rpmsg_channel_ops
+#  ifdef CONFIG_SYSLOG_IOCTL
+  , "rpmsg"
+  , false
+#  endif
 };
 #endif
 
@@ -105,12 +115,17 @@ static const struct syslog_channel_ops_s g_rtt_channel_ops =
   syslog_rtt_putc,
   syslog_rtt_putc,
   NULL,
+  syslog_rtt_write,
   syslog_rtt_write
 };
 
 static struct syslog_channel_s g_rtt_channel =
 {
   &g_rtt_channel_ops
+#  ifdef CONFIG_SYSLOG_IOCTL
+  , "rtt"
+  , false
+#  endif
 };
 #endif
 
@@ -126,6 +141,10 @@ static const struct syslog_channel_ops_s g_default_channel_ops =
 static struct syslog_channel_s g_default_channel =
 {
   &g_default_channel_ops
+#  ifdef CONFIG_SYSLOG_IOCTL
+  , "default"
+  , false
+#  endif
 };
 #endif
 
@@ -217,7 +236,13 @@ static ssize_t syslog_default_write(FAR struct syslog_channel_s *channel,
                                     FAR const char *buffer, size_t buflen)
 {
 #if defined(CONFIG_ARCH_LOWPUTC)
+  static mutex_t lock = NXMUTEX_INITIALIZER;
+
+  nxmutex_lock(&lock);
+
   up_nputs(buffer, buflen);
+
+  nxmutex_unlock(&lock);
 #endif
 
   UNUSED(channel);
@@ -255,9 +280,6 @@ int syslog_channel(FAR struct syslog_channel_s *channel)
 
   if (channel != NULL)
     {
-      DEBUGASSERT(channel->sc_ops->sc_putc != NULL &&
-                  channel->sc_ops->sc_force != NULL);
-
 #if (CONFIG_SYSLOG_MAX_CHANNELS == 1)
       g_syslog_channel[0] = channel;
       return OK;
@@ -266,6 +288,14 @@ int syslog_channel(FAR struct syslog_channel_s *channel)
         {
           if (g_syslog_channel[i] == NULL)
             {
+#  ifdef CONFIG_SYSLOG_IOCTL
+              if (channel->sc_name[0] == '\0')
+                {
+                  snprintf(channel->sc_name, sizeof(channel->sc_name),
+                           "channel-%p", channel->sc_ops);
+                }
+#  endif
+
               g_syslog_channel[i] = channel;
               return OK;
             }

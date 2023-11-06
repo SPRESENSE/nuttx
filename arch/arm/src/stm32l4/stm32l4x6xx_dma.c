@@ -85,72 +85,86 @@ static struct stm32l4_dma_s g_dma[DMA_NCHANNELS] =
   {
     .chan     = 0,
     .irq      = STM32L4_IRQ_DMA1CH1,
+    .sem      = SEM_INITIALIZER(1),
     .base     = STM32L4_DMA1_BASE + STM32L4_DMACHAN_OFFSET(0),
   },
   {
     .chan     = 1,
     .irq      = STM32L4_IRQ_DMA1CH2,
+    .sem      = SEM_INITIALIZER(1),
     .base     = STM32L4_DMA1_BASE + STM32L4_DMACHAN_OFFSET(1),
   },
   {
     .chan     = 2,
     .irq      = STM32L4_IRQ_DMA1CH3,
+    .sem      = SEM_INITIALIZER(1),
     .base     = STM32L4_DMA1_BASE + STM32L4_DMACHAN_OFFSET(2),
   },
   {
     .chan     = 3,
     .irq      = STM32L4_IRQ_DMA1CH4,
+    .sem      = SEM_INITIALIZER(1),
     .base     = STM32L4_DMA1_BASE + STM32L4_DMACHAN_OFFSET(3),
   },
   {
     .chan     = 4,
     .irq      = STM32L4_IRQ_DMA1CH5,
+    .sem      = SEM_INITIALIZER(1),
     .base     = STM32L4_DMA1_BASE + STM32L4_DMACHAN_OFFSET(4),
   },
   {
     .chan     = 5,
     .irq      = STM32L4_IRQ_DMA1CH6,
+    .sem      = SEM_INITIALIZER(1),
     .base     = STM32L4_DMA1_BASE + STM32L4_DMACHAN_OFFSET(5),
   },
   {
     .chan     = 6,
     .irq      = STM32L4_IRQ_DMA1CH7,
+    .sem      = SEM_INITIALIZER(1),
     .base     = STM32L4_DMA1_BASE + STM32L4_DMACHAN_OFFSET(6),
   },
 #if STM32L4_NDMA > 1
   {
     .chan     = 0,
     .irq      = STM32L4_IRQ_DMA2CH1,
+    .sem      = SEM_INITIALIZER(1),
     .base     = STM32L4_DMA2_BASE + STM32L4_DMACHAN_OFFSET(0),
   },
   {
     .chan     = 1,
     .irq      = STM32L4_IRQ_DMA2CH2,
+    .sem      = SEM_INITIALIZER(1),
     .base     = STM32L4_DMA2_BASE + STM32L4_DMACHAN_OFFSET(1),
   },
   {
     .chan     = 2,
     .irq      = STM32L4_IRQ_DMA2CH3,
+    .sem      = SEM_INITIALIZER(1),
     .base     = STM32L4_DMA2_BASE + STM32L4_DMACHAN_OFFSET(2),
   },
   {
     .chan     = 3,
     .irq      = STM32L4_IRQ_DMA2CH4,
+    .sem      = SEM_INITIALIZER(1),
     .base     = STM32L4_DMA2_BASE + STM32L4_DMACHAN_OFFSET(3),
   },
   {
     .chan     = 4,
     .irq      = STM32L4_IRQ_DMA2CH5,
+    .sem      = SEM_INITIALIZER(1),
     .base     = STM32L4_DMA2_BASE + STM32L4_DMACHAN_OFFSET(4),
   },
   {
     .chan     = 5,
     .irq      = STM32L4_IRQ_DMA2CH6,
+    .sem      = SEM_INITIALIZER(1),
     .base     = STM32L4_DMA2_BASE + STM32L4_DMACHAN_OFFSET(5),
   },
   {
     .chan     = 6,
     .irq      = STM32L4_IRQ_DMA2CH7,
+    .sem      = SEM_INITIALIZER(1),
     .base     = STM32L4_DMA2_BASE + STM32L4_DMACHAN_OFFSET(6),
   },
 #endif
@@ -194,24 +208,6 @@ static inline void dmachan_putreg(struct stm32l4_dma_s *dmach,
                                   uint32_t offset, uint32_t value)
 {
   putreg32(value, dmach->base + offset);
-}
-
-/****************************************************************************
- * Name: stm32l4_dmatake() and stm32l4_dmagive()
- *
- * Description:
- *   Used to get exclusive access to a DMA channel.
- *
- ****************************************************************************/
-
-static int stm32l4_dmatake(struct stm32l4_dma_s *dmach)
-{
-  return nxsem_wait_uninterruptible(&dmach->sem);
-}
-
-static inline void stm32l4_dmagive(struct stm32l4_dma_s *dmach)
-{
-  nxsem_post(&dmach->sem);
 }
 
 /****************************************************************************
@@ -325,7 +321,6 @@ void weak_function arm_dma_initialize(void)
   for (chndx = 0; chndx < DMA_NCHANNELS; chndx++)
     {
       dmach = &g_dma[chndx];
-      nxsem_init(&dmach->sem, 0, 1);
 
       /* Attach DMA interrupt vectors */
 
@@ -391,7 +386,7 @@ DMA_HANDLE stm32l4_dmachannel(unsigned int chndef)
    * is available if it is currently being used by another driver
    */
 
-  ret = stm32l4_dmatake(dmach);
+  ret = nxsem_wait_uninterruptible(&dmach->sem);
   if (ret < 0)
     {
       return NULL;
@@ -436,7 +431,7 @@ void stm32l4_dmafree(DMA_HANDLE handle)
 
   /* Release the channel */
 
-  stm32l4_dmagive(dmach);
+  nxsem_post(&dmach->sem);
 }
 
 /****************************************************************************

@@ -35,7 +35,7 @@
 
 #include <nuttx/arch.h>
 #include <nuttx/init.h>
-#include <nuttx/semaphore.h>
+#include <nuttx/mutex.h>
 #include <nuttx/mtd/mtd.h>
 
 #include "esp32c3_attr.h"
@@ -139,10 +139,6 @@ static const struct esp32c3_mtd_dev_s g_esp32c3_spiflash_encrypt =
           }
 };
 
-/* Ensure exclusive access to the driver */
-
-static sem_t g_exclsem = SEM_INITIALIZER(1);
-
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
@@ -170,6 +166,7 @@ static int esp32c3_erase(struct mtd_dev_s *dev, off_t startblock,
   uint32_t offset = startblock * MTD_ERASE_SIZE;
   uint32_t nbytes = nblocks * MTD_ERASE_SIZE;
   struct esp32c3_mtd_dev_s *priv = (struct esp32c3_mtd_dev_s *)dev;
+  irqstate_t flags;
 
   if ((offset > MTD_SIZE(priv)) || ((offset + nbytes) > MTD_SIZE(priv)))
     {
@@ -182,15 +179,9 @@ static int esp32c3_erase(struct mtd_dev_s *dev, off_t startblock,
   finfo("spi_flash_erase_range(0x%x, %d)\n", offset, nbytes);
 #endif
 
-  ret = nxsem_wait(&g_exclsem);
-  if (ret < 0)
-    {
-      return ret;
-    }
-
+  flags = enter_critical_section();
   ret = spi_flash_erase_range(offset, nbytes);
-
-  nxsem_post(&g_exclsem);
+  leave_critical_section(flags);
 
   if (ret == OK)
     {
@@ -232,6 +223,7 @@ static ssize_t esp32c3_read(struct mtd_dev_s *dev, off_t offset,
                           size_t nbytes, uint8_t *buffer)
 {
   ssize_t ret;
+  irqstate_t flags;
 
 #ifdef CONFIG_ESP32C3_STORAGE_MTD_DEBUG
   finfo("%s(%p, 0x%x, %d, %p)\n", __func__, dev, offset, nbytes, buffer);
@@ -239,17 +231,9 @@ static ssize_t esp32c3_read(struct mtd_dev_s *dev, off_t offset,
   finfo("spi_flash_read(0x%x, %p, %d)\n", offset, buffer, nbytes);
 #endif
 
-  /* Acquire the semaphore. */
-
-  ret = nxsem_wait(&g_exclsem);
-  if (ret < 0)
-    {
-      goto error_with_buffer;
-    }
-
+  flags = enter_critical_section();
   ret = spi_flash_read(offset, buffer, nbytes);
-
-  nxsem_post(&g_exclsem);
+  leave_critical_section(flags);
 
   if (ret == OK)
     {
@@ -259,8 +243,6 @@ static ssize_t esp32c3_read(struct mtd_dev_s *dev, off_t offset,
 #ifdef CONFIG_ESP32C3_STORAGE_MTD_DEBUG
   finfo("%s()=%d\n", __func__, ret);
 #endif
-
-error_with_buffer:
 
   return ret;
 }
@@ -288,6 +270,7 @@ static ssize_t esp32c3_bread(struct mtd_dev_s *dev, off_t startblock,
   ssize_t ret;
   uint32_t addr = startblock * MTD_BLK_SIZE;
   uint32_t size = nblocks * MTD_BLK_SIZE;
+  irqstate_t flags;
 
 #ifdef CONFIG_ESP32C3_STORAGE_MTD_DEBUG
   finfo("%s(%p, 0x%x, %d, %p)\n", __func__, dev, startblock, nblocks,
@@ -296,15 +279,9 @@ static ssize_t esp32c3_bread(struct mtd_dev_s *dev, off_t startblock,
   finfo("spi_flash_read(0x%x, %p, %d)\n", addr, buffer, size);
 #endif
 
-  ret = nxsem_wait(&g_exclsem);
-  if (ret < 0)
-    {
-      return ret;
-    }
-
+  flags = enter_critical_section();
   ret = spi_flash_read(addr, buffer, size);
-
-  nxsem_post(&g_exclsem);
+  leave_critical_section(flags);
 
   if (ret == OK)
     {
@@ -342,6 +319,7 @@ static ssize_t esp32c3_read_decrypt(struct mtd_dev_s *dev,
                                   uint8_t *buffer)
 {
   ssize_t ret;
+  irqstate_t flags;
 
 #ifdef CONFIG_ESP32C3_STORAGE_MTD_DEBUG
   finfo("%s(%p, 0x%x, %d, %p)\n", __func__, dev, offset, nbytes, buffer);
@@ -350,17 +328,9 @@ static ssize_t esp32c3_read_decrypt(struct mtd_dev_s *dev,
         nbytes);
 #endif
 
-  /* Acquire the semaphore. */
-
-  ret = nxsem_wait(&g_exclsem);
-  if (ret < 0)
-    {
-      return ret;
-    }
-
+  flags = enter_critical_section();
   ret = spi_flash_read_encrypted(offset, buffer, nbytes);
-
-  nxsem_post(&g_exclsem);
+  leave_critical_section(flags);
 
   if (ret == OK)
     {
@@ -399,6 +369,7 @@ static ssize_t esp32c3_bread_decrypt(struct mtd_dev_s *dev,
   ssize_t ret;
   uint32_t addr = startblock * MTD_BLK_SIZE;
   uint32_t size = nblocks * MTD_BLK_SIZE;
+  irqstate_t flags;
 
 #ifdef CONFIG_ESP32C3_STORAGE_MTD_DEBUG
   finfo("%s(%p, 0x%x, %d, %p)\n", __func__, dev, startblock, nblocks,
@@ -407,15 +378,9 @@ static ssize_t esp32c3_bread_decrypt(struct mtd_dev_s *dev,
   finfo("spi_flash_read_encrypted(0x%x, %p, %d)\n", addr, buffer, size);
 #endif
 
-  ret = nxsem_wait(&g_exclsem);
-  if (ret < 0)
-    {
-      return ret;
-    }
-
+  flags = enter_critical_section();
   ret = spi_flash_read_encrypted(addr, buffer, size);
-
-  nxsem_post(&g_exclsem);
+  leave_critical_section(flags);
 
   if (ret == OK)
     {
@@ -449,8 +414,9 @@ static ssize_t esp32c3_bread_decrypt(struct mtd_dev_s *dev,
 static ssize_t esp32c3_write(struct mtd_dev_s *dev, off_t offset,
                            size_t nbytes, const uint8_t *buffer)
 {
-  int ret;
+  ssize_t ret;
   struct esp32c3_mtd_dev_s *priv = (struct esp32c3_mtd_dev_s *)dev;
+  irqstate_t flags;
 
   ASSERT(buffer);
 
@@ -465,17 +431,9 @@ static ssize_t esp32c3_write(struct mtd_dev_s *dev, off_t offset,
   finfo("spi_flash_write(0x%x, %p, %d)\n", offset, buffer, nbytes);
 #endif
 
-  /* Acquire the semaphore. */
-
-  ret = nxsem_wait(&g_exclsem);
-  if (ret < 0)
-    {
-      goto error_with_buffer;
-    }
-
+  flags = enter_critical_section();
   ret = spi_flash_write(offset, buffer, nbytes);
-
-  nxsem_post(&g_exclsem);
+  leave_critical_section(flags);
 
   if (ret == OK)
     {
@@ -486,9 +444,7 @@ static ssize_t esp32c3_write(struct mtd_dev_s *dev, off_t offset,
   finfo("%s()=%d\n", __func__, ret);
 #endif
 
-error_with_buffer:
-
-  return (ssize_t)ret;
+  return ret;
 }
 
 /****************************************************************************
@@ -515,6 +471,7 @@ static ssize_t esp32c3_bwrite(struct mtd_dev_s *dev, off_t startblock,
   ssize_t ret;
   uint32_t addr = startblock * MTD_BLK_SIZE;
   uint32_t size = nblocks * MTD_BLK_SIZE;
+  irqstate_t flags;
 
 #ifdef CONFIG_ESP32C3_STORAGE_MTD_DEBUG
   finfo("%s(%p, 0x%x, %d, %p)\n", __func__, dev, startblock,
@@ -523,15 +480,9 @@ static ssize_t esp32c3_bwrite(struct mtd_dev_s *dev, off_t startblock,
   finfo("spi_flash_write(0x%x, %p, %d)\n", addr, buffer, size);
 #endif
 
-  ret = nxsem_wait(&g_exclsem);
-  if (ret < 0)
-    {
-      return ret;
-    }
-
+  flags = enter_critical_section();
   ret = spi_flash_write(addr, buffer, size);
-
-  nxsem_post(&g_exclsem);
+  leave_critical_section(flags);
 
   if (ret == OK)
     {
@@ -571,6 +522,7 @@ static ssize_t esp32c3_bwrite_encrypt(struct mtd_dev_s *dev,
   ssize_t ret;
   uint32_t addr = startblock * MTD_BLK_SIZE;
   uint32_t size = nblocks * MTD_BLK_SIZE;
+  irqstate_t flags;
 
 #ifdef CONFIG_ESP32C3_STORAGE_MTD_DEBUG
   finfo("%s(%p, 0x%x, %d, %p)\n", __func__, dev, startblock,
@@ -579,15 +531,9 @@ static ssize_t esp32c3_bwrite_encrypt(struct mtd_dev_s *dev,
   finfo("spi_flash_write_encrypted(0x%x, %p, %d)\n", addr, buffer, size);
 #endif
 
-  ret = nxsem_wait(&g_exclsem);
-  if (ret < 0)
-    {
-      goto error_with_buffer;
-    }
-
+  flags = enter_critical_section();
   ret = spi_flash_write_encrypted(addr, buffer, size);
-
-  nxsem_post(&g_exclsem);
+  leave_critical_section(flags);
 
   if (ret == OK)
     {
@@ -597,8 +543,6 @@ static ssize_t esp32c3_bwrite_encrypt(struct mtd_dev_s *dev,
 #ifdef CONFIG_ESP32C3_STORAGE_MTD_DEBUG
   finfo("%s()=%d\n", __func__, ret);
 #endif
-
-error_with_buffer:
 
   return ret;
 }
@@ -633,6 +577,8 @@ static int esp32c3_ioctl(struct mtd_dev_s *dev, int cmd,
           struct mtd_geometry_s *geo = (struct mtd_geometry_s *)arg;
           if (geo)
             {
+              memset(geo, 0, sizeof(*geo));
+
               geo->blocksize    = MTD_BLK_SIZE;
               geo->erasesize    = MTD_ERASE_SIZE;
               geo->neraseblocks = MTD_SIZE(priv) / MTD_ERASE_SIZE;

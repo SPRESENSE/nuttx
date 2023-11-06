@@ -58,24 +58,6 @@
 #define NVIC_CLRENA_OFFSET (NVIC_IRQ0_31_CLEAR - NVIC_IRQ0_31_ENABLE)
 
 /****************************************************************************
- * Public Data
- ****************************************************************************/
-
-/* g_current_regs[] holds a references to the current interrupt level
- * register storage structure.  If is non-NULL only during interrupt
- * processing.  Access to g_current_regs[] must be through the macro
- * CURRENT_REGS for portability.
- */
-
-volatile uint32_t *g_current_regs[1];
-
-/* This is the address of the  exception vector table (determined by the
- * linker script).
- */
-
-extern uint32_t _vectors[];
-
-/****************************************************************************
  * Private Functions
  ****************************************************************************/
 
@@ -140,7 +122,7 @@ static void max326_dumpnvic(const char *msg, int irq)
 #endif
 
 /****************************************************************************
- * Name: max326_nmi, max326_busfault, max326_usagefault, max326_pendsv,
+ * Name: max326_nmi, max326_pendsv,
  *       max326_dbgmonitor, max326_pendsv, max326_reserved
  *
  * Description:
@@ -155,22 +137,6 @@ static int max326_nmi(int irq, void *context, void *arg)
 {
   up_irq_save();
   _err("PANIC!!! NMI received\n");
-  PANIC();
-  return 0;
-}
-
-static int max326_busfault(int irq, void *context, void *arg)
-{
-  up_irq_save();
-  _err("PANIC!!! Bus fault received\n");
-  PANIC();
-  return 0;
-}
-
-static int max326_usagefault(int irq, void *context, void *arg)
-{
-  up_irq_save();
-  _err("PANIC!!! Usage fault received\n");
   PANIC();
   return 0;
 }
@@ -350,10 +316,6 @@ void up_irqinitialize(void)
       regaddr += 4;
     }
 
-  /* currents_regs is non-NULL only while processing an interrupt */
-
-  CURRENT_REGS = NULL;
-
   /* Attach the SVCall and Hard Fault exception handlers.  The SVCall
    * exception is used for performing context switches; The Hard Fault
    * must also be caught because a SVCall may show up as a Hard Fault
@@ -389,8 +351,8 @@ void up_irqinitialize(void)
 #ifndef CONFIG_ARM_MPU
   irq_attach(MAX326_IRQ_MEMFAULT, arm_memfault, NULL);
 #endif
-  irq_attach(MAX326_IRQ_BUSFAULT, max326_busfault, NULL);
-  irq_attach(MAX326_IRQ_USAGEFAULT, max326_usagefault, NULL);
+  irq_attach(MAX326_IRQ_BUSFAULT, arm_busfault, NULL);
+  irq_attach(MAX326_IRQ_USAGEFAULT, arm_usagefault, NULL);
   irq_attach(MAX326_IRQ_PENDSV, max326_pendsv, NULL);
   irq_attach(MAX326_IRQ_DBGMONITOR, max326_dbgmonitor, NULL);
   irq_attach(MAX326_IRQ_RESERVED, max326_reserved, NULL);

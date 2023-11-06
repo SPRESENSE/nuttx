@@ -62,9 +62,7 @@
 
 struct sendto_s
 {
-#ifdef NEED_IPDOMAIN_SUPPORT
-  FAR struct socket *st_sock;         /* Points to the parent socket structure */
-#endif
+  FAR struct udp_conn_s *st_conn;     /* The UDP connection of interest */
   FAR struct devif_callback_s *st_cb; /* Reference to callback instance */
   FAR struct net_driver_s *st_dev;    /* Driver that will perform the transmission */
   sem_t st_sem;                       /* Semaphore signals sendto completion */
@@ -102,12 +100,13 @@ struct sendto_s
 static inline void sendto_ipselect(FAR struct net_driver_s *dev,
                                    FAR struct sendto_s *pstate)
 {
-  FAR struct socket *psock = pstate->st_sock;
-  DEBUGASSERT(psock);
+  FAR struct udp_conn_s *conn = pstate->st_conn;
 
   /* Which domain the socket support */
 
-  if (psock->s_domain == PF_INET)
+  if (conn->domain == PF_INET ||
+      (conn->domain == PF_INET6 &&
+       ip6_is_ipv4addr((FAR struct in6_addr *)conn->u.ipv6.raddr)))
     {
       /* Select the IPv4 domain */
 
@@ -117,7 +116,6 @@ static inline void sendto_ipselect(FAR struct net_driver_s *dev,
     {
       /* Select the IPv6 domain */
 
-      DEBUGASSERT(psock->s_domain == PF_INET6);
       udp_ipv6_select(dev);
     }
 }
@@ -132,7 +130,6 @@ static inline void sendto_ipselect(FAR struct net_driver_s *dev,
  *
  * Input Parameters:
  *   dev        The structure of the network driver that caused the event
- *   conn       An instance of the UDP connection structure cast to void *
  *   pvpriv     An instance of struct sendto_s cast to void*
  *   flags      Set of events describing why the callback was invoked
  *
@@ -145,10 +142,9 @@ static inline void sendto_ipselect(FAR struct net_driver_s *dev,
  ****************************************************************************/
 
 static uint16_t sendto_eventhandler(FAR struct net_driver_s *dev,
-                                    FAR void *conn, FAR void *pvpriv,
-                                    uint16_t flags)
+                                    FAR void *pvpriv, uint16_t flags)
 {
-  FAR struct sendto_s *pstate = (FAR struct sendto_s *)pvpriv;
+  FAR struct sendto_s *pstate = pvpriv;
 
   DEBUGASSERT(pstate != NULL && pstate->st_dev != NULL);
   if (pstate != NULL)
@@ -197,6 +193,16 @@ static uint16_t sendto_eventhandler(FAR struct net_driver_s *dev,
 
       else
         {
+          /* Copy the user data into d_appdata and send it */
+
+          int ret = devif_send(dev, pstate->st_buffer, pstate->st_buflen,
+                               udpip_hdrsize(pstate->st_conn));
+          if (ret <= 0)
+            {
+              pstate->st_sndlen = ret;
+              goto end_wait;
+            }
+
 #ifdef NEED_IPDOMAIN_SUPPORT
           /* If both IPv4 and IPv6 support are enabled, then we will need to
            * select which one to use when generating the outgoing packet.
@@ -207,17 +213,16 @@ static uint16_t sendto_eventhandler(FAR struct net_driver_s *dev,
           sendto_ipselect(dev, pstate);
 #endif
 
-          /* Copy the user data into d_appdata and send it */
-
-          devif_send(dev, pstate->st_buffer, pstate->st_buflen);
           pstate->st_sndlen = pstate->st_buflen;
         }
 
+end_wait:
+
       /* Don't allow any further call backs. */
 
-      pstate->st_cb->flags   = 0;
-      pstate->st_cb->priv    = NULL;
-      pstate->st_cb->event   = NULL;
+      pstate->st_cb->flags = 0;
+      pstate->st_cb->priv  = NULL;
+      pstate->st_cb->event = NULL;
 
       /* Wake up the waiting thread */
 
@@ -378,7 +383,7 @@ ssize_t psock_udp_sendto(FAR struct socket *psock, FAR const void *buf,
 
       /* Make sure that the IP address mapping is in the Neighbor Table */
 
-      ret = icmpv6_neighbor(destipaddr);
+      ret = icmpv6_neighbor(NULL, destipaddr);
     }
 #endif /* CONFIG_NET_ICMPv6_NEIGHBOR */
 
@@ -398,24 +403,16 @@ ssize_t psock_udp_sendto(FAR struct socket *psock, FAR const void *buf,
 
   net_lock();
   memset(&state, 0, sizeof(struct sendto_s));
-
-  /* This semaphore is used for signaling and, hence, should not have
-   * priority inheritance enabled.
-   */
-
   nxsem_init(&state.st_sem, 0, 0);
-  nxsem_set_protocol(&state.st_sem, SEM_PRIO_NONE);
 
   state.st_buflen = len;
   state.st_buffer = buf;
 
-#ifdef NEED_IPDOMAIN_SUPPORT
-  /* Save the reference to the socket structure if it will be needed for
+  /* Save the reference to the conn structure if it will be needed for
    * asynchronous processing.
    */
 
-  state.st_sock = psock;
-#endif
+  state.st_conn   = conn;
 
   /* Check if the socket is connected */
 
@@ -469,11 +466,11 @@ ssize_t psock_udp_sendto(FAR struct socket *psock, FAR const void *buf,
       netdev_txnotify_dev(state.st_dev);
 
       /* Wait for either the receive to complete or for an error/timeout to
-       * occur. NOTES:  net_timedwait will also terminate if a signal
+       * occur. NOTES:  net_sem_timedwait will also terminate if a signal
        * is received.
        */
 
-      ret = net_timedwait(&state.st_sem,
+      ret = net_sem_timedwait(&state.st_sem,
                           _SO_TIMEOUT(conn->sconn.s_sndtimeo));
       if (ret >= 0)
         {

@@ -30,6 +30,7 @@
 #include <debug.h>
 
 #include <nuttx/mm/iob.h>
+#include <nuttx/net/ipv6ext.h>
 #include <nuttx/net/net.h>
 #include <nuttx/net/netdev.h>
 #include <nuttx/net/netstats.h>
@@ -37,6 +38,7 @@
 #include "netdev/netdev.h"
 #include "sixlowpan/sixlowpan.h"
 #include "devif/devif.h"
+#include "icmpv6/icmpv6.h"
 #include "ipforward/ipforward.h"
 
 #if defined(CONFIG_NET_IPFORWARD) && defined(CONFIG_NET_IPv6)
@@ -105,6 +107,12 @@ static int ipv6_hdrsize(FAR struct ipv6_hdr_s *ipv6)
       break;
 #endif
 
+#ifdef CONFIG_NET_IPFRAG
+    case NEXT_FRAGMENT_EH:
+      return IPv6_HDRLEN + EXTHDR_FRAG_LEN;
+      break;
+#endif
+
     default:
       nwarn("WARNING: Unrecognized proto: %u\n", ipv6->proto);
       return -EPROTONOSUPPORT;
@@ -142,12 +150,6 @@ static int ipv6_decr_ttl(FAR struct ipv6_hdr_s *ipv6)
 
   if (ttl <= 0)
     {
-#ifdef CONFIG_NET_ICMPv6
-      /* Return an ICMPv6 error packet back to the sender. */
-
-#  warning Missing logic
-#endif
-
       /* Return zero which must cause the packet to be dropped */
 
       return 0;
@@ -404,47 +406,21 @@ static int ipv6_dev_forward(FAR struct net_driver_s *dev,
         }
 #endif
 
-      /* Try to allocate the head of an IOB chain.  If this fails, the
-       * packet will be dropped; we are not operating in a context where
-       * waiting for an IOB is a good idea
-       */
+      /* Relay the device buffer */
 
-      fwd->f_iob = iob_tryalloc(false, IOBUSER_NET_IPFORWARD);
-      if (fwd->f_iob == NULL)
-        {
-          nwarn("WARNING: iob_tryalloc() failed\n");
-          ret = -ENOMEM;
-          goto errout_with_fwd;
-        }
-
-      /* Copy the L2/L3 headers plus any following payload into an IOB
-       * chain.  iob_trycopin() will not wait, but will fail there are no
-       * available IOBs.
-       *
-       * REVISIT: Consider an alternative design that does not require data
-       * copying.  This would require a pool of d_buf's that are managed by
-       * the network rather than the network device.
-       */
-
-      ret = iob_trycopyin(fwd->f_iob, (FAR const uint8_t *)ipv6,
-                          dev->d_len, 0, false, IOBUSER_NET_IPFORWARD);
-      if (ret < 0)
-        {
-          nwarn("WARNING: iob_trycopyin() failed: %d\n", ret);
-          goto errout_with_iobchain;
-        }
+      fwd->f_iob = dev->d_iob;
 
       /* Decrement the TTL in the copy of the IPv6 header (retaining the
        * original TTL in the sourcee to handle the broadcast case).  If the
        * TTL decrements to zero, then do not forward the packet.
        */
 
-      ret = ipv6_decr_ttl((FAR struct ipv6_hdr_s *)fwd->f_iob->io_data);
+      ret = ipv6_decr_ttl(ipv6);
       if (ret < 1)
         {
           nwarn("WARNING: Hop limit exceeded... Dropping!\n");
           ret = -EMULTIHOP;
-          goto errout_with_iobchain;
+          goto errout_with_fwd;
         }
 
       /* Then set up to forward the packet according to the protocol. */
@@ -452,15 +428,9 @@ static int ipv6_dev_forward(FAR struct net_driver_s *dev,
       ret = ipfwd_forward(fwd);
       if (ret >= 0)
         {
-          dev->d_len = 0;
+          netdev_iob_clear(dev);
           return OK;
         }
-    }
-
-errout_with_iobchain:
-  if (fwd != NULL && fwd->f_iob != NULL)
-    {
-      iob_free_chain(fwd->f_iob, IOBUSER_NET_IPFORWARD);
     }
 
 errout_with_fwd:
@@ -494,13 +464,24 @@ errout:
  ****************************************************************************/
 
 #ifdef CONFIG_NET_IPFORWARD_BROADCAST
-int ipv6_forward_callback(FAR struct net_driver_s *fwddev, FAR void *arg)
+static int ipv6_forward_callback(FAR struct net_driver_s *fwddev,
+                                 FAR void *arg)
 {
   FAR struct net_driver_s *dev = (FAR struct net_driver_s *)arg;
   FAR struct ipv6_hdr_s *ipv6;
+  FAR struct iob_s *iob;
   int ret;
 
-  DEBUGASSERT(fwddev != NULL && dev != NULL && dev->d_buf != NULL);
+  DEBUGASSERT(fwddev != NULL);
+
+  /* Only IFF_UP device and non-loopback device need forward packet */
+
+  if (!IFF_IS_UP(fwddev->d_flags) || fwddev->d_lltype == NET_LL_LOOPBACK)
+    {
+      return OK;
+    }
+
+  DEBUGASSERT(dev != NULL && dev->d_buf != NULL);
 
   /* Check if we are forwarding on the same device that we received the
    * packet from.
@@ -508,20 +489,43 @@ int ipv6_forward_callback(FAR struct net_driver_s *fwddev, FAR void *arg)
 
   if (fwddev != dev)
     {
+      /* Backup the forward IP packet */
+
+      iob = iob_tryalloc(true);
+      if (iob == NULL)
+        {
+          nerr("ERROR: iob alloc failed when forward broadcast\n");
+          return -ENOMEM;
+        }
+
+      iob_reserve(iob, CONFIG_NET_LL_GUARDSIZE);
+      ret = iob_clone_partial(dev->d_iob, dev->d_iob->io_pktlen, 0,
+                              iob, 0, true, false);
+      if (ret < 0)
+        {
+          iob_free_chain(iob);
+          return ret;
+        }
+
       /* Recover the pointer to the IPv6 header in the receiving device's
        * d_buf.
        */
 
-      ipv6 = (FAR struct ipv6_hdr_s *)&dev->d_buf[NET_LL_HDRLEN(dev)];
+      ipv6 = IPv6BUF;
 
       /* Send the packet asynchrously on the forwarding device. */
 
       ret = ipv6_dev_forward(dev, fwddev, ipv6);
       if (ret < 0)
         {
+          iob_free_chain(iob);
           nwarn("WARNING: ipv6_dev_forward failed: %d\n", ret);
           return ret;
         }
+
+      /* Restore device iob with backup iob */
+
+      netdev_iob_replace(dev, iob);
     }
 
   return OK;
@@ -572,7 +576,8 @@ int ipv6_forward(FAR struct net_driver_s *dev, FAR struct ipv6_hdr_s *ipv6)
   if (fwddev == NULL)
     {
       nwarn("WARNING: Not routable\n");
-      return (ssize_t)-ENETUNREACH;
+      ret = -ENETUNREACH;
+      goto drop;
     }
 
   /* Check if we are forwarding on the same device that we received the
@@ -656,6 +661,31 @@ int ipv6_forward(FAR struct net_driver_s *dev, FAR struct ipv6_hdr_s *ipv6)
 
 drop:
   ipv6_dropstats(ipv6);
+
+#ifdef CONFIG_NET_ICMPv6
+  /* Try reply ICMPv6 to the sender. */
+
+  switch (ret)
+    {
+      case -ENETUNREACH:
+        icmpv6_reply(dev, ICMPv6_DEST_UNREACHABLE, ICMPv6_ADDR_UNREACH, 0);
+        return OK;
+
+      case -EFBIG:
+        icmpv6_reply(dev, ICMPv6_PACKET_TOO_BIG, 0,
+                     NETDEV_PKTSIZE(fwddev) - NET_LL_HDRLEN(fwddev));
+        return OK;
+
+      case -EMULTIHOP:
+        icmpv6_reply(dev, ICMPv6_PACKET_TIME_EXCEEDED, ICMPV6_EXC_HOPLIMIT,
+                     0);
+        return OK;
+
+      default:
+        break; /* We don't know how to reply, just go on (to drop). */
+    }
+#endif
+
   dev->d_len = 0;
   return ret;
 }

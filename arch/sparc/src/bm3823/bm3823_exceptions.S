@@ -31,7 +31,7 @@
  ****************************************************************************/
 
 	.global         _ISR_Handler
-	.global		up_doirq	/* Dispatch an IRQ                  */
+	.global		sparc_doirq	/* Dispatch an IRQ                  */
 
 /*
  *  void _ISR_Handler()
@@ -47,7 +47,7 @@
  *    l3 = trap type
  *
  *  NOTE: By an executive defined convention, trap type is between 0 and 255 if
- *        it is an asynchonous trap and 256 and 511 if it is synchronous.
+ *        it is an asynchronous trap and 256 and 511 if it is synchronous.
  */
 
         .align 4
@@ -145,7 +145,7 @@ fix_pil:
                                         ! o1 = 2nd arg = address of the ISF
                                         !   WAS LOADED WHEN ISF WAS SAVED!!!
         mov      %l3, %o0               ! o0 = 1st arg = vector number
-        call	up_doirq			/* call ISR dispatcher */
+        call	sparc_doirq			/* call ISR dispatcher */
         nop
 /*==========================================================================*/
         mov      %l0, %psr              ! **** DISABLE TRAPS ****

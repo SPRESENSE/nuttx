@@ -23,6 +23,7 @@
  ****************************************************************************/
 
 #include <nuttx/config.h>
+#include <nuttx/signal.h>
 
 /* Output debug info even if debug output is not selected. */
 
@@ -102,7 +103,11 @@ void posix_spawnattr_dump(posix_spawnattr_t *attr)
   _err("  priority: %d\n", attr->priority);
 
   _err("  policy:   %d\n", attr->policy);
-  if (attr->policy == SCHED_FIFO)
+  if (attr->policy == SCHED_OTHER)
+    {
+      _err("            SCHED_OTHER\n");
+    }
+  else if (attr->policy == SCHED_FIFO)
     {
       _err("            SCHED_FIFO\n");
     }
@@ -110,12 +115,16 @@ void posix_spawnattr_dump(posix_spawnattr_t *attr)
     {
       _err("            SCHED_RR\n");
     }
+  else if (attr->policy == SCHED_SPORADIC)
+    {
+      _err("            SCHED_SPORADIC\n");
+    }
   else
     {
       _err("            Unrecognized\n");
     }
 
-  _err("  sigmask:  %08jx\n", (uintmax_t)attr->sigmask);
+  _err("  sigmask:  " SIGSET_FMT "\n", SIGSET_ELEM(&attr->sigmask));
 #endif /* CONFIG_DEBUG_ERROR */
 }
 

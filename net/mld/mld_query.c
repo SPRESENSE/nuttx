@@ -42,12 +42,6 @@
 #include "utils/utils.h"
 
 /****************************************************************************
- * Pre-processor Definitions
- ****************************************************************************/
-
-#define IPv6BUF  ((FAR struct ipv6_hdr_s *)&dev->d_buf[NET_LL_HDRLEN(dev)])
-
-/****************************************************************************
  * Private Functions
  ****************************************************************************/
 
@@ -327,7 +321,7 @@ int mld_query(FAR struct net_driver_s *dev,
        * cycle
        */
 
-      mld_new_pollcycle(dev)
+      mld_new_pollcycle(dev);
 #endif
 
       /* Check MLDv1 compatibility mode */

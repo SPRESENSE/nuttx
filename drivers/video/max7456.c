@@ -338,9 +338,6 @@ static const struct file_operations g_mx7_fops =
   NULL,          /* seek */
   NULL,          /* ioctl */
   NULL           /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL         /* unlink */
-#endif
 };
 
 #if defined(DEBUG)
@@ -353,12 +350,6 @@ static const struct file_operations g_mx7_debug_fops =
   NULL,                /* close */
   mx7_debug_read,      /* read */
   mx7_debug_write,     /* write */
-  NULL,                /* seek */
-  NULL,                /* ioctl */
-  NULL                 /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL               /* unlink */
-#endif
 };
 #endif
 
@@ -762,74 +753,6 @@ static inline int __mx7_read_reg__cmdo(FAR struct mx7_dev_s *dev)
 }
 
 /****************************************************************************
- * Name: __mx7_read_reg__dmm
- *
- * Description:
- *   Returns the contents of DMM. A simple helper around __mx7_read_reg().
- *
- * Returned value:
- *   Returns the register value, or a negative errno.
- *
- ****************************************************************************/
-
-static inline int __mx7_write_reg__dmm(FAR struct mx7_dev_s *dev,
-                                       uint8_t val)
-{
-  return __mx7_write_reg(dev, DMM, &val, sizeof(val));
-}
-
-/****************************************************************************
- * Name: __mx7_read_reg__dmdi
- *
- * Description:
- *   Returns the contents of DMDI. A simple helper around __mx7_read_reg().
- *
- * Returned value:
- *   Returns the register value, or a negative errno.
- *
- ****************************************************************************/
-
-static inline int __mx7_write_reg__dmdi(FAR struct mx7_dev_s *dev,
-                                        uint8_t val)
-{
-  return __mx7_write_reg(dev, DMDI, &val, sizeof(val));
-}
-
-/****************************************************************************
- * Name: __mx7_read_reg__dmah
- *
- * Description:
- *   Returns the contents of DMAH. A simple helper around __mx7_read_reg().
- *
- * Returned value:
- *   Returns the register value, or a negative errno.
- *
- ****************************************************************************/
-
-static inline int __mx7_write_reg__dmah(FAR struct mx7_dev_s *dev,
-                                        uint8_t val)
-{
-  return __mx7_write_reg(dev, DMAH, &val, sizeof(val));
-}
-
-/****************************************************************************
- * Name: __mx7_read_reg__dmal
- *
- * Description:
- *   Returns the contents of DMAL. A simple helper around __mx7_read_reg().
- *
- * Returned value:
- *   Returns the register value, or a negative errno.
- *
- ****************************************************************************/
-
-static inline int __mx7_write_reg__dmal(FAR struct mx7_dev_s *dev,
-                                        uint8_t val)
-{
-  return __mx7_write_reg(dev, DMAL, &val, sizeof(val));
-}
-
-/****************************************************************************
  * Name: __mx7_wait_reset
  *
  * Description:
@@ -889,41 +812,6 @@ static inline void __mx7_read_nvm(FAR struct mx7_dev_s *dev)
 }
 
 /****************************************************************************
- * Name: __lock
- *
- * Description:
- *   Locks the @dev data structure (mutex) to protect it against concurrent
- *   access. This is necessary, because @dev has some state information in it
- *   that has to be kept consistent with the chip. This lock also protects
- *   operations that must not be interrupted by other access to the chip.
- *
- *   Use this function before calling one of the lock-dependent helper
- *   functions defined above (there are some defined below here, too).
- *
- ****************************************************************************/
-
-static void inline __lock(FAR struct mx7_dev_s *dev)
-{
-  nxmutex_lock(&dev->lock);
-}
-
-/****************************************************************************
- * Name: __unlock
- *
- * Description:
- *   Unlocks the @dev data structure (mutex).
- *
- *   Use this function after calling one of the lock-dependent helper
- *   functions defined above (there are some defined below here, too).
- *
- ****************************************************************************/
-
-static void inline __unlock(FAR struct mx7_dev_s *dev)
-{
-  nxmutex_unlock(&dev->lock);
-}
-
-/****************************************************************************
  * Name: mx7_reset
  *
  * Description:
@@ -935,7 +823,7 @@ static void inline __unlock(FAR struct mx7_dev_s *dev)
 
 static void mx7_reset(FAR struct mx7_dev_s *dev)
 {
-  __lock(dev);
+  nxmutex_lock(&dev->lock);
 
   /* Issue the reset command. */
 
@@ -947,7 +835,7 @@ static void mx7_reset(FAR struct mx7_dev_s *dev)
 
   /* All done. */
 
-  __unlock(dev);
+  nxmutex_unlock(&dev->lock);
 }
 
 /****************************************************************************
@@ -1198,7 +1086,7 @@ static ssize_t __read_cm(FAR struct mx7_dev_s *dev,
 
   while (len != 0)
     {
-      /* "2) Write CMAH[7:0] = xxH to select the character (0–255) to be
+      /* "2) Write CMAH[7:0] = xxH to select the character (0-255) to be
        *     read (Figures 10 and 13)."
        *
        * Put another way: CMAH is the row number in the EEPROM.
@@ -1215,7 +1103,7 @@ static ssize_t __read_cm(FAR struct mx7_dev_s *dev,
 
       __mx7_read_nvm(dev);
 
-      /* "4) Write CMAL[7:0] = xxH to select the 4-pixel byte (0–63) in
+      /* "4) Write CMAL[7:0] = xxH to select the 4-pixel byte (0-63) in
        *     the character to be read (Figures 10 and 13)."
        *
        * That means CMAL is the column number.
@@ -1296,9 +1184,9 @@ static ssize_t mx7_read_cm(FAR struct file *filep, FAR char *buf, size_t len)
   FAR struct mx7_dev_s *dev = inode->i_private;
   ssize_t ret;
 
-  __lock(dev);
-  ret = __read_cm(dev, filep->f_pos, (FAR uint8_t *) buf, len);
-  __unlock(dev);
+  nxmutex_lock(&dev->lock);
+  ret = __read_cm(dev, filep->f_pos, (FAR uint8_t *)buf, len);
+  nxmutex_unlock(&dev->lock);
 
   return ret;
 }
@@ -1380,9 +1268,9 @@ static ssize_t mx7_write_fb(FAR struct file *filep, FAR const char *buf,
   FAR struct mx7_dev_s *dev = inode->i_private;
   ssize_t ret;
 
-  __lock(dev);
-  ret = __write_fb(dev, (FAR uint8_t *) buf, len, dev->ca, filep->f_pos);
-  __unlock(dev);
+  nxmutex_lock(&dev->lock);
+  ret = __write_fb(dev, (FAR uint8_t *)buf, len, dev->ca, filep->f_pos);
+  nxmutex_unlock(&dev->lock);
 
   return ret;
 }
@@ -1567,9 +1455,9 @@ static ssize_t mx7_debug_read(FAR struct file *filep,
 
       /* Read the register. */
 
-      __lock(dev);
+      nxmutex_lock(&dev->lock);
       ret = __mx7_read_reg(dev, addr, &val, 1);
-      __unlock(dev);
+      nxmutex_unlock(&dev->lock);
 
       if (ret != 1)
         {
@@ -1622,9 +1510,9 @@ static ssize_t mx7_debug_write(FAR struct file *filep, FAR const char *buf,
 
   /* Write the register value. */
 
-  __lock(dev);
+  nxmutex_lock(&dev->lock);
   __mx7_write_reg(dev, addr, &val, 1);
-  __unlock(dev);
+  nxmutex_unlock(&dev->lock);
 
   return len;
 }
@@ -1658,7 +1546,7 @@ static int add_interface(FAR const char *path,
 
   /* Start with calling @path the interface name. */
 
-  strcpy(buf, path);
+  strlcpy(buf, path, sizeof(buf));
 
   /* Is the interface actually in a directory named @path? */
 
@@ -1666,11 +1554,11 @@ static int add_interface(FAR const char *path,
     {
       /* Convert @path to a directory name. */
 
-      strcat(buf, "/");
+      strlcat(buf, "/", sizeof(buf));
 
       /* Append the real interface name. */
 
-      strcat(buf, name);
+      strlcat(buf, name, sizeof(buf));
     }
 
   /* Register the interface in the usual way. NuttX will build the
@@ -1715,7 +1603,7 @@ int max7456_register(FAR const char *path, FAR struct mx7_config_s *config)
 
   /* Initialize the device structure. */
 
-  dev = (FAR struct mx7_dev_s *)kmm_malloc(sizeof(struct mx7_dev_s));
+  dev = kmm_malloc(sizeof(struct mx7_dev_s));
   if (dev == NULL)
     {
       return -ENOMEM;
@@ -1741,7 +1629,7 @@ int max7456_register(FAR const char *path, FAR struct mx7_config_s *config)
    * I'm doing it anyway for consistency.
    */
 
-  __lock(dev);
+  nxmutex_lock(&dev->lock);
 
   /* Thus sayeth the datasheet (pp. 38):
    *
@@ -1816,7 +1704,7 @@ int max7456_register(FAR const char *path, FAR struct mx7_config_s *config)
 
   /* Release the device to the world. */
 
-  __unlock(dev);
+  nxmutex_unlock(&dev->lock);
 
   return 0;
 }

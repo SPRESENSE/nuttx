@@ -41,7 +41,7 @@
 #include <nuttx/irq.h>
 #include <nuttx/arch.h>
 #include <nuttx/wqueue.h>
-#include <nuttx/net/arp.h>
+#include <nuttx/net/ip.h>
 #include <nuttx/net/netdev.h>
 
 #ifdef CONFIG_NET_PKT
@@ -81,7 +81,7 @@
  */
 
 #ifndef CONFIG_C5471_NET_NINTERFACES
-# define CONFIG_C5471_NET_NINTERFACES 1
+#  define CONFIG_C5471_NET_NINTERFACES 1
 #endif
 
 /* CONFIG_C5471_NET_STATS will enabled collection of driver statistics.
@@ -100,7 +100,7 @@
 # undef CONFIG_C5471_AUTONEGOTIATION
 # undef CONFIG_C5471_BASET100
 #else
-# define CONFIG_C5471_AUTONEGOTIATION 1
+#  define CONFIG_C5471_AUTONEGOTIATION 1
 # undef CONFIG_C5471_BASET100
 # undef CONFIG_C5471_BASET10
 #endif
@@ -436,7 +436,7 @@ static inline void c5471_dumpbuffer(const char *msg, const uint8_t *buffer,
   ninfodumpbuffer(msg, buffer, nbytes);
 }
 #else
-# define c5471_dumpbuffer(msg, buffer,nbytes)
+#  define c5471_dumpbuffer(msg, buffer,nbytes)
 #endif
 
 /****************************************************************************
@@ -1015,51 +1015,19 @@ static int c5471_txpoll(struct net_driver_s *dev)
 {
   struct c5471_driver_s *priv = (struct c5471_driver_s *)dev->d_private;
 
-  /* If the polling resulted in data that should be sent out on the network,
-   * the field d_len is set to a value > 0.
+  /* Send the packet */
+
+  c5471_transmit(priv);
+
+  /* Check if the ESM has let go of the RX descriptor giving us
+   * access rights to submit another Ethernet frame.
    */
 
-  if (priv->c_dev.d_len > 0)
+  if ((EIM_TXDESC_OWN_HOST & getreg32(priv->c_rxcpudesc)) != 0)
     {
-      /* Look up the destination MAC address and add it to the Ethernet
-       * header.
-       */
+      /* No, then return non-zero to terminate the poll */
 
-#ifdef CONFIG_NET_IPv4
-#ifdef CONFIG_NET_IPv6
-      if (IFF_IS_IPv4(priv->c_dev.d_flags))
-#endif
-        {
-          arp_out(&priv->c_dev);
-        }
-#endif /* CONFIG_NET_IPv4 */
-
-#ifdef CONFIG_NET_IPv6
-#ifdef CONFIG_NET_IPv4
-      else
-#endif
-        {
-          neighbor_out(&priv->c_dev);
-        }
-#endif /* CONFIG_NET_IPv6 */
-
-      if (!devif_loopback(&priv->c_dev))
-        {
-          /* Send the packet */
-
-          c5471_transmit(priv);
-
-          /* Check if the ESM has let go of the RX descriptor giving us
-           * access rights to submit another Ethernet frame.
-           */
-
-          if ((EIM_TXDESC_OWN_HOST & getreg32(priv->c_rxcpudesc)) != 0)
-            {
-              /* No, then return non-zero to terminate the poll */
-
-              return 1;
-            }
-        }
+      return 1;
     }
 
   /* If zero is returned, the polling will continue until all connections
@@ -1322,11 +1290,8 @@ static void c5471_receive(struct c5471_driver_s *priv)
         {
           ninfo("IPv4 frame\n");
 
-          /* Handle ARP on input then give the IPv4 packet to the network
-           * layer
-           */
+          /* Receive an IPv4 packet from the network device */
 
-          arp_ipin(dev);
           ipv4_input(dev);
 
           /* If the above function invocation resulted in data that should be
@@ -1338,21 +1303,6 @@ static void c5471_receive(struct c5471_driver_s *priv)
           if (dev->d_len > 0 &&
              (EIM_TXDESC_OWN_HOST & getreg32(priv->c_rxcpudesc)) == 0)
             {
-              /* Update the Ethernet header with the correct MAC address */
-
-#ifdef CONFIG_NET_IPv6
-              if (IFF_IS_IPv4(dev->d_flags))
-#endif
-                {
-                  arp_out(dev);
-                }
-#ifdef CONFIG_NET_IPv6
-              else
-                {
-                  neighbor_out(dev);
-                }
-#endif
-
               /* And send the packet */
 
                c5471_transmit(priv);
@@ -1378,21 +1328,6 @@ static void c5471_receive(struct c5471_driver_s *priv)
           if (dev->d_len > 0 &&
              (EIM_TXDESC_OWN_HOST & getreg32(priv->c_rxcpudesc)) == 0)
             {
-              /* Update the Ethernet header with the correct MAC address */
-
-#ifdef CONFIG_NET_IPv4
-              if (IFF_IS_IPv4(dev->d_flags))
-                {
-                  arp_out(dev);
-                }
-              else
-#endif
-#ifdef CONFIG_NET_IPv6
-                {
-                  neighbor_out(dev);
-                }
-#endif
-
               /* And send the packet */
 
                c5471_transmit(priv);
@@ -1403,7 +1338,7 @@ static void c5471_receive(struct c5471_driver_s *priv)
 #ifdef CONFIG_NET_ARP
       if (BUF->type == HTONS(ETHTYPE_ARP))
         {
-          arp_arpin(dev);
+          arp_input(dev);
 
           /* If the above function invocation resulted in data that should be
            * sent out on the network, d_len field will set to a value > 0.
@@ -1787,11 +1722,9 @@ static int c5471_ifup(struct net_driver_s *dev)
   struct c5471_driver_s *priv = (struct c5471_driver_s *)dev->d_private;
   volatile uint32_t clearbits;
 
-  ninfo("Bringing up: %d.%d.%d.%d\n",
-        (int)(dev->d_ipaddr & 0xff),
-        (int)((dev->d_ipaddr >> 8) & 0xff),
-        (int)((dev->d_ipaddr >> 16) & 0xff),
-        (int)(dev->d_ipaddr >> 24));
+  ninfo("Bringing up: %u.%u.%u.%u\n",
+        ip4_addr1(dev->d_ipaddr), ip4_addr2(dev->d_ipaddr),
+        ip4_addr3(dev->d_ipaddr), ip4_addr4(dev->d_ipaddr));
 
   /* Initialize Ethernet interface */
 

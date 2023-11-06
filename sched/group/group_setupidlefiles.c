@@ -34,6 +34,7 @@
 
 #include <nuttx/fs/fs.h>
 #include <nuttx/net/net.h>
+#include <nuttx/trace.h>
 
 #include "group/group.h"
 
@@ -58,52 +59,67 @@
 
 int group_setupidlefiles(FAR struct task_tcb_s *tcb)
 {
-  FAR struct task_group_s *group = tcb->cmn.group;
-#ifdef CONFIG_DEV_CONSOLE
+  int ret = OK;
+#if defined(CONFIG_DEV_CONSOLE) || defined(CONFIG_DEV_NULL)
   int fd;
 #endif
 
-  DEBUGASSERT(group != NULL);
+  sched_trace_begin();
+  DEBUGASSERT(tcb->cmn.group != NULL);
 
   /* Open stdin, dup to get stdout and stderr. This should always
    * be the first file opened and, hence, should always get file
    * descriptor 0.
    */
 
+#if defined(CONFIG_DEV_CONSOLE) || defined(CONFIG_DEV_NULL)
 #ifdef CONFIG_DEV_CONSOLE
   fd = nx_open("/dev/console", O_RDWR);
+#else
+  fd = nx_open("/dev/null", O_RDWR);
+#endif
   if (fd == 0)
     {
-      /* Successfully opened /dev/console as stdin (fd == 0) */
+      /* Successfully opened stdin (fd == 0) */
 
       nx_dup2(0, 1);
       nx_dup2(0, 2);
     }
   else
     {
-      /* We failed to open /dev/console OR for some reason, we opened
+      /* We failed to open stdin OR for some reason, we opened
        * it and got some file descriptor other than 0.
        */
 
       if (fd > 0)
         {
-          sinfo("Open /dev/console fd: %d\n", fd);
+          sinfo("Open stdin fd: %d\n", fd);
           nx_close(fd);
         }
       else
         {
-          serr("ERROR: Failed to open /dev/console: %d\n", fd);
+          serr("ERROR: Failed to open stdin: %d\n", fd);
         }
 
+      sched_trace_end();
       return -ENFILE;
     }
-#endif
+#else
+  /* This configuration can confuse user programs and libraries.
+   * Eg. a program which opens a file and then prints something to
+   * STDERR_FILENO (2) can end up with something undesirable if the
+   * file descriptor for the file happens to be 2.
+   * It's a common practice to keep 0-2 always open even if they are
+   * /dev/null to avoid that kind of problems. Thus the following warning.
+   */
+#warning file descriptors 0-2 are not opened
+#endif /* defined(CONFIG_DEV_CONSOLE) || defined(CONFIG_DEV_NULL) */
 
   /* Allocate file/socket streams for the TCB */
 
 #ifdef CONFIG_FILE_STREAM
-  return group_setupstreams(tcb);
-#else
-  return OK;
+  ret = group_setupstreams(tcb);
 #endif
+  sched_trace_end();
+  return ret;
 }

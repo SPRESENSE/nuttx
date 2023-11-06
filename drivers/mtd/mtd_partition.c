@@ -116,6 +116,8 @@ static ssize_t part_write(FAR struct mtd_dev_s *dev, off_t offset,
 #endif
 static int     part_ioctl(FAR struct mtd_dev_s *dev, int cmd,
                   unsigned long arg);
+static int     part_isbad(FAR struct mtd_dev_s *dev, off_t block);
+static int     part_markbad(FAR struct mtd_dev_s *dev, off_t block);
 
 /* File system methods */
 
@@ -133,7 +135,8 @@ static int     part_procfs_dup(FAR const struct file *oldp,
 static int     part_procfs_opendir(const char *relpath,
                  FAR struct fs_dirent_s *dir);
 static int     part_procfs_closedir(FAR struct fs_dirent_s *dir);
-static int     part_procfs_readdir(FAR struct fs_dirent_s *dir);
+static int     part_procfs_readdir(FAR struct fs_dirent_s *dir,
+                                   FAR struct dirent *entry);
 static int     part_procfs_rewinddir(FAR struct fs_dirent_s *dir);
 #endif
 
@@ -148,7 +151,7 @@ static int     part_procfs_stat(FAR const char *relpath,
 #if defined(CONFIG_FS_PROCFS) && !defined(CONFIG_PROCFS_EXCLUDE_PARTITIONS)
 static struct mtd_partition_s *g_pfirstpartition = NULL;
 
-const struct procfs_operations part_procfsoperations =
+const struct procfs_operations g_part_operations =
 {
   part_procfs_open,       /* open */
   part_procfs_close,      /* close */
@@ -402,6 +405,8 @@ static int part_ioctl(FAR struct mtd_dev_s *dev, int cmd, unsigned long arg)
           FAR struct mtd_geometry_s *geo = (FAR struct mtd_geometry_s *)arg;
           if (geo)
             {
+              memset(geo, 0, sizeof(*geo));
+
               /* Populate the geometry structure with information needed to
                * know the capacity and how to access the device.
                */
@@ -424,7 +429,8 @@ static int part_ioctl(FAR struct mtd_dev_s *dev, int cmd, unsigned long arg)
               info->sectorsize  = priv->blocksize;
               info->startsector = priv->firstblock;
 
-              strncpy(info->parent, priv->parent->name, NAME_MAX);
+              strlcpy(info->parent, priv->parent->name,
+                      sizeof(info->parent));
 
               ret = OK;
           }
@@ -465,6 +471,19 @@ static int part_ioctl(FAR struct mtd_dev_s *dev, int cmd, unsigned long arg)
         }
         break;
 
+      case MTDIOC_ERASESECTORS:
+        {
+          /* Erase sectors as defined in mtd_erase_s structure */
+
+          FAR struct mtd_erase_s *erase = (FAR struct mtd_erase_s *)arg;
+
+          ret = priv->parent->erase(priv->parent,
+                                    priv->firstblock / priv->blkpererase +
+                                    erase->startblock,
+                                    erase->nblocks);
+        }
+        break;
+
       default:
         {
           /* Pass any unhandled ioctl() calls to the underlying driver */
@@ -475,6 +494,60 @@ static int part_ioctl(FAR struct mtd_dev_s *dev, int cmd, unsigned long arg)
     }
 
   return ret;
+}
+
+/****************************************************************************
+ * Name: part_isbad
+ *
+ * Description:
+ *   Check bad block for the specified block number.
+ *
+ ****************************************************************************/
+
+static int part_isbad(FAR struct mtd_dev_s *dev, off_t block)
+{
+  FAR struct mtd_partition_s *priv = (FAR struct mtd_partition_s *)dev;
+
+  DEBUGASSERT(priv);
+
+  /* Does the underlying MTD device support the isbad method? */
+
+  if (priv->parent->isbad)
+    {
+      return priv->parent->isbad(priv->parent, block +
+                                 priv->firstblock / priv->blkpererase);
+    }
+
+  /* The underlying MTD driver does not support the isbad() method */
+
+  return -ENOSYS;
+}
+
+/****************************************************************************
+ * Name: part_markbad
+ *
+ * Description:
+ *   Mark bad block for the specified block number.
+ *
+ ****************************************************************************/
+
+static int part_markbad(FAR struct mtd_dev_s *dev, off_t block)
+{
+  FAR struct mtd_partition_s *priv = (FAR struct mtd_partition_s *)dev;
+
+  DEBUGASSERT(priv);
+
+  /* Does the underlying MTD device support the markbad method? */
+
+  if (priv->parent->markbad)
+    {
+      return priv->parent->markbad(priv->parent, block +
+                                   priv->firstblock / priv->blkpererase);
+    }
+
+  /* The underlying MTD driver does not support the markbad() method */
+
+  return -ENOSYS;
 }
 
 #if defined(CONFIG_FS_PROCFS) && !defined(CONFIG_PROCFS_EXCLUDE_PARTITIONS)
@@ -834,24 +907,26 @@ FAR struct mtd_dev_s *mtd_partition(FAR struct mtd_dev_s *mtd,
    * nullified by kmm_zalloc).
    */
 
-  part->child.erase  = part_erase;
-  part->child.bread  = part_bread;
-  part->child.bwrite = part_bwrite;
-  part->child.read   = mtd->read ? part_read : NULL;
-  part->child.ioctl  = part_ioctl;
+  part->child.erase   = part_erase;
+  part->child.bread   = part_bread;
+  part->child.bwrite  = part_bwrite;
+  part->child.read    = mtd->read ? part_read : NULL;
+  part->child.ioctl   = part_ioctl;
+  part->child.isbad   = part_isbad;
+  part->child.markbad = part_markbad;
 #ifdef CONFIG_MTD_BYTE_WRITE
-  part->child.write  = mtd->write ? part_write : NULL;
+  part->child.write   = mtd->write ? part_write : NULL;
 #endif
-  part->child.name   = "part";
+  part->child.name    = "part";
 
-  part->parent       = mtd;
-  part->firstblock   = erasestart * blkpererase;
-  part->neraseblocks = eraseend - erasestart;
-  part->blocksize    = geo.blocksize;
-  part->blkpererase  = blkpererase;
+  part->parent        = mtd;
+  part->firstblock    = erasestart * blkpererase;
+  part->neraseblocks  = eraseend - erasestart;
+  part->blocksize     = geo.blocksize;
+  part->blkpererase   = blkpererase;
 
 #ifdef CONFIG_MTD_PARTITION_NAMES
-  strcpy(part->name, "(noname)");
+  strlcpy(part->name, "(noname)", sizeof(part->name));
 #endif
 
 #if defined(CONFIG_FS_PROCFS) && !defined(CONFIG_PROCFS_EXCLUDE_PARTITIONS)

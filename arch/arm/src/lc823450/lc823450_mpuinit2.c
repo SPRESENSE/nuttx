@@ -25,6 +25,7 @@
 #include <nuttx/config.h>
 
 #include <assert.h>
+#include <sys/param.h>
 
 #include <nuttx/userspace.h>
 
@@ -37,14 +38,6 @@
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
-
-#ifndef MAX
-#  define MAX(a,b) ((a) > (b) ? (a) : (b))
-#endif
-
-#ifndef MIN
-#  define MIN(a,b) ((a) < (b) ? (a) : (b))
-#endif
 
 /****************************************************************************
  * Private Data
@@ -89,7 +82,7 @@ void lc823450_mpuinitialize(void)
 #endif
 
 #ifdef CONFIG_BUILD_FLAT
-  uint32_t size = (uint32_t)((uint32_t)&_eronly - (uint32_t)&_stext);
+  uint32_t size = _eronly - _stext;
 
   /* 128KB align */
 
@@ -97,7 +90,7 @@ void lc823450_mpuinitialize(void)
 
   /* Protect text area in SRAM as privileged flash */
 
-  mpu_priv_flash((uintptr_t)&_stext, size);
+  mpu_priv_flash((uintptr_t)_stext, size);
 #endif
 
   /* Then enable the MPU */

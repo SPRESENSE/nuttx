@@ -94,6 +94,7 @@
 #include <nuttx/net/netstats.h>
 #include <nuttx/net/ip.h>
 
+#include "arp/arp.h"
 #include "inet/inet.h"
 #include "tcp/tcp.h"
 #include "udp/udp.h"
@@ -103,14 +104,9 @@
 
 #include "ipforward/ipforward.h"
 #include "devif/devif.h"
-
-/****************************************************************************
- * Pre-processor Definitions
- ****************************************************************************/
-
-/* Macros */
-
-#define BUF ((FAR struct ipv4_hdr_s *)&dev->d_buf[NET_LL_HDRLEN(dev)])
+#include "nat/nat.h"
+#include "ipfrag/ipfrag.h"
+#include "utils/utils.h"
 
 /****************************************************************************
  * Private Data
@@ -121,13 +117,23 @@
  ****************************************************************************/
 
 /****************************************************************************
- * Public Functions
- ****************************************************************************/
-
-/****************************************************************************
- * Name: ipv4_input
+ * Name: ipv4_in
  *
  * Description:
+ *   Receive an IPv4 packet from the network device.  Verify and forward to
+ *   L3 packet handling logic if the packet is destined for us.
+ *
+ *   This is the iob buffer version of ipv4_input(),
+ *   this function will support send/receive iob vectors directly between
+ *   the driver and l3/l4 stack to avoid unnecessary memory copies,
+ *   especially on hardware that supports Scatter/gather, which can
+ *   greatly improve performance
+ *   this function will uses d_iob as packets input which used by some
+ *   NICs such as celluler net driver.
+ *
+ * Input Parameters:
+ *   dev   - The device on which the packet was received and which contains
+ *           the IPv4 packet.
  *
  * Returned Value:
  *   OK    - The packet was processed (or dropped) and can be discarded.
@@ -138,12 +144,16 @@
  *
  ****************************************************************************/
 
-int ipv4_input(FAR struct net_driver_s *dev)
+static int ipv4_in(FAR struct net_driver_s *dev)
 {
-  FAR struct ipv4_hdr_s *ipv4 = BUF;
+  FAR struct ipv4_hdr_s *ipv4 = IPv4BUF;
   in_addr_t destipaddr;
-  uint16_t llhdrlen;
   uint16_t totlen;
+  int ret = OK;
+
+  /* Handle ARP on input then give the IPv4 packet to the network layer */
+
+  arp_ipin(dev);
 
   /* This is where the input processing starts. */
 
@@ -175,14 +185,17 @@ int ipv4_input(FAR struct net_driver_s *dev)
 
   /* Get the size of the packet minus the size of link layer header */
 
-  llhdrlen = NET_LL_HDRLEN(dev);
-  if ((llhdrlen + IPv4_HDRLEN) > dev->d_len)
+  if (IPv4_HDRLEN > dev->d_len)
     {
       nwarn("WARNING: Packet shorter than IPv4 header\n");
       goto drop;
     }
 
-  dev->d_len -= llhdrlen;
+  /* Make sure that all packet processing logic knows that there is an IPv4
+   * packet in the device buffer.
+   */
+
+  IFF_SET_IPv4(dev->d_flags);
 
   /* Check the size of the packet.  If the size reported to us in d_len is
    * smaller the size reported in the IP header, we assume that the packet
@@ -192,11 +205,12 @@ int ipv4_input(FAR struct net_driver_s *dev)
    */
 
   totlen = (ipv4->len[0] << 8) + ipv4->len[1];
-  if (totlen <= dev->d_len)
+  if (totlen < dev->d_len)
     {
+      iob_update_pktlen(dev->d_iob, totlen, false);
       dev->d_len = totlen;
     }
-  else
+  else if (totlen > dev->d_len)
     {
       nwarn("WARNING: IP packet shorter than length in IP header\n");
       goto drop;
@@ -206,6 +220,13 @@ int ipv4_input(FAR struct net_driver_s *dev)
 
   if ((ipv4->ipoffset[0] & 0x3f) != 0 || ipv4->ipoffset[1] != 0)
     {
+#ifdef CONFIG_NET_IPFRAG
+      if (ipv4_fragin(dev) == OK)
+        {
+          return OK;
+        }
+
+#endif
 #ifdef CONFIG_NET_STATISTICS
       g_netstats.ipv4.drop++;
       g_netstats.ipv4.fragerr++;
@@ -213,6 +234,16 @@ int ipv4_input(FAR struct net_driver_s *dev)
       nwarn("WARNING: IP fragment dropped\n");
       goto drop;
     }
+
+#ifdef CONFIG_NET_NAT
+  /* Try NAT inbound, rule matching will be performed in NAT module. */
+
+  if (ipv4_nat_inbound(dev, ipv4) < 0)
+    {
+      nwarn("WARNING: Performing NAT inbound failed!\n");
+      goto drop;
+    }
+#endif
 
   /* Get the destination IP address in a friendlier form */
 
@@ -232,8 +263,16 @@ int ipv4_input(FAR struct net_driver_s *dev)
       /* Forward broadcast packets */
 
       ipv4_forward_broadcast(dev, ipv4);
+
+      /* Process the incoming packet if not forwardable */
+
+      if (dev->d_len > 0)
 #endif
-      return udp_ipv4_input(dev);
+        {
+          ret = udp_ipv4_input(dev);
+        }
+
+      goto done;
     }
   else
 #endif
@@ -252,8 +291,16 @@ int ipv4_input(FAR struct net_driver_s *dev)
       /* Forward broadcast packets */
 
       ipv4_forward_broadcast(dev, ipv4);
+
+      /* Process the incoming packet if not forwardable */
+
+      if (dev->d_len > 0)
 #endif
-      return udp_ipv4_input(dev);
+        {
+          ret = udp_ipv4_input(dev);
+        }
+
+      goto done;
     }
   else
 #endif
@@ -273,6 +320,13 @@ int ipv4_input(FAR struct net_driver_s *dev)
           /* Forward multicast packets */
 
           ipv4_forward_broadcast(dev, ipv4);
+
+          /* Return success if the packet was forwarded. */
+
+          if (dev->d_len == 0)
+            {
+              goto done;
+            }
 #endif
         }
       else
@@ -283,8 +337,7 @@ int ipv4_input(FAR struct net_driver_s *dev)
 #ifdef CONFIG_NET_IPFORWARD
           /* Try to forward the packet */
 
-          int ret = ipv4_forward(dev, ipv4);
-          if (ret >= 0)
+          if (ipv4_forward(dev, ipv4) >= 0)
             {
               /* The packet was forwarded.  Return success; d_len will
                * be set appropriately by the forwarding logic:  Cleared
@@ -293,17 +346,17 @@ int ipv4_input(FAR struct net_driver_s *dev)
                * it was received on.
                */
 
-              return OK;
+              goto done;
             }
           else
 #endif
-#if defined(NET_UDP_HAVE_STACK) && defined(CONFIG_NET_UDP_BINDTODEVICE)
-          /* If the UDP protocol specific socket option UDP_BINDTODEVICE
+#if defined(NET_UDP_HAVE_STACK) && defined(CONFIG_NET_BINDTODEVICE)
+          /* If the protocol specific socket option NET_BINDTODEVICE
            * is selected, then we must forward all UDP packets to the bound
            * socket.
            */
 
-          if (ipv4->proto != IP_PROTO_UDP || !IFF_IS_BOUND(dev->d_flags))
+          if (ipv4->proto != IP_PROTO_UDP)
 #endif
             {
               /* Not destined for us and not forwardable... Drop the
@@ -331,7 +384,7 @@ int ipv4_input(FAR struct net_driver_s *dev)
     }
 #endif
 
-  if (ipv4_chksum(dev) != 0xffff)
+  if (ipv4_chksum(IPv4BUF) != 0xffff)
     {
       /* Compute and check the IP header checksum. */
 
@@ -342,12 +395,6 @@ int ipv4_input(FAR struct net_driver_s *dev)
       nwarn("WARNING: Bad IP checksum\n");
       goto drop;
     }
-
-  /* Make sure that all packet processing logic knows that there is an IPv4
-   * packet in the device buffer.
-   */
-
-  IFF_SET_IPv4(dev->d_flags);
 
   /* Now process the incoming packet according to the protocol. */
 
@@ -391,9 +438,20 @@ int ipv4_input(FAR struct net_driver_s *dev)
         goto drop;
     }
 
+#if defined(CONFIG_NET_IPFORWARD) || \
+    (defined(CONFIG_NET_BROADCAST) && defined(NET_UDP_HAVE_STACK))
+done:
+#endif
+
+#ifdef CONFIG_NET_IPFRAG
+  ip_fragout(dev);
+#endif
+
+  devif_out(dev);
+
   /* Return and let the caller do any pending transmission. */
 
-  return OK;
+  return ret;
 
   /* Drop the packet.  NOTE that OK is returned meaning that the
    * packet has been processed (although processed unsuccessfully).
@@ -403,4 +461,51 @@ drop:
   dev->d_len = 0;
   return OK;
 }
+
+/****************************************************************************
+ * Public Functions
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: ipv4_input
+ *
+ * Description:
+ *   Receive an IPv4 packet from the network device.  Verify and forward to
+ *   L3 packet handling logic if the packet is destined for us.
+ *
+ * Input Parameters:
+ *   dev   - The device on which the packet was received and which contains
+ *           the IPv4 packet.
+ *
+ * Returned Value:
+ *   OK    - The packet was processed (or dropped) and can be discarded.
+ *   ERROR - Hold the packet and try again later.  There is a listening
+ *           socket but no receive in place to catch the packet yet.  The
+ *           device's d_len will be set to zero in this case as there is
+ *           no outgoing data.
+ *
+ ****************************************************************************/
+
+int ipv4_input(FAR struct net_driver_s *dev)
+{
+  FAR uint8_t *buf;
+  int ret;
+
+  if (dev->d_iob != NULL)
+    {
+      buf = dev->d_buf;
+
+      /* Set the device buffer to l2 */
+
+      dev->d_buf = NETLLBUF;
+      ret = ipv4_in(dev);
+
+      dev->d_buf = buf;
+
+      return ret;
+    }
+
+  return netdev_input(dev, ipv4_in, true);
+}
+
 #endif /* CONFIG_NET_IPv4 */

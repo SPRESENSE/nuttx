@@ -58,6 +58,7 @@
 
 volatile spinlock_t g_cpu_wait[CONFIG_SMP_NCPUS];
 volatile spinlock_t g_cpu_paused[CONFIG_SMP_NCPUS];
+volatile spinlock_t g_cpu_resumed[CONFIG_SMP_NCPUS];
 
 /****************************************************************************
  * Public Functions
@@ -128,11 +129,16 @@ int up_cpu_paused(int cpu)
    * of the assigned task list for this CPU.
    */
 
-  riscv_savestate(tcb->xcp.regs);
+  riscv_savecontext(tcb);
 
   /* Wait for the spinlock to be released */
 
   spin_unlock(&g_cpu_paused[cpu]);
+
+  /* Ensure the CPU has been resumed to avoid causing a deadlock */
+
+  spin_lock(&g_cpu_resumed[cpu]);
+
   spin_lock(&g_cpu_wait[cpu]);
 
   /* Restore the exception context of the tcb at the (new) head of the
@@ -155,9 +161,10 @@ int up_cpu_paused(int cpu)
    * will be made when the interrupt returns.
    */
 
-  riscv_restorestate(tcb->xcp.regs);
+  riscv_restorecontext(tcb);
 
   spin_unlock(&g_cpu_wait[cpu]);
+  spin_unlock(&g_cpu_resumed[cpu]);
 
   return OK;
 }
@@ -180,9 +187,9 @@ int riscv_pause_handler(int irq, void *c, void *arg)
 {
   int cpu = up_cpu_index();
 
-  /* Clear machine software interrupt */
+  /* Clear IPI (Inter-Processor-Interrupt) */
 
-  putreg32(0, (uintptr_t)RISCV_CLINT_MSIP + (4 * cpu));
+  putreg32(0, (uintptr_t)RISCV_IPI + (4 * cpu));
 
   /* Check for false alarms.  Such false could occur as a consequence of
    * some deadlock breaking logic that might have already serviced the SG2
@@ -258,7 +265,7 @@ int up_cpu_pause(int cpu)
 
   /* Execute Pause IRQ to CPU(cpu) */
 
-  putreg32(1, (uintptr_t)RISCV_CLINT_MSIP + (4 * cpu));
+  putreg32(1, (uintptr_t)RISCV_IPI + (4 * cpu));
 
   /* Wait for the other CPU to unlock g_cpu_paused meaning that
    * it is fully paused and ready for up_cpu_resume();
@@ -316,6 +323,12 @@ int up_cpu_resume(int cpu)
               !spin_islocked(&g_cpu_paused[cpu]));
 
   spin_unlock(&g_cpu_wait[cpu]);
+
+  /* Ensure the CPU has been resumed to avoid causing a deadlock */
+
+  spin_lock(&g_cpu_resumed[cpu]);
+
+  spin_unlock(&g_cpu_resumed[cpu]);
 
   return 0;
 }

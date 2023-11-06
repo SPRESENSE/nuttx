@@ -66,23 +66,6 @@ extern void ets_set_appcpu_boot_addr(uint32_t start);
  ****************************************************************************/
 
 /****************************************************************************
- * Name: xtensa_registerdump
- ****************************************************************************/
-
-#if 0 /* Was useful in solving some startup problems */
-static inline void xtensa_registerdump(struct tcb_s *tcb)
-{
-  _info("CPU%d:\n", up_cpu_index());
-
-  /* Dump the startup registers */
-
-  /* To be provided */
-}
-#else
-# define xtensa_registerdump(tcb)
-#endif
-
-/****************************************************************************
  * Name: xtensa_attach_fromcpu0_interrupt
  ****************************************************************************/
 
@@ -136,7 +119,7 @@ void IRAM_ATTR xtensa_appcpu_start(void)
    */
 
   sp = (uint32_t)tcb->stack_base_ptr + tcb->adj_stack_size -
-       XCPTCONTEXT_SIZE;
+                 XCPTCONTEXT_SIZE;
   __asm__ __volatile__("mov sp, %0\n" : : "r"(sp));
 
   sinfo("CPU%d Started\n", up_cpu_index());
@@ -160,7 +143,7 @@ void IRAM_ATTR xtensa_appcpu_start(void)
 
   /* Move CPU0 exception vectors to IRAM */
 
-  __asm__ __volatile__ ("wsr %0, vecbase\n"::"r" (&_init_start));
+  __asm__ __volatile__ ("wsr %0, vecbase\n"::"r" (_init_start));
 
   /* Make page 0 access raise an exception */
 
@@ -182,7 +165,9 @@ void IRAM_ATTR xtensa_appcpu_start(void)
 
   /* Dump registers so that we can see what is going to happen on return */
 
-  xtensa_registerdump(tcb);
+#if 0
+  up_dump_register(tcb->xcp.regs);
+#endif
 
 #ifdef CONFIG_ESP32_GPIO_IRQ
   /* Initialize GPIO interrupt support */

@@ -25,6 +25,7 @@
 #include <nuttx/config.h>
 
 #include <stdio.h>
+#include <sys/param.h>
 #include <assert.h>
 #include <debug.h>
 #include <errno.h>
@@ -32,6 +33,7 @@
 #include <fcntl.h>
 
 #include <nuttx/kmalloc.h>
+#include <nuttx/mutex.h>
 #include <nuttx/mm/circbuf.h>
 #include <nuttx/rc/lirc_dev.h>
 
@@ -39,7 +41,6 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-#define MIN(a, b)          (((a) < (b)) ? (a) : (b))
 #define DEVNAME_FMT        "/dev/lirc%d"
 #define DEVNAME_MAX        32
 
@@ -53,7 +54,7 @@ struct lirc_upperhalf_s
 {
   struct list_node             fh;           /* list of struct lirc_fh_s object */
   FAR struct lirc_lowerhalf_s *lower;        /* the handle of lower half driver */
-  sem_t                        exclsem;      /* Manages exclusive access to lowerhalf */
+  mutex_t                      lock;         /* Manages exclusive access to lowerhalf */
   bool                         gap;          /* true if we're in a gap */
   uint64_t                     gap_start;    /* time when gap starts */
   uint64_t                     gap_duration; /* duration of initial gap */
@@ -80,7 +81,6 @@ struct lirc_fh_s
  * Private Function Prototypes
  ****************************************************************************/
 
-static void lirc_pollnotify(FAR struct lirc_fh_s *fh, pollevent_t eventset);
 static int lirc_open(FAR struct file *filep);
 static int lirc_close(FAR struct file *filep);
 static int lirc_ioctl(FAR struct file *filep, int cmd, unsigned long arg);
@@ -103,37 +103,14 @@ static const struct file_operations g_lirc_fops =
   lirc_write,  /* write */
   NULL,        /* seek */
   lirc_ioctl,  /* ioctl */
+  NULL,        /* mmap */
+  NULL,        /* truncate */
   lirc_poll    /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL       /* unlink */
-#endif
 };
 
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
-
-static void lirc_pollnotify(FAR struct lirc_fh_s *fh,
-                            pollevent_t eventset)
-{
-  int semcount;
-
-  if (fh->fd)
-    {
-      fh->fd->revents |= (fh->fd->events & eventset);
-
-      if (fh->fd->revents != 0)
-        {
-          rcinfo("Report events: %08" PRIx32 "\n", fh->fd->revents);
-
-          nxsem_get_value(fh->fd->sem, &semcount);
-          if (semcount < 1)
-            {
-              nxsem_post(fh->fd->sem);
-            }
-        }
-    }
-}
 
 static int lirc_open(FAR struct file *filep)
 {
@@ -176,7 +153,6 @@ static int lirc_open(FAR struct file *filep)
     }
 
   nxsem_init(&fh->waitsem, 0, 0);
-  nxsem_set_protocol(&fh->waitsem, SEM_PRIO_NONE);
 
   fh->lower = lower;
   fh->send_timeout_reports = true;
@@ -251,13 +227,10 @@ static int lirc_poll(FAR struct file *filep,
 
       if (!circbuf_is_empty(&fh->buffer))
         {
-          eventset = (fds->events & (POLLIN | POLLRDNORM));
+          eventset |= POLLIN | POLLRDNORM;
         }
 
-      if (eventset)
-        {
-          lirc_pollnotify(fh, eventset);
-        }
+      poll_notify(&fh->fd, 1, eventset);
     }
   else if (fds->priv != NULL)
     {
@@ -286,7 +259,7 @@ static int lirc_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
   FAR unsigned int *val = (unsigned int *)(uintptr_t)arg;
   int ret;
 
-  ret = nxsem_wait(&upper->exclsem);
+  ret = nxmutex_lock(&upper->lock);
   if (ret < 0)
     {
       return ret;
@@ -601,7 +574,7 @@ static int lirc_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
         ret = -ENOTTY;
     }
 
-  nxsem_post(&upper->exclsem);
+  nxmutex_unlock(&upper->lock);
   return ret;
 }
 
@@ -657,7 +630,7 @@ static ssize_t lirc_write(FAR struct file *filep, FAR const char *buffer,
   FAR struct lirc_fh_s *fh = filep->f_priv;
   ssize_t ret;
 
-  ret = nxsem_wait(&upper->exclsem);
+  ret = nxmutex_lock(&upper->lock);
   if (ret < 0)
     {
       return ret;
@@ -672,7 +645,7 @@ static ssize_t lirc_write(FAR struct file *filep, FAR const char *buffer,
       ret = lirc_write_pulse(filep, buffer, buflen);
     }
 
-  nxsem_post(&upper->exclsem);
+  nxmutex_unlock(&upper->lock);
   return ret;
 }
 
@@ -814,7 +787,7 @@ int lirc_register(FAR struct lirc_lowerhalf_s *lower, int devno)
 
   upper->lower = lower;
   list_initialize(&upper->fh);
-  nxsem_init(&upper->exclsem, 0, 1);
+  nxmutex_init(&upper->lock);
   lower->priv = upper;
 
   /* Register remote control character device */
@@ -829,7 +802,7 @@ int lirc_register(FAR struct lirc_lowerhalf_s *lower, int devno)
   return ret;
 
 drv_err:
-  nxsem_destroy(&upper->exclsem);
+  nxmutex_destroy(&upper->lock);
   kmm_free(upper);
   return ret;
 }
@@ -851,7 +824,7 @@ void lirc_unregister(FAR struct lirc_lowerhalf_s *lower, int devno)
   FAR struct lirc_upperhalf_s *upper = lower->priv;
   char path[DEVNAME_MAX];
 
-  nxsem_destroy(&upper->exclsem);
+  nxmutex_destroy(&upper->lock);
   snprintf(path, DEVNAME_MAX, DEVNAME_FMT, devno);
   rcinfo("UnRegistering %s\n", path);
   unregister_driver(path);
@@ -941,7 +914,7 @@ void lirc_raw_event(FAR struct lirc_lowerhalf_s *lower,
               fh = (FAR struct lirc_fh_s *)node;
               if (circbuf_write(&fh->buffer, &gap, sizeof(int)) > 0)
                 {
-                  lirc_pollnotify(fh, POLLIN | POLLRDNORM);
+                  poll_notify(&fh->fd, 1, POLLIN | POLLRDNORM);
                   nxsem_get_value(&fh->waitsem, &semcount);
                   if (semcount < 1)
                     {
@@ -971,7 +944,7 @@ void lirc_raw_event(FAR struct lirc_lowerhalf_s *lower,
 
       if (circbuf_write(&fh->buffer, &sample, sizeof(unsigned int)) > 0)
         {
-          lirc_pollnotify(fh, POLLIN | POLLRDNORM);
+          poll_notify(&fh->fd, 1, POLLIN | POLLRDNORM);
           nxsem_get_value(&fh->waitsem, &semcount);
           if (semcount < 1)
             {
@@ -1015,7 +988,7 @@ void lirc_scancode_event(FAR struct lirc_lowerhalf_s *lower,
       fh = (FAR struct lirc_fh_s *)node;
       if (circbuf_write(&fh->buffer, lsc, sizeof(*lsc)) > 0)
         {
-          lirc_pollnotify(fh, POLLIN | POLLRDNORM);
+          poll_notify(&fh->fd, 1, POLLIN | POLLRDNORM);
           nxsem_get_value(&fh->waitsem, &semcount);
           if (semcount < 1)
             {
@@ -1061,7 +1034,7 @@ void lirc_sample_event(FAR struct lirc_lowerhalf_s *lower,
       fh = (FAR struct lirc_fh_s *)node;
       if (circbuf_write(&fh->buffer, &sample, sizeof(unsigned int)) > 0)
         {
-          lirc_pollnotify(fh, POLLIN | POLLRDNORM);
+          poll_notify(&fh->fd, 1, POLLIN | POLLRDNORM);
           nxsem_get_value(&fh->waitsem, &semcount);
           if (semcount < 1)
             {

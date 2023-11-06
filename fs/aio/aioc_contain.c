@@ -74,8 +74,6 @@ FAR struct aio_container_s *aio_contain(FAR struct aiocb *aiocbp)
       goto errout;
     }
 
-  DEBUGASSERT(filep != NULL);
-
   /* Allocate the AIO control block container, waiting for one to become
    * available if necessary.  This should not fail except for in the case
    * where the calling thread is canceled.
@@ -89,7 +87,7 @@ FAR struct aio_container_s *aio_contain(FAR struct aiocb *aiocbp)
       memset(aioc, 0, sizeof(struct aio_container_s));
       aioc->aioc_aiocbp = aiocbp;
       aioc->aioc_filep  = filep;
-      aioc->aioc_pid    = getpid();
+      aioc->aioc_pid    = nxsched_getpid();
 
 #ifdef CONFIG_PRIORITY_INHERITANCE
       DEBUGVERIFY(nxsched_get_param (aioc->aioc_pid, &param));

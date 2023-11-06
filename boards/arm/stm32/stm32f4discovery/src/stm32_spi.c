@@ -61,6 +61,12 @@ void weak_function stm32_spidev_initialize(void)
   stm32_configgpio(GPIO_ENC28J60_INTR);
 #endif
 
+#ifdef CONFIG_NET_W5500
+  stm32_configgpio(GPIO_W5500_CS);
+  stm32_configgpio(GPIO_W5500_RESET);
+  stm32_configgpio(GPIO_W5500_INTR);
+#endif
+
 #ifdef CONFIG_STM32_SPI1
   stm32_configgpio(GPIO_CS_MEMS);    /* MEMS chip select */
 #endif
@@ -83,12 +89,12 @@ void weak_function stm32_spidev_initialize(void)
 #if defined(CONFIG_LCD_UG2864AMBAG01) || defined(CONFIG_LCD_UG2864HSWEG01) || \
     defined(CONFIG_LCD_SSD1351)
   stm32_configgpio(GPIO_OLED_CS);    /* OLED chip select */
-# if defined(CONFIG_LCD_UG2864AMBAG01)
+#  if defined(CONFIG_LCD_UG2864AMBAG01)
   stm32_configgpio(GPIO_OLED_A0);    /* OLED Command/Data */
-# endif
-# if defined(CONFIG_LCD_UG2864HSWEG01) || defined(CONFIG_LCD_SSD1351)
+#  endif
+#  if defined(CONFIG_LCD_UG2864HSWEG01) || defined(CONFIG_LCD_SSD1351)
   stm32_configgpio(GPIO_OLED_DC);    /* OLED Command/Data */
-# endif
+#  endif
 #endif
 }
 
@@ -131,6 +137,15 @@ void stm32_spi1select(struct spi_dev_s *dev, uint32_t devid,
       /* Set the GPIO low to select and high to de-select */
 
       stm32_gpiowrite(GPIO_ENC28J60_CS, !selected);
+    }
+#endif
+
+#ifdef CONFIG_NET_W5500
+  if (devid == SPIDEV_ETHERNET(0))
+    {
+      /* Set the GPIO low to select and high to de-select */
+
+      stm32_gpiowrite(GPIO_W5500_CS, !selected);
     }
 #endif
 
@@ -301,12 +316,12 @@ int stm32_spi1cmddata(struct spi_dev_s *dev, uint32_t devid, bool cmd)
        *       registers."
        */
 
-# if defined(CONFIG_LCD_UG2864AMBAG01)
+#  if defined(CONFIG_LCD_UG2864AMBAG01)
       stm32_gpiowrite(GPIO_OLED_A0, !cmd);
-# endif
-# if defined(CONFIG_LCD_UG2864HSWEG01) || defined(CONFIG_LCD_SSD1351)
+#  endif
+#  if defined(CONFIG_LCD_UG2864HSWEG01) || defined(CONFIG_LCD_SSD1351)
       stm32_gpiowrite(GPIO_OLED_DC, !cmd);
-# endif
+#  endif
       return OK;
     }
 #endif

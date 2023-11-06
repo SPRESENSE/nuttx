@@ -57,7 +57,7 @@ static int     comp_notify(FAR struct comp_dev_s *dev, uint8_t val);
  * Private Data
  ****************************************************************************/
 
-static const struct file_operations comp_fops =
+static const struct file_operations g_comp_fops =
 {
   comp_open,                    /* open */
   comp_close,                   /* close */
@@ -65,10 +65,9 @@ static const struct file_operations comp_fops =
   NULL,                         /* write */
   NULL,                         /* seek */
   comp_ioctl,                   /* ioctl */
+  NULL,                         /* mmap */
+  NULL,                         /* truncate */
   comp_poll                     /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL                        /* unlink */
-#endif
 };
 
 static const struct comp_callback_s g_comp_callback =
@@ -79,57 +78,6 @@ static const struct comp_callback_s g_comp_callback =
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
-
-/****************************************************************************
- * Name: comp_pollnotify
- *
- * Description:
- *   This function is called to notify any waiters of poll-reated events.
- *
- ****************************************************************************/
-
-static void comp_pollnotify(FAR struct comp_dev_s *dev,
-                            pollevent_t eventset)
-{
-  int i;
-
-  if (eventset & POLLERR)
-    {
-      eventset &= ~(POLLOUT | POLLIN);
-    }
-
-  for (i = 0; i < CONFIG_DEV_COMP_NPOLLWAITERS; i++)
-    {
-      FAR struct pollfd *fds = dev->d_fds[i];
-
-      if (fds)
-        {
-          fds->revents |= eventset & (fds->events | POLLERR | POLLHUP);
-
-          if ((fds->revents & (POLLOUT | POLLHUP)) == (POLLOUT | POLLHUP))
-            {
-              /* POLLOUT and POLLHUP are mutually exclusive. */
-
-              fds->revents &= ~POLLOUT;
-            }
-
-          if (fds->revents != 0)
-            {
-              ainfo("Report events: %08" PRIx32 "\n", fds->revents);
-              nxsem_post(fds->sem);
-            }
-        }
-    }
-}
-
-/****************************************************************************
- * Name: comp_semtake
- ****************************************************************************/
-
-static int comp_semtake(FAR sem_t *sem)
-{
-  return nxsem_wait_uninterruptible(sem);
-}
 
 /****************************************************************************
  * Name: comp_poll
@@ -147,7 +95,7 @@ static int comp_poll(FAR struct file *filep, FAR struct pollfd *fds,
 
   /* Are we setting up the poll?  Or tearing it down? */
 
-  ret = comp_semtake(&dev->ad_sem);
+  ret = nxmutex_lock(&dev->ad_lock);
   if (ret < 0)
     {
       return ret;
@@ -201,7 +149,7 @@ static int comp_poll(FAR struct file *filep, FAR struct pollfd *fds,
     }
 
 errout:
-  nxsem_post(&dev->ad_sem);
+  nxmutex_unlock(&dev->ad_lock);
   return ret;
 }
 
@@ -220,7 +168,7 @@ static int comp_notify(FAR struct comp_dev_s *dev, uint8_t val)
 
   dev->val = val;
 
-  comp_pollnotify(dev, POLLIN);
+  poll_notify(dev->d_fds, CONFIG_DEV_COMP_NPOLLWAITERS, POLLIN);
   nxsem_post(&dev->ad_readsem);
 
   return 0;
@@ -245,7 +193,7 @@ static int comp_open(FAR struct file *filep)
    * finished.
    */
 
-  ret = nxsem_wait(&dev->ad_sem);
+  ret = nxmutex_lock(&dev->ad_lock);
   if (ret >= 0)
     {
       /* Increment the count of references to the device.  If this is the
@@ -283,7 +231,7 @@ static int comp_open(FAR struct file *filep)
             }
         }
 
-      nxsem_post(&dev->ad_sem);
+      nxmutex_unlock(&dev->ad_lock);
     }
 
   return ret;
@@ -300,12 +248,12 @@ static int comp_open(FAR struct file *filep)
 
 static int comp_close(FAR struct file *filep)
 {
-  FAR struct inode     *inode = filep->f_inode;
+  FAR struct inode      *inode = filep->f_inode;
   FAR struct comp_dev_s *dev   = inode->i_private;
   irqstate_t            flags;
   int                   ret;
 
-  ret = nxsem_wait(&dev->ad_sem);
+  ret = nxmutex_lock(&dev->ad_lock);
   if (ret >= 0)
     {
       /* Decrement the references to the driver.  If the reference count will
@@ -315,7 +263,7 @@ static int comp_close(FAR struct file *filep)
       if (dev->ad_ocount > 1)
         {
           dev->ad_ocount--;
-          nxsem_post(&dev->ad_sem);
+          nxmutex_unlock(&dev->ad_lock);
         }
       else
         {
@@ -329,7 +277,7 @@ static int comp_close(FAR struct file *filep)
           dev->ad_ops->ao_shutdown(dev);          /* Disable the COMP */
           leave_critical_section(flags);
 
-          nxsem_post(&dev->ad_sem);
+          nxmutex_unlock(&dev->ad_lock);
         }
     }
 
@@ -398,13 +346,11 @@ int comp_register(FAR const char *path, FAR struct comp_dev_s *dev)
 
   dev->ad_ocount = 0;
 
-  /* Initialize semaphores */
+  /* Initialize mutex */
 
-  nxsem_init(&dev->ad_sem, 0, 1);
-  nxsem_set_protocol(&dev->ad_sem, SEM_PRIO_NONE);
+  nxmutex_init(&dev->ad_lock);
 
   nxsem_init(&dev->ad_readsem, 0, 0);
-  nxsem_set_protocol(&dev->ad_readsem, SEM_PRIO_NONE);
 
   /* Bind the upper-half callbacks to the lower half COMP driver */
 
@@ -416,16 +362,19 @@ int comp_register(FAR const char *path, FAR struct comp_dev_s *dev)
       if (ret < 0)
         {
           aerr("ERROR: Failed to bind callbacks: %d\n", ret);
+          nxmutex_destroy(&dev->ad_lock);
+          nxsem_destroy(&dev->ad_readsem);
           return ret;
         }
     }
 
   /* Register the COMP character driver */
 
-  ret =  register_driver(path, &comp_fops, 0444, dev);
+  ret = register_driver(path, &g_comp_fops, 0444, dev);
   if (ret < 0)
     {
-      nxsem_destroy(&dev->ad_sem);
+      nxmutex_destroy(&dev->ad_lock);
+      nxsem_destroy(&dev->ad_readsem);
     }
 
   return ret;

@@ -59,20 +59,6 @@
 #define RASIZE      sizeof(struct ipv6_router_alert_s)
 #define MLD_HDRLEN  (IPv6_HDRLEN + RASIZE)
 
-/* Buffer layout */
-
-#define IPv6BUF     ((FAR struct ipv6_hdr_s *)&dev->d_buf[NET_LL_HDRLEN(dev)])
-#define RABUF       ((FAR struct ipv6_router_alert_s *) \
-                     (&dev->d_buf[NET_LL_HDRLEN(dev)] + IPv6_HDRLEN))
-#define QUERYBUF    ((FAR struct mld_mcast_listen_query_s *) \
-                     (&dev->d_buf[NET_LL_HDRLEN(dev)] + MLD_HDRLEN))
-#define V1REPORTBUF ((FAR struct mld_mcast_listen_report_v1_s *) \
-                     (&dev->d_buf[NET_LL_HDRLEN(dev)] + MLD_HDRLEN))
-#define V2REPORTBUF ((FAR struct mld_mcast_listen_report_v2_s *) \
-                     (&dev->d_buf[NET_LL_HDRLEN(dev)] + MLD_HDRLEN))
-#define DONEBUF     ((FAR struct mld_mcast_listen_done_s *) \
-                     (&dev->d_buf[NET_LL_HDRLEN(dev)] + MLD_HDRLEN))
-
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
@@ -101,7 +87,6 @@
 void mld_send(FAR struct net_driver_s *dev, FAR struct mld_group_s *group,
               uint8_t msgtype)
 {
-  FAR struct ipv6_hdr_s *ipv6;
   FAR struct ipv6_router_alert_s *ra;
   FAR const uint16_t *destipaddr;
   unsigned int mldsize;
@@ -110,6 +95,13 @@ void mld_send(FAR struct net_driver_s *dev, FAR struct mld_group_s *group,
 
   DEBUGASSERT(dev != NULL);
   DEBUGASSERT(msgtype == MLD_SEND_GENQUERY || group != NULL);
+
+  /* Prepare device buffer */
+
+  if (netdev_iob_prepare(dev, false, 0) != OK)
+    {
+      return;
+    }
 
   /* Select IPv6 */
 
@@ -174,22 +166,9 @@ void mld_send(FAR struct net_driver_s *dev, FAR struct mld_group_s *group,
 
   dev->d_sndlen  = RASIZE + mldsize;
 
-  /* Set up the IPv6 header */
+  /* Update device buffer length */
 
-  ipv6           = IPv6BUF;
-  ipv6->vtc      = 0x60;                     /* Version/traffic class (MS) */
-  ipv6->tcf      = 0;                        /* Traffic class(LS)/Flow label(MS) */
-  ipv6->flow     = 0;                        /* Flow label (LS) */
-  ipv6->len[0]   = (dev->d_sndlen >> 8);     /* Length excludes the IPv6 header */
-  ipv6->len[1]   = (dev->d_sndlen & 0xff);   /* but includes the extension headers */
-  ipv6->proto    = NEXT_HOPBYBOT_EH;         /* Hop-to-hop extension header */
-  ipv6->ttl      = MLD_TTL;                  /* MLD Time-to-live */
-
-  /* Select the IPv6 source address (the local interface assigned to the
-   * network device).
-   */
-
-  net_ipv6addr_hdrcopy(ipv6->srcipaddr, dev->d_ipv6addr);
+  iob_update_pktlen(dev->d_iob, dev->d_len, false);
 
   /* Select the IPv6 destination address.
    * This varies with the type of message being sent:
@@ -227,17 +206,19 @@ void mld_send(FAR struct net_driver_s *dev, FAR struct mld_group_s *group,
     }
 
   mldinfo("destipaddr: %04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x\n",
-          destipaddr[0], destipaddr[1], destipaddr[2], destipaddr[3],
-          destipaddr[4], destipaddr[5], destipaddr[6], destipaddr[7]);
+          NTOHS(destipaddr[0]), NTOHS(destipaddr[1]), NTOHS(destipaddr[2]),
+          NTOHS(destipaddr[3]), NTOHS(destipaddr[4]), NTOHS(destipaddr[5]),
+          NTOHS(destipaddr[6]), NTOHS(destipaddr[7]));
 
-  net_ipv6addr_hdrcopy(ipv6->destipaddr, destipaddr);
+  ipv6_build_header(IPv6BUF, dev->d_sndlen, NEXT_HOPBYBOT_EH,
+                    dev->d_ipv6addr, destipaddr, MLD_TTL, 0);
 
   /* Add the router alert IP header option.
    *
    * The IPv6 router alert option (type 5) is defined in RFC 2711.
    */
 
-  ra              = RABUF;
+  ra              = IPBUF(IPv6_HDRLEN);
   memset(ra, 0, RASIZE);
 
   ra->hbyh.nxthdr = IP_PROTO_ICMP6;          /* ICMPv6 payload follows extension header */
@@ -253,7 +234,7 @@ void mld_send(FAR struct net_driver_s *dev, FAR struct mld_group_s *group,
       case MLD_SEND_GENQUERY:           /* Send General Query */
       case MLD_SEND_MASQUERY:           /* Send Multicast Address Specific (MAS) Query */
         {
-          FAR struct mld_mcast_listen_query_s *query = QUERYBUF;
+          FAR struct mld_mcast_listen_query_s *query = IPBUF(MLD_HDRLEN);
 
           /* Initialize the Query payload.  In a General Query, both the
            * Multicast Address field and the Number of Sources (N)
@@ -307,7 +288,7 @@ void mld_send(FAR struct net_driver_s *dev, FAR struct mld_group_s *group,
             {
               /* Update accumulated membership for all groups. */
 
-              mld_new_pollcycle(dev)
+              mld_new_pollcycle(dev);
             }
           else
             {
@@ -322,7 +303,8 @@ void mld_send(FAR struct net_driver_s *dev, FAR struct mld_group_s *group,
 
       case MLD_SEND_V1REPORT:           /* Send MLDv1 Report message */
         {
-          FAR struct mld_mcast_listen_report_v1_s *report = V1REPORTBUF;
+          FAR struct mld_mcast_listen_report_v1_s *report =
+                                                   IPBUF(MLD_HDRLEN);
 
           /* Initialize the Report payload */
 
@@ -342,7 +324,8 @@ void mld_send(FAR struct net_driver_s *dev, FAR struct mld_group_s *group,
 
       case MLD_SEND_V2REPORT:           /* Send MLDv2 Report message */
         {
-          FAR struct mld_mcast_listen_report_v2_s *report = V2REPORTBUF;
+          FAR struct mld_mcast_listen_report_v2_s *report =
+                                                   IPBUF(MLD_HDRLEN);
           FAR struct mld_mcast_addrec_v2_s *addrec;
 
           /* Initialize the Report payload */
@@ -367,7 +350,7 @@ void mld_send(FAR struct net_driver_s *dev, FAR struct mld_group_s *group,
 
       case MLD_SEND_DONE:               /* Send Done message */
         {
-          FAR struct mld_mcast_listen_done_s *done = DONEBUF;
+          FAR struct mld_mcast_listen_done_s *done = IPBUF(MLD_HDRLEN);
 
           /* Initialize the Done payload */
 
@@ -391,8 +374,7 @@ void mld_send(FAR struct net_driver_s *dev, FAR struct mld_group_s *group,
   MLD_STATINCR(g_netstats.icmpv6.sent);
   MLD_STATINCR(g_netstats.ipv6.sent);
 
-  mldinfo("Outgoing ICMPv6 MLD packet length: %d (%d)\n",
-          dev->d_len, (ipv6->len[0] << 8) | ipv6->len[1]);
+  mldinfo("Outgoing ICMPv6 MLD packet length: %d\n", dev->d_len);
 
   mld_dumppkt((FAR const uint8_t *)IPv6BUF, MLD_HDRLEN + mldsize);
 }

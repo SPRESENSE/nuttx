@@ -28,9 +28,9 @@
  * Public Data
  ****************************************************************************/
 
-/** Settings for 905 MHz, GFSK at 250kbps
+/* Settings for 905 MHz, GFSK at 250kbps
  *
- *  ISM Region 2 (America) only, Band 902–928 MHz
+ *  ISM Region 2 (America) only, Band 902-928 MHz
  *
  *  Cordless phones          1 W
  *  Microwave ovens        750 W

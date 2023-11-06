@@ -40,14 +40,14 @@
 #include <nuttx/wdog.h>
 #include <nuttx/irq.h>
 #include <nuttx/wqueue.h>
-
-#include <arch/board/board.h>
-#include <nuttx/net/arp.h>
+#include <nuttx/net/ip.h>
 #include <nuttx/net/netdev.h>
 
 #ifdef CONFIG_NET_PKT
 #  include <nuttx/net/pkt.h>
 #endif
+
+#include <arch/board/board.h>
 
 #include "chip.h"
 #include "arm_internal.h"
@@ -158,11 +158,13 @@
 
 #define TIVA_TXTIMEOUT (60*CLK_TCK)
 
-/* This is a helper pointer for accessing the contents of Ethernet header */
-
-#define ETHBUF ((struct eth_hdr_s *)priv->ld_dev.d_buf)
-
 #define TIVA_MAX_MDCCLK 2500000
+
+/* This is a helper pointer for accessing the contents of the Ethernet
+ * header
+ */
+
+#define BUF ((struct eth_hdr_s *)&dev->d_buf[0])
 
 /****************************************************************************
  * Private Types
@@ -607,54 +609,12 @@ static int tiva_transmit(struct tiva_driver_s *priv)
 static int tiva_txpoll(struct net_driver_s *dev)
 {
   struct tiva_driver_s *priv = (struct tiva_driver_s *)dev->d_private;
-  int ret = OK;
 
-  /* If the polling resulted in data that should be sent out on the network,
-   * the field d_len is set to a value > 0.
+  /* Send the packet.  tiva_transmit() will return zero if the
+   * packet was successfully handled.
    */
 
-  ninfo("Poll result: d_len=%d\n", priv->ld_dev.d_len);
-  if (priv->ld_dev.d_len > 0)
-    {
-      DEBUGASSERT(!(tiva_ethin(priv, TIVA_MAC_TR_OFFSET) & MAC_TR_NEWTX));
-
-      /* Look up the destination MAC address and add it to the Ethernet
-       * header.
-       */
-
-#ifdef CONFIG_NET_IPv4
-#ifdef CONFIG_NET_IPv6
-      if (IFF_IS_IPv4(priv->ld_dev.d_flags))
-#endif
-        {
-          arp_out(&priv->ld_dev);
-        }
-#endif /* CONFIG_NET_IPv4 */
-
-#ifdef CONFIG_NET_IPv6
-#ifdef CONFIG_NET_IPv4
-      else
-#endif
-        {
-          neighbor_out(&priv->ld_dev);
-        }
-#endif /* CONFIG_NET_IPv6 */
-
-      if (!devif_loopback(&priv->ld_dev))
-        {
-          /* Send the packet.  tiva_transmit() will return zero if the
-           * packet was successfully handled.
-           */
-
-          ret = tiva_transmit(priv);
-        }
-    }
-
-  /* If zero is returned, the polling will continue until all connections
-   * have been examined.
-   */
-
-  return ret;
+  return tiva_transmit(priv);
 }
 
 /****************************************************************************
@@ -675,10 +635,11 @@ static int tiva_txpoll(struct net_driver_s *dev)
 
 static void tiva_receive(struct tiva_driver_s *priv)
 {
+  struct net_driver_s *dev = &priv->ld_dev;
   uint32_t regval;
   uint8_t *dbuf;
-  int      pktlen;
-  int      bytesleft;
+  int bytesleft;
+  int pktlen;
 
   /* Loop while there are incoming packets to be processed */
 
@@ -686,13 +647,13 @@ static void tiva_receive(struct tiva_driver_s *priv)
     {
       /* Update statistics */
 
-      NETDEV_RXPACKETS(&priv->ld_dev);
+      NETDEV_RXPACKETS(dev);
 
-      /* Copy the data data from the hardware to priv->ld_dev.d_buf.  Set
-       * amount of data in priv->ld_dev.d_len
+      /* Copy the data data from the hardware to dev->d_buf.  Set
+       * amount of data in dev->d_len
        */
 
-      dbuf = priv->ld_dev.d_buf;
+      dbuf = dev->d_buf;
 
       /* The packet frame length begins in the LS 16-bits of the first
        * word from the FIFO followed by the Ethernet header beginning
@@ -719,7 +680,7 @@ static void tiva_receive(struct tiva_driver_s *priv)
           /* We will have to drop this packet */
 
           nwarn("WARNING: Bad packet size dropped (%d)\n", pktlen);
-          NETDEV_RXERRORS(&priv->ld_dev);
+          NETDEV_RXERRORS(dev);
 
           /* The number of bytes and words left to read is pktlen - 4
            * (including, the final, possibly partial word) because we've
@@ -789,52 +750,34 @@ static void tiva_receive(struct tiva_driver_s *priv)
        * and 4 bytes for the FCS.
        */
 
-      priv->ld_dev.d_len = pktlen - 6;
+      dev->d_len = pktlen - 6;
       tiva_dumppacket("Received packet",
-                      priv->ld_dev.d_buf, priv->ld_dev.d_len);
+                      dev->d_buf, dev->d_len);
 
 #ifdef CONFIG_NET_PKT
       /* When packet sockets are enabled, feed the frame into the tap */
 
-       pkt_input(&priv->ld_dev);
+       pkt_input(dev);
 #endif
 
       /* We only accept IP packets of the configured type and ARP packets */
 
 #ifdef CONFIG_NET_IPv4
-      if (ETHBUF->type == HTONS(ETHTYPE_IP))
+      if (BUF->type == HTONS(ETHTYPE_IP))
         {
           ninfo("IPv4 frame\n");
-          NETDEV_RXIPV4(&priv->ld_dev);
+          NETDEV_RXIPV4(dev);
 
-          /* Handle ARP on input then give the IPv4 packet to the network
-           * layer
-           */
+          /* Receive an IPv4 packet from the network device */
 
-          arp_ipin(&priv->ld_dev);
-          ipv4_input(&priv->ld_dev);
+          ipv4_input(dev);
 
           /* If the above function invocation resulted in data that should be
            * sent out on the network, d_len field will set to a value > 0.
            */
 
-          if (priv->ld_dev.d_len > 0)
+          if (dev->d_len > 0)
             {
-              /* Update the Ethernet header with the correct MAC address */
-
-#ifdef CONFIG_NET_IPv6
-              if (IFF_IS_IPv4(priv->ld_dev.d_flags))
-#endif
-                {
-                  arp_out(&priv->ld_dev);
-                }
-#ifdef CONFIG_NET_IPv6
-              else
-                {
-                  neighbor_out(&priv->ld_dev);
-                }
-#endif
-
               /* And send the packet */
 
               tiva_transmit(priv);
@@ -843,37 +786,21 @@ static void tiva_receive(struct tiva_driver_s *priv)
       else
 #endif
 #ifdef CONFIG_NET_IPv6
-      if (ETHBUF->type == HTONS(ETHTYPE_IP6))
+      if (BUF->type == HTONS(ETHTYPE_IP6))
         {
           ninfo("IPv6 frame\n");
-          NETDEV_RXIPV6(&priv->ld_dev);
+          NETDEV_RXIPV6(dev);
 
           /* Give the IPv6 packet to the network layer */
 
-          arp_ipin(&priv->ld_dev);
-          ipv6_input(&priv->ld_dev);
+          ipv6_input(dev);
 
           /* If the above function invocation resulted in data that should be
            * sent out on the network, d_len field will set to a value > 0.
            */
 
           if (priv->dev.d_len > 0)
-           {
-              /* Update the Ethernet header with the correct MAC address */
-
-#ifdef CONFIG_NET_IPv4
-              if (IFF_IS_IPv4(priv->ld_dev.d_flags))
-                {
-                  arp_out(&priv->ld_dev);
-                }
-              else
-#endif
-#ifdef CONFIG_NET_IPv6
-                {
-                  neighbor_out(&priv->ld_dev);
-                }
-#endif
-
+            {
               /* And send the packet */
 
               tiva_transmit(priv);
@@ -882,18 +809,18 @@ static void tiva_receive(struct tiva_driver_s *priv)
       else
 #endif
 #ifdef CONFIG_NET_ARP
-      if (ETHBUF->type == HTONS(ETHTYPE_ARP))
+      if (BUF->type == HTONS(ETHTYPE_ARP))
         {
-          ninfo("ARP packet received (%02x)\n", ETHBUF->type);
-          NETDEV_RXARP(&priv->ld_dev);
+          ninfo("ARP packet received (%02x)\n", BUF->type);
+          NETDEV_RXARP(dev);
 
-          arp_arpin(&priv->ld_dev);
+          arp_input(dev);
 
           /* If the above function invocation resulted in data that should be
            * sent out on the network, d_len field will set to a value > 0.
            */
 
-           if (priv->ld_dev.d_len > 0)
+           if (dev->d_len > 0)
              {
                tiva_transmit(priv);
              }
@@ -902,8 +829,8 @@ static void tiva_receive(struct tiva_driver_s *priv)
 #endif
         {
           nwarn("WARNING: Unsupported packet type dropped (%02x)\n",
-                HTONS(ETHBUF->type));
-          NETDEV_RXDROPPED(&priv->ld_dev);
+                HTONS(BUF->type));
+          NETDEV_RXDROPPED(dev);
         }
     }
 }
@@ -1205,11 +1132,9 @@ static int tiva_ifup(struct net_driver_s *dev)
   uint16_t phyreg;
 #endif
 
-  ninfo("Bringing up: %d.%d.%d.%d\n",
-        (int)(dev->d_ipaddr & 0xff),
-        (int)((dev->d_ipaddr >> 8) & 0xff),
-        (int)((dev->d_ipaddr >> 16) & 0xff),
-        (int)(dev->d_ipaddr >> 24));
+  ninfo("Bringing up: %u.%u.%u.%u\n",
+        ip4_addr1(dev->d_ipaddr), ip4_addr2(dev->d_ipaddr),
+        ip4_addr3(dev->d_ipaddr), ip4_addr4(dev->d_ipaddr));
 
   /* Enable and reset the Ethernet controller */
 
@@ -1359,11 +1284,9 @@ static int tiva_ifdown(struct net_driver_s *dev)
   irqstate_t flags;
   uint32_t regval;
 
-  ninfo("Taking down: %d.%d.%d.%d\n",
-        (int)(dev->d_ipaddr & 0xff),
-        (int)((dev->d_ipaddr >> 8) & 0xff),
-        (int)((dev->d_ipaddr >> 16) & 0xff),
-        (int)(dev->d_ipaddr >> 24));
+  ninfo("Taking down: %u.%u.%u.%u\n",
+        ip4_addr1(dev->d_ipaddr), ip4_addr2(dev->d_ipaddr),
+        ip4_addr3(dev->d_ipaddr), ip4_addr4(dev->d_ipaddr));
 
   /* Cancel the TX timeout timers */
 

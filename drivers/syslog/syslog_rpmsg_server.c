@@ -94,10 +94,6 @@ static const struct file_operations g_syslog_rpmsg_fops =
   NULL,                    /* write */
   NULL,                    /* seek */
   syslog_rpmsg_file_ioctl, /* ioctl */
-  NULL                     /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL                   /* unlink */
-#endif
 };
 
 /****************************************************************************
@@ -117,8 +113,6 @@ static int syslog_rpmsg_file_ioctl(FAR struct file *filep, int cmd,
     }
 
   nxsem_init(&sem, 0, 0);
-  nxsem_set_protocol(&sem, SEM_PRIO_NONE);
-
   nxmutex_lock(&g_lock);
   list_for_every_entry(&g_list, priv, struct syslog_rpmsg_server_s, node)
     {

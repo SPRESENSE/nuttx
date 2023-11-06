@@ -246,8 +246,6 @@ struct imxrt_sdhcregs_s
 
 /* Low-level helpers ********************************************************/
 
-static int  imxrt_takesem(struct imxrt_dev_s *priv);
-#define     imxrt_givesem(priv) (nxsem_post(&priv->waitsem))
 static void imxrt_configwaitints(struct imxrt_dev_s *priv, uint32_t waitints,
               sdio_eventset_t waitevents, sdio_eventset_t wkupevents);
 static void imxrt_configxfrints(struct imxrt_dev_s *priv, uint32_t xfrints);
@@ -424,7 +422,8 @@ struct imxrt_dev_s g_sdhcdev[IMXRT_MAX_SDHC_DEV_SLOTS] =
       .dmasendsetup     = imxrt_sendsetup,
 #endif
 #endif
-    }
+    },
+    .waitsem = SEM_INITIALIZER(0),
   },
 #endif
 
@@ -481,7 +480,8 @@ struct imxrt_dev_s g_sdhcdev[IMXRT_MAX_SDHC_DEV_SLOTS] =
       .dmarecvsetup     = imxrt_recvsetup,
       .dmasendsetup     = imxrt_sendsetup,
 #endif
-    }
+    },
+    .waitsem = SEM_INITIALIZER(0),
   }
 #endif
 #endif
@@ -496,27 +496,6 @@ static struct imxrt_sdhcregs_s g_sampleregs[DEBUG_NSAMPLES];
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
-
-/****************************************************************************
- * Name: imxrt_takesem
- *
- * Description:
- *   Take the wait semaphore (handling false alarm wakeups due to the receipt
- *   of signals).
- *
- * Input Parameters:
- *   dev - Instance of the SDIO device driver state structure.
- *
- * Returned Value:
- *   Normally OK, but may return -ECANCELED in the rare event that the task
- *   has been canceled.
- *
- ****************************************************************************/
-
-static int imxrt_takesem(struct imxrt_dev_s *priv)
-{
-  return nxsem_wait_uninterruptible(&priv->waitsem);
-}
 
 /****************************************************************************
  * Name: imxrt_configwaitints
@@ -971,7 +950,7 @@ static void imxrt_receive(struct imxrt_dev_s *priv)
         {
           /* Transfer any trailing fractional word */
 
-          uint8_t *ptr = (uint8_t *) priv->buffer;
+          uint8_t *ptr = (uint8_t *)priv->buffer;
           int i;
 
           for (i = 0; i < priv->remaining; i++)
@@ -1150,7 +1129,7 @@ static void imxrt_endwait(struct imxrt_dev_s *priv,
 
   /* Wake up the waiting thread */
 
-  imxrt_givesem(priv);
+  nxsem_post(&priv->waitsem);
 }
 
 /****************************************************************************
@@ -1396,8 +1375,12 @@ static int imxrt_lock(struct sdio_dev_s *dev, bool lock)
 {
   /* The multiplex bus is part of board support package. */
 
-  imxrt_muxbus_sdio_lock((dev - g_sdhcdev) /
-                         sizeof(struct imxrt_dev_s), lock);
+  /* FIXME: Implement the below function to support bus share:
+   *
+   * imxrt_muxbus_sdio_lock((dev - g_sdhcdev) /
+   *                        sizeof(struct imxrt_dev_s), lock);
+   */
+
   return OK;
 }
 #endif
@@ -1903,7 +1886,7 @@ static int imxrt_attach(struct sdio_dev_s *dev)
         }
       else
         {
-          ASSERT(false);
+          PANIC();
         }
     }
 
@@ -2265,7 +2248,8 @@ static int imxrt_recvsetup(struct sdio_dev_s *dev, uint8_t *buffer,
    * handler and DMA memory invalidation.
    */
 
-  priv->buffer = (uint32_t *) buffer; priv->remaining = nbytes;
+  priv->buffer = (uint32_t *)buffer;
+  priv->remaining = nbytes;
 
   /* Then set up the SDIO data path */
 
@@ -2313,7 +2297,8 @@ static int imxrt_sendsetup(struct sdio_dev_s *dev,
 
   /* Save the source buffer information for use by the interrupt handler */
 
-  priv->buffer = (uint32_t *) buffer; priv->remaining = nbytes;
+  priv->buffer = (uint32_t *)buffer;
+  priv->remaining = nbytes;
 
   /* Then set up the SDIO data path */
 
@@ -2818,7 +2803,7 @@ static sdio_eventset_t imxrt_eventwait(struct sdio_dev_s *dev)
        * incremented and there will be no wait.
        */
 
-      ret = imxrt_takesem(priv);
+      ret = nxsem_wait_uninterruptible(&priv->waitsem);
       if (ret < 0)
         {
           /* Task canceled.  Cancel the wdog (assuming it was started) and
@@ -3060,7 +3045,7 @@ static int imxrt_dmasendsetup(struct sdio_dev_s *dev,
 
 #  endif
 #endif
-  priv->buffer    = (uint32_t *) buffer;
+  priv->buffer    = (uint32_t *)buffer;
   priv->remaining = buflen;
 
   /* Then set up the SDIO data path */
@@ -3238,17 +3223,7 @@ struct sdio_dev_s *imxrt_usdhc_initialize(int slotno)
   DEBUGASSERT(slotno < IMXRT_MAX_SDHC_DEV_SLOTS);
   struct imxrt_dev_s *priv = &g_sdhcdev[slotno];
 
-  /* Initialize the USDHC slot structure data structure
-   * Initialize semaphores
-   */
-
-  nxsem_init(&priv->waitsem, 0, 0);
-
-  /* The waitsem semaphore is used for signaling and, hence, should not
-   * have priority inheritance enabled.
-   */
-
-  nxsem_set_protocol(&priv->waitsem, SEM_PRIO_NONE);
+  /* Initialize the USDHC slot structure data structure */
 
   switch (priv->addr)
     {

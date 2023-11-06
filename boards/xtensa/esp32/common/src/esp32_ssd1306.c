@@ -41,7 +41,14 @@
 #include "esp32_i2c.h"
 #include "hardware/esp32_gpio_sigmap.h"
 
-#include "ttgo_lora_esp32.h"
+#define HAVE_SSD1306 1
+
+#if !defined(CONFIG_ESP32_I2C) || !defined(CONFIG_ESP32_I2C0) || \
+    !defined(CONFIG_LCD_SSD1306_I2C)
+#  undef HAVE_SSD1306
+#endif
+
+#define GPIO_SSD1306_RST 16
 
 #ifdef HAVE_SSD1306
 
@@ -110,18 +117,6 @@ int board_lcd_initialize(void)
   /* And turn the OLED on */
 
   g_lcddev->setpower(g_lcddev, CONFIG_LCD_MAXPOWER);
-
-#if defined(CONFIG_VIDEO_FB) && defined(CONFIG_LCD_FRAMEBUFFER)
-
-  /* Initialize and register the simulated framebuffer driver */
-
-  ret = fb_register(0, 0);
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: fb_register() failed: %d\n", ret);
-      return -ENODEV;
-    }
-#endif
 
   return ret;
 }

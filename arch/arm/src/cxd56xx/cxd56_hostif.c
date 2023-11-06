@@ -24,6 +24,7 @@
 
 #include <nuttx/config.h>
 #include <nuttx/kmalloc.h>
+#include <nuttx/mutex.h>
 #include <nuttx/irq.h>
 
 #include <stdio.h>
@@ -89,7 +90,7 @@ struct cxd56_hifdev_s
   uint32_t      flags;
   const void    *buffer;
   size_t        len;
-  sem_t         exclsem;
+  mutex_t       lock;
   int           crefs;
 };
 
@@ -129,7 +130,10 @@ static int     hif_unlink(struct inode *inode);
 
 /* Host interface driver */
 
-static struct cxd56_hifdrv_s g_hifdrv;
+static struct cxd56_hifdrv_s g_hifdrv =
+{
+  .sync = SEM_INITIALIZER(0),
+};
 
 /* Host interface operations */
 
@@ -141,6 +145,8 @@ static const struct file_operations g_hif_fops =
   hif_write,   /* write */
   hif_seek,    /* seek */
   hif_ioctl,   /* ioctl */
+  NULL,        /* mmap */
+  NULL,        /* truncate */
   hif_poll     /* poll */
 #ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
   , hif_unlink /* unlink */
@@ -192,10 +198,9 @@ static int hif_open(struct file *filep)
   struct inode *inode;
   struct cxd56_hifdev_s *priv;
 
-  DEBUGASSERT(filep && filep->f_inode);
   inode = filep->f_inode;
 
-  priv = (struct cxd56_hifdev_s *)inode->i_private;
+  priv = inode->i_private;
   DEBUGASSERT(priv);
 
   /* Check parameters */
@@ -220,14 +225,14 @@ static int hif_open(struct file *filep)
 
   /* Increment reference counter */
 
-  nxsem_wait_uninterruptible(&priv->exclsem);
+  nxmutex_lock(&priv->lock);
 
   priv->crefs++;
   DEBUGASSERT(priv->crefs > 0);
 
   if (priv->crefs > 1)
     {
-      nxsem_post(&priv->exclsem);
+      nxmutex_unlock(&priv->lock);
       return OK;
     }
 
@@ -238,8 +243,7 @@ static int hif_open(struct file *filep)
       priv->flags |= O_NONBLOCK;
     }
 
-  nxsem_post(&priv->exclsem);
-
+  nxmutex_unlock(&priv->lock);
   return OK;
 }
 
@@ -248,21 +252,19 @@ static int hif_close(struct file *filep)
   struct inode *inode;
   struct cxd56_hifdev_s *priv;
 
-  DEBUGASSERT(filep && filep->f_inode);
   inode = filep->f_inode;
 
-  priv = (struct cxd56_hifdev_s *)inode->i_private;
+  priv = inode->i_private;
   DEBUGASSERT(priv);
 
   /* Decrement reference counter */
 
-  nxsem_wait_uninterruptible(&priv->exclsem);
+  nxmutex_lock(&priv->lock);
 
   DEBUGASSERT(priv->crefs > 0);
   priv->crefs--;
 
-  nxsem_post(&priv->exclsem);
-
+  nxmutex_unlock(&priv->lock);
   return OK;
 }
 
@@ -277,10 +279,9 @@ static ssize_t hif_read(struct file *filep, char *buffer, size_t len)
   struct cxd56_hifdev_s *priv;
   int ret;
 
-  DEBUGASSERT(filep && filep->f_inode);
   inode = filep->f_inode;
 
-  priv = (struct cxd56_hifdev_s *)inode->i_private;
+  priv = inode->i_private;
   DEBUGASSERT(priv);
 
   /* Check parameters */
@@ -309,10 +310,9 @@ static ssize_t hif_write(struct file *filep,
   struct cxd56_hifdev_s *priv;
   int ret;
 
-  DEBUGASSERT(filep && filep->f_inode);
   inode = filep->f_inode;
 
-  priv = (struct cxd56_hifdev_s *)inode->i_private;
+  priv = inode->i_private;
   DEBUGASSERT(priv);
 
   /* Check parameters */
@@ -380,8 +380,6 @@ static int hif_initialize(struct hostif_buff_s *buffer)
 
   DEBUGASSERT(buffer);
 
-  memset(drv, 0, sizeof(struct cxd56_hifdrv_s));
-
   /* Get the number of devices */
 
   for (num = 0; num < MAX_BUFFER_NUM; num++)
@@ -394,8 +392,7 @@ static int hif_initialize(struct hostif_buff_s *buffer)
 
   /* Setup driver structure */
 
-  drv->dev =
-    (struct cxd56_hifdev_s *)kmm_malloc(sizeof(struct cxd56_hifdev_s) * num);
+  drv->dev = kmm_malloc(sizeof(struct cxd56_hifdev_s) * num);
   if (drv->dev == NULL)
     {
       hiferr("ERROR: hostif allocation failed\n");
@@ -424,7 +421,7 @@ static int hif_initialize(struct hostif_buff_s *buffer)
           return ret;
         }
 
-      nxsem_init(&priv->exclsem, 0, 1);
+      nxmutex_init(&priv->lock);
       priv->crefs = 0;
     }
 
@@ -442,12 +439,7 @@ static int hif_initialize(struct hostif_buff_s *buffer)
 
   cxd56_iccinit(CXD56_PROTO_HOSTIF);
 
-  nxsem_init(&drv->sync, 0, 0);
-  nxsem_set_protocol(&drv->sync, SEM_PRIO_NONE);
-
-  ret = cxd56_iccregisterhandler(CXD56_PROTO_HOSTIF, hif_rxhandler, NULL);
-
-  return ret;
+  return cxd56_iccregisterhandler(CXD56_PROTO_HOSTIF, hif_rxhandler, NULL);
 }
 
 /****************************************************************************

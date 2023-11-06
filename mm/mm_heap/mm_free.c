@@ -37,7 +37,7 @@
  * Private Functions
  ****************************************************************************/
 
-static void mm_add_delaylist(FAR struct mm_heap_s *heap, FAR void *mem)
+static void add_delaylist(FAR struct mm_heap_s *heap, FAR void *mem)
 {
 #if defined(CONFIG_BUILD_FLAT) || defined(__KERNEL__)
   FAR struct mm_delaynode_s *tmp = mem;
@@ -72,9 +72,9 @@ void mm_free(FAR struct mm_heap_s *heap, FAR void *mem)
   FAR struct mm_freenode_s *node;
   FAR struct mm_freenode_s *prev;
   FAR struct mm_freenode_s *next;
-  int ret;
+  size_t nodesize;
+  size_t prevsize;
 
-  UNUSED(ret);
   minfo("Freeing %p\n", mem);
 
   /* Protect against attempts to free a NULL reference */
@@ -84,46 +84,60 @@ void mm_free(FAR struct mm_heap_s *heap, FAR void *mem)
       return;
     }
 
-  if (mm_takesemaphore(heap) == false)
+  DEBUGASSERT(mm_heapmember(heap, mem));
+
+#if CONFIG_MM_HEAP_MEMPOOL_THRESHOLD != 0
+  if (mempool_multiple_free(heap->mm_mpool, mem) >= 0)
+    {
+      return;
+    }
+#endif
+
+  if (mm_lock(heap) < 0)
     {
       /* Meet -ESRCH return, which means we are in situations
-       * during context switching(See mm_takesemaphore() & getpid()).
+       * during context switching(See mm_lock() & gettid()).
        * Then add to the delay list.
        */
 
-      mm_add_delaylist(heap, mem);
+      add_delaylist(heap, mem);
       return;
     }
 
-  kasan_poison(mem, mm_malloc_size(mem));
+#ifdef CONFIG_MM_FILL_ALLOCATIONS
+  memset(mem, 0x55, mm_malloc_size(heap, mem));
+#endif
 
-  DEBUGASSERT(mm_heapmember(heap, mem));
+  kasan_poison(mem, mm_malloc_size(heap, mem));
 
   /* Map the memory chunk into a free node */
 
-  node = (FAR struct mm_freenode_s *)((FAR char *)mem - SIZEOF_MM_ALLOCNODE);
+  node = (FAR struct mm_freenode_s *)((FAR char *)mem - MM_SIZEOF_ALLOCNODE);
+  nodesize = MM_SIZEOF_NODE(node);
 
   /* Sanity check against double-frees */
 
-  DEBUGASSERT(node->preceding & MM_ALLOC_BIT);
+  DEBUGASSERT(MM_NODE_IS_ALLOC(node));
 
-  node->preceding &= ~MM_ALLOC_BIT;
+  node->size &= ~MM_ALLOC_BIT;
 
   /* Check if the following node is free and, if so, merge it */
 
-  next = (FAR struct mm_freenode_s *)((FAR char *)node + node->size);
-  DEBUGASSERT((next->preceding & ~MM_ALLOC_BIT) == node->size);
-  if ((next->preceding & MM_ALLOC_BIT) == 0)
+  next = (FAR struct mm_freenode_s *)((FAR char *)node + nodesize);
+  DEBUGASSERT(MM_PREVNODE_IS_ALLOC(next));
+  if (MM_NODE_IS_FREE(next))
     {
       FAR struct mm_allocnode_s *andbeyond;
+      size_t nextsize = MM_SIZEOF_NODE(next);
 
       /* Get the node following the next node (which will
        * become the new next node). We know that we can never
        * index past the tail chunk because it is always allocated.
        */
 
-      andbeyond = (FAR struct mm_allocnode_s *)
-                    ((FAR char *)next + next->size);
+      andbeyond = (FAR struct mm_allocnode_s *)((FAR char *)next + nextsize);
+      DEBUGASSERT(MM_PREVNODE_IS_FREE(andbeyond) &&
+                  andbeyond->preceding == nextsize);
 
       /* Remove the next node.  There must be a predecessor,
        * but there may not be a successor node.
@@ -138,20 +152,28 @@ void mm_free(FAR struct mm_heap_s *heap, FAR void *mem)
 
       /* Then merge the two chunks */
 
-      node->size          += next->size;
-      andbeyond->preceding =  node->size |
-                              (andbeyond->preceding & MM_ALLOC_BIT);
+      nodesize            += nextsize;
+      node->size           = nodesize | (node->size & MM_MASK_BIT);
+      andbeyond->preceding = nodesize;
       next                 = (FAR struct mm_freenode_s *)andbeyond;
+    }
+  else
+    {
+      next->size     |= MM_PREVFREE_BIT;
+      next->preceding = nodesize;
     }
 
   /* Check if the preceding node is also free and, if so, merge
    * it with this node
    */
 
-  prev = (FAR struct mm_freenode_s *)((FAR char *)node - node->preceding);
-  DEBUGASSERT((node->preceding & ~MM_ALLOC_BIT) == prev->size);
-  if ((prev->preceding & MM_ALLOC_BIT) == 0)
+  if (MM_PREVNODE_IS_FREE(node))
     {
+      prev = (FAR struct mm_freenode_s *)
+        ((FAR char *)node - node->preceding);
+      prevsize = MM_SIZEOF_NODE(prev);
+      DEBUGASSERT(MM_NODE_IS_FREE(prev) && node->preceding == prevsize);
+
       /* Remove the node.  There must be a predecessor, but there may
        * not be a successor node.
        */
@@ -165,14 +187,14 @@ void mm_free(FAR struct mm_heap_s *heap, FAR void *mem)
 
       /* Then merge the two chunks */
 
-      prev->size     += node->size;
-      next->preceding = prev->size | (next->preceding & MM_ALLOC_BIT);
+      prevsize       += nodesize;
+      prev->size      = prevsize | (prev->size & MM_MASK_BIT);
+      next->preceding = prevsize;
       node            = prev;
     }
 
   /* Add the merged node to the nodelist */
 
   mm_addfreechunk(heap, node);
-
-  mm_givesemaphore(heap);
+  mm_unlock(heap);
 }

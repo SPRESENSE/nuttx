@@ -91,9 +91,10 @@ struct esp32s3_rt_priv_s
 
 static struct esp32s3_rt_priv_s g_rt_priv =
 {
-  .pid    = INVALID_PROCESS_ID,
-  .cpuint = -ENOMEM,
-  .core   = -ENODEV
+  .pid     = INVALID_PROCESS_ID,
+  .cpuint  = -ENOMEM,
+  .core    = -ENODEV,
+  .toutsem = SEM_INITIALIZER(0),
 };
 
 /****************************************************************************
@@ -715,7 +716,7 @@ int esp32s3_rt_timer_create(const struct rt_timer_args_s *args,
   DEBUGASSERT(args != NULL);
   DEBUGASSERT(args->callback != NULL);
 
-  timer = (struct rt_timer_s *)kmm_malloc(sizeof(*timer));
+  timer = kmm_malloc(sizeof(*timer));
   if (timer == NULL)
     {
       tmrerr("ERROR: Failed to allocate %d bytes\n", sizeof(*timer));
@@ -945,8 +946,6 @@ int esp32s3_rt_timer_init(void)
   irqstate_t flags;
   struct esp32s3_rt_priv_s *priv = &g_rt_priv;
 
-  nxsem_init(&priv->toutsem, 0, 0);
-
   pid = kthread_create(RT_TIMER_TASK_NAME,
                        RT_TIMER_TASK_PRIORITY,
                        RT_TIMER_TASK_STACK_SIZE,
@@ -1049,6 +1048,4 @@ void esp32s3_rt_timer_deinit(void)
       kthread_delete(priv->pid);
       priv->pid = INVALID_PROCESS_ID;
     }
-
-  nxsem_destroy(&priv->toutsem);
 }

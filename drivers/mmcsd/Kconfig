@@ -27,12 +27,25 @@ menuconfig MMCSD
 
 if MMCSD
 
+config MMCSD_IOCSUPPORT
+	bool "Enable MMC/SD ioctl support"
+	default y
+	---help---
+		Disable it to save some code size if required.
+
 config MMCSD_NSLOTS
 	int "Number of MMC/SD slots"
 	default 1
 	---help---
 		Number of MMC/SD slots supported by the
 		driver. Default is one.
+
+config MMCSD_PROCFS
+	bool "MMCSD proc fs support"
+	default n
+	depends on FS_PROCFS_REGISTER
+	---help---
+		Enable procfs for mmcsd.
 
 config MMCSD_READONLY
 	bool "Disable MMC/SD write access"
@@ -98,6 +111,12 @@ config MMCSD_IDMODE_CLOCK
 		SPI clock identify MMC/SD card.
 		Should be 400KHz or less.
 
+config MMCSD_SPIRETRY_COUNT
+	int "MMC/SD read/write fail retry max count"
+	default 0
+	---help---
+		Try to recovery MMCSD read/write fail.
+
 endif
 
 config SDIO_DMA
@@ -150,6 +169,13 @@ config SDIO_BLOCKSETUP
 		Some hardware needs to be informed of the selected blocksize and the
 		number of blocks.  Others just work on the byte stream.  This option
 		enables the block setup method in the SDIO vtable.
+
+config MMCSD_BLOCK_WDATADELAY
+	int "The wait timeout to write one data block"
+	default 260
+	---help---
+		Some hardware needs to configure this delay to write one data block, because
+		the hardware needs more time for wear leveling and bad block management.
 
 endif
 

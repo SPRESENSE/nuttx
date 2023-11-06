@@ -32,7 +32,7 @@
 #include <errno.h>
 
 #include <nuttx/kmalloc.h>
-#include <nuttx/semaphore.h>
+#include <nuttx/mutex.h>
 #include <nuttx/fs/fs.h>
 #include <nuttx/drivers/drivers.h>
 #include <nuttx/video/edid.h>
@@ -69,7 +69,7 @@ struct tda1988_dev_s
 
   /* Upper half driver state */
 
-  sem_t exclsem;              /* Assures exclusive access to the driver */
+  mutex_t lock;               /* Assures exclusive access to the driver */
   uint8_t page;               /* Currently selected page */
   uint8_t crefs;              /* Number of open references */
 #ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
@@ -162,7 +162,7 @@ static void    tda19988_shutdown(FAR struct tda1988_dev_s *priv);
  * Private Data
  ****************************************************************************/
 
-static const struct file_operations tda19988_fops =
+static const struct file_operations g_tda19988_fops =
 {
   tda19988_open,     /* open */
   tda19988_close,    /* close */
@@ -170,6 +170,8 @@ static const struct file_operations tda19988_fops =
   tda19988_write,    /* write */
   tda19988_seek,     /* seek */
   tda19988_ioctl,    /* ioctl */
+  NULL,              /* mmap */
+  NULL,              /* truncate */
   tda19988_poll      /* poll */
 #ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
   , tda19988_unlink  /* unlink */
@@ -719,8 +721,8 @@ static int tda19988_fetch_edid(struct tda1988_dev_s *priv)
       unsigned int edid_len;
       int i;
 
-      edid_len =  EDID_LENGTH * (blocks + 1);
-      edid     = (FAR void *)kmm_realloc(priv->edid, edid_len);
+      edid_len = EDID_LENGTH * (blocks + 1);
+      edid     = kmm_realloc(priv->edid, edid_len);
 
       if (edid == NULL)
         {
@@ -821,15 +823,14 @@ static int tda19988_open(FAR struct file *filep)
 
   /* Get the private driver state instance */
 
-  DEBUGASSERT(filep != NULL && filep->f_inode != NULL);
   inode = filep->f_inode;
 
-  priv = (FAR struct tda1988_dev_s *)inode->i_private;
+  priv = inode->i_private;
   DEBUGASSERT(priv != NULL);
 
   /* Get exclusive access to the driver instance */
 
-  ret = nxsem_wait(&priv->exclsem);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
@@ -840,7 +841,7 @@ static int tda19988_open(FAR struct file *filep)
   DEBUGASSERT(priv->crefs != UINT8_MAX);
   priv->crefs++;
 
-  nxsem_post(&priv->exclsem);
+  nxmutex_unlock(&priv->lock);
   return OK;
 }
 
@@ -864,15 +865,14 @@ static int tda19988_close(FAR struct file *filep)
 
   /* Get the private driver state instance */
 
-  DEBUGASSERT(filep != NULL && filep->f_inode != NULL);
   inode = filep->f_inode;
 
-  priv = (FAR struct tda1988_dev_s *)inode->i_private;
+  priv = inode->i_private;
   DEBUGASSERT(priv != NULL);
 
   /* Get exclusive access to the driver */
 
-  ret = nxsem_wait(&priv->exclsem);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
@@ -895,7 +895,7 @@ static int tda19988_close(FAR struct file *filep)
     }
 #endif
 
-  nxsem_post(&priv->exclsem);
+  nxmutex_unlock(&priv->lock);
   return -ENOSYS;
 }
 
@@ -921,15 +921,14 @@ static ssize_t tda19988_read(FAR struct file *filep, FAR char *buffer,
 
   /* Get the private driver state instance */
 
-  DEBUGASSERT(filep != NULL && filep->f_inode != NULL);
   inode = filep->f_inode;
 
-  priv = (FAR struct tda1988_dev_s *)inode->i_private;
+  priv = inode->i_private;
   DEBUGASSERT(priv != NULL);
 
   /* Get exclusive access to the driver */
 
-  ret = nxsem_wait(&priv->exclsem);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
@@ -944,7 +943,7 @@ static ssize_t tda19988_read(FAR struct file *filep, FAR char *buffer,
       filep->f_pos += nread;
     }
 
-  nxsem_post(&priv->exclsem);
+  nxmutex_unlock(&priv->lock);
   return nread;
 }
 
@@ -991,15 +990,14 @@ static off_t tda19988_seek(FAR struct file *filep, off_t offset, int whence)
 
   /* Get the private driver state instance */
 
-  DEBUGASSERT(filep != NULL && filep->f_inode != NULL);
   inode = filep->f_inode;
 
-  priv = (FAR struct tda1988_dev_s *)inode->i_private;
+  priv = inode->i_private;
   DEBUGASSERT(priv != NULL);
 
   /* Get exclusive access to the driver */
 
-  ret = nxsem_wait(&priv->exclsem);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
@@ -1061,7 +1059,7 @@ static off_t tda19988_seek(FAR struct file *filep, off_t offset, int whence)
         break;
     }
 
-  nxsem_post(&priv->exclsem);
+  nxmutex_unlock(&priv->lock);
   return pos;
 }
 
@@ -1085,15 +1083,14 @@ static int tda19988_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 
   /* Get the private driver state instance */
 
-  DEBUGASSERT(filep != NULL && filep->f_inode != NULL);
   inode = filep->f_inode;
 
-  priv = (FAR struct tda1988_dev_s *)inode->i_private;
+  priv = inode->i_private;
   DEBUGASSERT(priv != NULL);
 
   /* Get exclusive access to the driver */
 
-  ret = nxsem_wait(&priv->exclsem);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
@@ -1139,7 +1136,7 @@ static int tda19988_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
         break;
     }
 
-  nxsem_post(&priv->exclsem);
+  nxmutex_unlock(&priv->lock);
   return ret;
 }
 
@@ -1164,15 +1161,14 @@ static int tda19988_poll(FAR struct file *filep, FAR struct pollfd *fds,
 
   /* Get the private driver state instance */
 
-  DEBUGASSERT(filep != NULL && filep->f_inode != NULL);
   inode = filep->f_inode;
 
-  priv = (FAR struct tda1988_dev_s *)inode->i_private;
+  priv = inode->i_private;
   DEBUGASSERT(priv != NULL);
 
   /* Get exclusive access to the driver */
 
-  ret = nxsem_wait(&priv->exclsem);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
@@ -1180,14 +1176,10 @@ static int tda19988_poll(FAR struct file *filep, FAR struct pollfd *fds,
 
   if (setup)
     {
-      fds->revents |= (fds->events & (POLLIN | POLLOUT));
-      if (fds->revents != 0)
-        {
-          nxsem_post(fds->sem);
-        }
+      poll_notify(&fds, 1, POLLIN | POLLOUT);
     }
 
-  nxsem_post(&priv->exclsem);
+  nxmutex_unlock(&priv->lock);
   return OK;
 }
 
@@ -1211,12 +1203,12 @@ static int tda19988_unlink(FAR struct inode *inode)
 
   /* Get the private driver state instance */
 
-  DEBUGASSERT(inode != NULL && inode->i_private != NULL);
-  priv = (FAR struct tda1988_dev_s *)inode->i_private;
+  DEBUGASSERT(inode->i_private != NULL);
+  priv = inode->i_private;
 
   /* Get exclusive access to the driver */
 
-  ret = nxsem_wait(&priv->exclsem);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
@@ -1235,7 +1227,7 @@ static int tda19988_unlink(FAR struct inode *inode)
    */
 
   priv->unlinked = true;
-  nxsem_post(&priv->exclsem);
+  nxmutex_unlock(&priv->lock);
   return OK;
 }
 #endif
@@ -1603,7 +1595,7 @@ static void tda19988_shutdown(FAR struct tda1988_dev_s *priv)
 
   /* Release resources */
 
-  nxsem_destroy(&priv->exclsem);
+  nxmutex_destroy(&priv->lock);
 
   /* Free memory */
 
@@ -1647,8 +1639,7 @@ TDA19988_HANDLE tda19988_register(FAR const char *devpath,
 
   /* Allocate an instance of the TDA19988 driver */
 
-  priv = (FAR struct tda1988_dev_s *)
-    kmm_zalloc(sizeof(struct tda1988_dev_s));
+  priv = kmm_zalloc(sizeof(struct tda1988_dev_s));
   if (priv == NULL)
     {
       lcderr("ERROR: Failed to allocate device structure\n");
@@ -1657,7 +1648,7 @@ TDA19988_HANDLE tda19988_register(FAR const char *devpath,
 
   /* Assume a single block in EDID */
 
-  priv->edid = (FAR uint8_t *)kmm_malloc(EDID_LENGTH);
+  priv->edid = kmm_malloc(EDID_LENGTH);
   if (priv->edid == NULL)
     {
       lcderr("ERROR: Failed to allocate EDID\n");
@@ -1672,7 +1663,7 @@ TDA19988_HANDLE tda19988_register(FAR const char *devpath,
   priv->lower = lower;
   priv->page  = HDMI_NO_PAGE;
 
-  nxsem_init(&priv->exclsem, 0, 1);
+  nxmutex_init(&priv->lock);
 
   /* Initialize the TDA19988 */
 
@@ -1686,7 +1677,7 @@ TDA19988_HANDLE tda19988_register(FAR const char *devpath,
 
   /* Register the driver */
 
-  ret = register_driver(devpath, &tda19988_fops, 0666, NULL);
+  ret = register_driver(devpath, &g_tda19988_fops, 0666, NULL);
   if (ret < 0)
     {
       lcderr("ERROR: register_driver() failed: %d\n", ret);
@@ -1730,7 +1721,7 @@ int tda19988_videomode(TDA19988_HANDLE handle,
 
   /* Get exclusive access to the driver */
 
-  ret = nxsem_wait(&priv->exclsem);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
@@ -1744,7 +1735,7 @@ int tda19988_videomode(TDA19988_HANDLE handle,
       lcderr("ERROR: tda19988_videomode_internal failed: %d\n", ret);
     }
 
-  nxsem_post(&priv->exclsem);
+  nxmutex_unlock(&priv->lock);
   return ret;
 }
 
@@ -1782,7 +1773,7 @@ ssize_t tda19988_read_edid(TDA19988_HANDLE handle, off_t offset,
 
   /* Get exclusive access to the driver */
 
-  ret = nxsem_wait(&priv->exclsem);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
@@ -1797,6 +1788,6 @@ ssize_t tda19988_read_edid(TDA19988_HANDLE handle, off_t offset,
              (int)nread);
     }
 
-  nxsem_post(&priv->exclsem);
+  nxmutex_unlock(&priv->lock);
   return nread;
 }

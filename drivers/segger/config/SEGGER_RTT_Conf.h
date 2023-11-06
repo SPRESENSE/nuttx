@@ -63,7 +63,13 @@
 
 /* Mode for pre-initialized terminal channel */
 
-#define SEGGER_RTT_MODE_DEFAULT         SEGGER_RTT_MODE_BLOCK_IF_FIFO_FULL
+#if defined(CONFIG_SEGGER_RTT_MODE_NO_BLOCK_TRIM)
+#  define SEGGER_RTT_MODE_DEFAULT       SEGGER_RTT_MODE_NO_BLOCK_TRIM
+#elif defined(SEGGER_RTT_MODE_BLOCK_IF_FIFO_FULL)
+#  define SEGGER_RTT_MODE_DEFAULT       SEGGER_RTT_MODE_BLOCK_IF_FIFO_FULL
+#else
+#  define SEGGER_RTT_MODE_DEFAULT       SEGGER_RTT_MODE_NO_BLOCK_SKIP
+#endif
 
 /* 0: Use memcpy/SEGGER_RTT_MEMCPY, 1: Use a simple byte-loop */
 
@@ -82,5 +88,28 @@
 /* Disable RTT SEGGER_RTT_WriteSkipNoLock */
 
 #define RTT_USE_ASM                     0
+
+#define SEGGER_RTT_FLAG_UP(ch)          (((FAR SEGGER_RTT_BUFFER_UP *)((FAR char *) \
+                                         &_SEGGER_RTT.aUp[ch] + SEGGER_RTT_UNCACHED_OFF))->Flags)
+#define SEGGER_RTT_RDOFF_UP(ch)         (((FAR SEGGER_RTT_BUFFER_UP *)((FAR char *) \
+                                         &_SEGGER_RTT.aUp[ch] + SEGGER_RTT_UNCACHED_OFF))->RdOff)
+
+#define SEGGER_RTT_IS_CONNECTED(ch)     (SEGGER_RTT_RDOFF_UP(ch) != 0)
+#define SEGGER_RTT_IS_FIFO_MODE(ch)     (SEGGER_RTT_FLAG_UP(ch) == SEGGER_RTT_MODE_BLOCK_IF_FIFO_FULL)
+
+/* Determine whether JLink is connected, and use FIFO mode
+  * after connection to ensure that data is not lost.
+  */
+
+#define SEGGER_RTT_BLOCK_IF_FIFO_FULL(ch) \
+  do \
+    { \
+      if (!SEGGER_RTT_IS_FIFO_MODE(ch) && SEGGER_RTT_IS_CONNECTED(ch)) \
+        { \
+          SEGGER_RTT_SetFlagsUpBuffer(ch, SEGGER_RTT_MODE_BLOCK_IF_FIFO_FULL); \
+          SEGGER_RTT_SetFlagsDownBuffer(ch, SEGGER_RTT_MODE_BLOCK_IF_FIFO_FULL); \
+        } \
+    } \
+  while (0)
 
 #endif /* __DRIVERS_SEGGER_CONFIG_SEGGER_RTT_CONF_H */

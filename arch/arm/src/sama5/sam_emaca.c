@@ -59,7 +59,6 @@
 #include <string.h>
 #include <assert.h>
 #include <debug.h>
-#include <queue.h>
 #include <errno.h>
 
 #include <arpa/inet.h>
@@ -70,7 +69,7 @@
 #include <nuttx/kmalloc.h>
 #include <nuttx/wqueue.h>
 #include <nuttx/net/mii.h>
-#include <nuttx/net/arp.h>
+#include <nuttx/net/ip.h>
 #include <nuttx/net/netdev.h>
 #include <nuttx/net/phy.h>
 
@@ -362,8 +361,8 @@ static uint32_t sam_getreg(struct sam_emac_s *priv, uintptr_t addr);
 static void sam_putreg(struct sam_emac_s *priv,
                        uintptr_t addr, uint32_t val);
 #else
-# define sam_getreg(priv,addr)      getreg32(addr)
-# define sam_putreg(priv,addr,val)  putreg32(val,addr)
+#  define sam_getreg(priv,addr)     getreg32(addr)
+#  define sam_putreg(priv,addr,val) putreg32(val,addr)
 #endif
 
 /* Buffer management */
@@ -629,7 +628,7 @@ static int sam_buffer_initialize(struct sam_emac_s *priv)
   /* Allocate buffers */
 
   allocsize = CONFIG_SAMA5_EMAC_NTXBUFFERS * sizeof(struct emac_txdesc_s);
-  priv->txdesc = (struct emac_txdesc_s *)kmm_memalign(8, allocsize);
+  priv->txdesc = kmm_memalign(8, allocsize);
   if (!priv->txdesc)
     {
       nerr("ERROR: Failed to allocate TX descriptors\n");
@@ -639,7 +638,7 @@ static int sam_buffer_initialize(struct sam_emac_s *priv)
   memset(priv->txdesc, 0, allocsize);
 
   allocsize = CONFIG_SAMA5_EMAC_NRXBUFFERS * sizeof(struct emac_rxdesc_s);
-  priv->rxdesc = (struct emac_rxdesc_s *)kmm_memalign(8, allocsize);
+  priv->rxdesc = kmm_memalign(8, allocsize);
   if (!priv->rxdesc)
     {
       nerr("ERROR: Failed to allocate RX descriptors\n");
@@ -650,7 +649,7 @@ static int sam_buffer_initialize(struct sam_emac_s *priv)
   memset(priv->rxdesc, 0, allocsize);
 
   allocsize = CONFIG_SAMA5_EMAC_NTXBUFFERS * EMAC_TX_UNITSIZE;
-  priv->txbuffer = (uint8_t *)kmm_memalign(8, allocsize);
+  priv->txbuffer = kmm_memalign(8, allocsize);
   if (!priv->txbuffer)
     {
       nerr("ERROR: Failed to allocate TX buffer\n");
@@ -659,7 +658,7 @@ static int sam_buffer_initialize(struct sam_emac_s *priv)
     }
 
   allocsize = CONFIG_SAMA5_EMAC_NRXBUFFERS * EMAC_RX_UNITSIZE;
-  priv->rxbuffer = (uint8_t *)kmm_memalign(8, allocsize);
+  priv->rxbuffer = kmm_memalign(8, allocsize);
   if (!priv->rxbuffer)
     {
       nerr("ERROR: Failed to allocate RX buffer\n");
@@ -867,53 +866,21 @@ static int sam_txpoll(struct net_driver_s *dev)
 {
   struct sam_emac_s *priv = (struct sam_emac_s *)dev->d_private;
 
-  /* If the polling resulted in data that should be sent out on the network,
-   * the field d_len is set to a value > 0.
+  /* Send the packet */
+
+  sam_transmit(priv);
+
+  /* Check if there are any free TX descriptors.  We cannot perform
+   * the TX poll if we do not have buffering for another packet.
    */
 
-  if (priv->dev.d_len > 0)
+  if (sam_txfree(priv) == 0)
     {
-      /* Look up the destination MAC address and add it to the Ethernet
-       * header.
+      /* We have to terminate the poll if we have no more descriptors
+       * available for another transfer.
        */
 
-#ifdef CONFIG_NET_IPv4
-#ifdef CONFIG_NET_IPv6
-      if (IFF_IS_IPv4(priv->dev.d_flags))
-#endif
-        {
-          arp_out(&priv->dev);
-        }
-#endif /* CONFIG_NET_IPv4 */
-
-#ifdef CONFIG_NET_IPv6
-#ifdef CONFIG_NET_IPv4
-      else
-#endif
-        {
-          neighbor_out(&priv->dev);
-        }
-#endif /* CONFIG_NET_IPv6 */
-
-      if (!devif_loopback(&priv->dev))
-        {
-          /* Send the packet */
-
-          sam_transmit(priv);
-
-          /* Check if there are any free TX descriptors.  We cannot perform
-           * the TX poll if we do not have buffering for another packet.
-           */
-
-          if (sam_txfree(priv) == 0)
-            {
-              /* We have to terminate the poll if we have no more descriptors
-               * available for another transfer.
-               */
-
-              return -EBUSY;
-            }
-        }
+      return -EBUSY;
     }
 
   /* If zero is returned, the polling will continue until all connections
@@ -1277,11 +1244,8 @@ static void sam_receive(struct sam_emac_s *priv)
         {
           ninfo("IPv4 frame\n");
 
-          /* Handle ARP on input then give the IPv4 packet to the network
-           * layer
-           */
+          /* Receive an IPv4 packet from the network device */
 
-          arp_ipin(&priv->dev);
           ipv4_input(&priv->dev);
 
           /* If the above function invocation resulted in data that should be
@@ -1290,21 +1254,6 @@ static void sam_receive(struct sam_emac_s *priv)
 
           if (priv->dev.d_len > 0)
             {
-              /* Update the Ethernet header with the correct MAC address */
-
-#ifdef CONFIG_NET_IPv6
-              if (IFF_IS_IPv4(priv->dev.d_flags))
-#endif
-                {
-                  arp_out(&priv->dev);
-                }
-#ifdef CONFIG_NET_IPv6
-              else
-                {
-                  neighbor_out(&priv->dev);
-                }
-#endif
-
               /* And send the packet */
 
               sam_transmit(priv);
@@ -1327,21 +1276,6 @@ static void sam_receive(struct sam_emac_s *priv)
 
           if (priv->dev.d_len > 0)
             {
-              /* Update the Ethernet header with the correct MAC address */
-
-#ifdef CONFIG_NET_IPv4
-              if (IFF_IS_IPv4(priv->dev.d_flags))
-                {
-                  arp_out(&priv->dev);
-                }
-              else
-#endif
-#ifdef CONFIG_NET_IPv6
-                {
-                  neighbor_out(&priv->dev);
-                }
-#endif
-
               /* And send the packet */
 
               sam_transmit(priv);
@@ -1356,7 +1290,7 @@ static void sam_receive(struct sam_emac_s *priv)
 
           /* Handle ARP packet */
 
-          arp_arpin(&priv->dev);
+          arp_input(&priv->dev);
 
           /* If the above function invocation resulted in data that should be
            * sent out on the network, d_len field will set to a value > 0.
@@ -1804,11 +1738,9 @@ static int sam_ifup(struct net_driver_s *dev)
   struct sam_emac_s *priv = (struct sam_emac_s *)dev->d_private;
   int ret;
 
-  ninfo("Bringing up: %d.%d.%d.%d\n",
-        (int)(dev->d_ipaddr & 0xff),
-        (int)((dev->d_ipaddr >> 8) & 0xff),
-        (int)((dev->d_ipaddr >> 16) & 0xff),
-        (int)(dev->d_ipaddr >> 24));
+  ninfo("Bringing up: %u.%u.%u.%u\n",
+        ip4_addr1(dev->d_ipaddr), ip4_addr2(dev->d_ipaddr),
+        ip4_addr3(dev->d_ipaddr), ip4_addr4(dev->d_ipaddr));
 
   /* Configure the EMAC interface for normal operation. */
 

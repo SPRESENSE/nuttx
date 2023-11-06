@@ -248,10 +248,6 @@ static const struct file_operations g_vl53l1xfops =
   vl53l1x_write,        /* write */
   NULL,                 /* seek */
   vl53l1x_ioctl,        /* ioctl */
-  NULL                  /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL                /* unlink */
-#endif
 };
 
 /****************************************************************************
@@ -952,8 +948,6 @@ static void vl53l1x_putreg8(FAR struct vl53l1x_dev_s *priv, uint16_t regaddr,
       snerr("ERROR: i2c_write failed: %d\n", ret);
       return;
     }
-
-  return;
 }
 
 /****************************************************************************
@@ -990,8 +984,6 @@ static void vl53l1x_putreg16(FAR struct vl53l1x_dev_s *priv,
       snerr("ERROR: i2c_write failed: %d\n", ret);
       return;
     }
-
-  return;
 }
 
 /****************************************************************************
@@ -1030,8 +1022,6 @@ static void vl53l1x_putreg32(FAR struct vl53l1x_dev_s *priv,
       snerr("ERROR: i2c_write failed: %d\n", ret);
       return;
     }
-
-  return;
 }
 
 /****************************************************************************
@@ -1131,8 +1121,7 @@ int vl53l1x_register(FAR const char *devpath, FAR struct i2c_master_s *i2c)
 
   /* Initialize the vl53l1x device structure */
 
-  priv = (FAR struct vl53l1x_dev_s *)kmm_malloc(
-    sizeof(struct vl53l1x_dev_s));
+  priv = kmm_malloc(sizeof(struct vl53l1x_dev_s));
   if (!priv)
     {
       snerr("ERROR: Failed to allocate instance\n");

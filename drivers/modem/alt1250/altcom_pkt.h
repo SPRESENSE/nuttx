@@ -18,8 +18,8 @@
  *
  ****************************************************************************/
 
-#ifndef __DRIVERS_MODEM_ALT1250_ALTCOM_PKT_H__
-#define __DRIVERS_MODEM_ALT1250_ALTCOM_PKT_H__
+#ifndef __DRIVERS_MODEM_ALT1250_ALTCOM_PKT_H
+#define __DRIVERS_MODEM_ALT1250_ALTCOM_PKT_H
 
 /****************************************************************************
  * Included Files
@@ -51,9 +51,9 @@
 #define ALTCOM_RX_PKT_SIZE_MAX     (ALTCOM_PAYLOAD_SIZE_MAX_V4 \
                                     + sizeof(struct altcom_cmdhdr_s))
 
-#define LTE_RESULT_OK     (0)      /**< Result code on success */
-#define LTE_RESULT_ERROR  (1)      /**< Result code on failure */
-#define LTE_RESULT_CANCEL (2)      /**< Result code on cancel */
+#define LTE_RESULT_OK     (0)      /* Result code on success */
+#define LTE_RESULT_ERROR  (1)      /* Result code on failure */
+#define LTE_RESULT_CANCEL (2)      /* Result code on cancel */
 
 #define ALTCOM_CMD_POWER_ON_REPLY_SIZE  (1)
 
@@ -298,7 +298,7 @@ static inline uint16_t convert_cid2v1(uint16_t cid)
  *
  ****************************************************************************/
 
-FAR void *altcom_make_poweron_cmd_v1(int *sz);
+FAR void *altcom_make_poweron_cmd_v1(FAR int *sz);
 
 /****************************************************************************
  * Name: altcom_make_poweron_cmd_v4
@@ -314,7 +314,7 @@ FAR void *altcom_make_poweron_cmd_v1(int *sz);
  *
  ****************************************************************************/
 
-FAR void *altcom_make_poweron_cmd_v4(int *sz);
+FAR void *altcom_make_poweron_cmd_v4(FAR int *sz);
 
 /****************************************************************************
  * Name: altcom_is_v1pkt_ok
@@ -331,7 +331,7 @@ FAR void *altcom_make_poweron_cmd_v4(int *sz);
  *
  ****************************************************************************/
 
-bool altcom_is_v1pkt_ok(struct altcom_cmdhdr_s *cmdhdr);
+bool altcom_is_v1pkt_ok(FAR struct altcom_cmdhdr_s *cmdhdr);
 
 /****************************************************************************
  * Name: altcom_is_v4pkt_ok
@@ -348,7 +348,7 @@ bool altcom_is_v1pkt_ok(struct altcom_cmdhdr_s *cmdhdr);
  *
  ****************************************************************************/
 
-bool altcom_is_v4pkt_ok(struct altcom_cmdhdr_s *cmdhdr);
+bool altcom_is_v4pkt_ok(FAR struct altcom_cmdhdr_s *cmdhdr);
 
 /****************************************************************************
  * Name: altcom_is_pkt_ok
@@ -411,4 +411,4 @@ void altcom_set_header_top(FAR struct altcom_cmdhdr_s *hdr,
 uint16_t altcom_make_header(FAR struct altcom_cmdhdr_s *hdr,
   uint8_t ver, uint16_t cid, uint16_t sz);
 
-#endif  /* __DRIVERS_MODEM_ALT1250_ALTCOM_PKT_H__ */
+#endif  /* __DRIVERS_MODEM_ALT1250_ALTCOM_PKT_H */

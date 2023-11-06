@@ -19,6 +19,17 @@
 ############################################################################
 
 export TOPDIR := ${shell echo $(CURDIR) | sed -e 's/ /\\ /g'}
+
+ifeq ($(V),)
+  MAKE := $(MAKE) -s --no-print-directory
+endif
+
+# Build any necessary tools needed early in the build.
+# incdir - Is needed immediately by all Make.defs file.
+
+DUMMY  := ${shell $(MAKE) -C tools -f Makefile.host incdir \
+          INCDIR="$(TOPDIR)/tools/incdir.sh"}
+
 include $(TOPDIR)/Make.defs
 
 # GIT directory present
@@ -160,7 +171,7 @@ all: $(BIN)
 # include/nuttx/lib/math.h will hand the redirection to the architecture-
 # specific math.h header file.
 #
-# If the CONFIG_LIBM is defined, the Rhombus libm will be built at libc/math.
+# If the CONFIG_LIBM is defined, the Rhombus libm will be built at libm/libm.
 # Definitions and prototypes for the Rhombus libm are also contained in
 # include/nuttx/lib/math.h and so the file must also be copied in that case.
 #
@@ -233,10 +244,17 @@ include/nuttx/version.h: $(TOPDIR)/.version tools/mkversion$(HOSTEXEEXT)
 # part of the overall NuttX configuration sequence. Notice that the
 # tools/mkconfig tool is built and used to create include/nuttx/config.h
 
-tools/mkconfig$(HOSTEXEEXT):
+tools/mkconfig$(HOSTEXEEXT): prebuild
 	$(Q) $(MAKE) -C tools -f Makefile.host mkconfig$(HOSTEXEEXT)
 
 include/nuttx/config.h: $(TOPDIR)/.config tools/mkconfig$(HOSTEXEEXT)
+	$(Q) grep -v "CONFIG_BASE_DEFCONFIG" "$(TOPDIR)/.config" > "$(TOPDIR)/.config.tmp"
+	$(Q) if ! cmp -s "$(TOPDIR)/.config.tmp" "$(TOPDIR)/.config.orig" ; then \
+		sed -i.bak -e "/CONFIG_BASE_DEFCONFIG/ { /-dirty/! s/\"$$/-dirty\"/; }" "$(TOPDIR)/.config" ; \
+	else \
+		sed -i.bak "s/-dirty//g" "$(TOPDIR)/.config"; \
+	fi
+	$(Q) rm -f "$(TOPDIR)/.config.tmp" "$(TOPDIR)/.config.bak"
 	$(Q) tools/mkconfig $(TOPDIR) > $@.tmp
 	$(Q) $(call TESTANDREPLACEFILE, $@.tmp, $@)
 
@@ -468,6 +486,16 @@ clean_context: clean_dirlinks
 
 include tools/LibTargets.mk
 
+# prebuild
+#
+# Some architectures require the use of special tools and special handling
+# BEFORE building NuttX. The `Make.defs` files for those architectures
+# should override the following define with the correct operations for
+# that platform.
+
+prebuild:
+	$(call PREBUILD, $(TOPDIR))
+
 # pass1 and pass2
 #
 # If the 2 pass build option is selected, then this pass1 target is
@@ -506,7 +534,7 @@ ifeq ($(CONFIG_BUILD_2PASS),y)
 	fi
 	$(Q) $(MAKE) -C $(CONFIG_PASS1_BUILDIR) LINKLIBS="$(LINKLIBS)" USERLIBS="$(USERLIBS)" "$(CONFIG_PASS1_TARGET)"
 endif
-	$(Q) $(MAKE) -C $(ARCH_SRC) EXTRA_OBJS="$(EXTRA_OBJS)" LINKLIBS="$(LINKLIBS)" EXTRAFLAGS="$(KDEFINE) $(EXTRAFLAGS)" $(BIN)
+	$(Q) $(MAKE) -C $(ARCH_SRC) EXTRA_OBJS="$(EXTRA_OBJS)" LINKLIBS="$(LINKLIBS)" APPDIR="$(APPDIR)" EXTRAFLAGS="$(KDEFINE) $(EXTRAFLAGS)" $(BIN)
 	$(Q) if [ -w /tftpboot ] ; then \
 		cp -f $(BIN) /tftpboot/$(BIN).${CONFIG_ARCH}; \
 	fi
@@ -591,44 +619,90 @@ pass2dep: context tools/mkdeps$(HOSTEXEEXT) tools/cnvwindeps$(HOSTEXEEXT)
 # location: https://bitbucket.org/nuttx/tools/downloads/.  See README.txt
 # file in the NuttX tools GIT repository for additional information.
 
+KCONFIG_ENV  = APPSDIR=${CONFIG_APPS_DIR} EXTERNALDIR=$(EXTERNALDIR)
+KCONFIG_ENV += APPSBINDIR=${CONFIG_APPS_DIR} BINDIR=${TOPDIR}
+
+LOADABLE = $(shell grep "=m$$" $(TOPDIR)/.config)
+ifeq ($(CONFIG_BUILD_LOADABLE)$(LOADABLE),)
+  KCONFIG_LIB = $(shell command -v menuconfig 2> /dev/null)
+endif
+
+# Prefer "kconfiglib" if host OS supports it
+
+ifeq ($(KCONFIG_LIB),)
+  KCONFIG_OLDCONFIG     = kconfig-conf --oldconfig Kconfig
+  KCONFIG_OLDDEFCONFIG  = kconfig-conf --olddefconfig Kconfig
+  KCONFIG_MENUCONFIG    = kconfig-mconf Kconfig
+  KCONFIG_NCONFIG       = kconfig-nconf Kconfig
+  KCONFIG_QCONFIG       = kconfig-qconf Kconfig
+  KCONFIG_GCONFIG       = kconfig-gconf Kconfig
+  KCONFIG_SAVEDEFCONFIG = kconfig-conf Kconfig --savedefconfig defconfig.tmp
+define kconfig_tweak_disable
+	kconfig-tweak --file $1 -u $2
+endef
+else
+  KCONFIG_WARNING       = if [ -s kwarning ]; \
+                            then rm kwarning; \
+                              exit 1; \
+                            else \
+                              rm kwarning; \
+                          fi
+  MODULE_WARNING        = "warning: the 'modules' option is not supported"
+  PURGE_MODULE_WARNING  = 2> >(grep -v ${MODULE_WARNING} | tee kwarning) | cat && ${KCONFIG_WARNING}
+  KCONFIG_OLDCONFIG     = oldconfig ${PURGE_MODULE_WARNING}
+  KCONFIG_OLDDEFCONFIG  = olddefconfig ${PURGE_MODULE_WARNING}
+  KCONFIG_MENUCONFIG    = menuconfig $(subst | cat,,${PURGE_MODULE_WARNING})
+  KCONFIG_NCONFIG       = guiconfig ${PURGE_MODULE_WARNING}
+  KCONFIG_QCONFIG       = ${KCONFIG_NCONFIG}
+  KCONFIG_GCONFIG       = ${KCONFIG_NCONFIG}
+  KCONFIG_SAVEDEFCONFIG = savedefconfig --out defconfig.tmp ${PURGE_MODULE_WARNING}
+define kconfig_tweak_disable
+	$(Q) sed -i'.orig' '/$2/d' $1
+	$(Q) rm -f $1.orig
+endef
+endif
+
+KCONFIG_CONF = kconfig-conf
+
 config:
 	$(Q) $(MAKE) clean_context
 	$(Q) $(MAKE) apps_preconfig
-	$(Q) APPSDIR=${CONFIG_APPS_DIR} EXTERNALDIR=$(EXTERNALDIR) kconfig-conf Kconfig
+	$(Q) ${KCONFIG_ENV} ${KCONFIG_CONF}
 
 oldconfig:
 	$(Q) $(MAKE) clean_context
 	$(Q) $(MAKE) apps_preconfig
-	$(Q) APPSDIR=${CONFIG_APPS_DIR} EXTERNALDIR=$(EXTERNALDIR) kconfig-conf --oldconfig Kconfig
+	$(Q) ${KCONFIG_ENV} ${KCONFIG_OLDCONFIG}
 
 olddefconfig:
 	$(Q) $(MAKE) clean_context
 	$(Q) $(MAKE) apps_preconfig
-	$(Q) APPSDIR=${CONFIG_APPS_DIR} EXTERNALDIR=$(EXTERNALDIR) kconfig-conf --olddefconfig Kconfig
+	$(Q) ${KCONFIG_ENV} ${KCONFIG_OLDDEFCONFIG}
 
 menuconfig:
 	$(Q) $(MAKE) clean_context
 	$(Q) $(MAKE) apps_preconfig
-	$(Q) APPSDIR=${CONFIG_APPS_DIR} EXTERNALDIR=$(EXTERNALDIR) kconfig-mconf Kconfig
+	$(Q) ${KCONFIG_ENV} ${KCONFIG_MENUCONFIG}
 
 nconfig: apps_preconfig
 	$(Q) $(MAKE) clean_context
 	$(Q) $(MAKE) apps_preconfig
-	$(Q) APPSDIR=${CONFIG_APPS_DIR} EXTERNALDIR=$(EXTERNALDIR) kconfig-nconf Kconfig
+	$(Q) ${KCONFIG_ENV} ${KCONFIG_NCONFIG}
 
 qconfig: apps_preconfig
 	$(Q) $(MAKE) clean_context
 	$(Q) $(MAKE) apps_preconfig
-	$(Q) APPSDIR=${CONFIG_APPS_DIR} EXTERNALDIR=$(EXTERNALDIR) kconfig-qconf Kconfig
+	$(Q) ${KCONFIG_ENV} ${KCONFIG_QCONFIG}
 
 gconfig: apps_preconfig
 	$(Q) $(MAKE) clean_context
 	$(Q) $(MAKE) apps_preconfig
-	$(Q) APPSDIR=${CONFIG_APPS_DIR} EXTERNALDIR=$(EXTERNALDIR) kconfig-gconf Kconfig
+	$(Q) ${KCONFIG_ENV} ${KCONFIG_GCONFIG}
 
 savedefconfig: apps_preconfig
-	$(Q) APPSDIR=${CONFIG_APPS_DIR} EXTERNALDIR=$(EXTERNALDIR) kconfig-conf --savedefconfig defconfig.tmp Kconfig
-	$(Q) kconfig-tweak --file defconfig.tmp -u CONFIG_APPS_DIR
+	$(Q) ${KCONFIG_ENV} ${KCONFIG_SAVEDEFCONFIG}
+	$(Q) $(call kconfig_tweak_disable,defconfig.tmp,CONFIG_APPS_DIR)
+	$(Q) $(call kconfig_tweak_disable,defconfig.tmp,CONFIG_BASE_DEFCONFIG)
 	$(Q) grep "CONFIG_ARCH=" .config >> defconfig.tmp
 	$(Q) grep "^CONFIG_ARCH_CHIP_" .config >> defconfig.tmp; true
 	$(Q) grep "CONFIG_ARCH_CHIP=" .config >> defconfig.tmp; true
@@ -657,7 +731,7 @@ savedefconfig: apps_preconfig
 # that the archiver is 'ar'
 
 export: $(NUTTXLIBS)
-	$(Q) MAKE=${MAKE} $(MKEXPORT) $(MKEXPORT_ARGS) -l "$(EXPORTLIBS)"
+	$(Q) MAKE="${MAKE}" $(MKEXPORT) $(MKEXPORT_ARGS) -l "$(EXPORTLIBS)"
 
 # General housekeeping targets:  dependencies, cleaning, etc.
 #
@@ -702,12 +776,13 @@ ifeq ($(CONFIG_ARCH_HAVE_BOOTLOADER),y)
 	$(Q) $(MAKE) clean_bootloader
 endif
 	$(Q) $(MAKE) clean_context
+	$(Q) $(MAKE) -C tools -f Makefile.host clean
 	$(call DELFILE, Make.defs)
 	$(call DELFILE, defconfig)
 	$(call DELFILE, .config)
 	$(call DELFILE, .config.old)
+	$(call DELFILE, .config.orig)
 	$(call DELFILE, .gdbinit)
-	$(Q) $(MAKE) -C tools -f Makefile.host clean
 
 # Application housekeeping targets.  The APPDIR variable refers to the user
 # application directory.  A sample apps/ directory is included with NuttX,

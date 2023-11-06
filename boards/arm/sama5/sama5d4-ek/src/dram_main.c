@@ -73,7 +73,7 @@ typedef void (*dram_entry_t)(void);
  *
  ****************************************************************************/
 
-int dram_main(int argc, char *argv)
+int dram_main(int argc, char *argv[])
 {
   /* Here we have a in memory value we can change in the debugger
    * to begin booting in NOR Flash
@@ -151,7 +151,7 @@ int dram_main(int argc, char *argv)
 
   /* Invalidate caches and TLBs */
 
-  cp15_invalidate_icache();
+  cp15_invalidate_icache_all();
   cp15_invalidate_dcache_all();
   cp15_invalidate_tlbs();
 

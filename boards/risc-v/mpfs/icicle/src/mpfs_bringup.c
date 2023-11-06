@@ -114,7 +114,8 @@ int mpfs_bringup(void)
     }
 #endif /* CONFIG_MPFS_ROMFS_MOUNT */
 
-#if defined(CONFIG_MPFS_SPI0) || defined(CONFIG_MPFS_SPI1)
+#if defined(CONFIG_MPFS_SPI0) || defined(CONFIG_MPFS_SPI1) || \
+    defined(CONFIG_MPFS_HAVE_CORESPI)
   /* Configure SPI peripheral interfaces */
 
   ret = mpfs_board_spi_init();
@@ -145,7 +146,7 @@ int mpfs_bringup(void)
     }
 #endif
 
-#ifdef CONFIG_MPFS_IHC
+#ifdef CONFIG_MPFS_IHC_CLIENT
   ret = mpfs_board_ihc_init();
 
   if (ret < 0)

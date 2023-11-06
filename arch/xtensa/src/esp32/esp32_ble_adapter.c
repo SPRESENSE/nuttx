@@ -76,8 +76,6 @@ do {\
 
 #define MSG_QUEUE_NAME_SIZE    16
 
-#define ESP_ERR_INVALID_STATE       0x103
-
 #define OSI_FUNCS_TIME_BLOCKING          0xffffffff
 #define OSI_VERSION                      0x00010002
 #define OSI_MAGIC_VALUE                  0xfadebead
@@ -323,8 +321,8 @@ static int  semphr_take_wrapper(void *semphr, uint32_t block_time_ms);
 static int  semphr_give_wrapper(void *semphr);
 static void *mutex_create_wrapper(void);
 static void mutex_delete_wrapper(void *mutex);
-static int mutex_lock_wrapper(void *mutex);
-static int mutex_unlock_wrapper(void *mutex);
+static int  mutex_lock_wrapper(void *mutex);
+static int  mutex_unlock_wrapper(void *mutex);
 static int IRAM_ATTR queue_send_from_isr_wrapper(void *queue, void *item,
                                                  void *hptw);
 static int IRAM_ATTR queue_recv_from_isr_wrapper(void *queue, void *item,
@@ -447,24 +445,24 @@ extern int coex_register_bt_cb(coex_func_cb_t cb);
 extern void coex_bb_reset_unlock(uint32_t restore);
 extern uint32_t coex_bb_reset_lock(void);
 
-extern char _bss_start_btdm;
-extern char _bss_end_btdm;
-extern char _data_start_btdm;
-extern char _data_end_btdm;
-extern uint32_t _data_start_btdm_rom;
-extern uint32_t _data_end_btdm_rom;
+extern uint8_t _bss_start_btdm[];
+extern uint8_t _bss_end_btdm[];
+extern uint8_t _data_start_btdm[];
+extern uint8_t _data_end_btdm[];
+extern const uint32_t _data_start_btdm_rom;
+extern const uint32_t _data_end_btdm_rom;
 
-extern uint32_t _bt_bss_start;
-extern uint32_t _bt_bss_end;
-extern uint32_t _btdm_bss_start;
-extern uint32_t _btdm_bss_end;
-extern uint32_t _bt_data_start;
-extern uint32_t _bt_data_end;
-extern uint32_t _btdm_data_start;
-extern uint32_t _btdm_data_end;
+extern uint8_t _bt_bss_start[];
+extern uint8_t _bt_bss_end[];
+extern uint8_t _btdm_bss_start[];
+extern uint8_t _btdm_bss_end[];
+extern uint8_t _bt_data_start[];
+extern uint8_t _bt_data_end[];
+extern uint8_t _btdm_data_start[];
+extern uint8_t _btdm_data_end[];
 
-extern char _bt_tmp_bss_start;
-extern char _bt_tmp_bss_end;
+extern uint8_t _bt_tmp_bss_start[];
+extern uint8_t _bt_tmp_bss_end[];
 
 void intr_matrix_set(int cpu_no, uint32_t model_num, uint32_t intr_num);
 
@@ -884,8 +882,9 @@ static void esp32_ints_on(uint32_t mask)
       bit = 1 << i;
       if (bit & mask)
       {
-        wlinfo("Enabled bit %d\n", i);
-        up_enable_irq(i);
+        int irq = i + XTENSA_IRQ_FIRSTPERIPH;
+        wlinfo("Enabled bit %d\n", irq);
+        up_enable_irq(irq);
       }
     }
 }
@@ -1142,7 +1141,7 @@ static void *semphr_create_wrapper(uint32_t max, uint32_t init)
       return NULL;
     }
 
-  ret = sem_init(sem, 0, init);
+  ret = nxsem_init(sem, 0, init);
   if (ret)
     {
       wlerr("ERROR: Failed to initialize sem error=%d\n", ret);
@@ -1170,7 +1169,7 @@ static void *semphr_create_wrapper(uint32_t max, uint32_t init)
 static void semphr_delete_wrapper(void *semphr)
 {
   sem_t *sem = (sem_t *)semphr;
-  sem_destroy(sem);
+  nxsem_destroy(sem);
   kmm_free(sem);
 }
 
@@ -1191,6 +1190,8 @@ static void semphr_delete_wrapper(void *semphr)
 
 static int IRAM_ATTR semphr_take_from_isr_wrapper(void *semphr, void *hptw)
 {
+  *(int *)hptw = 0;
+
   return esp_errno_trans(nxsem_trywait(semphr));
 }
 
@@ -1266,14 +1267,23 @@ static int semphr_take_wrapper(void *semphr, uint32_t block_time_ms)
   if (block_time_ms == OSI_FUNCS_TIME_BLOCKING)
     {
       ret = nxsem_wait(sem);
-      if (ret)
-        {
-          wlerr("Failed to wait sem %d\n", ret);
-        }
     }
   else
     {
-      ret = nxsem_tickwait(sem, MSEC2TICK(block_time_ms));
+      if (block_time_ms > 0)
+        {
+          ret = nxsem_tickwait(sem, MSEC2TICK(block_time_ms));
+        }
+      else
+        {
+          ret = nxsem_trywait(sem);
+        }
+    }
+
+  if (ret)
+    {
+      wlerr("ERROR: Failed to wait sem in %u ticks. Error=%d\n",
+            MSEC2TICK(block_time_ms), ret);
     }
 
   return esp_errno_trans(ret);
@@ -1803,7 +1813,7 @@ static uint32_t IRAM_ATTR btdm_us_2_lpcycles(uint32_t us)
 
 static void IRAM_ATTR btdm_sleep_exit_phase0(void *param)
 {
-  int event = (int) param;
+  int event = (int)param;
 
   DEBUGASSERT(g_lp_cntl.enable == true);
 
@@ -2027,11 +2037,11 @@ static void btdm_controller_mem_init(void)
 
   /* initialise .data section */
 
-  memcpy(&_data_start_btdm, (void *)_data_start_btdm_rom,
-         &_data_end_btdm - &_data_start_btdm);
+  memcpy(_data_start_btdm, (void *)_data_start_btdm_rom,
+         _data_end_btdm - _data_start_btdm);
 
   wlinfo(".data initialise [0x%08x] <== [0x%08x]\n",
-         (uint32_t)&_data_start_btdm, _data_start_btdm_rom);
+         (uint32_t)_data_start_btdm, _data_start_btdm_rom);
 
   /* initial em, .bss section */
 
@@ -2346,17 +2356,17 @@ int esp32_bt_controller_init(void)
   if (btdm_controller_status != ESP_BT_CONTROLLER_STATUS_IDLE)
     {
       wlerr("Invalid controller status");
-      return -ERROR;
+      return ERROR;
     }
 
   if (btdm_osi_funcs_register(&g_osi_funcs) != 0)
     {
-      wlinfo("Error, probably invalid OSI Functions\n");
+      wlerr("Error, probably invalid OSI Functions\n");
       return -EINVAL;
     }
 
   wlinfo("BT controller compile version [%s]\n",
-                              btdm_controller_get_compile_version());
+         btdm_controller_get_compile_version());
 
   /* If all the bt available memory was already released,
    * cannot initialize bluetooth controller
@@ -2365,7 +2375,7 @@ int esp32_bt_controller_init(void)
   if (btdm_dram_available_region[0].mode == ESP_BT_MODE_IDLE)
     {
       wlerr("Error, bt available memory was released\n");
-      return ESP_ERR_INVALID_STATE;
+      return -EIO;
     }
 
   if (cfg == NULL)
@@ -2452,7 +2462,7 @@ int esp32_bt_controller_deinit(void)
 {
   if (btdm_controller_status != ESP_BT_CONTROLLER_STATUS_INITED)
     {
-      return -ERROR;
+      return ERROR;
     }
 
   btdm_controller_deinit();
@@ -2494,7 +2504,7 @@ int esp32_bt_controller_deinit(void)
 
   btdm_controller_status = ESP_BT_CONTROLLER_STATUS_IDLE;
   g_btdm_lpcycle_us = 0;
-  return 0;
+  return OK;
 }
 
 /****************************************************************************
@@ -2514,7 +2524,7 @@ int esp32_bt_controller_disable(void)
 {
   if (btdm_controller_status != ESP_BT_CONTROLLER_STATUS_ENABLED)
     {
-      return -ERROR;
+      return ERROR;
     }
 
   while (!btdm_power_state_active())
@@ -2562,18 +2572,18 @@ int esp32_bt_controller_disable(void)
 
 int esp32_bt_controller_enable(esp_bt_mode_t mode)
 {
-  int ret = 0;
+  int ret = OK;
 
   if (btdm_controller_status != ESP_BT_CONTROLLER_STATUS_INITED)
     {
-      return -ERROR;
+      return ERROR;
     }
 
   if (mode != btdm_controller_get_mode())
     {
       wlerr("invalid mode %d, controller support mode is %d",
                                   mode, btdm_controller_get_mode());
-      return -1;
+      return ERROR;
     }
 
   bt_phy_enable();
@@ -2605,7 +2615,7 @@ int esp32_bt_controller_enable(esp_bt_mode_t mode)
 
   if (btdm_controller_enable(mode) != 0)
     {
-      ret = -1;
+      ret = ERROR;
       goto error;
     }
 
@@ -2723,8 +2733,6 @@ static void async_wakeup_request_end(int event)
     {
       btdm_wakeup_request_end();
     }
-
-  return;
 }
 
 /****************************************************************************
@@ -2763,7 +2771,6 @@ static bool coex_bt_wakeup_request(void)
 static void coex_bt_wakeup_request_end(void)
 {
   async_wakeup_request_end(BTDM_ASYNC_WAKEUP_REQ_COEX);
-  return;
 }
 
 /****************************************************************************
@@ -2836,7 +2843,7 @@ void esp32_vhci_host_send_packet(uint8_t *data, uint16_t len)
 
 int esp32_vhci_register_callback(const esp_vhci_host_callback_t *callback)
 {
-  int ret = -ERROR;
+  int ret = ERROR;
   if (btdm_controller_status != ESP_BT_CONTROLLER_STATUS_ENABLED)
     {
       return ret;
@@ -2882,4 +2889,3 @@ void coex_bb_reset_unlock_wrapper(uint32_t restore)
   coex_bb_reset_unlock(restore);
 #endif
 }
-

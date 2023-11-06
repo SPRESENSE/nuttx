@@ -36,6 +36,7 @@
 
 #include "inode/inode.h"
 #include "fs_rammap.h"
+#include "fs_anonmap.h"
 
 /****************************************************************************
  * Private Functions
@@ -49,14 +50,37 @@ static int file_mmap_(FAR struct file *filep, FAR void *start,
                       size_t length, int prot, int flags,
                       off_t offset, bool kernel, FAR void **mapped)
 {
-  FAR void *addr;
-  int ret;
+  int ret = -ENOTTY;
+
+  /* Pass the information about the mapping in mm_map_entry_s structure.
+   * The driver may alter the structure, and if it supports unmap, it
+   * will also add it to the kernel maintained list of mappings.
+   */
+
+  struct mm_map_entry_s entry =
+    {
+     NULL,     /* sq_entry_t */
+     start,
+     length,
+     offset,
+     prot,
+     flags,
+     { NULL }, /* priv.p */
+     NULL      /* munmap */
+    };
 
   /* Since only a tiny subset of mmap() functionality, we have to verify many
    * things.
    */
 
 #ifdef CONFIG_DEBUG_FEATURES
+  /* A flags with MAP_PRIVATE and MAP_SHARED is invalid. */
+
+  if ((flags & MAP_PRIVATE) && (flags & MAP_SHARED))
+    {
+      return -EINVAL;
+    }
+
   /* Fixed mappings and protections are not currently supported.  These
    * options could be supported in the KERNEL build with an MMU, but that
    * logic is not in place.
@@ -68,15 +92,6 @@ static int file_mmap_(FAR struct file *filep, FAR void *start,
       return -ENOSYS;
     }
 
-#ifndef CONFIG_FS_RAMMAP
-  if ((flags & MAP_PRIVATE) != 0)
-    {
-      ferr("ERROR: MAP_PRIVATE is not supported without file mapping"
-           "emulation\n");
-      return -ENOSYS;
-    }
-#endif /* CONFIG_FS_RAMMAP */
-
   /* A length of 0 is invalid. */
 
   if (length == 0)
@@ -86,8 +101,25 @@ static int file_mmap_(FAR struct file *filep, FAR void *start,
     }
 #endif /* CONFIG_DEBUG_FEATURES */
 
-  if ((filep->f_oflags & O_WROK) == 0 && prot == PROT_WRITE &&
-      (flags & MAP_SHARED) != 0)
+  /* Check if we are just be asked to allocate memory, i.e., MAP_ANONYMOUS
+   * set meaning that the memory is not backed up from a file.  The file
+   * descriptor should be -1 (or refer to opened /dev/zero) in this case.
+   * The file descriptor is ignored in either case.
+   */
+
+  if ((flags & MAP_ANONYMOUS) != 0)
+    {
+      ret = map_anonymous(&entry, kernel);
+      goto out;
+    }
+
+  if (filep == NULL)
+    {
+      return -EBADF;
+    }
+
+  if ((flags & MAP_SHARED) &&
+      (filep->f_oflags & O_WROK) == 0 && prot == PROT_WRITE)
     {
       ferr("ERROR: Unsupported options for read-only file descriptor,"
            "prot=%x flags=%04x\n", prot, flags);
@@ -100,70 +132,38 @@ static int file_mmap_(FAR struct file *filep, FAR void *start,
       return -EACCES;
     }
 
-  /* Check if we are just be asked to allocate memory, i.e., MAP_ANONYMOUS
-   * set meaning that the memory is not backed up from a file.  The file
-   * descriptor should be -1 (or refer to opened /dev/zero) in this case.
-   * The file descriptor is ignored in either case.
+  /* Call driver's mmap to get the base address of the file in 'mapped'
+   * in memory.
    */
 
-  if ((flags & MAP_ANONYMOUS) != 0)
+  if (filep->f_inode &&
+      filep->f_inode->u.i_ops->mmap != NULL)
     {
-      /* REVISIT:  Should reside outside of the heap.  That is really the
-       * only purpose of MAP_ANONYMOUS:  To get non-heap memory.  In KERNEL
-       * build, this could be accomplished using pgalloc(), provided that
-       * you had logic in place to assign a virtual address to the mapping.
-       */
-
-      *mapped = kernel ? kmm_zalloc(length) : kumm_zalloc(length);
-      if (*mapped == NULL)
-        {
-          ferr("ERROR: kumm_alloc() failed, enable DEBUG_MM for info!\n");
-          return -ENOMEM;
-        }
-
-      return OK;
+      ret = filep->f_inode->u.i_ops->mmap(filep, &entry);
     }
 
-  if ((flags & MAP_PRIVATE) != 0)
+  if (ret == -ENOTTY)
     {
-#ifdef CONFIG_FS_RAMMAP
+      /* Caller request the private mapping. Or not directly mappable,
+       * probably because the underlying media doesn't support random access.
+       */
+
       /* Allocate memory and copy the file into memory.  We would, of course,
        * do much better in the KERNEL build using the MMU.
        */
 
-      return rammap(filep, length, offset, kernel, mapped);
-#endif
+      ret = rammap(filep, &entry, kernel);
     }
 
-  /* Perform the ioctl to get the base address of the file in 'mapped'
-   * in memory. (casting to uintptr_t first eliminates complaints on some
-   * architectures where the sizeof long is different from the size of
-   * a pointer).
-   */
+  /* Return */
 
-  ret = file_ioctl(filep, FIOC_MMAP, (unsigned long)((uintptr_t)&addr));
-  if (ret < 0)
+out:
+  if (ret >= OK)
     {
-      /* Not directly mappable, probably because the underlying media does
-       * not support random access.
-       */
-
-#ifdef CONFIG_FS_RAMMAP
-      /* Allocate memory and copy the file into memory.  We would, of course,
-       * do much better in the KERNEL build using the MMU.
-       */
-
-      return rammap(filep, length, offset, kernel, mapped);
-#else
-      ferr("ERROR: file_ioctl(FIOC_MMAP) failed: %d\n", ret);
-      return ret;
-#endif
+      *mapped = entry.vaddr;
     }
 
-  /* Return the offset address */
-
-  *mapped = (FAR void *)(((FAR uint8_t *)addr) + offset);
-  return OK;
+  return ret;
 }
 
 /****************************************************************************
@@ -197,7 +197,7 @@ int file_mmap(FAR struct file *filep, FAR void *start, size_t length,
  *   1. mmap() is the API that is used to support direct access to random
  *     access media under the following very restrictive conditions:
  *
- *     a. The filesystem supports the FIOC_MMAP ioctl command.  Any file
+ *     a. The filesystem implements the mmap file operation.  Any file
  *        system that maps files contiguously on the media should support
  *        this ioctl. (vs. file system that scatter files over the media
  *        in non-contiguous sectors).  As of this writing, ROMFS is the
@@ -235,7 +235,7 @@ int file_mmap(FAR struct file *filep, FAR void *start, size_t length,
  *           MAP_NORESERVE  - Ignored
  *           MAP_POPULATE   - Ignored
  *           MAP_NONBLOCK   - Ignored
- *   fd      file descriptor of the backing file -- required.
+ *   fd      file descriptor of the backing file.
  *   offset  The offset into the file to map
  *
  * Returned Value:
@@ -264,14 +264,14 @@ int file_mmap(FAR struct file *filep, FAR void *start, size_t length,
 FAR void *mmap(FAR void *start, size_t length, int prot, int flags,
                int fd, off_t offset)
 {
-  FAR struct file *filep;
-  FAR void *mapped;
+  FAR struct file *filep = NULL;
+  FAR void *mapped = NULL;
   int ret;
 
-  if (fs_getfilep(fd, &filep) < 0)
+  if (fd != -1 && fs_getfilep(fd, &filep) < 0)
     {
-      ferr("ERROR: Invalid file descriptor, fd=%d\n", fd);
-      ret = -EBADF;
+      ferr("ERROR: fd:%d referred file whose type is not supported\n", fd);
+      ret = -ENODEV;
       goto errout;
     }
 

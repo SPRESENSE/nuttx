@@ -18,7 +18,7 @@
  *
  ****************************************************************************/
 
-/* Reference: "CoreLink™ Level 2 Cache Controller L2C-310", Revision r3p2,
+/* Reference: "CoreLinkâ„¢ Level 2 Cache Controller L2C-310", Revision r3p2,
  *   Technical Reference Manual, ARM DDI 0246F (ID011711), ARM
  *
  * NOTE: This logic is incompatible with older versions of the PL310!
@@ -31,12 +31,14 @@
 #include <nuttx/config.h>
 
 #include <stdint.h>
+#include <sys/param.h>
 #include <assert.h>
 #include <debug.h>
 
 #include <nuttx/irq.h>
 
 #include "arm_internal.h"
+#include "barriers.h"
 #include "l2cc.h"
 #include "l2cc_pl310.h"
 
@@ -221,24 +223,6 @@
 
 #define PL310_GULP_SIZE            4096
 
-/* Misc commoly defined and re-defined things */
-
-#ifndef MIN
-#  define MIN(a,b)                 (((a) < (b)) ? (a) : (b))
-#endif
-
-#ifndef MAX
-#  define MAX(a,b)                 (((a) > (b)) ? (a) : (b))
-#endif
-
-#ifndef OK
-#  define OK                       0
-#endif
-
-/* Data synchronization barrier */
-
-#define dsb(a) __asm__ __volatile__ ("dsb " #a : : : "memory")
-
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
@@ -357,7 +341,7 @@ void arm_l2ccinitialize(void)
     defined(CONFIG_PL310_TRCR_TWRLAT)
       /* Configure Tag RAM control */
 
-      regval = ((CONFIG_PL310_TRCR_TSETLAT - 1) << L2CC_TRCR_TSETLAT_SHIFT)
+      regval = ((CONFIG_PL310_TRCR_TSETLAT - 1) << L2CC_TRCR_TSETLAT_SHIFT) |
                ((CONFIG_PL310_TRCR_TRDLAT - 1) << L2CC_TRCR_TRDLAT_SHIFT) |
                ((CONFIG_PL310_TRCR_TWRLAT - 1) << L2CC_TRCR_TWRLAT_SHIFT);
       putreg32(regval, L2CC_TRCR);
@@ -404,10 +388,50 @@ void arm_l2ccinitialize(void)
 
       l2cc_invalidate_all();
       putreg32(L2CC_CR_L2CEN, L2CC_CR);
+      ARM_DSB();
+      ARM_ISB();
     }
 
   sinfo("(%d ways) * (%d bytes/way) = %d bytes\n",
         PL310_NWAYS, PL310_WAYSIZE, PL310_CACHE_SIZE);
+}
+
+/****************************************************************************
+ * Name: l2cc_linesize
+ *
+ * Description:
+ *    Get L2CC-P310 L2 cache linesize
+ *
+ * Input Parameters:
+ *    None
+ *
+ * Returned Value:
+ *    L2 cache linesize
+ *
+ ****************************************************************************/
+
+uint32_t l2cc_linesize(void)
+{
+  return PL310_CACHE_LINE_SIZE;
+}
+
+/****************************************************************************
+ * Name: l2cc_size
+ *
+ * Description:
+ *    Get L2CC-P310 L2 cache size
+ *
+ * Input Parameters:
+ *    None
+ *
+ * Returned Value:
+ *    L2 cache size
+ *
+ ****************************************************************************/
+
+uint32_t l2cc_size(void)
+{
+  return PL310_CACHE_SIZE;
 }
 
 /****************************************************************************
@@ -432,8 +456,16 @@ void l2cc_enable(void)
   /* Invalidate and enable the cache (must be disabled to do this!) */
 
   flags = enter_critical_section();
+
+  if ((getreg32(L2CC_CR) & L2CC_CR_L2CEN) != 0)
+    {
+      l2cc_disable();
+    }
+
   l2cc_invalidate_all();
   putreg32(L2CC_CR_L2CEN, L2CC_CR);
+  ARM_DSB();
+  ARM_ISB();
   leave_critical_section(flags);
 }
 
@@ -463,7 +495,8 @@ void l2cc_disable(void)
   /* Disable the L2CC-P310 L2 cache by clearing the Control Register (CR) */
 
   putreg32(0, L2CC_CR);
-  dsb();
+  ARM_DSB();
+  ARM_ISB();
   leave_critical_section(flags);
 }
 
@@ -512,16 +545,10 @@ void l2cc_sync(void)
 void l2cc_invalidate_all(void)
 {
   irqstate_t flags;
-  uint32_t regval;
 
   /* Invalidate all ways */
 
   flags = enter_critical_section();
-
-  /* Disable the L2 cache while we invalidate it */
-
-  regval = getreg32(L2CC_CR);
-  l2cc_disable();
 
   /* Invalidate all ways by writing the bit mask of ways to be invalidated
    * the Invalidate Way Register (IWR).
@@ -539,9 +566,6 @@ void l2cc_invalidate_all(void)
 
   putreg32(0, L2CC_CSR);
 
-  /* Then re-enable the L2 cache if it was enabled before */
-
-  putreg32(regval, L2CC_CR);
   leave_critical_section(flags);
 }
 

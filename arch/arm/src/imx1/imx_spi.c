@@ -34,6 +34,7 @@
 #include <nuttx/spi/spi.h>
 
 #include <nuttx/irq.h>
+#include <nuttx/mutex.h>
 #include <nuttx/semaphore.h>
 #include <arch/board/board.h>
 
@@ -85,7 +86,7 @@ struct imx_spidev_s
 #ifndef CONFIG_SPI_POLLWAIT
   sem_t waitsem;                /* Wait for transfer to complete */
 #endif
-  sem_t exclsem;                /* Supports mutually exclusive access */
+  mutex_t lock;                 /* Supports mutually exclusive access */
 
   /* These following are the source and destination buffers of the transfer.
    * they are retained in this structure so that they will be accessible
@@ -206,19 +207,23 @@ static struct imx_spidev_s g_spidev[] =
 {
 #ifdef CONFIG_IMX1_SPI1
   {
-    .ops  = &g_spiops,
-    .base = IMX_CSPI1_VBASE,
+    .ops     = &g_spiops,
+    .base    = IMX_CSPI1_VBASE,
+    .lock    = NXMUTEX_INITIALIZER,
 #ifndef CONFIG_SPI_POLLWAIT
-    .irq  = IMX_IRQ_CSPI1,
+    .waitsem = SEM_INITIALIZER(0),
+    .irq     = IMX_IRQ_CSPI1,
 #endif
   },
 #endif
 #ifdef CONFIG_IMX1_SPI2
   {
-    .ops  = &g_spiops,
-    .base = IMX_CSPI2_VBASE,
+    .ops     = &g_spiops,
+    .base    = IMX_CSPI2_VBASE,
+    .lock    = NXMUTEX_INITIALIZER,
 #ifndef CONFIG_SPI_POLLWAIT
-    .irq  = IMX_IRQ_CSPI2,
+    .waitsem = SEM_INITIALIZER(0),
+    .irq     = IMX_IRQ_CSPI2,
 #endif
   },
 #endif
@@ -703,11 +708,11 @@ static int spi_lock(struct spi_dev_s *dev, bool lock)
 
   if (lock)
     {
-      ret = nxsem_wait_uninterruptible(&priv->exclsem);
+      ret = nxmutex_lock(&priv->lock);
     }
   else
     {
-      ret = nxsem_post(&priv->exclsem);
+      ret = nxmutex_unlock(&priv->lock);
     }
 
   return ret;
@@ -1106,17 +1111,6 @@ struct spi_dev_s *imx_spibus_initialize(int port)
     }
 
   /* Initialize the state structure */
-
-#ifndef CONFIG_SPI_POLLWAIT
-  /* Initialize the semaphore that is used to wake up the waiting
-   * thread when the DMA transfer completes.  This semaphore is used for
-   * signaling and, hence, should not have priority inheritance enabled.
-   */
-
-  nxsem_init(&priv->waitsem, 0, 0);
-  nxsem_set_protocol(&priv->waitsem, SEM_PRIO_NONE);
-#endif
-  nxsem_init(&priv->exclsem, 0, 1);
 
   /* Initialize control register:
    * min frequency, ignore ready, master mode, mode=0, 8-bit

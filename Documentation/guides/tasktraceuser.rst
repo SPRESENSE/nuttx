@@ -24,9 +24,9 @@ The following configurations must be enabled.
 - ``CONFIG_SCHED_INSTRUMENTATION_FILTER`` : Enables the filter logic of the notes.
 - ``CONFIG_SCHED_INSTRUMENTATION_SYSCALL`` : Enable system call instrumentation.
 - ``CONFIG_SCHED_INSTRUMENTATION_IRQHANDLER`` : Enables IRQ instrumentation.
-- ``CONFIG_DRIVER_NOTE`` : Enables note driver support.
-- ``CONFIG_DRIVER_NOTERAM`` : Enables ``/dev/note`` in-memory buffering driver.
-- ``CONFIG_DRIVER_NOTECTL`` : Enables ``/dev/notectl`` filter control driver.
+- ``CONFIG_DRIVERS_NOTE`` : Enables note driver support.
+- ``CONFIG_DRIVERS_NOTERAM`` : Enables ``/dev/note`` in-memory buffering driver.
+- ``CONFIG_DRIVERS_NOTECTL`` : Enables ``/dev/notectl`` filter control driver.
 - ``CONFIG_SYSTEM_TRACE`` : Enables "``trace``" command
 - ``CONFIG_SYSTEM_SYSTEM`` : Enables "``system``" command (required by :ref:`trace_cmd`)
 
@@ -42,26 +42,27 @@ The following configurations are configurable parameters for trace.
     - Bit 2 = Enable IRQ instrumentation
     - Bit 3 = Enable collecting syscall arguments
 
-- ``CONFIG_SCHED_INSTRUMENTATION_HIRES``
-
-  - If enabled, use higher resolution system timer for instrumentation.
-
-- ``CONFIG_DRIVER_NOTERAM_BUFSIZE``
-
-  - Specify the note buffer size in bytes.
-    Higher value can hold more note records, but consumes more kernel memory.
-
-- ``CONFIG_DRIVER_NOTERAM_TASKNAME_BUFSIZE``
+- ``CONFIG_DRIVERS_NOTE_TASKNAME_BUFSIZE``
 
   - Specify the task name buffer size in bytes.
     The buffer is used to hold the name of the task during instrumentation.
     Trace dump can find and show a task name corresponding to given pid in the instrumentation data by using this buffer.
     If 0 is specified, this feature is disabled and trace dump shows only the name of the newly created task.
 
-- ``CONFIG_DRIVER_NOTERAM_DEFAULT_NOOVERWRITE``
+- ``CONFIG_DRIVERS_NOTERAM_BUFSIZE``
+
+  - Specify the note buffer size in bytes.
+    Higher value can hold more note records, but consumes more kernel memory.
+
+- ``CONFIG_DRIVERS_NOTERAM_DEFAULT_NOOVERWRITE``
 
   - If enabled, stop overwriting old notes in the circular buffer when the buffer is full by default.
     This is useful to keep instrumentation data of the beginning of a system boot.
+
+- ``CONFIG_DRIVERS_NOTERAM_CRASH_DUMP``
+
+  - If enabled, it will dump the data in the noteram buffer after a system crash.
+    This function can help to view the behavior of the system before the crash
 
 After the configuration, rebuild the NuttX kernel and application.
 

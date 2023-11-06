@@ -7,6 +7,7 @@ menu "Standard C I/O"
 
 config STDIO_DISABLE_BUFFERING
 	bool "Disable STDIO Buffering"
+	depends on FILE_STREAM
 	default n
 	---help---
 		Tiny systems may need to disable all support for I/O buffering in
@@ -54,6 +55,7 @@ config NUNGET_CHARS
 config LIBC_FLOATINGPOINT
 	bool "Enable floating point in printf"
 	default !DEFAULT_SMALL && ARCH_FPU
+	depends on !LIBM_NONE
 	---help---
 		By default, floating point support in printf, sscanf, etc. is
 		disabled.  This option will enable floating point support.
@@ -76,7 +78,6 @@ config LIBC_LONG_LONG
 config LIBC_NUMBERED_ARGS
 	bool "Enable numbered arguments in printf"
 	default n
-	depends on LIBC_FLOATINGPOINT || LIBC_LONG_LONG
 	---help---
 		Enables support for numbered arguments in printf.
 
@@ -88,7 +89,7 @@ config LIBC_NUMBERED_ARGS
 
 config LIBC_NL_ARGMAX
 	int "Maximum number of numbered arguments for printf"
-	default 16
+	default 9
 	range 9 999999
 	depends on LIBC_NUMBERED_ARGS
 	---help---
@@ -104,28 +105,5 @@ config LIBC_SCANSET
 	default n
 	---help---
 		Add scanset support to sscanf().
-
-choice
-	prompt "Newline Options"
-	default EOL_IS_EITHER_CRLF
-	---help---
-		This selection determines the line terminating character that is used.
-		Some environments may return CR as end-of-line, others LF, and others
-		both.  If not specified, the default is either CR or LF (but not both)
-		as the line terminating character.
-
-config EOL_IS_CR
-	bool "EOL is CR"
-
-config EOL_IS_LF
-	bool "EOL is LF"
-
-config EOL_IS_BOTH_CRLF
-	bool "EOL is CR and LF"
-
-config EOL_IS_EITHER_CRLF
-	bool "EOL is CR or LF"
-
-endchoice
 
 endmenu #Standard C I/O

@@ -272,16 +272,36 @@ static void     nand_reset(struct sam_nandcs_s *priv);
  */
 
 #ifdef CONFIG_SAMA5_EBICS0_NAND
-static struct sam_nandcs_s g_cs0nand;
+static struct sam_nandcs_s g_cs0nand =
+{
+#ifdef CONFIG_SAMA5_NAND_DMA
+  .waitsem = SEM_INITIALIZER(0)
+#endif
+};
 #endif
 #ifdef CONFIG_SAMA5_EBICS1_NAND
-static struct sam_nandcs_s g_cs1nand;
+static struct sam_nandcs_s g_cs1nand =
+{
+#ifdef CONFIG_SAMA5_NAND_DMA
+  .waitsem = SEM_INITIALIZER(0)
+#endif
+};
 #endif
 #ifdef CONFIG_SAMA5_EBICS2_NAND
-static struct sam_nandcs_s g_cs2nand;
+static struct sam_nandcs_s g_cs2nand =
+{
+#ifdef CONFIG_SAMA5_NAND_DMA
+  .waitsem = SEM_INITIALIZER(0)
+#endif
+};
 #endif
 #ifdef CONFIG_SAMA5_EBICS3_NAND
-static struct sam_nandcs_s g_cs3nand;
+static struct sam_nandcs_s g_cs3nand =
+{
+#ifdef CONFIG_SAMA5_NAND_DMA
+  .waitsem = SEM_INITIALIZER(0)
+#endif
+};
 #endif
 
 /****************************************************************************
@@ -290,7 +310,15 @@ static struct sam_nandcs_s g_cs3nand;
 
 /* NAND global state */
 
-struct sam_nand_s g_nand;
+struct sam_nand_s g_nand =
+{
+#if NAND_NBANKS > 1
+  .lock = NXMUTEX_INITIALIZER,
+#endif
+#ifdef CONFIG_SAMA5_NAND_HSMCINTERRUPTS
+  .waitsem = SEM_INITIALIZER(0),
+#endif
+};
 
 /****************************************************************************
  * Private Functions
@@ -314,7 +342,7 @@ struct sam_nand_s g_nand;
 #if NAND_NBANKS > 1
 static int nand_lock(void)
 {
-  return nxsem_wait_uninterruptible(&g_nand.exclsem);
+  return nxmutex_lock(&g_nand.lock);
 }
 #endif
 
@@ -335,7 +363,7 @@ static int nand_lock(void)
 #if NAND_NBANKS > 1
 static void nand_unlock(void)
 {
-  nxsem_post(&g_nand.exclsem);
+  nxmutex_unlock(&g_nand.lock);
 }
 #endif
 
@@ -1917,8 +1945,8 @@ static int nand_readpage_noecc(struct sam_nandcs_s *priv, off_t block,
   off_t coladdr;
   int ret;
 
-  finfo("block=%d page=%d data=%p spare=%p\n",
-        (int)block, page, data, spare);
+  finfo("block=%" PRIdOFF " page=%d data=%p spare=%p\n",
+        block, page, data, spare);
   DEBUGASSERT(priv && (data || spare));
 
   /* Get page and spare sizes */
@@ -2162,8 +2190,8 @@ static int nand_writepage_noecc(struct sam_nandcs_s *priv, off_t block,
   off_t rowaddr;
   int ret = OK;
 
-  finfo("block=%d page=%d data=%p spare=%p\n",
-        (int)block, page, data, spare);
+  finfo("block=%" PRIdOFF " page=%d data=%p spare=%p\n",
+        block, page, data, spare);
 
   /* Get page and spare sizes */
 
@@ -2966,7 +2994,6 @@ struct mtd_dev_s *sam_nand_initialize(int cs)
 
   /* Initialize the device structure */
 
-  memset(priv, 0, sizeof(struct sam_nandcs_s));
   priv->raw.cmdaddr    = cmdaddr;
   priv->raw.addraddr   = addraddr;
   priv->raw.dataaddr   = dataaddr;
@@ -2980,44 +3007,15 @@ struct mtd_dev_s *sam_nand_initialize(int cs)
 #endif
   priv->cs             = cs;
 
-#ifdef CONFIG_SAMA5_NAND_DMA
-  /* The waitsem semaphore is used for signaling and, hence, should not have
-   * priority inheritance enabled.
-   */
-
-  nxsem_init(&priv->waitsem, 0, 0);
-  nxsem_set_protocol(&priv->waitsem, SEM_PRIO_NONE);
-#endif
-
   /* Perform one-time, global NFC/PMECC initialization */
 
   if (!g_nand.initialized)
     {
-      /* Initialize the global nand state structure */
-
-#if NAND_NBANKS > 1
-      nxsem_init(&g_nand.exclsem, 0, 1);
-#endif
-
-#ifdef CONFIG_SAMA5_NAND_HSMCINTERRUPTS
-      /* The waitsem semaphore is used for signaling and, hence, should not
-       * have priority inheritance enabled.
-       */
-
-      nxsem_init(&g_nand.waitsem, 0, 0);
-      nxsem_set_protocol(&g_nand.waitsem, SEM_PRIO_NONE);
-#endif
-
       /* Enable the NAND FLASH Controller (The NFC is always used) */
 
       nand_putreg(SAM_HSMC_CTRL, HSMC_CTRL_NFCEN);
 
-#ifdef CONFIG_SAMA5_HAVE_PMECC
-      /* Perform one-time initialization of the PMECC */
-
-      pmecc_initialize();
-
-#else
+#ifndef CONFIG_SAMA5_HAVE_PMECC
       /* Disable the PMECC if it is not being used */
 
       nand_putreg(SAM_HSMC_PMECCTRL, HSMC_PMECCTRL_RST);

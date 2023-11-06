@@ -26,6 +26,7 @@
 
 #include <nuttx/config.h>
 
+#include <sys/param.h>
 #include <sys/types.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -43,10 +44,6 @@
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
-
-#ifndef MAX
-#  define MAX(a,b)    ((a) > (b) ? (a) : (b))
-#endif
 
 /* Configuration ************************************************************/
 
@@ -162,7 +159,7 @@ static int apa102_putrun(FAR struct lcd_dev_s *dev, fb_coord_t row,
 static int apa102_putarea(FAR struct lcd_dev_s *dev,
                           fb_coord_t row_start, fb_coord_t row_end,
                           fb_coord_t col_start, fb_coord_t col_end,
-                          FAR const uint8_t *buffer);
+                          FAR const uint8_t *buffer, fb_coord_t stride);
 static int apa102_getrun(FAR struct lcd_dev_s *dev, fb_coord_t row,
                          fb_coord_t col, FAR uint8_t *buffer,
                          size_t npixels);
@@ -474,13 +471,17 @@ static int apa102_putrun(FAR struct lcd_dev_s *dev, fb_coord_t row,
  *   col_end   - Ending column to write to
  *               (range: col_start <= col_end < xres)
  *   buffer    - The buffer containing the area to be written to the LCD
+ *   stride    - Length of a line in bytes. This parameter may be necessary
+ *               to allow the LCD driver to calculate the offset for partial
+ *               writes when the buffer needs to be splited for row-by-row
+ *               writing.
  *
  ****************************************************************************/
 
 static int apa102_putarea(FAR struct lcd_dev_s *dev,
                           fb_coord_t row_start, fb_coord_t row_end,
                           fb_coord_t col_start, fb_coord_t col_end,
-                          FAR const uint8_t *buffer)
+                          FAR const uint8_t *buffer, fb_coord_t stride)
 {
   FAR struct apa102_dev_s *priv = (FAR struct apa102_dev_s *)dev;
   FAR uint16_t *src = (FAR uint16_t *)buffer;
@@ -501,12 +502,14 @@ static int apa102_putarea(FAR struct lcd_dev_s *dev,
           if (i % 2 == 0)
             {
               priv->fb[(i * APA102_XRES) + j] =
-                rgb565_apa102(*(src + (i * APA102_XRES) + j));
+                rgb565_apa102(*(src + ((i - row_start) * APA102_XRES) +
+                              (j - col_start)));
             }
           else
             {
               priv->fb[(i * APA102_XRES) + APA102_XRES - j - 1] =
-                rgb565_apa102(*(src + (i * APA102_XRES) + j));
+                rgb565_apa102(*(src + ((i - row_start) * APA102_XRES) +
+                              (j - col_start)));
             }
         }
     }
@@ -691,8 +694,6 @@ static int apa102_setcontrast(FAR struct lcd_dev_s *dev,
 
 static inline void up_clear(FAR struct apa102_dev_s  *priv)
 {
-  int i;
-
   /* Clear the framebuffer */
 
   memset(priv->fb, APA102_BLACK, 4 * APA102_FBSIZE);

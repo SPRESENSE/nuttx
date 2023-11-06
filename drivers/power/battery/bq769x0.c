@@ -32,6 +32,7 @@
 
 #include <nuttx/config.h>
 
+#include <sys/param.h>
 #include <sys/types.h>
 
 #include <unistd.h>
@@ -40,7 +41,7 @@
 #include <errno.h>
 #include <debug.h>
 
-#include <crc8.h>
+#include <nuttx/crc8.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/signal.h>
 #include <nuttx/i2c/i2c_master.h>
@@ -62,12 +63,6 @@
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
-
-/* Helpers ******************************************************************/
-
-#ifndef MIN
-#  define MIN(a,b) ((a) < (b) ? (a) : (b))
-#endif
 
 /* The CRC function expects to see address bytes as they appear on the wire */
 

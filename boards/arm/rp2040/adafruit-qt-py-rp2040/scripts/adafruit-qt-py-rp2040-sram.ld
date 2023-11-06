@@ -20,6 +20,7 @@
 
 MEMORY
 {
+  flash (rx) : ORIGIN = 0x10000000, LENGTH = 8192K
   sram (rwx) : ORIGIN = 0x20000000, LENGTH = 264K
 }
 
@@ -49,7 +50,8 @@ SECTIONS
 
     .init_section : {
         _sinit = ABSOLUTE(.);
-        *(.init_array .init_array.*)
+        KEEP(*(SORT_BY_INIT_PRIORITY(.init_array.*) SORT_BY_INIT_PRIORITY(.ctors.*)))
+        KEEP(*(.init_array .ctors))
         _einit = ABSOLUTE(.);
     } > sram
 
@@ -67,10 +69,16 @@ SECTIONS
         _sdata = ABSOLUTE(.);
         *(.data .data.*)
         *(.gnu.linkonce.d.*)
+        *(.ram_code.*)
         CONSTRUCTORS
         . = ALIGN(4);
         _edata = ABSOLUTE(.);
     } > sram
+
+    .flash_section : {
+        . = ALIGN(4*1024);
+        *(.flash.*)
+    } > flash
 
     .bss : {
         _sbss = ABSOLUTE(.);

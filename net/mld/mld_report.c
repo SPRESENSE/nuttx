@@ -59,13 +59,14 @@ int mld_report(FAR struct net_driver_s *dev,
    */
 
   mldinfo("grpaddr: %04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x\n",
-          grpaddr[0], grpaddr[1], grpaddr[2], grpaddr[3],
-          grpaddr[4], grpaddr[5], grpaddr[6], grpaddr[7]);
+          NTOHS(grpaddr[0]), NTOHS(grpaddr[1]), NTOHS(grpaddr[2]),
+          NTOHS(grpaddr[3]), NTOHS(grpaddr[4]), NTOHS(grpaddr[5]),
+          NTOHS(grpaddr[6]), NTOHS(grpaddr[7]));
 
 #ifdef CONFIG_NET_MLD_ROUTER
   /* Assure that the group address is an IPv6 multicast address */
 
-  if (!net_is_addr_mcast(mrec->ipv6mr_multiaddr.s6_addr16))
+  if (!net_is_addr_mcast(grpaddr))
     {
       return -EINVAL;
     }

@@ -87,7 +87,7 @@
 #define IN_INTERRUPT             (g_current_regs != NULL)
 #define SAVE_IRQCONTEXT(tcb)     z16_copystate((tcb)->xcp.regs, (FAR chipreg_t*)g_current_regs)
 #define SET_IRQCONTEXT(tcb)      do { g_current_regs = (tcb)->xcp.regs; } while (0)
-#define SAVE_USERCONTEXT(tcb)    z16_saveusercontext((tcb)->xcp.regs)
+#define SAVE_USERCONTEXT(tcb)    up_saveusercontext((tcb)->xcp.regs)
 #define RESTORE_USERCONTEXT(tcb) z16_restoreusercontext((tcb)->xcp.regs)
 #define SIGNAL_RETURN(regs)      z16_restoreusercontext(regs)
 
@@ -119,13 +119,12 @@ typedef void (*up_vector_t)(void);
 void z16_copystate(FAR chipreg_t *dest, FAR chipreg_t *src);
 FAR chipreg_t *z16_doirq(int irq, FAR chipreg_t *regs);
 void z16_restoreusercontext(FAR chipreg_t *regs);
-int  z16_saveusercontext(FAR chipreg_t *regs);
 void z16_sigdeliver(void);
 
 #if defined(CONFIG_Z16_LOWPUTC) || defined(CONFIG_Z16_LOWGETC)
 void z16_lowputc(char ch);
 #else
-# define z16_lowputc(ch)
+#  define z16_lowputc(ch)
 #endif
 
 /* Defined in xyz_allocateheap.c */
@@ -153,17 +152,7 @@ void z16_ack_irq(int irq);
 #if defined(CONFIG_NET) && !defined(CONFIG_NETDEV_LATEINIT)
 void z16_netinitialize(void);
 #else
-# define z16_netinitialize()
-#endif
-
-/* Dump stack and registers */
-
-#ifdef CONFIG_ARCH_STACKDUMP
-void z16_stackdump(void);
-void z16_registerdump(void);
-#else
-# define z16_stackdump()
-# define z16_registerdump()
+#  define z16_netinitialize()
 #endif
 
 #endif /* __ASSEMBLY__ */

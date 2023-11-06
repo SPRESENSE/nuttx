@@ -50,14 +50,13 @@
  */
 
 #ifdef CONFIG_ARCH_ADDRENV
-typedef uint8_t save_addrenv_t;
 
 /* At the task-level, the z180 address environment is represented as struct
  * z180_cbr_s which is defined in irq.h.
  */
 
 struct z180_cbr_s;
-typedef FAR struct z180_cbr_s *group_addrenv_t;
+typedef FAR struct z180_cbr_s *arch_addrenv_t;
 #endif
 
 /****************************************************************************

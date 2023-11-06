@@ -48,6 +48,11 @@ static const size_t g_pgt_sizes[] =
 {
     RV_MMU_L1_PAGE_SIZE, RV_MMU_L2_PAGE_SIZE, RV_MMU_L3_PAGE_SIZE
 };
+#elif CONFIG_ARCH_MMU_TYPE_SV32
+static const size_t g_pgt_sizes[] =
+{
+    RV_MMU_L1_PAGE_SIZE, RV_MMU_L2_PAGE_SIZE
+};
 #endif
 
 /****************************************************************************
@@ -144,4 +149,11 @@ void mmu_ln_map_region(uint32_t ptlevel, uintptr_t lnvaddr, uintptr_t paddr,
       paddr += page_size;
       vaddr += page_size;
     }
+}
+
+size_t mmu_get_region_size(uint32_t ptlevel)
+{
+  DEBUGASSERT(ptlevel > 0 && ptlevel <= RV_MMU_PT_LEVELS);
+
+  return g_pgt_sizes[ptlevel - 1];
 }

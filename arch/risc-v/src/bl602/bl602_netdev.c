@@ -32,6 +32,7 @@
 #include <assert.h>
 #include <debug.h>
 #include <sched.h>
+#include <nuttx/mutex.h>
 #include <nuttx/semaphore.h>
 #include <nuttx/nuttx.h>
 #include <nuttx/kmalloc.h>
@@ -45,7 +46,6 @@
 #include <nuttx/arch.h>
 #include <nuttx/irq.h>
 #include <nuttx/wqueue.h>
-#include <nuttx/net/arp.h>
 #include <nuttx/net/net.h>
 #include <nuttx/net/netdev.h>
 #include <nuttx/wireless/wireless.h>
@@ -183,8 +183,8 @@ struct rx_pending_item_s
 {
   struct list_node node;
   struct bl602_net_driver_s *priv; /* Which interface should to deliver */
-  uint8_t *        data;
-  int              len;
+  uint8_t *data;
+  int      len;
 };
 
 /****************************************************************************
@@ -201,8 +201,8 @@ static struct tx_buf_ind_s g_tx_buf_indicator =
 static uint8_t locate_data(".wifi_ram.txbuff")
 g_tx_buff[BL602_NET_TXBUFF_NUM][BL602_NET_TXBUFF_SIZE];
 
-static sem_t g_wifi_scan_sem; /* wifi scan complete semaphore */
-static sem_t g_wifi_connect_sem;
+static mutex_t g_wifi_scan_lock = NXMUTEX_INITIALIZER;
+static sem_t g_wifi_connect_sem = SEM_INITIALIZER(0);
 
 /* Rx Pending List */
 
@@ -263,13 +263,13 @@ static int  bl602_net_txavail(struct net_driver_s *dev);
 #if defined(CONFIG_NET_MCASTGROUP) || defined(CONFIG_NET_ICMPv6)
 static int bl602_net_addmac(struct net_driver_s *dev,
                             const uint8_t *mac);
-# ifdef CONFIG_NET_MCASTGROUP
+#  ifdef CONFIG_NET_MCASTGROUP
 static int bl602_net_rmmac(struct net_driver_s *dev,
                            const uint8_t *mac);
-# endif
-# ifdef CONFIG_NET_ICMPv6
+#  endif
+#  ifdef CONFIG_NET_ICMPv6
 static void bl602_net_ipv6multicast(struct bl602_net_driver_s *priv);
-# endif
+#  endif
 #endif
 
 #ifdef CONFIG_NETDEV_IOCTL
@@ -371,63 +371,22 @@ static int bl602_net_txpoll(struct net_driver_s *dev)
   struct bl602_net_driver_s *priv =
     (struct bl602_net_driver_s *)dev->d_private;
 
-  if (priv->net_dev.d_len > 0)
-    {
-      DEBUGASSERT(priv->net_dev.d_buf);
+  /* Send the packet */
 
-      /* Look up the destination MAC address and add it to the Ethernet
-       * header.
-       */
+  bl602_net_transmit(priv);
 
-#ifdef CONFIG_NET_IPv4
-#ifdef CONFIG_NET_IPv6
-      if (IFF_IS_IPv4(priv->net_dev.d_flags))
-#endif
-        {
-          arp_out(&priv->net_dev);
-        }
-#endif /* CONFIG_NET_IPv4 */
-
-#ifdef CONFIG_NET_IPv6
-#ifdef CONFIG_NET_IPv4
-      else
-#endif
-        {
-          neighbor_out(&priv->net_dev);
-        }
-#endif /* CONFIG_NET_IPv6 */
-
-      /* Check if the network is sending this packet to the IP address of
-       * this device.  If so, just loop the packet back into the network but
-       * don't attempt to put it on the wire.
-       */
-
-      if (!devif_loopback(&priv->net_dev))
-        {
-          /* Send the packet */
-
-          bl602_net_transmit(priv);
-
-          /* Check if there is room in the device to hold another packet.
-           * If not, return a non-zero value to terminate the poll.
-           */
-
-          priv->net_dev.d_buf = bl602_netdev_alloc_txbuf();
-          if (priv->net_dev.d_buf)
-            {
-              priv->net_dev.d_buf += PRESERVE_80211_HEADER_LEN;
-              priv->net_dev.d_len = 0;
-            }
-
-          return priv->net_dev.d_buf == NULL;
-        }
-    }
-
-  /* If zero is returned, the polling will continue until all connections
-   * have been examined.
+  /* Check if there is room in the device to hold another packet.
+   * If not, return a non-zero value to terminate the poll.
    */
 
-  return 0;
+  priv->net_dev.d_buf = bl602_netdev_alloc_txbuf();
+  if (priv->net_dev.d_buf)
+    {
+      priv->net_dev.d_buf += PRESERVE_80211_HEADER_LEN;
+      priv->net_dev.d_len = 0;
+    }
+
+  return priv->net_dev.d_buf == NULL;
 }
 
 /****************************************************************************
@@ -459,30 +418,6 @@ static void bl602_net_reply(struct bl602_net_driver_s *priv)
 
   if (priv->net_dev.d_len > 0)
     {
-      /* Update the Ethernet header with the correct MAC address */
-
-#ifdef CONFIG_NET_IPv4
-#ifdef CONFIG_NET_IPv6
-      /* Check for an outgoing IPv4 packet */
-
-      if (IFF_IS_IPv4(priv->net_dev.d_flags))
-#endif
-        {
-          arp_out(&priv->net_dev);
-        }
-#endif
-
-#ifdef CONFIG_NET_IPv6
-#ifdef CONFIG_NET_IPv4
-      /* Otherwise, it must be an outgoing IPv6 packet */
-
-      else
-#endif
-        {
-          neighbor_out(&priv->net_dev);
-        }
-#endif
-
       /* alloc tx buffer and copy to it */
 
       tx_p = bl602_netdev_alloc_txbuf();
@@ -559,11 +494,8 @@ static void bl602_net_receive(struct bl602_net_driver_s *priv)
       ninfo("IPv4 frame\n");
       NETDEV_RXIPV4(&priv->net_dev);
 
-      /* Handle ARP on input, then dispatch IPv4 packet to the network
-       * layer.
-       */
+      /* Receive an IPv4 packet from the network device */
 
-      arp_ipin(&priv->net_dev);
       ipv4_input(&priv->net_dev);
 
       /* Check for a reply to the IPv4 packet */
@@ -597,7 +529,7 @@ static void bl602_net_receive(struct bl602_net_driver_s *priv)
     {
       /* Dispatch ARP packet to the network layer */
 
-      arp_arpin(&priv->net_dev);
+      arp_input(&priv->net_dev);
       NETDEV_RXARP(&priv->net_dev);
 
       if (priv->net_dev.d_len > 0)
@@ -1173,7 +1105,7 @@ static void scan_complete_indicate(void *data, void *param)
 {
   int                        i;
   struct scan_parse_param_s *para;
-  wifi_mgmr_scan_item_t *    scan;
+  wifi_mgmr_scan_item_t     *scan;
 
   para = (struct scan_parse_param_s *)data;
   DEBUGASSERT(para != NULL);
@@ -1220,7 +1152,6 @@ static void scan_complete_indicate(void *data, void *param)
     }
 
   kmm_free(data);
-  return;
 }
 
 static int rssi_compare(const void *arg1, const void *arg2)
@@ -1505,7 +1436,7 @@ bl602_net_ioctl(struct net_driver_s *dev, int cmd, unsigned long arg)
     case SIOCSIWSCAN:
       do
         {
-          struct iwreq *             req  = (struct iwreq *)arg;
+          struct iwreq              *req  = (struct iwreq *)arg;
           struct scan_parse_param_s *para = NULL;
 
           para = kmm_malloc(sizeof(struct scan_parse_param_s));
@@ -1531,7 +1462,7 @@ bl602_net_ioctl(struct net_driver_s *dev, int cmd, unsigned long arg)
               para->flags = 0;
             }
 
-          if (nxsem_trywait(&g_wifi_scan_sem) == 0)
+          if (nxmutex_trylock(&g_wifi_scan_lock) == 0)
             {
               if (priv->channel != 0)
                 {
@@ -1564,24 +1495,24 @@ bl602_net_ioctl(struct net_driver_s *dev, int cmd, unsigned long arg)
         {
           struct iwreq *req = (struct iwreq *)arg;
 
-          nxsem_wait(&g_wifi_scan_sem);
+          nxmutex_lock(&g_wifi_scan_lock);
 
           if (g_state.scan_result_status != 0)
             {
               wlwarn("scan failed\n");
-              nxsem_post(&g_wifi_scan_sem);
+              nxmutex_unlock(&g_wifi_scan_lock);
               return -EIO;
             }
 
           if (g_state.scan_result_len == 0)
             {
               req->u.data.length = 0;
-              nxsem_post(&g_wifi_scan_sem);
+              nxmutex_unlock(&g_wifi_scan_lock);
               return OK;
             }
 
           ret = format_scan_result_to_wapi(req, g_state.scan_result_len);
-          nxsem_post(&g_wifi_scan_sem);
+          nxmutex_unlock(&g_wifi_scan_lock);
           return ret;
         }
       while (0);
@@ -1602,16 +1533,15 @@ bl602_net_ioctl(struct net_driver_s *dev, int cmd, unsigned long arg)
     case SIOCSIWENCODEEXT: /* Set psk */
       do
         {
-          struct iwreq *        req        = (struct iwreq *)arg;
+          struct iwreq         *req        = (struct iwreq *)arg;
           struct iw_encode_ext *ext        = req->u.encoding.pointer;
-          char *                passphrase = kmm_malloc(ext->key_len + 1);
+          char                 *passphrase = kmm_malloc(ext->key_len + 1);
           if (passphrase == NULL)
             {
               return -ENOMEM;
             }
 
-          strncpy(passphrase, (char *)ext->key, ext->key_len);
-          passphrase[ext->key_len] = 0;
+          strlcpy(passphrase, (char *)ext->key, ext->key_len + 1);
 
           wifi_mgmr_sta_passphr_set(passphrase);
           kmm_free(passphrase);
@@ -1673,7 +1603,7 @@ bl602_net_ioctl(struct net_driver_s *dev, int cmd, unsigned long arg)
                 }
 #endif
 
-              priv->wlan = wifi_mgmr_sta_enable((void *)priv);
+              priv->wlan = wifi_mgmr_sta_enable(priv);
 
               memcpy(priv->wlan->mac,
                      priv->net_dev.d_mac.ether.ether_addr_octet,
@@ -1694,7 +1624,7 @@ bl602_net_ioctl(struct net_driver_s *dev, int cmd, unsigned long arg)
                 }
 #endif
 
-              priv->wlan = wifi_mgmr_ap_enable((void *)priv);
+              priv->wlan = wifi_mgmr_ap_enable(priv);
               memcpy(priv->wlan->mac,
                      priv->net_dev.d_mac.ether.ether_addr_octet,
                      6);
@@ -1847,9 +1777,9 @@ bl602_net_ioctl(struct net_driver_s *dev, int cmd, unsigned long arg)
     case SIOCGIWENCODEEXT: /* Get encoding token mode */
       do
         {
-          struct iwreq *        req = (struct iwreq *)arg;
+          struct iwreq         *req = (struct iwreq *)arg;
           struct iw_encode_ext *ext;
-          wifi_mgmr_t *         mgmr = bl602_netdev_get_wifi_mgmr(priv);
+          wifi_mgmr_t          *mgmr = bl602_netdev_get_wifi_mgmr(priv);
           int                   length;
 
           DEBUGASSERT(mgmr != NULL);
@@ -2050,7 +1980,7 @@ void bl602_net_event(int evt, int val)
       do
         {
           g_state.scan_result_status = val;
-          nxsem_post(&g_wifi_scan_sem);
+          nxmutex_unlock(&g_wifi_scan_lock);
         }
       while (0);
 
@@ -2106,23 +2036,8 @@ void bl602_net_event(int evt, int val)
 int bl602_net_initialize(void)
 {
   struct bl602_net_driver_s *priv;
-  int                            tmp;
-  int                            idx;
-  uint8_t                        mac[6];
-
-  /* Initialize scan semaphore */
-
-  tmp = sem_init(&g_wifi_scan_sem, 0, 1);
-  if (tmp < 0)
-    {
-      return tmp;
-    }
-
-  tmp = sem_init(&g_wifi_connect_sem, 0, 0);
-  if (tmp < 0)
-    {
-      return tmp;
-    }
+  int                        idx;
+  uint8_t                    mac[6];
 
   list_initialize(&g_rx_pending);
 
@@ -2196,18 +2111,13 @@ int bl602_net_initialize(void)
 
       wifi_mgmr_scan_filter_hidden_ssid(0);
 
-      priv->current_mode    = IW_MODE_AUTO;
+      priv->current_mode = IW_MODE_AUTO;
 
       /* Register the device with the OS so that socket IOCTLs can be
        * performed
        */
 
-      tmp = netdev_register(&priv->net_dev, NET_LL_IEEE80211);
-      if (tmp < 0)
-        {
-          sem_destroy(&g_wifi_scan_sem);
-          return tmp;
-        }
+      return netdev_register(&priv->net_dev, NET_LL_IEEE80211);
     }
 
   return OK;

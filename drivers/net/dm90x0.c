@@ -52,7 +52,7 @@
 #include <nuttx/irq.h>
 #include <nuttx/wdog.h>
 #include <nuttx/wqueue.h>
-#include <nuttx/net/arp.h>
+#include <nuttx/net/ip.h>
 #include <nuttx/net/netdev.h>
 
 #ifdef CONFIG_NET_PKT
@@ -782,57 +782,21 @@ static int dm9x_txpoll(FAR struct net_driver_s *dev)
   FAR struct dm9x_driver_s *priv =
     (FAR struct dm9x_driver_s *)dev->d_private;
 
-  /* If the polling resulted in data that should be sent out on the network,
-   * the field d_len is set to a value > 0.
+  /* Send the packet */
+
+  dm9x_transmit(priv);
+
+  /* Check if there is room in the DM90x0 to hold another packet.
+   * In 100M mode, that can be 2 packets, otherwise it is a single
+   * packet.
    */
 
-  if (priv->dm_dev.d_len > 0)
+  if (priv->dm_ntxpending > 1 || !priv->dm_b100m)
     {
-      /* Look up the destination MAC address and add it to the Ethernet
-       * header.
-       */
+      /* Returning a non-zero value terminate the poll operation */
 
-#ifdef CONFIG_NET_IPv4
-#ifdef CONFIG_NET_IPv6
-      if (IFF_IS_IPv4(priv->dm_dev.d_flags))
-#endif
-        {
-          arp_out(&priv->dm_dev);
-        }
-#endif /* CONFIG_NET_IPv4 */
-
-#ifdef CONFIG_NET_IPv6
-#ifdef CONFIG_NET_IPv4
-      else
-#endif
-        {
-          neighbor_out(&priv->dm_dev);
-        }
-#endif /* CONFIG_NET_IPv6 */
-
-      if (!devif_loopback(&priv->dm_dev))
-        {
-          /* Send the packet */
-
-          dm9x_transmit(priv);
-
-          /* Check if there is room in the DM90x0 to hold another packet.
-           * In 100M mode, that can be 2 packets, otherwise it is a single
-           * packet.
-           */
-
-          if (priv->dm_ntxpending > 1 || !priv->dm_b100m)
-            {
-              /* Returning a non-zero value terminate the poll operation */
-
-              return 1;
-            }
-        }
+      return 1;
     }
-
-  /* If zero is returned, the polling will continue until all connections
-   * have been examined.
-   */
 
   return 0;
 }
@@ -937,11 +901,8 @@ static void dm9x_receive(FAR struct dm9x_driver_s *priv)
               ninfo("IPv4 frame\n");
               NETDEV_RXIPV4(&priv->dm_dev);
 
-              /* Handle ARP on input then give the IPv4 packet to the network
-               * layer
-               */
+              /* Receive an IPv4 packet from the network device */
 
-              arp_ipin(&priv->dm_dev);
               ipv4_input(&priv->dm_dev);
 
               /* If the above function invocation resulted in data that
@@ -951,21 +912,6 @@ static void dm9x_receive(FAR struct dm9x_driver_s *priv)
 
               if (priv->dm_dev.d_len > 0)
                 {
-                  /* Update Ethernet header with the correct MAC address */
-
-#ifdef CONFIG_NET_IPv6
-                  if (IFF_IS_IPv4(priv->dm_dev.d_flags))
-#endif
-                    {
-                      arp_out(&priv->dm_dev);
-                    }
-#ifdef CONFIG_NET_IPv6
-                  else
-                    {
-                      neighbor_out(&priv->dm_dev);
-                    }
-#endif
-
                   /* And send the packet */
 
                   dm9x_transmit(priv);
@@ -990,24 +936,9 @@ static void dm9x_receive(FAR struct dm9x_driver_s *priv)
 
               if (priv->dm_dev.d_len > 0)
                 {
-                  /* Update Ethernet header with the correct MAC address */
-
-#ifdef CONFIG_NET_IPv4
-                  if (IFF_IS_IPv4(priv->dm_dev.d_flags))
-                    {
-                      arp_out(&priv->dm_dev);
-                    }
-                  else
-#endif
-#ifdef CONFIG_NET_IPv6
-                    {
-                      neighbor_out(&priv->dm_dev);
-                    }
-#endif
-
                   /* And send the packet */
 
-                      dm9x_transmit(priv);
+                  dm9x_transmit(priv);
                 }
             }
           else
@@ -1015,7 +946,7 @@ static void dm9x_receive(FAR struct dm9x_driver_s *priv)
 #ifdef CONFIG_NET_ARP
           if (BUF->type == HTONS(ETHTYPE_ARP))
             {
-              arp_arpin(&priv->dm_dev);
+              arp_input(&priv->dm_dev);
               NETDEV_RXARP(&priv->dm_dev);
 
               /* If the above function invocation resulted in data that
@@ -1425,11 +1356,9 @@ static int dm9x_ifup(FAR struct net_driver_s *dev)
   uint8_t netstatus;
   int i;
 
-  ninfo("Bringing up: %d.%d.%d.%d\n",
-        (int)(dev->d_ipaddr & 0xff),
-        (int)((dev->d_ipaddr >> 8) & 0xff),
-        (int)((dev->d_ipaddr >> 16) & 0xff),
-        (int)(dev->d_ipaddr >> 24));
+  ninfo("Bringing up: %u.%u.%u.%u\n",
+        ip4_addr1(dev->d_ipaddr), ip4_addr2(dev->d_ipaddr),
+        ip4_addr3(dev->d_ipaddr), ip4_addr4(dev->d_ipaddr));
 
   /* Initialize DM90x0 chip */
 
@@ -1624,8 +1553,9 @@ static int dm9x_addmac(FAR struct net_driver_s *dev, FAR const uint8_t *mac)
 
   /* Add the MAC address to the hardware multicast routing table */
 
-#warning "Multicast MAC support not implemented"
-  return OK;
+  /* #warning "Multicast MAC support not implemented" */
+
+  return -ENOSYS;
 }
 #endif
 
@@ -1655,8 +1585,9 @@ static int dm9x_rmmac(FAR struct net_driver_s *dev, FAR const uint8_t *mac)
 
   /* Add the MAC address to the hardware multicast routing table */
 
-#warning "Multicast MAC support not implemented"
-  return OK;
+  /* #warning "Multicast MAC support not implemented" */
+
+  return -ENOSYS;
 }
 #endif
 

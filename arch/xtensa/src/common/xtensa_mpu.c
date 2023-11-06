@@ -26,6 +26,8 @@
 
 #include "mpu.h"
 
+#if defined(XCHAL_MPU_ENTRIES) && XCHAL_MPU_ENTRIES > 0
+
 /****************************************************************************
  * Private Data
  ****************************************************************************/
@@ -105,7 +107,7 @@ void mpu_configure_region(uintptr_t base, size_t size,
    * Xtensa ISA Reference Manual B4.6.5.3:
    * The lowest address of each foregound segment
    * must be no smaller than the lowest address of the
-   * preceding foregroud segment in numerical order.
+   * preceding foreground segment in numerical order.
    */
 
   if (region < (XCHAL_MPU_ENTRIES - 1))
@@ -136,3 +138,5 @@ void mpu_configure_region(uintptr_t base, size_t size,
 
   xtensa_mpu_base[region] = base;
 }
+
+#endif /* defined(XCHAL_MPU_ENTRIES) && XCHAL_MPU_ENTRIES > 0 */

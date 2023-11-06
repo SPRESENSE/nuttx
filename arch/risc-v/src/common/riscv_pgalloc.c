@@ -37,6 +37,7 @@
 
 #include <arch/barriers.h>
 
+#include "addrenv.h"
 #include "pgalloc.h"
 #include "riscv_mmu.h"
 
@@ -53,48 +54,6 @@
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
-
-/****************************************************************************
- * Name: get_pgtable
- *
- * Description:
- *   Get the physical address of the last page table level corresponding to
- *   'vaddr'
- *
- ****************************************************************************/
-
-static uintptr_t get_pgtable(group_addrenv_t *addrenv, uintptr_t vaddr)
-{
-  uintptr_t paddr;
-  uintptr_t ptprev;
-  uint32_t  ptlevel;
-
-  /* Get the current level MAX_LEVELS-1 entry corresponding to this vaddr */
-
-  ptlevel = ARCH_SPGTS;
-  ptprev  = riscv_pgvaddr(addrenv->spgtables[ARCH_SPGTS - 1]);
-  paddr   = mmu_pte_to_paddr(mmu_ln_getentry(ptlevel, ptprev, vaddr));
-
-  if (!paddr)
-    {
-      /* No page table has been allocated... allocate one now */
-
-      paddr = mm_pgalloc(1);
-      if (paddr)
-        {
-          /* Wipe the page and assign it */
-
-          riscv_pgwipe(paddr);
-          mmu_ln_setentry(ptlevel, ptprev, paddr, vaddr, MMU_UPGT_FLAGS);
-        }
-    }
-
-  /* Flush the data cache, so the changes are committed to memory */
-
-  __DMB();
-
-  return paddr;
-}
 
 /****************************************************************************
  * Public Functions
@@ -135,14 +94,14 @@ static uintptr_t get_pgtable(group_addrenv_t *addrenv, uintptr_t vaddr)
 
 uintptr_t pgalloc(uintptr_t brkaddr, unsigned int npages)
 {
-  struct tcb_s        *tcb = nxsched_self();
-  struct task_group_s *group;
-  uintptr_t            ptlast;
-  uintptr_t            paddr;
-  uintptr_t            vaddr;
+  struct tcb_s          *tcb = nxsched_self();
+  struct arch_addrenv_s *addrenv;
+  uintptr_t              ptlast;
+  uintptr_t              paddr;
+  uintptr_t              vaddr;
 
-  DEBUGASSERT(tcb && tcb->group);
-  group = tcb->group;
+  DEBUGASSERT(tcb && tcb->addrenv_own);
+  addrenv = &tcb->addrenv_own->addrenv;
 
   /* The current implementation only supports extending the user heap
    * region as part of the implementation of user sbrk().  This function
@@ -150,13 +109,11 @@ uintptr_t pgalloc(uintptr_t brkaddr, unsigned int npages)
    * space and (2) extending the kernel memory regions as well.
    */
 
-  DEBUGASSERT((group->tg_flags & GROUP_FLAG_ADDRENV) != 0);
-
   /* brkaddr = 0 means that no heap has yet been allocated */
 
   if (!brkaddr)
     {
-      brkaddr = group->tg_addrenv.heapvbase;
+      brkaddr = addrenv->heapvbase;
     }
 
   /* Start mapping from the old heap break address */
@@ -165,14 +122,14 @@ uintptr_t pgalloc(uintptr_t brkaddr, unsigned int npages)
 
   /* Sanity checks */
 
-  DEBUGASSERT(brkaddr >= group->tg_addrenv.heapvbase);
+  DEBUGASSERT(brkaddr >= addrenv->heapvbase);
   DEBUGASSERT(MM_ISALIGNED(brkaddr));
 
   for (; npages > 0; npages--)
     {
       /* Get the address of the last level page table */
 
-      ptlast = riscv_pgvaddr(get_pgtable(&group->tg_addrenv, vaddr));
+      ptlast = riscv_pgvaddr(riscv_get_pgtable(addrenv, vaddr));
       if (!ptlast)
         {
           return 0;

@@ -24,6 +24,10 @@ ifeq ($(CONFIG_NET),y)
 
 # Include network interface drivers
 
+ifeq ($(CONFIG_MM_IOB),y)
+  CSRCS += netdev_upperhalf.c
+endif
+
 ifeq ($(CONFIG_NET_LOOPBACK),y)
   CSRCS += loopback.c
 endif
@@ -64,12 +68,25 @@ ifeq ($(CONFIG_NET_LAN91C111),y)
   CSRCS += lan91c111.c
 endif
 
+ifeq ($(CONFIG_NET_SKELETON),y)
+  CSRCS += skeleton.c
+endif
+
 ifeq ($(CONFIG_NET_W5500),y)
   CSRCS += w5500.c
 endif
 
 ifeq ($(CONFIG_ARCH_PHY_INTERRUPT),y)
   CSRCS += phy_notify.c
+endif
+
+ifeq ($(CONFIG_NET_KSZ9477),y)
+  CSRCS += ksz9477.c
+
+ifeq ($(CONFIG_NET_KSZ9477_I2C),y)
+  CSRCS += ksz9477_i2c.c
+endif
+
 endif
 
 include net$(DELIM)wiznet$(DELIM)Make.defs

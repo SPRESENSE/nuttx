@@ -27,43 +27,6 @@ if AUDIO_TONE
 
 endif # AUDIO_TONE
 
-config AUDIO_CXD56
-	bool "CXD56 audio driver"
-	default n
-	depends on AUDIO
-	select AUDIO_DRIVER_SPECIFIC_BUFFERS
-	---help---
-		Enable support for audio playback using the CXD5247 chip on the
-		CXD56 Spresense board.
-
-if AUDIO_CXD56
-
-if AUDIO_DRIVER_SPECIFIC_BUFFERS
-
-config AUDIO_CXD56_SRC
-	bool "CXD56 audio sample rate converter"
-	select AUDIO_SRC
-	default n
-	---help---
-		Enable support for audio playback using the CXD5247 chip on the
-		CXD56 Spresense board with sample rate converter.
-
-config CXD56_AUDIO_NUM_BUFFERS
-	int "Number of audio buffers to use"
-	default 4
-
-config CXD56_AUDIO_BUFFER_SIZE
-	int "Size of each audio buffer"
-	default 4096
-
-endif # AUDIO_DRIVER_SPECIFIC_BUFFERS
-
-config CXD56_AUDIO_WORKER_STACKSIZE
-	int "Worker thread stack size"
-	default 768
-
-endif # AUDIO_CXD56
-
 config AUDIO_VS1053
 	bool "VS1053 codec chip"
 	default n
@@ -205,6 +168,166 @@ config CS4344_WORKER_STACKSIZE
 	default 768
 
 endif # AUDIO_CS4344
+
+config AUDIO_ES8311
+	bool "ES8311 codec chip"
+	default n
+	depends on AUDIO
+	---help---
+		Select to enable support for the ES8311 Audio codec by Everest
+		Semiconductor.
+
+		NOTE: This driver also depends on both I2C and I2S support although
+		that dependency is not explicit here.
+
+if AUDIO_ES8311
+
+config ES8311_INPUT_INITVOLUME
+	int "ES8311 initial input volume setting"
+	default 1000
+
+config ES8311_OUTPUT_INITVOLUME
+	int "ES8311 initial output volume setting"
+	default 400
+
+choice
+	prompt "MCLK source"
+	default ES8311_SRC_MCLK
+	---help---
+		Select the source of the MCLK signal.
+
+config ES8311_SRC_MCLK
+	bool "From MCLK Pin"
+
+config ES8311_SRC_BCLK
+	bool "From BCLK Pin"
+
+endchoice
+
+config ES8311_INFLIGHT
+	int "ES8311 maximum in-flight audio buffers"
+	default 2
+
+config ES8311_MSG_PRIO
+	int "ES8311 message priority"
+	default 1
+
+config ES8311_BUFFER_SIZE
+	int "ES8311 preferred buffer size"
+	default 8192
+
+config ES8311_NUM_BUFFERS
+	int "ES8311 preferred number of buffers"
+	default 4
+
+config ES8311_WORKER_STACKSIZE
+	int "ES8311 worker thread stack size"
+	default 2048
+
+endif # AUDIO_ES8388
+
+config AUDIO_ES8388
+	bool "ES8388 codec chip"
+	default n
+	depends on AUDIO
+	select AUDIO_DRIVER_SPECIFIC_BUFFERS
+	---help---
+		Select to enable support for the ES8388 Audio codec by Everest
+		Semiconductor.
+
+		NOTE: This driver also depends on both I2C and I2S support although
+		that dependency is not explicit here.
+
+if AUDIO_ES8388
+
+config ES8388_INPUT_INITVOLUME
+	int "ES8388 initial input volume setting"
+	default 1000
+
+config ES8388_OUTPUT_CHANNEL
+	int
+	default 0 if ES8388_OUTPUT_CHANNEL_LINE1
+	default 1 if ES8388_OUTPUT_CHANNEL_LINE2
+	default 2 if ES8388_OUTPUT_CHANNEL_ALL
+
+choice
+	prompt "ES8388 output channel"
+	default ES8388_OUTPUT_CHANNEL_ALL
+	---help---
+		Select the codec channel that will output audio.
+		The actual device that will reproduce the audio signal depends
+		on the board implementation.
+
+config ES8388_OUTPUT_CHANNEL_LINE1
+	bool "Line 1"
+
+config ES8388_OUTPUT_CHANNEL_LINE2
+	bool "Line 2"
+
+config ES8388_OUTPUT_CHANNEL_ALL
+	bool "Both"
+
+endchoice
+
+config ES8388_OUTPUT_INITVOLUME
+	int "ES8388 initial output volume setting"
+	default 400
+
+config ES8388_INPUT_CHANNEL
+	int
+	default 0 if ES8388_INPUT_CHANNEL_LINE1
+	default 1 if ES8388_INPUT_CHANNEL_LINE2
+	default 3 if ES8388_INPUT_CHANNEL_DIFFERENTIAL
+
+choice
+	prompt "ES8388 input channel"
+	default ES8388_INPUT_CHANNEL_LINE1
+	---help---
+		Select the codec channel that will input audio.
+		The actual device that will reproduce the audio signal depends
+		on the board implementation.
+		The "Differential" option will take the difference between the Line 1
+		left and right channels.
+
+config ES8388_INPUT_CHANNEL_LINE1
+	bool "Line 1"
+
+config ES8388_INPUT_CHANNEL_LINE2
+	bool "Line 2"
+
+config ES8388_INPUT_CHANNEL_DIFFERENTIAL
+	bool "Differential"
+
+endchoice
+
+config ES8388_INFLIGHT
+	int "ES8388 maximum in-flight audio buffers"
+	default 2
+
+config ES8388_MSG_PRIO
+	int "ES8388 message priority"
+	default 1
+
+config ES8388_BUFFER_SIZE
+	int "ES8388 preferred buffer size"
+	default 8192
+
+config ES8388_NUM_BUFFERS
+	int "ES8388 preferred number of buffers"
+	default 4
+
+config ES8388_WORKER_STACKSIZE
+	int "ES8388 worker thread stack size"
+	default 2048
+
+config ES8388_REGDUMP
+	bool "ES8388 register dump"
+	default n
+	depends on DEBUG_FEATURES
+	---help---
+		Enable logic to dump the contents of all ES8388 registers.
+
+endif # AUDIO_ES8388
 
 config AUDIO_WM8776
 	bool "WM8776 audio chip"
@@ -388,5 +511,11 @@ config AUDIO_I2S
 	bool "Audio I2S"
 	depends on AUDIO
 	depends on I2S
+
+config AUDIO_DMA
+	bool "Audio DMA"
+	select AUDIO_DRIVER_SPECIFIC_BUFFERS
+	depends on AUDIO
+	depends on DMA
 
 endif # DRIVERS_AUDIO

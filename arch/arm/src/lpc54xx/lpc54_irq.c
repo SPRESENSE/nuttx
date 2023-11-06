@@ -58,24 +58,6 @@
 #define NVIC_CLRENA_OFFSET (NVIC_IRQ0_31_CLEAR - NVIC_IRQ0_31_ENABLE)
 
 /****************************************************************************
- * Public Data
- ****************************************************************************/
-
-/* g_current_regs[] holds a references to the current interrupt level
- * register storage structure.  If is non-NULL only during interrupt
- * processing.  Access to g_current_regs[] must be through the macro
- * CURRENT_REGS for portability.
- */
-
-volatile uint32_t *g_current_regs[1];
-
-/* This is the address of the  exception vector table (determined by the
- * linker script).
- */
-
-extern uint32_t _vectors[];
-
-/****************************************************************************
  * Private Functions
  ****************************************************************************/
 
@@ -139,7 +121,7 @@ static void lpc54_dumpnvic(const char *msg, int irq)
 #endif
 
 /****************************************************************************
- * Name: lpc54_nmi, lpc54_busfault, lpc54_usagefault, lpc54_pendsv,
+ * Name: lpc54_nmi, lpc54_pendsv,
  *       lpc54_dbgmonitor, lpc54_pendsv, lpc54_reserved
  *
  * Description:
@@ -154,22 +136,6 @@ static int lpc54_nmi(int irq, void *context, void *arg)
 {
   up_irq_save();
   _err("PANIC!!! NMI received\n");
-  PANIC();
-  return 0;
-}
-
-static int lpc54_busfault(int irq, void *context, void *arg)
-{
-  up_irq_save();
-  _err("PANIC!!! Bus fault received\n");
-  PANIC();
-  return 0;
-}
-
-static int lpc54_usagefault(int irq, void *context, void *arg)
-{
-  up_irq_save();
-  _err("PANIC!!! Usage fault received\n");
   PANIC();
   return 0;
 }
@@ -350,10 +316,6 @@ void up_irqinitialize(void)
       regaddr += 4;
     }
 
-  /* currents_regs is non-NULL only while processing an interrupt */
-
-  CURRENT_REGS = NULL;
-
   /* Attach the SVCall and Hard Fault exception handlers.  The SVCall
    * exception is used for performing context switches; The Hard Fault
    * must also be caught because a SVCall may show up as a Hard Fault
@@ -389,8 +351,8 @@ void up_irqinitialize(void)
 #ifndef CONFIG_ARM_MPU
   irq_attach(LPC54_IRQ_MEMFAULT, arm_memfault, NULL);
 #endif
-  irq_attach(LPC54_IRQ_BUSFAULT, lpc54_busfault, NULL);
-  irq_attach(LPC54_IRQ_USAGEFAULT, lpc54_usagefault, NULL);
+  irq_attach(LPC54_IRQ_BUSFAULT, arm_busfault, NULL);
+  irq_attach(LPC54_IRQ_USAGEFAULT, arm_usagefault, NULL);
   irq_attach(LPC54_IRQ_PENDSV, lpc54_pendsv, NULL);
   irq_attach(LPC54_IRQ_DBGMONITOR, lpc54_dbgmonitor, NULL);
   irq_attach(LPC54_IRQ_RESERVED, lpc54_reserved, NULL);

@@ -205,9 +205,9 @@
 
 /* Register 0x7e - CMD */
 
-#define	ACCEL_PM_SUSPEND      (0X10)
+#define ACCEL_PM_SUSPEND      (0X10)
 #define ACCEL_PM_NORMAL       (0x11)
-#define	ACCEL_PM_LOWPOWER     (0X12)
+#define ACCEL_PM_LOWPOWER     (0X12)
 #define GYRO_PM_SUSPEND       (0x14)
 #define GYRO_PM_NORMAL        (0x15)
 #define GYRO_PM_FASTSTARTUP   (0x17)
@@ -231,8 +231,8 @@ struct bmi160_dev_s
 {
 #ifdef CONFIG_SENSORS_BMI160_SCU_I2C
   struct i2c_master_s *i2c; /* I2C interface */
-  uint8_t addr;             /* BMP280 I2C address */
-  int freq;                 /* BMP280 Frequency <= 3.4MHz */
+  uint8_t addr;             /* BMI160 I2C address */
+  int freq;                 /* BMI160 Frequency <= 3.4MHz */
   int port;                 /* I2C port */
   struct seq_s *seq;        /* Sequencer */
   int fifoid;               /* Sequencer id */
@@ -297,10 +297,6 @@ static const struct file_operations g_bmi160gyrofops =
   NULL,                /* write */
   NULL,                /* seek */
   bmi160_ioctl,        /* ioctl */
-  NULL                 /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL               /* unlink */
-#endif
 };
 
 static const struct file_operations g_bmi160accelfops =
@@ -311,10 +307,6 @@ static const struct file_operations g_bmi160accelfops =
   NULL,                 /* write */
   NULL,                 /* seek */
   bmi160_ioctl,         /* ioctl */
-  NULL                  /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL                /* unlink */
-#endif
 };
 
 /* SCU instructions for pick gyro sensing data. */
@@ -812,7 +804,7 @@ static int bmi160_devregister(const char *devpath,
   char path[12];
   int ret;
 
-  priv = (struct bmi160_dev_s *)kmm_malloc(sizeof(struct bmi160_dev_s));
+  priv = kmm_malloc(sizeof(struct bmi160_dev_s));
   if (!priv)
     {
       snerr("Failed to allocate instance\n");

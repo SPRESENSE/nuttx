@@ -22,9 +22,9 @@
 
 include common/Make.defs
 
-CMN_ASRCS += arm_exception.S
+CMN_ASRCS += arm_exception.S arm_saveusercontext.S
 
-CMN_CSRCS += arm_busfault.c arm_cache.c arm_doirq.c
+CMN_CSRCS += arm_busfault.c arm_cache.c arm_cpuinfo.c arm_doirq.c
 CMN_CSRCS += arm_hardfault.c arm_initialstate.c arm_itm.c
 CMN_CSRCS += arm_memfault.c arm_perf.c arm_sau.c
 CMN_CSRCS += arm_schedulesigaction.c arm_securefault.c arm_secure_irq.c
@@ -55,4 +55,8 @@ endif
 
 ifneq ($(filter y,$(CONFIG_ARM_MPU) $(CONFIG_ARM_MPU_EARLY_RESET)),)
   CMN_CSRCS += arm_mpu.c
+endif
+
+ifeq ($(CONFIG_ARCH_TRUSTZONE_SECURE),y)
+  CMN_CSRCS += arm_gen_nonsecfault.c
 endif

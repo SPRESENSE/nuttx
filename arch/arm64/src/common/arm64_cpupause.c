@@ -57,6 +57,7 @@
 
 static volatile spinlock_t g_cpu_wait[CONFIG_SMP_NCPUS];
 static volatile spinlock_t g_cpu_paused[CONFIG_SMP_NCPUS];
+static volatile spinlock_t g_cpu_resumed[CONFIG_SMP_NCPUS];
 
 /****************************************************************************
  * Public Functions
@@ -135,6 +136,10 @@ int up_cpu_paused(int cpu)
 
   spin_unlock(&g_cpu_paused[cpu]);
 
+  /* Ensure the CPU has been resumed to avoid causing a deadlock */
+
+  spin_lock(&g_cpu_resumed[cpu]);
+
   /* Wait for the spinlock to be released.  The requesting CPU will release
    * the spinlock when the CPU is resumed.
    */
@@ -163,6 +168,7 @@ int up_cpu_paused(int cpu)
 
   arm64_restorestate(tcb->xcp.regs);
   spin_unlock(&g_cpu_wait[cpu]);
+  spin_unlock(&g_cpu_resumed[cpu]);
 
   return OK;
 }
@@ -241,7 +247,6 @@ int arm64_pause_handler(int irq, void *context, void *arg)
 int up_cpu_pause(int cpu)
 {
   int ret;
-  uint64_t mpidr = GET_MPIDR();
 
   DEBUGASSERT(cpu >= 0 && cpu < CONFIG_SMP_NCPUS && cpu != this_cpu());
 
@@ -267,7 +272,7 @@ int up_cpu_pause(int cpu)
 
   /* Execute SGI2 */
 
-  ret = arm64_gic_raise_sgi(SGI_CPU_PAUSE, mpidr, (1 << cpu));
+  ret = arm64_gic_raise_sgi(GIC_IRQ_SGI2, (1 << cpu));
   if (ret < 0)
     {
       /* What happened?  Unlock the g_cpu_wait spinlock */
@@ -331,5 +336,12 @@ int up_cpu_resume(int cpu)
               !spin_islocked(&g_cpu_paused[cpu]));
 
   spin_unlock(&g_cpu_wait[cpu]);
+
+  /* Ensure the CPU has been resumed to avoid causing a deadlock */
+
+  spin_lock(&g_cpu_resumed[cpu]);
+
+  spin_unlock(&g_cpu_resumed[cpu]);
+
   return OK;
 }

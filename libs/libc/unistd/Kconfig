@@ -94,46 +94,13 @@ config EXECFUNCS_SYSTEM_SYMTAB
 endif # EXECFUNCS_HAVE_SYMTAB
 endif # LIBC_EXECFUNCS
 
-config SYMTAB_ORDEREDBYNAME
-	bool "Symbol Tables Ordered by Name"
-	default n
-	---help---
-		Select if the symbol table is ordered by symbol name.  In this case,
-		the logic can perform faster lookups using a binary search.
-		Otherwise, the symbol table is assumed to be un-ordered and only
-		slow, linear searches are supported.
-
-config SYMTAB_ORDEREDBYVALUE
-	bool "Symbol Tables Ordered by Value"
-	default n
-	---help---
-		Select if the symbol table is ordered by symbol value.
-
-config SYMTAB_DECORATED
-	bool "Symbols are decorated with leading underscores"
-	default n
-	---help---
-		Select if symbols in relocatable objects are decorated with a leading
-		underscore. This option will remove the underscore from symbol names
-		when relocating a loadable object.
-
-config POSIX_SPAWN_PROXY_STACKSIZE
-	int "Spawn Stack Size"
-	default 1024
-	---help---
-		If posix_spawn[p]() and task_spawn() use I/O redirection options,
-		they will require an intermediary/proxy task to muck with the file
-		descriptors.  This configuration item specifies the stack size
-		used for the proxy. Default: 1024 bytes.
-
-config TASK_SPAWN_DEFAULT_STACKSIZE
+config POSIX_SPAWN_DEFAULT_STACKSIZE
 	int "Default task_spawn Stack Size"
 	default DEFAULT_TASK_STACKSIZE
-	depends on !ARCH_ADDRENV
 	---help---
 		The actual size to use for the child task's stack can be set with
-		task_spawnattr_setstacksize().  This value specifies the default
-		stack size to use if task_spawnattr_setstacksize() is not used.
+		posix_spawnattr_setstacksize().  This value specifies the default
+		stack size to use if posix_spawnattr_setstacksize() is not used.
 		Default: 2048.
 
 endmenu # Program Execution Options
@@ -146,7 +113,7 @@ config LIBC_HOSTNAME
 
 config LIBC_OPEN_MAX
 	int "OPEN_MAX for this device"
-	default 255
+	default 256
 	---help---
 		The maximum number of files that a process can have open
 		at any time.  Must not be less than _POSIX_OPEN_MAX.

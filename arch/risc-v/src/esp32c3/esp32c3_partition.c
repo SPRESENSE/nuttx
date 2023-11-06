@@ -606,9 +606,8 @@ int esp32c3_partition_init(void)
           break;
         }
 
-      strncpy(label, (char *)info->label, PARTITION_LABEL_LEN);
-      label[PARTITION_LABEL_LEN] = '\0';
-      sprintf(path, "%s%s", path_base, label);
+      strlcpy(label, (char *)info->label, sizeof(label));
+      snprintf(path, sizeof(path), "%s%s", path_base, label);
 
       finfo("INFO: [label]:   %s\n", label);
       finfo("INFO: [type]:    %d\n", info->type);

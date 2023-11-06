@@ -24,6 +24,8 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <sys/param.h>
+
 #include "amebaz_coex.h"
 
 /****************************************************************************
@@ -95,7 +97,7 @@ void bt_coex_handle_cmd_complete_evt(uint16_t opcode, uint16_t cause,
       total_len--;
       if (total_len <= 1)
         {
-          printf("bt_coex_handle_cmd_complete_evt: not reprot to wifi");
+          printf("bt_coex_handle_cmd_complete_evt: not report to wifi");
           return ;
         }
 
@@ -110,9 +112,6 @@ void bt_coex_handle_specific_evt(uint8_t *p, uint8_t len)
   rltk_coex_mailbox_to_wifi(p, len);
 }
 
-#ifndef MIN
-#  define MIN(a,b) (a < b ? a : b)
-#endif
 static const char *bt_hex_real(const void *buf, size_t len)
 {
   static const char hex[] = "0123456789abcdef";

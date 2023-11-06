@@ -33,6 +33,7 @@
 
 #include <nuttx/config.h>
 
+#include <sys/param.h>
 #include <sys/types.h>
 #include <inttypes.h>
 #include <stdint.h>
@@ -49,7 +50,7 @@
 #include <nuttx/spi/spi.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/wqueue.h>
-#include <nuttx/semaphore.h>
+#include <nuttx/mutex.h>
 #include <nuttx/signal.h>
 #include <nuttx/wireless/wireless.h>
 #include <nuttx/wireless/gs2200m.h>
@@ -61,10 +62,6 @@
 
 #if !defined(CONFIG_SCHED_WORKQUEUE)
 #  error "Worker thread support is required (CONFIG_SCHED_WORKQUEUE)"
-#endif
-
-#ifndef MIN
-#  define MIN(a,b)  (((a) < (b)) ? (a) : (b))
 #endif
 
 #define GS2200MWORK LPWORK
@@ -180,7 +177,7 @@ struct gs2200m_dev_s
   struct notif_q_s     notif_q;
   FAR struct spi_dev_s *spi;
   struct work_s        irq_work;
-  sem_t                dev_sem;
+  mutex_t              dev_lock;
   bool                 int_enabled;
   dq_queue_t           pkt_q[16];
   uint16_t             pkt_q_cnt[16];
@@ -231,10 +228,9 @@ static const struct file_operations g_gs2200m_fops =
   gs2200m_write, /* write */
   NULL,          /* seek */
   gs2200m_ioctl, /* ioctl */
+  NULL,          /* mmap */
+  NULL,          /* truncate */
   gs2200m_poll   /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL         /* unlink */
-#endif
 };
 
 static struct evt_code_s _evt_table[] =
@@ -275,7 +271,8 @@ static enum pkt_type_e _spi_err_to_pkt_type(enum spi_status_e s)
 
       default:
         r = TYPE_UNMATCH;
-        ASSERT(false);
+        PANIC();
+        break;
     }
 
   return r;
@@ -304,7 +301,7 @@ static uint8_t _cid_to_uint8(char c)
   else
     {
       ret = 0xff;
-      ASSERT(false);
+      PANIC();
     }
 
   return ret;
@@ -423,8 +420,7 @@ static void _notif_q_push(FAR struct gs2200m_dev_s *dev, char cid)
     {
       /* If poll() waits and cid has been pushed to the queue, notify  */
 
-      dev->pfd->revents |= POLLIN;
-      nxsem_post(dev->pfd->sem);
+      poll_notify(&dev->pfd, 1, POLLIN);
     }
 
   wlinfo("+++ pushed %c count=%d\n", cid, dev->notif_q.count);
@@ -672,7 +668,6 @@ static bool _copy_data_from_pkt(FAR struct gs2200m_dev_s *dev,
     }
 
 errout:
-
   if (!msg->is_tcp)
     {
       /* Copy the source address and port */
@@ -694,24 +689,6 @@ errout:
 }
 
 /****************************************************************************
- * Name: gs2200m_lock
- ****************************************************************************/
-
-static int gs2200m_lock(FAR struct gs2200m_dev_s *dev)
-{
-  return nxsem_wait_uninterruptible(&dev->dev_sem);
-}
-
-/****************************************************************************
- * Name: gs2200m_unlock
- ****************************************************************************/
-
-static void gs2200m_unlock(FAR struct gs2200m_dev_s *dev)
-{
-  nxsem_post(&dev->dev_sem);
-}
-
-/****************************************************************************
  * Name: gs2200m_read
  ****************************************************************************/
 
@@ -722,15 +699,14 @@ static ssize_t gs2200m_read(FAR struct file *filep, FAR char *buffer,
   FAR struct gs2200m_dev_s *dev;
   int ret;
 
-  DEBUGASSERT(filep);
   inode = filep->f_inode;
 
-  DEBUGASSERT(inode && inode->i_private);
-  dev = (FAR struct gs2200m_dev_s *)inode->i_private;
+  DEBUGASSERT(inode->i_private);
+  dev = inode->i_private;
 
   ASSERT(1 == len);
 
-  ret = nxsem_wait(&dev->dev_sem);
+  ret = nxmutex_lock(&dev->dev_lock);
   if (ret < 0)
     {
       /* Return if a signal is received or if the the task was canceled
@@ -749,7 +725,7 @@ static ssize_t gs2200m_read(FAR struct file *filep, FAR char *buffer,
 
   memcpy(buffer, &cid, sizeof(cid));
 
-  gs2200m_unlock(dev);
+  nxmutex_unlock(&dev->dev_lock);
   return 1;
 }
 
@@ -836,7 +812,7 @@ static void _write_data(FAR struct gs2200m_dev_s *dev,
  ****************************************************************************/
 
 static void _read_data(FAR struct gs2200m_dev_s *dev,
-                       FAR uint8_t  *buff,
+                       FAR uint8_t *buff,
                        FAR uint16_t len)
 {
   memset(buff, 0, len);
@@ -852,8 +828,8 @@ static void _read_data(FAR struct gs2200m_dev_s *dev,
 
 static uint16_t _read_data_len(FAR struct gs2200m_dev_s *dev)
 {
-  uint8_t  hdr[8];
-  uint8_t  res[8];
+  uint8_t hdr[8];
+  uint8_t res[8];
   uint16_t len = 0;
   int n = 0;
 
@@ -909,10 +885,10 @@ retry:
  ****************************************************************************/
 
 enum spi_status_e gs2200m_hal_write(FAR struct gs2200m_dev_s *dev,
-                                    const void *data,
+                                    FAR const void *data,
                                     uint16_t txlen)
 {
-  uint8_t *tx = (uint8_t *)data;
+  FAR uint8_t *tx = (FAR uint8_t *)data;
   uint8_t  hdr[8];
   uint8_t  res[8];
   int n = 0;
@@ -1015,7 +991,6 @@ enum spi_status_e gs2200m_hal_read(FAR struct gs2200m_dev_s *dev,
                                    FAR uint8_t *data,
                                    FAR uint16_t *len)
 {
-  enum spi_status_e r = SPI_OK;
   uint8_t hdr[8];
   int i;
 
@@ -1036,8 +1011,7 @@ enum spi_status_e gs2200m_hal_read(FAR struct gs2200m_dev_s *dev,
   if (HAL_TIMEOUT == i)
     {
       wlerr("***** error: timeout!\n");
-      r = SPI_TIMEOUT;
-      goto errout;
+      return SPI_TIMEOUT;
     }
 
   /* Send READ_REQUEST then receive READ_RESPONSE
@@ -1059,9 +1033,7 @@ enum spi_status_e gs2200m_hal_read(FAR struct gs2200m_dev_s *dev,
   /* Read the actual data */
 
   _read_data(dev, data, *len);
-
-errout:
-  return r;
+  return SPI_OK;
 }
 
 /****************************************************************************
@@ -1115,6 +1087,7 @@ static void _parse_pkt_in_s0(FAR struct pkt_ctx_s *pkt_ctx,
 static void _parse_pkt_in_s1(FAR struct pkt_ctx_s *pkt_ctx,
                              FAR struct pkt_dat_s *pkt_dat)
 {
+  FAR char *msg;
   int msize;
   int n;
 
@@ -1126,7 +1099,7 @@ static void _parse_pkt_in_s1(FAR struct pkt_ctx_s *pkt_ctx,
   ASSERT(pkt_ctx->ptr > pkt_ctx->head);
   msize = pkt_ctx->ptr - pkt_ctx->head;
 
-  char *msg = (char *)kmm_calloc(msize + 1, 1);
+  msg = kmm_calloc(msize + 1, 1);
   ASSERT(msg);
 
   memcpy(msg, pkt_ctx->head, msize);
@@ -1215,7 +1188,7 @@ static void _parse_pkt_in_s2(FAR struct pkt_ctx_s *pkt_ctx,
   else
     {
       wlerr("** <ESC>%c not supported\n", c);
-      ASSERT(false);
+      PANIC();
     }
 }
 
@@ -1243,7 +1216,7 @@ static void _parse_pkt_in_s3(FAR struct pkt_ctx_s *pkt_ctx,
 
       /* Read data length */
 
-      pkt_ctx->dlen = _to_uint16((char *)pkt_ctx->ptr);
+      pkt_ctx->dlen = _to_uint16((FAR char *)pkt_ctx->ptr);
       pkt_ctx->ptr += 3;
 
       wlinfo("dlen=%d\n", pkt_ctx->dlen);
@@ -1295,7 +1268,7 @@ static void _parse_pkt_in_s4(FAR struct pkt_ctx_s *pkt_ctx,
 
       memset(addr, 0, sizeof(addr));
       memset(port, 0, sizeof(port));
-      n = sscanf((char *)pkt_ctx->ptr, "%s %s\t", addr, port);
+      n = sscanf((FAR const char *)pkt_ctx->ptr, "%s %s\t", addr, port);
       ASSERT(2 == n);
 
       wlinfo("from (%s:%s)\n", addr, port);
@@ -1310,7 +1283,7 @@ static void _parse_pkt_in_s4(FAR struct pkt_ctx_s *pkt_ctx,
 
       /* Read data length */
 
-      pkt_ctx->dlen = _to_uint16((char *)pkt_ctx->ptr);
+      pkt_ctx->dlen = _to_uint16((FAR char *)pkt_ctx->ptr);
       pkt_ctx->ptr += 3;
 
       wlinfo("dlen=%d\n", pkt_ctx->dlen);
@@ -1376,7 +1349,7 @@ static enum pkt_type_e _parse_pkt(FAR uint8_t *p, uint16_t len,
           break;
 
         default:
-          ASSERT(false);
+          PANIC();
           break;
         }
     }
@@ -1391,7 +1364,7 @@ static enum pkt_type_e _parse_pkt(FAR uint8_t *p, uint16_t len,
 static void _dup_pkt_dat_and_notify(FAR struct gs2200m_dev_s *dev,
                                     FAR struct pkt_dat_s *pkt_dat0)
 {
-  struct pkt_dat_s *pkt_dat;
+  FAR struct pkt_dat_s *pkt_dat;
   uint8_t c;
 
   /* Only bulk data */
@@ -1400,7 +1373,7 @@ static void _dup_pkt_dat_and_notify(FAR struct gs2200m_dev_s *dev,
 
   /* Allocate a new pkt_dat */
 
-  pkt_dat = (FAR struct pkt_dat_s *)kmm_malloc(sizeof(struct pkt_dat_s));
+  pkt_dat = kmm_malloc(sizeof(struct pkt_dat_s));
   ASSERT(pkt_dat);
 
   /* Copy pkt_dat0 to pkt_dat */
@@ -1409,7 +1382,7 @@ static void _dup_pkt_dat_and_notify(FAR struct gs2200m_dev_s *dev,
 
   /* Allocate bulk data and copy */
 
-  pkt_dat->data = (FAR uint8_t *)kmm_malloc(pkt_dat0->len);
+  pkt_dat->data = kmm_malloc(pkt_dat0->len);
   ASSERT(pkt_dat->data);
   memcpy(pkt_dat->data, pkt_dat0->data, pkt_dat0->len);
 
@@ -1443,9 +1416,9 @@ static enum pkt_type_e gs2200m_recv_pkt(FAR struct gs2200m_dev_s *dev,
   enum pkt_type_e   t = TYPE_ERROR;
   enum spi_status_e s;
   uint16_t len;
-  uint8_t *p;
+  FAR uint8_t *p;
 
-  p = (uint8_t *)kmm_calloc(MAX_PKT_LEN, 1);
+  p = kmm_calloc(MAX_PKT_LEN, 1);
   ASSERT(p);
 
   s = gs2200m_hal_read(dev, p, &len);
@@ -1510,7 +1483,6 @@ static enum pkt_type_e gs2200m_send_cmd(FAR struct gs2200m_dev_s *dev,
   wlinfo("+++ cmd=%s", cmd);
 
 retry:
-
   s = gs2200m_hal_write(dev, cmd, strlen(cmd));
   r = _spi_err_to_pkt_type(s);
 
@@ -1520,7 +1492,6 @@ retry:
     }
 
 retry_recv:
-
   r = gs2200m_recv_pkt(dev, pkt_dat);
 
   if ((TYPE_BULK_DATA_TCP == r || TYPE_BULK_DATA_UDP == r) && pkt_dat)
@@ -1559,7 +1530,6 @@ retry_recv:
     }
 
 errout:
-
   if (bulk)
     {
       wlwarn("*** Normal response r=%d\n", r);
@@ -1568,7 +1538,6 @@ errout:
   /* Enable gs2200m irq again */
 
   dev->lower->enable();
-
   return r;
 }
 
@@ -1661,7 +1630,7 @@ errout:
 
 static enum pkt_type_e gs2200m_disassociate(FAR struct gs2200m_dev_s *dev)
 {
-  return gs2200m_send_cmd2(dev, (char *)"AT+WD\r\n");
+  return gs2200m_send_cmd2(dev, "AT+WD\r\n");
 }
 
 /****************************************************************************
@@ -1854,7 +1823,7 @@ enum pkt_type_e gs2200m_get_wstatus(FAR struct gs2200m_dev_s *dev)
   /* Initialize pkt_dat and send command */
 
   memset(&pkt_dat, 0, sizeof(pkt_dat));
-  r = gs2200m_send_cmd(dev, (char *)"AT+WSTATUS\r\n", &pkt_dat);
+  r = gs2200m_send_cmd(dev, "AT+WSTATUS\r\n", &pkt_dat);
 
   if (r != TYPE_OK)
     {
@@ -1910,7 +1879,7 @@ gs2200m_create_clnt(FAR struct gs2200m_dev_s *dev,
     }
   else
     {
-      ASSERT(false);
+      PANIC();
     }
 
   /* Initialize pkt_dat and send  */
@@ -2045,7 +2014,8 @@ static enum pkt_type_e gs2200m_send_bulk(FAR struct gs2200m_dev_s *dev,
 
   /* Send the bulk data */
 
-  s = gs2200m_hal_write(dev, (char *)dev->tx_buff, msg->len + bulk_hdr_size);
+  s = gs2200m_hal_write(dev, (FAR char *)dev->tx_buff,
+                        msg->len + bulk_hdr_size);
 
   if (s == SPI_TIMEOUT)
     {
@@ -2305,7 +2275,6 @@ static int gs2200m_ioctl_bind(FAR struct gs2200m_dev_s *dev,
     }
 
 retry:
-
   snprintf(port_str, sizeof(port_str), "%d", port);
 
   /* Start TCP/UDP server and retrieve cid */
@@ -2330,12 +2299,10 @@ retry:
   _check_pkt_q_empty(dev, cid);
 
 errout:
-
   msg->type = type;
   msg->cid  = cid;
 
   wlinfo("+++ end: type=%d (cid=%c)\n", type, cid);
-
   return ret;
 }
 
@@ -2382,8 +2349,9 @@ static int gs2200m_ioctl_connect(FAR struct gs2200m_dev_s *dev,
 
       default:
         wlerr("+++ error: type=%d\n", type);
-        ASSERT(false);
+        PANIC();
         ret = -EINVAL;
+        break;
     }
 
   wlinfo("++ end: cid=%c (type=%d,ret=%d)\n", cid, type, ret);
@@ -2435,7 +2403,6 @@ static int gs2200m_ioctl_send(FAR struct gs2200m_dev_s *dev,
   msg->type = type;
 
 errout:
-
   if (type != TYPE_OK && type != TYPE_DISCONNECT)
     {
       ret = -EINVAL;
@@ -2447,7 +2414,6 @@ errout:
 
   wlinfo("+++ end: cid=%c len=%d type=%d\n",
          msg->cid, msg->len, type);
-
   return ret;
 }
 
@@ -2503,14 +2469,12 @@ static int gs2200m_ioctl_recv(FAR struct gs2200m_dev_s *dev,
   _control_pkt_q(dev);
 
 errout:
-
 #ifdef USE_LED
   gs2200m_set_gpio(dev, LED_GPIO, 0);
 #endif
 
   wlinfo("+++ end: cid=%c len=%d type=%d ret=%d\n",
          msg->cid, msg->len, msg->type, ret);
-
   return ret;
 }
 
@@ -2554,7 +2518,6 @@ errout:
   _control_pkt_q(dev);
 
   wlinfo("++ end: cid=%c type=%d\n", msg->cid, type);
-
   return ret;
 }
 
@@ -2628,7 +2591,6 @@ static int gs2200m_ioctl_accept(FAR struct gs2200m_dev_s *dev,
 
 errout:
   wlinfo("+++ end: type=%d (msg->cid=%c)\n", msg->type, msg->cid);
-
   return ret;
 }
 
@@ -2896,6 +2858,11 @@ static int gs2200m_ioctl_ifreq(FAR struct gs2200m_dev_s *dev,
 
   switch (msg->cmd)
     {
+      case SIOCGIFFLAGS:
+        getreq = true;
+        msg->ifr.ifr_flags = dev->net_dev.d_flags;
+        break;
+
       case SIOCGIFHWADDR:
         getreq = true;
         memcpy(&msg->ifr.ifr_hwaddr.sa_data,
@@ -2945,11 +2912,11 @@ static int gs2200m_ioctl_ifreq(FAR struct gs2200m_dev_s *dev,
       memcpy(&in[0], &dev->net_dev.d_ipaddr, sizeof(in[0]));
       memcpy(&in[1], &dev->net_dev.d_netmask, sizeof(in[1]));
       memcpy(&in[2], &dev->net_dev.d_draddr, sizeof(in[2]));
-      strncpy(addr[0], inet_ntoa_r(in[0], inetaddr, sizeof(inetaddr)),
+      strlcpy(addr[0], inet_ntoa_r(in[0], inetaddr, sizeof(inetaddr)),
               sizeof(addr[0]));
-      strncpy(addr[1], inet_ntoa_r(in[1], inetaddr, sizeof(inetaddr)),
+      strlcpy(addr[1], inet_ntoa_r(in[1], inetaddr, sizeof(inetaddr)),
               sizeof(addr[1]));
-      strncpy(addr[2], inet_ntoa_r(in[2], inetaddr, sizeof(inetaddr)),
+      strlcpy(addr[2], inet_ntoa_r(in[2], inetaddr, sizeof(inetaddr)),
               sizeof(addr[2]));
 
       gs2200m_set_addresses(dev, addr[0], addr[1], addr[2]);
@@ -2967,16 +2934,13 @@ static int gs2200m_ioctl_name(FAR struct gs2200m_dev_s *dev,
                               FAR struct gs2200m_name_msg *msg)
 {
   enum pkt_type_e r;
-  int ret = 0;
 
   /* Obtain connection status */
 
   r = gs2200m_get_cstatus(dev, msg);
-
   if (r != TYPE_OK)
     {
-      ret = -EINVAL;
-      goto errout;
+      return -EINVAL;
     }
 
   if (msg->local)
@@ -2989,9 +2953,7 @@ static int gs2200m_ioctl_name(FAR struct gs2200m_dev_s *dev,
              );
     }
 
-errout:
-
-  return ret;
+  return 0;
 }
 
 /****************************************************************************
@@ -3004,15 +2966,14 @@ static int gs2200m_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
   FAR struct gs2200m_dev_s *dev;
   int ret = -EINVAL;
 
-  DEBUGASSERT(filep);
   inode = filep->f_inode;
 
-  DEBUGASSERT(inode && inode->i_private);
-  dev = (FAR struct gs2200m_dev_s *)inode->i_private;
+  DEBUGASSERT(inode->i_private);
+  dev = inode->i_private;
 
   /* Lock the device */
 
-  ret = gs2200m_lock(dev);
+  ret = nxmutex_lock(&dev->dev_lock);
   if (ret < 0)
     {
       /* Return only if the task was canceled */
@@ -3126,7 +3087,7 @@ static int gs2200m_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 
   /* Unlock the device */
 
-  gs2200m_unlock(dev);
+  nxmutex_unlock(&dev->dev_lock);
   return ret;
 }
 
@@ -3142,13 +3103,13 @@ static int gs2200m_poll(FAR struct file *filep, FAR struct pollfd *fds,
   int ret = OK;
 
   wlinfo("== setup:%d\n", (int)setup);
-  DEBUGASSERT(filep && fds);
+  DEBUGASSERT(fds);
   inode = filep->f_inode;
 
-  DEBUGASSERT(inode && inode->i_private);
-  dev = (FAR struct gs2200m_dev_s *)inode->i_private;
+  DEBUGASSERT(inode->i_private);
+  dev = inode->i_private;
 
-  ret = gs2200m_lock(dev);
+  ret = nxmutex_lock(&dev->dev_lock);
   if (ret < 0)
     {
       /* Return if the task was canceled */
@@ -3182,9 +3143,7 @@ static int gs2200m_poll(FAR struct file *filep, FAR struct pollfd *fds,
 
       if (0 < n)
         {
-          dev->pfd->revents |= POLLIN;
-          nxsem_post(dev->pfd->sem);
-          wlinfo("==== _notif_q_count=%d\n", n);
+          poll_notify(&dev->pfd, 1, POLLIN);
         }
     }
   else
@@ -3193,7 +3152,7 @@ static int gs2200m_poll(FAR struct file *filep, FAR struct pollfd *fds,
     }
 
 errout:
-  gs2200m_unlock(dev);
+  nxmutex_unlock(&dev->dev_lock);
   return ret;
 }
 
@@ -3220,7 +3179,7 @@ static void gs2200m_irq_worker(FAR void *arg)
 
   do
     {
-      ret = gs2200m_lock(dev);
+      ret = nxmutex_lock(&dev->dev_lock);
 
       /* The only failure would be if the worker thread were canceled.  That
        * is very unlikely, however.
@@ -3231,13 +3190,12 @@ static void gs2200m_irq_worker(FAR void *arg)
   while (ret < 0);
 
 repeat:
-
   n = dev->lower->dready(&ec);
   wlinfo("== start (dready=%d, ec=%d)\n", n, ec);
 
   /* Allocate a new pkt_dat and initialize it */
 
-  pkt_dat = (FAR struct pkt_dat_s *)kmm_malloc(sizeof(struct pkt_dat_s));
+  pkt_dat = kmm_malloc(sizeof(struct pkt_dat_s));
   ASSERT(NULL != pkt_dat);
 
   memset(pkt_dat, 0, sizeof(struct pkt_dat_s));
@@ -3352,7 +3310,6 @@ repeat:
   over = _control_pkt_q(dev);
 
 errout:
-
   if (ignored)
     {
       _release_pkt_dat(dev, pkt_dat);
@@ -3373,8 +3330,7 @@ errout:
   /* NOTE: Enable gs2200m irq which was disabled in gs2200m_irq() */
 
   dev->lower->enable();
-
-  gs2200m_unlock(dev);
+  nxmutex_unlock(&dev->dev_lock);
 }
 
 /****************************************************************************
@@ -3532,8 +3488,7 @@ FAR void *gs2200m_register(FAR const char *devpath,
   int size;
 
   size = sizeof(struct gs2200m_dev_s);
-  dev = (FAR struct gs2200m_dev_s *)kmm_malloc(size);
-
+  dev = kmm_malloc(size);
   if (!dev)
     {
       wlerr("Failed to allocate instance.\n");
@@ -3545,13 +3500,17 @@ FAR void *gs2200m_register(FAR const char *devpath,
   dev->spi   = spi;
   dev->path  = strdup(devpath);
   dev->lower = lower;
-
-  nxsem_init(&dev->dev_sem, 0, 1);
-
   dev->pfd   = NULL;
 
-  ret = gs2200m_initialize(dev, lower);
+  nxmutex_init(&dev->dev_lock);
 
+  if (!dev->path)
+    {
+      wlerr("Failed to allocate driver path.\n");
+      goto errout;
+    }
+
+  ret = gs2200m_initialize(dev, lower);
   if (ret < 0)
     {
       wlerr("Failed to initialize driver: %d\n", ret);
@@ -3559,7 +3518,6 @@ FAR void *gs2200m_register(FAR const char *devpath,
     }
 
   ret = register_driver(devpath, &g_gs2200m_fops, 0666, dev);
-
   if (ret < 0)
     {
       wlerr("Failed to register driver: %d\n", ret);
@@ -3567,10 +3525,22 @@ FAR void *gs2200m_register(FAR const char *devpath,
     }
 
   ret = netdev_register(&dev->net_dev, NET_LL_IEEE80211);
+  if (ret < 0)
+    {
+      unregister_driver(devpath);
+      goto errout;
+    }
 
-  return (FAR void *)dev;
+  /* Set d_pktsize and d_llhdrlen to show mtu info correctly */
+
+  dev->net_dev.d_pktsize  = MAX_PKT_LEN;
+  dev->net_dev.d_llhdrlen = 0;
+
+  return dev;
 
 errout:
+  nxmutex_destroy(&dev->dev_lock);
+  lib_free(dev->path);
   kmm_free(dev);
   return NULL;
 }

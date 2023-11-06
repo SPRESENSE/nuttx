@@ -298,28 +298,6 @@ static inline void max326_serialout(struct max326_dev_s *priv,
 }
 
 /****************************************************************************
- * Name: max326_modifyreg
- ****************************************************************************/
-
-static inline void max326_modifyreg(struct max326_dev_s *priv,
-                                    unsigned int offset, uint32_t setbits,
-                                    uint32_t clrbits)
-{
-  irqstate_t flags;
-  uintptr_t regaddr = priv->uartbase + offset;
-  uint32_t regval;
-
-  flags   = enter_critical_section();
-
-  regval  = getreg32(regaddr);
-  regval &= ~clrbits;
-  regval |= setbits;
-  putreg32(regval, regaddr);
-
-  leave_critical_section(flags);
-}
-
-/****************************************************************************
  * Name: max326_int_enable
  ****************************************************************************/
 
@@ -481,9 +459,11 @@ static void max326_detach(struct uart_dev_s *dev)
  * Name: max326_interrupt
  *
  * Description:
- *   This is the UART status interrupt handler.  It will be invoked when an
- *   interrupt received on the 'irq'  It should call uart_transmitchars or
- *   uart_receivechar to perform the appropriate data transfers.
+ *   This is the UART interrupt handler.  It will be invoked when an
+ *   interrupt is received on the 'irq'.  It should call uart_xmitchars or
+ *   uart_recvchars to perform the appropriate data transfers.  The
+ *   interrupt handling logic must be able to map the 'arg' to the
+ *   appropriate uart_dev_s structure in order to call these functions.
  *
  ****************************************************************************/
 
@@ -583,7 +563,6 @@ static int max326_ioctl(struct file *filep, int cmd, unsigned long arg)
   struct max326_dev_s *priv;
   int ret = OK;
 
-  DEBUGASSERT(filep, filep->f_inode);
   inode = filep->f_inode;
   dev   = inode->i_private;
 

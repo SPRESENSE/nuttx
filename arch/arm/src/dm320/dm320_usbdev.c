@@ -261,12 +261,12 @@ static void dm320_putreg8(uint8_t val, uint32_t addr);
 static void dm320_putreg16(uint16_t val, uint32_t addr);
 static void dm320_putreg32(uint32_t val, uint32_t addr);
 #else
-# define dm320_getreg8(addr)      getreg8(addr)
-# define dm320_getreg16(addr)     getreg16(addr)
-# define dm320_getreg32(addr)     getreg32(addr)
-# define dm320_putreg8(val,addr)  putreg8(val,addr)
-# define dm320_putreg16(val,addr) putreg16(val,addr)
-# define dm320_putreg32(val,addr) putreg32(val,addr)
+#  define dm320_getreg8(addr)      getreg8(addr)
+#  define dm320_getreg16(addr)     getreg16(addr)
+#  define dm320_getreg32(addr)     getreg32(addr)
+#  define dm320_putreg8(val,addr)  putreg8(val,addr)
+#  define dm320_putreg16(val,addr) putreg16(val,addr)
+#  define dm320_putreg32(val,addr) putreg32(val,addr)
 #endif
 
 /* Request queue operations *************************************************/
@@ -2025,7 +2025,7 @@ static struct usbdev_req_s *dm320_epallocreq(struct usbdev_ep_s *ep)
 
   usbtrace(TRACE_EPALLOCREQ, ((struct dm320_ep_s *)ep)->epphy);
 
-  privreq = (struct dm320_req_s *)kmm_malloc(sizeof(struct dm320_req_s));
+  privreq = kmm_malloc(sizeof(struct dm320_req_s));
   if (!privreq)
     {
       usbtrace(TRACE_DEVERROR(DM320_TRACEERR_ALLOCFAIL), 0);

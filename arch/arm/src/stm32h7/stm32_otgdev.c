@@ -24,6 +24,7 @@
 
 #include <nuttx/config.h>
 
+#include <sys/param.h>
 #include <sys/types.h>
 #include <inttypes.h>
 #include <stdint.h>
@@ -53,15 +54,35 @@
 #if defined(CONFIG_USBDEV) && (defined(CONFIG_STM32H7_OTGFS) || \
     defined(CONFIG_STM32H7_OTGHS))
 
-#if (STM32_RCC_D2CCIP2R_USBSRC == RCC_D2CCIP2R_USBSEL_HSI48) && \
-    !defined(CONFIG_STM32H7_HSI48)
-#  error board.h selected HSI48 as USB clock source, but HSI48 is not \
-         enabled. Enable STM32H7_HSI48
-#endif
-
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
+
+/* OTG device selection *****************************************************/
+
+#if defined(CONFIG_STM32H7_OTGFS_USBDEV)
+#  define STM32_IRQ_OTG         STM32_IRQ_OTGFS
+#  define STM32_OTG_BASE        STM32_OTGFS_BASE
+#  define GPIO_OTG_DM           GPIO_OTGFS_DM
+#  define GPIO_OTG_DP           GPIO_OTGFS_DP
+#  define GPIO_OTG_ID           GPIO_OTGFS_ID
+#  define GPIO_OTG_SOF          GPIO_OTGFS_SOF
+#  define STM32_OTG_FIFO_SIZE   4096
+#elif defined(CONFIG_STM32H7_OTGHS_USBDEV)
+#  define STM32_IRQ_OTG         STM32_IRQ_OTGHS
+#  define STM32_OTG_BASE        STM32_OTGHS_BASE
+#  define GPIO_OTG_DM           GPIO_OTGHS_DM
+#  define GPIO_OTG_DP           GPIO_OTGHS_DP
+#  define GPIO_OTG_ID           GPIO_OTGHS_ID
+#  define GPIO_OTG_SOF          GPIO_OTGHS_SOF
+#  define STM32_OTG_FIFO_SIZE   4096
+#else
+#  error Not selected USBDEV peripheral
+#endif
+
+#if defined(CONFIG_STM32H7_OTGFS_USBDEV) && defined(CONFIG_STM32H7_OTGHS_USBDEV)
+#  error Only one USBDEV role supported
+#endif
 
 /* Configuration ************************************************************/
 
@@ -333,16 +354,6 @@
 #define stm32_rqempty(ep)            ((ep)->head == NULL)
 #define stm32_rqpeek(ep)             ((ep)->head)
 
-/* Standard stuff ***********************************************************/
-
-#ifndef MIN
-#  define MIN(a,b) ((a) < (b) ? (a) : (b))
-#endif
-
-#ifndef MAX
-#  define MAX(a,b) ((a) > (b) ? (a) : (b))
-#endif
-
 /****************************************************************************
  * Private Types
  ****************************************************************************/
@@ -543,8 +554,8 @@ struct stm32_usbdev_s
 static uint32_t    stm32_getreg(uint32_t addr);
 static void        stm32_putreg(uint32_t val, uint32_t addr);
 #else
-# define stm32_getreg(addr)     getreg32(addr)
-# define stm32_putreg(val,addr) putreg32(val,addr)
+#  define stm32_getreg(addr)     getreg32(addr)
+#  define stm32_putreg(val,addr) putreg32(val,addr)
 #endif
 
 /* Request queue operations *************************************************/
@@ -1400,6 +1411,19 @@ static void stm32_epin_request(struct stm32_usbdev_s *priv,
           empmsk |= OTG_DIEPEMPMSK(privep->epphy);
           stm32_putreg(empmsk, STM32_OTG_DIEPEMPMSK);
 
+#ifdef CONFIG_DEBUG_FEATURES
+          /* Check if the configured TXFIFO size is sufficient for a given
+           * request. If not, raise an assertion here.
+           */
+
+          regval = stm32_getreg(STM32_OTG_DIEPTXF(privep->epphy));
+          regval &= OTG_DIEPTXF_INEPTXFD_MASK;
+          regval >>= OTG_DIEPTXF_INEPTXFD_SHIFT;
+          uerr("EP%" PRId8 " TXLEN=%" PRId32 " nwords=%d\n",
+               privep->epphy, regval, nwords);
+          DEBUGASSERT(regval >= nwords);
+#endif
+
           /* Terminate the transfer.  We will try again when the TxFIFO empty
            * interrupt is received.
            */
@@ -1591,8 +1615,8 @@ static inline void stm32_ep0out_receive(struct stm32_ep_s *privep,
 
   /* Sanity Checking */
 
-  DEBUGASSERT(privep && privep->ep.priv);
-  priv = (struct stm32_usbdev_s *)privep->ep.priv;
+  DEBUGASSERT(privep && privep->dev);
+  priv = (struct stm32_usbdev_s *)privep->dev;
 
   uinfo("EP0: bcnt=%d\n", bcnt);
   usbtrace(TRACE_READ(EP0), bcnt);
@@ -2112,7 +2136,12 @@ static void stm32_usbreset(struct stm32_usbdev_s *priv)
 
   stm32_setaddress(priv, 0);
   priv->devstate = DEVSTATE_DEFAULT;
+#if defined(CONFIG_STM32H7_OTGHS_USBDEV) &&     \
+    defined(CONFIG_STM32H7_OTGHS_EXTERNAL_ULPI)
+  priv->usbdev.speed = USB_SPEED_HIGH;
+#else
   priv->usbdev.speed = USB_SPEED_FULL;
+#endif
 
   /* Re-configure EP0 */
 
@@ -3416,7 +3445,11 @@ static inline void stm32_enuminterrupt(struct stm32_usbdev_s *priv)
 
   regval  = stm32_getreg(STM32_OTG_GUSBCFG);
   regval &= ~OTG_GUSBCFG_TRDT_MASK;
+#ifdef CONFIG_STM32H7_OTGHS
+  regval |=  OTG_GUSBCFG_TRDT(9);
+#else
   regval |=  OTG_GUSBCFG_TRDT(6);
+#endif
   stm32_putreg(regval, STM32_OTG_GUSBCFG);
 }
 
@@ -4340,7 +4373,7 @@ static struct usbdev_req_s *stm32_ep_allocreq(struct usbdev_ep_s *ep)
 
   usbtrace(TRACE_EPALLOCREQ, ((struct stm32_ep_s *)ep)->epphy);
 
-  privreq = (struct stm32_req_s *)kmm_malloc(sizeof(struct stm32_req_s));
+  privreq = kmm_malloc(sizeof(struct stm32_req_s));
   if (!privreq)
     {
       usbtrace(TRACE_DEVERROR(STM32_TRACEERR_ALLOCFAIL), 0);
@@ -5172,9 +5205,6 @@ static void stm32_swinitialize(struct stm32_usbdev_s *priv)
   priv->epavail[0] = STM32_EP_AVAILABLE;
   priv->epavail[1] = STM32_EP_AVAILABLE;
 
-  priv->epin[EP0].ep.priv  = priv;
-  priv->epout[EP0].ep.priv = priv;
-
   /* Initialize the endpoint lists */
 
   for (i = 0; i < STM32_NENDPOINTS; i++)
@@ -5256,11 +5286,23 @@ static void stm32_hwinitialize(struct stm32_usbdev_s *priv)
 
   stm32_putreg(OTG_GAHBCFG_TXFELVL, STM32_OTG_GAHBCFG);
 
-#if defined(CONFIG_STM32H7_OTGFS) || defined (CONFIG_STM32H7_OTGHS_NO_ULPI)
+#if (defined(CONFIG_STM32H7_OTGHS_USBDEV) &&                            \
+     defined(CONFIG_STM32H7_OTGHS_NO_ULPI)) ||                          \
+  defined(CONFIG_STM32H7_OTGFS_USBDEV)
   /* Full speed serial transceiver select */
 
-  regval  = stm32_getreg(STM32_OTG_GUSBCFG);
+  regval = stm32_getreg(STM32_OTG_GUSBCFG);
   regval |= OTG_GUSBCFG_PHYSEL;
+  stm32_putreg(regval, STM32_OTG_GUSBCFG);
+#endif
+
+#if defined(CONFIG_STM32H7_OTGHS_USBDEV) &&       \
+    defined(CONFIG_STM32H7_OTGHS_FS) &&           \
+    defined(CONFIG_STM32H7_OTGHS_EXTERNAL_ULPI)
+  /* ULPI Full speed mode */
+
+  regval = stm32_getreg(STM32_OTG_GUSBCFG);
+  regval |= OTG_GUSBCFG_ULPIFSL;
   stm32_putreg(regval, STM32_OTG_GUSBCFG);
 #endif
 
@@ -5280,7 +5322,9 @@ static void stm32_hwinitialize(struct stm32_usbdev_s *priv)
 
   /* Then perform the core soft reset. */
 
-  stm32_putreg(OTG_GRSTCTL_CSRST, STM32_OTG_GRSTCTL);
+  regval = stm32_getreg(STM32_OTG_GRSTCTL);
+  regval |= OTG_GRSTCTL_CSRST;
+  stm32_putreg(regval, STM32_OTG_GRSTCTL);
   for (timeout = 0; timeout < STM32_READY_DELAY; timeout++)
     {
       regval = stm32_getreg(STM32_OTG_GRSTCTL);
@@ -5294,21 +5338,40 @@ static void stm32_hwinitialize(struct stm32_usbdev_s *priv)
 
   up_udelay(3);
 
+  regval = stm32_getreg(STM32_OTG_GCCFG);
+
+#if (defined(CONFIG_STM32H7_OTGHS_USBDEV) &&   \
+     defined(CONFIG_STM32H7_OTGHS_NO_ULPI)) || \
+    defined(CONFIG_STM32H7_OTGFS_USBDEV)
   /* Enable USB FS transceiver */
 
-  regval  = OTG_GCCFG_PWRDWN;
+  regval |= OTG_GCCFG_PWRDWN;
+#endif
 
 #ifdef CONFIG_USBDEV_VBUSSENSING
+  /* Detection Enable when set */
+
   regval |= OTG_GCCFG_VBDEN;
 #endif
 
   stm32_putreg(regval, STM32_OTG_GCCFG);
   up_mdelay(20);
 
+#if defined(CONFIG_STM32H7_OTGHS_USBDEV) &&     \
+    defined(CONFIG_STM32H7_OTGHS_EXTERNAL_ULPI)
+  /* Enable delay to default timing, necessary for some ULPI PHYs such
+   * as such as USB334x
+   */
+
+  regval  = stm32_getreg(STM32_OTG_DCFG);
+  regval |= OTG_DCFG_XCVRDLY;
+  stm32_putreg(regval, STM32_OTG_DCFG);
+#endif
+
   /* When VBUS sensing is not used we need to force the B session valid */
 
 #ifndef CONFIG_USBDEV_VBUSSENSING
-  regval  =  stm32_getreg(STM32_OTG_GOTGCTL);
+  regval = stm32_getreg(STM32_OTG_GOTGCTL);
   regval |= (OTG_GOTGCTL_BVALOEN | OTG_GOTGCTL_BVALOVAL);
   stm32_putreg(regval, STM32_OTG_GOTGCTL);
 #endif
@@ -5334,11 +5397,18 @@ static void stm32_hwinitialize(struct stm32_usbdev_s *priv)
   regval |= OTG_DCFG_PFIVL_80PCT;
   stm32_putreg(regval, STM32_OTG_DCFG);
 
-  /* Set full speed PHY */
+  /* Set device high or full speed */
 
   regval = stm32_getreg(STM32_OTG_DCFG);
   regval &= ~OTG_DCFG_DSPD_MASK;
+#if defined(CONFIG_STM32H7_OTGHS_USBDEV) &&     \
+    defined(CONFIG_STM32H7_OTGHS_FS)
+  regval |= OTG_DCFG_DSPD_FSHS;
+#elif defined(CONFIG_STM32H7_OTGHS_USBDEV)
+  regval |= OTG_DCFG_DSPD_HS;
+#else
   regval |= OTG_DCFG_DSPD_FS;
+#endif
   stm32_putreg(regval, STM32_OTG_DCFG);
 
   /* Set Rx FIFO size */
@@ -5477,7 +5547,8 @@ static void stm32_hwinitialize(struct stm32_usbdev_s *priv)
   regval &=  OTG_GINT_RESERVED;
   stm32_putreg(regval | OTG_GINT_RC_W1, STM32_OTG_GINTSTS);
 
-#if defined(CONFIG_STM32H7_OTGHS) && defined(CONFIG_STM32H7_OTGHS_NO_ULPI)
+#if defined(CONFIG_STM32H7_OTGHS_USBDEV) &&     \
+    defined(CONFIG_STM32H7_OTGHS_NO_ULPI)
   /* Disable the ULPI Clock enable in RCC AHB1 Register.  This must
    * be done because if both the ULPI and the FS PHY clock enable bits
    * are set at the same time, the ARM never awakens from WFI due to
@@ -5586,8 +5657,9 @@ void arm_usbinitialize(void)
    *    current detection.
    */
 
-  /* Configure OTG alternate function pins
-   */
+#if !(defined(CONFIG_STM32H7_OTGHS_USBDEV) &&       \
+      defined(CONFIG_STM32H7_OTGHS_EXTERNAL_ULPI))
+  /* Configure OTG alternate function pins */
 
   stm32_configgpio(GPIO_OTG_DM);
   stm32_configgpio(GPIO_OTG_DP);
@@ -5599,8 +5671,29 @@ void arm_usbinitialize(void)
 
   /* SOF output pin configuration is configurable. */
 
-#ifdef CONFIG_STM32H7_OTG_SOFOUTPUT
+#  ifdef CONFIG_STM32H7_OTG_SOFOUTPUT
   stm32_configgpio(GPIO_OTG_SOF);
+#  endif
+
+#else
+  /* Configure ULPI alternate function pins */
+
+  stm32_configgpio(GPIO_OTG_HS_ULPI_CK);
+  stm32_configgpio(GPIO_OTG_HS_ULPI_D0);
+  stm32_configgpio(GPIO_OTG_HS_ULPI_D1);
+  stm32_configgpio(GPIO_OTG_HS_ULPI_D2);
+  stm32_configgpio(GPIO_OTG_HS_ULPI_D3);
+  stm32_configgpio(GPIO_OTG_HS_ULPI_D4);
+  stm32_configgpio(GPIO_OTG_HS_ULPI_D5);
+  stm32_configgpio(GPIO_OTG_HS_ULPI_D6);
+  stm32_configgpio(GPIO_OTG_HS_ULPI_D7);
+  stm32_configgpio(GPIO_OTG_HS_ULPI_DIR);
+  stm32_configgpio(GPIO_OTG_HS_ULPI_NXT);
+  stm32_configgpio(GPIO_OTG_HS_ULPI_STP);
+
+  /* Reset external ULPI */
+
+  stm32_usbulpireset((struct usbdev_s *) priv);
 #endif
 
   /* Uninitialize the hardware so that we know that we are starting from a
@@ -5769,7 +5862,12 @@ int usbdev_register(struct usbdevclass_driver_s *driver)
        */
 
       stm32_pullup(&priv->usbdev, true);
+
+#if defined(CONFIG_STM32H7_OTGHS_EXTERNAL_ULPI)
+      priv->usbdev.speed = USB_SPEED_HIGH;
+#else
       priv->usbdev.speed = USB_SPEED_FULL;
+#endif
     }
 
   return ret;

@@ -156,7 +156,7 @@ static struct elf_file *load_elf(const char *filename)
       return NULL;
     }
 
-  ef = (struct elf_file *)malloc(sizeof(*ef));
+  ef = malloc(sizeof(*ef));
   if (!ef)
     {
       return NULL;
@@ -166,7 +166,7 @@ static struct elf_file *load_elf(const char *filename)
   fsize = (size_t) ftell(fp);
   fseek(fp, pos, SEEK_SET);
 
-  buf = (char *)malloc(fsize);
+  buf = malloc(fsize);
   if (!buf)
     {
       return NULL;
@@ -229,7 +229,9 @@ static void *create_image(struct elf_file *elf, int core, char *savename,
   Elf32_Sym *sym;
   char *name;
   int snlen;
-  int nphs, psize, imgsize;
+  int nphs;
+  int psize;
+  int imgsize;
   int i;
   int j;
   uint32_t offset;
@@ -252,7 +254,7 @@ static void *create_image(struct elf_file *elf, int core, char *savename,
 
   imgsize = sizeof(*header) + snlen + (nphs * 16) + psize;
 
-  img = (char *)malloc(imgsize + 32);
+  img = malloc(imgsize + 32);
   if (!img)
     {
       return NULL;

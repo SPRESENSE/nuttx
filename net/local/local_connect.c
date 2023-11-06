@@ -28,12 +28,13 @@
 #include <unistd.h>
 #include <assert.h>
 #include <errno.h>
-#include <queue.h>
 #include <debug.h>
 
+#include <nuttx/queue.h>
 #include <nuttx/net/net.h>
 
 #include <arch/irq.h>
+#include <sys/stat.h>
 
 #include "utils/utils.h"
 #include "socket/socket.h"
@@ -44,21 +45,6 @@
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
-
-/****************************************************************************
- * Name: _local_semtake() and _local_semgive()
- *
- * Description:
- *   Take/give semaphore
- *
- ****************************************************************************/
-
-static inline void _local_semtake(sem_t *sem)
-{
-  net_lockedwait_uninterruptible(sem);
-}
-
-#define _local_semgive(sem) nxsem_post(sem)
 
 /****************************************************************************
  * Name: local_stream_connect
@@ -143,7 +129,7 @@ static int inline local_stream_connect(FAR struct local_conn_s *client,
 
   if (nxsem_get_value(&server->lc_waitsem, &sval) >= 0 && sval < 1)
     {
-      _local_semgive(&server->lc_waitsem);
+      nxsem_post(&server->lc_waitsem);
     }
 
   /* Wait for the server to accept the connections */
@@ -152,7 +138,7 @@ static int inline local_stream_connect(FAR struct local_conn_s *client,
     {
       do
         {
-          _local_semtake(&client->lc_waitsem);
+          net_sem_wait_uninterruptible(&client->lc_waitsem);
           ret = client->u.client.lc_result;
         }
       while (ret == -EBUSY);
@@ -253,15 +239,24 @@ int psock_local_connect(FAR struct socket *psock,
 {
   FAR struct local_conn_s *client;
   FAR struct sockaddr_un *unaddr = (FAR struct sockaddr_un *)addr;
+  FAR const char *unpath = unaddr->sun_path;
   FAR struct local_conn_s *conn = NULL;
+  uint8_t type = LOCAL_TYPE_PATHNAME;
+  struct stat buf;
+  int ret;
 
-  DEBUGASSERT(psock && psock->s_conn);
-  client = (FAR struct local_conn_s *)psock->s_conn;
+  client = psock->s_conn;
 
   if (client->lc_state == LOCAL_STATE_ACCEPT ||
       client->lc_state == LOCAL_STATE_CONNECTED)
     {
       return -EISCONN;
+    }
+
+  if (unpath[0] == '\0')
+    {
+      type = LOCAL_TYPE_ABSTRACT;
+      unpath++;
     }
 
   /* Find the matching server connection */
@@ -281,68 +276,56 @@ int psock_local_connect(FAR struct socket *psock,
       switch (conn->lc_type)
         {
         case LOCAL_TYPE_UNNAMED:   /* A Unix socket that is not bound to any name */
+          break;
+
         case LOCAL_TYPE_ABSTRACT:  /* lc_path is length zero */
-          {
-#warning Missing logic
-            net_unlock();
-            return OK;
-          }
-          break;
-
         case LOCAL_TYPE_PATHNAME:  /* lc_path holds a null terminated string */
-          {
-            /* Anything in the listener list should be a stream socket in the
-             * listening state
-             */
 
-            if (conn->lc_state == LOCAL_STATE_LISTENING &&
-                conn->lc_proto == SOCK_STREAM &&
-                strncmp(conn->lc_path, unaddr->sun_path, UNIX_PATH_MAX - 1)
-                == 0)
-              {
-                int ret = OK;
+          /* Anything in the listener list should be a stream socket in the
+           * listening state
+           */
 
-                /* Bind the address and protocol */
+          if (conn->lc_state == LOCAL_STATE_LISTENING &&
+              conn->lc_type == type && conn->lc_proto == SOCK_STREAM &&
+              strncmp(conn->lc_path, unpath, UNIX_PATH_MAX - 1) == 0)
+            {
+              ret = OK;
 
-                client->lc_type  = conn->lc_type;
-                client->lc_proto = conn->lc_proto;
-                strncpy(client->lc_path, unaddr->sun_path,
-                        UNIX_PATH_MAX - 1);
-                client->lc_path[UNIX_PATH_MAX - 1] = '\0';
-                client->lc_instance_id = local_generate_instance_id();
+              /* Bind the address and protocol */
 
-                /* The client is now bound to an address */
+              client->lc_type  = conn->lc_type;
+              client->lc_proto = conn->lc_proto;
+              strlcpy(client->lc_path, unpath, sizeof(client->lc_path));
+              client->lc_instance_id = local_generate_instance_id();
 
-                client->lc_state = LOCAL_STATE_BOUND;
+              /* The client is now bound to an address */
 
-                /* We have to do more for the SOCK_STREAM family */
+              client->lc_state = LOCAL_STATE_BOUND;
 
-                if (conn->lc_proto == SOCK_STREAM)
-                  {
-                    ret =
-                      local_stream_connect(client, conn,
-                        _SS_ISNONBLOCK(client->lc_conn.s_flags));
-                  }
+              /* We have to do more for the SOCK_STREAM family */
 
-                net_unlock();
-                return ret;
-              }
-          }
+              if (conn->lc_proto == SOCK_STREAM)
+                {
+                  ret = local_stream_connect(client, conn,
+                          _SS_ISNONBLOCK(client->lc_conn.s_flags));
+                }
+
+              net_unlock();
+              return ret;
+            }
+
           break;
 
-        default:                 /* Bad, memory must be corrupted */
-          DEBUGPANIC();          /* PANIC if debug on, else fall through */
-
-        case LOCAL_TYPE_UNTYPED: /* Type is not determined until the socket is bound */
-          {
-            net_unlock();
-            return -EINVAL;
-          }
+        default:        /* Bad, memory must be corrupted */
+          DEBUGPANIC(); /* PANIC if debug on */
+          net_unlock();
+          return -EINVAL;
         }
     }
 
   net_unlock();
-  return -EADDRNOTAVAIL;
+  ret = nx_stat(unpath, &buf, 1);
+  return ret < 0 ? ret : -ECONNREFUSED;
 }
 
 #endif /* CONFIG_NET_LOCAL_STREAM */

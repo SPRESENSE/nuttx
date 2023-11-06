@@ -579,6 +579,8 @@ static int at24c_ioctl(FAR struct mtd_dev_s *dev, int cmd, unsigned long arg)
                                           ((uintptr_t)arg);
           if (geo)
             {
+              memset(geo, 0, sizeof(*geo));
+
               /* Populate the geometry structure with information need to
                * know the capacity and how to access the device.
                *
@@ -696,7 +698,7 @@ FAR struct mtd_dev_s *at24c_initialize(FAR struct i2c_master_s *dev)
    * have to be extended to handle multiple FLASH parts on the same I2C bus.
    */
 
-  priv = (FAR struct at24c_dev_s *)kmm_zalloc(sizeof(struct at24c_dev_s));
+  priv = kmm_zalloc(sizeof(struct at24c_dev_s));
   if (priv == NULL)
     {
       ferr("ERROR: Failed to allocate device structure\n");

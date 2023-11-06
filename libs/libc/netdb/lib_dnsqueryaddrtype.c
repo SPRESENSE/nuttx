@@ -78,9 +78,9 @@ int dns_set_queryaddrtype(sa_family_t addrtype)
       case AF_INET6:
 #endif
       case AF_UNSPEC:
-        dns_semtake();
+        dns_lock();
         g_query_addrtype = addrtype;
-        dns_semgive();
+        dns_unlock();
         ninfo("Configure address type for dns query: %d\n", addrtype);
         break;
       default:

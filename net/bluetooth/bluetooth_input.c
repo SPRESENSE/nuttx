@@ -158,7 +158,7 @@ static int bluetooth_queue_frame(FAR struct bluetooth_conn_s *conn,
 
       /* Free both the IOB and the container */
 
-      iob_free(container->bn_iob, IOBUSER_NET_SOCK_BLUETOOTH);
+      iob_free(container->bn_iob);
       bluetooth_container_free(container);
     }
   else
@@ -250,7 +250,7 @@ int bluetooth_input(FAR struct radio_driver_s *radio,
         {
           /* Remove the frame from the list */
 
-          next            = frame->io_flink;
+          next = frame->io_flink;
           frame->io_flink = NULL;
 
           /* Add the frame to the RX queue */
@@ -259,7 +259,7 @@ int bluetooth_input(FAR struct radio_driver_s *radio,
           if (ret < 0)
             {
               nerr("ERROR: Failed to queue frame: %d\n", ret);
-              iob_free(frame, IOBUSER_NET_SOCK_BLUETOOTH);
+              iob_free(frame);
             }
         }
 

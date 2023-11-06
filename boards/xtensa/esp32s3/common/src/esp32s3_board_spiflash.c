@@ -44,7 +44,10 @@
 
 #include "esp32s3_spiflash.h"
 #include "esp32s3_spiflash_mtd.h"
-#include "esp32s3-devkit.h"
+
+/****************************************************************************
+ * Pre-processor Definitions
+ ****************************************************************************/
 
 /****************************************************************************
  * Private Functions
@@ -272,7 +275,7 @@ static int init_storage_partition(void)
 
 #if defined (CONFIG_ESP32S3_SPIFLASH_SMARTFS)
 
-  ret = setup_smartfs(0, mtd, NULL);
+  ret = setup_smartfs(0, mtd, "/data");
   if (ret < 0)
     {
       ferr("ERROR: Failed to setup smartfs\n");
@@ -281,7 +284,7 @@ static int init_storage_partition(void)
 
 #elif defined (CONFIG_ESP32S3_SPIFLASH_NXFFS)
 
-  ret = setup_nxffs(mtd, "/mnt");
+  ret = setup_nxffs(mtd, "/data");
   if (ret < 0)
     {
       ferr("ERROR: Failed to setup nxffs\n");
@@ -291,7 +294,7 @@ static int init_storage_partition(void)
 #elif defined (CONFIG_ESP32S3_SPIFLASH_LITTLEFS)
 
   const char *path = "/dev/esp32s3flash";
-  ret = setup_littlefs(path, mtd, NULL, 0755);
+  ret = setup_littlefs(path, mtd, "/data", 0755);
   if (ret < 0)
     {
       ferr("ERROR: Failed to setup littlefs\n");
@@ -301,7 +304,7 @@ static int init_storage_partition(void)
 #elif defined (CONFIG_ESP32S3_SPIFLASH_SPIFFS)
 
   const char *path = "/dev/esp32s3flash";
-  ret = setup_spiffs(path, mtd, NULL, 0755);
+  ret = setup_spiffs(path, mtd, "/data", 0755);
   if (ret < 0)
     {
       ferr("ERROR: Failed to setup spiffs\n");

@@ -847,7 +847,6 @@ static int kinetis_dma_setup(struct uart_dev_s *dev)
   config.flags  = EDMA_CONFIG_LINKTYPE_LINKNONE | EDMA_CONFIG_LOOPDEST;
   config.ssize  = EDMA_8BIT;
   config.dsize  = EDMA_8BIT;
-  config.ttype  = EDMA_PERIPH2MEM;
   config.nbytes = 1;
 #ifdef CONFIG_KINETIS_EDMA_ELINK
   config.linkch = NULL;
@@ -859,6 +858,9 @@ static int kinetis_dma_setup(struct uart_dev_s *dev)
    */
 
   priv->rxdmanext = 0;
+
+  up_invalidate_dcache((uintptr_t)priv->rxfifo,
+                       (uintptr_t)priv->rxfifo + RXDMA_BUFFER_SIZE);
 
   /* Enable receive DMA for the UART */
 
@@ -993,11 +995,11 @@ static void kinetis_detach(struct uart_dev_s *dev)
  * Name: kinetis_interrupts
  *
  * Description:
- *   This is the LPUART status interrupt handler.  It will be invoked when
- *   an interrupt received on the 'irq'  It should call uart_transmitchars
- *   or uart_receivechar to perform the appropriate data transfers.  The
- *   interrupt handling logic must be able to map the 'irq' number into the
- *   Appropriate uart_dev_s structure in order to call these functions.
+ *   This is the LPUART interrupt handler.  It will be invoked when an
+ *   interrupt is received on the 'irq'.  It should call uart_xmitchars or
+ *   uart_recvchars to perform the appropriate data transfers.  The
+ *   interrupt handling logic must be able to map the 'arg' to the
+ *   appropriate uart_dev_s structure in order to call these functions.
  *
  ****************************************************************************/
 
@@ -1112,7 +1114,6 @@ static int kinetis_ioctl(struct file *filep, int cmd, unsigned long arg)
 
 #if defined(CONFIG_SERIAL_TERMIOS) || defined(CONFIG_SERIAL_TIOCSERGSTRUCT) || \
     defined(CONFIG_KINETIS_SERIALBRK_BSDCOMPAT)
-  DEBUGASSERT(filep != NULL && filep->f_inode != NULL);
   inode = filep->f_inode;
   dev   = inode->i_private;
   DEBUGASSERT(dev != NULL && dev->priv != NULL);
@@ -1202,7 +1203,7 @@ static int kinetis_ioctl(struct file *filep, int cmd, unsigned long arg)
 
         cfsetispeed(termiosp, priv->baud);
 
-        /* TODO: CCTS_IFLOW, CCTS_OFLOW */
+        /* TODO: CRTS_IFLOW, CCTS_OFLOW */
       }
       break;
 

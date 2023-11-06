@@ -28,6 +28,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <debug.h>
+#include <poll.h>
 
 #include <nuttx/semaphore.h>
 #include <nuttx/net/net.h>
@@ -49,12 +50,13 @@ static int local_event_pollsetup(FAR struct local_conn_s *conn,
   int ret = OK;
   int i;
 
-  net_lock();
   if (setup)
     {
       /* This is a request to set up the poll.  Find an available
        * slot for the poll structure reference
        */
+
+      nxmutex_lock(&conn->lc_polllock);
 
       for (i = 0; i < LOCAL_NPOLLWAITERS; i++)
         {
@@ -70,11 +72,12 @@ static int local_event_pollsetup(FAR struct local_conn_s *conn,
             }
         }
 
+      nxmutex_unlock(&conn->lc_polllock);
+
       if (i >= LOCAL_NPOLLWAITERS)
         {
           fds->priv = NULL;
-          ret = -EBUSY;
-          goto errout;
+          return -EBUSY;
         }
 
       eventset = 0;
@@ -84,10 +87,7 @@ static int local_event_pollsetup(FAR struct local_conn_s *conn,
           eventset |= POLLIN;
         }
 
-      if (eventset)
-        {
-          local_event_pollnotify(conn, eventset);
-        }
+      local_event_pollnotify(conn, eventset);
     }
   else
     {
@@ -95,22 +95,33 @@ static int local_event_pollsetup(FAR struct local_conn_s *conn,
 
       struct pollfd **slot = (struct pollfd **)fds->priv;
 
-      if (!slot)
-        {
-          ret = -EIO;
-          goto errout;
-        }
+      nxmutex_lock(&conn->lc_polllock);
 
       /* Remove all memory of the poll setup */
 
-      *slot = NULL;
-      fds->priv = NULL;
+      if (slot != NULL)
+        {
+          *slot = NULL;
+          fds->priv = NULL;
+        }
+
+      nxmutex_unlock(&conn->lc_polllock);
     }
 
-errout:
-  net_unlock();
   return ret;
 }
+
+/****************************************************************************
+ * Name: local_inout_poll_cb
+ ****************************************************************************/
+
+static void local_inout_poll_cb(FAR struct pollfd *fds)
+{
+  FAR struct pollfd *originfds = fds->arg;
+
+  poll_notify(&originfds, 1, fds->revents);
+}
+
 #endif
 
 /****************************************************************************
@@ -125,21 +136,9 @@ void local_event_pollnotify(FAR struct local_conn_s *conn,
                             pollevent_t eventset)
 {
 #ifdef CONFIG_NET_LOCAL_STREAM
-  int i;
-
-  for (i = 0; i < LOCAL_NPOLLWAITERS; i++)
-    {
-      struct pollfd *fds = conn->lc_event_fds[i];
-      if (fds)
-        {
-          fds->revents |= (fds->events & eventset);
-          if (fds->revents != 0)
-            {
-              ninfo("Report events: %08" PRIx32 "\n", fds->revents);
-              nxsem_post(fds->sem);
-            }
-        }
-    }
+  nxmutex_lock(&conn->lc_polllock);
+  poll_notify(conn->lc_event_fds, LOCAL_NPOLLWAITERS, eventset);
+  nxmutex_unlock(&conn->lc_polllock);
 #endif
 }
 
@@ -164,7 +163,7 @@ int local_pollsetup(FAR struct socket *psock, FAR struct pollfd *fds)
   FAR struct local_conn_s *conn;
   int ret = -ENOSYS;
 
-  conn = (FAR struct local_conn_s *)psock->s_conn;
+  conn = psock->s_conn;
 
   if (conn->lc_proto == SOCK_DGRAM)
     {
@@ -172,9 +171,8 @@ int local_pollsetup(FAR struct socket *psock, FAR struct pollfd *fds)
     }
 
 #ifdef CONFIG_NET_LOCAL_STREAM
-  if ((conn->lc_state == LOCAL_STATE_LISTENING ||
-       conn->lc_state == LOCAL_STATE_CONNECTING) &&
-       conn->lc_type  == LOCAL_TYPE_PATHNAME)
+  if (conn->lc_state == LOCAL_STATE_LISTENING ||
+       conn->lc_state == LOCAL_STATE_CONNECTING)
     {
       return local_event_pollsetup(conn, fds, true);
     }
@@ -202,7 +200,7 @@ int local_pollsetup(FAR struct socket *psock, FAR struct pollfd *fds)
 
           /* Find shadow pollfds. */
 
-          net_lock();
+          nxmutex_lock(&conn->lc_polllock);
 
           shadowfds = conn->lc_inout_fds;
           while (shadowfds->fd != 0)
@@ -210,20 +208,24 @@ int local_pollsetup(FAR struct socket *psock, FAR struct pollfd *fds)
               shadowfds += 2;
               if (shadowfds >= &conn->lc_inout_fds[2*LOCAL_NPOLLWAITERS])
                 {
-                  net_unlock();
+                  nxmutex_unlock(&conn->lc_polllock);
                   return -ENOMEM;
                 }
             }
 
-          shadowfds[0].fd     = 1; /* Does not matter */
-          shadowfds[0].sem    = fds->sem;
-          shadowfds[0].events = fds->events & ~POLLOUT;
+          shadowfds[0]         = *fds;
+          shadowfds[0].fd      = 1; /* Does not matter */
+          shadowfds[0].cb      = local_inout_poll_cb;
+          shadowfds[0].arg     = fds;
+          shadowfds[0].events &= ~POLLOUT;
 
-          shadowfds[1].fd     = 0; /* Does not matter */
-          shadowfds[1].sem    = fds->sem;
-          shadowfds[1].events = fds->events & ~POLLIN;
+          shadowfds[1]         = *fds;
+          shadowfds[1].fd      = 0; /* Does not matter */
+          shadowfds[1].cb      = local_inout_poll_cb;
+          shadowfds[1].arg     = fds;
+          shadowfds[1].events &= ~POLLIN;
 
-          net_unlock();
+          nxmutex_unlock(&conn->lc_polllock);
 
           /* Setup poll for both shadow pollfds. */
 
@@ -288,8 +290,7 @@ int local_pollsetup(FAR struct socket *psock, FAR struct pollfd *fds)
 
 #ifdef CONFIG_NET_LOCAL_STREAM
 pollerr:
-  fds->revents |= POLLERR;
-  nxsem_post(fds->sem);
+  poll_notify(&fds, 1, POLLERR);
   return OK;
 #endif
 }
@@ -315,7 +316,7 @@ int local_pollteardown(FAR struct socket *psock, FAR struct pollfd *fds)
   FAR struct local_conn_s *conn;
   int ret = OK;
 
-  conn = (FAR struct local_conn_s *)psock->s_conn;
+  conn = psock->s_conn;
 
   if (conn->lc_proto == SOCK_DGRAM)
     {
@@ -323,9 +324,8 @@ int local_pollteardown(FAR struct socket *psock, FAR struct pollfd *fds)
     }
 
 #ifdef CONFIG_NET_LOCAL_STREAM
-  if ((conn->lc_state == LOCAL_STATE_LISTENING ||
-       conn->lc_state == LOCAL_STATE_CONNECTING) &&
-       conn->lc_type  == LOCAL_TYPE_PATHNAME)
+  if (conn->lc_state == LOCAL_STATE_LISTENING ||
+       conn->lc_state == LOCAL_STATE_CONNECTING)
     {
       return local_event_pollsetup(conn, fds, false);
     }

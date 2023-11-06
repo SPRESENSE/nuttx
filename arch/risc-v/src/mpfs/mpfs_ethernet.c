@@ -31,7 +31,6 @@
 #include <string.h>
 #include <assert.h>
 #include <debug.h>
-#include <queue.h>
 #include <errno.h>
 
 #include <arpa/inet.h>
@@ -44,22 +43,40 @@
 #include <nuttx/signal.h>
 #include <nuttx/net/mii.h>
 #include <nuttx/net/gmii.h>
-#include <nuttx/net/arp.h>
+#include <nuttx/net/ip.h>
 #include <nuttx/net/netdev.h>
 
 #ifdef CONFIG_NET_PKT
 #  include <nuttx/net/pkt.h>
 #endif
 
+#include <nuttx/net/ksz9477.h>
+
 #include "riscv_internal.h"
 #include "mpfs_memorymap.h"
 #include "mpfs_ethernet.h"
+#include "mpfs_dsn.h"
+#include "mpfs_i2c.h"
+
+#if defined(CONFIG_MPFS_ETH0_PHY_KSZ9477) ||\
+    defined(CONFIG_MPFS_ETH1_PHY_KSZ9477)
+#  if !defined(CONFIG_MPFS_MAC_SGMII)
+#    error Using KSZ9477 as a PHY requires CONFIG_MPFS_MAC_SGMII to be set
+#  endif
+
+#  define ETH_HAS_KSZ_SWITCH
+
+#  ifdef CONFIG_MPFS_ETH0_PHY_KSZ9477
+#    define ETH_PHY_KSZ9477_I2C_BUS CONFIG_MPFS_ETH0_PHY_KSZ9477_I2C_BUS
+#  else
+#    define ETH_PHY_KSZ9477_I2C_BUS CONFIG_MPFS_ETH1_PHY_KSZ9477_I2C_BUS
+#  endif
+
+#else
+#  define ETH_HAS_MDIO_PHY
+#endif
 
 #if defined(CONFIG_NET) && defined(CONFIG_MPFS_ETHMAC)
-
-#ifndef OK
-#  define OK 0
-#endif
 
 #define MPFS_PMPCFG_ETH0_0   (MPFS_MPUCFG_BASE + 0x400)
 #define MPFS_PMPCFG_ETH0_1   (MPFS_MPUCFG_BASE + 0x408)
@@ -94,7 +111,7 @@
 #  endif
 #endif
 
-#ifndef CONFIG_MPFS_PHYADDR
+#if defined(ETH_HAS_MDIO_PHY) && !defined(CONFIG_MPFS_PHYADDR)
 #  error "CONFIG_MPFS_PHYADDR must be defined in the NuttX configuration"
 #endif
 
@@ -253,7 +270,9 @@ struct mpfs_ethmac_s
   irq_t         mac_q_int[MPFS_MAC_QUEUE_COUNT]; /* irq numbers */
   uint8_t       ifup : 1;                        /* true:ifup false:ifdown */
   uint8_t       intf;                            /* Ethernet interface number */
+#ifdef ETH_HAS_MDIO_PHY
   uint8_t       phyaddr;                         /* PHY address */
+#endif
   struct wdog_s txtimeout;                       /* TX timeout timer */
   struct work_s irqwork;                         /* For deferring interrupt work to the work queue */
   struct work_s pollwork;                        /* For deferring poll work to the work queue */
@@ -337,10 +356,13 @@ static int mpfs_ioctl(struct net_driver_s *dev, int cmd, unsigned long arg);
 
 /* PHY Initialization */
 
+static int  mpfs_phyinit(struct mpfs_ethmac_s *priv);
+
+#ifdef ETH_HAS_MDIO_PHY
+
 static void mpfs_enablemdio(struct mpfs_ethmac_s *priv);
 static void mpfs_disablemdio(struct mpfs_ethmac_s *priv);
 static int  mpfs_phyreset(struct mpfs_ethmac_s *priv);
-static int  mpfs_phyinit(struct mpfs_ethmac_s *priv);
 static int  mpfs_phyread(struct mpfs_ethmac_s *priv, uint8_t phyaddr,
                          uint8_t regaddr, uint16_t *phyval);
 static int  mpfs_phywrite(struct mpfs_ethmac_s *priv, uint8_t phyaddr,
@@ -349,14 +371,19 @@ static int  mpfs_phywait(struct mpfs_ethmac_s *priv);
 static int  mpfs_phyfind(struct mpfs_ethmac_s *priv, uint8_t *phyaddr);
 #ifdef CONFIG_MPFS_MAC_AUTONEG
 static int  mpfs_autonegotiate(struct mpfs_ethmac_s *priv);
-#else
-static void mpfs_linkspeed(struct mpfs_ethmac_s *priv);
 #endif
 
-#if defined(CONFIG_DEBUG_NET) && defined(CONFIG_DEBUG_INFO)
+#endif /* ETH_HAS_MDIO_PHY */
+
+#if defined(CONFIG_DEBUG_NET) && defined(CONFIG_DEBUG_INFO) &&  \
+    defined(ETH_HAS_MDIO_PHY)
 static void mpfs_phydump(struct mpfs_ethmac_s *priv);
 #else
 #  define mpfs_phydump(priv)
+#endif
+
+#ifndef CONFIG_MPFS_MAC_AUTONEG
+static void mpfs_linkspeed(struct mpfs_ethmac_s *priv);
 #endif
 
 /* MAC/DMA Initialization */
@@ -836,11 +863,8 @@ static void mpfs_receive(struct mpfs_ethmac_s *priv, unsigned int queue)
         {
           ninfo("IPv4 frame\n");
 
-          /* Handle ARP on input then give the IPv4 packet to the network
-           * layer
-           */
+          /* Receive an IPv4 packet from the network device */
 
-          arp_ipin(&priv->dev);
           ipv4_input(&priv->dev);
 
           /* If the above function invocation resulted in data that should be
@@ -850,21 +874,6 @@ static void mpfs_receive(struct mpfs_ethmac_s *priv, unsigned int queue)
 
           if (priv->dev.d_len > 0)
             {
-              /* Update the Ethernet header with the correct MAC address */
-
-  #ifdef CONFIG_NET_IPv6
-              if (IFF_IS_IPv4(priv->dev.d_flags))
-  #endif
-                {
-                  arp_out(&priv->dev);
-                }
-  #ifdef CONFIG_NET_IPv6
-              else
-                {
-                  neighbor_out(&priv->dev);
-                }
-  #endif
-
               /* And send the packet */
 
               mpfs_transmit(priv, queue);
@@ -889,19 +898,6 @@ static void mpfs_receive(struct mpfs_ethmac_s *priv, unsigned int queue)
 
           if (priv->dev.d_len > 0)
             {
-              /* Update the Ethernet header with the correct MAC address */
-
-  #ifdef CONFIG_NET_IPv4
-              if (IFF_IS_IPv4(priv->dev.d_flags))
-                {
-                  arp_out(&priv->dev);
-                }
-              else
-  #endif
-                {
-                  neighbor_out(&priv->dev);
-                }
-
               /* And send the packet */
 
               mpfs_transmit(priv, queue);
@@ -917,7 +913,7 @@ static void mpfs_receive(struct mpfs_ethmac_s *priv, unsigned int queue)
 
           /* Handle ARP packet */
 
-          arp_arpin(&priv->dev);
+          arp_input(&priv->dev);
 
           /* If the above function invocation resulted in data that should be
            * sent out on the network, the field  d_len will set to a
@@ -1082,13 +1078,6 @@ static void mpfs_interrupt_work(void *arg)
       uint32_t rx_error = 0;
       ninfo("RX: rsr=0x%X\n", rsr);
 
-      if ((rsr & RECEIVE_STATUS_FRAME_RECEIVED) != 0)
-        {
-          /* Handle the received packet */
-
-          mpfs_receive(priv, queue);
-        }
-
       /* Check for Receive Overrun */
 
       if ((rsr & RECEIVE_STATUS_RECEIVE_OVERRUN) != 0)
@@ -1129,6 +1118,12 @@ static void mpfs_interrupt_work(void *arg)
           regval = mac_getreg(priv, NETWORK_CONTROL);
           regval |= NETWORK_CONTROL_ENABLE_RECEIVE;
           mac_putreg(priv, NETWORK_CONTROL, regval);
+        }
+      else if ((rsr & RECEIVE_STATUS_FRAME_RECEIVED) != 0)
+        {
+          /* Handle the received packet only in case there are no RX errors */
+
+          mpfs_receive(priv, queue);
         }
     }
 
@@ -1412,53 +1407,21 @@ static int mpfs_txpoll(struct net_driver_s *dev)
 {
   struct mpfs_ethmac_s *priv = (struct mpfs_ethmac_s *)dev->d_private;
 
-  /* If the polling resulted in data that should be sent out on the network,
-   * the field d_len is set to a value > 0.
+  /* Send the packet */
+
+  mpfs_transmit(priv, 0);
+
+  /* Check if there are any free TX descriptors.  We cannot perform
+   * the TX poll if we do not have buffering for another packet.
    */
 
-  if (priv->dev.d_len > 0)
+  if (mpfs_txfree(priv, 0) == 0)
     {
-      /* Look up the destination MAC address and add it to the Ethernet
-       * header.
+      /* We have to terminate the poll if we have no more descriptors
+       * available for another transfer.
        */
 
-  #ifdef CONFIG_NET_IPv4
-  #ifdef CONFIG_NET_IPv6
-      if (IFF_IS_IPv4(priv->dev.d_flags))
-  #endif
-        {
-          arp_out(&priv->dev);
-        }
-  #endif /* CONFIG_NET_IPv4 */
-
-  #ifdef CONFIG_NET_IPv6
-    #ifdef CONFIG_NET_IPv4
-      else
-  #endif
-        {
-          neighbor_out(&priv->dev);
-        }
-  #endif /* CONFIG_NET_IPv6 */
-
-      if (!devif_loopback(&priv->dev))
-        {
-          /* Send the packet */
-
-          mpfs_transmit(priv, 0);
-
-          /* Check if there are any free TX descriptors.  We cannot perform
-           * the TX poll if we do not have buffering for another packet.
-           */
-
-          if (mpfs_txfree(priv, 0) == 0)
-            {
-              /* We have to terminate the poll if we have no more descriptors
-               * available for another transfer.
-               */
-
-              return -EBUSY;
-            }
-        }
+      return -EBUSY;
     }
 
   /* If zero is returned, the polling will continue until all connections
@@ -1532,9 +1495,9 @@ static int mpfs_ifup(struct net_driver_s *dev)
   int ret;
 
 #ifdef CONFIG_NET_IPv4
-  ninfo("Bringing up: %d.%d.%d.%d\n",
-        (int)(dev->d_ipaddr & 0xff), (int)((dev->d_ipaddr >> 8) & 0xff),
-        (int)((dev->d_ipaddr >> 16) & 0xff), (int)(dev->d_ipaddr >> 24));
+  ninfo("Bringing up: %u.%u.%u.%u\n",
+        ip4_addr1(dev->d_ipaddr), ip4_addr2(dev->d_ipaddr),
+        ip4_addr3(dev->d_ipaddr), ip4_addr4(dev->d_ipaddr));
 #endif
 #ifdef CONFIG_NET_IPv6
   ninfo("Bringing up: %04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x\n",
@@ -1551,7 +1514,7 @@ static int mpfs_ifup(struct net_driver_s *dev)
       return ret;
     }
 
-  /* Set the MAC address (should have been configured while we were down) */
+  /* Set the MAC address */
 
   mpfs_macaddress(priv);
 
@@ -1915,6 +1878,8 @@ static int mpfs_rmmac(struct net_driver_s *dev, const uint8_t *mac)
   return OK;
 }
 #endif
+
+#ifdef ETH_HAS_MDIO_PHY
 
 /****************************************************************************
  * Function: mpfs_enablemdio
@@ -2356,29 +2321,6 @@ static int mpfs_autonegotiate(struct mpfs_ethmac_s *priv)
       goto errout;
     }
 
-#ifndef CONFIG_MPFS_MAC_AUTONEG_DISABLE_1000MBPS
-  /* Modify the 1000Base-T control register to advertise 1000Base-T full
-   * and half duplex support.
-   */
-
-  ret = mpfs_phyread(priv, priv->phyaddr, GMII_1000BTCR, &btcr);
-  if (ret < 0)
-    {
-      nerr("ERROR: Failed to read 1000BTCR register: %d\n", ret);
-      goto errout;
-    }
-
-  btcr |= GMII_1000BTCR_1000BASETFULL | GMII_1000BTCR_1000BASETHALF;
-
-  ret = mpfs_phywrite(priv, priv->phyaddr, GMII_1000BTCR, btcr);
-  if (ret < 0)
-    {
-      nerr("ERROR: Failed to write 1000BTCR register: %d\n", ret);
-      goto errout;
-    }
-
-#endif
-
   /* Restart Auto_negotiation */
 
   ret = mpfs_phyread(priv, priv->phyaddr, GMII_MCR, &phyval);
@@ -2451,6 +2393,13 @@ static int mpfs_autonegotiate(struct mpfs_ethmac_s *priv)
       if (ret < 0)
         {
           nerr("ERROR: Failed to read 1000BTSR register: %d\n", ret);
+          goto errout;
+        }
+
+      ret = mpfs_phyread(priv, priv->phyaddr, GMII_1000BTCR, &btcr);
+      if (ret < 0)
+        {
+          nerr("ERROR: Failed to read 1000BTCR register: %d\n", ret);
           goto errout;
         }
 
@@ -2562,6 +2511,8 @@ errout:
 }
 #endif
 
+#endif /*  ETH_HAS_MDIO_PHY */
+
 /****************************************************************************
  * Function: mpfs_linkspeed
  *
@@ -2577,7 +2528,7 @@ errout:
  *
  ****************************************************************************/
 
-#ifndef CONFIG_MPFS_MAC_AUTONEG
+#if !defined(CONFIG_MPFS_MAC_AUTONEG) || !defined(ETH_HAS_MDIO_PHY)
 static void mpfs_linkspeed(struct mpfs_ethmac_s *priv)
 {
   uint32_t regval;
@@ -2653,7 +2604,7 @@ static void mpfs_linkspeed(struct mpfs_ethmac_s *priv)
 #ifdef CONFIG_NETDEV_IOCTL
 static int mpfs_ioctl(struct net_driver_s *dev, int cmd, unsigned long arg)
 {
-#ifdef CONFIG_NETDEV_PHY_IOCTL
+#if defined(CONFIG_NETDEV_PHY_IOCTL) && defined(ETH_HAS_MDIO_PHY)
   struct mpfs_ethmac_s *priv = (struct mpfs_ethmac_s *)dev->d_private;
 #endif
   int ret;
@@ -2661,6 +2612,7 @@ static int mpfs_ioctl(struct net_driver_s *dev, int cmd, unsigned long arg)
   switch (cmd)
     {
 #ifdef CONFIG_NETDEV_PHY_IOCTL
+#ifdef ETH_HAS_MDIO_PHY
 #ifdef CONFIG_ARCH_PHY_INTERRUPT
       case SIOCMIINOTIFY: /* Set up for PHY event notifications */
         {
@@ -2724,6 +2676,7 @@ static int mpfs_ioctl(struct net_driver_s *dev, int cmd, unsigned long arg)
           mpfs_disablemdio(priv);
         }
         break;
+#endif /* ETH_HAS_MDIO_PHY */
 #endif /* CONFIG_NETDEV_PHY_IOCTL */
 
       default:
@@ -2792,7 +2745,7 @@ static int mpfs_buffer_initialize(struct mpfs_ethmac_s *priv,
   memset(priv->queue[queue].rx_desc_tab, 0, allocsize);
 
   allocsize = CONFIG_MPFS_ETHMAC_NTXBUFFERS * GMAC_TX_UNITSIZE;
-  priv->queue[queue].txbuffer = (uint8_t *)kmm_memalign(8, allocsize);
+  priv->queue[queue].txbuffer = kmm_memalign(8, allocsize);
   if (priv->queue[queue].txbuffer == NULL)
     {
       nerr("ERROR: Failed to allocate TX buffer\n");
@@ -2801,7 +2754,7 @@ static int mpfs_buffer_initialize(struct mpfs_ethmac_s *priv,
     }
 
   allocsize = CONFIG_MPFS_ETHMAC_NRXBUFFERS * GMAC_RX_UNITSIZE;
-  priv->queue[queue].rxbuffer = (uint8_t *)kmm_memalign(8, allocsize);
+  priv->queue[queue].rxbuffer = kmm_memalign(8, allocsize);
   if (priv->queue[queue].rxbuffer == NULL)
     {
       nerr("ERROR: Failed to allocate RX buffer\n");
@@ -3298,6 +3251,8 @@ static int mpfs_macenable(struct mpfs_ethmac_s *priv)
  *
  ****************************************************************************/
 
+#ifdef ETH_HAS_MDIO_PHY
+
 static void mpfs_mdcclock(struct mpfs_ethmac_s *priv)
 {
   uint32_t ncfgr;
@@ -3352,6 +3307,8 @@ static void mpfs_mdcclock(struct mpfs_ethmac_s *priv)
   mac_putreg(priv, NETWORK_CONTROL, ncr);
 }
 
+#endif
+
 /****************************************************************************
  * Function: mpfs_phyinit
  *
@@ -3368,7 +3325,9 @@ static void mpfs_mdcclock(struct mpfs_ethmac_s *priv)
 
 static int mpfs_phyinit(struct mpfs_ethmac_s *priv)
 {
-  int ret;
+  int ret = -EINVAL;
+
+#ifdef ETH_HAS_MDIO_PHY
 
   /* Configure PHY clocking */
 
@@ -3387,7 +3346,20 @@ static int mpfs_phyinit(struct mpfs_ethmac_s *priv)
   /* We have a PHY address.  Reset the PHY */
 
   mpfs_phyreset(priv);
-  return OK;
+
+#elif defined(ETH_HAS_KSZ_SWITCH)
+  struct i2c_master_s *bus;
+
+  bus = mpfs_i2cbus_initialize(ETH_PHY_KSZ9477_I2C_BUS);
+
+  if (bus)
+    {
+      ret = ksz9477_i2c_init(bus, KSZ9477_PORT_SGMII);
+    }
+
+#endif
+
+  return ret;
 }
 
 /****************************************************************************
@@ -3406,11 +3378,14 @@ static int mpfs_phyinit(struct mpfs_ethmac_s *priv)
  *
  ****************************************************************************/
 
+#ifdef ETH_HAS_MDIO_PHY
+
 static int mpfs_phyreset(struct mpfs_ethmac_s *priv)
 {
   uint16_t mcr;
   int timeout;
   int ret;
+  uint16_t btcr;
 
   ninfo(" mpfs_phyreset\n");
 
@@ -3447,11 +3422,34 @@ static int mpfs_phyreset(struct mpfs_ethmac_s *priv)
         }
     }
 
+  /* For gigabit PHYs, set or disable the autonegotiation advertisement for
+   * 1G speed
+   */
+
+  if (mpfs_phyread(priv, priv->phyaddr, GMII_1000BTCR, &btcr) == OK)
+    {
+#if defined(CONFIG_MPFS_MAC_AUTONEG_DISABLE_1000MBPS) || \
+            (!defined(CONFIG_MPFS_MAC_AUTONEG) && \
+             !defined(CONFIG_MPFS_MAC_ETH1000MBPS))
+      btcr &= ~(GMII_1000BTCR_1000BASETFULL | GMII_1000BTCR_1000BASETHALF);
+#else
+      btcr |= GMII_1000BTCR_1000BASETFULL | GMII_1000BTCR_1000BASETHALF;
+#endif
+
+      ret = mpfs_phywrite(priv, priv->phyaddr, GMII_1000BTCR, btcr);
+      if (ret < 0)
+        {
+          nerr("ERROR: Failed to write 1000BTCR register: %d\n", ret);
+        }
+    }
+
   /* Disable management port */
 
   mpfs_disablemdio(priv);
   return ret;
 }
+
+#endif
 
 /****************************************************************************
  * Function: mpfs_ethconfig
@@ -3604,6 +3602,16 @@ int mpfs_ethinitialize(int intf)
   priv->queue[1].dma_rxbuf_size = (uint32_t *)(base + DMA_RXBUF_SIZE_Q1);
   priv->queue[2].dma_rxbuf_size = (uint32_t *)(base + DMA_RXBUF_SIZE_Q2);
   priv->queue[3].dma_rxbuf_size = (uint32_t *)(base + DMA_RXBUF_SIZE_Q3);
+
+  /* Generate a locally administrated MAC address for this ethernet if */
+
+  /* Set first byte to 0x02 or 0x06 acc. to the intf */
+
+  priv->dev.d_mac.ether.ether_addr_octet[0] = 0x02 | ((intf & 1) << 2);
+
+  /* Read the next 5 bytes from the S/N */
+
+  mpfs_read_dsn(&priv->dev.d_mac.ether.ether_addr_octet[1], 5);
 
   /* MPU hack for ETH DMA if not enabled by bootloader */
 

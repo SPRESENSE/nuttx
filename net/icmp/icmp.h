@@ -29,10 +29,10 @@
 
 #include <sys/types.h>
 #include <stdint.h>
-#include <queue.h>
 #include <assert.h>
 
 #include <nuttx/mm/iob.h>
+#include <nuttx/net/icmp.h>
 #include <nuttx/net/ip.h>
 #include <nuttx/net/net.h>
 #include <nuttx/net/netdev.h>
@@ -70,6 +70,7 @@ struct devif_callback_s;         /* Forward reference */
 struct icmp_poll_s
 {
   FAR struct socket *psock;        /* IPPROTO_ICMP socket structure */
+  FAR struct net_driver_s *dev;    /* Needed to free the callback structure */
   FAR struct pollfd *fds;          /* Needed to handle poll events */
   FAR struct devif_callback_s *cb; /* Needed to teardown the poll */
 };
@@ -82,9 +83,8 @@ struct icmp_conn_s
 
   /* ICMP-specific content follows */
 
-  uint16_t   id;                 /* ICMP ECHO request ID */
-  uint8_t    nreqs;              /* Number of requests with no response received */
-  uint8_t    crefs;              /* Reference counts on this instance */
+  uint16_t id;                 /* ICMP ECHO request ID */
+  uint8_t  crefs;              /* Reference counts on this instance */
 
   /* The device that the ICMP request was sent on */
 
@@ -96,6 +96,7 @@ struct icmp_conn_s
    */
 
   struct iob_queue_s readahead;  /* Read-ahead buffering */
+  uint32_t filter;               /* ICMP type filter */
 
   /* The following is a list of poll structures of threads waiting for
    * socket events.
@@ -103,6 +104,18 @@ struct icmp_conn_s
 
   struct icmp_poll_s pollinfo[CONFIG_NET_ICMP_NPOLLWAITERS];
 };
+
+typedef int (*icmp_callback_t)(FAR struct icmp_conn_s *conn, FAR void *arg);
+#endif
+
+#ifdef CONFIG_NET_IPv4
+struct icmp_pmtu_entry
+{
+  in_addr_t daddr;
+  uint16_t pmtu;
+  clock_t time;
+};
+
 #endif
 
 /****************************************************************************
@@ -233,6 +246,23 @@ FAR struct icmp_conn_s *icmp_nextconn(FAR struct icmp_conn_s *conn);
 #ifdef CONFIG_NET_ICMP_SOCKET
 FAR struct icmp_conn_s *icmp_findconn(FAR struct net_driver_s *dev,
                                       uint16_t id);
+#endif
+
+/****************************************************************************
+ * Name: icmp_foreach
+ *
+ * Description:
+ *   Enumerate each ICMP connection structure. This function will terminate
+ *   when either (1) all connection have been enumerated or (2) when a
+ *   callback returns any non-zero value.
+ *
+ * Assumptions:
+ *   This function is called from network logic at with the network locked.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_NET_ICMP_SOCKET
+int icmp_foreach(icmp_callback_t callback, FAR void *arg);
 #endif
 
 /****************************************************************************
@@ -390,14 +420,44 @@ void icmp_reply(FAR struct net_driver_s *dev, int type, int code);
  *   conn     The ICMP connection of interest
  *   cmd      The ioctl command
  *   arg      The argument of the ioctl cmd
- *   arglen   The length of 'arg'
  *
  ****************************************************************************/
 
 #ifdef CONFIG_NET_ICMP_SOCKET
-int icmp_ioctl(FAR struct socket *psock,
-               int cmd, FAR void *arg, size_t arglen);
+int icmp_ioctl(FAR struct socket *psock, int cmd, unsigned long arg);
 #endif
+
+/****************************************************************************
+ * Name: icmpv4_find_pmtu_entry
+ *
+ * Description:
+ *   Search for a ipv4 destination cache entry
+ *
+ * Parameters:
+ *   destipaddr   the IPv4 address of the destination
+ *
+ * Return:
+ *   not null is success; null is failure
+ ****************************************************************************/
+
+FAR struct icmp_pmtu_entry *icmpv4_find_pmtu_entry(in_addr_t destipaddr);
+
+/****************************************************************************
+ * Name: icmpv4_add_pmtu_entry
+ *
+ * Description:
+ *   Create a new ipv4 destination cache entry. If no unused entry is found,
+ *   will recycle oldest entry
+ *
+ * Parameters:
+ *   destipaddr   the IPv4 address of the destination
+ *   mtu          MTU
+ *
+ * Return:
+ *   void
+ ****************************************************************************/
+
+void icmpv4_add_pmtu_entry(in_addr_t destipaddr, int mtu);
 
 #undef EXTERN
 #ifdef __cplusplus
