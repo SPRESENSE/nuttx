@@ -28,10 +28,23 @@
 #include <assert.h>
 #include <errno.h>
 
-#include <nuttx/semaphore.h>
+#include <nuttx/mutex.h>
 #include <nuttx/tls.h>
 
-#if CONFIG_TLS_NELEM > 0
+#if defined(CONFIG_TLS_NELEM) && CONFIG_TLS_NELEM > 0
+
+/****************************************************************************
+ * Private Functions
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: pthread_destructor
+ ****************************************************************************/
+
+static void pthread_destructor(FAR void *arg)
+{
+  UNUSED(arg);
+}
 
 /****************************************************************************
  * Public Functions
@@ -83,12 +96,10 @@ int pthread_key_create(FAR pthread_key_t *key,
    * avoid concurrent modification of the group TLS index set.
    */
 
-  ret = _SEM_WAIT(&info->ta_sem);
-
+  ret = nxmutex_lock(&info->ta_lock);
   if (ret < 0)
     {
-      ret = _SEM_ERRNO(ret);
-      return ret;
+      return -ret;
     }
 
   ret = EAGAIN;
@@ -97,20 +108,26 @@ int pthread_key_create(FAR pthread_key_t *key,
     {
       /* Is this candidate index available? */
 
-      tls_ndxset_t mask = (tls_ndxset_t)1 << candidate;
-      if ((info->ta_tlsset & mask) == 0)
+      if (info->ta_tlsdtor[candidate] == NULL)
         {
           /* Yes.. allocate the index and break out of the loop */
 
-          info->ta_tlsset |= mask;
-          info->ta_tlsdtor[candidate] = destructor;
+          if (destructor)
+            {
+              info->ta_tlsdtor[candidate] = destructor;
+            }
+          else
+            {
+              info->ta_tlsdtor[candidate] = pthread_destructor;
+            }
+
           *key = candidate;
           ret = OK;
           break;
         }
     }
 
-  _SEM_POST(&info->ta_sem);
+  nxmutex_unlock(&info->ta_lock);
   return ret;
 }
 

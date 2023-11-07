@@ -28,12 +28,13 @@
 #include <assert.h>
 
 #include <nuttx/irq.h>
+#include <nuttx/addrenv.h>
 #include <nuttx/arch.h>
 #include <nuttx/board.h>
 #include <arch/board/board.h>
+#include <sched/sched.h>
 
 #include "riscv_internal.h"
-#include "group/group.h"
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -89,26 +90,37 @@ uintptr_t *riscv_doirq(int irq, uintptr_t *regs)
    * returning from the interrupt.
    */
 
-#ifdef CONFIG_ARCH_ADDRENV
   if (regs != CURRENT_REGS)
     {
+#ifdef CONFIG_ARCH_ADDRENV
       /* Make sure that the address environment for the previously
        * running task is closed down gracefully (data caches dump,
        * MMU flushed) and set up the address environment for the new
        * thread at the head of the ready-to-run list.
        */
 
-      group_addrenv(NULL);
-    }
+      addrenv_switch(NULL);
 #endif
 
-  /* If a context switch occurred while processing the interrupt then
-   * CURRENT_REGS may have change value.  If we return any value different
-   * from the input regs, then the lower level will know that a context
-   * switch occurred during interrupt processing.
-   */
+      /* Record the new "running" task when context switch occurred.
+       * g_running_tasks[] is only used by assertion logic for reporting
+       * crashes.
+       */
 
-  regs = (uintptr_t *)CURRENT_REGS;
+      g_running_tasks[this_cpu()] = this_task();
+
+      /* Restore the cpu lock */
+
+      restore_critical_section();
+
+      /* If a context switch occurred while processing the interrupt then
+       * CURRENT_REGS may have change value.  If we return any value
+       * different from the input regs, then the lower level will know
+       * that a context switch occurred during interrupt processing.
+       */
+
+      regs = (uintptr_t *)CURRENT_REGS;
+    }
 
   /* Set CURRENT_REGS to NULL to indicate that we are no longer in an
    * interrupt handler.

@@ -40,7 +40,7 @@
 #include <nuttx/wdog.h>
 #include <nuttx/clock.h>
 #include <nuttx/kmalloc.h>
-#include <nuttx/semaphore.h>
+#include <nuttx/mutex.h>
 #include <nuttx/spi/qspi.h>
 
 #include "arm_internal.h"
@@ -167,7 +167,7 @@ struct stm32l4_qspidev_s
   uint8_t nbits;                /* Width of word in bits (8 to 32) */
   uint8_t intf;                 /* QSPI controller number (0) */
   bool initialized;             /* TRUE: Controller has been initialized */
-  sem_t exclsem;                /* Assures mutually exclusive access to QSPI */
+  mutex_t lock;                 /* Assures mutually exclusive access to QSPI */
   bool memmap;                  /* TRUE: Controller is in memory mapped mode */
 
 #ifdef STM32L4_QSPI_INTERRUPTS
@@ -245,7 +245,7 @@ struct qspi_xctnspec_s
 static bool     qspi_checkreg(struct stm32l4_qspidev_s *priv, bool wr,
                   uint32_t value, uint32_t address);
 #else
-# define        qspi_checkreg(priv,wr,value,address) (false)
+#  define       qspi_checkreg(priv,wr,value,address) (false)
 #endif
 
 static inline uint32_t qspi_getreg(struct stm32l4_qspidev_s *priv,
@@ -257,13 +257,13 @@ static inline void qspi_putreg(struct stm32l4_qspidev_s *priv,
 static void     qspi_dumpregs(struct stm32l4_qspidev_s *priv,
                   const char *msg);
 #else
-# define        qspi_dumpregs(priv,msg)
+#  define       qspi_dumpregs(priv,msg)
 #endif
 
 #if defined(CONFIG_DEBUG_SPI_INFO) && defined(CONFIG_DEBUG_GPIO)
 static void     qspi_dumpgpioconfig(const char *msg);
 #else
-# define        qspi_dumpgpioconfig(msg)
+#  define       qspi_dumpgpioconfig(msg)
 #endif
 
 /* Interrupts */
@@ -323,6 +323,9 @@ static const struct qspi_ops_s g_qspi0ops =
   .setfrequency      = qspi_setfrequency,
   .setmode           = qspi_setmode,
   .setbits           = qspi_setbits,
+#ifdef CONFIG_QSPI_HWFEATURES
+  .hwfeatures        = NULL,
+#endif
   .command           = qspi_command,
   .memory            = qspi_memory,
   .alloc             = qspi_alloc,
@@ -333,18 +336,21 @@ static const struct qspi_ops_s g_qspi0ops =
 
 static struct stm32l4_qspidev_s g_qspi0dev =
 {
-  .qspi            =
+  .qspi              =
   {
     .ops             = &g_qspi0ops,
   },
   .base              = STM32L4_QSPI_BASE,
+  .lock              = NXMUTEX_INITIALIZER,
 #ifdef STM32L4_QSPI_INTERRUPTS
   .handler           = qspi0_interrupt,
   .irq               = STM32L4_IRQ_QUADSPI,
+  .op_sem            = SEM_INITIALIZER(0),
 #endif
   .intf              = 0,
 #ifdef CONFIG_STM32L4_QSPI_DMA
   .candma            = true,
+  .dmawait           = SEM_INITIALIZER(0),
 #endif
 };
 
@@ -1698,11 +1704,11 @@ static int qspi_lock(struct qspi_dev_s *dev, bool lock)
   spiinfo("lock=%d\n", lock);
   if (lock)
     {
-      ret = nxsem_wait_uninterruptible(&priv->exclsem);
+      ret = nxmutex_lock(&priv->lock);
     }
   else
     {
-      ret = nxsem_post(&priv->exclsem);
+      ret = nxmutex_unlock(&priv->lock);
     }
 
   return ret;
@@ -2499,12 +2505,6 @@ struct qspi_dev_s *stm32l4_qspi_initialize(int intf)
     {
       /* Now perform one time initialization */
 
-      /* Initialize the QSPI semaphore that enforces mutually exclusive
-       * access to the QSPI registers.
-       */
-
-      nxsem_init(&priv->exclsem, 0, 1);
-
 #ifdef CONFIG_STM32L4_QSPI_DMA
       /* Pre-allocate DMA channels. */
 
@@ -2517,14 +2517,6 @@ struct qspi_dev_s *stm32l4_qspi_initialize(int intf)
               priv->candma = false;
             }
         }
-
-      /* Initialize the QSPI semaphore that is used to wake up the waiting
-       * thread when the DMA transfer completes.  This semaphore is used for
-       * signaling and, hence, should not have priority inheritance enabled.
-       */
-
-      nxsem_init(&priv->dmawait, 0, 0);
-      nxsem_set_protocol(&priv->dmawait, SEM_PRIO_NONE);
 #endif
 
 #ifdef STM32L4_QSPI_INTERRUPTS
@@ -2534,16 +2526,8 @@ struct qspi_dev_s *stm32l4_qspi_initialize(int intf)
       if (ret < 0)
         {
           spierr("ERROR: Failed to attach irq %d\n", priv->irq);
-          goto errout_with_dmawait;
+          goto errout_with_dmach;
         }
-
-      /* Initialize the semaphore that blocks until the operation completes.
-       * This semaphore is used for signaling and, hence, should not have
-       * priority inheritance enabled.
-       */
-
-      nxsem_init(&priv->op_sem, 0, 0);
-      nxsem_set_protocol(&priv->op_sem, SEM_PRIO_NONE);
 #endif
 
       /* Perform hardware initialization.  Puts the QSPI into an active
@@ -2572,10 +2556,9 @@ errout_with_irq:
 #ifdef STM32L4_QSPI_INTERRUPTS
   irq_detach(priv->irq);
 
-errout_with_dmawait:
+errout_with_dmach:
 #endif
 #ifdef CONFIG_STM32L4_QSPI_DMA
-  nxsem_destroy(&priv->dmawait);
   if (priv->dmach)
     {
       stm32l4_dmafree(priv->dmach);
@@ -2583,7 +2566,6 @@ errout_with_dmawait:
     }
 #endif
 
-  nxsem_destroy(&priv->exclsem);
   return NULL;
 }
 

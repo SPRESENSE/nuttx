@@ -1,4 +1,4 @@
-/****************************************************************************
+/***************************************************************************
  * arch/arm64/src/common/arm64_cpu_psci.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
@@ -16,11 +16,11 @@
  * License for the specific language governing permissions and limitations
  * under the License.
  *
- ****************************************************************************/
+ ***************************************************************************/
 
-/****************************************************************************
+/***************************************************************************
  * Included Files
- ****************************************************************************/
+ ***************************************************************************/
 
 #include <nuttx/config.h>
 #include <debug.h>
@@ -36,11 +36,15 @@
 
 #include "arm64_cpu_psci.h"
 
+/***************************************************************************
+ * Private Data
+ ***************************************************************************/
+
 static struct psci_interface psci_data;
 
-/****************************************************************************
+/***************************************************************************
  * Private Functions
- ****************************************************************************/
+ ***************************************************************************/
 
 static int psci_to_dev_err(int ret)
 {
@@ -124,7 +128,7 @@ static int psci_detect(void)
   uint32_t ver = psci_get_version();
 
   sinfo("Detected PSCI v%d.%d\n",
-       PSCI_VERSION_MAJOR(ver), PSCI_VERSION_MINOR(ver));
+        PSCI_VERSION_MAJOR(ver), PSCI_VERSION_MINOR(ver));
 
   if (PSCI_VERSION_MAJOR(ver) == 0 && PSCI_VERSION_MINOR(ver) < 2)
     {
@@ -137,16 +141,16 @@ static int psci_detect(void)
   return 0;
 }
 
-/****************************************************************************
+/***************************************************************************
  * Public Functions
- ****************************************************************************/
+ ***************************************************************************/
 
 uint32_t psci_version(void)
 {
   return psci_data.version;
 }
 
-int pcsi_cpu_off(void)
+int psci_cpu_off(void)
 {
   int ret;
 
@@ -160,7 +164,21 @@ int pcsi_cpu_off(void)
   return psci_to_dev_err(ret);
 }
 
-int pcsi_cpu_on(unsigned long cpuid, uintptr_t entry_point)
+int psci_cpu_reset(void)
+{
+  int ret;
+
+  if (psci_data.conduit == SMCCC_CONDUIT_NONE)
+    {
+      return -EINVAL;
+    }
+
+  ret = psci_data.invoke_psci_fn(PSCI_0_2_FN_SYSTEM_RESET, 0, 0, 0);
+
+  return psci_to_dev_err(ret);
+}
+
+int psci_cpu_on(unsigned long cpuid, uintptr_t entry_point)
 {
   int ret;
 
@@ -170,7 +188,35 @@ int pcsi_cpu_on(unsigned long cpuid, uintptr_t entry_point)
     }
 
   ret = psci_data.invoke_psci_fn(PSCI_FN_NATIVE(0_2, CPU_ON),
-                      cpuid, (unsigned long)entry_point, 0);
+                                 cpuid, (unsigned long)entry_point, 0);
+
+  return psci_to_dev_err(ret);
+}
+
+int psci_sys_reset(void)
+{
+  int ret;
+
+  if (psci_data.conduit == SMCCC_CONDUIT_NONE)
+    {
+      return -EINVAL;
+    }
+
+  ret = psci_data.invoke_psci_fn(PSCI_0_2_FN_SYSTEM_RESET, 0, 0, 0);
+
+  return psci_to_dev_err(ret);
+}
+
+int psci_sys_poweroff(void)
+{
+  int ret;
+
+  if (psci_data.conduit == SMCCC_CONDUIT_NONE)
+    {
+      return -EINVAL;
+    }
+
+  ret = psci_data.invoke_psci_fn(PSCI_0_2_FN_SYSTEM_OFF, 0, 0, 0);
 
   return psci_to_dev_err(ret);
 }

@@ -12,6 +12,11 @@ config MM_DEFAULT_MANAGER
 	---help---
 		NuttX original memory manager strategy.
 
+config MM_TLSF_MANAGER
+	bool "TLSF heap manager"
+	---help---
+		TLSF memory manager strategy.
+
 config MM_CUSTOMIZE_MANAGER
 	bool "Customized heap manager"
 	---help---
@@ -21,16 +26,23 @@ config MM_CUSTOMIZE_MANAGER
 endchoice
 
 config MM_KERNEL_HEAP
-	bool "Support a protected, kernel heap"
-	default y
-	depends on !BUILD_FLAT
+	bool "Kernel dedicated heap"
+	default BUILD_PROTECTED || BUILD_KERNEL
 	---help---
-		Partition heap memory into two parts:  (1) a protected, kernel-mode
-		heap accessible only by the NuttX kernel, and (2) an unprotected
-		user-mode heap for use by applications.  If you are only interested
-		in protected the kernel from read access, then this option is not
-		necessary.  If you wish to secure the kernel data as well, then
-		this option should be selected.
+		Under Flat build, this option will enable a separate heap for the kernel.
+		By separating the kernel and userspace heaps, the user is granted more
+		control over the heaps placement within the memory hierarchy, which is
+		specially useful for microcontrollers that provide External RAM.
+		Besides segregating the kernel and userspace allocations, this feature
+		does not prevent the userspace from accessing the kernel heap.
+
+		As for Protected and Kernel builds, this feature partitions heap memory
+		into two parts:
+		(1) a protected, kernel-mode heap accessible only by the NuttX kernel,
+		and (2) an unprotected user-mode heap for use by applications.
+		If you are only interested in protecting the kernel from read access,
+		then this option is not necessary. If you wish to secure the kernel data
+		as well, then this option should be selected.
 
 		The kernel heap size that is used is provided a a platform-specific
 		up_allocate_kheap() interface.  This configuration setting is made
@@ -48,9 +60,19 @@ config MM_KERNEL_HEAPSIZE
 		user-mode heap.  This value may need to be aligned to units of the
 		size of the smallest memory protection region.
 
+config MM_DFAULT_ALIGNMENT
+	int "Memory default alignment in bytes"
+	default 0
+	range 0 64
+	---help---
+		The memory default alignment in bytes, if this value is 0, the real
+		memory default alignment is equal to sizoef(uintptr), if this value
+		is not 0, this value must be 2^n and at least sizeof(uintptr).
+
 config MM_SMALL
 	bool "Small memory model"
 	default n
+	depends on MM_DEFAULT_MANAGER
 	---help---
 		Each memory allocation has a small allocation overhead.  The size
 		of that overhead is normally determined by the "width" of the
@@ -75,6 +97,12 @@ config MM_REGIONS
 		memory to allocate from, this specifies the number of memory regions
 		that the memory manager must handle and enables the API
 		mm_addregion(heap, start, end);
+
+config MM_MAP_COUNT_MAX
+	int "The maximum number of memory map areas for each task"
+	default 1024
+	---help---
+		The maximum number of memory map areas for each task.
 
 config ARCH_HAVE_HEAP2
 	bool
@@ -160,23 +188,63 @@ endif # MM_PGALLOC
 config MM_SHM
 	bool "Shared memory support"
 	default n
-	depends on MM_PGALLOC && BUILD_KERNEL && EXPERIMENTAL
+	depends on MM_PGALLOC && BUILD_KERNEL
+	select ARCH_VMA_MAPPING
 	---help---
 		Build in support for the shared memory interfaces shmget(), shmat(),
 		shmctl(), and shmdt().
 
-config MM_FILL_ALLOCATIONS
-	bool "Fill allocations with debug value"
+config MM_KMAP
+	bool "Support for dynamic kernel virtual mappings"
 	default n
+	depends on MM_PGALLOC && BUILD_KERNEL
+	select ARCH_VMA_MAPPING
 	---help---
-		Fill all malloc() allocations with 0xAA. This helps
-		detecting uninitialized variable errors.
+		Build support for dynamically mapping pages from the page pool into
+		kernel virtual memory. This includes pages that are already mapped
+		for user.
 
-config MM_CIRCBUF
-	bool "Circular buffer support"
-	default n
+config MM_HEAP_MEMPOOL_THRESHOLD
+	int "The size of threshold to avoid using multiple mempool in heap"
+	default 0
 	---help---
-		Build in support for the circular buffer management.
+		If the size of the memory requested by the user is less
+		than the threshold, the memory will be requested from the
+		multiple mempool by default.
+
+config MM_HEAP_MEMPOOL_EXPAND_SIZE
+	int "The expand size for each mempool in multiple mempool"
+	default 4096
+	depends on MM_HEAP_MEMPOOL_THRESHOLD != 0
+	---help---
+		This size describes the size of each expansion of each memory
+		pool with insufficient memory in the multi-level memory pool.
+
+config MM_HEAP_MEMPOOL_DICTIONARY_EXPAND_SIZE
+	int "The expand size for multiple mempool's dictonary"
+	default MM_HEAP_MEMPOOL_EXPAND_SIZE
+	depends on MM_HEAP_MEMPOOL_THRESHOLD != 0
+	---help---
+		This size describes the multiple mempool dictonary expend.
+
+config MM_HEAP_MEMPOOL_CHUNK_SIZE
+	int "The multiples pool chunk size"
+	default 0
+	depends on MM_HEAP_MEMPOOL_THRESHOLD != 0
+	---help---
+		This size describes the multiple mempool chunk size.
+
+config MM_HEAP_MEMPOOL_BACKTRACE_SKIP
+	int "The skip depth of backtrace for mempool"
+	default 6
+	depends on MM_HEAP_MEMPOOL_THRESHOLD != 0 && MM_BACKTRACE > 0
+	---help---
+		This number is the skipped backtrace depth for mempool.
+
+config FS_PROCFS_EXCLUDE_MEMPOOL
+	bool "Exclude mempool"
+	default DEFAULT_SMALL
+	depends on FS_PROCFS
 
 config MM_KASAN
 	bool "Kernel Address Sanitizer"
@@ -186,6 +254,78 @@ config MM_KASAN
 		bugs in native code. After turn on this option, Please
 		add -fsanitize=kernel-address to CFLAGS/CXXFLAGS too.
 
+config MM_KASAN_ALL
+	bool "Enable KASan for the entire image"
+	depends on MM_KASAN
+	default y
+	---help---
+		This option activates address sanitizer for the entire image.
+		If you don't enable this option, you have to explicitly specify
+		"-fsanitize=kernel-address" for the files/directories you want
+		to check. Enabling this option will get image size increased
+		and performance decreased significantly.
+
+config MM_KASAN_DISABLE_READS_CHECK
+	bool "Disable reads check"
+	depends on MM_KASAN
+	default n
+	---help---
+		This option disable kasan reads check. It speeds up performance
+		compared with default read/write check. Only disable it when you are
+		sure there's no need to do so. Or performance is too bad and only focus
+		on writes check.
+
+config MM_KASAN_DISABLE_WRITES_CHECK
+	bool "Disable writes check"
+	depends on MM_KASAN
+	default n
+	---help---
+		This option disable kasan writes check.
+
+config MM_UBSAN
+	bool "Undefined Behavior Sanitizer"
+	default n
+	---help---
+		UBSan is a fast undefined behavior detector. UBSan modifies
+		the program at compile-time to catch various kinds of
+		undefined behavior during program execution
+
+config MM_UBSAN_ALL
+	bool "Enable UBSan for the entire image"
+	depends on MM_UBSAN
+	default y
+	---help---
+		This option activates UBSan instrumentation for the
+		entire image. If you don't enable this option, you have to
+		explicitly specify "-fsanitize=undefined" for
+		the files/directories you want to check. Enabling this option
+		will get image size increased and performance decreased
+		significantly.
+
+config MM_UBSAN_OPTION
+	string "UBSan options"
+	depends on MM_UBSAN
+	default "-fsanitize=undefined"
+	---help---
+		This option activates specified UBSan instrumentation. Please
+		refer to https://clang.llvm.org/docs/UndefinedBehaviorSanitizer.html
+		for available options.
+
+config MM_UBSAN_TRAP_ON_ERROR
+	bool "Enable UBSan trap on error to crash immediately"
+	depends on MM_UBSAN
+	default n
+	---help---
+		The undefined instruction trap should cause your program to crash,
+		save the code space significantly.
+
+config MM_FILL_ALLOCATIONS
+	bool "Fill allocations with debug value"
+	default n
+	---help---
+		Fill all malloc() allocations with 0xAA. This helps
+		detecting uninitialized variable errors.
+
 config MM_BACKTRACE
 	int "The depth of backtrace"
 	default -1
@@ -193,6 +333,11 @@ config MM_BACKTRACE
 		Config the depth of backtrace in memory block by specified this
 		config: disable backtrace by -1, only record pid info by zero and
 		enable record backtrace info by 8(fixed depth).
+
+config MM_BACKTRACE_SKIP
+	int "The skip depth of backtrace"
+	depends on MM_BACKTRACE > 0
+	default 3
 
 config MM_BACKTRACE_DEFAULT
 	bool "Enable the backtrace record by default"
@@ -203,6 +348,11 @@ config MM_DUMP_ON_FAILURE
 	bool "Dump heap info on allocation failure"
 	default n
 	depends on DEBUG_MM
+
+config MM_DUMP_DETAILS_ON_FAILURE
+	bool "Dump all used memory blocks on allocation failure"
+	default n
+	depends on MM_DUMP_ON_FAILURE
 
 config MM_PANIC_ON_FAILURE
 	bool "Panic on allocation failure"

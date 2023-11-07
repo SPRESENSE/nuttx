@@ -109,8 +109,6 @@ sys_call6:
   addi       s0, sp, XCPTCONTEXT_SIZE
   REGSTORE   s0, REG_SP(sp)            /* original SP */
 
-  riscv_savefpu sp
-
   mv         a0, sp                    /* a0 = context */
 
 #if CONFIG_ARCH_INTERRUPTSTACK > 15
@@ -126,8 +124,6 @@ sys_call6:
   /* Restore (potentially new) context */
 
   mv         sp, a0                    /* use sp, as a0 gets wiped */
-
-  riscv_loadfpu sp
 
   REGLOAD    s0, REG_EPC(sp)           /* restore epc */
   csrw       CSR_EPC, s0
@@ -145,6 +141,22 @@ sys_call6:
 
 1:
   csrw       CSR_STATUS, s0
+
+#ifdef CONFIG_ARCH_KERNEL_STACK
+  /* Returning to userspace ? */
+
+  li         s1, STATUS_PPP
+  and        s0, s0, s1
+  bnez       s0, 1f
+
+  /* Set the next task's kernel stack to the scratch area */
+
+  jal        x1, riscv_current_ksp
+  csrr       s0, CSR_SCRATCH
+  REGSTORE   a0, RISCV_PERCPU_KSP(s0)
+
+1:
+#endif
 
   load_ctx   sp
 

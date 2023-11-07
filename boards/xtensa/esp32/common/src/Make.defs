@@ -32,6 +32,26 @@ ifeq ($(CONFIG_I2C_DRIVER),y)
   CSRCS += esp32_board_i2c.c
 endif
 
+ifeq ($(CONFIG_ESP32_I2S),y)
+  CSRCS += esp32_board_i2sdev.c
+endif
+
+ifeq ($(CONFIG_ESP32_PCNT_AS_QE),y)
+  CSRCS += esp32_qencoder.c
+endif
+
+ifeq ($(CONFIG_SENSORS_MAX6675),y)
+  CSRCS += esp32_max6675.c
+endif
+
+ifeq ($(CONFIG_AUDIO_CS4344),y)
+  CSRCS += esp32_cs4344.c
+endif
+
+ifeq ($(CONFIG_AUDIO_ES8388),y)
+  CSRCS += esp32_es8388.c
+endif
+
 ifeq ($(CONFIG_I2CMULTIPLEXER_TCA9548A),y)
   CSRCS += esp32_tca9548a.c
 endif
@@ -60,12 +80,20 @@ ifeq ($(CONFIG_SENSORS_BMP280),y)
   CSRCS += esp32_bmp280.c
 endif
 
+ifeq ($(CONFIG_SENSORS_BME680),y)
+  CSRCS += esp32_bme680.c
+endif
+
 ifeq ($(CONFIG_SENSORS_SHT3X),y)
   CSRCS += esp32_sht3x.c
 endif
 
 ifeq ($(CONFIG_SENSORS_MS5611),y)
   CSRCS += esp32_ms5611.c
+endif
+
+ifeq ($(CONFIG_SENSORS_LTR308),y)
+  CSRCS += esp32_ltr308.c
 endif
 
 ifeq ($(CONFIG_LCD_HT16K33),y)
@@ -96,8 +124,16 @@ ifeq ($(CONFIG_LCD_SSD1680),y)
   CSRCS += esp32_ssd1680.c
 endif
 
+ifeq ($(CONFIG_RGBLED),y)
+  CSRCS += esp32_rgbled.c
+endif
+
+ifeq ($(CONFIG_ESP32_RMT),y)
+  CSRCS += esp32_rmt.c
+endif
+
 DEPPATH += --dep-path src
 VPATH += :src
-CFLAGS += $(shell $(INCDIR) "$(CC)" $(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)board$(DELIM)src)
+CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)board$(DELIM)src
 
 endif

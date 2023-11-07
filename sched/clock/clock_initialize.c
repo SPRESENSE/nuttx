@@ -36,7 +36,7 @@
 
 #include <nuttx/arch.h>
 #include <nuttx/clock.h>
-#include <nuttx/time.h>
+#include <nuttx/trace.h>
 
 #include "clock/clock.h"
 #ifdef CONFIG_CLOCK_TIMEKEEPING
@@ -49,14 +49,19 @@
 
 #ifndef CONFIG_SCHED_TICKLESS
 #ifdef CONFIG_SYSTEM_TIME64
-volatile uint64_t g_system_timer = INITIAL_SYSTEM_TIMER_TICKS;
+volatile uint64_t g_system_ticks = INITIAL_SYSTEM_TIMER_TICKS;
 #else
-volatile uint32_t g_system_timer = INITIAL_SYSTEM_TIMER_TICKS;
+volatile uint32_t g_system_ticks = INITIAL_SYSTEM_TIMER_TICKS;
 #endif
 #endif
 
 #ifndef CONFIG_CLOCK_TIMEKEEPING
 struct timespec   g_basetime;
+#endif
+
+#ifdef CONFIG_CLOCK_ADJTIME
+long long g_clk_adj_usec;
+long long g_clk_adj_count;
 #endif
 
 /****************************************************************************
@@ -202,6 +207,8 @@ static void clock_inittime(FAR const struct timespec *tp)
 
 void clock_initialize(void)
 {
+  sched_trace_begin();
+
 #if !defined(CONFIG_SUPPRESS_INTERRUPTS) && \
     !defined(CONFIG_SUPPRESS_TIMER_INTS) && \
     !defined(CONFIG_SYSTEMTICK_EXTCLK)
@@ -222,7 +229,15 @@ void clock_initialize(void)
 
   clock_inittime(NULL);
 #endif
+
+#if defined(CONFIG_CLOCK_ADJTIME)
+  g_clk_adj_count = 0;
+  g_clk_adj_usec = 0;
 #endif
+
+#endif
+
+  sched_trace_end();
 }
 
 /****************************************************************************
@@ -292,7 +307,7 @@ void clock_synchronize(FAR const struct timespec *tp)
  *
  ****************************************************************************/
 
-#if defined(CONFIG_RTC) && !defined(CONFIG_SCHED_TICKLESS)
+#if defined(CONFIG_RTC) && !defined(CONFIG_SCHED_TICKLESS) && !defined(CONFIG_CLOCK_TIMEKEEPING)
 void clock_resynchronize(FAR struct timespec *rtc_diff)
 {
   struct timespec rtc_time;
@@ -394,12 +409,47 @@ void clock_resynchronize(FAR struct timespec *rtc_diff)
 
       /* Add the sleep time to correct system timer */
 
-      g_system_timer += SEC2TICK(rtc_diff->tv_sec);
-      g_system_timer += NSEC2TICK(rtc_diff->tv_nsec);
+      g_system_ticks += SEC2TICK(rtc_diff->tv_sec);
+      g_system_ticks += NSEC2TICK(rtc_diff->tv_nsec);
     }
 
 skip:
   leave_critical_section(flags);
+}
+#endif
+
+/****************************************************************************
+ * Name: clock_set_adjust
+ *
+ * Description:
+ *   This function is called from adjtime() defined in clock_adjtime.c if
+ *   CONFIG_CLOCK_ADJTIME is enabled. It sets global variables g_clk_adj_usec
+ *   and g_clk_adj_count which are used for clock adjustment.
+ *
+ * Input Parameters:
+ *   adj_usec  - period adjustment in usec
+ *   adj_count - number of clock ticks over which we apply adj_usec
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_CLOCK_ADJTIME
+void clock_set_adjust(long long adj_usec, long long adj_count,
+                      FAR long long *adj_usec_old,
+                      FAR long long *adj_count_old)
+{
+  /* Get old adjust values. */
+
+  *adj_usec_old  = g_clk_adj_usec;
+  *adj_count_old = g_clk_adj_count;
+
+  /* Set new adjust values. */
+
+  g_clk_adj_usec  = adj_usec;
+  g_clk_adj_count = adj_count;
+
+  /* And change timer period. */
+
+  up_adj_timer_period(g_clk_adj_usec);
 }
 #endif
 
@@ -418,6 +468,26 @@ void clock_timer(void)
 {
   /* Increment the per-tick system counter */
 
-  g_system_timer++;
+  g_system_ticks++;
+
+#ifdef CONFIG_CLOCK_ADJTIME
+  /* Do we apply timer adjustment? */
+
+  if (g_clk_adj_count > 0)
+    {
+      /* Yes, decrement the count each tick. */
+
+      g_clk_adj_count--;
+
+      /* Check if clock adjusment is finished. */
+
+      if (g_clk_adj_count == 0)
+        {
+          /* Yes... reset timer period. */
+
+          up_adj_timer_period(0);
+        }
+    }
+#endif
 }
 #endif

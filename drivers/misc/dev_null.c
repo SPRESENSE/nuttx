@@ -49,7 +49,7 @@ static int     devnull_poll(FAR struct file *filep, FAR struct pollfd *fds,
  * Private Data
  ****************************************************************************/
 
-static const struct file_operations devnull_fops =
+static const struct file_operations g_devnull_fops =
 {
   NULL,          /* open */
   NULL,          /* close */
@@ -57,10 +57,9 @@ static const struct file_operations devnull_fops =
   devnull_write, /* write */
   NULL,          /* seek */
   NULL,          /* ioctl */
+  NULL,          /* mmap */
+  NULL,          /* truncate */
   devnull_poll   /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL         /* unlink */
-#endif
 };
 
 /****************************************************************************
@@ -105,11 +104,7 @@ static int devnull_poll(FAR struct file *filep, FAR struct pollfd *fds,
 
   if (setup)
     {
-      fds->revents |= (fds->events & (POLLIN | POLLOUT));
-      if (fds->revents != 0)
-        {
-          nxsem_post(fds->sem);
-        }
+      poll_notify(&fds, 1, POLLIN | POLLOUT);
     }
 
   return OK;
@@ -129,5 +124,5 @@ static int devnull_poll(FAR struct file *filep, FAR struct pollfd *fds,
 
 void devnull_register(void)
 {
-  register_driver("/dev/null", &devnull_fops, 0666, NULL);
+  register_driver("/dev/null", &g_devnull_fops, 0666, NULL);
 }

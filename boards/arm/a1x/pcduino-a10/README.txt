@@ -56,7 +56,7 @@ README
   (See http://www.allwinnertech.com/en/product/a10.html):
 
   CPU
-    - ARM Cortex™-A8
+    - ARM Cortexâ„¢-A8
     - 32KB I-Cache
     - 32KB D-Cache
     - 256KB L2 Cache
@@ -367,7 +367,7 @@ Configurations
        CONFIG_WINDOWS_CYGWIN=y                 : Using Cygwin or other POSIX environment
 
      System Type -> Toolchain:
-       CONFIG_ARMV7A_TOOLCHAIN_GNU_EABI=y      : GNU EABI toolchain
+       CONFIG_ARM_TOOLCHAIN_GNU_EABI=y      : GNU EABI toolchain
 
   Configuration Sub-directories
   -----------------------------

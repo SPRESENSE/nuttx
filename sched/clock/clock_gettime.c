@@ -31,6 +31,7 @@
 #include <debug.h>
 
 #include <nuttx/arch.h>
+#include <nuttx/sched.h>
 #include <nuttx/spinlock.h>
 
 #include "clock/clock.h"
@@ -58,7 +59,11 @@ int clock_gettime(clockid_t clock_id, struct timespec *tp)
 #endif
   int ret = OK;
 
-  sinfo("clock_id=%d\n", clock_id);
+  clockid_t clock_type = clock_id & CLOCK_MASK;
+#ifdef CONFIG_SCHED_CRITMONITOR
+  pid_t pid = clock_id >> CLOCK_SHIFT;
+#endif
+
   DEBUGASSERT(tp != NULL);
 
   /* CLOCK_MONOTONIC is an optional under POSIX: "If the Monotonic Clock
@@ -73,7 +78,7 @@ int clock_gettime(clockid_t clock_id, struct timespec *tp)
    * is invoked with a clock_id argument of CLOCK_MONOTONIC."
    */
 
-  if (clock_id == CLOCK_MONOTONIC || clock_id == CLOCK_BOOTTIME)
+  if (clock_type == CLOCK_MONOTONIC || clock_type == CLOCK_BOOTTIME)
     {
       /* The the time elapsed since the timer was initialized at power on
        * reset.
@@ -88,7 +93,7 @@ int clock_gettime(clockid_t clock_id, struct timespec *tp)
    * backward as the system time-of-day clock is changed.
    */
 
-  else if (clock_id == CLOCK_REALTIME)
+  else if (clock_type == CLOCK_REALTIME)
     {
       /* Get the elapsed time since the time-of-day was last set.
        * clock_systime_timespec() provides the time since power was applied;
@@ -132,6 +137,74 @@ int clock_gettime(clockid_t clock_id, struct timespec *tp)
         }
 #endif /* CONFIG_CLOCK_TIMEKEEPING */
     }
+#ifdef CONFIG_SCHED_CRITMONITOR
+  else if (clock_type == CLOCK_THREAD_CPUTIME_ID)
+    {
+      FAR struct tcb_s *tcb;
+
+      if (pid == 0)
+        {
+          /* Fetch the THREAD_CPUTIME for current thread */
+
+          tcb = nxsched_self();
+        }
+      else
+        {
+          tcb = nxsched_get_tcb(pid);
+        }
+
+      if (tcb != NULL)
+        {
+          up_perf_convert(tcb->run_time, tp);
+        }
+      else
+        {
+          ret = -EFAULT;
+        }
+    }
+  else if (clock_type == CLOCK_PROCESS_CPUTIME_ID)
+    {
+      FAR struct task_group_s *group;
+      unsigned long runtime;
+      irqstate_t flags;
+      int i;
+      FAR struct tcb_s *tcb;
+
+      if (pid == 0)
+        {
+          /* Fetch the PROCESS_CPUTIME for current process */
+
+          tcb = nxsched_self();
+        }
+      else
+        {
+          tcb = nxsched_get_tcb(pid);
+        }
+
+      if (tcb != NULL)
+        {
+          group = tcb->group;
+          runtime = 0;
+
+          flags = enter_critical_section();
+          for (i = group->tg_nmembers - 1; i >= 0; i--)
+            {
+              tcb = nxsched_get_tcb(group->tg_members[i]);
+              if (tcb != NULL)
+                {
+                  runtime += tcb->run_time;
+                }
+            }
+
+          leave_critical_section(flags);
+          up_perf_convert(runtime, tp);
+        }
+      else
+        {
+          ret = -EFAULT;
+        }
+    }
+#endif
   else
     {
       ret = -EINVAL;
@@ -141,14 +214,8 @@ int clock_gettime(clockid_t clock_id, struct timespec *tp)
 
   if (ret < 0)
     {
-      serr("Returning ERROR\n");
-
       set_errno(-ret);
       ret = ERROR;
-    }
-  else
-    {
-      sinfo("Returning tp=(%d,%d)\n", (int)tp->tv_sec, (int)tp->tv_nsec);
     }
 
   return ret;

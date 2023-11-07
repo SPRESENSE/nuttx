@@ -23,6 +23,7 @@
  ****************************************************************************/
 
 #include <assert.h>
+#include <stdio.h>
 
 #include "libc.h"
 
@@ -34,22 +35,51 @@
  * Name: stdinstream_getc
  ****************************************************************************/
 
-static int stdinstream_getc(FAR struct lib_instream_s *this)
+static int stdinstream_getc(FAR struct lib_instream_s *self)
 {
-  FAR struct lib_stdinstream_s *sthis = (FAR struct lib_stdinstream_s *)this;
+  FAR struct lib_stdinstream_s *stream =
+                                       (FAR struct lib_stdinstream_s *)self;
   int ret;
 
-  DEBUGASSERT(this);
+  DEBUGASSERT(self);
 
   /* Get the next character from the incoming stream */
 
-  ret = getc(sthis->stream);
+  ret = getc(stream->handle);
   if (ret != EOF)
     {
-      this->nget++;
+      self->nget++;
     }
 
   return ret;
+}
+
+/****************************************************************************
+ * Name: stdinstream_gets
+ ****************************************************************************/
+
+static int stdinstream_gets(FAR struct lib_instream_s *self,
+                            FAR void *buffer, int len)
+{
+  FAR struct lib_stdinstream_s *stream =
+                                       (FAR struct lib_stdinstream_s *)self;
+  int nread = 0;
+
+  DEBUGASSERT(self);
+
+  /* Get the buffer from the incoming stream handle */
+
+  nread = fread(buffer, len, 1, stream->handle);
+  if (nread >= 0)
+    {
+      self->nget += nread;
+    }
+  else
+    {
+      nread = _NX_GETERRVAL(nread);
+    }
+
+  return nread;
 }
 
 /****************************************************************************
@@ -65,7 +95,7 @@ static int stdinstream_getc(FAR struct lib_instream_s *this)
  * Input Parameters:
  *   instream - User allocated, uninitialized instance of struct
  *              lib_stdinstream_s to be initialized.
- *   stream   - User provided stream instance (must have been opened for
+ *   handle   - User provided handle instance (must have been opened for
  *              read access).
  *
  * Returned Value:
@@ -73,10 +103,11 @@ static int stdinstream_getc(FAR struct lib_instream_s *this)
  *
  ****************************************************************************/
 
-void lib_stdinstream(FAR struct lib_stdinstream_s *instream,
-                     FAR FILE *stream)
+void lib_stdinstream(FAR struct lib_stdinstream_s *stream,
+                     FAR FILE *handle)
 {
-  instream->public.get  = stdinstream_getc;
-  instream->public.nget = 0;
-  instream->stream      = stream;
+  stream->common.getc = stdinstream_getc;
+  stream->common.gets = stdinstream_gets;
+  stream->common.nget = 0;
+  stream->handle      = handle;
 }

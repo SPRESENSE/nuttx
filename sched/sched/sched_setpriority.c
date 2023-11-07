@@ -56,7 +56,7 @@
 #ifdef CONFIG_SMP
 static FAR struct tcb_s *nxsched_nexttcb(FAR struct tcb_s *tcb)
 {
-  FAR struct tcb_s *nxttcb = (FAR struct tcb_s *)tcb->flink;
+  FAR struct tcb_s *nxttcb = tcb->flink;
   FAR struct tcb_s *rtrtcb;
 
   /* Which task should run next?  It will be either the next tcb in the
@@ -74,7 +74,7 @@ static FAR struct tcb_s *nxsched_nexttcb(FAR struct tcb_s *tcb)
 
       for (rtrtcb = (FAR struct tcb_s *)g_readytorun.head;
            rtrtcb != NULL && !CPU_ISSET(tcb->cpu, &rtrtcb->affinity);
-           rtrtcb = (FAR struct tcb_s *)rtrtcb->flink);
+           rtrtcb = rtrtcb->flink);
 
       /* Return the TCB from the readyt-to-run list if it is the next
        * highest priority task.
@@ -128,7 +128,7 @@ static inline void nxsched_running_setpriority(FAR struct tcb_s *tcb,
 #ifdef CONFIG_SMP
   nxttcb = nxsched_nexttcb(tcb);
 #else
-  nxttcb = (FAR struct tcb_s *)tcb->flink;
+  nxttcb = tcb->flink;
 #endif
 
   DEBUGASSERT(nxttcb != NULL);
@@ -140,9 +140,44 @@ static inline void nxsched_running_setpriority(FAR struct tcb_s *tcb,
 
   if (sched_priority <= nxttcb->sched_priority)
     {
-      /* A context switch will occur. */
+      FAR struct tcb_s *rtcb = this_task();
 
-      up_reprioritize_rtr(tcb, (uint8_t)sched_priority);
+      if (rtcb->lockcount > 0)
+        {
+          /* Move all tasks with the higher priority from the ready-to-run
+           * list to the pending list.
+           */
+
+          do
+            {
+              bool check = nxsched_remove_readytorun(nxttcb, false);
+              DEBUGASSERT(check == false);
+              UNUSED(check);
+
+              nxsched_add_prioritized(nxttcb, &g_pendingtasks);
+              nxttcb->task_state = TSTATE_TASK_PENDING;
+
+#ifdef CONFIG_SMP
+              nxttcb = nxsched_nexttcb(tcb);
+#else
+              nxttcb = tcb->flink;
+#endif
+            }
+          while (sched_priority < nxttcb->sched_priority);
+
+          /* Change the task priority */
+
+          tcb->sched_priority = (uint8_t)sched_priority;
+        }
+      else
+        {
+          /* A context switch will occur. */
+
+          if (nxsched_reprioritize_rtr(tcb, sched_priority))
+            {
+              up_switch_context(this_task(), rtcb);
+            }
+        }
     }
 
   /* Otherwise, we can just change priority since it has no effect */
@@ -223,7 +258,10 @@ static void nxsched_readytorun_setpriority(FAR struct tcb_s *tcb,
     {
       /* A context switch will occur. */
 
-      up_reprioritize_rtr(tcb, (uint8_t)sched_priority);
+      if (nxsched_reprioritize_rtr(tcb, sched_priority))
+        {
+          up_switch_context(this_task(), rtcb);
+        }
     }
 
   /* Otherwise, we can just change priority and re-schedule (since it have
@@ -236,7 +274,7 @@ static void nxsched_readytorun_setpriority(FAR struct tcb_s *tcb,
        * It should not be at the head of the list.
        */
 
-      bool check = nxsched_remove_readytorun(tcb);
+      bool check = nxsched_remove_readytorun(tcb, false);
       DEBUGASSERT(check == false);
       UNUSED(check);
 
@@ -278,7 +316,7 @@ static inline void nxsched_blocked_setpriority(FAR struct tcb_s *tcb,
 
   /* CASE 3a. The task resides in a prioritized list. */
 
-  tasklist = TLIST_BLOCKED(task_state);
+  tasklist = TLIST_BLOCKED(tcb);
   if (TLIST_ISPRIORITIZED(task_state))
     {
       /* Remove the TCB from the prioritized task list */

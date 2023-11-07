@@ -39,7 +39,7 @@
 #include <nuttx/wqueue.h>
 #include <nuttx/signal.h>
 #include <nuttx/net/mii.h>
-#include <nuttx/net/arp.h>
+#include <nuttx/net/ip.h>
 #include <nuttx/net/netdev.h>
 #include <nuttx/net/ioctl.h>
 
@@ -319,41 +319,9 @@ static int litex_txpoll(struct net_driver_s *dev)
 
   DEBUGASSERT(priv->dev.d_buf != NULL);
 
-  /* If the polling resulted in data that should be sent out on the network,
-   * the field d_len is set to a value > 0.
-   */
+  /* Send the packet */
 
-  if (priv->dev.d_len > 0)
-    {
-      /* Look up the destination MAC address and add it to the Ethernet
-       * header.
-       */
-
-#ifdef CONFIG_NET_IPv4
-#ifdef CONFIG_NET_IPv6
-      if (IFF_IS_IPv4(priv->dev.d_flags))
-#endif
-        {
-          arp_out(&priv->dev);
-        }
-#endif /* CONFIG_NET_IPv4 */
-
-#ifdef CONFIG_NET_IPv6
-#ifdef CONFIG_NET_IPv4
-      else
-#endif
-        {
-          neighbor_out(&priv->dev);
-        }
-#endif /* CONFIG_NET_IPv6 */
-
-      if (!devif_loopback(&priv->dev))
-        {
-          /* Send the packet */
-
-          litex_transmit(priv);
-        }
-    }
+  litex_transmit(priv);
 
   /* If zero is returned, the polling will continue until all connections
    * have been examined.
@@ -573,6 +541,12 @@ static void litex_receive(struct litex_emac_s *priv)
   if (priv->dev.d_len == 0 || priv->dev.d_len > ETHMAC_SLOT_SIZE)
     {
       NETDEV_RXDROPPED(&priv->dev);
+
+      /* The pending flag for the receive buffer needs to be ack'd,
+       * even if the received packet is flagged as invalid.
+       */
+
+      putreg8(0x01, LITEX_ETHMAC_SRAM_WRITER_EV_PENDING);
       return;
     }
 
@@ -585,6 +559,12 @@ static void litex_receive(struct litex_emac_s *priv)
          (void *)(LITEX_ETHMAC_RXBASE + (rxslot * ETHMAC_SLOT_SIZE)),
          priv->dev.d_len);
   litex_dumppacket("Rx Packet", g_buffer, priv->dev.d_len);
+
+      /* ACK the pending flag AFTER receiving and processing data.
+       * This transitions the receive slot in hardware.
+       */
+
+  putreg8(0x01, LITEX_ETHMAC_SRAM_WRITER_EV_PENDING);
 
 #ifdef CONFIG_NET_PKT
   /* When packet sockets are enabled, feed the frame into the tap */
@@ -600,11 +580,8 @@ static void litex_receive(struct litex_emac_s *priv)
       ninfo("IPv4 frame\n");
       NETDEV_RXIPV4(&priv->dev);
 
-      /* Handle ARP on input then give the IPv4 packet to the network
-       * layer
-       */
+      /* Receive an IPv4 packet from the network device */
 
-      arp_ipin(&priv->dev);
       ipv4_input(&priv->dev);
 
       /* If the above function invocation resulted in data that should be
@@ -613,21 +590,6 @@ static void litex_receive(struct litex_emac_s *priv)
 
       if (priv->dev.d_len > 0)
         {
-          /* Update the Ethernet header with the correct MAC address */
-
-#ifdef CONFIG_NET_IPv6
-          if (IFF_IS_IPv4(priv->dev.d_flags))
-#endif
-            {
-              arp_out(&priv->dev);
-            }
-#ifdef CONFIG_NET_IPv6
-          else
-            {
-              neighbor_out(&priv->dev);
-            }
-#endif
-
           /* And send the packet */
 
           litex_transmit(priv);
@@ -651,21 +613,6 @@ static void litex_receive(struct litex_emac_s *priv)
 
       if (priv->dev.d_len > 0)
         {
-          /* Update the Ethernet header with the correct MAC address */
-
-#ifdef CONFIG_NET_IPv4
-          if (IFF_IS_IPv4(priv->dev.d_flags))
-            {
-              arp_out(&priv->dev);
-            }
-          else
-#endif
-#ifdef CONFIG_NET_IPv6
-            {
-              neighbor_out(&priv->dev);
-            }
-#endif
-
           /* And send the packet */
 
           litex_transmit(priv);
@@ -680,7 +627,7 @@ static void litex_receive(struct litex_emac_s *priv)
     {
       ninfo("ARP frame\n");
       NETDEV_RXARP(&priv->dev);
-      arp_arpin(&priv->dev);
+      arp_input(&priv->dev);
 
       /* If the above function invocation resulted in data that should
        * be sent out on the network, the field d_len will set to a
@@ -692,8 +639,8 @@ static void litex_receive(struct litex_emac_s *priv)
           litex_transmit(priv);
         }
     }
-#endif
   else
+#endif
     {
       NETDEV_RXDROPPED(&priv->dev);
     }
@@ -730,12 +677,6 @@ static void litex_emac_interrupt_work(void *arg)
   if (getreg32(LITEX_ETHMAC_SRAM_WRITER_EV_PENDING) & 0x01)
     {
       litex_receive(priv);
-
-      /* ACK the pending flag AFTER receiving and processing data.
-       * This transitions the receive slot in hardware.
-       */
-
-      putreg8(0x01, LITEX_ETHMAC_SRAM_WRITER_EV_PENDING);
     }
 
   /* Tx Done */
@@ -854,11 +795,11 @@ static int litex_ifup(struct net_driver_s *dev)
   struct litex_emac_s *priv = (struct litex_emac_s *)dev->d_private;
   int ret;
 
-  ninfo("Bringing up: %d.%d.%d.%d\n",
-        (int)(dev->d_ipaddr & 0xff),
-        (int)((dev->d_ipaddr >> 8) & 0xff),
-        (int)((dev->d_ipaddr >> 16) & 0xff),
-        (int)(dev->d_ipaddr >> 24));
+#ifdef CONFIG_NET_IPv4
+  ninfo("Bringing up: %u.%u.%u.%u\n",
+        ip4_addr1(dev->d_ipaddr), ip4_addr2(dev->d_ipaddr),
+        ip4_addr3(dev->d_ipaddr), ip4_addr4(dev->d_ipaddr));
+#endif
 
   /* Configure the EMAC interface for normal operation. */
 

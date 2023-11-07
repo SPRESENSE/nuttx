@@ -43,7 +43,7 @@
 
 #include <arch/board/board.h>
 #include <nuttx/arch.h>
-#include <nuttx/semaphore.h>
+#include <nuttx/mutex.h>
 #include <nuttx/spi/spi.h>
 
 #include "arm_internal.h"
@@ -82,7 +82,7 @@ struct lpc54_spidev_s
 {
   struct spi_dev_s dev;       /* Externally visible part of the SPI interface */
   uintptr_t base;             /* Base address of Flexcomm registers */
-  sem_t exclsem;              /* Held while chip is selected for mutual exclusion */
+  mutex_t lock;               /* Held while chip is selected for mutual exclusion */
   uint32_t fclock;            /* Flexcomm function clock frequency */
   uint32_t frequency;         /* Requested clock frequency */
   uint32_t actual;            /* Actual clock frequency */
@@ -237,7 +237,10 @@ static const struct spi_ops_s g_spi0_ops =
 #endif
 };
 
-static struct lpc54_spidev_s g_spi0_dev;
+static struct lpc54_spidev_s g_spi0_dev =
+{
+  .lock = NXMUTEX_INITIALIZER,
+};
 #endif
 
 #ifdef CONFIG_LPC54_SPI1_MASTER
@@ -269,7 +272,10 @@ static const struct spi_ops_s g_spi1_ops =
 #endif
 };
 
-static struct lpc54_spidev_s g_spi1_dev;
+static struct lpc54_spidev_s g_spi1_dev =
+{
+  .lock = NXMUTEX_INITIALIZER,
+};
 #endif
 
 #ifdef CONFIG_LPC54_SPI2_MASTER
@@ -301,7 +307,10 @@ static const struct spi_ops_s g_spi2_ops =
 #endif
 };
 
-static struct lpc54_spidev_s g_spi2_dev;
+static struct lpc54_spidev_s g_spi2_dev =
+{
+  .lock = NXMUTEX_INITIALIZER,
+};
 #endif
 
 #ifdef CONFIG_LPC54_SPI3_MASTER
@@ -333,7 +342,10 @@ static const struct spi_ops_s g_spi3_ops =
 #endif
 };
 
-static struct lpc54_spidev_s g_spi3_dev;
+static struct lpc54_spidev_s g_spi3_dev =
+{
+  .lock = NXMUTEX_INITIALIZER,
+};
 #endif
 
 #ifdef CONFIG_LPC54_SPI4_MASTER
@@ -365,7 +377,10 @@ static const struct spi_ops_s g_spi4_ops =
 #endif
 };
 
-static struct lpc54_spidev_s g_spi4_dev;
+static struct lpc54_spidev_s g_spi4_dev =
+{
+  .lock = NXMUTEX_INITIALIZER,
+};
 #endif
 
 #ifdef CONFIG_LPC54_SPI5_MASTER
@@ -397,7 +412,10 @@ static const struct spi_ops_s g_spi5_ops =
 #endif
 };
 
-static struct lpc54_spidev_s g_spi5_dev;
+static struct lpc54_spidev_s g_spi5_dev =
+{
+  .lock = NXMUTEX_INITIALIZER,
+};
 #endif
 
 #ifdef CONFIG_LPC54_SPI6_MASTER
@@ -429,7 +447,10 @@ static const struct spi_ops_s g_spi6_ops =
 #endif
 };
 
-static struct lpc54_spidev_s g_spi6_dev;
+static struct lpc54_spidev_s g_spi6_dev =
+{
+  .lock = NXMUTEX_INITIALIZER,
+};
 #endif
 
 #ifdef CONFIG_LPC54_SPI7_MASTER
@@ -461,7 +482,10 @@ static const struct spi_ops_s g_spi7_ops =
 #endif
 };
 
-static struct lpc54_spidev_s g_spi7_dev;
+static struct lpc54_spidev_s g_spi7_dev =
+{
+  .lock = NXMUTEX_INITIALIZER,
+};
 #endif
 
 #ifdef CONFIG_LPC54_SPI8_MASTER
@@ -493,7 +517,10 @@ static const struct spi_ops_s g_spi8_ops =
 #endif
 };
 
-static struct lpc54_spidev_s g_spi8_dev;
+static struct lpc54_spidev_s g_spi8_dev =
+{
+  .lock = NXMUTEX_INITIALIZER,
+};
 #endif
 
 #ifdef CONFIG_LPC54_SPI9_MASTER
@@ -525,7 +552,10 @@ static const struct spi_ops_s g_spi9_ops =
 #endif
 };
 
-static struct lpc54_spidev_s g_spi9_dev;
+static struct lpc54_spidev_s g_spi9_dev =
+{
+  .lock = NXMUTEX_INITIALIZER,
+};
 #endif
 
 /****************************************************************************
@@ -1254,11 +1284,11 @@ static int lpc54_spi_lock(struct spi_dev_s *dev, bool lock)
 
   if (lock)
     {
-      ret = nxsem_wait_uninterruptible(&priv->exclsem);
+      ret = nxmutex_lock(&priv->lock);
     }
   else
     {
-      ret = nxsem_post(&priv->exclsem);
+      ret = nxmutex_unlock(&priv->lock);
     }
 
   return ret;
@@ -2015,10 +2045,6 @@ struct spi_dev_s *lpc54_spibus_initialize(int port)
   priv->frequency = 0;
   priv->nbits     = 8;
   priv->mode      = SPIDEV_MODE0;
-
-  /* Initialize the SPI semaphore that enforces mutually exclusive access */
-
-  nxsem_init(&priv->exclsem, 0, 1);
 
   /* Configure master mode in mode 0:
    *

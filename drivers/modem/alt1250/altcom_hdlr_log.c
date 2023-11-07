@@ -32,6 +32,7 @@
 #include <arpa/inet.h>
 
 #include "altcom_cmd_log.h"
+#include "altcom_errno.h"
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -370,7 +371,7 @@ int32_t altcom_logsave_pkt_parse(FAR struct alt1250_dev_s *dev,
   FAR char *fname = (FAR char *)arg[0];
   size_t fnamelen = *(FAR size_t *)arg[1];
 
-  int32_t ret = ntohl(out->altcom_result);
+  int32_t ret = altcom_geterrcode(out->altcom_result);
 
   if ((ret == 0) && (fname != NULL))
     {
@@ -397,7 +398,7 @@ int32_t altcom_loglist_pkt_parse(FAR struct alt1250_dev_s *dev,
   FAR char *list = (FAR char *)arg[0];
   size_t nlists = (size_t)arg[1];
   size_t fnamelen = (size_t)arg[2];
-  int32_t ret = ntohl(out->altcom_result);
+  int32_t ret = altcom_geterrcode(out->altcom_result);
   int i;
 
   if (fnamelen != LTE_LOG_NAME_LEN)

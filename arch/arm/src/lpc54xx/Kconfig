@@ -685,7 +685,7 @@ config LPC54_SPI_WIDEDATA
 		data from 4 through 8 bits; the receive and transmit data is
 		represented with a uint8_t type.  For the wider data, data is
 		represented with a uint16_t.  There is duplication of logic for this
-		different widths.   By default, SPI wide data is disabled since that
+		different widths.  By default, SPI wide data is disabled since that
 		is the less frequently used data type and disabling wide data can
 		result in some size reduction.  Select this option if you need wide
 		SPI data.
@@ -867,8 +867,7 @@ config LPC54_ETH_RX_BROADCAST
 
 config LPC54_ETH_RX_ALLMULTICAST
 	bool "Accept all multicast packets"
-	default y if NET_BROADCAST
-	default n if !NET_BROADCAST
+	default NET_BROADCAST
 	---help---
 		If selected, all received frames with a multicast destination
 		address (first bit in the destination address field is '1') are
@@ -972,11 +971,11 @@ config LPC54_SDMMC_DMA
 		Support DMA data transfers.
 
 config LPC54_SDMMC_REGDEBUG
-		bool "Register level debug"
-		default n
-		depends on DEBUG_MEMCARD_INFO
-		---help---
-				Output detailed register-level SD/MMC debug information.
+	bool "Register level debug"
+	default n
+	depends on DEBUG_MEMCARD_INFO
+	---help---
+		Output detailed register-level SD/MMC debug information.
 
 endmenu # SD/MMC Configuration
 

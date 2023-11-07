@@ -25,6 +25,7 @@
 #include <nuttx/config.h>
 
 #include <sys/types.h>
+#include <assert.h>
 #include <limits.h>
 #include <errno.h>
 
@@ -63,31 +64,28 @@ int nxsem_init(FAR sem_t *sem, int pshared, unsigned int value)
 {
   UNUSED(pshared);
 
-  /* Verify that a semaphore was provided and the count is within the valid
-   * range.
-   */
+  DEBUGASSERT(sem != NULL && value <= SEM_VALUE_MAX);
 
-  if (sem != NULL && value <= SEM_VALUE_MAX)
-    {
-      /* Initialize the semaphore count */
+  /* Initialize the semaphore count */
 
-      sem->semcount         = (int16_t)value;
+  sem->semcount = (int16_t)value;
 
-      /* Initialize to support priority inheritance */
+  /* Initialize semaphore wait list */
+
+  dq_init(&sem->waitlist);
+
+  /* Initialize to support priority inheritance */
+
+  sem->flags = 0;
 
 #ifdef CONFIG_PRIORITY_INHERITANCE
-      sem->flags            = 0;
 #  if CONFIG_SEM_PREALLOCHOLDERS > 0
-      sem->hhead            = NULL;
+  sem->hhead = NULL;
 #  else
-      INITIALIZE_SEMHOLDER(&sem->holder[0]);
-      INITIALIZE_SEMHOLDER(&sem->holder[1]);
+  INITIALIZE_SEMHOLDER(&sem->holder);
 #  endif
 #endif
-      return OK;
-    }
-
-  return -EINVAL;
+  return OK;
 }
 
 /****************************************************************************
@@ -117,6 +115,16 @@ int nxsem_init(FAR sem_t *sem, int pshared, unsigned int value)
 int sem_init(FAR sem_t *sem, int pshared, unsigned int value)
 {
   int ret;
+
+  /* Verify that a semaphore was provided and the count is within the valid
+   * range.
+   */
+
+  if (sem == NULL || value > SEM_VALUE_MAX)
+    {
+      set_errno(EINVAL);
+      return ERROR;
+    }
 
   ret = nxsem_init(sem, pshared, value);
   if (ret < 0)

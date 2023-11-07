@@ -98,7 +98,6 @@ int psock_getpeername(FAR struct socket *psock, FAR struct sockaddr *addr,
   /* Let the address family's send() method handle the operation */
 
   DEBUGASSERT(psock->s_sockif != NULL);
-
   if (psock->s_sockif->si_getpeername == NULL)
     {
       return -EOPNOTSUPP;
@@ -145,19 +144,27 @@ int psock_getpeername(FAR struct socket *psock, FAR struct sockaddr *addr,
 int getpeername(int sockfd, FAR struct sockaddr *addr,
                 FAR socklen_t *addrlen)
 {
-  FAR struct socket *psock = sockfd_socket(sockfd);
+  FAR struct socket *psock;
   int ret;
+
+  /* Get the underlying socket structure */
+
+  ret = sockfd_socket(sockfd, &psock);
 
   /* Let psock_getpeername() do all of the work */
 
-  ret = psock_getpeername(psock, addr, addrlen);
-  if (ret < 0)
+  if (ret == OK)
     {
-      _SO_SETERRNO(psock, -ret);
-      return ERROR;
+      ret = psock_getpeername(psock, addr, addrlen);
     }
 
-  return OK;
+  if (ret < 0)
+    {
+      set_errno(-ret);
+      ret = ERROR;
+    }
+
+  return ret;
 }
 
 #endif /* CONFIG_NET */

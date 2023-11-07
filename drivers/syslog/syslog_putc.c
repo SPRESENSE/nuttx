@@ -83,15 +83,31 @@ int syslog_putc(int ch)
 
           for (i = 0; i < CONFIG_SYSLOG_MAX_CHANNELS; i++)
             {
-              if (g_syslog_channel[i] == NULL)
+              FAR struct syslog_channel_s *channel = g_syslog_channel[i];
+
+              if (channel == NULL)
                 {
                   break;
                 }
 
-              DEBUGASSERT(g_syslog_channel[i]->sc_ops->sc_force != NULL);
+#ifdef CONFIG_SYSLOG_IOCTL
+              if (channel->sc_disable)
+                {
+                  continue;
+                }
+#endif
 
-              g_syslog_channel[i]->sc_ops->sc_force(g_syslog_channel[i],
-                                                    ch);
+              if (channel->sc_ops->sc_force != NULL)
+                {
+                  channel->sc_ops->sc_force(channel,  ch);
+                }
+              else
+                {
+                  char tmp = ch;
+
+                  DEBUGASSERT(channel->sc_ops->sc_write_force != NULL);
+                  channel->sc_ops->sc_write_force(channel, &tmp, 1);
+                }
             }
         }
     }
@@ -107,14 +123,30 @@ int syslog_putc(int ch)
 
       for (i = 0; i < CONFIG_SYSLOG_MAX_CHANNELS; i++)
         {
-          if (g_syslog_channel[i] == NULL)
+          FAR struct syslog_channel_s *channel = g_syslog_channel[i];
+
+          if (channel == NULL)
             {
               break;
             }
 
-          DEBUGASSERT(g_syslog_channel[i]->sc_ops->sc_putc != NULL);
+#ifdef CONFIG_SYSLOG_IOCTL
+          if (channel->sc_disable)
+            {
+              continue;
+            }
+#endif
 
-          g_syslog_channel[i]->sc_ops->sc_putc(g_syslog_channel[i], ch);
+          if (channel->sc_ops->sc_putc != NULL)
+            {
+              channel->sc_ops->sc_putc(channel, ch);
+            }
+          else
+            {
+              char tmp = ch;
+              DEBUGASSERT(channel->sc_ops->sc_write != NULL);
+              channel->sc_ops->sc_write(channel, &tmp, 1);
+            }
         }
     }
 

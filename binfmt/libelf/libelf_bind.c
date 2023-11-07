@@ -34,7 +34,6 @@
 #include <nuttx/elf.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/binfmt/elf.h>
-#include <nuttx/binfmt/symtab.h>
 
 #include "libelf.h"
 
@@ -51,9 +50,9 @@
 #endif
 
 #ifdef CONFIG_ELF_DUMPBUFFER
-# define elf_dumpbuffer(m,b,n) binfodumpbuffer(m,b,n)
+#  define elf_dumpbuffer(m,b,n) binfodumpbuffer(m,b,n)
 #else
-# define elf_dumpbuffer(m,b,n)
+#  define elf_dumpbuffer(m,b,n)
 #endif
 
 /****************************************************************************
@@ -573,17 +572,6 @@ int elf_bind(FAR struct elf_loadinfo_s *loadinfo,
       return ret;
     }
 
-  /* Allocate an I/O buffer.  This buffer is used by elf_symname() to
-   * accumulate the variable length symbol name.
-   */
-
-  ret = elf_allocbuffer(loadinfo);
-  if (ret < 0)
-    {
-      berr("elf_allocbuffer failed: %d\n", ret);
-      return ret;
-    }
-
 #ifdef CONFIG_ARCH_ADDRENV
   /* If CONFIG_ARCH_ADDRENV=y, then the loaded ELF lies in a virtual address
    * space that may not be in place now.  elf_addrenv_select() will
@@ -643,7 +631,7 @@ int elf_bind(FAR struct elf_loadinfo_s *loadinfo,
    */
 
 #if 0 /* REVISIT... has some problems */
-  up_addrenv_coherent(&loadinfo->addrenv);
+  up_addrenv_coherent(&loadinfo->addrenv.addrenv);
 #else
   up_coherent_dcache(loadinfo->textalloc, loadinfo->textsize);
   up_coherent_dcache(loadinfo->dataalloc, loadinfo->datasize);

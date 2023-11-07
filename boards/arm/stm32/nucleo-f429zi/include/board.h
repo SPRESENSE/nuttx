@@ -28,7 +28,7 @@
 #include <nuttx/config.h>
 
 #ifndef __ASSEMBLY__
-# include <stdint.h>
+#  include <stdint.h>
 #endif
 
 /* Do not include STM32 F4 header files here */
@@ -266,8 +266,8 @@
  *   -- ----- --------- -----
  */
 
- # define GPIO_USART6_RX GPIO_USART6_RX_2
- # define GPIO_USART6_TX GPIO_USART6_TX_2
+ #  define GPIO_USART6_RX GPIO_USART6_RX_2
+ #  define GPIO_USART6_TX GPIO_USART6_TX_2
 #endif
 
 /* USART3:
@@ -275,8 +275,8 @@
  */
 
 #if defined(CONFIG_NUCLEO_F429ZI_CONSOLE_VIRTUAL)
- # define GPIO_USART3_RX GPIO_USART3_RX_3
- # define GPIO_USART3_TX GPIO_USART3_TX_3
+ #  define GPIO_USART3_RX GPIO_USART3_RX_3
+ #  define GPIO_USART3_TX GPIO_USART3_TX_3
 #endif
 
 /* DMA channels *************************************************************/

@@ -70,6 +70,7 @@
 
 static volatile spinlock_t g_cpu_wait[CONFIG_SMP_NCPUS];
 static volatile spinlock_t g_cpu_paused[CONFIG_SMP_NCPUS];
+static volatile spinlock_t g_cpu_resumed[CONFIG_SMP_NCPUS];
 
 /****************************************************************************
  * Name: rp2040_handle_irqreq
@@ -139,7 +140,7 @@ bool up_cpu_pausereq(int cpu)
  * Description:
  *   Handle a pause request from another CPU.  Normally, this logic is
  *   executed from interrupt handling logic within the architecture-specific
- *   However, it is sometimes necessary necessary to perform the pending
+ *   However, it is sometimes necessary to perform the pending
  *   pause operation in other contexts where the interrupt cannot be taken
  *   in order to avoid deadlocks.
  *
@@ -183,6 +184,11 @@ int up_cpu_paused(int cpu)
   /* Wait for the spinlock to be released */
 
   spin_unlock(&g_cpu_paused[cpu]);
+
+  /* Ensure the CPU has been resumed to avoid causing a deadlock */
+
+  spin_lock(&g_cpu_resumed[cpu]);
+
   spin_lock(&g_cpu_wait[cpu]);
 
   /* Restore the exception context of the tcb at the (new) head of the
@@ -207,6 +213,7 @@ int up_cpu_paused(int cpu)
 
   arm_restorestate(tcb->xcp.regs);
   spin_unlock(&g_cpu_wait[cpu]);
+  spin_unlock(&g_cpu_resumed[cpu]);
 
   return OK;
 }
@@ -393,6 +400,12 @@ int up_cpu_resume(int cpu)
               !spin_islocked(&g_cpu_paused[cpu]));
 
   spin_unlock(&g_cpu_wait[cpu]);
+
+  /* Ensure the CPU has been resumed to avoid causing a deadlock */
+
+  spin_lock(&g_cpu_resumed[cpu]);
+
+  spin_unlock(&g_cpu_resumed[cpu]);
   return 0;
 }
 
@@ -432,7 +445,12 @@ void rp2040_send_irqreq(int irqreq)
   /* Finally unlock the spinlock to proceed the handler */
 
   spin_unlock(&g_cpu_wait[0]);
-  return;
+
+  /* Ensure the CPU has been resumed to avoid causing a deadlock */
+
+  spin_lock(&g_cpu_resumed[0]);
+
+  spin_unlock(&g_cpu_resumed[0]);
 }
 
 #endif /* CONFIG_SMP */

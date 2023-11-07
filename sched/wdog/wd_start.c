@@ -26,9 +26,11 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <sys/param.h>
 #include <unistd.h>
 #include <sched.h>
 #include <assert.h>
+#include <debug.h>
 #include <errno.h>
 
 #include <nuttx/irq.h>
@@ -42,14 +44,6 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-#ifndef MIN
-#  define MIN(a,b) (((a) < (b)) ? (a) : (b))
-#endif
-
-#ifndef MAX
-#  define MAX(a,b) (((a) > (b)) ? (a) : (b))
-#endif
-
 #ifndef CONFIG_SCHED_CRITMONITOR_MAXTIME_WDOG
 #  define CONFIG_SCHED_CRITMONITOR_MAXTIME_WDOG 0
 #endif
@@ -58,15 +52,16 @@
 #  define CALL_FUNC(func, arg) \
      do \
        { \
-         uint32_t start; \
-         uint32_t elapsed; \
+         unsigned long start; \
+         unsigned long elapsed; \
          start = up_perf_gettime(); \
          func(arg); \
          elapsed = up_perf_gettime() - start; \
          if (elapsed > CONFIG_SCHED_CRITMONITOR_MAXTIME_WDOG) \
            { \
-             serr("WDOG %p, %s IRQ, execute too long %"PRIu32"\n", \
-                   func, up_interrupt_context() ? "IN" : "NOT", elapsed); \
+             CRITMONITOR_PANIC("WDOG %p, %s IRQ, execute too long %lu\n", \
+                               func, up_interrupt_context() ? \
+                               "IN" : "NOT", elapsed); \
            } \
        } \
      while (0)
@@ -378,6 +373,10 @@ unsigned int wd_timer(int ticks, bool noswitches)
   unsigned int ret;
   int decr;
 
+  /* Update clock tickbase */
+
+  g_wdtickbase += ticks;
+
   /* Check if there are any active watchdogs to process */
 
   wdog = (FAR struct wdog_s *)g_wdactivelist.head;
@@ -391,7 +390,6 @@ unsigned int wd_timer(int ticks, bool noswitches)
 
       wdog->lag    -= decr;
       ticks        -= decr;
-      g_wdtickbase += decr;
 
       wdog = wdog->next;
     }
@@ -402,10 +400,6 @@ unsigned int wd_timer(int ticks, bool noswitches)
     {
       wd_expiration();
     }
-
-  /* Update clock tickbase */
-
-  g_wdtickbase += ticks;
 
   /* Return the delay for the next watchdog to expire */
 

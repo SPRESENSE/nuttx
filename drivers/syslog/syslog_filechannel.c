@@ -58,7 +58,7 @@ static void log_separate(FAR const char *log_file)
 {
   struct file fp;
 
-  if (file_open(&fp, log_file, (O_WRONLY | O_APPEND)) < 0)
+  if (file_open(&fp, log_file, (O_WRONLY | O_APPEND | O_CLOEXEC)) < 0)
     {
       return;
     }
@@ -120,7 +120,6 @@ static void log_rotate(FAR const char *log_file)
   rename(log_file, rotate_to);
 
 end:
-
   kmm_free(rotate_to);
   kmm_free(rotate_from);
 }

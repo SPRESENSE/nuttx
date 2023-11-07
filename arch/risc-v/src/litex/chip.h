@@ -29,4 +29,28 @@
 
 #include "litex_memorymap.h"
 
+#include "riscv_internal.h"
+#include "riscv_percpu.h"
+
+#ifdef __ASSEMBLY__
+
+/****************************************************************************
+ * Name: setintstack
+ *
+ * Description:
+ *   Set the current stack pointer to the  "top" the correct interrupt stack.
+ *
+ ****************************************************************************/
+
+#if CONFIG_ARCH_INTERRUPTSTACK > 15
+#if !defined(CONFIG_SMP) && defined(CONFIG_ARCH_USE_S_MODE)
+.macro  setintstack tmp0, tmp1
+  csrr    \tmp0, CSR_SCRATCH
+  REGLOAD sp, RISCV_PERCPU_IRQSTACK(\tmp0)
+.endm
+#endif /* !defined(CONFIG_SMP) && defined(CONFIG_ARCH_USE_S_MODE) */
+#endif /* CONFIG_ARCH_INTERRUPTSTACK > 15 */
+
+#endif /* __ASSEMBLY__  */
+
 #endif /* __ARCH_RISCV_SRC_LITEX_CHIP_H */

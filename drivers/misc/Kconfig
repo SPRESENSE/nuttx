@@ -9,11 +9,28 @@ config DEV_SIMPLE_ADDRENV
 
 config DEV_NULL
 	bool "Enable /dev/null"
-	default y
+	default !DEFAULT_SMALL
 
 config DEV_ZERO
 	bool "Enable /dev/zero"
 	default n
+
+config DEV_ASCII
+	bool "Enable /dev/ascii"
+	default n
+	---help---
+		Enable the /dev/ascii device driver.  This is a character driver
+		that will return all characters from 0x21-0x7f.
+
+config DEV_RPMSG
+	bool "RPMSG Device Client Support"
+	default n
+	depends on RPTUN
+
+config DEV_RPMSG_SERVER
+	bool "RPMSG Device Server Support"
+	default n
+	depends on RPTUN
 
 config DRVR_MKRD
 	bool "RAM disk wrapper (mkrd)"
@@ -23,6 +40,16 @@ config DRVR_MKRD
 		creation of RAM disks.  If the boardctrl() interface is enabled,
 		the selecting this option will also enable the BOARDIOC_MKRD
 		command that will support creation of RAM disks from applications.
+
+config BLK_RPMSG
+	bool "RPMSG Block Client Support"
+	default n
+	depends on RPTUN
+
+config BLK_RPMSG_SERVER
+	bool "RPMSG Block Server Support"
+	default n
+	depends on RPTUN
 
 # ARCH needs to support memory access while CPU is running to be able to use
 # the LWL CONSOLE
@@ -73,8 +100,7 @@ if DRVR_WRITEBUFFER || DRVR_READAHEAD
 
 config DRVR_READBYTES
 	bool "Support byte read method"
-	default y if MTD_BYTE_WRITE
-	default n if !MTD_BYTE_WRITE
+	default MTD_BYTE_WRITE
 
 config DRVR_REMOVABLE
 	bool "Support removable media"

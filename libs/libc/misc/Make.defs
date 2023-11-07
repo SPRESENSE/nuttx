@@ -22,7 +22,9 @@
 
 CSRCS += lib_mknod.c lib_umask.c lib_utsname.c lib_getrandom.c
 CSRCS += lib_xorshift128.c lib_tea_encrypt.c lib_tea_decrypt.c
-CSRCS += lib_cxx_initialize.c lib_impure.c
+CSRCS += lib_cxx_initialize.c lib_impure.c lib_memfd.c lib_mutex.c
+CSRCS += lib_fchmodat.c lib_fstatat.c lib_getfullpath.c lib_openat.c
+CSRCS += lib_mkdirat.c lib_utimensat.c lib_mallopt.c
 
 # Support for platforms that do not have long long types
 
@@ -36,8 +38,9 @@ endif
 # Add the miscellaneous C files to the build
 
 CSRCS += lib_dumpbuffer.c lib_dumpvbuffer.c lib_fnmatch.c lib_debug.c
-CSRCS += lib_crc64.c lib_crc32.c lib_crc16.c lib_crc8.c lib_crc8ccitt.c
-CSRCS += lib_crc8table.c lib_glob.c lib_execinfo.c lib_ftok.c
+CSRCS += lib_crc64.c lib_crc32.c lib_crc16.c lib_crc16ccitt.c lib_crc8.c
+CSRCS += lib_crc8ccitt.c lib_crc8table.c lib_glob.c lib_execinfo.c
+CSRCS += lib_ftok.c lib_err.c
 
 # Keyboard driver encoder/decoder
 
@@ -57,8 +60,16 @@ ifeq ($(CONFIG_LIBC_ENVPATH),y)
 CSRCS += lib_envpath.c
 endif
 
-ifeq ($(CONFIG_LIBC_ERR),y)
-CSRCS += lib_err.c
+# Fdsan support
+
+ifeq ($(CONFIG_FDSAN),y)
+CSRCS += lib_fdsan.c
+endif
+
+# Fdcheck support
+
+ifeq ($(CONFIG_FDCHECK),y)
+CSRCS += lib_fdcheck.c
 endif
 
 # To ensure uname information is newest,

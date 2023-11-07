@@ -43,15 +43,16 @@
  *
  ****************************************************************************/
 
-void mm_foreach(FAR struct mm_heap_s *heap, mmchunk_handler_t handler,
+void mm_foreach(FAR struct mm_heap_s *heap, mm_node_handler_t handler,
                 FAR void *arg)
 {
   FAR struct mm_allocnode_s *node;
   FAR struct mm_allocnode_s *prev;
+  size_t nodesize;
 #if CONFIG_MM_REGIONS > 1
   int region;
 #else
-# define region 0
+#  define region 0
 #endif
 
   DEBUGASSERT(handler);
@@ -65,36 +66,37 @@ void mm_foreach(FAR struct mm_heap_s *heap, mmchunk_handler_t handler,
       prev = NULL;
 
       /* Visit each node in the region
-       * Retake the semaphore for each region to reduce latencies
+       * Retake the mutex for each region to reduce latencies
        */
 
-      if (!mm_takesemaphore(heap))
+      if (mm_lock(heap) < 0)
         {
           return;
         }
 
       for (node = heap->mm_heapstart[region];
            node < heap->mm_heapend[region];
-           node = (FAR struct mm_allocnode_s *)
-                  ((FAR char *)node + node->size))
+           node = (FAR struct mm_allocnode_s *)((FAR char *)node + nodesize))
         {
-          minfo("region=%d node=%p size=%u preceding=%u (%c)\n",
-                region, node, (unsigned int)node->size,
-                (unsigned int)(node->preceding & ~MM_ALLOC_BIT),
-                (node->preceding & MM_ALLOC_BIT) ? 'A' : 'F');
+          nodesize = MM_SIZEOF_NODE(node);
+          minfo("region=%d node=%p size=%zu preceding=%u (%c %c)\n",
+                region, node, nodesize, (unsigned int)node->preceding,
+                MM_PREVNODE_IS_FREE(node) ? 'F' : 'A',
+                MM_NODE_IS_ALLOC(node) ? 'A' : 'F');
 
           handler(node, arg);
 
-          DEBUGASSERT(prev == NULL ||
-                      prev->size == (node->preceding & ~MM_ALLOC_BIT));
+          DEBUGASSERT(MM_PREVNODE_IS_ALLOC(node) ||
+                      MM_SIZEOF_NODE(prev) == node->preceding);
           prev = node;
         }
 
       minfo("region=%d node=%p heapend=%p\n",
             region, node, heap->mm_heapend[region]);
       DEBUGASSERT(node == heap->mm_heapend[region]);
+      handler(node, arg);
 
-      mm_givesemaphore(heap);
+      mm_unlock(heap);
     }
 #undef region
 }

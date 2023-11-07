@@ -33,7 +33,7 @@
 #include <syslog.h>
 
 #ifdef CONFIG_STACK_OVERFLOW_CHECK
-# include "sched/sched.h"
+#  include "sched/sched.h"
 #endif
 
 #include "riscv_internal.h"
@@ -97,9 +97,9 @@ extern void bl602_boardinitialize(void);
 
 uint32_t noinstrument_function boot2_get_flash_addr(void)
 {
-  extern uint8_t __boot2_flash_cfg_src;
+  extern uint8_t __boot2_flash_cfg_src[];
 
-  return (uint32_t)(&__boot2_flash_cfg_src +
+  return (uint32_t)(__boot2_flash_cfg_src +
                     (sizeof(g_boot2_partition_table.table.entries[0]) *
                      g_boot2_partition_table.table.table.entry_cnt));
 }
@@ -143,14 +143,11 @@ __cyg_profile_func_enter(void *this_fn, void *call_site)
       while (1)
         ;
     }
-
-  return;
 }
 
 void noinstrument_function locate_code(".tcm_code")
 __cyg_profile_func_exit(void *this_fn, void *call_site)
 {
-  return;
 }
 #endif
 

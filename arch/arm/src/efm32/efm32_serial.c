@@ -804,9 +804,6 @@ static int efm32_ioctl(struct file *filep, int cmd, unsigned long arg)
 
   int ret = OK;
 
-  DEBUGASSERT(filep);
-  DEBUGASSERT(filep->f_inode);
-
   inode = filep->f_inode;
   dev   = inode->i_private;
 
@@ -836,7 +833,7 @@ static int efm32_ioctl(struct file *filep, int cmd, unsigned long arg)
 
         termiosp->c_cflag = CS8;
 
-        /* TODO: PARENB, PARODD, CSTOPB, CCTS_IFLOW, CCTS_OFLOW */
+        /* TODO: PARENB, PARODD, CSTOPB, CRTS_IFLOW, CCTS_OFLOW */
 
         cfsetispeed(termiosp, priv->config->baud);
       }
@@ -867,7 +864,7 @@ static int efm32_ioctl(struct file *filep, int cmd, unsigned long arg)
             break;
           }
 
-        /* TODO : PARENB, PARODD, CSTOPB, CCTS_OFLOW, CCTS_IFLOW */
+        /* TODO : PARENB, PARODD, CSTOPB, CCTS_OFLOW, CRTS_IFLOW */
 
 #if 0
         if (termiosp->c_cflag & PARENB)

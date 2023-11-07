@@ -25,20 +25,13 @@
 #include <nuttx/config.h>
 
 #include <stdint.h>
+#include <sys/param.h>
 #include <string.h>
 #include <assert.h>
 
 #include <nuttx/mm/iob.h>
 
 #include "iob.h"
-
-/****************************************************************************
- * Pre-processor Definitions
- ****************************************************************************/
-
-#ifndef MIN
-#  define MIN(a,b) ((a) < (b) ? (a) : (b))
-#endif
 
 /****************************************************************************
  * Public Functions
@@ -54,16 +47,25 @@
  ****************************************************************************/
 
 int iob_copyout(FAR uint8_t *dest, FAR const struct iob_s *iob,
-                unsigned int len, unsigned int offset)
+                unsigned int len, int offset)
 {
   FAR const uint8_t *src;
   unsigned int ncopy;
   unsigned int avail;
   unsigned int remaining;
 
+  /* The offset must applied to data that is in the I/O buffer chain */
+
+  if ((int)(offset + iob->io_offset) < 0)
+    {
+      ioberr("ERROR: offset is before the start of data: %d < %d\n",
+             offset, -(int)iob->io_offset);
+      return -ESPIPE;
+    }
+
   /* Skip to the I/O buffer containing the offset */
 
-  while (offset >= iob->io_len)
+  while ((int)(offset - iob->io_len) >= 0)
     {
       offset -= iob->io_len;
       iob     = iob->io_flink;

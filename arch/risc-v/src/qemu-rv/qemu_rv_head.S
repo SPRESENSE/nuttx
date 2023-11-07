@@ -41,6 +41,7 @@
 
 __start:
 
+  /* Preserve a1 as it contains the pointer to DTB */
   /* Load mhartid (cpuid) */
 
   csrr a0, mhartid
@@ -86,7 +87,7 @@ __start:
 
   /*
    * sp (stack top) = sp + idle stack size - XCPTCONTEXT_SIZE
-   * 
+   *
    * Note: Reserve some space used by up_initial_state since we are already
    * running and using the per CPU idle stack.
    */
@@ -105,11 +106,7 @@ __start:
 
   /* Jump to qemu_rv_start */
 
-#ifdef CONFIG_ARCH_USE_S_MODE
-  jal  x1, qemu_rv_start_s
-#else
   jal  x1, qemu_rv_start
-#endif
 
   /* We shouldn't return from _start */
 

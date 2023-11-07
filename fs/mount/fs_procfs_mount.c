@@ -44,7 +44,6 @@
 #include <nuttx/kmalloc.h>
 #include <nuttx/fs/fs.h>
 #include <nuttx/fs/procfs.h>
-#include <nuttx/fs/dirent.h>
 
 #include "mount/mount.h"
 
@@ -102,7 +101,7 @@ struct mount_info_s
 /* Helpers */
 
 static void    mount_sprintf(FAR struct mount_info_s *info,
-                 FAR const char *fmt, ...) printflike(2, 3);
+                 FAR const char *fmt, ...) printf_like(2, 3);
 #ifndef CONFIG_FS_PROCFS_EXCLUDE_MOUNT
 static int     mount_entry(FAR const char *mountpoint,
                  FAR struct statfs *statbuf, FAR void *arg);
@@ -138,7 +137,7 @@ static int     mount_stat(FAR const char *relpath, FAR struct stat *buf);
  * with any compiler.
  */
 
-const struct procfs_operations mount_procfsoperations =
+const struct procfs_operations g_mount_operations =
 {
   mount_open,          /* open */
   mount_close,         /* close */
@@ -302,7 +301,7 @@ static int usage_entry(FAR const char *mountpoint,
   if (!info->header)
     {
       mount_sprintf(info,
-        "  Filesystem    Size      Used  Available Mounted on\n");
+        "  Filesystem      Size      Used  Available Mounted on\n");
       info->header = true;
     }
 
@@ -350,7 +349,7 @@ static int usage_entry(FAR const char *mountpoint,
   /* Generate usage list one line at a time */
 
   mount_sprintf(info,
-    "  %-10s %" PRIuOFF "%c %8" PRIuOFF "%c  %8" PRIuOFF "%c %s\n",
+    "  %-10s %8" PRIuOFF "%c %8" PRIuOFF "%c  %8" PRIuOFF "%c %s\n",
     fstype, size, sizelabel, used, usedlabel, free, freelabel, mountpoint);
 
   return (info->totalsize >= info->buflen) ? 1 : 0;

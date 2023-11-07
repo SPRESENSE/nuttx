@@ -317,7 +317,7 @@ void pic32mz_consoleinit(void)
 
   /* Setup up pin selection registers for all configured UARTs.  The board.h
    * header file must provide these definitions to select the correct pin
-   * configuration for each enabled UARt.
+   * configuration for each enabled UART.
    */
 
 #ifdef CONFIG_PIC32MZ_UART1
@@ -458,14 +458,14 @@ void pic32mz_consoleinit(void)
 }
 
 /****************************************************************************
- * Name: up_lowputc
+ * Name: mips_lowputc
  *
  * Description:
  *   Output one byte on the serial console.
  *
  ****************************************************************************/
 
-void up_lowputc(char ch)
+void mips_lowputc(char ch)
 {
 #ifdef HAVE_SERIAL_CONSOLE
   /* Wait for the transmit buffer not full */

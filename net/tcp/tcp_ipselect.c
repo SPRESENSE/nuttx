@@ -55,7 +55,7 @@ void tcp_ipv4_select(FAR struct net_driver_s *dev)
 
   /* Set the offset to the beginning of the TCP data payload */
 
-  dev->d_appdata = &dev->d_buf[IPv4TCP_HDRLEN + NET_LL_HDRLEN(dev)];
+  dev->d_appdata = IPBUF(IPv4TCP_HDRLEN);
 }
 #endif /* CONFIG_NET_IPv4 */
 
@@ -76,8 +76,35 @@ void tcp_ipv6_select(FAR struct net_driver_s *dev)
 
   /* Set the offset to the beginning of the TCP data payload */
 
-  dev->d_appdata = &dev->d_buf[IPv6TCP_HDRLEN + NET_LL_HDRLEN(dev)];
+  dev->d_appdata = IPBUF(IPv6TCP_HDRLEN);
 }
 #endif /* CONFIG_NET_IPv6 */
+
+/****************************************************************************
+ * Name: tcp_ip_select
+ *
+ * Description:
+ *   Configure to send or receive an TCP IPv[4|6] packet for connection
+ *
+ ****************************************************************************/
+
+void tcp_ip_select(FAR struct tcp_conn_s *conn)
+{
+#if defined(CONFIG_NET_IPv6) && defined(CONFIG_NET_IPv4)
+  if (conn->domain == PF_INET)
+    {
+      tcp_ipv4_select(conn->dev);
+    }
+  else
+    {
+      tcp_ipv6_select(conn->dev);
+    }
+
+#elif defined(CONFIG_NET_IPv4)
+  tcp_ipv4_select(conn->dev);
+#else /* if defined(CONFIG_NET_IPv6) */
+  tcp_ipv6_select(conn->dev);
+#endif
+}
 
 #endif /* CONFIG_NET */

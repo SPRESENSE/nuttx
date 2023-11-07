@@ -22,12 +22,13 @@
  * Included Files
  ****************************************************************************/
 
-#include <crc32.h>
 #include <ctype.h>
 #include <debug.h>
 #include <endian.h>
 #include <inttypes.h>
+#include <sys/param.h>
 
+#include <nuttx/crc32.h>
 #include <nuttx/kmalloc.h>
 
 #include "partition.h"
@@ -39,8 +40,7 @@
 #define GPT_BLOCK_SIZE                  512
 #define GPT_HEADER_SIGNATURE            0x5452415020494645ull
 #define GPT_PARTNAME_MAX_SIZE           (72 / sizeof(uint16_t))
-#define GPT_LBA_TO_BLOCK(lba, blk)      ((le64toh(lba) * 512 + (blk) -1) / (blk))
-#define GPT_MIN(x, y)                   (((x) < (y)) ? (x) : (y))
+#define GPT_LBA_TO_BLOCK(lba, blk)      ((le64toh(lba) * 512 + (blk) - 1) / (blk))
 
 /****************************************************************************
  * Private Types
@@ -86,7 +86,7 @@ begin_packed_struct struct gpt_header_s
   uint64_t my_lba;                       /* Current LBA (location of this header copy) */
   uint64_t alternate_lba;                /* Backup LBA (location of the other header copy) */
   uint64_t first_usable_lba;             /* First usable LBA for partitions primary partition table last LBA + 1 */
-  uint64_t last_usable_lba;              /* Last usable LBA secondary partition table first LBA − 1 */
+  uint64_t last_usable_lba;              /* Last usable LBA secondary partition table first LBA - 1 */
   struct gpt_guid_s disk_guid;           /* Disk GUID in mixed endian */
   uint64_t partition_entry_lba;          /* Starting LBA of array of partition entries (always 2 in primary copy) */
   uint32_t num_partition_entries;        /* Number of partition entries in array */
@@ -204,7 +204,7 @@ gpt_alloc_verify_entries(FAR struct partition_state_s *state,
       return NULL;
     }
 
-  blk = (size + (state->blocksize -1)) / state->blocksize;
+  blk = (size + (state->blocksize - 1)) / state->blocksize;
   pte = kmm_zalloc(blk * state->blocksize);
   if (!pte)
     {
@@ -390,6 +390,7 @@ int parse_gpt_partition(FAR struct partition_state_s *state,
   FAR struct gpt_header_s *gpt;
   FAR struct gpt_entry_s *ptes;
   struct partition_s pentry;
+  blkcnt_t lastlba;
   int nb_part;
   int count;
   int ret;
@@ -462,12 +463,20 @@ int parse_gpt_partition(FAR struct partition_state_s *state,
       goto err;
     }
 
+  lastlba = gpt_last_lba(state);
   nb_part = le32toh(gpt->num_partition_entries);
   for (pentry.index = 0; pentry.index < nb_part; pentry.index++)
     {
+      /* Skip the empty or invalid entries */
+
+      if (!gpt_pte_is_valid(&ptes[pentry.index], lastlba))
+        {
+          continue;
+        }
+
       pentry.firstblock = GPT_LBA_TO_BLOCK(ptes[pentry.index].starting_lba,
                                            state->blocksize);
-      pentry.nblocks = GPT_LBA_TO_BLOCK(ptes[pentry.index].ending_lba,
+      pentry.nblocks = GPT_LBA_TO_BLOCK(ptes[pentry.index].ending_lba + 1,
                                         state->blocksize) -
                        pentry.firstblock;
       pentry.blocksize = state->blocksize;

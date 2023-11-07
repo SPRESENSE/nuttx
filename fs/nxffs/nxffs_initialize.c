@@ -46,7 +46,7 @@
  * with any compiler.
  */
 
-const struct mountpt_operations nxffs_operations =
+const struct mountpt_operations g_nxffs_operations =
 {
   nxffs_open,        /* open */
   nxffs_close,       /* close */
@@ -54,19 +54,20 @@ const struct mountpt_operations nxffs_operations =
   nxffs_write,       /* write */
   NULL,              /* seek -- Use f_pos in struct file */
   nxffs_ioctl,       /* ioctl */
-
-  NULL,              /* sync -- No buffered data */
-  nxffs_dup,         /* dup */
-  nxffs_fstat,       /* fstat */
-  NULL,              /* fchstat */
+  NULL,              /* mmap */
 #ifdef __NO_TRUNCATE_SUPPORT__
   nxffs_truncate,    /* truncate */
 #else
   NULL,              /* truncate */
 #endif
 
+  NULL,              /* sync -- No buffered data */
+  nxffs_dup,         /* dup */
+  nxffs_fstat,       /* fstat */
+  NULL,              /* fchstat */
+
   nxffs_opendir,     /* opendir */
-  NULL,              /* closedir */
+  nxffs_closedir,    /* closedir */
   nxffs_readdir,     /* readdir */
   nxffs_rewinddir,   /* rewinddir */
 
@@ -171,7 +172,7 @@ int nxffs_initialize(FAR struct mtd_dev_s *mtd)
 
   volume->mtd    = mtd;
   volume->cblock = (off_t)-1;
-  nxsem_init(&volume->exclsem, 0, 1);
+  nxmutex_init(&volume->lock);
   nxsem_init(&volume->wrsem, 0, 1);
 
   /* Get the volume geometry. (casting to uintptr_t first eliminates
@@ -189,7 +190,7 @@ int nxffs_initialize(FAR struct mtd_dev_s *mtd)
 
   /* Allocate one I/O block buffer to general files system access */
 
-  volume->cache = (FAR uint8_t *)kmm_malloc(volume->geo.blocksize);
+  volume->cache = kmm_malloc(volume->geo.blocksize);
   if (!volume->cache)
     {
       ferr("ERROR: Failed to allocate an erase block buffer\n");
@@ -202,7 +203,7 @@ int nxffs_initialize(FAR struct mtd_dev_s *mtd)
    * is not needed often, but is best to have pre-allocated and in-place.
    */
 
-  volume->pack = (FAR uint8_t *)kmm_malloc(volume->geo.erasesize);
+  volume->pack = kmm_malloc(volume->geo.erasesize);
   if (!volume->pack)
     {
       ferr("ERROR: Failed to allocate an I/O block buffer\n");
@@ -304,6 +305,8 @@ errout_with_buffer:
 errout_with_cache:
   kmm_free(volume->cache);
 errout_with_volume:
+  nxmutex_destroy(&volume->lock);
+  nxsem_destroy(&volume->wrsem);
 #ifndef CONFIG_NXFFS_PREALLOCATED
   kmm_free(volume);
 #endif

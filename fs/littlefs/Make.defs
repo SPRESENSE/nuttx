@@ -37,23 +37,30 @@ CFLAGS += -DLFS_WARN=fwarn
 CFLAGS += -DLFS_ERROR=ferr
 CFLAGS += -DLFS_ASSERT=DEBUGASSERT
 CFLAGS += -DLFS_CONFIG=../lfs_vfs.h
+CFLAGS += -DLFS_NAME_MAX=$(CONFIG_FS_LITTLEFS_NAME_MAX)
+CFLAGS += -DLFS_FILE_MAX=$(CONFIG_FS_LITTLEFS_FILE_MAX)
+CFLAGS += -DLFS_ATTR_MAX=$(CONFIG_FS_LITTLEFS_ATTR_MAX)
 
-LITTLEFS_VERSION ?= 2.4.0
+LITTLEFS_VERSION ?= 2.5.1
 LITTLEFS_TARBALL = v$(LITTLEFS_VERSION).tar.gz
 
 $(LITTLEFS_TARBALL):
-	$(Q) curl -L -o littlefs/$(LITTLEFS_TARBALL) https://github.com/ARMmbed/littlefs/archive/$(LITTLEFS_TARBALL)
+	$(call DOWNLOAD,https://github.com/ARMmbed/littlefs/archive,$(LITTLEFS_TARBALL),littlefs/$(LITTLEFS_TARBALL))
 
 .littlefsunpack: $(LITTLEFS_TARBALL)
 	$(Q) tar zxf littlefs/$(LITTLEFS_TARBALL) -C littlefs
 	$(Q) mv littlefs/littlefs-$(LITTLEFS_VERSION) littlefs/littlefs
+	$(Q) git apply littlefs/lfs_util.patch
 	$(Q) touch littlefs/.littlefsunpack
 
+# Download and unpack tarball if no git repo found
+ifeq ($(wildcard littlefs/littlefs/.git),)
 context:: .littlefsunpack
 
 distclean::
 	$(call DELFILE, littlefs/.littlefsunpack)
 	$(call DELFILE, littlefs/$(LITTLEFS_TARBALL))
 	$(call DELDIR, littlefs/littlefs)
+endif
 
 endif

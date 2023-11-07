@@ -57,28 +57,6 @@
 #define NVIC_CLRENA_OFFSET (NVIC_IRQ0_31_CLEAR - NVIC_IRQ0_31_ENABLE)
 
 /****************************************************************************
- * Public Data
- ****************************************************************************/
-
-/* g_current_regs[] holds a references to the current interrupt level
- * register storage structure.  If is non-NULL only during interrupt
- * processing.  Access to g_current_regs[] must be through the macro
- * CURRENT_REGS for portability.
- */
-
-volatile uint32_t *g_current_regs[1];
-
-/* This is the address of the  exception vector table (determined by the
- * linker script).
- */
-
-extern uint32_t _vectors[];
-
-/****************************************************************************
- * Private Data
- ****************************************************************************/
-
-/****************************************************************************
  * Private Functions
  ****************************************************************************/
 
@@ -165,7 +143,7 @@ static void xmc4_dump_nvic(const char *msg, int irq)
 #endif
 
 /****************************************************************************
- * Name: xmc4_nmi, xmc4_busfault, xmc4_usagefault, xmc4_pendsv,
+ * Name: xmc4_nmi, xmc4_pendsv,
  *       xmc4_dbgmonitor, xmc4_pendsv, xmc4_reserved
  *
  * Description:
@@ -180,22 +158,6 @@ static int xmc4_nmi(int irq, void *context, void *arg)
 {
   up_irq_save();
   _err("PANIC!!! NMI received\n");
-  PANIC();
-  return 0;
-}
-
-static int xmc4_busfault(int irq, void *context, void *arg)
-{
-  up_irq_save();
-  _err("PANIC!!! Bus fault received\n");
-  PANIC();
-  return 0;
-}
-
-static int xmc4_usagefault(int irq, void *context, void *arg)
-{
-  up_irq_save();
-  _err("PANIC!!! Usage fault received\n");
   PANIC();
   return 0;
 }
@@ -394,10 +356,6 @@ void up_irqinitialize(void)
       putreg32(DEFPRIORITY32, regaddr);
     }
 
-  /* currents_regs is non-NULL only while processing an interrupt */
-
-  CURRENT_REGS = NULL;
-
   /* Attach the SVCall and Hard Fault exception handlers.  The SVCall
    * exception is used for performing context switches; The Hard Fault
    * must also be caught because a SVCall may show up as a Hard Fault
@@ -432,8 +390,8 @@ void up_irqinitialize(void)
 #ifndef CONFIG_ARM_MPU
   irq_attach(XMC4_IRQ_MEMFAULT, arm_memfault, NULL);
 #endif
-  irq_attach(XMC4_IRQ_BUSFAULT, xmc4_busfault, NULL);
-  irq_attach(XMC4_IRQ_USAGEFAULT, xmc4_usagefault, NULL);
+  irq_attach(XMC4_IRQ_BUSFAULT, arm_busfault, NULL);
+  irq_attach(XMC4_IRQ_USAGEFAULT, arm_usagefault, NULL);
   irq_attach(XMC4_IRQ_PENDSV, xmc4_pendsv, NULL);
   irq_attach(XMC4_IRQ_DBGMONITOR, xmc4_dbgmonitor, NULL);
   irq_attach(XMC4_IRQ_RESERVED, xmc4_reserved, NULL);

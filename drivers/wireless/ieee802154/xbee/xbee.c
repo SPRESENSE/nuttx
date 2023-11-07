@@ -163,11 +163,8 @@ static void xbee_attnworker(FAR void *arg)
 
   /* Allocate an IOB for the incoming data. */
 
-  iob             = iob_alloc(false, IOBUSER_WIRELESS_RAD802154);
-  iob->io_flink   = NULL;
-  iob->io_len     = 0;
-  iob->io_offset  = 0;
-  iob->io_pktlen  = 0;
+  iob = iob_alloc(false);
+  DEBUGASSERT(iob != NULL);
 
   /* Keep a reference to the first IOB.  If we need to allocate more than
    * one to hold each API frame, then we will still have this reference to
@@ -263,18 +260,9 @@ static void xbee_attnworker(FAR void *arg)
                            * processing.
                            */
 
-                          iob->io_flink =
-                            iob_tryalloc(false, IOBUSER_WIRELESS_RAD802154);
+                          iob->io_flink = iob_tryalloc(false);
 
                           iob = iob->io_flink;
-
-                          if (iob != NULL)
-                            {
-                              iob->io_flink  = NULL;
-                              iob->io_len    = 0;
-                              iob->io_offset = 0;
-                              iob->io_pktlen = 0;
-                            }
                        }
                       else
                         {
@@ -330,7 +318,7 @@ static void xbee_attnworker(FAR void *arg)
               wlwarn("Partial API frame clocked in. Dropping!\n");
             }
 
-          iob_free(iob, IOBUSER_WIRELESS_RAD802154);
+          iob_free(iob);
         }
     }
 
@@ -804,7 +792,7 @@ static void xbee_process_apiframes(FAR struct xbee_priv_s *priv,
 
       nextframe = frame->io_flink;
       frame->io_flink = NULL;
-      iob_free(frame, IOBUSER_WIRELESS_RAD802154);
+      iob_free(frame);
       frame = nextframe;
     }
 }
@@ -962,10 +950,10 @@ static void xbee_process_txstatus(FAR struct xbee_priv_s *priv,
 static void xbee_notify(FAR struct xbee_priv_s *priv,
                         FAR struct ieee802154_primitive_s *primitive)
 {
-  while (nxsem_wait(&priv->primitive_sem) < 0);
+  while (nxmutex_lock(&priv->primitive_lock) < 0);
 
   sq_addlast((FAR sq_entry_t *)primitive, &priv->primitive_queue);
-  nxsem_post(&priv->primitive_sem);
+  nxmutex_unlock(&priv->primitive_lock);
 
   if (work_available(&priv->notifwork))
     {
@@ -992,10 +980,10 @@ static void xbee_notify_worker(FAR void *arg)
 
   DEBUGASSERT(priv != NULL);
 
-  while (nxsem_wait(&priv->primitive_sem) < 0);
+  while (nxmutex_lock(&priv->primitive_lock) < 0);
   primitive =
     (FAR struct ieee802154_primitive_s *)sq_remfirst(&priv->primitive_queue);
-  nxsem_post(&priv->primitive_sem);
+  nxmutex_unlock(&priv->primitive_lock);
 
   while (primitive != NULL)
     {
@@ -1032,8 +1020,7 @@ static void xbee_notify_worker(FAR void *arg)
 
           if (dispose)
             {
-              iob_free(primitive->u.dataind.frame,
-                       IOBUSER_WIRELESS_RAD802154);
+              iob_free(primitive->u.dataind.frame);
               ieee802154_primitive_free(primitive);
             }
         }
@@ -1066,11 +1053,11 @@ static void xbee_notify_worker(FAR void *arg)
 
       /* Get the next primitive then loop */
 
-      while (nxsem_wait(&priv->primitive_sem) < 0);
+      while (nxmutex_lock(&priv->primitive_lock) < 0);
 
       primitive = (FAR struct ieee802154_primitive_s *)
                   sq_remfirst(&priv->primitive_queue);
-      nxsem_post(&priv->primitive_sem);
+      nxmutex_unlock(&priv->primitive_lock);
     }
 }
 
@@ -1230,7 +1217,7 @@ XBEEHANDLE xbee_init(FAR struct spi_dev_s *spi,
 
   /* Allocate object */
 
-  priv = (FAR struct xbee_priv_s *) kmm_zalloc(sizeof(struct xbee_priv_s));
+  priv = kmm_zalloc(sizeof(struct xbee_priv_s));
   if (priv == NULL)
     {
       wlinfo("Failed allocation xbee_priv_s structure\n");
@@ -1249,11 +1236,10 @@ XBEEHANDLE xbee_init(FAR struct spi_dev_s *spi,
   priv->lower = lower;
   priv->spi   = spi;
 
-  nxsem_init(&priv->primitive_sem, 0, 1);
-  nxsem_init(&priv->atquery_sem, 0, 1);
-  nxsem_init(&priv->tx_sem, 0, 1);
+  nxmutex_init(&priv->primitive_lock);
+  nxmutex_init(&priv->atquery_lock);
+  nxmutex_init(&priv->tx_lock);
   nxsem_init(&priv->txdone_sem, 0, 0);
-  nxsem_set_protocol(&priv->txdone_sem, SEM_PRIO_NONE);
 
   ieee802154_primitivepool_initialize();
 
@@ -1328,11 +1314,8 @@ void xbee_send_apiframe(FAR struct xbee_priv_s *priv,
    * data.
    */
 
-  iob             = iob_tryalloc(false, IOBUSER_WIRELESS_RAD802154);
-  iob->io_flink   = NULL;
-  iob->io_len     = 0;
-  iob->io_offset  = 0;
-  iob->io_pktlen  = 0;
+  iob = iob_tryalloc(false);
+  DEBUGASSERT(iob != NULL);
 
   /* Keep a reference to the first IOB.  If we need to allocate more than
    * one to hold each API frame, then we will still have this reference to
@@ -1422,17 +1405,8 @@ void xbee_send_apiframe(FAR struct xbee_priv_s *priv,
                            * processing.
                            */
 
-                          iob->io_flink =
-                            iob_tryalloc(false, IOBUSER_WIRELESS_RAD802154);
+                          iob->io_flink = iob_tryalloc(false);
                           iob = iob->io_flink;
-
-                          if (iob != NULL)
-                            {
-                              iob->io_flink  = NULL;
-                              iob->io_len    = 0;
-                              iob->io_offset = 0;
-                              iob->io_pktlen = 0;
-                            }
                        }
                       else
                         {
@@ -1483,7 +1457,7 @@ void xbee_send_apiframe(FAR struct xbee_priv_s *priv,
               wlwarn("Partial API frame clocked in. Dropping!\n");
             }
 
-          iob_free(iob, IOBUSER_WIRELESS_RAD802154);
+          iob_free(iob);
         }
     }
 
@@ -1531,7 +1505,7 @@ int xbee_atquery(FAR struct xbee_priv_s *priv, FAR const char *atcommand)
 
   /* Only allow one query at a time */
 
-  ret = nxsem_wait(&priv->atquery_sem);
+  ret = nxmutex_lock(&priv->atquery_lock);
   if (ret < 0)
     {
       return ret;
@@ -1544,8 +1518,6 @@ int xbee_atquery(FAR struct xbee_priv_s *priv, FAR const char *atcommand)
    */
 
   nxsem_init(&priv->atresp_sem, 0, 0);
-  nxsem_set_protocol(&priv->atresp_sem, SEM_PRIO_NONE);
-
   do
     {
       /* There is a note in the XBee datasheet: Once you issue a WR command,
@@ -1578,7 +1550,7 @@ int xbee_atquery(FAR struct xbee_priv_s *priv, FAR const char *atcommand)
           wd_cancel(&priv->atquery_wd);
           priv->querycmd[0] = 0;
           priv->querycmd[1] = 0;
-          nxsem_post(&priv->atquery_sem);
+          nxmutex_unlock(&priv->atquery_lock);
           return ret;
         }
 
@@ -1593,8 +1565,7 @@ int xbee_atquery(FAR struct xbee_priv_s *priv, FAR const char *atcommand)
     }
   while (!priv->querydone);
 
-  nxsem_post(&priv->atquery_sem);
-
+  nxmutex_unlock(&priv->atquery_lock);
   return OK;
 }
 

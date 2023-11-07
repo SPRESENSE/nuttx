@@ -67,7 +67,6 @@
 #include <stdbool.h>
 #include <time.h>
 #include <string.h>
-#include <queue.h>
 #include <errno.h>
 #include <assert.h>
 #include <debug.h>
@@ -76,11 +75,12 @@
 
 #include <nuttx/arch.h>
 #include <nuttx/irq.h>
+#include <nuttx/queue.h>
 #include <nuttx/wdog.h>
 #include <nuttx/wqueue.h>
 #include <nuttx/clock.h>
 #include <nuttx/net/mii.h>
-#include <nuttx/net/arp.h>
+#include <nuttx/net/ip.h>
 #include <nuttx/net/netdev.h>
 
 #ifdef CONFIG_NET_PKT
@@ -251,8 +251,13 @@
  * header.
  */
 
-#define ETHBUF       ((struct eth_hdr_s *)priv->eth_dev.d_buf)
 #define ETH8021QWBUF ((struct eth_8021qhdr_s *)priv->eth_dev.d_buf)
+
+/* This is a helper pointer for accessing the contents of the Ethernet
+ * header
+ */
+
+#define BUF ((struct eth_hdr_s *)&dev->d_buf[0])
 
 /****************************************************************************
  * Private Types
@@ -366,8 +371,8 @@ static uint32_t *g_txbuffers1[CONFIG_LPC54_ETH_NTXDESC1];
 static uint32_t lpc54_getreg(uintptr_t addr);
 static void lpc54_putreg(uint32_t val, uintptr_t addr);
 #else
-# define lpc54_getreg(addr)      getreg32(addr)
-# define lpc54_putreg(val,addr)  putreg32(val,addr)
+#  define lpc54_getreg(addr)     getreg32(addr)
+#  define lpc54_putreg(val,addr) putreg32(val,addr)
 #endif
 
 /* Common TX logic */
@@ -606,7 +611,7 @@ static int lpc54_eth_transmit(struct lpc54_ethdriver_s *priv,
       /* Prepare the Tx descriptor for transmission */
 
       txdesc->buffer1 = (uint32_t)buffer;
-      txdesc->buffer2 = (uint32_t)NULL;
+      txdesc->buffer2 = 0;
 
       /* One buffer, no timestamp, interrupt on completion */
 
@@ -758,81 +763,49 @@ static int lpc54_eth_txpoll(struct net_driver_s *dev)
   DEBUGASSERT(dev->d_private != NULL && dev->d_buf != NULL);
   priv = (struct lpc54_ethdriver_s *)dev->d_private;
 
-  /* If the polling resulted in data that should be sent out on the network,
-   * the field d_len is set to a value > 0.
+  /* Send the packet */
+
+  chan   = lpc54_eth_getring(priv);
+  txring = &priv->eth_txring[chan];
+
+  (txring->tr_buffers)[txring->tr_supply] =
+    (uint32_t *)priv->eth_dev.d_buf;
+
+  lpc54_eth_transmit(priv, chan);
+
+  txring0 = &priv->eth_txring[0];
+#ifdef CONFIG_LPC54_ETH_MULTIQUEUE
+  txring1 = &priv->eth_txring[1];
+
+  /* We cannot perform the Tx poll now if all of the Tx descriptors
+   * for both channels are in-use.
    */
 
-  if (priv->eth_dev.d_len > 0)
-    {
-      /* Look up the destination MAC address and add it to the Ethernet
-       * header.
-       */
-
-#ifdef CONFIG_NET_IPv4
-#ifdef CONFIG_NET_IPv6
-      if (IFF_IS_IPv4(priv->eth_dev.d_flags))
-#endif
-        {
-          arp_out(&priv->eth_dev);
-        }
-#endif /* CONFIG_NET_IPv4 */
-
-#ifdef CONFIG_NET_IPv6
-#ifdef CONFIG_NET_IPv4
-      else
-#endif
-        {
-          neighbor_out(&priv->eth_dev);
-        }
-#endif /* CONFIG_NET_IPv6 */
-
-      if (!devif_loopback(&priv->eth_dev))
-        {
-          /* Send the packet */
-
-          chan   = lpc54_eth_getring(priv);
-          txring = &priv->eth_txring[chan];
-
-          (txring->tr_buffers)[txring->tr_supply] =
-            (uint32_t *)priv->eth_dev.d_buf;
-
-          lpc54_eth_transmit(priv, chan);
-
-          txring0 = &priv->eth_txring[0];
-#ifdef CONFIG_LPC54_ETH_MULTIQUEUE
-          txring1 = &priv->eth_txring[1];
-
-          /* We cannot perform the Tx poll now if all of the Tx descriptors
-           * for both channels are in-use.
-           */
-
-          if (txring0->tr_inuse >= txring0->tr_ndesc ||
-              txring1->tr_inuse >= txring1->tr_ndesc)
+  if (txring0->tr_inuse >= txring0->tr_ndesc ||
+      txring1->tr_inuse >= txring1->tr_ndesc)
 #else
-          /* We cannot continue the Tx poll now if all of the Tx descriptors
-           * for this channel 0 are in-use.
-           */
+  /* We cannot continue the Tx poll now if all of the Tx descriptors
+   * for this channel 0 are in-use.
+   */
 
-          if (txring0->tr_inuse >= txring0->tr_ndesc)
+  if (txring0->tr_inuse >= txring0->tr_ndesc)
 #endif
-            {
-              /* Stop the poll.. no more Tx descriptors */
+    {
+      /* Stop the poll.. no more Tx descriptors */
 
-              return 1;
-            }
+      return 1;
+    }
 
-          /* There is a free descriptor in the ring, allocate a new Tx buffer
-           * to perform the poll.
-           */
+  /* There is a free descriptor in the ring, allocate a new Tx buffer
+   * to perform the poll.
+   */
 
-          priv->eth_dev.d_buf = (uint8_t *)lpc54_pktbuf_alloc(priv);
-          if (priv->eth_dev.d_buf == NULL)
-            {
-              /* Stop the poll.. no more packet buffers */
+  priv->eth_dev.d_buf = (uint8_t *)lpc54_pktbuf_alloc(priv);
+  if (priv->eth_dev.d_buf == NULL)
+    {
+      /* Stop the poll.. no more packet buffers */
 
-              return 1;
-            }
-        }
+      return 1;
     }
 
   /* If zero is returned, the polling will continue until all connections
@@ -880,28 +853,6 @@ static void lpc54_eth_reply(struct lpc54_ethdriver_s *priv)
 #warning Missing Logic
 #endif
 
-#ifdef CONFIG_NET_IPv4
-#ifdef CONFIG_NET_IPv6
-      /* Check for an outgoing IPv4 packet */
-
-      if (IFF_IS_IPv4(priv->eth_dev.d_flags))
-#endif
-        {
-          arp_out(&priv->eth_dev);
-        }
-#endif
-
-#ifdef CONFIG_NET_IPv6
-#ifdef CONFIG_NET_IPv4
-      /* Otherwise, it must be an outgoing IPv6 packet */
-
-      else
-#endif
-        {
-          neighbor_out(&priv->eth_dev);
-        }
-#endif
-
       /* And send the packet */
 
       chan   = lpc54_eth_getring(priv);
@@ -934,26 +885,25 @@ static void lpc54_eth_reply(struct lpc54_ethdriver_s *priv)
 
 static void lpc54_eth_rxdispatch(struct lpc54_ethdriver_s *priv)
 {
+  struct net_driver_s *dev = &priv->eth_dev;
+
 #ifdef CONFIG_NET_PKT
   /* When packet sockets are enabled, feed the frame into the tap */
 
-  pkt_input(&priv->eth_dev);
+  pkt_input(dev);
 #endif
 
   /* We only accept IP packets of the configured type and ARP packets */
 
 #ifdef CONFIG_NET_IPv4
-  if (ETHBUF->type == HTONS(ETHTYPE_IP))
+  if (BUF->type == HTONS(ETHTYPE_IP))
     {
       ninfo("IPv4 packet\n");
-      NETDEV_RXIPV4(&priv->eth_dev);
+      NETDEV_RXIPV4(dev);
 
-      /* Handle ARP on input,
-       * then dispatch IPv4 packet to the network layer
-       */
+      /* Receive an IPv4 packet from the network device */
 
-      arp_ipin(&priv->eth_dev);
-      ipv4_input(&priv->eth_dev);
+      ipv4_input(dev);
 
       /* Check for a reply to the IPv4 packet */
 
@@ -962,14 +912,14 @@ static void lpc54_eth_rxdispatch(struct lpc54_ethdriver_s *priv)
   else
 #endif
 #ifdef CONFIG_NET_IPv6
-  if (ETHBUF->type == HTONS(ETHTYPE_IP6))
+  if (BUF->type == HTONS(ETHTYPE_IP6))
     {
       ninfo("IPv6 packet\n");
-      NETDEV_RXIPV6(&priv->eth_dev);
+      NETDEV_RXIPV6(dev);
 
       /* Dispatch IPv6 packet to the network layer */
 
-      ipv6_input(&priv->eth_dev);
+      ipv6_input(dev);
 
       /* Check for a reply to the IPv6 packet */
 
@@ -981,11 +931,11 @@ static void lpc54_eth_rxdispatch(struct lpc54_ethdriver_s *priv)
   if (ETH8021QWBUF->tpid == HTONS(TPID_8021QVLAN))
     {
       ninfo("IEEE 802.1q packet\n");
-      NETDEV_RXQVLAN(&priv->eth_dev);
+      NETDEV_RXQVLAN(dev);
 
       /* Dispatch the 802.1q VLAN packet to the network layer */
 
-      qvlan_input(&priv->eth_dev);
+      qvlan_input(dev);
 
       /* Check for a reply to the 802.1q VLAN packet */
 
@@ -994,27 +944,27 @@ static void lpc54_eth_rxdispatch(struct lpc54_ethdriver_s *priv)
   else
 #endif
 #ifdef CONFIG_NET_ARP
-  if (ETHBUF->type == HTONS(ETHTYPE_ARP))
+  if (BUF->type == HTONS(ETHTYPE_ARP))
     {
       struct lpc54_txring_s *txring;
       unsigned int chan;
 
       /* Dispatch the ARP packet to the network layer */
 
-      arp_arpin(&priv->eth_dev);
-      NETDEV_RXARP(&priv->eth_dev);
+      arp_input(dev);
+      NETDEV_RXARP(dev);
 
       /* If the above function invocation resulted in data that should be
        * sent out on the network, d_len field will set to a value > 0.
        */
 
-      if (priv->eth_dev.d_len > 0)
+      if (dev->d_len > 0)
         {
           chan   = lpc54_eth_getring(priv);
           txring = &priv->eth_txring[chan];
 
           (txring->tr_buffers)[txring->tr_supply] =
-            (uint32_t *)priv->eth_dev.d_buf;
+            (uint32_t *)dev->d_buf;
 
           lpc54_eth_transmit(priv, chan);
         }
@@ -1022,7 +972,7 @@ static void lpc54_eth_rxdispatch(struct lpc54_ethdriver_s *priv)
   else
 #endif
     {
-      NETDEV_RXDROPPED(&priv->eth_dev);
+      NETDEV_RXDROPPED(dev);
     }
 
   /* On entry, d_buf refers to the receive buffer as set by logic in
@@ -1032,13 +982,13 @@ static void lpc54_eth_rxdispatch(struct lpc54_ethdriver_s *priv)
    * receive buffer and we will need to dispose of it here.
    */
 
-  if (priv->eth_dev.d_buf != NULL)
+  if (dev->d_buf != NULL)
     {
-      lpc54_pktbuf_free(priv, (uint32_t *)priv->eth_dev.d_buf);
+      lpc54_pktbuf_free(priv, (uint32_t *)dev->d_buf);
     }
 
-  priv->eth_dev.d_buf = NULL;
-  priv->eth_dev.d_len = 0;
+  dev->d_buf = NULL;
+  dev->d_len = 0;
 }
 
 /****************************************************************************
@@ -1773,11 +1723,9 @@ static int lpc54_eth_ifup(struct net_driver_s *dev)
   int i;
 
 #ifdef CONFIG_NET_IPv4
-  ninfo("Bringing up: %d.%d.%d.%d\n",
-        (int)(dev->d_ipaddr & 0xff),
-        (int)((dev->d_ipaddr >> 8) & 0xff),
-        (int)((dev->d_ipaddr >> 16) & 0xff),
-        (int)(dev->d_ipaddr >> 24));
+  ninfo("Bringing up: %u.%u.%u.%u\n",
+        ip4_addr1(dev->d_ipaddr), ip4_addr2(dev->d_ipaddr),
+        ip4_addr3(dev->d_ipaddr), ip4_addr4(dev->d_ipaddr));
 #endif
 #ifdef CONFIG_NET_IPv6
   ninfo("Bringing up: %04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x\n",

@@ -201,7 +201,9 @@ static int lib_localhost(FAR const void *addr, socklen_t len, int type,
 
   return 1;
 
+#if defined(CONFIG_NET_IPv4) || defined(CONFIG_NET_IPv6)
 out_copyname:
+#endif
 
   /* And copy localhost host name */
 
@@ -211,7 +213,7 @@ out_copyname:
       return -ERANGE;
     }
 
-  strncpy(dest, g_lo_hostname, buflen);
+  strlcpy(dest, g_lo_hostname, buflen);
   host->h_name = dest;
 
   return 0;

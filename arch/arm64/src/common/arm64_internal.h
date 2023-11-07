@@ -55,6 +55,12 @@
 #  elif defined(CONFIG_CONSOLE_SYSLOG)
 #    undef  USE_SERIALDRIVER
 #    undef  USE_EARLYSERIALINIT
+#  elif defined(CONFIG_SERIAL_RTT_CONSOLE)
+#    undef  USE_SERIALDRIVER
+#    undef  USE_EARLYSERIALINIT
+#  elif defined(CONFIG_RPMSG_UART_CONSOLE)
+#    undef  USE_SERIALDRIVER
+#    undef  USE_EARLYSERIALINIT
 #  else
 #    define USE_SERIALDRIVER 1
 #    define USE_EARLYSERIALINIT 1
@@ -91,6 +97,25 @@
 #define STACK_COLOR    0xdeaddead
 #define HEAP_COLOR     'h'
 
+/* AArch64 the stack-pointer must be 128-bit aligned */
+
+#define STACK_ALIGNMENT     16
+
+/* Stack alignment macros */
+
+#define STACK_ALIGN_MASK    (STACK_ALIGNMENT - 1)
+#define STACK_ALIGN_DOWN(a) ((a) & ~STACK_ALIGN_MASK)
+#define STACK_ALIGN_UP(a)   (((a) + STACK_ALIGN_MASK) & ~STACK_ALIGN_MASK)
+
+#ifdef CONFIG_SMP
+/* The size of interrupt and idle stack.  This is the configured
+ * value aligned the 8-bytes as required by the ARM EABI.
+ */
+
+#  define SMP_STACK_SIZE    STACK_ALIGN_UP(CONFIG_IDLETHREAD_STACKSIZE)
+#  define SMP_STACK_WORDS   (SMP_STACK_SIZE >> 2)
+#endif
+
 /****************************************************************************
  * Public Types
  ****************************************************************************/
@@ -112,16 +137,6 @@ extern "C"
 #define EXTERN extern
 #endif
 
-/* AArch64 the stack-pointer must be 128-bit aligned */
-
-#define STACK_ALIGNMENT     16
-
-/* Stack alignment macros */
-
-#define STACK_ALIGN_MASK    (STACK_ALIGNMENT - 1)
-#define STACK_ALIGN_DOWN(a) ((a) & ~STACK_ALIGN_MASK)
-#define STACK_ALIGN_UP(a)   (((a) + STACK_ALIGN_MASK) & ~STACK_ALIGN_MASK)
-
 #define INIT_STACK_DEFINE(sym, size) \
     char locate_data(".initstack") \
      aligned_data(STACK_ALIGNMENT) sym[size]
@@ -142,12 +157,6 @@ extern "C"
 #define INTSTACK_SIZE        (CONFIG_ARCH_INTERRUPTSTACK & ~STACK_ALIGN_MASK)
 
 #ifdef CONFIG_SMP
-
-/* The size of interrupt and idle stack.  This is the configured
- * value aligned the 8-bytes as required by the ARM EABI.
- */
-
-#define SMP_STACK_SIZE       STACK_ALIGN_UP(CONFIG_IDLETHREAD_STACKSIZE)
 
 INIT_STACK_ARRAY_DEFINE_EXTERN(g_cpu_idlestackalloc, CONFIG_SMP_NCPUS,
                           SMP_STACK_SIZE);
@@ -171,22 +180,13 @@ INIT_STACK_DEFINE_EXTERN(g_interrupt_stack, INTSTACK_SIZE);
 /* Address of the saved user stack pointer */
 
 #if CONFIG_ARCH_INTERRUPTSTACK > 3
-EXTERN uint64_t g_intstackalloc; /* Allocated stack base */
-EXTERN uint64_t g_intstacktop;   /* Initial top of interrupt stack */
+EXTERN uint8_t g_intstackalloc[]; /* Allocated stack base */
+EXTERN uint8_t g_intstacktop[];   /* Initial top of interrupt stack */
 #else
 #  error CONFIG_ARCH_INTERRUPTSTACK must be defined (4096 at least) at arm64
 #endif
 
-/* These 'addresses' of these values are setup by the linker script.  They
- * are not actual uint64_t storage locations! They are only used
- * meaningfully in the following way:
- *
- *  - The linker script defines, for example, the symbol_sdata.
- *  - The declaration extern uint64_t _sdata; makes C happy.  C will believe
- *    that the value _sdata is the address of a uint64_t variable _data
- *    (it is not!).
- *  - We can recover the linker value then by simply taking the address of
- *    of _data.  like:  uint64_t *pdata = &_sdata;
+/* These symbols are setup by the linker script.
  *
  * Memory layout for Nuttx at arm64 for FLAT Build
  *
@@ -217,20 +217,20 @@ EXTERN uint64_t g_intstacktop;   /* Initial top of interrupt stack */
  * please check dramboot.ld at specified platform for more detail
  */
 
-EXTERN char _stext[];            /* Start of .text */
-EXTERN char _etext[];            /* End of .text */
-EXTERN char _sztext[];           /* Size of .text */
-EXTERN char _srodata[];          /* Start of .rodata */
-EXTERN char _erodata[];          /* End+1 of .rodata */
-EXTERN char _szrodata[];         /* Size of .rodata */
-EXTERN const char _eronly[];     /* End+1 of read only section (.text + .rodata) */
-EXTERN char _sdata[];            /* Start of .data */
-EXTERN char _edata[];            /* End+1 of .data */
-EXTERN char _sbss[];             /* Start of .bss */
-EXTERN char _ebss[];             /* End+1 of .bss */
-EXTERN char _szdata[];           /* Size of data(.data + .bss) */
-EXTERN char _e_initstack[];      /* End+1 of .initstack */
-EXTERN char g_idle_topstack[];   /* End+1 of heap */
+EXTERN uint8_t _stext[];            /* Start of .text */
+EXTERN uint8_t _etext[];            /* End of .text */
+EXTERN uint8_t _sztext[];           /* Size of .text */
+EXTERN uint8_t _srodata[];          /* Start of .rodata */
+EXTERN uint8_t _erodata[];          /* End+1 of .rodata */
+EXTERN uint8_t _szrodata[];         /* Size of .rodata */
+EXTERN const uint8_t _eronly[];     /* End+1 of read only section (.text + .rodata) */
+EXTERN uint8_t _sdata[];            /* Start of .data */
+EXTERN uint8_t _edata[];            /* End+1 of .data */
+EXTERN uint8_t _sbss[];             /* Start of .bss */
+EXTERN uint8_t _ebss[];             /* End+1 of .bss */
+EXTERN uint8_t _szdata[];           /* Size of data(.data + .bss) */
+EXTERN uint8_t _e_initstack[];      /* End+1 of .initstack */
+EXTERN uint8_t g_idle_topstack[];   /* End+1 of heap */
 
 #  define _START_TEXT  _stext
 #  define _END_TEXT    _etext
@@ -263,7 +263,6 @@ void arm64_secondary_start(void);
 
 void arm64_fullcontextrestore(uint64_t *restoreregs) noreturn_function;
 void arm64_switchcontext(uint64_t **saveregs, uint64_t *restoreregs);
-void arm64_context_snapshot(void *savereg);
 
 /* Signal handling **********************************************************/
 
@@ -292,17 +291,42 @@ uint64_t *arm64_doirq(int irq, uint64_t *regs);
 #ifdef CONFIG_PAGING
 void arm64_pginitialize(void);
 #else /* CONFIG_PAGING */
-# define arm64_pginitialize()
+#  define arm64_pginitialize()
 #endif /* CONFIG_PAGING */
 
 uint64_t * arm64_syscall_switch(uint64_t *regs);
 int arm64_syscall(uint64_t *regs);
 
 #ifdef USE_SERIALDRIVER
+/****************************************************************************
+ * Name: arm64_serialinit
+ *
+ * Description:
+ *   Register serial console and serial ports.  This assumes
+ *   that arm64_earlyserialinit was called previously.
+ *
+ ****************************************************************************/
+
 void arm64_serialinit(void);
 #endif
 
 #ifdef USE_EARLYSERIALINIT
+
+/****************************************************************************
+ * Name: arm64_earlyserialinit
+ *
+ * Description:
+ *   Performs the low level UART initialization early in debug so that the
+ *   serial console will be available during bootup.  This must be called
+ *   before arm64_serialinit.
+ *
+ * Note:
+ *   This function assumes that low level hardware configuration
+ *   including all clocking and pin configuration -- was performed
+ *   earlier in the boot sequence(eg bootloader).
+ *
+ ****************************************************************************/
+
 void arm64_earlyserialinit(void);
 #endif
 
@@ -317,7 +341,7 @@ void weak_function arm64_dma_initialize(void);
 #if CONFIG_MM_REGIONS > 1
 void arm64_addregion(void);
 #else
-# define arm64_addregion()
+#  define arm64_addregion()
 #endif
 
 /* Networking */
@@ -336,7 +360,7 @@ void arm64_addregion(void);
 #if defined(CONFIG_NET) && !defined(CONFIG_NETDEV_LATEINIT)
 void arm64_netinitialize(void);
 #else
-# define arm64_netinitialize()
+#  define arm64_netinitialize()
 #endif
 
 /* USB */
@@ -345,8 +369,8 @@ void arm64_netinitialize(void);
 void arm64_usbinitialize(void);
 void arm64_usbuninitialize(void);
 #else
-# define arm64_usbinitialize()
-# define arm64_usbuninitialize()
+#  define arm64_usbinitialize()
+#  define arm64_usbuninitialize()
 #endif
 
 /* Debug */

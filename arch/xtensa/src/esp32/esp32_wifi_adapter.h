@@ -53,7 +53,7 @@ extern "C"
 #  define ESP32_WLAN_HAS_SOFTAP
 #  define ESP32_WLAN_SOFTAP_DEVNO 0
 #  define ESP32_WLAN_DEVS         1
-#elif defined(CONFIG_ESP32_WIFI_STATION_SOFTAP_COEXISTENCE)
+#elif defined(CONFIG_ESP32_WIFI_STATION_SOFTAP)
 #  define ESP32_WLAN_HAS_STA
 #  define ESP32_WLAN_HAS_SOFTAP
 #  define ESP32_WLAN_STA_DEVNO    0
@@ -79,6 +79,10 @@ enum wifi_adpt_evt_e
   WIFI_ADPT_EVT_STA_DISCONNECT,
   WIFI_ADPT_EVT_STA_AUTHMODE_CHANGE,
   WIFI_ADPT_EVT_STA_STOP,
+  WIFI_ADPT_EVT_AP_START,
+  WIFI_ADPT_EVT_AP_STOP,
+  WIFI_ADPT_EVT_AP_STACONNECTED,
+  WIFI_ADPT_EVT_AP_STADISCONNECTED,
   WIFI_ADPT_EVT_MAX,
 };
 
@@ -491,7 +495,7 @@ int esp_wifi_sta_country(struct iwreq *iwr, bool set);
  ****************************************************************************/
 
 int esp_wifi_sta_rssi(struct iwreq *iwr, bool set);
-#endif
+#endif /* ESP32_WLAN_HAS_STA */
 
 #ifdef ESP32_WLAN_HAS_SOFTAP
 
@@ -730,6 +734,7 @@ int esp_wifi_softap_auth(struct iwreq *iwr, bool set);
  *
  * Input Parameters:
  *   iwr - The argument of the ioctl cmd
+ *   set - true: set data; false: get data
  *
  * Returned Value:
  *   OK on success (positive non-zero values are cmd-specific)

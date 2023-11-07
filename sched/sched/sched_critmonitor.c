@@ -27,6 +27,7 @@
 #include <sys/types.h>
 #include <sched.h>
 #include <assert.h>
+#include <debug.h>
 
 #include "sched/sched.h"
 
@@ -55,8 +56,8 @@
          if (pid > 0 && \
              elapsed > CONFIG_SCHED_CRITMONITOR_MAXTIME_PREEMPTION) \
            { \
-             serr("PID %d hold sched lock too long %"PRIu32"\n", \
-                   pid, elapsed); \
+             CRITMONITOR_PANIC("PID %d hold sched lock too long %"PRIu32"\n", \
+                               pid, elapsed); \
            } \
        } \
      while (0)
@@ -71,8 +72,8 @@
          if (pid > 0 && \
              elapsed > CONFIG_SCHED_CRITMONITOR_MAXTIME_CSECTION) \
            { \
-             serr("PID %d hold critical section too long %"PRIu32"\n", \
-                   pid, elapsed); \
+             CRITMONITOR_PANIC("PID %d hold critical section too long %" \
+                               PRIu32 "\n", pid, elapsed); \
            } \
        } \
      while (0)
@@ -87,8 +88,8 @@
          if (pid > 0 && \
              elapsed > CONFIG_SCHED_CRITMONITOR_MAXTIME_THREAD) \
            { \
-             serr("PID %d execute too long %"PRIu32"\n", \
-                   pid, elapsed); \
+             CRITMONITOR_PANIC("PID %d execute too long %"PRIu32"\n", \
+                               pid, elapsed); \
            } \
        } \
      while (0)
@@ -102,8 +103,8 @@
 
 /* Start time when pre-emption disabled or critical section entered. */
 
-static uint32_t g_premp_start[CONFIG_SMP_NCPUS];
-static uint32_t g_crit_start[CONFIG_SMP_NCPUS];
+static unsigned long g_premp_start[CONFIG_SMP_NCPUS];
+static unsigned long g_crit_start[CONFIG_SMP_NCPUS];
 
 /****************************************************************************
  * Public Data
@@ -111,8 +112,8 @@ static uint32_t g_crit_start[CONFIG_SMP_NCPUS];
 
 /* Maximum time with pre-emption disabled or within critical section. */
 
-uint32_t g_premp_max[CONFIG_SMP_NCPUS];
-uint32_t g_crit_max[CONFIG_SMP_NCPUS];
+unsigned long g_premp_max[CONFIG_SMP_NCPUS];
+unsigned long g_crit_max[CONFIG_SMP_NCPUS];
 
 /****************************************************************************
  * Public Functions
@@ -147,8 +148,8 @@ void nxsched_critmon_preemption(FAR struct tcb_s *tcb, bool state)
     {
       /* Re-enabling.. Check for the max elapsed time */
 
-      uint32_t now     = up_perf_gettime();
-      uint32_t elapsed = now - tcb->premp_start;
+      unsigned long now     = up_perf_gettime();
+      unsigned long elapsed = now - tcb->premp_start;
 
       if (elapsed > tcb->premp_max)
         {
@@ -195,8 +196,8 @@ void nxsched_critmon_csection(FAR struct tcb_s *tcb, bool state)
     {
       /* Leaving .. Check for the max elapsed time */
 
-      uint32_t now     = up_perf_gettime();
-      uint32_t elapsed = now - tcb->crit_start;
+      unsigned long now     = up_perf_gettime();
+      unsigned long elapsed = now - tcb->crit_start;
 
       if (elapsed > tcb->crit_max)
         {
@@ -229,9 +230,9 @@ void nxsched_critmon_csection(FAR struct tcb_s *tcb, bool state)
 
 void nxsched_resume_critmon(FAR struct tcb_s *tcb)
 {
-  uint32_t current = up_perf_gettime();
+  unsigned long current = up_perf_gettime();
   int cpu = this_cpu();
-  uint32_t elapsed;
+  unsigned long elapsed;
 
   tcb->run_start = current;
 
@@ -293,9 +294,15 @@ void nxsched_resume_critmon(FAR struct tcb_s *tcb)
 
 void nxsched_suspend_critmon(FAR struct tcb_s *tcb)
 {
-  uint32_t current = up_perf_gettime();
-  uint32_t elapsed = current - tcb->run_start;
+  unsigned long current = up_perf_gettime();
+  unsigned long elapsed = current - tcb->run_start;
 
+#ifdef CONFIG_SCHED_CPULOAD_CRITMONITOR
+  unsigned long tick = elapsed * CLOCKS_PER_SEC / up_perf_getfreq();
+  nxsched_process_taskload_ticks(tcb, tick);
+#endif
+
+  tcb->run_time += elapsed;
   if (elapsed > tcb->run_max)
     {
       tcb->run_max = elapsed;

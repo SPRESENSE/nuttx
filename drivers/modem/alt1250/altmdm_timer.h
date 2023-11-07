@@ -18,8 +18,8 @@
  *
  ****************************************************************************/
 
-#ifndef __DEVICES_MODEM_ALT1250_ALTMDM_TIMER_H__
-#define __DEVICES_MODEM_ALT1250_ALTMDM_TIMER_H__
+#ifndef __DEVICES_MODEM_ALT1250_ALTMDM_TIMER_H
+#define __DEVICES_MODEM_ALT1250_ALTMDM_TIMER_H
 
 /****************************************************************************
  * Included Files
@@ -108,4 +108,4 @@ int altmdm_timer_is_running(timer_t timerid);
 
 void altmdm_timer_stop(timer_t timerid);
 
-#endif  /* __DEVICES_MODEM_ALT1250_ALTMDM_TIMER_H__ */
+#endif  /* __DEVICES_MODEM_ALT1250_ALTMDM_TIMER_H */

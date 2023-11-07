@@ -22,12 +22,14 @@
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
+#include <stddef.h>
 #include <syslog.h>
 
 #include <nuttx/clock.h>
 #include <nuttx/sched.h>
 #include <nuttx/sched_note.h>
+#include <nuttx/note/note_driver.h>
+#include <nuttx/segger/sysview.h>
 
 #include <SEGGER_RTT.h>
 #include <SEGGER_SYSVIEW.h>
@@ -38,36 +40,86 @@
  * Private Types
  ****************************************************************************/
 
-struct sysview_s
+struct note_sysview_driver_s
 {
-  unsigned int                 irq[CONFIG_SMP_NCPUS];
-#ifdef CONFIG_SCHED_INSTRUMENTATION_FILTER
-  struct note_filter_mode_s    mode;
-#endif
-#ifdef CONFIG_SCHED_INSTRUMENTATION_IRQHANDLER
-  struct note_filter_irq_s     irq_mask;
-#endif
+  struct note_driver_s driver;
+  unsigned int irq[CONFIG_SMP_NCPUS];
 #ifdef CONFIG_SCHED_INSTRUMENTATION_SYSCALL
-  struct note_filter_syscall_s syscall_mask;
   struct note_filter_syscall_s syscall_marker;
 #endif
 };
 
 /****************************************************************************
+ * Private Function Prototypes
+ ****************************************************************************/
+
+static void note_sysview_start(FAR struct note_driver_s *drv,
+                               FAR struct tcb_s *tcb);
+static void note_sysview_stop(FAR struct note_driver_s *drv,
+                              FAR struct tcb_s *tcb);
+#ifdef CONFIG_SCHED_INSTRUMENTATION_SWITCH
+static void note_sysview_suspend(FAR struct note_driver_s *drv,
+                                 FAR struct tcb_s *tcb);
+static void note_sysview_resume(FAR struct note_driver_s *drv,
+                                FAR struct tcb_s *tcb);
+#endif
+#ifdef CONFIG_SCHED_INSTRUMENTATION_IRQHANDLER
+static void note_sysview_irqhandler(FAR struct note_driver_s *drv, int irq,
+                                    FAR void *handler, bool enter);
+#endif
+#ifdef CONFIG_SCHED_INSTRUMENTATION_SYSCALL
+static void note_sysview_syscall_enter(FAR struct note_driver_s *drv,
+                                       int nr, int argc, va_list *ap);
+static void note_sysview_syscall_leave(FAR struct note_driver_s *drv,
+                                       int nr, uintptr_t result);
+#endif
+
+/****************************************************************************
  * Private Data
  ****************************************************************************/
 
-static struct sysview_s g_sysview =
+static const struct note_driver_ops_s g_note_sysview_ops =
 {
-#ifdef CONFIG_SCHED_INSTRUMENTATION_FILTER
-  .mode =
-    {
-      .flag = CONFIG_SCHED_INSTRUMENTATION_FILTER_DEFAULT_MODE,
+  NULL,                       /* add */
+  note_sysview_start,         /* start */
+  note_sysview_stop,          /* stop */
+#ifdef CONFIG_SCHED_INSTRUMENTATION_SWITCH
+  note_sysview_suspend,       /* suspend */
+  note_sysview_resume,        /* resume */
+#endif
 #ifdef CONFIG_SMP
-      .cpuset = CONFIG_SCHED_INSTRUMENTATION_CPUSET,
+  NULL,                       /* cpu_start */
+  NULL,                       /* cpu_started */
+#  ifdef CONFIG_SCHED_INSTRUMENTATION_SWITCH
+  NULL,                       /* cpu_pause */
+  NULL,                       /* cpu_paused */
+  NULL,                       /* cpu_resume */
+  NULL,                       /* cpu_resumed */
+#  endif
 #endif
-    }
+#ifdef CONFIG_SCHED_INSTRUMENTATION_PREEMPTION
+  NULL,                       /* premption */
 #endif
+#ifdef CONFIG_SCHED_INSTRUMENTATION_CSECTION
+  NULL,                       /* csection */
+#endif
+#ifdef CONFIG_SCHED_INSTRUMENTATION_SPINLOCKS
+  NULL,                       /* spinlock */
+#endif
+#ifdef CONFIG_SCHED_INSTRUMENTATION_SYSCALL
+  note_sysview_syscall_enter, /* syscall_enter */
+  note_sysview_syscall_leave, /* syscall_leave */
+#endif
+#ifdef CONFIG_SCHED_INSTRUMENTATION_IRQHANDLER
+  note_sysview_irqhandler,    /* irqhandler */
+#endif
+};
+
+static struct note_sysview_driver_s g_note_sysview_driver =
+{
+  {
+    &g_note_sysview_ops
+  }
 };
 
 /****************************************************************************
@@ -75,40 +127,40 @@ static struct sysview_s g_sysview =
  ****************************************************************************/
 
 /****************************************************************************
- * Name: sysview_send_taskinfo
+ * Name: note_sysview_send_taskinfo
  ****************************************************************************/
 
-static void sysview_send_taskinfo(FAR struct tcb_s *tcb)
+static void note_sysview_send_taskinfo(FAR struct tcb_s *tcb)
 {
   SEGGER_SYSVIEW_TASKINFO info;
 
-  info.TaskID     = tcb->pid;
+  info.TaskID    = tcb->pid;
 #if CONFIG_TASK_NAME_SIZE > 0
-  info.sName      = tcb->name;
+  info.sName     = tcb->name;
 #else
-  info.sName      = "<noname>";
+  info.sName     = "<noname>";
 #endif
-  info.Prio       = tcb->sched_priority;
-  info.StackBase  = (uintptr_t)tcb->stack_base_ptr;
-  info.StackSize  = tcb->adj_stack_size;
+  info.Prio      = tcb->sched_priority;
+  info.StackBase = (uintptr_t)tcb->stack_base_ptr;
+  info.StackSize = tcb->adj_stack_size;
 
   SEGGER_SYSVIEW_SendTaskInfo(&info);
 }
 
 /****************************************************************************
- * Name: sysview_get_time
+ * Name: note_sysview_get_time
  ****************************************************************************/
 
-static uint64_t sysview_get_time(void)
+static uint64_t note_sysview_get_time(void)
 {
   return TICK2USEC(clock_systime_ticks());
 }
 
 /****************************************************************************
- * Name: sysview_send_tasklist
+ * Name: note_sysview_send_tasklist
  ****************************************************************************/
 
-static void sysview_send_tasklist(void)
+static void note_sysview_send_tasklist(void)
 {
   int i;
 
@@ -116,16 +168,16 @@ static void sysview_send_tasklist(void)
     {
       if (g_pidhash[i] != NULL)
         {
-          sysview_send_taskinfo(g_pidhash[i]);
+          note_sysview_send_taskinfo(g_pidhash[i]);
         }
     }
 }
 
 /****************************************************************************
- * Name: sysview_send_description
+ * Name: note_sysview_send_description
  ****************************************************************************/
 
-static void sysview_send_description(void)
+static void note_sysview_send_description(void)
 {
   SEGGER_SYSVIEW_SendSysDesc("N="SEGGER_SYSVIEW_APP_NAME);
   SEGGER_SYSVIEW_SendSysDesc("D="CONFIG_LIBC_HOSTNAME);
@@ -133,136 +185,7 @@ static void sysview_send_description(void)
 }
 
 /****************************************************************************
- * Name: sysview_isenabled
- *
- * Description:
- *   Check whether the instrumentation is enabled.
- *
- * Input Parameters:
- *   None
- *
- * Returned Value:
- *   True is returned if the instrumentation is enabled.
- *
- ****************************************************************************/
-
-static bool sysview_isenabled(void)
-{
-  bool enable;
-
-  enable = SEGGER_SYSVIEW_IsStarted();
-
-#if defined(CONFIG_SCHED_INSTRUMENTATION_FILTER) && defined(CONFIG_SMP)
-  /* Ignore notes that are not in the set of monitored CPUs */
-
-  if (enable && (g_sysview.mode.cpuset & (1 << this_cpu())) == 0)
-    {
-      /* Not in the set of monitored CPUs.  Do not log the note. */
-
-      return false;
-    }
-#endif
-
-#ifdef CONFIG_SCHED_INSTRUMENTATION_SYSCALL
-  /* Use the Syscall "0" to identify whether the syscall is enabled,
-   * if the host tool is closed abnormally, use this bit to clear
-   * the active set.
-   */
-
-  if (!enable &&
-      NOTE_FILTER_SYSCALLMASK_ISSET(0, &g_sysview.syscall_marker))
-    {
-      NOTE_FILTER_SYSCALLMASK_ZERO(&g_sysview.syscall_marker);
-    }
-#endif
-
-  return enable;
-}
-
-/****************************************************************************
- * Name: sysview_isenabled_irq
- *
- * Description:
- *   Check whether the interrupt handler instrumentation is enabled.
- *
- * Input Parameters:
- *   irq   - IRQ number
- *   enter - interrupt enter/leave flag
- *
- * Returned Value:
- *   True is returned if the instrumentation is enabled.
- *
- ****************************************************************************/
-
-#ifdef CONFIG_SCHED_INSTRUMENTATION_IRQHANDLER
-static bool sysview_isenabled_irq(int irq, bool enter)
-{
-#ifdef CONFIG_SCHED_INSTRUMENTATION_FILTER
-  if (!sysview_isenabled())
-    {
-      return false;
-    }
-
-  /* If the IRQ trace is disabled or the IRQ number is masked, disable
-   * subsequent syscall traces until leaving the interrupt handler
-   */
-
-  if ((g_sysview.mode.flag & NOTE_FILTER_MODE_FLAG_IRQ) == 0 ||
-      NOTE_FILTER_IRQMASK_ISSET(irq, &g_sysview.irq_mask))
-    {
-      return false;
-    }
-#endif
-
-  return true;
-}
-#endif
-
-/****************************************************************************
- * Name: sysview_isenabled_syscall
- *
- * Description:
- *   Check whether the syscall instrumentation is enabled.
- *
- * Input Parameters:
- *   nr - syscall number
- *
- * Returned Value:
- *   True is returned if the instrumentation is enabled.
- *
- ****************************************************************************/
-
-#ifdef CONFIG_SCHED_INSTRUMENTATION_SYSCALL
-static inline int sysview_isenabled_syscall(int nr)
-{
-#ifdef CONFIG_SCHED_INSTRUMENTATION_FILTER
-  if (!sysview_isenabled())
-    {
-      return false;
-    }
-
-  /* If the syscall trace is disabled or the syscall number is masked,
-   * do nothing.
-   */
-
-  if ((g_sysview.mode.flag & NOTE_FILTER_MODE_FLAG_SYSCALL) == 0 ||
-      NOTE_FILTER_SYSCALLMASK_ISSET(nr, &g_sysview.syscall_mask))
-    {
-      return false;
-    }
-#endif
-
-  return true;
-}
-#endif
-
-/****************************************************************************
- * Public Functions
- ****************************************************************************/
-
-/****************************************************************************
- * Name: sched_note_start, sched_note_stop, sched_note_switch,
- *       sched_note_premption
+ * Name: note_sysview_*
  *
  * Description:
  *   Hooks to scheduler monitor
@@ -275,51 +198,35 @@ static inline int sysview_isenabled_syscall(int nr)
  *
  ****************************************************************************/
 
-void sched_note_start(FAR struct tcb_s *tcb)
+static void note_sysview_start(FAR struct note_driver_s *drv,
+                               FAR struct tcb_s *tcb)
 {
-  if (!sysview_isenabled())
-    {
-      return;
-    }
-
   SEGGER_SYSVIEW_OnTaskCreate(tcb->pid);
-  sysview_send_taskinfo(tcb);
+  note_sysview_send_taskinfo(tcb);
 }
 
-void sched_note_stop(FAR struct tcb_s *tcb)
+static void note_sysview_stop(FAR struct note_driver_s *drv,
+                              FAR struct tcb_s *tcb)
 {
-  if (!sysview_isenabled())
-    {
-      return;
-    }
-
   SEGGER_SYSVIEW_OnTaskTerminate(tcb->pid);
 }
 
 #ifdef CONFIG_SCHED_INSTRUMENTATION_SWITCH
-void sched_note_suspend(FAR struct tcb_s *tcb)
+static void note_sysview_suspend(FAR struct note_driver_s *drv,
+                                 FAR struct tcb_s *tcb)
 {
-  if (!sysview_isenabled())
-    {
-      return;
-    }
-
   if (!up_interrupt_context())
     {
       SEGGER_SYSVIEW_OnTaskStopExec();
     }
 }
 
-void sched_note_resume(FAR struct tcb_s *tcb)
+static void note_sysview_resume(FAR struct note_driver_s *drv,
+                                FAR struct tcb_s *tcb)
 {
-  if (!sysview_isenabled())
-    {
-      return;
-    }
-
   if (!up_interrupt_context())
     {
-      if (tcb->flink == NULL)
+      if (is_idle_task(tcb))
         {
           SEGGER_SYSVIEW_OnIdle();
         }
@@ -332,16 +239,15 @@ void sched_note_resume(FAR struct tcb_s *tcb)
 #endif
 
 #ifdef CONFIG_SCHED_INSTRUMENTATION_IRQHANDLER
-void sched_note_irqhandler(int irq, FAR void *handler, bool enter)
+static void note_sysview_irqhandler(FAR struct note_driver_s *drv, int irq,
+                                    FAR void *handler, bool enter)
 {
-  if (!sysview_isenabled_irq(irq, enter))
-    {
-      return;
-    }
+  FAR struct note_sysview_driver_s *driver =
+      (FAR struct note_sysview_driver_s *)drv;
 
   if (enter)
     {
-      g_sysview.irq[up_cpu_index()] = irq;
+      driver->irq[up_cpu_index()] = irq;
 
       SEGGER_SYSVIEW_OnTaskStopExec();
       SEGGER_SYSVIEW_RecordEnterISR();
@@ -354,7 +260,7 @@ void sched_note_irqhandler(int irq, FAR void *handler, bool enter)
         {
           FAR struct tcb_s *tcb = this_task();
 
-          if (tcb && tcb->flink != NULL)
+          if (tcb && !is_idle_task(tcb))
             {
               SEGGER_SYSVIEW_OnTaskStartExec(tcb->pid);
             }
@@ -364,24 +270,22 @@ void sched_note_irqhandler(int irq, FAR void *handler, bool enter)
             }
         }
 
-      g_sysview.irq[up_cpu_index()] = 0;
+      driver->irq[up_cpu_index()] = 0;
     }
 }
 #endif
 
 #ifdef CONFIG_SCHED_INSTRUMENTATION_SYSCALL
-void sched_note_syscall_enter(int nr, int argc, ...)
+static void note_sysview_syscall_enter(FAR struct note_driver_s *drv, int nr,
+                                       int argc, va_list *ap)
 {
+  FAR struct note_sysview_driver_s *driver =
+      (FAR struct note_sysview_driver_s *)drv;
   nr -= CONFIG_SYS_RESERVED;
-
-  if (sysview_isenabled_syscall(nr) == 0)
-    {
-      return;
-    }
 
   /* Set the name marker if the current syscall nr is not active */
 
-  if (NOTE_FILTER_SYSCALLMASK_ISSET(nr, &g_sysview.syscall_marker) == 0)
+  if (NOTE_FILTER_SYSCALLMASK_ISSET(nr, &driver->syscall_marker) == 0)
     {
       /* Set the name marker */
 
@@ -389,32 +293,30 @@ void sched_note_syscall_enter(int nr, int argc, ...)
 
       /* Mark the syscall active */
 
-      NOTE_FILTER_SYSCALLMASK_SET(nr, &g_sysview.syscall_marker);
+      NOTE_FILTER_SYSCALLMASK_SET(nr, &driver->syscall_marker);
 
       /* Use the Syscall "0" to identify whether the syscall is enabled,
        * if the host tool is closed abnormally, use this bit to clear
        * the active set.
        */
 
-      if (NOTE_FILTER_SYSCALLMASK_ISSET(0, &g_sysview.syscall_marker) == 0)
+      if (NOTE_FILTER_SYSCALLMASK_ISSET(0, &driver->syscall_marker) == 0)
         {
-          NOTE_FILTER_SYSCALLMASK_SET(0, &g_sysview.syscall_marker);
+          NOTE_FILTER_SYSCALLMASK_SET(0, &driver->syscall_marker);
         }
     }
 
   SEGGER_SYSVIEW_MarkStart(nr);
 }
 
-void sched_note_syscall_leave(int nr, uintptr_t result)
+static void note_sysview_syscall_leave(FAR struct note_driver_s *drv,
+                                       int nr, uintptr_t result)
 {
+  FAR struct note_sysview_driver_s *driver =
+      (FAR struct note_sysview_driver_s *)drv;
   nr -= CONFIG_SYS_RESERVED;
 
-  if (sysview_isenabled_syscall(nr) == 0)
-    {
-      return;
-    }
-
-  if (NOTE_FILTER_SYSCALLMASK_ISSET(nr, &g_sysview.syscall_marker) != 0)
+  if (NOTE_FILTER_SYSCALLMASK_ISSET(nr, &driver->syscall_marker) != 0)
     {
       SEGGER_SYSVIEW_MarkStop(nr);
     }
@@ -422,33 +324,37 @@ void sched_note_syscall_leave(int nr, uintptr_t result)
 #endif
 
 /****************************************************************************
- * Name: sysview_get_interrupt_id
+ * Public Functions
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: note_sysview_get_interrupt_id
  *
  * Description:
  *   Retrieve the Id of the currently active interrupt.
  *
  ****************************************************************************/
 
-unsigned int sysview_get_interrupt_id(void)
+unsigned int note_sysview_get_interrupt_id(void)
 {
-  return g_sysview.irq[up_cpu_index()];
+  return g_note_sysview_driver.irq[up_cpu_index()];
 }
 
 /****************************************************************************
- * Name: sysview_get_timestamp
+ * Name: note_sysview_get_timestamp
  *
  * Description:
  *   Retrieve a system timestamp for SYSVIEW events.
  *
  ****************************************************************************/
 
-unsigned int sysview_get_timestamp(void)
+unsigned long note_sysview_get_timestamp(void)
 {
   return up_perf_gettime();
 }
 
 /****************************************************************************
- * Name: sysview_initialize
+ * Name: note_sysview_initialize
  *
  * Description:
  *   Initializes the SYSVIEW module.
@@ -461,192 +367,34 @@ unsigned int sysview_get_timestamp(void)
  *
  ****************************************************************************/
 
-int sysview_initialize(void)
+int note_sysview_initialize(void)
 {
-  uint32_t freq = up_perf_getfreq();
+  unsigned long freq = up_perf_getfreq();
+  int ret;
 
   static const SEGGER_SYSVIEW_OS_API g_sysview_trace_api =
     {
-      sysview_get_time,
-      sysview_send_tasklist,
+      note_sysview_get_time,
+      note_sysview_send_tasklist,
     };
 
+  if (freq == 0)
+    {
+      syslog(LOG_ERR, "up_perf isn't initialized, sysview isn't available");
+      PANIC();
+    }
+
   SEGGER_SYSVIEW_Init(freq, freq, &g_sysview_trace_api,
-                      sysview_send_description);
+                      note_sysview_send_description);
 
 #if CONFIG_SEGGER_SYSVIEW_RAM_BASE != 0
   SEGGER_SYSVIEW_SetRAMBase(CONFIG_SEGGER_SYSVIEW_RAM_BASE);
 #endif
 
-#ifdef CONFIG_SCHED_INSTRUMENTATION_FILTER
-  if ((g_sysview.mode.flag & NOTE_FILTER_MODE_FLAG_ENABLE) != 0)
-#endif
-    {
-      SEGGER_SYSVIEW_Start();
-    }
-
+  SEGGER_SYSVIEW_Start();
+  ret = note_driver_register(&g_note_sysview_driver.driver);
   syslog(LOG_NOTICE, "SEGGER RTT Control Block Address: %#" PRIxPTR "\n",
                       (uintptr_t)&_SEGGER_RTT +
                       CONFIG_SEGGER_RTT_UNCACHED_OFF);
-  return 0;
+  return ret;
 }
-
-#ifdef CONFIG_SCHED_INSTRUMENTATION_FILTER
-
-/****************************************************************************
- * Name: sched_note_filter_mode
- *
- * Description:
- *   Set and get note filter mode.
- *   (Same as NOTECTL_GETMODE / NOTECTL_SETMODE ioctls)
- *
- * Input Parameters:
- *   oldm - A writable pointer to struct note_filter_mode_s to get current
- *          filter mode
- *          If 0, no data is written.
- *   newm - A read-only pointer to struct note_filter_mode_s which holds the
- *          new filter mode
- *          If 0, the filter mode is not updated.
- *
- * Returned Value:
- *   None
- *
- ****************************************************************************/
-
-void sched_note_filter_mode(struct note_filter_mode_s *oldm,
-                            struct note_filter_mode_s *newm)
-{
-  irqstate_t flags;
-
-  flags = spin_lock_irqsave(NULL);
-
-  if (oldm != NULL)
-    {
-      if (SEGGER_SYSVIEW_IsStarted())
-        {
-          g_sysview.mode.flag |= NOTE_FILTER_MODE_FLAG_ENABLE;
-        }
-      else
-        {
-          g_sysview.mode.flag &= ~NOTE_FILTER_MODE_FLAG_ENABLE;
-        }
-
-      *oldm = g_sysview.mode;
-    }
-
-  if (newm != NULL)
-    {
-      g_sysview.mode = *newm;
-
-      if ((g_sysview.mode.flag & NOTE_FILTER_MODE_FLAG_ENABLE) != 0)
-        {
-          if (!SEGGER_SYSVIEW_IsStarted())
-            {
-              SEGGER_SYSVIEW_Start();
-            }
-        }
-      else
-        {
-          if (SEGGER_SYSVIEW_IsStarted())
-            {
-              SEGGER_SYSVIEW_Stop();
-            }
-        }
-    }
-
-  spin_unlock_irqrestore(NULL, flags);
-}
-
-/****************************************************************************
- * Name: sched_note_filter_irq
- *
- * Description:
- *   Set and get IRQ filter setting
- *   (Same as NOTECTL_GETIRQFILTER / NOTECTL_SETIRQFILTER ioctls)
- *
- * Input Parameters:
- *   oldf - A writable pointer to struct note_filter_irq_s to get
- *          current IRQ filter setting
- *          If 0, no data is written.
- *   newf - A read-only pointer to struct note_filter_irq_s of the new
- *          IRQ filter setting
- *          If 0, the setting is not updated.
- *
- * Returned Value:
- *   None
- *
- ****************************************************************************/
-
-#ifdef CONFIG_SCHED_INSTRUMENTATION_IRQHANDLER
-void sched_note_filter_irq(struct note_filter_irq_s *oldf,
-                           struct note_filter_irq_s *newf)
-{
-  irqstate_t flags;
-
-  flags = spin_lock_irqsave(NULL);
-
-  if (oldf != NULL)
-    {
-      /* Return the current filter setting */
-
-      *oldf = g_sysview.irq_mask;
-    }
-
-  if (newf != NULL)
-    {
-      /* Replace the syscall filter mask by the provided setting */
-
-      g_sysview.irq_mask = *newf;
-    }
-
-  spin_unlock_irqrestore(NULL, flags);
-}
-#endif
-
-/****************************************************************************
- * Name: sched_note_filter_syscall
- *
- * Description:
- *   Set and get syscall filter setting
- *   (Same as NOTECTL_GETSYSCALLFILTER / NOTECTL_SETSYSCALLFILTER ioctls)
- *
- * Input Parameters:
- *   oldf - A writable pointer to struct note_filter_syscall_s to get
- *          current syscall filter setting
- *          If 0, no data is written.
- *   newf - A read-only pointer to struct note_filter_syscall_s of the
- *          new syscall filter setting
- *          If 0, the setting is not updated.
- *
- * Returned Value:
- *   None
- *
- ****************************************************************************/
-
-#ifdef CONFIG_SCHED_INSTRUMENTATION_SYSCALL
-void sched_note_filter_syscall(struct note_filter_syscall_s *oldf,
-                               struct note_filter_syscall_s *newf)
-{
-  irqstate_t flags;
-
-  flags = spin_lock_irqsave(NULL);
-
-  if (oldf != NULL)
-    {
-      /* Return the current filter setting */
-
-      *oldf = g_sysview.syscall_mask;
-    }
-
-  if (newf != NULL)
-    {
-      /* Replace the syscall filter mask by the provided setting */
-
-      g_sysview.syscall_mask = *newf;
-    }
-
-  spin_unlock_irqrestore(NULL, flags);
-}
-#endif
-
-#endif /* CONFIG_SCHED_INSTRUMENTATION_FILTER */

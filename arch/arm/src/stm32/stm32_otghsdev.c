@@ -24,6 +24,7 @@
 
 #include <nuttx/config.h>
 
+#include <sys/param.h>
 #include <sys/types.h>
 #include <inttypes.h>
 #include <stdint.h>
@@ -46,6 +47,7 @@
 #include "chip.h"
 #include "arm_internal.h"
 #include "stm32_otghs.h"
+#include "stm32_rcc.h"
 
 #if defined(CONFIG_USBDEV) && (defined(CONFIG_STM32_OTGHS))
 
@@ -226,10 +228,6 @@
 
 /* Endpoints ****************************************************************/
 
-/* Number of endpoints */
-
-#define STM32_NENDPOINTS             (4)          /* ep0-3 x 2 for IN and OUT */
-
 /* Odd physical endpoint numbers are IN; even are OUT */
 
 #define STM32_EPPHYIN2LOG(epphy)     ((uint8_t)(epphy)|USB_DIR_IN)
@@ -256,16 +254,6 @@
 
 #define stm32_rqempty(ep)            ((ep)->head == NULL)
 #define stm32_rqpeek(ep)             ((ep)->head)
-
-/* Standard stuff ***********************************************************/
-
-#ifndef MIN
-#  define MIN(a,b) ((a) < (b) ? (a) : (b))
-#endif
-
-#ifndef MAX
-#  define MAX(a,b) ((a) > (b) ? (a) : (b))
-#endif
 
 /****************************************************************************
  * Private Types
@@ -467,8 +455,8 @@ struct stm32_usbdev_s
 static uint32_t    stm32_getreg(uint32_t addr);
 static void        stm32_putreg(uint32_t val, uint32_t addr);
 #else
-# define stm32_getreg(addr)     getreg32(addr)
-# define stm32_putreg(val,addr) putreg32(val,addr)
+#  define stm32_getreg(addr)     getreg32(addr)
+#  define stm32_putreg(val,addr) putreg32(val,addr)
 #endif
 
 /* Request queue operations *************************************************/
@@ -1340,6 +1328,19 @@ static void stm32_epin_request(struct stm32_usbdev_s *priv,
           empmsk |= OTGHS_DIEPEMPMSK(privep->epphy);
           stm32_putreg(empmsk, STM32_OTGHS_DIEPEMPMSK);
 
+#ifdef CONFIG_DEBUG_FEATURES
+          /* Check if the configured TXFIFO size is sufficient for a given
+           * request. If not, raise an assertion here.
+           */
+
+          regval = stm32_getreg(STM32_OTGHS_DIEPTXF(privep->epphy));
+          regval &= OTGHS_DIEPTXF_INEPTXFD_MASK;
+          regval >>= OTGHS_DIEPTXF_INEPTXFD_SHIFT;
+          uerr("EP%" PRId8 " TXLEN=%" PRId32 " nwords=%d\n",
+               privep->epphy, regval, nwords);
+          DEBUGASSERT(regval >= nwords);
+#endif
+
           /* Terminate the transfer.  We will try again when the TxFIFO empty
            * interrupt is received.
            */
@@ -1529,8 +1530,8 @@ static inline void stm32_ep0out_receive(struct stm32_ep_s *privep,
 
   /* Sanity Checking */
 
-  DEBUGASSERT(privep && privep->ep.priv);
-  priv = (struct stm32_usbdev_s *)privep->ep.priv;
+  DEBUGASSERT(privep && privep->dev);
+  priv = (struct stm32_usbdev_s *)privep->dev;
 
   uinfo("EP0: bcnt=%d\n", bcnt);
   usbtrace(TRACE_READ(EP0), bcnt);
@@ -4316,7 +4317,7 @@ static struct usbdev_req_s *stm32_ep_allocreq(struct usbdev_ep_s *ep)
 
   usbtrace(TRACE_EPALLOCREQ, ((struct stm32_ep_s *)ep)->epphy);
 
-  privreq = (struct stm32_req_s *)kmm_malloc(sizeof(struct stm32_req_s));
+  privreq = kmm_malloc(sizeof(struct stm32_req_s));
   if (!privreq)
     {
       usbtrace(TRACE_DEVERROR(STM32_TRACEERR_ALLOCFAIL), 0);
@@ -5146,9 +5147,6 @@ static void stm32_swinitialize(struct stm32_usbdev_s *priv)
 
   priv->epavail[0] = STM32_EP_AVAILABLE;
   priv->epavail[1] = STM32_EP_AVAILABLE;
-
-  priv->epin[EP0].ep.priv  = priv;
-  priv->epout[EP0].ep.priv = priv;
 
   /* Initialize the endpoint lists */
 

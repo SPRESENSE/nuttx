@@ -31,6 +31,8 @@
 #include <errno.h>
 #include <debug.h>
 
+#include <sys/param.h>
+
 #include <nuttx/fs/fs.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/mtd/mtd.h>
@@ -49,18 +51,10 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-#define ARRAYSIZE(x)                (sizeof((x)) / sizeof((x)[0]))
-
 #ifdef CONFIG_ESP32_OTA_PARTITION_ENCRYPT
 #  define OTA_ENCRYPT true
 #else
 #  define OTA_ENCRYPT false
-#endif
-
-#ifdef CONFIG_ESP32_WIFI_MTD_ENCRYPT
-#  define WIFI_ENCRYPT true
-#else
-#  define WIFI_ENCRYPT false
 #endif
 
 #ifdef CONFIG_ESP32_STORAGE_MTD_ENCRYPT
@@ -128,7 +122,7 @@ static int init_ota_partitions(void)
 #endif
   int ret = OK;
 
-  for (int i = 0; i < ARRAYSIZE(g_ota_partition_table); ++i)
+  for (int i = 0; i < nitems(g_ota_partition_table); ++i)
     {
       const struct ota_partition_s *part = &g_ota_partition_table[i];
       mtd = esp32_spiflash_alloc_mtdpart(part->offset, part->size,
@@ -352,72 +346,6 @@ static int setup_nxffs(struct mtd_dev_s *mtd, const char *mnt_pt)
 #endif
 
 /****************************************************************************
- * Name: init_wifi_partition
- *
- * Description:
- *   Initialize partition that is dedicated to Wi-Fi.
- *
- * Returned Value:
- *   Zero on success; a negated errno value on failure.
- *
- ****************************************************************************/
-
-#ifdef CONFIG_ESP32_WIFI_SAVE_PARAM
-static int init_wifi_partition(void)
-{
-  int ret = OK;
-  struct mtd_dev_s *mtd;
-
-  mtd = esp32_spiflash_alloc_mtdpart(CONFIG_ESP32_WIFI_MTD_OFFSET,
-                                     CONFIG_ESP32_WIFI_MTD_SIZE,
-                                     WIFI_ENCRYPT);
-  if (!mtd)
-    {
-      ferr("ERROR: Failed to alloc MTD partition of SPI Flash\n");
-      return -ENOMEM;
-    }
-
-#ifdef CONFIG_ESP32_SPIFLASH_SMARTFS
-
-  ret = setup_smartfs(1, mtd, CONFIG_ESP32_WIFI_FS_MOUNTPT);
-  if (ret < 0)
-    {
-      ferr("ERROR: Failed to setup smartfs\n");
-      return ret;
-    }
-
-#elif defined(CONFIG_ESP32_SPIFLASH_LITTLEFS)
-
-  const char *path = "/dev/mtdblock1";
-  ret = setup_littlefs(path, mtd, CONFIG_ESP32_WIFI_FS_MOUNTPT, 0777);
-  if (ret < 0)
-    {
-      ferr("ERROR: Failed to setup littlefs\n");
-      return ret;
-    }
-
-#elif defined(CONFIG_ESP32_SPIFLASH_SPIFFS)
-
-  const char *path = "/dev/mtdblock1";
-  ret = setup_spiffs(path, mtd, CONFIG_ESP32_WIFI_FS_MOUNTPT, 0777);
-  if (ret < 0)
-    {
-      ferr("ERROR: Failed to setup spiffs\n");
-      return ret;
-    }
-
-#else
-
-    ferr("ERROR: No supported FS selected. Wi-Fi partition "
-         "should be mounted before Wi-Fi initialization\n");
-
-#endif
-
-  return ret;
-}
-#endif
-
-/****************************************************************************
  * Name: init_storage_partition
  *
  * Description:
@@ -444,7 +372,7 @@ static int init_storage_partition(void)
 
 #ifdef CONFIG_ESP32_SPIFLASH_SMARTFS
 
-  ret = setup_smartfs(0, mtd, NULL);
+  ret = setup_smartfs(0, mtd, "/data");
   if (ret < 0)
     {
       ferr("ERROR: Failed to setup smartfs\n");
@@ -453,7 +381,7 @@ static int init_storage_partition(void)
 
 #elif defined(CONFIG_ESP32_SPIFLASH_NXFFS)
 
-  ret = setup_nxffs(mtd, "/mnt");
+  ret = setup_nxffs(mtd, "/data");
   if (ret < 0)
     {
       ferr("ERROR: Failed to setup nxffs\n");
@@ -463,7 +391,7 @@ static int init_storage_partition(void)
 #elif defined(CONFIG_ESP32_SPIFLASH_LITTLEFS)
 
   const char *path = "/dev/esp32flash";
-  ret = setup_littlefs(path, mtd, NULL, 0755);
+  ret = setup_littlefs(path, mtd, "/data", 0755);
   if (ret < 0)
     {
       ferr("ERROR: Failed to setup littlefs\n");
@@ -473,7 +401,7 @@ static int init_storage_partition(void)
 #elif defined(CONFIG_ESP32_SPIFLASH_SPIFFS)
 
   const char *path = "/dev/esp32flash";
-  ret = setup_spiffs(path, mtd, NULL, 0755);
+  ret = setup_spiffs(path, mtd, "/data", 0755);
   if (ret < 0)
     {
       ferr("ERROR: Failed to setup spiffs\n");
@@ -519,14 +447,6 @@ int esp32_spiflash_init(void)
 
 #ifdef CONFIG_ESP32_HAVE_OTA_PARTITION
   ret = init_ota_partitions();
-  if (ret < 0)
-    {
-      return ret;
-    }
-#endif
-
-#ifdef CONFIG_ESP32_WIFI_SAVE_PARAM
-  ret = init_wifi_partition();
   if (ret < 0)
     {
       return ret;

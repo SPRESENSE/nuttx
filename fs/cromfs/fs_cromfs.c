@@ -40,7 +40,6 @@
 
 #include <nuttx/kmalloc.h>
 #include <nuttx/fs/fs.h>
-#include <nuttx/fs/dirent.h>
 #include <nuttx/fs/ioctl.h>
 
 #include "cromfs.h"
@@ -56,6 +55,13 @@
 /****************************************************************************
  * Private Types
  ****************************************************************************/
+
+struct cromfs_dir_s
+{
+  struct fs_dirent_s cr_base; /* VFS directory structure */
+  uint32_t cr_firstoffset;    /* Offset to the first entry in the directory */
+  uint32_t cr_curroffset;     /* Current offset into the directory contents */
+};
 
 /* This structure represents an open, regular file */
 
@@ -142,9 +148,12 @@ static int      cromfs_fstat(FAR const struct file *filep,
                   FAR struct stat *buf);
 
 static int      cromfs_opendir(FAR struct inode *mountpt,
-                  FAR const char *relpath, FAR struct fs_dirent_s *dir);
-static int      cromfs_readdir(FAR struct inode *mountpt,
+                  FAR const char *relpath, FAR struct fs_dirent_s **dir);
+static int      cromfs_closedir(FAR struct inode *mountpt,
                   FAR struct fs_dirent_s *dir);
+static int      cromfs_readdir(FAR struct inode *mountpt,
+                  FAR struct fs_dirent_s *dir,
+                  FAR struct dirent *entry);
 static int      cromfs_rewinddir(FAR struct inode *mountpt,
                   FAR struct fs_dirent_s *dir);
 
@@ -167,7 +176,7 @@ static int      cromfs_stat(FAR struct inode *mountpt,
  * with any compiler.
  */
 
-const struct mountpt_operations cromfs_operations =
+const struct mountpt_operations g_cromfs_operations =
 {
   cromfs_open,       /* open */
   cromfs_close,      /* close */
@@ -175,15 +184,16 @@ const struct mountpt_operations cromfs_operations =
   NULL,              /* write */
   NULL,              /* seek */
   cromfs_ioctl,      /* ioctl */
+  NULL,              /* mmap */
+  NULL,              /* truncate */
 
   NULL,              /* sync */
   cromfs_dup,        /* dup */
   cromfs_fstat,      /* fstat */
   NULL,              /* fchstat */
-  NULL,              /* truncate */
 
   cromfs_opendir,    /* opendir */
-  NULL,              /* closedir */
+  cromfs_closedir,   /* closedir */
   cromfs_readdir,    /* readdir */
   cromfs_rewinddir,  /* rewinddir */
 
@@ -726,7 +736,7 @@ static int cromfs_open(FAR struct file *filep, FAR const char *relpath,
 
   /* Sanity checks */
 
-  DEBUGASSERT(filep->f_priv == NULL && filep->f_inode != NULL);
+  DEBUGASSERT(filep->f_priv == NULL);
 
   /* Get the mountpoint inode reference from the file structure and the
    * volume private data from the inode structure
@@ -770,7 +780,7 @@ static int cromfs_open(FAR struct file *filep, FAR const char *relpath,
    * file.
    */
 
-  ff = (FAR struct cromfs_file_s *)kmm_zalloc(sizeof(struct cromfs_file_s));
+  ff = kmm_zalloc(sizeof(struct cromfs_file_s));
   if (ff == NULL)
     {
       return -ENOMEM;
@@ -778,7 +788,7 @@ static int cromfs_open(FAR struct file *filep, FAR const char *relpath,
 
   /* Create a file buffer to support partial sector accesses */
 
-  ff->ff_buffer = (FAR uint8_t *)kmm_malloc(fs->cv_bsize);
+  ff->ff_buffer = kmm_malloc(fs->cv_bsize);
   if (!ff->ff_buffer)
     {
       kmm_free(ff);
@@ -805,7 +815,7 @@ static int cromfs_close(FAR struct file *filep)
   FAR struct cromfs_file_s *ff;
 
   finfo("Closing\n");
-  DEBUGASSERT(filep->f_priv != NULL && filep->f_inode != NULL);
+  DEBUGASSERT(filep->f_priv != NULL);
 
   /* Get the open file instance from the file structure */
 
@@ -843,7 +853,7 @@ static ssize_t cromfs_read(FAR struct file *filep, FAR char *buffer,
   unsigned int copyoffs;
 
   finfo("Read %zu bytes from offset %jd\n", buflen, (intmax_t)filep->f_pos);
-  DEBUGASSERT(filep->f_priv != NULL && filep->f_inode != NULL);
+  DEBUGASSERT(filep->f_priv != NULL);
 
   /* Get the mountpoint inode reference from the file structure and the
    * volume private data from the inode structure
@@ -1087,7 +1097,7 @@ static int cromfs_dup(FAR const struct file *oldp, FAR struct file *newp)
 
   /* Recover our private data from the struct file instance */
 
-  fs = (FAR struct cromfs_volume_s *)oldp->f_inode->i_private;
+  fs = oldp->f_inode->i_private;
   DEBUGASSERT(fs != NULL);
 
   /* Get the open file instance from the file structure */
@@ -1107,7 +1117,7 @@ static int cromfs_dup(FAR const struct file *oldp, FAR struct file *newp)
 
   /* Create a file buffer to support partial sector accesses */
 
-  newff->ff_buffer = (FAR uint8_t *)kmm_malloc(fs->cv_bsize);
+  newff->ff_buffer = kmm_malloc(fs->cv_bsize);
   if (newff->ff_buffer == NULL)
     {
       kmm_free(newff);
@@ -1143,7 +1153,7 @@ static int cromfs_fstat(FAR const struct file *filep, FAR struct stat *buf)
 
   /* Sanity checks */
 
-  DEBUGASSERT(filep->f_priv == NULL && filep->f_inode != NULL);
+  DEBUGASSERT(filep->f_priv != NULL);
 
   /* Get the mountpoint inode reference from the file structure and the
    * volume private data from the inode structure
@@ -1180,9 +1190,10 @@ static int cromfs_fstat(FAR const struct file *filep, FAR struct stat *buf)
  ****************************************************************************/
 
 static int cromfs_opendir(FAR struct inode *mountpt, FAR const char *relpath,
-                          FAR struct fs_dirent_s *dir)
+                          FAR struct fs_dirent_s **dir)
 {
   FAR const struct cromfs_volume_s *fs;
+  FAR struct cromfs_dir_s *cdir;
   FAR struct cromfs_nodeinfo_s info;
   uint32_t offset;
   int ret;
@@ -1216,11 +1227,33 @@ static int cromfs_opendir(FAR struct inode *mountpt, FAR const char *relpath,
       return -ENOTDIR;
     }
 
+  cdir = kmm_zalloc(sizeof(*cdir));
+  if (cdir == NULL)
+    {
+      return -ENOMEM;
+    }
+
   /* Set the start node and next node to the first entry in the directory */
 
-  dir->u.cromfs.cr_firstoffset = info.ci_child;
-  dir->u.cromfs.cr_curroffset  = info.ci_child;
+  cdir->cr_firstoffset = info.ci_child;
+  cdir->cr_curroffset  = info.ci_child;
+  *dir = &cdir->cr_base;
   return OK;
+}
+
+/****************************************************************************
+ * Name: cromfs_closedir
+ *
+ * Description: close directory.
+ *
+ ****************************************************************************/
+
+static int cromfs_closedir(FAR struct inode *mountpt,
+                           FAR struct fs_dirent_s *dir)
+{
+  DEBUGASSERT(mountpt != NULL);
+  kmm_free(dir);
+  return 0;
 }
 
 /****************************************************************************
@@ -1230,10 +1263,13 @@ static int cromfs_opendir(FAR struct inode *mountpt, FAR const char *relpath,
  *
  ****************************************************************************/
 
-static int cromfs_readdir(struct inode *mountpt, struct fs_dirent_s *dir)
+static int cromfs_readdir(FAR struct inode *mountpt,
+                          FAR struct fs_dirent_s *dir,
+                          FAR struct dirent *entry)
 {
   FAR const struct cromfs_volume_s *fs;
   FAR const struct cromfs_node_s *node;
+  FAR struct cromfs_dir_s *cdir;
   struct cromfs_node_s newnode;
   FAR char *name;
   uint32_t offset;
@@ -1248,10 +1284,11 @@ static int cromfs_readdir(struct inode *mountpt, struct fs_dirent_s *dir)
   /* Recover our private data from the inode instance */
 
   fs = mountpt->i_private;
+  cdir = (FAR struct cromfs_dir_s *)dir;
 
   /* Have we reached the end of the directory */
 
-  offset = dir->u.cromfs.cr_curroffset;
+  offset = cdir->cr_curroffset;
   if (offset == 0)
     {
       /* We signal the end of the directory by returning the
@@ -1289,53 +1326,53 @@ static int cromfs_readdir(struct inode *mountpt, struct fs_dirent_s *dir)
 
   name = (FAR char *)cromfs_offset2addr(fs, node->cn_name);
   finfo("Entry %" PRIu32 ": %s\n", offset, name);
-  strlcpy(dir->fd_dir.d_name, name, sizeof(dir->fd_dir.d_name));
+  strlcpy(entry->d_name, name, sizeof(entry->d_name));
 
   switch (node->cn_mode & S_IFMT)
     {
       case S_IFDIR:  /* Directory */
-        dir->fd_dir.d_type = DTYPE_DIRECTORY;
+        entry->d_type = DTYPE_DIRECTORY;
         break;
 
       case S_IFREG:  /* Regular file */
-        dir->fd_dir.d_type = DTYPE_FILE;
+        entry->d_type = DTYPE_FILE;
         break;
 
       case S_IFIFO:  /* FIFO */
-        dir->fd_dir.d_type = DTYPE_FIFO;
+        entry->d_type = DTYPE_FIFO;
         break;
 
       case S_IFCHR:  /* Character driver */
-        dir->fd_dir.d_type = DTYPE_CHR;
+        entry->d_type = DTYPE_CHR;
         break;
 
       case S_IFBLK:  /* Block driver */
-        dir->fd_dir.d_type = DTYPE_BLK;
+        entry->d_type = DTYPE_BLK;
         break;
 
       case S_IFMQ:   /* Message queue */
-        dir->fd_dir.d_type = DTYPE_MQ;
+        entry->d_type = DTYPE_MQ;
         break;
 
       case S_IFSEM:  /* Semaphore */
-        dir->fd_dir.d_type = DTYPE_SEM;
+        entry->d_type = DTYPE_SEM;
         break;
 
       case S_IFSHM:  /* Shared memory */
-        dir->fd_dir.d_type = DTYPE_SHM;
+        entry->d_type = DTYPE_SHM;
         break;
 
       case S_IFMTD:  /* MTD driver */
-        dir->fd_dir.d_type = DTYPE_MTD;
+        entry->d_type = DTYPE_MTD;
         break;
 
       case S_IFSOCK: /* Socket */
-        dir->fd_dir.d_type = DTYPE_SOCK;
+        entry->d_type = DTYPE_SOCK;
         break;
 
       default:
         DEBUGPANIC();
-        dir->fd_dir.d_type = DTYPE_UNKNOWN;
+        entry->d_type = DTYPE_UNKNOWN;
         break;
     }
 
@@ -1343,7 +1380,7 @@ static int cromfs_readdir(struct inode *mountpt, struct fs_dirent_s *dir)
    * standard f_pos instead of our own private fb_index.
    */
 
-  dir->u.cromfs.cr_curroffset = node->cn_peer;
+  cdir->cr_curroffset = node->cn_peer;
   return OK;
 }
 
@@ -1354,11 +1391,15 @@ static int cromfs_readdir(struct inode *mountpt, struct fs_dirent_s *dir)
  *
  ****************************************************************************/
 
-static int cromfs_rewinddir(struct inode *mountpt, struct fs_dirent_s *dir)
+static int cromfs_rewinddir(FAR struct inode *mountpt,
+                            FAR struct fs_dirent_s *dir)
 {
+  FAR struct cromfs_dir_s *cdir;
+
   finfo("mountpt: %p dir: %p\n", mountpt, dir);
 
-  dir->u.cromfs.cr_curroffset  = dir->u.cromfs.cr_firstoffset;
+  cdir = (FAR struct cromfs_dir_s *)dir;
+  cdir->cr_curroffset = cdir->cr_firstoffset;
   return OK;
 }
 
@@ -1426,7 +1467,6 @@ static int cromfs_statfs(struct inode *mountpt, struct statfs *buf)
 
   /* Fill in the statfs info. */
 
-  memset(buf, 0, sizeof(struct statfs));
   buf->f_type    = CROMFS_MAGIC;
   buf->f_namelen = NAME_MAX;
   buf->f_bsize   = fs->cv_bsize;

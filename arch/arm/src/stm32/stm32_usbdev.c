@@ -29,6 +29,7 @@
 
 #include <nuttx/config.h>
 
+#include <sys/param.h>
 #include <sys/types.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -102,7 +103,6 @@
  * endpoint register sets there are.
  */
 
-#define STM32_NENDPOINTS      (8)
 #define EP0                   (0)
 #define EP1                   (1)
 #define EP2                   (2)
@@ -231,16 +231,6 @@
 #define STM32_TRACEINTID_WKUP               0x001e
 #define STM32_TRACEINTID_EP0SETUPOUT        0x001f
 #define STM32_TRACEINTID_EP0SETUPOUTDATA    0x0020
-
-/* Ever-present MIN and MAX macros */
-
-#ifndef MIN
-#  define MIN(a,b) (a < b ? a : b)
-#endif
-
-#ifndef MAX
-#  define MAX(a,b) (a > b ? a : b)
-#endif
 
 /* Byte ordering in host-based values */
 
@@ -379,10 +369,10 @@ static void stm32_putreg(uint16_t val, uint32_t addr);
 static void stm32_checksetup(void);
 static void stm32_dumpep(int epno);
 #else
-# define stm32_getreg(addr)      getreg16(addr)
-# define stm32_putreg(val,addr)  putreg16(val,addr)
-# define stm32_checksetup()
-# define stm32_dumpep(epno)
+#  define stm32_getreg(addr)     getreg16(addr)
+#  define stm32_putreg(val,addr) putreg16(val,addr)
+#  define stm32_checksetup()
+#  define stm32_dumpep(epno)
 #endif
 
 /* Low-Level Helpers ********************************************************/
@@ -406,8 +396,6 @@ static inline void
               stm32_seteptype(uint8_t epno, uint16_t type);
 static inline void
               stm32_seteptxaddr(uint8_t epno, uint16_t addr);
-static inline void
-              stm32_setstatusout(uint8_t epno);
 static inline void
               stm32_clrstatusout(uint8_t epno);
 static void   stm32_clrrxdtog(uint8_t epno);
@@ -919,26 +907,6 @@ static inline void stm32_seteptype(uint8_t epno, uint16_t type)
   regval &= EPR_NOTOG_MASK;
   regval &= ~USB_EPR_EPTYPE_MASK;
   regval |= type;
-  stm32_putreg(regval, epaddr);
-}
-
-/****************************************************************************
- * Name: stm32_setstatusout
- ****************************************************************************/
-
-static inline void stm32_setstatusout(uint8_t epno)
-{
-  uint32_t epaddr = STM32_USB_EPR(epno);
-  uint16_t regval;
-
-  /* For a BULK endpoint the EP_KIND bit is used to enabled double buffering;
-   * for a CONTROL endpoint, it is set to indicate that a status OUT
-   * transaction is expected.  The bit is not used with out endpoint types.
-   */
-
-  regval  = stm32_getreg(epaddr);
-  regval &= EPR_NOTOG_MASK;
-  regval |= USB_EPR_EP_KIND;
   stm32_putreg(regval, epaddr);
 }
 
@@ -2892,7 +2860,7 @@ static int stm32_epconfigure(struct usbdev_ep_s *ep,
   if (!ep || !desc)
     {
       usbtrace(TRACE_DEVERROR(STM32_TRACEERR_INVALIDPARMS), 0);
-      uerr("ERROR: ep=%p desc=%p\n");
+      uerr("ERROR: ep=%p desc=%p\n", ep, desc);
       return -EINVAL;
     }
 #endif
@@ -3029,7 +2997,7 @@ static struct usbdev_req_s *stm32_epallocreq(struct usbdev_ep_s *ep)
 #endif
   usbtrace(TRACE_EPALLOCREQ, USB_EPNO(ep->eplog));
 
-  privreq = (struct stm32_req_s *)kmm_malloc(sizeof(struct stm32_req_s));
+  privreq = kmm_malloc(sizeof(struct stm32_req_s));
   if (!privreq)
     {
       usbtrace(TRACE_DEVERROR(STM32_TRACEERR_ALLOCFAIL), 0);

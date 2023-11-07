@@ -38,6 +38,7 @@
 
 #include <nuttx/arch.h>
 #include <nuttx/kmalloc.h>
+#include <nuttx/mutex.h>
 #include <nuttx/semaphore.h>
 #include <nuttx/fs/fs.h>
 #include <nuttx/timers/pwm.h>
@@ -62,7 +63,7 @@ struct pwm_upperhalf_s
   volatile bool     waiting;        /* True: Caller is waiting for the pulse
                                      * count to expire */
 #endif
-  sem_t             exclsem;        /* Supports mutual exclusion */
+  mutex_t           lock;           /* Supports mutual exclusion */
 #ifdef CONFIG_PWM_PULSECOUNT
   sem_t             waitsem;        /* Used to wait for the pulse count to
                                      * expire */
@@ -100,10 +101,6 @@ static const struct file_operations g_pwmops =
   pwm_write, /* write */
   NULL,      /* seek */
   pwm_ioctl, /* ioctl */
-  NULL       /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL     /* unlink */
-#endif
 };
 
 /****************************************************************************
@@ -159,7 +156,7 @@ static int pwm_open(FAR struct file *filep)
 
   /* Get exclusive access to the device structures */
 
-  ret = nxsem_wait(&upper->exclsem);
+  ret = nxmutex_lock(&upper->lock);
   if (ret < 0)
     {
       goto errout;
@@ -176,7 +173,7 @@ static int pwm_open(FAR struct file *filep)
       /* More than 255 opens; uint8_t overflows to zero */
 
       ret = -EMFILE;
-      goto errout_with_sem;
+      goto errout_with_lock;
     }
 
   /* Check if this is the first time that the driver has been opened. */
@@ -193,7 +190,7 @@ static int pwm_open(FAR struct file *filep)
       ret = lower->ops->setup(lower);
       if (ret < 0)
         {
-          goto errout_with_sem;
+          goto errout_with_lock;
         }
     }
 
@@ -202,8 +199,8 @@ static int pwm_open(FAR struct file *filep)
   upper->crefs = tmp;
   ret = OK;
 
-errout_with_sem:
-  nxsem_post(&upper->exclsem);
+errout_with_lock:
+  nxmutex_unlock(&upper->lock);
 
 errout:
   return ret;
@@ -227,7 +224,7 @@ static int pwm_close(FAR struct file *filep)
 
   /* Get exclusive access to the device structures */
 
-  ret = nxsem_wait(&upper->exclsem);
+  ret = nxmutex_lock(&upper->lock);
   if (ret < 0)
     {
       goto errout;
@@ -258,7 +255,7 @@ static int pwm_close(FAR struct file *filep)
     }
 
   ret = OK;
-  nxsem_post(&upper->exclsem);
+  nxmutex_unlock(&upper->lock);
 
 errout:
   return ret;
@@ -429,7 +426,7 @@ static int pwm_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 
   /* Get exclusive access to the device structures */
 
-  ret = nxsem_wait(&upper->exclsem);
+  ret = nxmutex_lock(&upper->lock);
   if (ret < 0)
     {
       return ret;
@@ -440,9 +437,7 @@ static int pwm_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
   switch (cmd)
     {
       /* PWMIOC_SETCHARACTERISTICS - Set the characteristics of the next
-       *   pulsed output.  This command will neither start nor stop the
-       *   pulsed output.  It will either setup the configuration that will
-       *   be used when the output is started; or it will change the
+       *   pulsed output and start the pulsed output. It will change the
        *   characteristics of the pulsed output on the fly if the timer is
        *   already started.
        *
@@ -551,7 +546,7 @@ static int pwm_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
         break;
     }
 
-  nxsem_post(&upper->exclsem);
+  nxmutex_unlock(&upper->lock);
   return ret;
 }
 
@@ -602,15 +597,9 @@ int pwm_register(FAR const char *path, FAR struct pwm_lowerhalf_s *dev)
    * kmm_zalloc()).
    */
 
-  nxsem_init(&upper->exclsem, 0, 1);
+  nxmutex_init(&upper->lock);
 #ifdef CONFIG_PWM_PULSECOUNT
   nxsem_init(&upper->waitsem, 0, 0);
-
-  /* The wait semaphore is used for signaling and, hence, should not have
-   * priority inheritance enabled.
-   */
-
-  nxsem_set_protocol(&upper->waitsem, SEM_PRIO_NONE);
 #endif
 
   upper->dev = dev;

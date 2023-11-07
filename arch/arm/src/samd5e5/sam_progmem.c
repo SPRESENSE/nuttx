@@ -26,10 +26,12 @@
 
 #include <string.h>
 #include <semaphore.h>
+#include <sys/param.h>
 #include <assert.h>
 #include <errno.h>
 
 #include <nuttx/arch.h>
+#include <nuttx/mutex.h>
 #include <arch/samd5e5/chip.h>
 
 #include "arm_internal.h"
@@ -139,61 +141,16 @@
 
 #define SAMD5E5_PROGMEM_ERASEDVAL  (0xffu)
 
-/* Misc stuff */
-
-#ifndef MIN
-#  define MIN(a, b)              ((a) < (b) ? (a) : (b))
-#endif
-
-#ifndef MAX
-#  define MAX(a, b)              ((a) > (b) ? (a) : (b))
-#endif
-
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
 
 static uint32_t g_page_buffer[SAMD5E5_PAGE_WORDS];
-static sem_t g_page_sem;
+static mutex_t g_page_lock = NXMUTEX_INITIALIZER;
 
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
-
-/****************************************************************************
- * Name: page_buffer_lock
- *
- * Description:
- *   Get exclusive access to the global page buffer
- *
- * Input Parameters:
- *   None
- *
- * Returned Value:
- *   None
- *
- ****************************************************************************/
-
-static void page_buffer_lock(void)
-{
-  int ret;
-
-  do
-    {
-      /* Take the semaphore (perhaps waiting) */
-
-      ret = nxsem_wait(&g_page_sem);
-
-      /* The only case that an error should occur here is if the wait was
-       * awakened by a signal.
-       */
-
-      DEBUGASSERT(ret == OK || ret == -EINTR);
-    }
-  while (ret == -EINTR);
-}
-
-#define page_buffer_unlock() nxsem_post(&g_page_sem)
 
 /****************************************************************************
  * Name: nvm_command
@@ -384,12 +341,6 @@ void sam_progmem_initialize(void)
            NVMCTRL_CTRLA_WMODE_MAN  |
            NVMCTRL_CTRLA_AUTOWS;
   putreg16(ctrla, SAM_NVMCTRL_CTRLA);
-
-  /* Initialize the semaphore that manages exclusive access to the global
-   * page buffer.
-   */
-
-  nxsem_init(&g_page_sem, 0, 1);
 }
 
 /****************************************************************************
@@ -686,7 +637,7 @@ ssize_t up_progmem_write(size_t address, const void *buffer, size_t buflen)
 
   /* Get exclusive access to the global page buffer */
 
-  page_buffer_lock();
+  nxmutex_lock(&g_page_lock);
 
   /* Get the page number corresponding to the flash offset and the byte
    * offset into the page.
@@ -864,7 +815,7 @@ ssize_t up_progmem_write(size_t address, const void *buffer, size_t buflen)
 #endif
 
   leave_critical_section(flags);
-  page_buffer_unlock();
+  nxmutex_unlock(&g_page_lock);
   return written;
 }
 

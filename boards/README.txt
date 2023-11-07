@@ -447,6 +447,12 @@ boards/hc/mcs92s12ne6/ne64badge
   STATUS:  Under development.  The port is code-complete but has
   not yet been fully tested.
 
+boards/arm/nrf52/arduino-nano-33ble
+  NuttX port to the Arduino Nano 33 BLE Sense board
+
+boards/arm/nrf52/arduino-nano-33ble-rev2
+  NuttX port to the Arduino Nano 33 BLE Sense Rev2 board
+
 boards/arm/nrf52/nrf52-feather
   NuttX port to the Adafruit nRF52832 Feather board
 
@@ -859,6 +865,11 @@ boards/arm/tiva/tm4c1294-launchpad
   Tiva TM4C123G LaunchPad Evaluation Board is a low-cost evaluation
   platform for ARM Cortex-M4F-based microcontrollers from Texas
   Instruments.
+
+boards/arm/tiva/tm4c129e-launchpad
+  This is a port of NuttX to the Tiva TM4C129E Crypto Connected LaunchPad. This
+  board is a low-cost evaluation platform for ARM Cortex-M4F-based
+  microcontrollers from Texas Instruments.
 
 boards/arm/tmx570/tms570ls31x-usb-kit
   TI Hercules TMS570LS31xx Evaluation Kit (TMDS570ls31xx USB Kit)

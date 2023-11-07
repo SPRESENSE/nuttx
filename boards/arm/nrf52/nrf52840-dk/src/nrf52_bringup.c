@@ -29,12 +29,36 @@
 
 #include <nuttx/fs/fs.h>
 
+#ifdef CONFIG_USBMONITOR
+#  include <nuttx/usb/usbmonitor.h>
+#endif
+
 #ifdef CONFIG_USERLED
 #  include <nuttx/leds/userled.h>
 #endif
 
+#ifdef CONFIG_INPUT_BUTTONS
+#  include <nuttx/input/buttons.h>
+#endif
+
+#ifdef CONFIG_RNDIS
+#  include <nuttx/usb/rndis.h>
+#endif
+
+#ifdef CONFIG_TIMER
+#  include "nrf52_timer.h"
+#endif
+
+#ifdef CONFIG_NRF52_PROGMEM
+#  include "nrf52_progmem.h"
+#endif
+
 #ifdef CONFIG_NRF52_SOFTDEVICE_CONTROLLER
 #  include "nrf52_sdc.h"
+#endif
+
+#ifdef CONFIG_SENSORS_LSM9DS1
+#  include "nrf52_lsm9ds1.h"
 #endif
 
 #include "nrf52840-dk.h"
@@ -43,7 +67,8 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-#define NRF52_TIMER (0)
+#define NRF52_TIMER    (0)
+#define LMS9DS1_I2CBUS (0)
 
 /****************************************************************************
  * Public Functions
@@ -142,6 +167,16 @@ int nrf52_bringup(void)
     }
 #endif
 
+#ifdef CONFIG_INPUT_BUTTONS
+  /* Register the BUTTON driver */
+
+  ret = btn_lower_initialize("/dev/buttons");
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: btn_lower_initialize() failed: %d\n", ret);
+    }
+#endif
+
 #ifdef CONFIG_SENSORS_LSM6DSL
   ret = nrf52_lsm6dsl_initialize("/dev/lsm6dsl0");
   if (ret < 0)
@@ -218,14 +253,61 @@ int nrf52_bringup(void)
     }
 #endif
 
+#ifdef CONFIG_USBMONITOR
+  /* Start the USB Monitor */
+
+  ret = usbmonitor_start();
+  if (ret != OK)
+    {
+      syslog(LOG_ERR, "ERROR: Failed to start USB monitor: %d\n", ret);
+    }
+#endif
+
+#if defined(CONFIG_RNDIS) && !defined(CONFIG_RNDIS_COMPOSITE)
+  uint8_t mac[6];
+  mac[0] = 0xa0; /* TODO */
+  mac[1] = (CONFIG_NETINIT_MACADDR_2 >> (8 * 0)) & 0xff;
+  mac[2] = (CONFIG_NETINIT_MACADDR_1 >> (8 * 3)) & 0xff;
+  mac[3] = (CONFIG_NETINIT_MACADDR_1 >> (8 * 2)) & 0xff;
+  mac[4] = (CONFIG_NETINIT_MACADDR_1 >> (8 * 1)) & 0xff;
+  mac[5] = (CONFIG_NETINIT_MACADDR_1 >> (8 * 0)) & 0xff;
+  usbdev_rndis_initialize(mac);
+#endif
+
+#ifdef CONFIG_NRF52_QSPI
+  /* Initialize the MX25 QSPU memory */
+
+  ret = nrf52_mx25_initialize();
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: nrf52_mx25_initialize() failed: %d\n", ret);
+    }
+#endif
+
 #ifdef CONFIG_NRF52_SOFTDEVICE_CONTROLLER
   ret = nrf52_sdc_initialize();
-
   if (ret < 0)
     {
       syslog(LOG_ERR, "ERROR: nrf52_sdc_initialize() failed: %d\n", ret);
     }
 #endif
+
+#ifdef CONFIG_NRF52_PROGMEM
+  ret = nrf52_progmem_init();
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: Failed to initialize MTD progmem: %d\n", ret);
+    }
+#endif /* CONFIG_MTD */
+
+#ifdef CONFIG_SENSORS_LSM9DS1
+  ret = nrf52_lsm9ds1_initialize(LMS9DS1_I2CBUS);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: Failed to initialize LSM9DS1 driver: %d\n",
+             ret);
+    }
+#endif /* CONFIG_SENSORS_LSM6DSL */
 
   UNUSED(ret);
   return OK;

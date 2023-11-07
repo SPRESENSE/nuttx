@@ -36,6 +36,7 @@
 #include <nuttx/irq.h>
 #include <nuttx/arch.h>
 #include <nuttx/signal.h>
+#include <nuttx/queue.h>
 
 #include "sched/sched.h"
 #include "group/group.h"
@@ -96,7 +97,7 @@ static int nxsig_queue_action(FAR struct tcb_s *stcb, siginfo_t *info)
           sigq->mask = sigact->act.sa_mask;
           if ((sigact->act.sa_flags & SA_NODEFER) == 0)
             {
-              sigq->mask |= SIGNO2SET(info->si_signo);
+              sigaddset(&sigq->mask, info->si_signo);
             }
 
           memcpy(&sigq->info, info, sizeof(siginfo_t));
@@ -169,7 +170,7 @@ static FAR sigpendq_t *nxsig_alloc_pendingsignal(void)
         {
           /* No... Allocate the pending signal */
 
-          sigpend = (FAR sigpendq_t *)kmm_malloc((sizeof (sigpendq_t)));
+          sigpend = kmm_malloc(sizeof(sigpendq_t));
 
           /* Check if we got an allocated message */
 
@@ -192,12 +193,19 @@ static FAR sigpendq_t *nxsig_alloc_pendingsignal(void)
  ****************************************************************************/
 
 static FAR sigpendq_t *
-  nxsig_find_pendingsignal(FAR struct task_group_s *group, int signo)
+nxsig_find_pendingsignal(FAR struct task_group_s *group, int signo)
 {
   FAR sigpendq_t *sigpend = NULL;
   irqstate_t flags;
 
   DEBUGASSERT(group != NULL);
+
+  /* Determining whether a signal is reliable or unreliable */
+
+  if (SIGRTMIN <= signo && signo <= SIGRTMAX)
+    {
+      return sigpend;
+    }
 
   /* Pending signals can be added from interrupt level. */
 
@@ -211,6 +219,24 @@ static FAR sigpendq_t *
 
   leave_critical_section(flags);
   return sigpend;
+}
+
+/****************************************************************************
+ * Name: nxsig_dispatch_kernel_action
+ ****************************************************************************/
+
+static void nxsig_dispatch_kernel_action(FAR struct tcb_s *stcb,
+                                         FAR siginfo_t *info)
+{
+  FAR struct task_group_s *group = stcb->group;
+  FAR sigactq_t *sigact;
+
+  sigact = nxsig_find_action(group, info->si_signo);
+  if (sigact && (sigact->act.sa_flags & SA_KERNELHAND))
+    {
+      info->si_user = sigact->act.sa_user;
+      (sigact->act.sa_sigaction)(info->si_signo, info, NULL);
+    }
 }
 
 /****************************************************************************
@@ -262,6 +288,7 @@ static void nxsig_add_pendingsignal(FAR struct tcb_s *stcb,
           flags = enter_critical_section();
           sq_addlast((FAR sq_entry_t *)sigpend, &group->tg_sigpendingq);
           leave_critical_section(flags);
+          nxsig_dispatch_kernel_action(stcb, &sigpend->info);
         }
     }
 
@@ -296,15 +323,24 @@ static void nxsig_add_pendingsignal(FAR struct tcb_s *stcb,
 
 int nxsig_tcbdispatch(FAR struct tcb_s *stcb, siginfo_t *info)
 {
+  FAR struct tcb_s *rtcb = this_task();
   irqstate_t flags;
   int masked;
   int ret = OK;
 
-  sinfo("TCB=%p signo=%d code=%d value=%d mask=%08" PRIx32 "\n",
-        stcb, info->si_signo, info->si_code,
-        info->si_value.sival_int, stcb->sigprocmask);
+  sinfo("TCB=%p pid=%d signo=%d code=%d value=%d masked=%s\n",
+        stcb, stcb->pid, info->si_signo, info->si_code,
+        info->si_value.sival_int,
+        sigismember(&stcb->sigprocmask, info->si_signo) == 1 ? "YES" : "NO");
 
   DEBUGASSERT(stcb != NULL && info != NULL);
+
+  /* Return ESRCH when thread was in exit processing */
+
+  if ((stcb->flags & TCB_FLAG_EXIT_PROCESSING) != 0)
+    {
+      return -ESRCH;
+    }
 
   /* Don't actually send a signal for signo 0. */
 
@@ -362,9 +398,36 @@ int nxsig_tcbdispatch(FAR struct tcb_s *stcb, siginfo_t *info)
            nxsig_ismember(&stcb->sigwaitmask, info->si_signo)))
         {
           memcpy(&stcb->sigunbinfo, info, sizeof(siginfo_t));
-          stcb->sigwaitmask = NULL_SIGNAL_SET;
-          up_unblock_task(stcb);
+          sigemptyset(&stcb->sigwaitmask);
+
+          if (WDOG_ISACTIVE(&stcb->waitdog))
+            {
+              wd_cancel(&stcb->waitdog);
+            }
+
+          /* Remove the task from waitting list */
+
+          dq_rem((FAR dq_entry_t *)stcb, &g_waitingforsignal);
+
+          /* Add the task to ready-to-run task list and
+           * perform the context switch if one is needed
+           */
+
+          if (nxsched_add_readytorun(stcb))
+            {
+              up_switch_context(stcb, rtcb);
+            }
+
           leave_critical_section(flags);
+
+#ifdef CONFIG_LIB_SYSCALL
+          /* Must also add signal action if in system call */
+
+          if (masked == 0)
+            {
+              nxsig_add_pendingsignal(stcb, info);
+            }
+#endif
         }
 
       /* Its not one we are waiting for... Add it to the list of pending
@@ -398,8 +461,25 @@ int nxsig_tcbdispatch(FAR struct tcb_s *stcb, siginfo_t *info)
       if (stcb->task_state == TSTATE_WAIT_SIG)
         {
           memcpy(&stcb->sigunbinfo, info, sizeof(siginfo_t));
-          stcb->sigwaitmask = NULL_SIGNAL_SET;
-          up_unblock_task(stcb);
+          sigemptyset(&stcb->sigwaitmask);
+
+          if (WDOG_ISACTIVE(&stcb->waitdog))
+            {
+              wd_cancel(&stcb->waitdog);
+            }
+
+          /* Remove the task from waitting list */
+
+          dq_rem((FAR dq_entry_t *)stcb, &g_waitingforsignal);
+
+          /* Add the task to ready-to-run task list and
+           * perform the context switch if one is needed
+           */
+
+          if (nxsched_add_readytorun(stcb))
+            {
+              up_switch_context(stcb, rtcb);
+            }
         }
 
       leave_critical_section(flags);
@@ -418,6 +498,8 @@ int nxsig_tcbdispatch(FAR struct tcb_s *stcb, siginfo_t *info)
 
   if (masked == 0)
     {
+      flags = enter_critical_section();
+
       /* If the task is blocked waiting for a semaphore, then that task must
        * be unblocked when a signal is received.
        */
@@ -427,7 +509,7 @@ int nxsig_tcbdispatch(FAR struct tcb_s *stcb, siginfo_t *info)
           nxsem_wait_irq(stcb, EINTR);
         }
 
-#ifndef CONFIG_DISABLE_MQUEUE
+#if !defined(CONFIG_DISABLE_MQUEUE) || !defined(CONFIG_DISABLE_MQUEUE_SYSV)
       /* If the task is blocked waiting on a message queue, then that task
        * must be unblocked when a signal is received.
        */
@@ -450,10 +532,23 @@ int nxsig_tcbdispatch(FAR struct tcb_s *stcb, siginfo_t *info)
 #ifdef HAVE_GROUP_MEMBERS
           group_continue(stcb);
 #else
-          nxsched_continue(stcb);
+          /* Remove the task from waitting list */
+
+          dq_rem((FAR dq_entry_t *)stcb, &g_stoppedtasks);
+
+          /* Add the task to ready-to-run task list and
+           * perform the context switch if one is needed
+           */
+
+          if (nxsched_add_readytorun(stcb))
+            {
+              up_switch_context(stcb, rtcb);
+            }
 #endif
         }
 #endif
+
+      leave_critical_section(flags);
     }
 
   /* In case nxsig_ismember failed due to an invalid signal number */

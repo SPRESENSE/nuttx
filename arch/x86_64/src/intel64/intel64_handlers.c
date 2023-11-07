@@ -25,6 +25,7 @@
 #include <nuttx/config.h>
 #include <nuttx/compiler.h>
 
+#include <nuttx/addrenv.h>
 #include <nuttx/arch.h>
 #include <nuttx/board.h>
 #include <nuttx/signal.h>
@@ -35,7 +36,7 @@
 #include <syscall.h>
 #include <arch/board/board.h>
 
-#include "up_internal.h"
+#include "x86_64_internal.h"
 #include "sched/sched.h"
 
 /****************************************************************************
@@ -76,7 +77,6 @@ static uint64_t *common_handler(int irq, uint64_t *regs)
 
   irq_dispatch(irq, regs);
 
-#if defined(CONFIG_ARCH_FPU) || defined(CONFIG_ARCH_ADDRENV)
   /* Check for a context switch.  If a context switch occurred, then
    * g_current_regs will have a different value than it did on entry.  If an
    * interrupt level context switch has occurred, then restore the floating
@@ -99,10 +99,16 @@ static uint64_t *common_handler(int irq, uint64_t *regs)
        * thread at the head of the ready-to-run list.
        */
 
-      group_addrenv(NULL);
+      addrenv_switch(NULL);
 #endif
+
+      /* Record the new "running" task when context switch occurred.
+       * g_running_tasks[] is only used by assertion logic for reporting
+       * crashes.
+       */
+
+      g_running_tasks[this_cpu()] = this_task();
     }
-#endif
 
   /* If a context switch occurred while processing the interrupt then
    * g_current_regs may have change value.  If we return any value different
@@ -132,8 +138,6 @@ static uint64_t *common_handler(int irq, uint64_t *regs)
  *   This gets called from ISR vector handling logic in broadwell_vectors.S
  *
  ****************************************************************************/
-
-#define SIGFPE 8
 
 uint64_t *isr_handler(uint64_t *regs, uint64_t irq)
 {
@@ -170,7 +174,7 @@ uint64_t *isr_handler(uint64_t *regs, uint64_t irq)
                "with error code %" PRId64 ":\n",
                irq, regs[REG_ERRCODE]);
 
-        up_registerdump(regs);
+        up_dump_register(regs);
 
         up_trash_cpu();
         break;

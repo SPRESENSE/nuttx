@@ -26,7 +26,6 @@
 
 #include <nuttx/arch.h>
 #include <nuttx/mm/mm.h>
-#include <malloc.h>
 
 #include "esp32_iramheap.h"
 
@@ -55,11 +54,11 @@ void esp32_iramheap_initialize(void)
 
   /* These values come from the linker scripts. Check boards/xtensa/esp32. */
 
-  extern uint8_t *_siramheap;
-  extern uint8_t *_eiramheap;
+  extern uint8_t _siramheap[];
+  extern uint8_t _eiramheap[];
 
-  start = (void *)&_siramheap;
-  size  = (size_t)((uintptr_t)&_eiramheap - (uintptr_t)&_siramheap);
+  start = (void *)_siramheap;
+  size  = _eiramheap - _siramheap;
   g_iramheap = mm_initialize("iramheap", start, size);
 }
 
@@ -175,7 +174,7 @@ bool esp32_iramheap_heapmember(void *mem)
  *
  ****************************************************************************/
 
-int esp32_iramheap_mallinfo(struct mallinfo *info)
+struct mallinfo esp32_iramheap_mallinfo(void)
 {
-  return mm_mallinfo(g_iramheap, info);
+  return mm_mallinfo(g_iramheap);
 }

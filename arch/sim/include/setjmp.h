@@ -37,7 +37,7 @@
 #if defined(CONFIG_HOST_X86_64) && !defined(CONFIG_SIM_M32)
   /* Storage order: %rbx, %rsp, %rbp, %r12, %r13, %r14, %r15, %rip */
 
-#  define XCPTCONTEXT_REGS    8
+#  define XCPTCONTEXT_REGS    9
 #  define XCPTCONTEXT_SIZE    (8 * XCPTCONTEXT_REGS)
 
 #  ifdef __ASSEMBLY__
@@ -49,7 +49,8 @@
 #    define JB_R13            (4*8)
 #    define JB_R14            (5*8)
 #    define JB_R15            (6*8)
-#    define JB_RSI            (7*8)
+#    define JB_RIP            (7*8)
+#    define JB_FLAG           (8*8)
 
 #  else
 
@@ -60,7 +61,8 @@
 #    define JB_R13            (4)
 #    define JB_R14            (5)
 #    define JB_R15            (6)
-#    define JB_RSI            (7)
+#    define JB_RIP            (7)
+#    define JB_FLAG           (8)
 
 #  endif /* __ASSEMBLY__ */
 
@@ -68,12 +70,12 @@
 
 #  define JB_FP               JB_RBP
 #  define JB_SP               JB_RSP
-#  define JB_PC               JB_RSI
+#  define JB_PC               JB_RIP
 
 #elif defined(CONFIG_HOST_X86) || defined(CONFIG_SIM_M32)
   /* Storage order: %ebx, %esi, %edi, %ebp, sp, and return PC */
 
-#  define XCPTCONTEXT_REGS    6
+#  define XCPTCONTEXT_REGS    (8)
 #  define XCPTCONTEXT_SIZE    (4 * XCPTCONTEXT_REGS)
 
 #  ifdef __ASSEMBLY__
@@ -82,8 +84,10 @@
 #    define JB_ESI            (1*4)
 #    define JB_EDI            (2*4)
 #    define JB_EBP            (3*4)
-#    define JB_SP             (4*4)
-#    define JB_PC             (5*4)
+#    define JB_ESP            (4*4)
+#    define JB_EIP            (5*4)
+#    define JB_FLAG           (6*4)
+#    define JB_FLAG1          (7*4)
 
 #  else
 
@@ -91,27 +95,33 @@
 #    define JB_ESI            (1)
 #    define JB_EDI            (2)
 #    define JB_EBP            (3)
-#    define JB_SP             (4)
-#    define JB_PC             (5)
+#    define JB_ESP            (4)
+#    define JB_EIP            (5)
+#    define JB_FLAG           (6)
+#    define JB_FLAG1          (7)
 
 #  endif /* __ASSEMBLY__ */
 
 /* Compatibility definitions */
 
 #  define JB_FP               JB_EBP
+#  define JB_SP               JB_ESP
+#  define JB_PC               JB_EIP
 
 #elif defined(CONFIG_HOST_ARM)
 
-#  define XCPTCONTEXT_REGS    16
+#  define XCPTCONTEXT_REGS    18
 #  define XCPTCONTEXT_SIZE    (4 * XCPTCONTEXT_REGS)
 
 #  define JB_FP               7
 #  define JB_SP               8
 #  define JB_PC               9
+#  define JB_FLAG             16
+#  define JB_FLAG1            17
 
 #elif defined(CONFIG_HOST_ARM64)
 
-#  define XCPTCONTEXT_REGS    32
+#  define XCPTCONTEXT_REGS    33
 #  define XCPTCONTEXT_SIZE    (8 * XCPTCONTEXT_REGS)
 
 #  ifdef __ASSEMBLY__
@@ -134,6 +144,7 @@
 #    define JB_PC             (11)
 #    define JB_FP             (12)
 #    define JB_SP             (13)
+#    define JB_FLAG           (32)
 
 #  endif /* __ASSEMBLY__ */
 

@@ -245,14 +245,12 @@ struct lpc43_dev_s
 static uint32_t lpc43_getreg(uint32_t addr);
 static void lpc43_putreg(uint32_t val, uint32_t addr);
 #else
-# define lpc43_getreg(addr)      getreg32(addr)
-# define lpc43_putreg(val,addr)  putreg32(val,addr)
+#  define lpc43_getreg(addr)     getreg32(addr)
+#  define lpc43_putreg(val,addr) putreg32(val,addr)
 #endif
 
 /* Low-level helpers ********************************************************/
 
-static int  lpc43_takesem(struct lpc43_dev_s *priv);
-#define     lpc43_givesem(priv) (nxsem_post(&priv->waitsem))
 static inline void lpc43_setclock(uint32_t clkdiv);
 static inline void lpc43_sdcard_clock(bool enable);
 static int  lpc43_ciu_sendcmd(uint32_t cmd, uint32_t arg);
@@ -382,6 +380,7 @@ struct lpc43_dev_s g_scard_dev =
     .dmasendsetup     = lpc43_dmasendsetup,
 #endif
   },
+  .waitsem = SEM_INITIALIZER(0),
 };
 
 #ifdef CONFIG_LPC43_SDMMC_DMA
@@ -492,27 +491,6 @@ static void lpc43_putreg(uint32_t val, uint32_t addr)
   putreg32(val, addr);
 }
 #endif
-
-/****************************************************************************
- * Name: lpc43_takesem
- *
- * Description:
- *   Take the wait semaphore (handling false alarm wakeups due to the receipt
- *   of signals).
- *
- * Input Parameters:
- *   dev - Instance of the SD card device driver state structure.
- *
- * Returned Value:
- *   Normally OK, but may return -ECANCELED in the rare event that the task
- *   has been canceled.
- *
- ****************************************************************************/
-
-static int lpc43_takesem(struct lpc43_dev_s *priv)
-{
-  return nxsem_wait_uninterruptible(&priv->waitsem);
-}
 
 /****************************************************************************
  * Name: lpc43_setclock
@@ -869,7 +847,7 @@ static void lpc43_endwait(struct lpc43_dev_s *priv,
 
   /* Wake up the waiting thread */
 
-  lpc43_givesem(priv);
+  nxsem_post(&priv->waitsem);
 }
 
 /****************************************************************************
@@ -1223,7 +1201,11 @@ static int lpc43_lock(struct sdio_dev_s *dev, bool lock)
    * bus is part of board support package.
    */
 
-  lpc43_muxbus_sdio_lock(lock);
+  /* FIXME: Implement the below function to support bus share:
+   *
+   * lpc43_muxbus_sdio_lock(lock);
+   */
+
   return OK;
 }
 #endif
@@ -2308,7 +2290,7 @@ static sdio_eventset_t lpc43_eventwait(struct sdio_dev_s *dev)
        * incremented and there will be no wait.
        */
 
-      ret = lpc43_takesem(priv);
+      ret = nxsem_wait_uninterruptible(&priv->waitsem);
       if (ret < 0)
         {
           /* Task canceled.  Cancel the wdog -- assuming it was started and
@@ -2846,16 +2828,6 @@ struct sdio_dev_s *lpc43_sdmmc_initialize(int slotno)
   /* Setup the delay register */
 
   lpc43_putreg(LPC43_SDMMC_DELAY_DEFAULT, LPC43_SDMMC_DELAY);
-
-  /* Initialize semaphores */
-
-  nxsem_init(&priv->waitsem, 0, 0);
-
-  /* The waitsem semaphore is used for signaling and, hence, should not have
-   * priority inheritance enabled.
-   */
-
-  nxsem_set_protocol(&priv->waitsem, SEM_PRIO_NONE);
 
   /* Configure GPIOs for 4-bit, wide-bus operation */
 

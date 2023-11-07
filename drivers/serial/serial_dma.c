@@ -188,14 +188,6 @@ void uart_recvchars_dma(FAR uart_dev_t *dev)
   bool is_full;
   int nexthead;
 
-  /* If RX buffer is empty move tail and head to zero position */
-
-  if (rxbuf->head == rxbuf->tail)
-    {
-      rxbuf->head = 0;
-      rxbuf->tail = 0;
-    }
-
   /* Get the next head index and check if there is room to adding another
    * byte to the buffer.
    */
@@ -336,7 +328,20 @@ void uart_recvchars_done(FAR uart_dev_t *dev)
    * incoming data available.
    */
 
+  if (rxbuf->head >= rxbuf->tail)
+    {
+      nbytes = rxbuf->head - rxbuf->tail;
+    }
+  else
+    {
+      nbytes = rxbuf->size - rxbuf->tail + rxbuf->head;
+    }
+
+#ifdef CONFIG_SERIAL_TERMIOS
+  if (nbytes >= dev->minrecv)
+#else
   if (nbytes)
+#endif
     {
       uart_datareceived(dev);
     }

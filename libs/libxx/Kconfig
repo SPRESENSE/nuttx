@@ -37,6 +37,7 @@ config LIBCXX
 	bool "LLVM libc++ C++ Standard Library"
 	select HAVE_CXXINITIALIZE
 	select LIBC_LOCALE
+	select PTHREAD_MUTEX_TYPES
 	---help---
 		LLVM "libc++" C++ Standard Library
 		https://libcxx.llvm.org/
@@ -84,6 +85,13 @@ config LIBSUPCXX
 endchoice
 
 endif
+
+config CXX_STANDARD
+	string "Language standard"
+	default "gnu++17"
+	---help---
+		Possible values:
+		gnu++98/c++98, gnu++11/c++11, gnu++14/c++14, gnu++17/c++17 and gnu++20/c++20
 
 config CXX_EXCEPTION
 	bool "Enable Exception Support"

@@ -35,6 +35,7 @@
 
 #include "hardware/esp32s2_cache_memory.h"
 #include "hardware/esp32s2_extmem.h"
+#include "rom/esp32s2_libc_stubs.h"
 #include "esp32s2_clockconfig.h"
 #include "esp32s2_region.h"
 #include "esp32s2_spiram.h"
@@ -47,7 +48,7 @@
  ****************************************************************************/
 
 #ifdef CONFIG_DEBUG_FEATURES
-#  define showprogress(c)     up_lowputc(c)
+#  define showprogress(c)     xtensa_lowputc(c)
 #else
 #  define showprogress(c)
 #endif
@@ -74,13 +75,13 @@
  ****************************************************************************/
 
 #ifdef CONFIG_ESP32S2_APP_FORMAT_MCUBOOT
-extern uint32_t _image_irom_vma;
-extern uint32_t _image_irom_lma;
-extern uint32_t _image_irom_size;
+extern uint8_t _image_irom_vma[];
+extern uint8_t _image_irom_lma[];
+extern uint8_t _image_irom_size[];
 
-extern uint32_t _image_drom_vma;
-extern uint32_t _image_drom_lma;
-extern uint32_t _image_drom_size;
+extern uint8_t _image_drom_vma[];
+extern uint8_t _image_drom_lma[];
+extern uint8_t _image_drom_size[];
 #endif
 
 typedef enum
@@ -119,7 +120,7 @@ typedef enum
  ****************************************************************************/
 
 #ifdef CONFIG_ESP32S2_APP_FORMAT_MCUBOOT
-extern int ets_printf(const char *fmt, ...) printflike(1, 2);
+extern int ets_printf(const char *fmt, ...) printf_like(1, 2);
 extern int cache_ibus_mmu_set(uint32_t ext_ram, uint32_t vaddr,
                               uint32_t paddr, uint32_t psize, uint32_t num,
                               uint32_t fixed);
@@ -153,7 +154,7 @@ noreturn_function void __start(void);
  ****************************************************************************/
 
 #ifdef CONFIG_ESP32S2_APP_FORMAT_MCUBOOT
-HDR_ATTR static void (*_entry_point)(void) = &__start;
+HDR_ATTR static void (*_entry_point)(void) = __start;
 #endif
 
 /****************************************************************************
@@ -319,15 +320,15 @@ static void noreturn_function IRAM_ATTR __esp32s2_start(void)
 
   /* Move CPU0 exception vectors to IRAM */
 
-  __asm__ __volatile__ ("wsr %0, vecbase\n"::"r" (&_init_start));
+  __asm__ __volatile__ ("wsr %0, vecbase\n"::"r" (_init_start));
 
   /* Clear .bss.  We'll do this inline (vs. calling memset) just to be
    * certain that there are no issues with the state of global variables.
    */
 
-  for (uint32_t *dest = &_sbss; dest < &_ebss; dest++)
+  for (uint32_t *dest = (uint32_t *)_sbss; dest < (uint32_t *)_ebss; )
     {
-      *dest = 0;
+      *dest++ = 0;
     }
 
   /* The 2nd stage bootloader enables RTC WDT to check on startup sequence
@@ -370,6 +371,10 @@ static void noreturn_function IRAM_ATTR __esp32s2_start(void)
       esp_spiram_test();
     }
 #endif
+
+  /* Setup the syscall table needed by the ROM code */
+
+  esp_setup_syscall_table();
 
   /* Initialize onboard resources */
 
@@ -433,12 +438,12 @@ static int map_rom_segments(void)
   uint32_t irom_page_count;
 
   size_t partition_offset = PRIMARY_SLOT_OFFSET;
-  uint32_t app_irom_lma = partition_offset + (uint32_t)&_image_irom_lma;
-  uint32_t app_irom_size = (uint32_t)&_image_irom_size;
-  uint32_t app_irom_vma = (uint32_t)&_image_irom_vma;
-  uint32_t app_drom_lma = partition_offset + (uint32_t)&_image_drom_lma;
-  uint32_t app_drom_size = (uint32_t)&_image_drom_size;
-  uint32_t app_drom_vma = (uint32_t)&_image_drom_vma;
+  uint32_t app_irom_lma = partition_offset + (uint32_t)_image_irom_lma;
+  uint32_t app_irom_size = (uint32_t)_image_irom_size;
+  uint32_t app_irom_vma = (uint32_t)_image_irom_vma;
+  uint32_t app_drom_lma = partition_offset + (uint32_t)_image_drom_lma;
+  uint32_t app_drom_size = (uint32_t)_image_drom_size;
+  uint32_t app_drom_vma = (uint32_t)_image_drom_vma;
 
   uint32_t autoload = cache_suspend_icache();
   cache_invalidate_icache_all();

@@ -40,6 +40,7 @@
 #include <nuttx/arch.h>
 #include <nuttx/irq.h>
 #include <nuttx/clock.h>
+#include <nuttx/mutex.h>
 #include <nuttx/semaphore.h>
 #include <nuttx/i2c/i2c_master.h>
 
@@ -219,7 +220,7 @@ struct esp32c3_i2c_priv_s
 
   const struct esp32c3_i2c_config_s *config;
   int refs;                    /* Reference count */
-  sem_t sem_excl;              /* Mutual exclusion semaphore */
+  mutex_t lock;                /* Mutual exclusion mutex */
 
 #ifndef CONFIG_I2C_POLLED
   sem_t sem_isr;               /* Interrupt wait semaphore */
@@ -329,6 +330,10 @@ static struct esp32c3_i2c_priv_s esp32c3_i2c0_priv =
   .id         = 0,
   .config     = &esp32c3_i2c0_config,
   .refs       = 0,
+  .lock       = NXMUTEX_INITIALIZER,
+#ifndef CONFIG_I2C_POLLED
+  .sem_isr    = SEM_INITIALIZER(0),
+#endif
   .i2cstate   = I2CSTATE_IDLE,
   .msgv       = NULL,
   .msgid      = 0,
@@ -839,7 +844,7 @@ static int esp32c3_i2c_polling_waitdone(struct esp32c3_i2c_priv_s *priv)
    * and an error didn't occur within the timeout
    */
 
-  while ((current < timeout) && (priv->error == 0))
+  while ((sclock_t)(current - timeout) < 0 && (priv->error == 0))
     {
       /* Check if any interrupt triggered, clear them
        * process the operation.
@@ -899,85 +904,6 @@ static int esp32c3_i2c_polling_waitdone(struct esp32c3_i2c_priv_s *priv)
 #endif
 
 /****************************************************************************
- * Name: esp32c3_i2c_sem_wait
- *
- * Description:
- *   Take the exclusive access, waiting as necessary.
- *
- * Parameters:
- *   priv          - Pointer to the internal driver state structure.
- *
- * Returned Value:
- *   Zero (OK) is returned on success. A negated errno value is returned on
- *   failure.
- *
- ****************************************************************************/
-
-static int esp32c3_i2c_sem_wait(struct esp32c3_i2c_priv_s *priv)
-{
-  return nxsem_wait_uninterruptible(&priv->sem_excl);
-}
-
-/****************************************************************************
- * Name: esp32c3_i2c_sem_post
- *
- * Description:
- *   Release the mutual exclusion semaphore.
- *
- * Parameters:
- *   priv          - Pointer to the internal driver state structure.
- *
- ****************************************************************************/
-
-static void esp32c3_i2c_sem_post(struct esp32c3_i2c_priv_s *priv)
-{
-  nxsem_post(&priv->sem_excl);
-}
-
-/****************************************************************************
- * Name: esp32c3_i2c_sem_destroy
- *
- * Description:
- *   Destroy semaphores.
- *
- * Parameters:
- *   priv          - Pointer to the internal driver state structure.
- *
- ****************************************************************************/
-
-static void esp32c3_i2c_sem_destroy(struct esp32c3_i2c_priv_s *priv)
-{
-  nxsem_destroy(&priv->sem_excl);
-#ifndef CONFIG_I2C_POLLED
-  nxsem_destroy(&priv->sem_isr);
-#endif
-}
-
-/****************************************************************************
- * Name: esp32c3_i2c_sem_init
- *
- * Description:
- *   Initialize semaphores.
- *
- * Parameters:
- *   priv          - Pointer to the internal driver state structure.
- *
- ****************************************************************************/
-
-static inline void esp32c3_i2c_sem_init(struct esp32c3_i2c_priv_s *priv)
-{
-  nxsem_init(&priv->sem_excl, 0, 1);
-
-  /* This semaphore is used for signaling and, hence, should not have
-   * priority inheritance enabled.
-   */
-#ifndef CONFIG_I2C_POLLED
-  nxsem_init(&priv->sem_isr, 0, 0);
-  nxsem_set_protocol(&priv->sem_isr, SEM_PRIO_NONE);
-#endif
-}
-
-/****************************************************************************
  * Device Driver Operations
  ****************************************************************************/
 
@@ -1009,7 +935,7 @@ static int esp32c3_i2c_transfer(struct i2c_master_s *dev,
 
   DEBUGASSERT(count > 0);
 
-  ret = esp32c3_i2c_sem_wait(priv);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
@@ -1116,8 +1042,7 @@ static int esp32c3_i2c_transfer(struct i2c_master_s *dev,
   /* Dump the trace result */
 
   esp32c3_i2c_tracedump(priv);
-
-  esp32c3_i2c_sem_post(priv);
+  nxmutex_unlock(&priv->lock);
 
   return ret;
 }
@@ -1527,7 +1452,6 @@ static inline void esp32c3_i2c_process(struct esp32c3_i2c_priv_s *priv,
 
 struct i2c_master_s *esp32c3_i2cbus_initialize(int port)
 {
-  irqstate_t flags;
   struct esp32c3_i2c_priv_s *priv;
 #ifndef CONFIG_I2C_POLLED
   const struct esp32c3_i2c_config_s *config;
@@ -1545,11 +1469,11 @@ struct i2c_master_s *esp32c3_i2cbus_initialize(int port)
       return NULL;
     }
 
-  flags = enter_critical_section();
+  nxmutex_lock(&priv->lock);
 
-  if ((volatile int)priv->refs++ != 0)
+  if (priv->refs++ != 0)
     {
-      leave_critical_section(flags);
+      nxmutex_unlock(&priv->lock);
 
       i2cinfo("Returning previously initialized I2C bus. "
               "Handler: %" PRIxPTR "\n", (uintptr_t)priv);
@@ -1561,19 +1485,21 @@ struct i2c_master_s *esp32c3_i2cbus_initialize(int port)
   config = priv->config;
   if (priv->cpuint != -ENOMEM)
     {
-      /* Disable the provided CPU Interrupt to configure it. */
+      /* Disable the previous IRQ */
 
-      up_disable_irq(priv->cpuint);
+      up_disable_irq(config->irq);
+      esp32c3_teardown_irq(config->periph, priv->cpuint);
     }
 
-  priv->cpuint = esp32c3_request_irq(config->periph,
-                                     ESP32C3_INT_PRIO_DEF,
-                                     ESP32C3_INT_LEVEL);
+  priv->cpuint = esp32c3_setup_irq(config->periph,
+                                   ESP32C3_INT_PRIO_DEF,
+                                   ESP32C3_INT_LEVEL);
   if (priv->cpuint < 0)
     {
       /* Failed to allocate a CPU interrupt of this type. */
 
-      leave_critical_section(flags);
+      priv->refs--;
+      nxmutex_unlock(&priv->lock);
 
       return NULL;
     }
@@ -1581,25 +1507,23 @@ struct i2c_master_s *esp32c3_i2cbus_initialize(int port)
   ret = irq_attach(config->irq, esp32c3_i2c_irq, priv);
   if (ret != OK)
     {
-      /* Failed to attach IRQ, so CPU interrupt must be freed. */
+      /* Failed to attach IRQ, free the allocated CPU interrupt */
 
-      esp32c3_free_cpuint(config->periph);
+      esp32c3_teardown_irq(config->periph, priv->cpuint);
       priv->cpuint = -ENOMEM;
-      leave_critical_section(flags);
+      priv->refs--;
+      nxmutex_unlock(&priv->lock);
 
       return NULL;
     }
 
   /* Enable the CPU interrupt that is linked to the I2C device. */
 
-  up_enable_irq(priv->cpuint);
+  up_enable_irq(config->irq);
 #endif
 
-  esp32c3_i2c_sem_init(priv);
-
   esp32c3_i2c_init(priv);
-
-  leave_critical_section(flags);
+  nxmutex_unlock(&priv->lock);
 
   i2cinfo("I2C bus initialized! Handler: %" PRIxPTR "\n", (uintptr_t)priv);
 
@@ -1624,7 +1548,6 @@ struct i2c_master_s *esp32c3_i2cbus_initialize(int port)
 
 int esp32c3_i2cbus_uninitialize(struct i2c_master_s *dev)
 {
-  irqstate_t flags;
   struct esp32c3_i2c_priv_s *priv = (struct esp32c3_i2c_priv_s *)dev;
 
   DEBUGASSERT(dev);
@@ -1634,25 +1557,21 @@ int esp32c3_i2cbus_uninitialize(struct i2c_master_s *dev)
       return ERROR;
     }
 
-  flags = enter_critical_section();
-
+  nxmutex_lock(&priv->lock);
   if (--priv->refs)
     {
-      leave_critical_section(flags);
+      nxmutex_unlock(&priv->lock);
       return OK;
     }
 
-  leave_critical_section(flags);
-
 #ifndef CONFIG_I2C_POLLED
-  up_disable_irq(priv->cpuint);
-  esp32c3_free_cpuint(priv->config->periph);
+  up_disable_irq(priv->config->irq);
+  esp32c3_teardown_irq(priv->config->periph, priv->cpuint);
   priv->cpuint = -ENOMEM;
 #endif
 
   esp32c3_i2c_deinit(priv);
-
-  esp32c3_i2c_sem_destroy(priv);
+  nxmutex_unlock(&priv->lock);
 
   return OK;
 }

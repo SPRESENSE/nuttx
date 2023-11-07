@@ -30,6 +30,7 @@
 
 #include <nuttx/fs/fs.h>
 #include <nuttx/kmalloc.h>
+#include <nuttx/mutex.h>
 #include <nuttx/i2c/i2c_master.h>
 
 #include <nuttx/usb/fusb301.h>
@@ -63,7 +64,7 @@ struct fusb301_dev_s
   FAR struct i2c_master_s *i2c;         /* I2C interface */
   uint8_t addr;                         /* I2C address */
   volatile bool int_pending;            /* Interrupt received but handled */
-  sem_t devsem;                         /* Manages exclusive access */
+  mutex_t devlock;                      /* Manages exclusive access */
   FAR struct fusb301_config_s *config;  /* Platform specific configuration */
   FAR struct pollfd *fds[CONFIG_FUSB301_NPOLLWAITERS];
 };
@@ -80,7 +81,6 @@ static ssize_t fusb301_write(FAR struct file *filep, FAR const char *buffer,
 static int fusb301_ioctl(FAR struct file *filep, int cmd, unsigned long arg);
 static int fusb301_poll(FAR struct file *filep, FAR struct pollfd *fds,
                         bool setup);
-static void fusb301_notify(FAR struct fusb301_dev_s *priv);
 
 /****************************************************************************
  * Private Data
@@ -94,10 +94,9 @@ static const struct file_operations g_fusb301ops =
   fusb301_write, /* write */
   NULL,          /* seek */
   fusb301_ioctl, /* ioctl */
+  NULL,          /* mmap */
+  NULL,          /* truncate */
   fusb301_poll   /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL         /* unlink */
-#endif
 };
 
 /****************************************************************************
@@ -530,7 +529,7 @@ static ssize_t fusb301_read(FAR struct file *filep,
 
   ptr = (struct fusb301_result_s *)buffer;
 
-  ret = nxsem_wait(&priv->devsem);
+  ret = nxmutex_lock(&priv->devlock);
   if (ret < 0)
     {
       return ret;
@@ -545,7 +544,7 @@ static ssize_t fusb301_read(FAR struct file *filep,
   ptr->status = fusb301_getreg(priv, FUSB301_STATUS_REG);
   ptr->dev_type = fusb301_getreg(priv, FUSB301_TYPE_REG);
 
-  nxsem_post(&priv->devsem);
+  nxmutex_unlock(&priv->devlock);
   return sizeof(struct fusb301_result_s);
 }
 
@@ -576,7 +575,7 @@ static int fusb301_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
   FAR struct fusb301_dev_s *priv = inode->i_private;
   int ret;
 
-  ret = nxsem_wait(&priv->devsem);
+  ret = nxmutex_lock(&priv->devlock);
   if (ret < 0)
     {
       return ret;
@@ -636,7 +635,7 @@ static int fusb301_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
     break;
   }
 
-  nxsem_post(&priv->devsem);
+  nxmutex_unlock(&priv->devlock);
   return ret;
 }
 
@@ -656,13 +655,13 @@ static int fusb301_poll(FAR struct file *filep,
   int ret = OK;
   int i;
 
-  DEBUGASSERT(filep && fds);
+  DEBUGASSERT(fds);
   inode = filep->f_inode;
 
-  DEBUGASSERT(inode && inode->i_private);
-  priv = (FAR struct fusb301_dev_s *)inode->i_private;
+  DEBUGASSERT(inode->i_private);
+  priv = inode->i_private;
 
-  ret = nxsem_wait(&priv->devsem);
+  ret = nxmutex_lock(&priv->devlock);
   if (ret < 0)
     {
       return ret;
@@ -706,7 +705,7 @@ static int fusb301_poll(FAR struct file *filep,
       flags = enter_critical_section();
       if (priv->int_pending)
         {
-          fusb301_notify(priv);
+          poll_notify(priv->fds, CONFIG_FUSB301_NPOLLWAITERS, POLLIN);
         }
 
       leave_critical_section(flags);
@@ -725,40 +724,8 @@ static int fusb301_poll(FAR struct file *filep,
     }
 
 out:
-  nxsem_post(&priv->devsem);
+  nxmutex_unlock(&priv->devlock);
   return ret;
-}
-
-/****************************************************************************
- * Name: fusb301_notify
- *
- * Description:
- *   Notify thread about data to be available
- *
- ****************************************************************************/
-
-static void fusb301_notify(FAR struct fusb301_dev_s *priv)
-{
-  DEBUGASSERT(priv != NULL);
-
-  int i;
-
-  /* If there are threads waiting on poll() for FUSB301 data to become
-   * available, then wake them up now.  NOTE: we wake up all waiting threads
-   * because we do not know that they are going to do.  If they all try to
-   * read the data, then some make end up blocking after all.
-   */
-
-  for (i = 0; i < CONFIG_FUSB301_NPOLLWAITERS; i++)
-    {
-      struct pollfd *fds = priv->fds[i];
-      if (fds)
-        {
-          fds->revents |= POLLIN;
-          fusb301_info("Report events: %08" PRIx32 "\n", fds->revents);
-          nxsem_post(fds->sem);
-        }
-    }
 }
 
 /****************************************************************************
@@ -779,7 +746,7 @@ static int fusb301_int_handler(int irq, FAR void *context, FAR void *arg)
   flags = enter_critical_section();
   priv->int_pending = true;
 
-  fusb301_notify(priv);
+  poll_notify(priv->fds, CONFIG_FUSB301_NPOLLWAITERS, POLLIN);
   leave_critical_section(flags);
 
   return OK;
@@ -807,9 +774,9 @@ int fusb301_register(FAR const char *devpath, FAR struct i2c_master_s *i2c,
       return -ENOMEM;
     }
 
-  /* Initialize device structure semaphore */
+  /* Initialize device structure mutex */
 
-  nxsem_init(&priv->devsem, 0, 1);
+  nxmutex_init(&priv->devlock);
 
   priv->int_pending = false;
   priv->i2c         = i2c;
@@ -838,8 +805,7 @@ int fusb301_register(FAR const char *devpath, FAR struct i2c_master_s *i2c,
   return OK;
 
 errout_with_priv:
-  nxsem_destroy(&priv->devsem);
+  nxmutex_destroy(&priv->devlock);
   kmm_free(priv);
-
   return ret;
 }

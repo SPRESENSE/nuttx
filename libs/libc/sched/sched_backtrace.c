@@ -24,14 +24,14 @@
 
 #include <nuttx/config.h>
 
+#ifndef CONFIG_ARCH_HAVE_BACKTRACE
+
 #include <sys/types.h>
 #include <unistd.h>
 #include <execinfo.h>
 #include <unwind.h>
 
-#include <nuttx/irq.h>
-
-#if !defined(CONFIG_ARCH_HAVE_BACKTRACE)
+#include <nuttx/sched.h>
 
 /****************************************************************************
  * Private Data Types
@@ -112,7 +112,7 @@ int sched_backtrace(pid_t tid, FAR void **buffer, int size, int skip)
 {
   struct trace_arg arg;
 
-  if (tid != gettid())
+  if (tid != _SCHED_GETTID())
     {
       return 0;
     }

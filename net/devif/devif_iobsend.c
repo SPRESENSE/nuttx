@@ -27,6 +27,7 @@
 #include <string.h>
 #include <assert.h>
 #include <debug.h>
+#include <errno.h>
 
 #include <nuttx/mm/iob.h>
 #include <nuttx/net/netdev.h>
@@ -52,19 +53,50 @@
  *
  ****************************************************************************/
 
-void devif_iob_send(FAR struct net_driver_s *dev, FAR struct iob_s *iob,
-                    unsigned int len, unsigned int offset)
+int devif_iob_send(FAR struct net_driver_s *dev, FAR struct iob_s *iob,
+                   unsigned int len, unsigned int offset,
+                   unsigned int target_offset)
 {
-  if (dev == NULL || len == 0 || len >= NETDEV_PKTSIZE(dev))
+  int ret;
+
+  if (dev == NULL)
     {
-      nerr("devif_iob_send error, %p, send len: %u, pkt len: %u\n",
-                                          dev, len, NETDEV_PKTSIZE(dev));
-      return;
+      ret = -ENODEV;
+      goto errout;
     }
 
-  /* Copy the data from the I/O buffer chain to the device buffer */
+  if (len == 0)
+    {
+      ret = -EINVAL;
+      goto errout;
+    }
 
-  iob_copyout(dev->d_appdata, iob, len, offset);
+#ifndef CONFIG_NET_IPFRAG
+  if (len > NETDEV_PKTSIZE(dev) - NET_LL_HDRLEN(dev) - target_offset)
+    {
+      ret = -EMSGSIZE;
+      goto errout;
+    }
+#endif
+
+  /* Append the send buffer after device buffer */
+
+  if (len > iob_navail(false) * CONFIG_IOB_BUFSIZE)
+    {
+      ret = -ENOMEM;
+      goto errout;
+    }
+
+  /* Clone the iob to target device buffer */
+
+  ret = iob_clone_partial(iob, len, offset, dev->d_iob,
+                          target_offset, false, false);
+  if (ret != OK)
+    {
+      netdev_iob_release(dev);
+      goto errout;
+    }
+
   dev->d_sndlen = len;
 
 #ifdef CONFIG_NET_TCP_WRBUFFER_DUMP
@@ -72,6 +104,12 @@ void devif_iob_send(FAR struct net_driver_s *dev, FAR struct iob_s *iob,
 
   lib_dumpbuffer("devif_iob_send", dev->d_appdata, len);
 #endif
+
+  return dev->d_sndlen;
+
+errout:
+  nerr("ERROR: devif_iob_send error: %d\n", ret);
+  return ret;
 }
 
 #endif /* CONFIG_MM_IOB */

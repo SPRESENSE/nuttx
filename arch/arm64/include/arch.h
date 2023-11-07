@@ -59,7 +59,7 @@
 #ifdef CONFIG_ARCH_ADDRENV
 /* The task group resources are retained in a single structure, task_group_s
  * that is defined in the header file nuttx/include/nuttx/sched.h. The type
- * group_addrenv_t must be defined by platform specific logic in
+ * arch_addrenv_t must be defined by platform specific logic in
  * nuttx/arch/<architecture>/include/arch.h.
  *
  * These tables would hold the physical address of the level 2 page tables.
@@ -67,7 +67,7 @@
  * memory until mappings in the level 2 page table are required.
  */
 
-struct group_addrenv_s
+struct arch_addrenv_s
 {
   /* Level 1 page table entries for each group section */
 
@@ -75,7 +75,7 @@ struct group_addrenv_s
   uintptr_t *data[ARCH_DATA_NSECTS];
 #ifdef CONFIG_BUILD_KERNEL
   uintptr_t *heap[ARCH_HEAP_NSECTS];
-#ifdef CONFIG_MM_SHM
+#ifdef CONFIG_ARCH_VMA_MAPPING
   uintptr_t *shm[ARCH_SHM_NSECTS];
 #endif
 
@@ -89,30 +89,7 @@ struct group_addrenv_s
 #endif
 };
 
-typedef struct group_addrenv_s group_addrenv_t;
-
-/* This type is used when the OS needs to temporarily instantiate a
- * different address environment.  Used in the implementation of
- *
- *   int up_addrenv_select(group_addrenv_t addrenv, save_addrenv_t *oldenv);
- *   int up_addrenv_restore(save_addrenv_t oldenv);
- *
- * In this case, the saved value in the L1 page table are returned
- */
-
-struct save_addrenv_s
-{
-  uint32_t text[ARCH_TEXT_NSECTS];
-  uint32_t data[ARCH_DATA_NSECTS];
-#ifdef CONFIG_BUILD_KERNEL
-  uint32_t heap[ARCH_HEAP_NSECTS];
-#ifdef CONFIG_MM_SHM
-  uint32_t shm[ARCH_SHM_NSECTS];
-#endif
-#endif
-};
-
-typedef struct save_addrenv_s save_addrenv_t;
+typedef struct arch_addrenv_s arch_addrenv_t;
 #endif
 
 /****************************************************************************

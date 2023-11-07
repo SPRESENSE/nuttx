@@ -32,13 +32,14 @@
 #include <debug.h>
 
 #include <nuttx/arch.h>
-#include <nuttx/semaphore.h>
+#include <nuttx/mutex.h>
 #include <nuttx/spi/spi.h>
 
 #include <arch/board/board.h>
 
 #include "lpc31_spi.h"
 #include "lpc31_ioconfig.h"
+#include "lpc31_cgudrvr.h"
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -72,7 +73,7 @@
 struct lpc31_spidev_s
 {
   struct spi_dev_s spidev;     /* Externally visible part of the SPI interface */
-  sem_t            exclsem;    /* Held while chip is selected for mutual exclusion */
+  mutex_t          lock;       /* Held while chip is selected for mutual exclusion */
   uint32_t         frequency;  /* Requested clock frequency */
   uint32_t         actual;     /* Actual clock frequency */
   uint8_t          nbits;      /* Width of work in bits (8 or 16) */
@@ -154,9 +155,10 @@ static const struct spi_ops_s g_spiops =
 static struct lpc31_spidev_s g_spidev =
 {
   .spidev            =
-    {
-      &g_spiops
-    },
+  {
+    .ops             = &g_spiops,
+  },
+  .lock              = NXMUTEX_INITIALIZER,
 };
 
 #ifdef CONFIG_LPC31_SPI_REGDEBUG
@@ -457,11 +459,11 @@ static int spi_lock(struct spi_dev_s *dev, bool lock)
 
   if (lock)
     {
-      ret = nxsem_wait_uninterruptible(&priv->exclsem);
+      ret = nxmutex_lock(&priv->lock);
     }
   else
     {
-      ret = nxsem_post(&priv->exclsem);
+      ret = nxmutex_unlock(&priv->lock);
     }
 
   return ret;
@@ -488,7 +490,7 @@ static int spi_lock(struct spi_dev_s *dev, bool lock)
 static void spi_select(struct spi_dev_s *dev, uint32_t devid,
                        bool selected)
 {
-  struct lpc31_spidev_s *priv = (struct lpc31_spidev_s *) dev;
+  struct lpc31_spidev_s *priv = (struct lpc31_spidev_s *)dev;
   uint8_t slave = 0;
 
   /* FIXME: map the devid to the SPI slave - this should really
@@ -963,10 +965,6 @@ struct spi_dev_s *lpc31_spibus_initialize(int port)
 
   lpc31_softreset(RESETID_SPIRSTAPB);
   lpc31_softreset(RESETID_SPIRSTIP);
-
-  /* Initialize the SPI semaphore that enforces mutually exclusive access */
-
-  nxsem_init(&priv->exclsem, 0, 1);
 
   /* Reset the SPI block */
 

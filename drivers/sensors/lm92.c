@@ -101,10 +101,6 @@ static const struct file_operations g_lm92fops =
   lm92_write,      /* write */
   NULL,            /* seek */
   lm92_ioctl,      /* ioctl */
-  NULL             /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL           /* unlink */
-#endif
 };
 
 /****************************************************************************
@@ -632,7 +628,7 @@ int lm92_register(FAR const char *devpath, FAR struct i2c_master_s *i2c,
 
   /* Initialize the LM92 device structure */
 
-  priv = (FAR struct lm92_dev_s *)kmm_malloc(sizeof(struct lm92_dev_s));
+  priv = kmm_malloc(sizeof(struct lm92_dev_s));
   if (priv == NULL)
     {
       snerr("ERROR: Failed to allocate instance\n");

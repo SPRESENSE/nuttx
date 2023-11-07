@@ -39,10 +39,12 @@
 #include "xtensa.h"
 
 #include "esp32s3_gpio.h"
+#include "esp32s3_rtc_gpio.h"
 #include "esp32s3_irq.h"
 #ifdef CONFIG_SMP
 #include "esp32s3_smp.h"
 #endif
+#include "esp32s3_userspace.h"
 #include "hardware/esp32s3_interrupt_core0.h"
 #ifdef CONFIG_SMP
 #include "hardware/esp32s3_interrupt_core1.h"
@@ -105,21 +107,22 @@
 #define ESP32S3_MAX_PRIORITY    5
 #define ESP32S3_PRIO_INDEX(p)   ((p) - ESP32S3_MIN_PRIORITY)
 
+#ifdef CONFIG_ESP32S3_WIFI
+#  define ESP32S3_WIFI_RESERVE_INT  (1 << ESP32S3_CPUINT_MAC)
+#else
+#  define ESP32S3_WIFI_RESERVE_INT  0
+#endif
+
+#ifdef CONFIG_ESP32S3_BLE
+#  define ESP32S3_BLE_RESERVE_INT ((1 << ESP32S3_CPUINT_BT_BB) | \
+                                   (1 << ESP32S3_CPUINT_RWBLE))
+#else
+#  define ESP32S3_BLE_RESERVE_INT 0
+#endif
+
 /****************************************************************************
  * Public Data
  ****************************************************************************/
-
-/* g_current_regs[] holds a reference to the current interrupt level
- * register storage structure.  It is non-NULL only during interrupt
- * processing.  Access to g_current_regs[] must be through the macro
- * CURRENT_REGS for portability.
- */
-
-/* For the case of architectures with multiple CPUs, then there must be one
- * such value for each processor that can receive an interrupt.
- */
-
-volatile uint32_t *g_current_regs[CONFIG_SMP_NCPUS];
 
 #if defined(CONFIG_SMP) && CONFIG_ARCH_INTERRUPTSTACK > 15
 /* In the SMP configuration, we will need custom interrupt stacks.
@@ -162,7 +165,10 @@ static uint32_t g_intenable[CONFIG_SMP_NCPUS];
  * devices.
  */
 
-static uint32_t g_cpu0_freeints = ESP32S3_CPUINT_PERIPHSET;
+static uint32_t g_cpu0_freeints = ESP32S3_CPUINT_PERIPHSET &
+                                  ~(ESP32S3_WIFI_RESERVE_INT |
+                                    ESP32S3_BLE_RESERVE_INT);
+
 #ifdef CONFIG_SMP
 static uint32_t g_cpu1_freeints = ESP32S3_CPUINT_PERIPHSET;
 #endif
@@ -348,27 +354,14 @@ static int esp32s3_alloc_cpuint(int priority, int type)
 
   DEBUGASSERT(priority >= ESP32S3_MIN_PRIORITY &&
               priority <= ESP32S3_MAX_PRIORITY);
-  DEBUGASSERT(type == ESP32S3_CPUINT_LEVEL ||
-              type == ESP32S3_CPUINT_EDGE);
+  DEBUGASSERT(type == ESP32S3_CPUINT_LEVEL);
 
-  if (type == ESP32S3_CPUINT_LEVEL)
-    {
-      /* Check if there are any level CPU interrupts available at the
-       * requested interrupt priority.
-       */
+  /* Check if there are any level CPU interrupts available at the
+   * requested interrupt priority.
+   */
 
-      mask = g_priority[ESP32S3_PRIO_INDEX(priority)] &
-              ESP32S3_CPUINT_LEVELSET;
-    }
-  else
-    {
-      /* Check if there are any edge CPU interrupts available at the
-       * requested interrupt priority.
-       */
-
-      mask = g_priority[ESP32S3_PRIO_INDEX(priority)] &
-              ESP32S3_CPUINT_EDGESET;
-    }
+  mask = g_priority[ESP32S3_PRIO_INDEX(priority)] &
+          ESP32S3_CPUINT_LEVELSET;
 
   return esp32s3_getcpuint(mask);
 }
@@ -424,6 +417,7 @@ static void esp32s3_free_cpuint(int cpuint)
 void up_irqinitialize(void)
 {
   int i;
+
   for (i = 0; i < NR_IRQS; i++)
     {
       g_irqmap[i] = IRQ_UNMAPPED;
@@ -432,14 +426,37 @@ void up_irqinitialize(void)
   /* Hard code special cases. */
 
   g_irqmap[XTENSA_IRQ_TIMER0] = IRQ_MKMAP(0, ESP32S3_CPUINT_TIMER0);
-
   g_irqmap[XTENSA_IRQ_SWINT]  = IRQ_MKMAP(0, ESP32S3_CPUINT_SOFTWARE1);
-
   g_irqmap[XTENSA_IRQ_SWINT]  = IRQ_MKMAP(1, ESP32S3_CPUINT_SOFTWARE1);
+
+#ifdef CONFIG_ESP32S3_WIFI
+  g_irqmap[ESP32S3_IRQ_MAC] = IRQ_MKMAP(0, ESP32S3_CPUINT_MAC);
+  g_irqmap[ESP32S3_IRQ_PWR] = IRQ_MKMAP(0, ESP32S3_CPUINT_PWR);
+#endif
+
+#ifdef CONFIG_ESP32S3_BLE
+  g_irqmap[ESP32S3_IRQ_BT_BB] = IRQ_MKMAP(0, ESP32S3_CPUINT_BT_BB);
+  g_irqmap[ESP32S3_IRQ_RWBLE] = IRQ_MKMAP(0, ESP32S3_CPUINT_RWBLE);
+#endif
 
   /* Initialize CPU interrupts */
 
   esp32s3_cpuint_initialize();
+
+  /* Reserve CPU0 interrupt for some special drivers */
+
+#ifdef CONFIG_ESP32S3_WIFI
+  g_cpu0_intmap[ESP32S3_CPUINT_MAC] = CPUINT_ASSIGN(ESP32S3_IRQ_MAC);
+  g_cpu0_intmap[ESP32S3_CPUINT_PWR] = CPUINT_ASSIGN(ESP32S3_IRQ_PWR);
+  xtensa_enable_cpuint(&g_intenable[0], 1 << ESP32S3_CPUINT_MAC);
+#endif
+
+#ifdef CONFIG_ESP32S3_BLE
+  g_cpu0_intmap[ESP32S3_CPUINT_BT_BB] = CPUINT_ASSIGN(ESP32S3_IRQ_BT_BB);
+  g_cpu0_intmap[ESP32S3_CPUINT_RWBLE] = CPUINT_ASSIGN(ESP32S3_IRQ_RWBLE);
+  xtensa_enable_cpuint(&g_intenable[0], 1 << ESP32S3_CPUINT_BT_BB);
+  xtensa_enable_cpuint(&g_intenable[0], 1 << ESP32S3_CPUINT_RWBLE);
+#endif
 
 #ifdef CONFIG_SMP
   /* Attach and enable the inter-CPU interrupt */
@@ -450,6 +467,14 @@ void up_irqinitialize(void)
   /* Initialize GPIO interrupt support */
 
   esp32s3_gpioirqinitialize();
+
+  /* Initialize RTCIO interrupt support */
+
+  esp32s3_rtcioirqinitialize();
+
+  /* Initialize interrupt handler for the PMS violation ISR */
+
+  esp32s3_pmsirqinitialize();
 
 #ifndef CONFIG_SUPPRESS_INTERRUPTS
   /* And finally, enable interrupts.  Also clears PS.EXCM */
@@ -817,6 +842,42 @@ void esp32s3_teardown_irq(int cpu, int periphid, int cpuint)
   putreg32(NO_CPUINT, regaddr);
 
   leave_critical_section(irqstate);
+}
+
+/****************************************************************************
+ * Name:  esp32s3_getirq
+ *
+ * Description:
+ *   This function returns the IRQ associated with a CPU interrupt
+ *
+ * Input Parameters:
+ *   cpu      - The CPU to receive the interrupt 0=PRO CPU 1=APP CPU
+ *   cpuint   - The CPU interrupt associated to the IRQ
+ *
+ * Returned Value:
+ *   The IRQ associated with such CPU interrupt or CPUINT_UNASSIGNED if
+ *   IRQ is not yet assigned to a CPU interrupt.
+ *
+ ****************************************************************************/
+
+int esp32s3_getirq(int cpu, int cpuint)
+{
+  uint8_t *intmap;
+
+#ifdef CONFIG_SMP
+  /* Select PRO or APP CPU interrupt mapping table */
+
+  if (cpu != 0)
+    {
+      intmap = g_cpu1_intmap;
+    }
+  else
+#endif
+    {
+      intmap = g_cpu0_intmap;
+    }
+
+  return CPUINT_GETIRQ(intmap[cpuint]);
 }
 
 /****************************************************************************

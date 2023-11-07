@@ -234,12 +234,12 @@ static const struct i2s_ops_s g_i2sops =
 };
 
 static DMA_HANDLE _hrxdma;
-static sem_t      _sem_rxdma;
-static sem_t      _sem_buf_over;
+static sem_t _sem_rxdma = SEM_INITIALIZER(0);
+static sem_t _sem_buf_over = SEM_INITIALIZER(0);
 
 static DMA_HANDLE _htxdma;
-static sem_t      _sem_txdma;
-static sem_t      _sem_buf_under;
+static sem_t _sem_txdma = SEM_INITIALIZER(0);
+static sem_t _sem_buf_under = SEM_INITIALIZER(0);
 
 /****************************************************************************
  * Public Data
@@ -257,10 +257,10 @@ extern unsigned int XT1OSC_CLK;
 
 static void _setup_audio_pll(uint32_t freq)
 {
-  DEBUGASSERT(24000000 == XT1OSC_CLK);
+  uint32_t m = 0;
+  uint32_t n = 0;
 
-  uint32_t m;
-  uint32_t n;
+  DEBUGASSERT(24000000 == XT1OSC_CLK);
 
   switch (freq)
     {
@@ -304,15 +304,6 @@ static void _setup_audio_pll(uint32_t freq)
               0x0,
               0x0200  /* AUDDIV=2 */
               );
-}
-
-/****************************************************************************
- * Name: _i2s_semtake
- ****************************************************************************/
-
-static int _i2s_semtake(sem_t *sem)
-{
-  return nxsem_wait_uninterruptible(sem);
 }
 
 /****************************************************************************
@@ -521,7 +512,7 @@ static int lc823450_i2s_receive(struct i2s_dev_s *dev,
 
   /* Wait for Audio Buffer */
 
-  ret = _i2s_semtake(&_sem_buf_over);
+  ret = nxsem_wait_uninterruptible(&_sem_buf_over);
   if (ret < 0)
     {
       /* Disable J Buffer Over Level IRQ */
@@ -550,10 +541,10 @@ static int lc823450_i2s_receive(struct i2s_dev_s *dev,
                     _i2s_rxdma_callback,
                     &_sem_rxdma);
 
-  ret = _i2s_semtake(&_sem_rxdma);
+  ret = nxsem_wait_uninterruptible(&_sem_rxdma);
   if (ret < 0)
     {
-      /* Stop DMA because semtake failed */
+      /* Stop DMA because semwait failed */
 
       lc823450_dmastop(_hrxdma);
 
@@ -686,7 +677,7 @@ static int lc823450_i2s_send(struct i2s_dev_s *dev, struct ap_buffer_s *apb,
 
       /* Wait for Audio Buffer */
 
-      ret = _i2s_semtake(&_sem_buf_under);
+      ret = nxsem_wait_uninterruptible(&_sem_buf_under);
       if (ret < 0)
         {
           /* Disable C Buffer Under Level IRQ */
@@ -734,10 +725,10 @@ static int lc823450_i2s_send(struct i2s_dev_s *dev, struct ap_buffer_s *apb,
                     _i2s_txdma_callback,
                     &_sem_txdma);
 
-  ret = _i2s_semtake(&_sem_txdma);
+  ret = nxsem_wait_uninterruptible(&_sem_txdma);
   if (ret < 0)
     {
-      /* Stop DMA because semtake failed */
+      /* Stop DMA because semwait failed */
 
       lc823450_dmastop(_htxdma);
 
@@ -1019,7 +1010,7 @@ struct i2s_dev_s *lc823450_i2sdev_initialize(void)
    * chip select structures.
    */
 
-  priv = (struct lc823450_i2s_s *)kmm_zalloc(sizeof(struct lc823450_i2s_s));
+  priv = kmm_zalloc(sizeof(struct lc823450_i2s_s));
   if (!priv)
     {
       i2serr("ERROR: Failed to allocate a chip select structure\n");
@@ -1043,12 +1034,7 @@ struct i2s_dev_s *lc823450_i2sdev_initialize(void)
 #endif
 
   _hrxdma = lc823450_dmachannel(DMA_CHANNEL_VIRTUAL);
-  nxsem_init(&_sem_rxdma, 0, 0);
-  nxsem_init(&_sem_buf_over, 0, 0);
-
   _htxdma = lc823450_dmachannel(DMA_CHANNEL_VIRTUAL);
-  nxsem_init(&_sem_txdma, 0, 0);
-  nxsem_init(&_sem_buf_under, 0, 0);
 
 #ifdef CONFIG_SMP
   cpu_set_t cpuset0;
@@ -1059,11 +1045,11 @@ struct i2s_dev_s *lc823450_i2sdev_initialize(void)
 
   /* Backup the current affinity */
 
-  nxsched_get_affinity(getpid(), sizeof(cpuset0), &cpuset0);
+  nxsched_get_affinity(nxsched_gettid(), sizeof(cpuset0), &cpuset0);
 
   /* Set the new affinity which assigns to CPU0 */
 
-  nxsched_set_affinity(getpid(), sizeof(cpuset1), &cpuset1);
+  nxsched_set_affinity(nxsched_gettid(), sizeof(cpuset1), &cpuset1);
   nxsig_usleep(10 * 1000);
 #endif
 
@@ -1076,7 +1062,7 @@ struct i2s_dev_s *lc823450_i2sdev_initialize(void)
 #ifdef CONFIG_SMP
   /* Restore the original affinity */
 
-  nxsched_set_affinity(getpid(), sizeof(cpuset0), &cpuset0);
+  nxsched_set_affinity(nxsched_gettid(), sizeof(cpuset0), &cpuset0);
   nxsig_usleep(10 * 1000);
 #endif
 

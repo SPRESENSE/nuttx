@@ -177,9 +177,6 @@ static const struct file_operations g_bmp280pressfops =
   bmp280_write,                 /* write */
   NULL,                         /* seek */
   bmp280_ioctl_press            /* ioctl */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL                        /* unlink */
-#endif
 };
 
 static const struct file_operations g_bmp280tempfops =
@@ -190,9 +187,6 @@ static const struct file_operations g_bmp280tempfops =
   bmp280_write,                 /* write */
   NULL,                         /* seek */
   bmp280_ioctl_temp             /* ioctl */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL                        /* unlink */
-#endif
 };
 
 /* SCU instructions for pick pressure sensing data. */
@@ -918,7 +912,7 @@ int bmp280press_register(const char *devpath, int minor,
   char path[12];
   int ret;
 
-  priv = (struct bmp280_dev_s *)kmm_malloc(sizeof(struct bmp280_dev_s));
+  priv = kmm_malloc(sizeof(struct bmp280_dev_s));
   if (!priv)
     {
       snerr("Failed to allocate instance\n");
@@ -969,7 +963,7 @@ int bmp280temp_register(const char *devpath, int minor,
   char path[12];
   int ret;
 
-  priv = (struct bmp280_dev_s *)kmm_malloc(sizeof(struct bmp280_dev_s));
+  priv = kmm_malloc(sizeof(struct bmp280_dev_s));
   if (!priv)
     {
       snerr("Failed to allocate instance\n");

@@ -74,7 +74,7 @@ int pthread_cond_clockwait(FAR pthread_cond_t *cond,
                            FAR const struct timespec *abstime)
 {
   irqstate_t flags;
-  int mypid = getpid();
+  int mypid = nxsched_gettid();
   int ret = OK;
   int status;
 
@@ -141,8 +141,8 @@ int pthread_cond_clockwait(FAR pthread_cond_t *cond,
       ret        = pthread_mutex_give(mutex);
       if (ret == 0)
         {
-          status = nxsem_clockwait_uninterruptible(
-                   &cond->sem, clockid, abstime);
+          status = nxsem_clockwait_uninterruptible(&cond->sem,
+                                                   clockid, abstime);
           if (status < 0)
             {
               ret = -status;
@@ -159,7 +159,7 @@ int pthread_cond_clockwait(FAR pthread_cond_t *cond,
 
       sinfo("Re-locking...\n");
 
-      status = pthread_mutex_take(mutex, NULL, false);
+      status = pthread_mutex_take(mutex, NULL);
       if (status == OK)
         {
           mutex->pid    = mypid;

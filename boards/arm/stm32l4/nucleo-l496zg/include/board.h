@@ -28,7 +28,7 @@
 #include <nuttx/config.h>
 
 #ifndef __ASSEMBLY__
-# include <stdint.h>
+#  include <stdint.h>
 #endif
 
 /* Do not include STM32 L4 header files here */
@@ -58,7 +58,7 @@
 #define STM32L4_HSE_FREQUENCY     8000000ul  /* 8 MHz from MCO output */
 #define STM32L4_LSE_FREQUENCY     32768
 
-#define HSE_CLOCK_CONFIG
+#define MSI_CLOCK_CONFIG
 
 #if defined(HSI_CLOCK_CONFIG)
 
@@ -570,8 +570,8 @@
  *   -- ----- --------- -----
  */
 
- # define GPIO_USART6_RX GPIO_USART6_RX_2
- # define GPIO_USART6_TX GPIO_USART6_TX_2
+ #  define GPIO_USART6_RX GPIO_USART6_RX_2
+ #  define GPIO_USART6_TX GPIO_USART6_TX_2
 #endif
 
 /* USART3:

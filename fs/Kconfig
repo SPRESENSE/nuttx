@@ -50,7 +50,7 @@ config FS_AUTOMOUNTER_DRIVER
 		Enabling this option will lead to registering of a character driver
 		on FS_AUTOMOUNTER_VFS_PATH + mount point path for auto-mounter.
 		Example: /var/mnt/sdcard0
-		
+
 config FS_AUTOMOUNTER_VFS_PATH
 	string "Path to auto-mounter driver"
 	default "/var"
@@ -93,6 +93,13 @@ config PSEUDOFS_SOFTLINKS
 		may be add in the pseudo file system.  This might be useful, for
 		to link a directory in the pseudo-file system, such as /bin, to
 		to a directory in a mounted volume, say /mnt/sdcard/bin.
+
+config PSEUDOFS_FILE
+	bool "Pseudo file support"
+	default n
+	depends on !DISABLE_PSEUDOFS_OPERATIONS
+	---help---
+		Support to create a file on pseudo filesystem.
 
 config SENDFILE_BUFSIZE
 	int "sendfile() buffer size"

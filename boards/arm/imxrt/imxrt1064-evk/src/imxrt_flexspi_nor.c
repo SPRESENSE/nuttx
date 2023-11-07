@@ -25,6 +25,7 @@
 #include <nuttx/config.h>
 
 #include <stdbool.h>
+#include <sys/param.h>
 #include <errno.h>
 #include <debug.h>
 
@@ -41,8 +42,6 @@
 
 #define NOR_PAGE_SIZE   0x0100U
 #define NOR_SECTOR_SIZE 0x1000U
-
-#define MIN(a, b) (((a) < (b)) ? (a) : (b))
 
 enum
 {
@@ -556,6 +555,8 @@ static int imxrt_flexspi_nor_ioctl(struct mtd_dev_s *dev,
 
           if (geo)
             {
+              memset(geo, 0, sizeof(*geo));
+
               /* Populate the geometry structure with information need to
                * know the capacity and how to access the device.
                *

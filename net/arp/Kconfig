@@ -6,8 +6,9 @@
 menu "ARP Configuration"
 
 config NET_ARP
-	bool
+	bool "Address Resolution Protocol"
 	default y
+	select MM_IOB
 	depends on NET_ETHERNET && NET_IPv4
 	---help---
 		This setting is currently overridden by logic in include/nuttx/net

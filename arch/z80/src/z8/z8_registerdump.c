@@ -33,14 +33,6 @@
 #include "chip/switch.h"
 #include "z80_internal.h"
 
-#ifdef CONFIG_ARCH_STACKDUMP
-
-/****************************************************************************
- * Private Data
- ****************************************************************************/
-
-static chipreg_t s_last_regs[XCPTCONTEXT_REGS];
-
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
@@ -64,10 +56,20 @@ static inline void z8_dumpstate(chipreg_t sp, chipreg_t pc, uint8_t irqctl,
  ****************************************************************************/
 
 /****************************************************************************
- * Name: z8_registerdump
+ * Name: up_getusrsp
  ****************************************************************************/
 
-void z8_registerdump(void)
+uintptr_t up_getusrsp(FAR void *regs)
+{
+  FAR chipreg_t *ptr = regs;
+  return ptr[XCPT_SP];
+}
+
+/****************************************************************************
+ * Name: up_dump_register
+ ****************************************************************************/
+
+void up_dump_register(FAR void *dumpregs)
 {
   FAR chipret_t *regs;
   chipreg_t      sp;
@@ -106,7 +108,7 @@ void z8_registerdump(void)
 
       case Z8_IRQSTATE_NONE:
       default:
-        z8_saveusercontext(s_last_regs);
+        up_saveusercontext(s_last_regs);
         regs = s_last_regs;
         z8_dumpregs(regs);
         z8_dumpstate(regs[XCPT_SP], regs[XCPT_PC],
@@ -114,5 +116,3 @@ void z8_registerdump(void)
         break;
     }
 }
-
-#endif /* CONFIG_ARCH_STACKDUMP */

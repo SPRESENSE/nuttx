@@ -348,7 +348,7 @@ config STM32WB_SRAM2A_INIT
 		memory can trigger parity faults from the random data.  This can be
 		avoided by first writing to all locations to force the parity into a valid
 		state.
-		However, if the SRAM2a is being retained in Standby mode, this may be 
+		However, if the SRAM2a is being retained in Standby mode, this may be
 		undesirable (because it will destroy the contents).  In that case, the board
 		should handle the initialization itself at the appropriate time.
 
@@ -359,7 +359,7 @@ config STM32WB_SRAM2B_HEAP
 config STM32WB_SRAM2B_USER_SIZE
 	int "SRAM2b user application size"
 	default 32768
-	range 0 32768	
+	range 0 32768
 	depends on STM32WB_SRAM2B_HEAP
 	---help---
 		For any CPU2 firmware supporting the BLE protocol the ending part of
@@ -380,6 +380,26 @@ config STM32WB_SRAM2B_INIT
 		memory can trigger parity faults from the random data.  This can be
 		avoided by first writing to all locations to force the parity into a valid
 		state.
+
+config STM32WB_USE_LEGACY_PINMAP
+	bool "Use the legacy pinmap with GPIO_SPEED_xxx included."
+	default y
+	---help---
+		In the past, pinmap files included GPIO_SPEED_xxxMhz. These speed
+		settings should have come from the board.h as it describes the wiring
+		of the SoC to the board. The speed is really slew rate control and
+		therefore is related to the layout and can only be properly set
+		in board.h.
+
+		CONFIG_STM32WB_USE_LEGACY_PINMAP is provided, to allow lazy migration to
+		using pinmaps without speeds. The work required to do this can be aided
+		by running tools/stm32_pinmap_tool.py. The tools will take a board.h
+		file and a legacy pinmap and output the required changes that one needs
+		to make to a board.h file.
+
+		Eventually, CONFIG_STM32WB_USE_LEGACY_PINMAP will be deprecated and the
+		legacy pinmaps removed from NuttX. Any new boards added should set
+		CONFIG_STM32WB_USE_LEGACY_PINMAP=n and fully define the pins in board.h
 
 comment "STM32WB Peripherals"
 
@@ -551,6 +571,19 @@ config STM32WB_LPUART1
 	select ARCH_HAVE_LPUART1
 	select STM32WB_USART
 
+config STM32WB_I2C1
+	bool "I2C1"
+	default n
+	select I2C
+	select STM32WB_I2C
+
+config STM32WB_I2C3
+	bool "I2C3"
+	default n
+	depends on STM32WB_HAVE_I2C3
+	select I2C
+	select STM32WB_I2C
+
 comment "APB2 Peripherals"
 
 config STM32WB_SYSCFG
@@ -617,7 +650,7 @@ menu "RTC Configuration"
 config STM32WB_RTC_MAGIC_REG
 	int "BKP register"
 	default 0
-	range  0 31
+	range 0 31
 	---help---
 		The BKP register used to store/check the Magic value to determine if
 		RTC is already setup
@@ -691,7 +724,6 @@ config STM32WB_TICKLESS_TIMER
 	int "Tickless hardware timer"
 	default 2
 	range 1 17
-	depends on !STM32WB_TICKLESS_SYSTICK
 	---help---
 		If the Tickless OS feature is enabled, then one clock must be
 		assigned to provided the timer needed by the OS.
@@ -878,9 +910,10 @@ config STM32WB_SERIALBRK_BSDCOMPAT
 	---help---
 		Enable using GPIO on the TX pin to send a BSD compatible break:
 		TIOCSBRK will start the break and TIOCCBRK will end the break.
-		The current STM32WB U[S]ARTS have no way to leave the break (TX=LOW)
-		on because the SW starts the break and then the HW automatically clears
-		the break. This makes it is difficult to sent a long break.
+		The current STM32WB U[S]ARTS have no way to leave the break on
+		(TX=LOW) because software starts the break and then the hardware
+		automatically clears the break. This makes it difficult to send
+		a long break.
 
 config STM32WB_USART_SINGLEWIRE
 	bool "Single Wire Support"
@@ -999,7 +1032,7 @@ config STM32WB_BLE_SLAVE_SCA
 	---help---
 		Sleep clock accuracy (ppm value) in slave mode.
 
-choice 
+choice
 	prompt "Sleep clock accuracy in master mode"
 	default STM32WB_BLE_MASTER_SCA_0
 	---help---
@@ -1042,7 +1075,7 @@ config STM32WB_BLE_MASTER_SCA
 	default 1 if STM32WB_BLE_MASTER_SCA_1
 	default 0
 
-choice 
+choice
 	prompt "Low speed clock source"
 	default STM32WB_BLE_LS_CLK_SRC_LSE
 	---help---
@@ -1098,7 +1131,7 @@ config STM32WB_BLE_CHAN_SEL_ALG2
 	bool "Enable channel selection algorithm 2"
 	default n
 
-choice 
+choice
 	prompt "Power class"
 	default STM32WB_BLE_POWER_CLASS_2_3
 
@@ -1120,7 +1153,7 @@ config STM32WB_BLE_MAX_TX_POWER
 	range -127 20
 	default 0
 
-choice 
+choice
 	prompt "AGC RSSI model"
 	default STM32WB_BLE_AGC_RSSI_LEGACY
 
@@ -1146,8 +1179,7 @@ config STM32WB_BLE_LE_2M_PHY
 
 config STM32WB_BLE_LE_CODED_PHY
 	bool "Support LE Coded PHY"
-	default y if STM32WB_STM32WB15 || STM32WB_STM32WB35 || STM32WB_STM32WB55
-	default n
+	default STM32WB_STM32WB15 || STM32WB_STM32WB35 || STM32WB_STM32WB55
 	depends on STM32WB_STM32WB15 || STM32WB_STM32WB35 || STM32WB_STM32WB55
 
 config STM32WB_BLE_TTY_NAME

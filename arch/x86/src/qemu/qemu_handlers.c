@@ -30,8 +30,9 @@
 #include <nuttx/arch.h>
 #include <nuttx/board.h>
 #include <arch/io.h>
+#include <sched/sched.h>
 
-#include "up_internal.h"
+#include "x86_internal.h"
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -90,7 +91,6 @@ static uint32_t *common_handler(int irq, uint32_t *regs)
 
   irq_dispatch(irq, regs);
 
-#if defined(CONFIG_ARCH_FPU) || defined(CONFIG_ARCH_ADDRENV)
   /* Check for a context switch.  If a context switch occurred, then
    * g_current_regs will have a different value than it did on entry.  If an
    * interrupt level context switch has occurred, then restore the floating
@@ -113,10 +113,16 @@ static uint32_t *common_handler(int irq, uint32_t *regs)
        * thread at the head of the ready-to-run list.
        */
 
-      group_addrenv(NULL);
+      addrenv_switch(NULL);
 #endif
+
+      /* Record the new "running" task when context switch occurred.
+       * g_running_tasks[] is only used by assertion logic for reporting
+       * crashes.
+       */
+
+      g_running_tasks[this_cpu()] = this_task();
     }
-#endif
 
   /* If a context switch occurred while processing the interrupt then
    * g_current_regs may have change value.  If we return any value different

@@ -127,6 +127,7 @@ static int g_rangenumber        = 0;
 static int g_rangestart[RANGE_NUMBER];
 static int g_rangecount[RANGE_NUMBER];
 static char g_file_name[PATH_MAX];
+static bool g_skipmixedcase;
 
 static const struct file_section_s g_section_info[] =
 {
@@ -220,7 +221,7 @@ static const char *g_white_suffix[] =
   NULL
 };
 
-static const char *g_white_list[] =
+static const char *g_white_content_list[] =
 {
   /* Ref:  gnu_unwind_find_exidx.c */
 
@@ -241,6 +242,10 @@ static const char *g_white_list[] =
   /* Ref:  stdatomic.h */
 
   "_Atomic",
+
+  /* Ref:  https://en.cppreference.com/w/c/keyword/_Thread_local */
+
+  "_Thread_local",
 
   /* Ref:  unwind-arm-common.h */
 
@@ -359,6 +364,210 @@ static const char *g_white_list[] =
   "RTOS_SetThreadRegList",
   "RTOS_UpdateThreads",
 
+  /* Ref:
+   * sim/posix/sim_x11eventloop.c
+   */
+
+  "Display",
+  "Button1Mask",
+  "Button2Mask",
+  "Button3Mask",
+  "Button1",
+  "Button2",
+  "Button3",
+  "XEvent",
+  "XPending",
+  "XNextEvent",
+  "KeyPress",
+  "KeyRelease",
+  "MotionNotify",
+  "ButtonPress",
+  "ButtonRelease",
+  "XLookupKeysym",
+
+  /* Ref:
+   * sim/posix/sim_x11framebuffer.c
+   */
+
+  "Window",
+  "XShmSegmentInfo",
+  "XImage",
+  "XGCValues",
+  "XTextProperty",
+  "XSizeHints",
+  "XOpenDisplay",
+  "XCreateSimpleWindow",
+  "DefaultRootWindow",
+  "XStringListToTextProperty",
+  "XSetWMProperties",
+  "XMapWindow",
+  "XSelectInput",
+  "XAllowEvents",
+  "XGrabButton",
+  "XCreateGC",
+  "XSetErrorHandler",
+  "XSync",
+  "XShmDetach",
+  "XDestroyImage",
+  "XUngrabButton",
+  "XCloseDisplay",
+  "XShmQueryExtension",
+  "XShmCreateImage",
+  "XShmAttach",
+  "DefaultVisual",
+  "XCreateImage",
+  "XGetWindowAttributes",
+  "DefaultColormap",
+  "XAllocColor",
+  "XShmPutImage",
+  "XPutImage",
+  "Colormap",
+  "DefaultScreen",
+  "BlackPixel",
+  "PSize",
+  "PMinSize",
+  "PMaxSize",
+  "ButtonPressMask",
+  "ButtonReleaseMask",
+  "PointerMotionMask",
+  "KeyPressMask",
+  "KeyReleaseMask",
+  "ButtonMotionMask",
+  "GrabModeAsync",
+  "GCGraphicsExposures",
+  "XErrorEvent",
+  "AnyModifier",
+  "None",
+  "Status",
+  "DoGreen",
+  "DoRed",
+  "DoBlue",
+  "ZPixmap",
+  "readOnly",
+  "XWindowAttributes",
+  "XColor",
+  "AsyncBoth",
+  "CurrentTime",
+  "XUnmapWindow",
+
+  /* Ref:
+   * sim/posix/sim_deviceimage.c
+   */
+
+  "inflateInit",
+  "inflateEnd",
+  "Bytef",
+
+  /* Ref:
+   * sim/posix/sim_hostmemory.c
+   */
+
+  "CreateFileMapping",
+  "MapViewOfFile",
+  "CloseHandle",
+  "UnmapViewOfFile",
+
+  /* Ref:
+   * sim/posix/sim_hostmisc.c
+   */
+
+  "CaptureStackBackTrace",
+
+  /* Ref:
+   * sim/posix/sim_hosttime.c
+   */
+
+  "GetSystemTimeAsFileTime",
+  "QueryPerformanceFrequency",
+  "QueryPerformanceCounter",
+  "CreateWaitableTimer",
+  "SetWaitableTimer",
+  "WaitForSingleObject",
+  "dwHighDateTime",
+  "dwLowDateTime",
+  "QuadPart",
+
+  /* Ref:
+   * sim/posix/sim_hostuart.c
+   */
+
+  "GetStdHandle",
+  "GetConsoleMode",
+  "SetConsoleMode",
+  "WriteConsole",
+  "ReadConsole",
+  "FlushConsoleInputBuffer",
+  "GetNumberOfConsoleInputEvents",
+
+  /* Ref:
+   * apps/testing/drivertest/drivertest_xxx.c
+   */
+
+  "CMUnitTest",
+
+  /* Ref:
+   * apps/examples/hello_nim/hello_nim_main.c
+   */
+
+  "NimMain",
+
+  /* Ref:
+   * sim/posix/sim_rawgadget.c
+   */
+
+  "bRequestType",
+  "bRequest",
+  "wValue",
+  "wIndex",
+  "wLength",
+  "bLength",
+  "bDescriptorType",
+  "bEndpointAddress",
+  "bmAttributes",
+  "wMaxPacketSize",
+  "bInterval",
+
+  /* Ref:
+   * sim/posix/sim_libusb.c
+   */
+
+  "bNumConfigurations",
+  "bDeviceClass",
+  "idVendor",
+  "idProduct",
+
+  /* Ref:
+   * sim/posix/sim_hostmisc.c
+   */
+
+  "_NSGetExecutablePath",
+
+  /* Ref:
+   * arch/arm/src/nrf52/sdc/nrf.h
+   * arch/arm/src/nrf53/sdc/nrf.h
+   */
+
+  "IRQn_Type",
+
+  NULL
+};
+
+static const char *g_white_headers[] =
+{
+  "windows.h",
+  NULL
+};
+
+static const char *g_white_files[] =
+{
+  /* Skip assembler file headers
+   * Ref:
+   * libs/libc/machine/arm/arm-acle-compat.h
+   * libs/libc/machine/arm/arm_asm.h
+   */
+
+  "arm-acle-compat.h",
+  "arm_asm.h",
   NULL
 };
 
@@ -715,14 +924,40 @@ static bool check_section_header(const char *line, int lineno)
 }
 
 /********************************************************************************
- * Name:  white_prefix
+ * Name: white_file_list
+ *
+ * Description:
+ *   Return true if the filename string with a white-listed name
+ *
+ ********************************************************************************/
+
+static bool white_file_list(const char *filename)
+{
+  const char **pptr;
+  const char *str;
+
+  for (pptr = g_white_files;
+       (str = *pptr) != NULL;
+       pptr++)
+    {
+      if (strstr(filename, str) != NULL)
+        {
+          return true;
+        }
+    }
+
+  return false;
+}
+
+/********************************************************************************
+ * Name:  white_content_list
  *
  * Description:
  *   Return true if the identifier string begins with a white-listed prefix
  *
  ********************************************************************************/
 
-static bool white_list(const char *ident, int lineno)
+static bool white_content_list(const char *ident, int lineno)
 {
   const char **pptr;
   const char *str;
@@ -735,6 +970,16 @@ static bool white_list(const char *ident, int lineno)
     {
       len = strlen(str);
       if (strncmp(ident, str, len) == 0)
+        {
+          return true;
+        }
+    }
+
+  for (pptr = g_white_headers;
+       (str = *pptr) != NULL;
+       pptr++)
+    {
+      if (strstr(ident, str) != NULL)
         {
           return true;
         }
@@ -757,7 +1002,7 @@ static bool white_list(const char *ident, int lineno)
         }
     }
 
-  for (pptr = g_white_list;
+  for (pptr = g_white_content_list;
        (str = *pptr) != NULL;
        pptr++)
     {
@@ -899,6 +1144,11 @@ int main(int argc, char **argv, char **envp)
     }
 
   if (g_file_type == UNKNOWN)
+    {
+      return 0;
+    }
+
+  if (white_file_list(g_file_name))
     {
       return 0;
     }
@@ -1308,6 +1558,10 @@ int main(int argc, char **argv, char **envp)
                           WARN("#include outside of 'Included Files' "
                                "section",
                                lineno, ii);
+                        }
+                      else if (white_content_list(&line[ii], lineno))
+                        {
+                          g_skipmixedcase = true;
                         }
                     }
                   else if (strncmp(&line[ii], "if", 2) == 0)
@@ -1845,7 +2099,8 @@ int main(int argc, char **argv, char **envp)
                 {
                   /* Ignore symbols that begin with white-listed prefixes */
 
-                  if (white_list(&line[ident_index], lineno))
+                  if (g_skipmixedcase ||
+                      white_content_list(&line[ident_index], lineno))
                     {
                       /* No error */
                     }
@@ -2398,7 +2653,7 @@ int main(int argc, char **argv, char **envp)
                     {
                       /* "--" should be next to its operand. If there are
                        * whitespaces or non-operand characters on both left
-                       * and right (e.g. "a -- "， “a[i --]”, "(-- i)"),
+                       * and right (e.g. "a -- ", "a[i --]", "(-- i)"),
                        * there's an error.
                        */
 
@@ -2445,7 +2700,7 @@ int main(int argc, char **argv, char **envp)
                     {
                       /* "++" should be next to its operand. If there are
                        * whitespaces or non-operand characters on both left
-                       * and right (e.g. "a ++ "， “a[i ++]”, "(++ i)"),
+                       * and right (e.g. "a ++ ", "a[i ++]", "(++ i)"),
                        * there's an error.
                        */
 

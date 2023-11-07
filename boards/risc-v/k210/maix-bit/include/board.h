@@ -28,12 +28,8 @@
 #include <nuttx/config.h>
 
 #ifndef __ASSEMBLY__
-# include <stdint.h>
+#  include <stdint.h>
 #endif
-
-#include "k210.h"
-
-#include "k210_fpioa.h"
 
 /****************************************************************************
  * Pre-processor Definitions

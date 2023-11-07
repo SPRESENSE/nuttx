@@ -97,6 +97,12 @@ static void appdsp_boot(void)
   cpu = up_cpu_index();
   DPRINTF("cpu = %d\n", cpu);
 
+#if CONFIG_ARCH_INTERRUPTSTACK > 7
+  /* Initializes the stack pointer */
+
+  arm_initialize_stack();
+#endif
+
   /* Setup NVIC */
 
   up_irqinitialize();
@@ -178,7 +184,7 @@ int up_cpu_start(int cpu)
   /* Copy initial stack and reset vector for APP_DSP */
 
   putreg32((uint32_t)tcb->stack_base_ptr +
-           tcb->adj_stack_size, VECTOR_ISTACK);
+                     tcb->adj_stack_size, VECTOR_ISTACK);
   putreg32((uint32_t)appdsp_boot, VECTOR_RESETV);
 
   spin_lock(&g_appdsp_boot);

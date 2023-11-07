@@ -48,6 +48,10 @@ endif
 
 endif
 
+ifeq ($(CONFIG_GOLDFISH_FB),y)
+  CSRCS += goldfish_fb.c
+endif
+
 # These video drivers depend on SPI support
 
 ifeq ($(CONFIG_SPI),y)
@@ -58,12 +62,17 @@ endif
 
 endif
 
+ifeq ($(CONFIG_GOLDFISH_CAMERA),y)
+  CSRCS += goldfish_camera.c
+endif
+
 include video/vnc/Make.defs
+include video/mipidsi/Make.defs
 
 # Include video driver build support
 
 DEPPATH += --dep-path video
 VPATH += :video
-CFLAGS += ${shell $(INCDIR) "$(CC)" $(TOPDIR)$(DELIM)drivers$(DELIM)video}
+CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)drivers$(DELIM)video
 
 endif

@@ -90,31 +90,31 @@ struct fsmap_t
 /* File systems that require block drivers */
 
 #ifdef CONFIG_FS_FAT
-extern const struct mountpt_operations fat_operations;
+extern const struct mountpt_operations g_fat_operations;
 #endif
 #ifdef CONFIG_FS_ROMFS
-extern const struct mountpt_operations romfs_operations;
+extern const struct mountpt_operations g_romfs_operations;
 #endif
 #ifdef CONFIG_FS_SMARTFS
-extern const struct mountpt_operations smartfs_operations;
+extern const struct mountpt_operations g_smartfs_operations;
 #endif
 #ifdef CONFIG_FS_LITTLEFS
-extern const struct mountpt_operations littlefs_operations;
+extern const struct mountpt_operations g_littlefs_operations;
 #endif
 
 static const struct fsmap_t g_bdfsmap[] =
 {
 #ifdef CONFIG_FS_FAT
-    { "vfat", &fat_operations },
+    { "vfat", &g_fat_operations },
 #endif
 #ifdef CONFIG_FS_ROMFS
-    { "romfs", &romfs_operations },
+    { "romfs", &g_romfs_operations },
 #endif
 #ifdef CONFIG_FS_SMARTFS
-    { "smartfs", &smartfs_operations },
+    { "smartfs", &g_smartfs_operations },
 #endif
 #ifdef CONFIG_FS_LITTLEFS
-    { "littlefs", &littlefs_operations },
+    { "littlefs", &g_littlefs_operations },
 #endif
     { NULL,   NULL },
 };
@@ -124,25 +124,25 @@ static const struct fsmap_t g_bdfsmap[] =
 /* File systems that require MTD drivers */
 
 #ifdef CONFIG_FS_ROMFS
-extern const struct mountpt_operations romfs_operations;
+extern const struct mountpt_operations g_romfs_operations;
 #endif
 #ifdef CONFIG_FS_SPIFFS
-extern const struct mountpt_operations spiffs_operations;
+extern const struct mountpt_operations g_spiffs_operations;
 #endif
 #ifdef CONFIG_FS_LITTLEFS
-extern const struct mountpt_operations littlefs_operations;
+extern const struct mountpt_operations g_littlefs_operations;
 #endif
 
 static const struct fsmap_t g_mdfsmap[] =
 {
 #ifdef CONFIG_FS_ROMFS
-    { "romfs", &romfs_operations },
+    { "romfs", &g_romfs_operations },
 #endif
 #ifdef CONFIG_FS_SPIFFS
-    { "spiffs", &spiffs_operations },
+    { "spiffs", &g_spiffs_operations },
 #endif
 #ifdef CONFIG_FS_LITTLEFS
-    { "littlefs", &littlefs_operations },
+    { "littlefs", &g_littlefs_operations },
 #endif
     { NULL,   NULL },
 };
@@ -152,67 +152,67 @@ static const struct fsmap_t g_mdfsmap[] =
 /* File systems that require neither block nor MTD drivers */
 
 #ifdef CONFIG_FS_NXFFS
-extern const struct mountpt_operations nxffs_operations;
+extern const struct mountpt_operations g_nxffs_operations;
 #endif
 #ifdef CONFIG_FS_TMPFS
-extern const struct mountpt_operations tmpfs_operations;
+extern const struct mountpt_operations g_tmpfs_operations;
 #endif
 #ifdef CONFIG_NFS
-extern const struct mountpt_operations nfs_operations;
+extern const struct mountpt_operations g_nfs_operations;
 #endif
 #ifdef CONFIG_FS_BINFS
-extern const struct mountpt_operations binfs_operations;
+extern const struct mountpt_operations g_binfs_operations;
 #endif
 #ifdef CONFIG_FS_PROCFS
-extern const struct mountpt_operations procfs_operations;
+extern const struct mountpt_operations g_procfs_operations;
 #endif
 #ifdef CONFIG_FS_USERFS
-extern const struct mountpt_operations userfs_operations;
+extern const struct mountpt_operations g_userfs_operations;
 #endif
 #ifdef CONFIG_FS_HOSTFS
-extern const struct mountpt_operations hostfs_operations;
+extern const struct mountpt_operations g_hostfs_operations;
 #endif
 #ifdef CONFIG_FS_CROMFS
-extern const struct mountpt_operations cromfs_operations;
+extern const struct mountpt_operations g_cromfs_operations;
 #endif
 #ifdef CONFIG_FS_UNIONFS
-extern const struct mountpt_operations unionfs_operations;
+extern const struct mountpt_operations g_unionfs_operations;
 #endif
 #ifdef CONFIG_FS_RPMSGFS
-extern const struct mountpt_operations rpmsgfs_operations;
+extern const struct mountpt_operations g_rpmsgfs_operations;
 #endif
 
 static const struct fsmap_t g_nonbdfsmap[] =
 {
 #ifdef CONFIG_FS_NXFFS
-    { "nxffs", &nxffs_operations },
+    { "nxffs", &g_nxffs_operations },
 #endif
 #ifdef CONFIG_FS_TMPFS
-    { "tmpfs", &tmpfs_operations },
+    { "tmpfs", &g_tmpfs_operations },
 #endif
 #ifdef CONFIG_NFS
-    { "nfs", &nfs_operations },
+    { "nfs", &g_nfs_operations },
 #endif
 #ifdef CONFIG_FS_BINFS
-    { "binfs", &binfs_operations },
+    { "binfs", &g_binfs_operations },
 #endif
 #ifdef CONFIG_FS_PROCFS
-    { "procfs", &procfs_operations },
+    { "procfs", &g_procfs_operations },
 #endif
 #ifdef CONFIG_FS_USERFS
-    { "userfs", &userfs_operations },
+    { "userfs", &g_userfs_operations },
 #endif
 #ifdef CONFIG_FS_HOSTFS
-    { "hostfs", &hostfs_operations },
+    { "hostfs", &g_hostfs_operations },
 #endif
 #ifdef CONFIG_FS_CROMFS
-    { "cromfs", &cromfs_operations },
+    { "cromfs", &g_cromfs_operations },
 #endif
 #ifdef CONFIG_FS_UNIONFS
-    { "unionfs", &unionfs_operations },
+    { "unionfs", &g_unionfs_operations },
 #endif
 #ifdef CONFIG_FS_RPMSGFS
-    { "rpmsgfs", &rpmsgfs_operations },
+    { "rpmsgfs", &g_rpmsgfs_operations },
 #endif
     { NULL, NULL },
 };
@@ -335,7 +335,7 @@ int nx_mount(FAR const char *source, FAR const char *target,
       goto errout;
     }
 
-  ret = inode_semtake();
+  ret = inode_lock();
   if (ret < 0)
     {
       goto errout_with_inode;
@@ -365,7 +365,7 @@ int nx_mount(FAR const char *source, FAR const char *target,
           ferr("ERROR: target %s exists and is a special node\n", target);
           ret = -ENOTDIR;
           inode_release(mountpt_inode);
-          goto errout_with_semaphore;
+          goto errout_with_lock;
         }
     }
   else
@@ -392,7 +392,7 @@ int nx_mount(FAR const char *source, FAR const char *target,
            */
 
           ferr("ERROR: Failed to reserve inode for target %s\n", target);
-          goto errout_with_semaphore;
+          goto errout_with_lock;
         }
     }
 
@@ -455,7 +455,7 @@ int nx_mount(FAR const char *source, FAR const char *target,
 
   mountpt_inode->u.i_mops  = mops;
   mountpt_inode->i_private = fshandle;
-  inode_semgive();
+  inode_unlock();
 
   /* We can release our reference to the blkdrver_inode, if the filesystem
    * wants to retain the blockdriver inode (which it should), then it must
@@ -483,14 +483,13 @@ errout_with_mountpt:
   inode_release(mountpt_inode);
   inode_remove(target);
 
-errout_with_semaphore:
-  inode_semgive();
+errout_with_lock:
+  inode_unlock();
 #ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
   RELEASE_SEARCH(&desc);
 #endif
 
 errout_with_inode:
-
 #if defined(BDFS_SUPPORT) || defined(MDFS_SUPPORT)
   if (drvr_inode != NULL)
     {

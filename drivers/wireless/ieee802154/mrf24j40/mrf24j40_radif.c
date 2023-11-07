@@ -135,7 +135,7 @@ static void mrf24j40_setorder(FAR struct mrf24j40_radio_s *dev, uint8_t bo,
           remcnt  = (bi - (maincnt * dev->slpclkper)) / 50;
         }
 
-      wlinfo("MAINCNT: %lu, REMCNT: %lu\n", maincnt, remcnt);
+      wlinfo("MAINCNT: %" PRIu32 ", REMCNT: %" PRIu32 "\n", maincnt, remcnt);
 
       /* Program the Main Counter, MAINCNT (0x229<1:0>, 0x228, 0x227,
        * 0x226), and Remain Counter, REMCNT (0x225, 0x224), according to BO
@@ -175,14 +175,14 @@ static void mrf24j40_slpclkcal(FAR struct mrf24j40_radio_s *dev)
                   0x01 | MRF24J40_SLPCON1_CLKOUT_DISABLED);
 
   /* Begin calibration by setting the SLPCALEN bit (SLPCAL2 0x20b<4>) to
-   * ‘1’. Sixteen samples of the SLPCLK are counted and stored in the
+   * '1'. Sixteen samples of the SLPCLK are counted and stored in the
    * SLPCAL register. No need to mask, this is the only writable bit
    */
 
   mrf24j40_setreg(dev->spi, MRF24J40_SLPCAL2, MRF24J40_SLPCAL2_SLPCALEN);
 
   /* Calibration is complete when the SLPCALRDY bit (SLPCAL2 0x20b<7>) is
-   * set to ‘1’.
+   * set to '1'.
    */
 
   while (!(mrf24j40_getreg(dev->spi, MRF24J40_SLPCAL2) &
@@ -300,7 +300,7 @@ int mrf24j40_txdelayed(FAR struct ieee802154_radio_s *radio,
 
   /* Get exclusive access to the radio device */
 
-  ret = nxsem_wait(&dev->exclsem);
+  ret = nxmutex_lock(&dev->lock);
   if (ret < 0)
     {
       return ret;
@@ -327,12 +327,12 @@ int mrf24j40_txdelayed(FAR struct ieee802154_radio_s *radio,
 
   if (!work_available(&dev->irqwork))
     {
-      nxsem_post(&dev->exclsem);
+      nxmutex_unlock(&dev->lock);
       mrf24j40_irqworker((FAR void *)dev);
 
       /* Get exclusive access to the radio device */
 
-      ret = nxsem_wait(&dev->exclsem);
+      ret = nxmutex_lock(&dev->lock);
       if (ret < 0)
         {
           return ret;
@@ -355,8 +355,7 @@ int mrf24j40_txdelayed(FAR struct ieee802154_radio_s *radio,
       mrf24j40_mactimer(dev, symboldelay);
     }
 
-  nxsem_post(&dev->exclsem);
-
+  nxmutex_unlock(&dev->lock);
   return OK;
 }
 
@@ -440,7 +439,7 @@ int mrf24j40_reset(FAR struct ieee802154_radio_s *radio)
   mrf24j40_setreg(dev->spi, MRF24J40_BBREG6 , 0x40); /* 01000000 Append RSSI to rx packets */
 
   /* Calibrate the Sleep Clock (SLPCLK) frequency. Refer to Section 3.15.1.2
-   * “Sleep Clock Calibration”.
+   * "Sleep Clock Calibration".
    */
 
   mrf24j40_slpclkcal(dev);

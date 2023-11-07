@@ -72,10 +72,9 @@ static const struct file_operations g_adc_fops =
   NULL,         /* write */
   NULL,         /* seek */
   adc_ioctl,    /* ioctl */
+  NULL,         /* mmap */
+  NULL,         /* truncate */
   adc_poll      /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL        /* unlink */
-#endif
 };
 
 static const struct adc_callback_s g_adc_callback =
@@ -107,7 +106,7 @@ static int adc_open(FAR struct file *filep)
    * finished.
    */
 
-  ret = nxsem_wait(&dev->ad_closesem);
+  ret = nxmutex_lock(&dev->ad_closelock);
   if (ret >= 0)
     {
       /* Increment the count of references to the device.  If this is the
@@ -158,7 +157,7 @@ static int adc_open(FAR struct file *filep)
           dev->ad_ocount = tmp;
         }
 
-      nxsem_post(&dev->ad_closesem);
+      nxmutex_unlock(&dev->ad_closelock);
     }
 
   return ret;
@@ -180,7 +179,7 @@ static int adc_close(FAR struct file *filep)
   irqstate_t            flags;
   int                   ret;
 
-  ret = nxsem_wait(&dev->ad_closesem);
+  ret = nxmutex_lock(&dev->ad_closelock);
   if (ret >= 0)
     {
       /* Decrement the references to the driver.  If the reference count will
@@ -190,7 +189,7 @@ static int adc_close(FAR struct file *filep)
       if (dev->ad_ocount > 1)
         {
           dev->ad_ocount--;
-          nxsem_post(&dev->ad_closesem);
+          nxmutex_unlock(&dev->ad_closelock);
         }
       else
         {
@@ -204,7 +203,7 @@ static int adc_close(FAR struct file *filep)
           dev->ad_ops->ao_shutdown(dev);       /* Disable the ADC */
           leave_critical_section(flags);
 
-          nxsem_post(&dev->ad_closesem);
+          nxmutex_unlock(&dev->ad_closelock);
         }
     }
 
@@ -497,25 +496,6 @@ static int adc_receive(FAR struct adc_dev_s *dev, uint8_t ch, int32_t data)
 }
 
 /****************************************************************************
- * Name: adc_pollnotify
- ****************************************************************************/
-
-static void adc_pollnotify(FAR struct adc_dev_s *dev, uint32_t type)
-{
-  int i;
-
-  for (i = 0; i < CONFIG_ADC_NPOLLWAITERS; i++)
-    {
-      struct pollfd *fds = dev->fds[i];
-      if (fds)
-        {
-          fds->revents |= type;
-          nxsem_post(fds->sem);
-        }
-    }
-}
-
-/****************************************************************************
  * Name: adc_notify
  ****************************************************************************/
 
@@ -527,7 +507,7 @@ static void adc_notify(FAR struct adc_dev_s *dev)
    * then wake them up now.
    */
 
-  adc_pollnotify(dev, POLLIN);
+  poll_notify(dev->fds, CONFIG_ADC_NPOLLWAITERS, POLLIN);
 
   /* If there are threads waiting for read data, then signal one of them
    * that the read data is available.
@@ -596,7 +576,7 @@ static int adc_poll(FAR struct file *filep, struct pollfd *fds, bool setup)
 
       if (dev->ad_recv.af_head != dev->ad_recv.af_tail)
         {
-          adc_pollnotify(dev, POLLIN);
+          poll_notify(dev->fds, CONFIG_ADC_NPOLLWAITERS, POLLIN);
         }
     }
   else if (fds->priv)
@@ -692,16 +672,10 @@ int adc_register(FAR const char *path, FAR struct adc_dev_s *dev)
 
   dev->ad_ocount = 0;
 
-  /* Initialize semaphores */
+  /* Initialize semaphores & mutex */
 
   nxsem_init(&dev->ad_recv.af_sem, 0, 0);
-  nxsem_init(&dev->ad_closesem, 0, 1);
-
-  /* The receive semaphore is used for signaling and, hence, should not have
-   * priority inheritance enabled.
-   */
-
-  nxsem_set_protocol(&dev->ad_recv.af_sem, SEM_PRIO_NONE);
+  nxmutex_init(&dev->ad_closelock);
 
   /* Reset the ADC hardware */
 
@@ -714,7 +688,7 @@ int adc_register(FAR const char *path, FAR struct adc_dev_s *dev)
   if (ret < 0)
     {
       nxsem_destroy(&dev->ad_recv.af_sem);
-      nxsem_destroy(&dev->ad_closesem);
+      nxmutex_destroy(&dev->ad_closelock);
     }
 
   return ret;

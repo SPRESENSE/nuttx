@@ -21,7 +21,8 @@
 # Common utilities
 
 NET_CSRCS += net_dsec2tick.c net_dsec2timeval.c net_timeval2dsec.c
-NET_CSRCS += net_chksum.c net_ipchksum.c net_incr32.c net_lock.c
+NET_CSRCS += net_chksum.c net_ipchksum.c net_incr32.c net_lock.c net_snoop.c
+NET_CSRCS += net_cmsg.c net_iob_concat.c
 
 # IPv6 utilities
 
@@ -44,9 +45,13 @@ endif
 # ICMP utilities
 
 ifeq ($(CONFIG_NET_ICMP),y)
-NET_CSRCS += net_icmpchksum.c
+  ifneq ($(CONFIG_NET_ICMP_NO_STACK),y)
+    NET_CSRCS += net_icmpchksum.c
+  endif
 else ifeq ($(CONFIG_NET_ICMPv6),y)
-NET_CSRCS += net_icmpchksum.c
+  ifneq ($(CONFIG_NET_ICMPv6_NO_STACK),y)
+    NET_CSRCS += net_icmpchksum.c
+  endif
 endif
 
 # Include utility build support

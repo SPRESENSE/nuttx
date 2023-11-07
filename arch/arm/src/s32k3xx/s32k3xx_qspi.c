@@ -29,6 +29,7 @@
 #include <nuttx/config.h>
 
 #include <sys/types.h>
+#include <sys/param.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -44,7 +45,7 @@
 #include <nuttx/clock.h>
 #include <nuttx/cache.h>
 #include <nuttx/kmalloc.h>
-#include <nuttx/semaphore.h>
+#include <nuttx/mutex.h>
 #include <nuttx/spi/qspi.h>
 
 #include "arm_internal.h"
@@ -74,8 +75,6 @@
 #define ALIGN_MASK        3
 #define ALIGN_UP(n)       (((n)+ALIGN_MASK) & ~ALIGN_MASK)
 #define IS_ALIGNED(n)     (((uint32_t)(n) & ALIGN_MASK) == 0)
-
-#define min(a, b)   (((a) < (b)) ? (a) : (b))
 
 /* LUT entries used for various command sequences                 */
 #define QSPI_LUT_READ        0U /* Quad Output read               */
@@ -122,7 +121,7 @@ struct s32k3xx_qspidev_s
   uint8_t nbits;                /* Width of word in bits (8 to 32) */
   uint8_t intf;                 /* QSPI controller number (0) */
   bool initialized;             /* TRUE: Controller has been initialized */
-  sem_t exclsem;                /* Assures mutually exclusive access to QSPI */
+  mutex_t lock;                 /* Assures mutually exclusive access to QSPI */
   bool memmap;                  /* TRUE: Controller is in memory mapped mode */
 #ifdef CONFIG_S32K3XX_QSPI_INTERRUPTS
   xcpt_t handler;               /* Interrupt handler */
@@ -152,7 +151,7 @@ static void qspi_resetregisters(void);
 #if defined(CONFIG_DEBUG_SPI_INFO) && defined(CONFIG_DEBUG_GPIO)
 static void     qspi_dumpgpioconfig(const char *msg);
 #else
-# define        qspi_dumpgpioconfig(msg)
+#  define       qspi_dumpgpioconfig(msg)
 #endif
 
 static inline uint32_t qspi_isbusy(void);
@@ -211,6 +210,9 @@ static const struct qspi_ops_s g_qspi0ops =
   .setfrequency      = qspi_setfrequency,
   .setmode           = qspi_setmode,
   .setbits           = qspi_setbits,
+#ifdef CONFIG_QSPI_HWFEATURES
+  .hwfeatures        = NULL,
+#endif
   .command           = qspi_command,
   .memory            = qspi_memory,
   .alloc             = qspi_alloc,
@@ -221,19 +223,23 @@ static const struct qspi_ops_s g_qspi0ops =
 
 static struct s32k3xx_qspidev_s g_qspi0dev =
 {
-  .qspi            =
+  .qspi              =
   {
     .ops             = &g_qspi0ops,
   },
   .base              = S32K3XX_QSPI_BASE,
+  .lock              = NXMUTEX_INITIALIZER,
 #ifdef CONFIG_S32K3XX_QSPI_INTERRUPTS
   .handler           = qspi_interrupt,
   .irq               = S32K3XX_IRQ_QSPI,
+  .op_sem            = SEM_INITIALIZER(0),
 #endif
   .intf              = 0,
 #ifdef CONFIG_S32K3XX_QSPI_DMA
   .rxch              = DMA_REQ_QSPI_RX,
   .txch              = DMA_REQ_QSPI_TX,
+  .rxsem             = SEM_INITIALIZER(0),
+  .txsem             = SEM_INITIALIZER(0),
 #endif
 };
 
@@ -679,7 +685,7 @@ static int qspi_receive_blocking(struct s32k3xx_qspidev_s *priv,
   uint32_t regval;
   int ret = 0;
 
-  readlen = min(128, remaining);
+  readlen = MIN(128, remaining);
 
   /* Copy sequence in LUT registers */
 
@@ -699,7 +705,7 @@ static int qspi_receive_blocking(struct s32k3xx_qspidev_s *priv,
       regval |= QSPI_MCR_CLR_RXF;
       putreg32(regval, S32K3XX_QSPI_MCR);
 
-      readlen = min(128, remaining);
+      readlen = MIN(128, remaining);
 
 #ifdef CONFIG_S32K3XX_QSPI_INTERRUPTS
       /* enable end of transfer interrupt for asynchronous transfers */
@@ -799,7 +805,6 @@ static int qspi_receive(struct s32k3xx_qspidev_s *priv,
   config.flags  = EDMA_CONFIG_LINKTYPE_LINKNONE;
   config.ssize  = EDMA_16BYTE;
   config.dsize  = EDMA_16BYTE;
-  config.ttype  = EDMA_PERIPH2MEM;
   config.nbytes = 16;
 #ifdef CONFIG_KINETIS_EDMA_ELINK
   config.linkch = NULL;
@@ -883,7 +888,8 @@ static int qspi_transmit_blocking(struct s32k3xx_qspidev_s *priv,
   uint32_t regval;
   uint32_t count = UINT32_MAX;
   uint32_t *data = (uint32_t *)meminfo->buffer;
-  uint32_t write_cycle = min(32, ((uint32_t)remaining) >> 2U);
+  uint32_t write_cycle = MIN(32, ((uint32_t)remaining) >> 2U);
+  uint32_t timeout = 1000;
   int ret = 0;
 
   /* Copy sequence in LUT registers */
@@ -912,29 +918,32 @@ static int qspi_transmit_blocking(struct s32k3xx_qspidev_s *priv,
 
   putreg32(QSPI_AMBA_BASE + meminfo->addr, S32K3XX_QSPI_SFAR);
 
-  /* Re-attempt filling TX fifo if size doesn't match */
+  /* Clear TX fifo */
 
-  while ((getreg32(S32K3XX_QSPI_TBSR) & QSPI_TBSR_TRBLF_MASK) != count)
+  regval  = getreg32(S32K3XX_QSPI_MCR);
+  regval |= QSPI_MCR_CLR_TXF;
+  putreg32(regval, S32K3XX_QSPI_MCR);
+
+  do /* Wait for fifo clear otherwise timeout */
     {
-      /* Clear TX fifo */
+      timeout--;
+    }
+  while ((getreg32(S32K3XX_QSPI_TBSR) & QSPI_TBSR_TRBLF_MASK) != 0
+          && timeout > 0);
 
-      regval  = getreg32(S32K3XX_QSPI_MCR);
-      regval |= QSPI_MCR_CLR_TXF;
-      putreg32(regval, S32K3XX_QSPI_MCR);
+  if (timeout == 0)
+    {
+      return -ETIMEDOUT;
+    }
 
-      spiinfo("Transmit: %lu size: %lu\n", meminfo->addr, meminfo->buflen);
+  spiinfo("Transmit: %" PRIu32 " size: %" PRIu32 "\n",
+          meminfo->addr, meminfo->buflen);
 
-      for (count = 0U; count < write_cycle; count++)
-        {
-          while ((getreg32(S32K3XX_QSPI_TBSR)
-                & QSPI_TBSR_TRBLF_MASK) != count)
-            {
-            }
-
-          putreg32(*data, S32K3XX_QSPI_TBDR);
-          data++;
-          remaining -= 4U;
-        }
+  for (count = 0U; count < write_cycle; count++)
+    {
+      putreg32(*data, S32K3XX_QSPI_TBDR);
+      data++;
+      remaining -= 4U;
     }
 
   /* Trigger IP command with specified sequence and size */
@@ -1021,6 +1030,9 @@ static int qspi_transmit(struct s32k3xx_qspidev_s *priv,
 
   putreg32(QSPI_AMBA_BASE + meminfo->addr, S32K3XX_QSPI_SFAR);
 
+  up_clean_dcache((uintptr_t)meminfo->buffer,
+                  (uintptr_t)meminfo->buffer + meminfo->buflen);
+
   /* Set up the DMA */
 
   uint32_t adjust = 1;
@@ -1035,7 +1047,6 @@ static int qspi_transmit(struct s32k3xx_qspidev_s *priv,
   config.flags  = EDMA_CONFIG_LINKTYPE_LINKNONE;
   config.ssize  = EDMA_32BIT;
   config.dsize  = EDMA_32BIT;
-  config.ttype  = EDMA_MEM2PERIPH;
   config.nbytes = 4;
   #ifdef CONFIG_KINETIS_EDMA_ELINK
   config.linkch = NULL;
@@ -1094,11 +1105,11 @@ static int qspi_lock(struct qspi_dev_s *dev, bool lock)
   spiinfo("lock=%d\n", lock);
   if (lock)
     {
-      ret = nxsem_wait_uninterruptible(&priv->exclsem);
+      ret = nxmutex_lock(&priv->lock);
     }
   else
     {
-      ret = nxsem_post(&priv->exclsem);
+      ret = nxmutex_unlock(&priv->lock);
     }
 
   return ret;
@@ -1785,13 +1796,7 @@ struct qspi_dev_s *s32k3xx_qspi_initialize(int intf)
 
   if (!priv->initialized)
     {
-      /* Now perform one time initialization.
-       *
-       * Initialize the QSPI semaphore that enforces mutually exclusive
-       * access to the QSPI registers.
-       */
-
-      nxsem_init(&priv->exclsem, 0, 1);
+      /* Now perform one time initialization. */
 
 #ifdef CONFIG_S32K3XX_QSPI_INTERRUPTS
       /* Attach the interrupt handler */
@@ -1801,14 +1806,6 @@ struct qspi_dev_s *s32k3xx_qspi_initialize(int intf)
         {
           spierr("ERROR: Failed to attach irq %d\n", priv->irq);
         }
-
-      /* Initialize the semaphore that blocks until the operation completes.
-       * This semaphore is used for signaling and, hence, should not have
-       * priority inheritance enabled.
-       */
-
-      nxsem_init(&priv->op_sem, 0, 0);
-      nxsem_set_protocol(&priv->op_sem, SEM_PRIO_NONE);
 #endif
 
       /* Perform hardware initialization.  Puts the QSPI into an active
@@ -1830,21 +1827,12 @@ struct qspi_dev_s *s32k3xx_qspi_initialize(int intf)
 #endif
 
 #ifdef CONFIG_S32K3XX_QSPI_DMA
-  /* Initialize the QSPI semaphores that is used to wait for DMA completion.
-   * This semaphore is used for signaling and, hence, should not have
-   * priority inheritance enabled.
-   */
+      /* Initialize the QSPI dma channel. */
 
       if (priv->rxch && priv->txch)
         {
           if (priv->txdma == NULL && priv->rxdma == NULL)
             {
-              nxsem_init(&priv->rxsem, 0, 0);
-              nxsem_init(&priv->txsem, 0, 0);
-
-              nxsem_set_protocol(&priv->rxsem, SEM_PRIO_NONE);
-              nxsem_set_protocol(&priv->txsem, SEM_PRIO_NONE);
-
               priv->txdma = s32k3xx_dmach_alloc(priv->txch
                                                 | DMAMUX_CHCFG_ENBL, 0);
               priv->rxdma = s32k3xx_dmach_alloc(priv->rxch
@@ -1861,9 +1849,6 @@ struct qspi_dev_s *s32k3xx_qspi_initialize(int intf)
     }
 
   return &priv->qspi;
-
-  nxsem_destroy(&priv->exclsem);
-  return NULL;
 }
 
 #endif /* CONFIG_S32K3XX_QSPI */

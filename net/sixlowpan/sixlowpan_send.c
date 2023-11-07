@@ -85,9 +85,9 @@ struct sixlowpan_send_s
  *   send operation when polled by the lower, device interfacing layer.
  *
  * Input Parameters:
- *   dev   - The structure of the network driver that generated the event.
- *   conn  - The connection structure associated with the socket
- *   flags - Set of events describing why the callback was invoked
+ *   dev    - The structure of the network driver that generated the event.
+ *   pvpriv - An instance of struct sixlowpan_send_s cast to void*
+ *   flags  - Set of events describing why the callback was invoked
  *
  * Returned Value:
  *   None
@@ -98,10 +98,9 @@ struct sixlowpan_send_s
  ****************************************************************************/
 
 static uint16_t send_eventhandler(FAR struct net_driver_s *dev,
-                                  FAR void *pvconn,
                                   FAR void *pvpriv, uint16_t flags)
 {
-  FAR struct sixlowpan_send_s *sinfo = (FAR struct sixlowpan_send_s *)pvpriv;
+  FAR struct sixlowpan_send_s *sinfo = pvpriv;
 
   ninfo("flags: %04x\n", flags);
 
@@ -215,7 +214,6 @@ int sixlowpan_send(FAR struct net_driver_s *dev,
   /* Initialize the send state structure */
 
   nxsem_init(&sinfo.s_waitsem, 0, 0);
-  nxsem_set_protocol(&sinfo.s_waitsem, SEM_PRIO_NONE);
 
   sinfo.s_result  = -EBUSY;
   sinfo.s_ipv6hdr = ipv6hdr;
@@ -248,12 +246,12 @@ int sixlowpan_send(FAR struct net_driver_s *dev,
           netdev_txnotify_dev(dev);
 
           /* Wait for the send to complete or an error to occur.
-           * net_timedwait will also terminate if a signal is received.
+           * net_sem_timedwait will also terminate if a signal is received.
            */
 
           ninfo("Wait for send complete\n");
 
-          ret = net_timedwait(&sinfo.s_waitsem, timeout);
+          ret = net_sem_timedwait(&sinfo.s_waitsem, timeout);
           if (ret < 0)
             {
               if (ret == -ETIMEDOUT)

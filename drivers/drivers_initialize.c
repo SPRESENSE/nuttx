@@ -22,19 +22,31 @@
  * Included Files
  ****************************************************************************/
 
+#include <nuttx/clk/clk_provider.h>
 #include <nuttx/crypto/crypto.h>
 #include <nuttx/drivers/drivers.h>
+#include <nuttx/drivers/rpmsgdev.h>
+#include <nuttx/drivers/rpmsgblk.h>
 #include <nuttx/fs/loop.h>
+#include <nuttx/fs/smart.h>
+#include <nuttx/fs/loopmtd.h>
 #include <nuttx/input/uinput.h>
+#include <nuttx/mtd/mtd.h>
 #include <nuttx/net/loopback.h>
 #include <nuttx/net/tun.h>
 #include <nuttx/net/telnet.h>
 #include <nuttx/note/note_driver.h>
 #include <nuttx/power/pm.h>
+#include <nuttx/power/regulator.h>
+#include <nuttx/segger/rtt.h>
 #include <nuttx/sensors/sensor.h>
 #include <nuttx/serial/pty.h>
+#include <nuttx/serial/uart_ram.h>
 #include <nuttx/syslog/syslog.h>
 #include <nuttx/syslog/syslog_console.h>
+#include <nuttx/trace.h>
+#include <nuttx/usrsock/usrsock_rpmsg.h>
+#include <nuttx/virtio/virtio.h>
 
 /****************************************************************************
  * Public Functions
@@ -55,9 +67,15 @@
 
 void drivers_initialize(void)
 {
+  drivers_trace_begin();
+
   /* Register devices */
 
   syslog_initialize();
+
+#ifdef CONFIG_SERIAL_RTT
+  serial_rtt_initialize();
+#endif
 
 #if defined(CONFIG_DEV_NULL)
   devnull_register();   /* Standard /dev/null */
@@ -79,14 +97,30 @@ void drivers_initialize(void)
   loop_register();      /* Standard /dev/loop */
 #endif
 
-#if defined(CONFIG_DRIVER_NOTE)
-  note_register();      /* Non-standard /dev/note */
+#if defined(CONFIG_DEV_ASCII)
+  devascii_register();  /* Non-standard /dev/ascii */
+#endif
+
+#if defined(CONFIG_DRIVERS_NOTE)
+  note_initialize();    /* Non-standard /dev/note */
+#endif
+
+#if defined(CONFIG_CLK_RPMSG)
+  clk_rpmsg_server_initialize();
+#endif
+
+#if defined(CONFIG_REGULATOR_RPMSG)
+  regulator_rpmsg_server_init();
 #endif
 
   /* Initialize the serial device driver */
 
 #ifdef CONFIG_RPMSG_UART
   rpmsg_serialinit();
+#endif
+
+#ifdef CONFIG_RAM_UART
+  ram_serialinit();
 #endif
 
   /* Initialize the console device driver (if it is other than the standard
@@ -152,4 +186,36 @@ void drivers_initialize(void)
 #ifdef CONFIG_SENSORS_RPMSG
   sensor_rpmsg_initialize();
 #endif
+
+#ifdef CONFIG_DEV_RPMSG_SERVER
+  rpmsgdev_server_init();
+#endif
+
+#ifdef CONFIG_BLK_RPMSG_SERVER
+  rpmsgblk_server_init();
+#endif
+
+#ifdef CONFIG_RPMSGMTD_SERVER
+  rpmsgmtd_server_init();
+#endif
+
+#ifdef CONFIG_NET_USRSOCK_RPMSG_SERVER
+  /* Initialize the user socket rpmsg server */
+
+  usrsock_rpmsg_server_initialize();
+#endif
+
+#ifdef CONFIG_SMART_DEV_LOOP
+  smart_loop_register_driver();
+#endif
+
+#ifdef CONFIG_MTD_LOOP
+  mtd_loop_register();
+#endif
+
+#ifdef CONFIG_DRIVERS_VIRTIO
+  virtio_register_drivers();
+#endif
+
+  drivers_trace_end();
 }

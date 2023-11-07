@@ -24,6 +24,7 @@
 
 #include <nuttx/config.h>
 
+#include <sys/param.h>
 #include <sys/types.h>
 #include <inttypes.h>
 #include <stdint.h>
@@ -34,7 +35,7 @@
 
 #include <arch/board/board.h>
 #include <nuttx/arch.h>
-#include <nuttx/semaphore.h>
+#include <nuttx/mutex.h>
 #include <nuttx/spi/spi.h>
 
 #include "arm_internal.h"
@@ -53,10 +54,6 @@
 # error "SPI_EXCHANGE is not supported"
 #endif
 
-#ifndef MIN
-#  define MIN(a, b) ((a) > (b) ? (b) : (a))
-#endif
-
 /****************************************************************************
  * Private Types
  ****************************************************************************/
@@ -65,7 +62,7 @@ struct lc823450_spidev_s
 {
   struct spi_dev_s spidev;     /* Externally visible part of the SPI interface */
 #ifndef CONFIG_SPI_OWNBUS
-  sem_t            exclsem;    /* Held while chip is selected for mutual exclusion */
+  mutex_t          lock;       /* Held while chip is selected for mutual exclusion */
   uint32_t         frequency;  /* Requested clock frequency */
   uint32_t         actual;     /* Actual clock frequency */
   uint8_t          nbits;      /* Width of word in bits (8 to 16) */
@@ -73,7 +70,7 @@ struct lc823450_spidev_s
 #endif
 #ifdef CONFIG_LC823450_SPI_DMA
   DMA_HANDLE       hdma;
-  sem_t dma_wait;
+  sem_t            dma_wait;
 #endif /* CONFIG_LC823450_SPI_DMA */
 };
 
@@ -127,9 +124,15 @@ static const struct spi_ops_s g_spiops =
 static struct lc823450_spidev_s g_spidev =
 {
   .spidev            =
-    {
-      &g_spiops
-    },
+  {
+    .ops             = &g_spiops
+  },
+#ifndef CONFIG_SPI_OWNBUS
+  .lock              = NXMUTEX_INITIALIZER,
+#endif
+#ifdef CONFIG_LC823450_SPI_DMA
+  .dma_wait          = SEM_INITIALIZER(0),
+#endif
 };
 
 /****************************************************************************
@@ -144,11 +147,11 @@ static int spi_lock(struct spi_dev_s *dev, bool lock)
 
   if (lock)
     {
-      ret = nxsem_wait_uninterruptible(&priv->exclsem);
+      ret = nxmutex_lock(&priv->lock);
     }
   else
     {
-      ret = nxsem_post(&priv->exclsem);
+      ret = nxmutex_unlock(&priv->lock);
     }
 
   return ret;
@@ -523,10 +526,6 @@ struct spi_dev_s *lc823450_spibus_initialize(int port)
       modifyreg32(MCLKCNTAPB, 0, MCLKCNTAPB_PORT5_CLKEN);
       modifyreg32(MRSTCNTAPB, 0, MRSTCNTAPB_PORT5_RSTB);
 
-#ifndef CONFIG_SPI_OWNBUS
-      nxsem_init(&priv->exclsem, 0, 1);
-#endif
-
       /* Initialize SPI mode. It must be done before starting SPI transfer */
 
       /* PO: SPI Mode3 (default) */
@@ -543,7 +542,6 @@ struct spi_dev_s *lc823450_spibus_initialize(int port)
       lc823450_spiinitialize();
 
 #ifdef CONFIG_LC823450_SPI_DMA
-      nxsem_init(&priv->dma_wait, 0, 0);
       priv->hdma = lc823450_dmachannel(DMA_CHANNEL_SIOTX);
       lc823450_dmarequest(priv->hdma, DMA_REQUEST_SIOTX);
 

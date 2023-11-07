@@ -684,10 +684,8 @@ static int ameba_attach(struct uart_dev_s *dev)
 static void ameba_detach(struct uart_dev_s *dev)
 {
   struct ameba_s *priv = (struct ameba_s *)dev->priv;
-  hal_uart_stubs.hal_uart_txtd_hook(&priv->adapter,
-                                    NULL, (uintptr_t)NULL, 0);
-  hal_uart_stubs.hal_uart_rxind_hook(&priv->adapter,
-                                     NULL, (uintptr_t)NULL, 0);
+  hal_uart_stubs.hal_uart_txtd_hook(&priv->adapter, NULL, 0, 0);
+  hal_uart_stubs.hal_uart_rxind_hook(&priv->adapter, NULL, 0, 0);
 }
 
 /****************************************************************************
@@ -695,10 +693,10 @@ static void ameba_detach(struct uart_dev_s *dev)
  *
  * Description:
  *   This is the UART interrupt handler.  It will be invoked when an
- *   interrupt received on the 'irq'  It should call uart_transmitchars or
- *   uart_receivechar to perform the appropriate data transfers.  The
- *   interrupt handling logic must be able to map the 'irq' number into the
- *   appropriate ameba_s structure in order to call these functions.
+ *   interrupt is received on the 'irq'.  It should call uart_xmitchars or
+ *   uart_recvchars to perform the appropriate data transfers.  The
+ *   interrupt handling logic must be able to map the 'arg' to the
+ *   appropriate uart_dev_s structure in order to call these functions.
  *
  ****************************************************************************/
 

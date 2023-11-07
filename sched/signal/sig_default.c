@@ -105,31 +105,47 @@ static void nxsig_setup_default_action(FAR struct task_group_s *group,
 
 static const struct nxsig_defaction_s g_defactions[] =
 {
+#ifdef CONFIG_SIG_SIGKILL_ACTION
+  { SIGHUP,    0,                nxsig_abnormal_termination },
+  { SIGINT,    0,                nxsig_abnormal_termination },
+  { SIGQUIT,   0,                nxsig_abnormal_termination },
+  { SIGILL,    0,                nxsig_abnormal_termination },
+  { SIGTRAP,   0,                nxsig_abnormal_termination },
+  { SIGABRT,   0,                nxsig_abnormal_termination },
+  { SIGBUS,    0,                nxsig_abnormal_termination },
+  { SIGFPE,    0,                nxsig_abnormal_termination },
+  { SIGKILL,   SIG_FLAG_NOCATCH, nxsig_abnormal_termination },
+  { SIGSEGV,   0,                nxsig_abnormal_termination },
+  { SIGTERM,   0,                nxsig_abnormal_termination },
+  { SIGXCPU,   0,                nxsig_abnormal_termination },
+  { SIGXFSZ,   0,                nxsig_abnormal_termination },
+  { SIGSYS,    0,                nxsig_abnormal_termination },
+#endif
 #ifdef CONFIG_SIG_SIGUSR1_ACTION
-  { SIGUSR1, 0,                nxsig_abnormal_termination },
+  { SIGUSR1,   0,                nxsig_abnormal_termination },
 #endif
 #ifdef CONFIG_SIG_SIGUSR2_ACTION
-  { SIGUSR2, 0,                nxsig_abnormal_termination },
-#endif
-#ifdef CONFIG_SIG_SIGALRM_ACTION
-  { SIGALRM, 0,                nxsig_abnormal_termination },
-#endif
-#ifdef CONFIG_SIG_SIGPOLL_ACTION
-  { SIGPOLL, 0,                nxsig_abnormal_termination },
-#endif
-#ifdef CONFIG_SIG_SIGSTOP_ACTION
-  { SIGSTOP, SIG_FLAG_NOCATCH, nxsig_stop_task },
-  { SIGTSTP, 0,                nxsig_stop_task },
-  { SIGCONT, SIG_FLAG_NOCATCH, nxsig_null_action },
-#endif
-#ifdef CONFIG_SIG_SIGKILL_ACTION
-  { SIGINT,  0,                nxsig_abnormal_termination },
-  { SIGKILL, SIG_FLAG_NOCATCH, nxsig_abnormal_termination },
-  { SIGQUIT, 0,                nxsig_abnormal_termination },
-  { SIGTERM, 0,                nxsig_abnormal_termination },
+  { SIGUSR2,   0,                nxsig_abnormal_termination },
 #endif
 #ifdef CONFIG_SIG_SIGPIPE_ACTION
-  { SIGPIPE, 0,                nxsig_abnormal_termination }
+  { SIGPIPE,   0,                nxsig_abnormal_termination },
+#endif
+#ifdef CONFIG_SIG_SIGALRM_ACTION
+  { SIGALRM,   0,                nxsig_abnormal_termination },
+  { SIGVTALRM, 0,                nxsig_abnormal_termination },
+#endif
+#ifdef CONFIG_SIG_SIGSTOP_ACTION
+  { SIGCONT,   0,                nxsig_null_action },
+  { SIGSTOP,   SIG_FLAG_NOCATCH, nxsig_stop_task },
+  { SIGTSTP,   0,                nxsig_stop_task },
+  { SIGTTIN,   0,                nxsig_stop_task },
+  { SIGTTOU,   0,                nxsig_stop_task },
+#endif
+#ifdef CONFIG_SIG_SIGPROF_ACTION
+  { SIGPROF,   0,                nxsig_abnormal_termination },
+#endif
+#ifdef CONFIG_SIG_SIGPOLL_ACTION
+  { SIGPOLL,   0,                nxsig_abnormal_termination },
 #endif
 };
 
@@ -192,7 +208,7 @@ static void nxsig_null_action(int signo)
 #ifdef HAVE_NXSIG_ABNORMAL_TERMINANTION
 static void nxsig_abnormal_termination(int signo)
 {
-  FAR struct tcb_s *rtcb = (FAR struct tcb_s *)this_task();
+  FAR struct tcb_s *rtcb = this_task();
 
   /* Careful:  In the multi-threaded task, the signal may be handled on a
    * child pthread.
@@ -224,9 +240,9 @@ static void nxsig_abnormal_termination(int signo)
     {
       UNUSED(rtcb);
 
-      /* Exit to terminate the task (note that exit() vs. _exit() is used. */
+      /* Exit to terminate the task. */
 
-      exit(EXIT_FAILURE);
+      _exit(EXIT_FAILURE);
     }
 }
 #endif
@@ -248,7 +264,7 @@ static void nxsig_abnormal_termination(int signo)
 #ifdef CONFIG_SIG_SIGSTOP_ACTION
 static void nxsig_stop_task(int signo)
 {
-  FAR struct tcb_s *rtcb = (FAR struct tcb_s *)this_task();
+  FAR struct tcb_s *rtcb = this_task();
 #if defined(CONFIG_SCHED_WAITPID) && !defined(CONFIG_SCHED_HAVE_PARENT)
   FAR struct task_group_s *group;
 

@@ -33,9 +33,9 @@
 #include <nuttx/arch.h>
 #include <nuttx/sched.h>
 
-#include "addrenv.h"
 #include "arm.h"
 #include "arm_internal.h"
+#include "sched/sched.h"
 #include "signal/signal.h"
 
 /****************************************************************************
@@ -416,11 +416,31 @@ uint32_t *arm_syscall(uint32_t *regs)
 
           if (rtcb->xcp.kstack != NULL)
             {
-              DEBUGASSERT(rtcb->xcp.kstkptr == NULL &&
-                          rtcb->xcp.ustkptr != NULL);
+              uint32_t usp;
+
+              DEBUGASSERT(rtcb->xcp.kstkptr == NULL);
+
+              /* Copy "info" into user stack */
+
+              if (rtcb->xcp.sigdeliver)
+                {
+                  usp = rtcb->xcp.saved_regs[REG_SP];
+                }
+              else
+                {
+                  usp = rtcb->xcp.regs[REG_SP];
+                }
+
+              /* Create a frame for info and copy the kernel info */
+
+              usp = usp - sizeof(siginfo_t);
+              memcpy((void *)usp, (void *)regs[REG_R2], sizeof(siginfo_t));
+
+              /* Now set the updated SP and user copy of "info" to R2 */
 
               rtcb->xcp.kstkptr = (uint32_t *)regs[REG_SP];
-              regs[REG_SP]      = (uint32_t)rtcb->xcp.ustkptr;
+              regs[REG_SP]      = usp;
+              regs[REG_R2]      = usp;
             }
 #endif
         }
@@ -458,8 +478,7 @@ uint32_t *arm_syscall(uint32_t *regs)
 
           if (rtcb->xcp.kstack != NULL)
             {
-              DEBUGASSERT(rtcb->xcp.kstkptr != NULL &&
-                          (uint32_t)rtcb->xcp.ustkptr == regs[REG_SP]);
+              DEBUGASSERT(rtcb->xcp.kstkptr != NULL);
 
               regs[REG_SP]      = (uint32_t)rtcb->xcp.kstkptr;
               rtcb->xcp.kstkptr = NULL;
@@ -518,8 +537,15 @@ uint32_t *arm_syscall(uint32_t *regs)
           if (index == 0 && rtcb->xcp.kstack != NULL)
             {
               rtcb->xcp.ustkptr = (uint32_t *)regs[REG_SP];
-              regs[REG_SP]      = (uint32_t)rtcb->xcp.kstack +
-                                   ARCH_KERNEL_STACKSIZE;
+              if (rtcb->xcp.kstkptr != NULL)
+                {
+                  regs[REG_SP]  = (uint32_t)rtcb->xcp.kstkptr;
+                }
+              else
+                {
+                  regs[REG_SP]  = (uint32_t)rtcb->xcp.kstack +
+                                  ARCH_KERNEL_STACKSIZE;
+                }
             }
 #endif
 
@@ -533,7 +559,19 @@ uint32_t *arm_syscall(uint32_t *regs)
         break;
     }
 
-  regs = (uint32_t *)CURRENT_REGS;
+  /* Restore the cpu lock */
+
+  if (regs != CURRENT_REGS)
+    {
+      /* Record the new "running" task.  g_running_tasks[] is only used by
+       * assertion logic for reporting crashes.
+       */
+
+      g_running_tasks[this_cpu()] = this_task();
+
+      restore_critical_section();
+      regs = (uint32_t *)CURRENT_REGS;
+    }
 
   /* Report what happened */
 

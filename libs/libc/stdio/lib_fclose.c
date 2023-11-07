@@ -30,6 +30,10 @@
 #include <string.h>
 #include <errno.h>
 
+#ifdef CONFIG_FDSAN
+#  include <android/fdsan.h>
+#endif
+
 #include "libc.h"
 
 /****************************************************************************
@@ -84,8 +88,8 @@ int fclose(FAR FILE *stream)
 
       /* Remove FILE structure from the stream list */
 
-      slist = nxsched_get_streams();
-      lib_stream_semtake(slist);
+      slist = lib_get_streams();
+      nxmutex_lock(&slist->sl_lock);
 
       for (next = slist->sl_head; next; prev = next, next = next->fs_next)
         {
@@ -109,7 +113,7 @@ int fclose(FAR FILE *stream)
             }
         }
 
-      lib_stream_semgive(slist);
+      nxmutex_unlock(&slist->sl_lock);
 
       /* Check that the underlying file descriptor corresponds to an an open
        * file.
@@ -119,7 +123,14 @@ int fclose(FAR FILE *stream)
         {
           /* Close the file descriptor and save the return status */
 
+#ifdef CONFIG_FDSAN
+          uint64_t tag;
+          tag = android_fdsan_create_owner_tag(ANDROID_FDSAN_OWNER_TYPE_FILE,
+                                               (uintptr_t)stream);
+          status = android_fdsan_close_with_tag(stream->fs_fd, tag);
+#else
           status = close(stream->fs_fd);
+#endif
 
           /* If close() returns an error but flush() did not then make sure
            * that we return the close() error condition.
@@ -133,7 +144,7 @@ int fclose(FAR FILE *stream)
         }
 
 #ifndef CONFIG_STDIO_DISABLE_BUFFERING
-      /* Destroy the semaphore */
+      /* Destroy the mutex */
 
       nxrmutex_destroy(&stream->fs_lock);
 

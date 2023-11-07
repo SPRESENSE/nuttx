@@ -88,6 +88,8 @@ void up_schedule_sigaction(struct tcb_s *tcb, sig_deliver_t sigdeliver)
 
   if (!tcb->xcp.sigdeliver)
     {
+      tcb->xcp.sigdeliver = sigdeliver;
+
       sinfo("rtcb=%p CURRENT_REGS=%p\n", this_task(), CURRENT_REGS);
 
       /* First, handle some special cases when the signal is being delivered
@@ -107,6 +109,7 @@ void up_schedule_sigaction(struct tcb_s *tcb, sig_deliver_t sigdeliver)
                */
 
               sigdeliver(tcb);
+              tcb->xcp.sigdeliver = NULL;
             }
 
           /* CASE 2:  We are in an interrupt handler AND the interrupted
@@ -137,7 +140,7 @@ void up_schedule_sigaction(struct tcb_s *tcb, sig_deliver_t sigdeliver)
                */
 
               CURRENT_REGS = (void *)((uint32_t)CURRENT_REGS -
-                                            XCPTCONTEXT_SIZE);
+                                                XCPTCONTEXT_SIZE);
 
               memcpy((uint32_t *)CURRENT_REGS, tcb->xcp.saved_regs,
                      XCPTCONTEXT_SIZE);
@@ -146,7 +149,6 @@ void up_schedule_sigaction(struct tcb_s *tcb, sig_deliver_t sigdeliver)
                * disabled
                */
 
-              tcb->xcp.sigdeliver  = sigdeliver;
               CURRENT_REGS[REG_PC] = (uint32_t)xtensa_sig_deliver;
 #ifdef __XTENSA_CALL0_ABI__
               CURRENT_REGS[REG_PS] = (uint32_t)
@@ -161,7 +163,7 @@ void up_schedule_sigaction(struct tcb_s *tcb, sig_deliver_t sigdeliver)
 #endif
 
               CURRENT_REGS[REG_A1] = (uint32_t)CURRENT_REGS +
-                                      XCPTCONTEXT_SIZE;
+                                               XCPTCONTEXT_SIZE;
             }
         }
 
@@ -178,7 +180,6 @@ void up_schedule_sigaction(struct tcb_s *tcb, sig_deliver_t sigdeliver)
            * NOTE: that hi-priority interrupts are not disabled.
            */
 
-          tcb->xcp.sigdeliver   = sigdeliver;
           tcb->xcp.saved_regs   = tcb->xcp.regs;
 
           /* Duplicate the register context.  These will be
@@ -187,11 +188,11 @@ void up_schedule_sigaction(struct tcb_s *tcb, sig_deliver_t sigdeliver)
            */
 
           tcb->xcp.regs = (void *)((uint32_t)tcb->xcp.regs -
-                                         XCPTCONTEXT_SIZE);
+                                             XCPTCONTEXT_SIZE);
           memcpy(tcb->xcp.regs, tcb->xcp.saved_regs, XCPTCONTEXT_SIZE);
 
-          tcb->xcp.regs[REG_A1]       = (uint32_t)tcb->xcp.regs +
-                                          XCPTCONTEXT_SIZE;
+          tcb->xcp.regs[REG_A1] = (uint32_t)tcb->xcp.regs +
+                                            XCPTCONTEXT_SIZE;
           /* Then set up to vector to the trampoline with interrupts
            * disabled
            */
@@ -225,6 +226,8 @@ void up_schedule_sigaction(struct tcb_s *tcb, sig_deliver_t sigdeliver)
 
   if (!tcb->xcp.sigdeliver)
     {
+      tcb->xcp.sigdeliver = sigdeliver;
+
       /* First, handle some special cases when the signal is being delivered
        * to task that is currently executing on any CPU.
        */
@@ -247,6 +250,7 @@ void up_schedule_sigaction(struct tcb_s *tcb, sig_deliver_t sigdeliver)
                */
 
               sigdeliver(tcb);
+              tcb->xcp.sigdeliver = NULL;
             }
 
           /* CASE 2:  The task that needs to receive the signal is running.
@@ -284,22 +288,46 @@ void up_schedule_sigaction(struct tcb_s *tcb, sig_deliver_t sigdeliver)
                    * NOTE: that hi-priority interrupts are not disabled.
                    */
 
-                  tcb->xcp.sigdeliver  = sigdeliver;
-                  tcb->xcp.saved_regs  = tcb->xcp.regs;
+                  tcb->xcp.saved_regs   = tcb->xcp.regs;
+
+                  /* The Inter-Processor Interrupt that pauses the other CPU
+                   * generates a level-1 interrupt which sets the PS.EXCM.
+                   * This level-1 interrupt is treated as an Exception and
+                   * the bit PS.EXCM bit is automatically reset on return
+                   * from Exception. However, this is not the case here
+                   * because we are changing the execution to the signal
+                   * trampoline. Restoring the PS register with PS.EXCM bit
+                   * set would cause any other exception to deviate execution
+                   * to the DEC (double exception vector), avoiding it to be
+                   * treated correctly. According to xtensa ISA: "The process
+                   * of taking an interrupt does not clear the interrupt
+                   * request. The process does set PS.EXCM to 1, which
+                   * disables level-1 interrupts in the interrupt handler.
+                   * Typically, PS.EXCM is reset to 0 by the handler, after
+                   * it has set up the stack frame and masked the interrupt."
+                   * Clean the saved PS.EXCM to 1) avoid an exception from
+                   * being properly treated and 2) avoid interrupts to be
+                   * masked while delivering the signal.
+                   */
+
+                  if ((tcb->xcp.saved_regs[REG_PS] & PS_EXCM_MASK) != 0)
+                    {
+                      tcb->xcp.saved_regs[REG_PS] &= ~PS_EXCM_MASK;
+                    }
 
                   /* Duplicate the register context.  These will be
                    * restored by the signal trampoline after the signal has
                    * been delivered.
                    */
 
-                  tcb->xcp.regs          = (void *)
-                                            ((uint32_t)tcb->xcp.regs -
-                                            (uint32_t)XCPTCONTEXT_SIZE);
+                  tcb->xcp.regs         = (void *)
+                                          ((uint32_t)tcb->xcp.regs -
+                                                     XCPTCONTEXT_SIZE);
                   memcpy(tcb->xcp.regs, tcb->xcp.saved_regs,
                          XCPTCONTEXT_SIZE);
 
-                  tcb->xcp.regs[REG_A1]  = (uint32_t)tcb->xcp.regs +
-                                               (uint32_t)XCPTCONTEXT_SIZE;
+                  tcb->xcp.regs[REG_A1] = (uint32_t)tcb->xcp.regs +
+                                                    XCPTCONTEXT_SIZE;
 
                   /* Then set up to vector to the trampoline with interrupts
                    * disabled
@@ -329,7 +357,6 @@ void up_schedule_sigaction(struct tcb_s *tcb, sig_deliver_t sigdeliver)
                    * NOTE: that hi-priority interrupts are not disabled.
                    */
 
-                  tcb->xcp.sigdeliver  = sigdeliver;
                   xtensa_savestate(tcb->xcp.saved_regs);
 
                   /* Duplicate the register context.  These will be
@@ -337,14 +364,14 @@ void up_schedule_sigaction(struct tcb_s *tcb, sig_deliver_t sigdeliver)
                    * been delivered.
                    */
 
-                  CURRENT_REGS          = (void *)
-                                           ((uint32_t)CURRENT_REGS -
-                                           (uint32_t)XCPTCONTEXT_SIZE);
+                  CURRENT_REGS         = (void *)
+                                         ((uint32_t)CURRENT_REGS -
+                                                    XCPTCONTEXT_SIZE);
                   memcpy((uint32_t *)CURRENT_REGS, tcb->xcp.saved_regs,
                          XCPTCONTEXT_SIZE);
 
-                  CURRENT_REGS[REG_A1]  = (uint32_t)CURRENT_REGS +
-                                          (uint32_t)XCPTCONTEXT_SIZE;
+                  CURRENT_REGS[REG_A1] = (uint32_t)CURRENT_REGS +
+                                                   XCPTCONTEXT_SIZE;
 
                   /* Then set up to vector to the trampoline with interrupts
                    * disabled
@@ -363,13 +390,6 @@ void up_schedule_sigaction(struct tcb_s *tcb, sig_deliver_t sigdeliver)
                   xtensa_raiseprivilege(CURRENT_REGS);
 #endif
                 }
-
-              /* Increment the IRQ lock count so that when the task is
-               * restarted, it will hold the IRQ spinlock.
-               */
-
-              DEBUGASSERT(tcb->irqcount < INT16_MAX);
-              tcb->irqcount++;
 
               /* NOTE: If the task runs on another CPU(cpu), adjusting
                * global IRQ controls will be done in the pause handler
@@ -400,28 +420,20 @@ void up_schedule_sigaction(struct tcb_s *tcb, sig_deliver_t sigdeliver)
            * NOTE: that hi-priority interrupts are not disabled.
            */
 
-          tcb->xcp.sigdeliver    = sigdeliver;
-          tcb->xcp.saved_regs    = tcb->xcp.regs;
+          tcb->xcp.saved_regs   = tcb->xcp.regs;
 
           /* Duplicate the register context.  These will be
            * restored by the signal trampoline after the signal has been
            * delivered.
            */
 
-          tcb->xcp.regs          = (void *)
-                                    ((uint32_t)tcb->xcp.regs -
-                                    (uint32_t)XCPTCONTEXT_SIZE);
+          tcb->xcp.regs         = (void *)
+                                  ((uint32_t)tcb->xcp.regs -
+                                             XCPTCONTEXT_SIZE);
           memcpy(tcb->xcp.regs, tcb->xcp.saved_regs, XCPTCONTEXT_SIZE);
 
-          tcb->xcp.regs[REG_A1]  = (uint32_t)tcb->xcp.regs +
-                                   (uint32_t)XCPTCONTEXT_SIZE;
-
-          /* Increment the IRQ lock count so that when the task is restarted,
-           * it will hold the IRQ spinlock.
-           */
-
-          DEBUGASSERT(tcb->irqcount < INT16_MAX);
-          tcb->irqcount++;
+          tcb->xcp.regs[REG_A1] = (uint32_t)tcb->xcp.regs +
+                                            XCPTCONTEXT_SIZE;
 
           /* Then set up to vector to the trampoline with interrupts
            * disabled

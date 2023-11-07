@@ -157,7 +157,7 @@ static ssize_t
 
       /* Extract the IOB containing the frame from the container */
 
-      iob               = container->bn_iob;
+      iob = container->bn_iob;
       container->bn_iob = NULL;
       DEBUGASSERT(iob != NULL);
 
@@ -175,15 +175,15 @@ static ssize_t
 
       if (pstate->ir_from != NULL)
         {
-          iaddr             = (FAR struct sockaddr_l2 *)pstate->ir_from;
-          iaddr->l2_family  = AF_BLUETOOTH;
+          iaddr = (FAR struct sockaddr_l2 *)pstate->ir_from;
+          iaddr->l2_family = AF_BLUETOOTH;
           BLUETOOTH_ADDRCOPY(&iaddr->l2_bdaddr, &container->bn_raddr);
           iaddr->l2_cid = container->bn_channel;
         }
 
       /* Free both the IOB and the container */
 
-      iob_free(iob, IOBUSER_NET_SOCK_BLUETOOTH);
+      iob_free(iob);
       bluetooth_container_free(container);
     }
 
@@ -205,7 +205,6 @@ static ssize_t
  ****************************************************************************/
 
 static uint16_t bluetooth_recvfrom_eventhandler(FAR struct net_driver_s *dev,
-                                                 FAR void *pvconn,
                                                  FAR void *pvpriv,
                                                  uint16_t flags)
 {
@@ -215,7 +214,7 @@ static uint16_t bluetooth_recvfrom_eventhandler(FAR struct net_driver_s *dev,
 
   ninfo("flags: %04x\n", flags);
 
-  DEBUGASSERT(pvpriv != NULL && dev != NULL && pvconn != NULL);
+  DEBUGASSERT(pvpriv != NULL && dev != NULL);
 
   /* Ignore polls from non Bluetooth network drivers */
 
@@ -226,9 +225,9 @@ static uint16_t bluetooth_recvfrom_eventhandler(FAR struct net_driver_s *dev,
 
   /* Make sure that this is the driver to which the socket is bound. */
 
-#warning Missing logic
+  /* #warning Missing logic */
 
-  pstate = (FAR struct bluetooth_recvfrom_s *)pvpriv;
+  pstate = pvpriv;
   radio  = (FAR struct radio_driver_s *)dev;
 
   /* 'pstate' might be null in some race conditions (?) */
@@ -246,10 +245,10 @@ static uint16_t bluetooth_recvfrom_eventhandler(FAR struct net_driver_s *dev,
             {
               /* Don't allow any further call backs. */
 
-              pstate->ir_cb->flags   = 0;
-              pstate->ir_cb->priv    = NULL;
-              pstate->ir_cb->event   = NULL;
-              pstate->ir_result      = ret;
+              pstate->ir_cb->flags = 0;
+              pstate->ir_cb->priv  = NULL;
+              pstate->ir_cb->event = NULL;
+              pstate->ir_result    = ret;
 
               /* indicate that the data has been consumed */
 
@@ -309,8 +308,7 @@ ssize_t bluetooth_recvmsg(FAR struct socket *psock, FAR struct msghdr *msg,
   size_t len = msg->msg_iov->iov_len;
   FAR struct sockaddr *from = msg->msg_name;
   FAR socklen_t *fromlen = &msg->msg_namelen;
-  FAR struct bluetooth_conn_s *conn =
-    (FAR struct bluetooth_conn_s *)psock->s_conn;
+  FAR struct bluetooth_conn_s *conn = psock->s_conn;
   FAR struct radio_driver_s *radio;
   struct bluetooth_recvfrom_s state;
   ssize_t ret;
@@ -366,29 +364,24 @@ ssize_t bluetooth_recvmsg(FAR struct socket *psock, FAR struct msghdr *msg,
       return ret;
     }
 
-  /* We will have to wait.  This semaphore is used for signaling and,
-   * hence, should not have priority inheritance enabled.
-   */
-
   nxsem_init(&state.ir_sem, 0, 0); /* Doesn't really fail */
-  nxsem_set_protocol(&state.ir_sem, SEM_PRIO_NONE);
 
   /* Set up the callback in the connection */
 
   state.ir_cb = bluetooth_callback_alloc(&radio->r_dev, conn);
   if (state.ir_cb)
     {
-      state.ir_cb->flags  = (BLUETOOTH_NEWDATA | BLUETOOTH_POLL);
-      state.ir_cb->priv   = (FAR void *)&state;
-      state.ir_cb->event  = bluetooth_recvfrom_eventhandler;
+      state.ir_cb->flags = (BLUETOOTH_NEWDATA | BLUETOOTH_POLL);
+      state.ir_cb->priv  = (FAR void *)&state;
+      state.ir_cb->event = bluetooth_recvfrom_eventhandler;
 
       /* Wait for either the receive to complete or for an error/timeout to
-       * occur. NOTES:  (1) net_lockedwait will also terminate if a signal
+       * occur. NOTES:  (1) net_sem_wait will also terminate if a signal
        * is received, (2) the network is locked!  It will be un-locked while
        * the task sleeps and automatically re-locked when the task restarts.
        */
 
-      net_lockedwait(&state.ir_sem);
+      net_sem_wait(&state.ir_sem);
 
       /* Make sure that no further events are processed */
 

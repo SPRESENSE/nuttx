@@ -78,8 +78,9 @@
 int pthread_mutex_timedlock(FAR pthread_mutex_t *mutex,
                             FAR const struct timespec *abs_timeout)
 {
-  pid_t mypid = getpid();
+  pid_t mypid = nxsched_gettid();
   int ret = EINVAL;
+  irqstate_t flags;
 
   sinfo("mutex=%p\n", mutex);
   DEBUGASSERT(mutex != NULL);
@@ -90,7 +91,7 @@ int pthread_mutex_timedlock(FAR pthread_mutex_t *mutex,
        * checks.  This all needs to be one atomic action.
        */
 
-      sched_lock();
+      flags = enter_critical_section();
 
 #ifdef CONFIG_PTHREAD_MUTEX_TYPES
       /* All mutex types except for NORMAL (and DEFAULT) will return
@@ -187,7 +188,7 @@ int pthread_mutex_timedlock(FAR pthread_mutex_t *mutex,
            * or default mutex.
            */
 
-          ret = pthread_mutex_take(mutex, abs_timeout, true);
+          ret = pthread_mutex_take(mutex, abs_timeout);
 
           /* If we successfully obtained the semaphore, then indicate
            * that we own it.
@@ -202,7 +203,7 @@ int pthread_mutex_timedlock(FAR pthread_mutex_t *mutex,
             }
         }
 
-      sched_unlock();
+      leave_critical_section(flags);
     }
 
   sinfo("Returning %d\n", ret);

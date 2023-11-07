@@ -38,7 +38,7 @@
 
   .extern __trap_vec
 
-  .section .start
+  .section .start, "ax"
   .global __start
 
 __start:
@@ -161,19 +161,20 @@ __start:
   csrw mie, zero
   csrw mip, zero
 
-  /* Offset to g_entrypoints vector, acc. to hart id */
-  li t1,8
-  mul t1, a0, t1
-
-  /* Load the entrypoint address */
-  la t0, g_entrypoints
-  add t0, t0, t1
-  ld t0, 0(t0)
-
-  /* Jump to app */
-  jr t0
+  /* Jump to application */
+  j mpfs_jump_to_app
 
 .continue_boot:
+
+  /* L2 needs to be zeroed before ECC (error correction) is enabled later. */
+
+  la  a4, __l2lim_start
+  la  a5, __l2lim_end
+
+.clear_l2lim:
+  sd   x0, 0(a4)
+  add  a4, a4, 8
+  blt  a4, a5, .clear_l2lim
 
   /* Clear PMP */
 

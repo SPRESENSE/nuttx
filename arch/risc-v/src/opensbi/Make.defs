@@ -32,7 +32,7 @@ SBI_ASRCS += opensbi/opensbi-3rdparty/lib/sbi/sbi_expected_trap.S
 SBI_ASRCS += opensbi/opensbi-3rdparty/lib/sbi/sbi_hfence.S
 SBI_ASRCS += opensbi/opensbi-3rdparty/lib/sbi/riscv_hardfp.S
 
-INCLUDES  += $(shell $(INCDIR) "$(CC)" $(ARCH_SRCDIR)$(DELIM)opensbi$(DELIM)opensbi-3rdparty$(DELIM)include)
+INCLUDES  += ${INCDIR_PREFIX}$(ARCH_SRCDIR)$(DELIM)opensbi$(DELIM)opensbi-3rdparty$(DELIM)include
 
 SBI_DIR   := opensbi
 
@@ -43,8 +43,7 @@ OPENSBI_TARBALL = opensbi.tar.gz
 OPENSBI_DIR     = riscv-software-src-opensbi-4998a71
 
 $(OPENSBI_TARBALL):
-	$(Q) echo "Downloading: OpenSBI"
-	$(Q) curl -L $(OPENSBI_URL)/$(OPENSBI_COMMIT) -o opensbi/$(OPENSBI_TARBALL)
+	$(call DOWNLOAD,$(OPENSBI_URL),$(OPENSBI_COMMIT),opensbi/$(OPENSBI_TARBALL))
 
 .opensbi_unpack: $(OPENSBI_TARBALL)
 	$(Q) echo "Unpacking: OpenSBI"
@@ -52,11 +51,13 @@ $(OPENSBI_TARBALL):
 	$(Q) mv opensbi/$(OPENSBI_DIR) opensbi/$(OPENSBI_UNPACK)
 	$(Q) touch opensbi/.opensbi_unpack
 
+ifeq ($(wildcard opensbi/$(OPENSBI_UNPACK)/.git),)
 context:: .opensbi_unpack
 
 distclean::
 	$(call DELFILE, opensbi/.opensbi_unpack)
 	$(call DELFILE, opensbi/$(OPENSBI_TARBALL))
 	$(call DELDIR, opensbi/$(OPENSBI_UNPACK))
+endif
 
 endif

@@ -27,12 +27,13 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <signal.h>
-#include <queue.h>
 #include <sched.h>
 #include <assert.h>
 #include <errno.h>
 
 #include <nuttx/irq.h>
+#include <nuttx/queue.h>
+#include <nuttx/signal.h>
 #include <nuttx/spinlock.h>
 
 #include "sched/sched.h"
@@ -235,8 +236,8 @@ int nxsig_action(int signo, FAR const struct sigaction *act,
           /* Return SIG_DFL if the default signal is attached */
 
           oact->sa_handler = SIG_DFL;
-          oact->sa_mask    = NULL_SIGNAL_SET;
           oact->sa_flags   = SA_SIGINFO;
+          sigemptyset(&oact->sa_mask);
         }
       else
 #endif
@@ -253,8 +254,8 @@ int nxsig_action(int signo, FAR const struct sigaction *act,
           /* There isn't an old value */
 
           oact->sa_handler = NULL;
-          oact->sa_mask    = NULL_SIGNAL_SET;
           oact->sa_flags   = 0;
+          sigemptyset(&oact->sa_mask);
         }
     }
 
@@ -373,6 +374,7 @@ int nxsig_action(int signo, FAR const struct sigaction *act,
       sigact->act.sa_handler = handler;
       sigact->act.sa_mask    = act->sa_mask;
       sigact->act.sa_flags   = act->sa_flags;
+      sigact->act.sa_user    = act->sa_user;
     }
 
   return OK;

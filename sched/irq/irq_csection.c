@@ -113,7 +113,7 @@ static bool irq_waitlock(int cpu)
 
   /* Notify that we are waiting for a spinlock */
 
-  sched_note_spinlock(tcb, &g_cpu_irqlock);
+  sched_note_spinlock(tcb, &g_cpu_irqlock, NOTE_SPINLOCK_LOCK);
 #endif
 
   /* Duplicate the spin_lock() logic from spinlock.c, but adding the check
@@ -133,7 +133,7 @@ static bool irq_waitlock(int cpu)
 #ifdef CONFIG_SCHED_INSTRUMENTATION_SPINLOCKS
           /* Notify that we have aborted the wait for the spinlock */
 
-          sched_note_spinabort(tcb, &g_cpu_irqlock);
+          sched_note_spinlock(tcb, &g_cpu_irqlock, NOTE_SPINLOCK_ABORT);
 #endif
 
           return false;
@@ -145,7 +145,7 @@ static bool irq_waitlock(int cpu)
 #ifdef CONFIG_SCHED_INSTRUMENTATION_SPINLOCKS
   /* Notify that we have the spinlock */
 
-  sched_note_spinlocked(tcb, &g_cpu_irqlock);
+  sched_note_spinlock(tcb, &g_cpu_irqlock, NOTE_SPINLOCK_LOCKED);
 #endif
 
   return true;
@@ -186,7 +186,6 @@ irqstate_t enter_critical_section(void)
    */
 
 try_again:
-
   ret = up_irq_save();
 
   /* Verify that the system has sufficiently initialized so that the task
@@ -547,7 +546,7 @@ void leave_critical_section(irqstate_t flags)
                 {
                   /* Yes.. Check if there are pending tasks and that pre-
                    * emption is also enabled.  This is necessary because we
-                   * may have deferred the up_release_pending() call in
+                   * may have deferred the nxsched_merge_pending() call in
                    * sched_unlock() because we were within a critical
                    * section then.
                    */
@@ -561,7 +560,10 @@ void leave_critical_section(irqstate_t flags)
                        * out!
                        */
 
-                      up_release_pending();
+                      if (nxsched_merge_pending())
+                        {
+                          up_switch_context(this_task(), rtcb);
+                        }
                     }
                 }
 
@@ -634,7 +636,7 @@ void leave_critical_section(irqstate_t flags)
  *   holder of the IRQ lock.
  *
  * Input Parameters:
- *   rtcb - Points to the blocked TCB that is ready-to-run
+ *   cpu - Points to which cpu
  *
  * Returned Value:
  *   true  - IRQs are locked by a different CPU.
@@ -696,5 +698,63 @@ bool irq_cpu_locked(int cpu)
     }
 }
 #endif
+
+/****************************************************************************
+ * Name: restore_critical_section
+ *
+ * Description:
+ *   Restore the critical_section
+ *
+ * Input Parameters:
+ *   None
+ *
+ * Returned Value:
+ *   None
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_SMP
+void restore_critical_section(void)
+{
+  /* NOTE: The following logic for adjusting global IRQ controls were
+   * derived from nxsched_add_readytorun() and sched_removedreadytorun()
+   * Here, we only handles clearing logic to defer unlocking IRQ lock
+   * followed by context switching.
+   */
+
+  FAR struct tcb_s *tcb = this_task();
+  int me = this_cpu();
+
+  /* Adjust global IRQ controls.  If irqcount is greater than zero,
+   * then this task/this CPU holds the IRQ lock
+   */
+
+  if (tcb->irqcount > 0)
+    {
+      /* Do notihing here
+       * NOTE: spin_setbit() is done in nxsched_add_readytorun()
+       * and nxsched_remove_readytorun()
+       */
+    }
+
+  /* No.. This CPU will be relinquishing the lock.  But this works
+   * differently if we are performing a context switch from an
+   * interrupt handler and the interrupt handler has established
+   * a critical section.  We can detect this case when
+   * g_cpu_nestcount[me] > 0.
+   */
+
+  else if (g_cpu_nestcount[me] <= 0)
+    {
+      /* Release our hold on the IRQ lock. */
+
+      if ((g_cpu_irqset & (1 << me)) != 0)
+        {
+          spin_clrbit(&g_cpu_irqset, me, &g_cpu_irqsetlock,
+                      &g_cpu_irqlock);
+        }
+    }
+}
+#endif /* CONFIG_SMP */
 
 #endif /* CONFIG_IRQCOUNT */

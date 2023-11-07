@@ -113,7 +113,7 @@ static int     irq_stat(FAR const char *relpath, FAR struct stat *buf);
  * with any compiler.
  */
 
-const struct procfs_operations irq_operations =
+const struct procfs_operations g_irq_operations =
 {
   irq_open,       /* open */
   irq_close,      /* close */
@@ -143,6 +143,7 @@ static int irq_callback(int irq, FAR struct irq_info_s *info,
 {
   FAR struct irq_file_s *irqfile = (FAR struct irq_file_s *)arg;
   struct irq_info_s copy;
+  struct timespec delta;
   irqstate_t flags;
   clock_t elapsed;
   clock_t now;
@@ -200,6 +201,7 @@ static int irq_callback(int irq, FAR struct irq_info_s *info,
    */
 
   elapsed = now - copy.start;
+  up_perf_convert(copy.time, &delta);
 
 #ifdef CONFIG_HAVE_LONG_LONG
   /* elapsed = <current-time> - <start-time>, units=clock ticks
@@ -241,7 +243,7 @@ static int irq_callback(int irq, FAR struct irq_info_s *info,
                       (unsigned long)((uintptr_t)copy.handler),
                       (unsigned long)((uintptr_t)copy.arg),
                       count, intpart, fracpart,
-                      (unsigned long)copy.time / 1000);
+                      (unsigned long)delta.tv_nsec / 1000);
 
   copysize  = procfs_memcpy(irqfile->line, linesize, irqfile->buffer,
                             irqfile->remaining, &irqfile->offset);
@@ -287,7 +289,7 @@ static int irq_open(FAR struct file *filep, FAR const char *relpath,
 
   /* Allocate a container to hold the file attributes */
 
-  irqfile = (FAR struct irq_file_s *)kmm_zalloc(sizeof(struct irq_file_s));
+  irqfile = kmm_zalloc(sizeof(struct irq_file_s));
   if (!irqfile)
     {
       ferr("ERROR: Failed to allocate file attributes\n");
@@ -389,7 +391,7 @@ static int irq_dup(FAR const struct file *oldp, FAR struct file *newp)
 
   /* Allocate a new container to hold the task and attribute selection */
 
-  newattr = (FAR struct irq_file_s *)kmm_malloc(sizeof(struct irq_file_s));
+  newattr = kmm_malloc(sizeof(struct irq_file_s));
   if (!newattr)
     {
       ferr("ERROR: Failed to allocate file attributes\n");

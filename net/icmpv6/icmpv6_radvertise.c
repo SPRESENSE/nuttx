@@ -28,11 +28,13 @@
 #include <stdint.h>
 #include <string.h>
 #include <debug.h>
+#include <netinet/in.h>
 
 #include <nuttx/net/netconfig.h>
 #include <nuttx/net/netstats.h>
 #include <nuttx/net/netdev.h>
 #include <nuttx/net/icmpv6.h>
+#include <nuttx/net/dns.h>
 
 #include "netdev/netdev.h"
 #include "inet/inet.h"
@@ -42,13 +44,14 @@
 #ifdef CONFIG_NET_ICMPv6_ROUTER
 
 /****************************************************************************
- * Pre-processor Definitions
+ * Private Types
  ****************************************************************************/
 
-#define IPv6BUF  ((FAR struct ipv6_hdr_s *)&dev->d_buf[NET_LL_HDRLEN(dev)])
-
-#define ICMPv6ADVERTISE \
-  ((FAR struct icmpv6_router_advertise_s *)&dev->d_buf[NET_LL_HDRLEN(dev) + IPv6_HDRLEN])
+struct rdnss_add_dns_nameserver_s
+{
+  FAR struct icmpv6_rdnss_s *rdnss;
+  int nservers;
+};
 
 /****************************************************************************
  * Private Data
@@ -102,6 +105,44 @@ static inline void ipv6addr_mask(FAR uint16_t *dest, FAR const uint16_t *src,
 #endif /* !CONFIG_NET_ICMPv6_ROUTER_MANUAL */
 
 /****************************************************************************
+ * Name: icmpv6_radvertise_fill_rndss
+ *
+ * Description:
+ *   Copy an IPv6 DNS address into RDNSS field
+ *
+ * Input Parameters:
+ *   arg     - RDNSS context infomation
+ *   addr    - DNS server address
+ *   addrlen - length of DNS server address
+ *
+ * Returned Value:
+ *   0 is success
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_NET_ICMPv6_ROUTER_RDNSS
+static int icmpv6_radvertise_fill_rndss(FAR void *arg,
+                                        FAR struct sockaddr *addr,
+                                        FAR socklen_t addrlen)
+{
+  FAR struct rdnss_add_dns_nameserver_s *rdnss_context = arg;
+  FAR struct sockaddr_in6 *addr6;
+
+  if (addr->sa_family == AF_INET6)
+    {
+      FAR uint8_t *server = rdnss_context->rdnss->servers;
+
+      addr6 = (FAR struct sockaddr_in6 *)addr;
+      net_ipv6addr_copy(server + 16 * rdnss_context->nservers,
+                        &addr6->sin6_addr);
+      rdnss_context->nservers++;
+    }
+
+  return 0;
+}
+#endif /* CONFIG_NET_ICMPv6_ROUTER_RDNSS */
+
+/****************************************************************************
  * Public Functions
  ****************************************************************************/
 
@@ -125,19 +166,17 @@ static inline void ipv6addr_mask(FAR uint16_t *dest, FAR const uint16_t *src,
 
 void icmpv6_radvertise(FAR struct net_driver_s *dev)
 {
-  FAR struct ipv6_hdr_s *ipv6 = IPv6BUF;
   FAR struct icmpv6_router_advertise_s *adv;
   FAR struct icmpv6_srclladdr_s *srcaddr;
   FAR struct icmpv6_mtu_s *mtu;
   FAR struct icmpv6_prefixinfo_s *prefix;
+#ifdef CONFIG_NET_ICMPv6_ROUTER_RDNSS
+  FAR struct icmpv6_rdnss_s *rdnss;
+  struct rdnss_add_dns_nameserver_s rndss_context;
+#endif
+  net_ipv6addr_t srcv6addr;
   uint16_t lladdrsize;
   uint16_t l3size;
-
-  /* Set up the IPv6 header */
-
-  ipv6->vtc    = 0x60;                         /* Version/traffic class (MS) */
-  ipv6->tcf    = 0;                            /* Traffic class (LS)/Flow label (MS) */
-  ipv6->flow   = 0;                            /* Flow label (LS) */
 
   /* Length excludes the IPv6 header */
 
@@ -147,30 +186,22 @@ void icmpv6_radvertise(FAR struct net_driver_s *dev)
                  sizeof(struct icmpv6_mtu_s) +
                  sizeof(struct icmpv6_prefixinfo_s);
 
-  ipv6->len[0] = (l3size >> 8);
-  ipv6->len[1] = (l3size & 0xff);
-
-  ipv6->proto  = IP_PROTO_ICMP6;               /* Next header */
-  ipv6->ttl    = 255;                          /* Hop limit */
-
-  /* Swap source for destination IP address, add our source IP address */
-
-  net_ipv6addr_copy(ipv6->destipaddr, g_ipv6_allnodes);
-
   /* Source IP address must be set to link-local IP */
 
-  icmpv6_linkipaddr(dev, ipv6->srcipaddr);
+  icmpv6_linkipaddr(dev, srcv6addr);
 
   /* Set up the ICMPv6 Router Advertise response */
 
-  adv               = ICMPv6ADVERTISE;
+  adv               = IPBUF(IPv6_HDRLEN);
   adv->type         = ICMPV6_ROUTER_ADVERTISE; /* Message type */
   adv->code         = 0;                       /* Message qualifier */
   adv->hoplimit     = 64;                      /* Current hop limit */
   adv->flags        = ICMPv6_RADV_FLAG_M;      /* Managed address flag. */
   adv->lifetime     = HTONS(1800);             /* Router lifetime */
-  adv->reachable    = 0;                       /* Reachable time */
-  adv->retrans      = 0;                       /* Retransmission timer */
+  adv->reachable[0] = 0;                       /* Reachable time */
+  adv->reachable[1] = 0;
+  adv->retrans[0]   = 0;                       /* Retransmission timer */
+  adv->retrans[1]   = 0;
 
   /* Set up the source address option */
 
@@ -189,19 +220,22 @@ void icmpv6_radvertise(FAR struct net_driver_s *dev)
   mtu->opttype      = ICMPv6_OPT_MTU;
   mtu->optlen       = 1;
   mtu->reserved     = 0;
-  mtu->mtu          = HTONL(dev->d_pktsize - dev->d_llhdrlen);
+  mtu->mtu[0]       = 0;
+  mtu->mtu[1]       = HTONS(dev->d_pktsize - dev->d_llhdrlen);
 
   /* Set up the prefix option */
 
-  prefix              = (FAR struct icmpv6_prefixinfo_s *)
-                        ((FAR uint8_t *)mtu + sizeof(struct icmpv6_mtu_s));
-  prefix->opttype     = ICMPv6_OPT_PREFIX;
-  prefix->optlen      = 4;
-  prefix->flags       = ICMPv6_PRFX_FLAG_L | ICMPv6_PRFX_FLAG_A;
-  prefix->vlifetime   = HTONL(2592000);
-  prefix->plifetime   = HTONL(604800);
-  prefix->reserved[0] = 0;
-  prefix->reserved[1] = 0;
+  prefix               = (FAR struct icmpv6_prefixinfo_s *)
+                         ((FAR uint8_t *)mtu + sizeof(struct icmpv6_mtu_s));
+  prefix->opttype      = ICMPv6_OPT_PREFIX;
+  prefix->optlen       = 4;
+  prefix->flags        = ICMPv6_PRFX_FLAG_L | ICMPv6_PRFX_FLAG_A;
+  prefix->vlifetime[0] = HTONS(2592000 >> 16);
+  prefix->vlifetime[1] = HTONS(2592000 & 0xffff);
+  prefix->plifetime[0] = HTONS(604800 >> 16);
+  prefix->plifetime[1] = HTONS(604800 & 0xffff);
+  prefix->reserved[0]  = 0;
+  prefix->reserved[1]  = 0;
 
 #ifdef CONFIG_NET_ICMPv6_ROUTER_MANUAL
   /* Copy the configured prefex */
@@ -215,6 +249,41 @@ void icmpv6_radvertise(FAR struct net_driver_s *dev)
   ipv6addr_mask(prefix->prefix, dev->d_ipv6addr, dev->d_ipv6netmask);
 #endif /* CONFIG_NET_ICMPv6_ROUTER_MANUAL */
 
+#ifdef CONFIG_NET_ICMPv6_ROUTER_RDNSS
+  rdnss                  = (FAR struct icmpv6_rdnss_s *)
+                           ((FAR uint8_t *)prefix +
+                           sizeof(struct icmpv6_prefixinfo_s));
+  rndss_context.rdnss    = rdnss;
+  rndss_context.nservers = 0;
+
+  dns_foreach_nameserver(icmpv6_radvertise_fill_rndss, &rndss_context);
+
+  if (rndss_context.nservers > 0)
+    {
+      rdnss->opttype     = ICMPv6_OPT_RDNSS;
+      rdnss->optlen      = 1 + 2 * rndss_context.nservers;
+      rdnss->reserved    = 0;
+
+      /* RFC8106: The value of Lifetime SHOULD by default be at least
+       * 3 * MaxRtrAdvInterval and the MaxRtrAdvInterval default value
+       * is 600 seconds.
+       */
+
+      rdnss->lifetime[0] = 0;
+      rdnss->lifetime[1] = HTONS(1800);
+
+      l3size            += 8 * rdnss->optlen;
+    }
+
+#endif
+
+  ipv6_build_header(IPv6BUF, l3size, IP_PROTO_ICMP6,
+                    srcv6addr, g_ipv6_allnodes, 255, 0);
+
+  /* Update device buffer length */
+
+  iob_update_pktlen(dev->d_iob, IPv6_HDRLEN + l3size, false);
+
   /* Calculate the checksum over both the ICMP header and payload */
 
   adv->chksum  = 0;
@@ -224,8 +293,7 @@ void icmpv6_radvertise(FAR struct net_driver_s *dev)
 
   dev->d_len   = IPv6_HDRLEN + l3size;
 
-  ninfo("Outgoing ICMPv6 Router Advertise length: %d (%d)\n",
-          dev->d_len, (ipv6->len[0] << 8) | ipv6->len[1]);
+  ninfo("Outgoing ICMPv6 Router Advertise length: %d\n", dev->d_len);
 
 #ifdef CONFIG_NET_STATISTICS
   g_netstats.icmpv6.sent++;

@@ -45,11 +45,10 @@
  ****************************************************************************/
 
 static uint16_t setsockopt_event(FAR struct net_driver_s *dev,
-                                 FAR void *pvconn, FAR void *pvpriv,
-                                 uint16_t flags)
+                                 FAR void *pvpriv, uint16_t flags)
 {
   FAR struct usrsock_reqstate_s *pstate = pvpriv;
-  FAR struct usrsock_conn_s *conn = pvconn;
+  FAR struct usrsock_conn_s *conn = pstate->conn;
 
   if (flags & USRSOCK_EVENT_ABORT)
     {
@@ -59,9 +58,9 @@ static uint16_t setsockopt_event(FAR struct net_driver_s *dev,
 
       /* Stop further callbacks */
 
-      pstate->cb->flags   = 0;
-      pstate->cb->priv    = NULL;
-      pstate->cb->event   = NULL;
+      pstate->cb->flags = 0;
+      pstate->cb->priv  = NULL;
+      pstate->cb->event = NULL;
 
       /* Wake up the waiting thread */
 
@@ -75,9 +74,9 @@ static uint16_t setsockopt_event(FAR struct net_driver_s *dev,
 
       /* Stop further callbacks */
 
-      pstate->cb->flags   = 0;
-      pstate->cb->priv    = NULL;
-      pstate->cb->event   = NULL;
+      pstate->cb->flags = 0;
+      pstate->cb->priv  = NULL;
+      pstate->cb->event = NULL;
 
       /* Wake up the waiting thread */
 
@@ -129,7 +128,7 @@ static int do_setsockopt_request(FAR struct usrsock_conn_s *conn,
   bufs[1].iov_base = (FAR void *)value;
   bufs[1].iov_len = req.valuelen;
 
-  return usrsockdev_do_request(conn, bufs, ARRAY_SIZE(bufs));
+  return usrsock_do_request(conn, bufs, nitems(bufs));
 }
 
 /****************************************************************************
@@ -150,7 +149,7 @@ static int do_setsockopt_request(FAR struct usrsock_conn_s *conn,
  *   See <sys/socket.h> a complete list of values for the 'option' argument.
  *
  * Input Parameters:
- *   conn      usrsock socket connection structure
+ *   psock     Socket structure of the socket to query
  *   level     Protocol level to set the option
  *   option    identifies the option to set
  *   value     Points to the argument value
@@ -158,17 +157,23 @@ static int do_setsockopt_request(FAR struct usrsock_conn_s *conn,
  *
  ****************************************************************************/
 
-int usrsock_setsockopt(FAR struct usrsock_conn_s *conn,
-                       int level, int option,
-                       FAR const void *value, FAR socklen_t value_len)
+int usrsock_setsockopt(FAR struct socket *psock, int level, int option,
+                       FAR const void *value, socklen_t value_len)
 {
+  FAR struct usrsock_conn_s *conn = psock->s_conn;
   struct usrsock_reqstate_s state =
   {
   };
 
   int ret;
 
-  DEBUGASSERT(conn);
+  /* SO_[RCV|SND]TIMEO have to be handled locally to break the block i/o */
+
+  if (level == SOL_SOCKET && (option == SO_TYPE ||
+      option == SO_RCVTIMEO || option == SO_SNDTIMEO))
+    {
+      return -ENOPROTOOPT;
+    }
 
   net_lock();
 
@@ -203,11 +208,18 @@ int usrsock_setsockopt(FAR struct usrsock_conn_s *conn,
     {
       /* Wait for completion of request. */
 
-      net_lockedwait_uninterruptible(&state.recvsem);
+      net_sem_wait_uninterruptible(&state.recvsem);
       ret = state.result;
     }
 
   usrsock_teardown_request_callback(&state);
+
+  /* Skip the default socket option handler */
+
+  if (ret == -ENOPROTOOPT)
+    {
+      ret = -ENOTTY;
+    }
 
 errout_unlock:
   net_unlock();

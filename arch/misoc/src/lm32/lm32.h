@@ -42,9 +42,9 @@
  * only a referenced is passed to get the state from the TCB.
  */
 
-#define up_savestate(regs)      lm32_copystate(regs, (uint32_t*)g_current_regs)
+#define misoc_savestate(regs)      lm32_copystate(regs, (uint32_t*)g_current_regs)
 #define up_copystate(rega,regb) lm32_copystate(rega, regb)
-#define up_restorestate(regs)   (g_current_regs = regs)
+#define misoc_restorestate(regs)   (g_current_regs = regs)
 
 /* Determine which (if any) console driver to use.  If a console is enabled
  * and no other console device is specified, then a serial console is
@@ -125,10 +125,6 @@ void lm32_sigdeliver(void);
 
 void lm32_flush_dcache(void);
 void lm32_flush_icache(void);
-
-/* Debug ********************************************************************/
-
-void lm32_dumpstate(void);
 
 #endif /* __ASSEMBLY__ */
 #endif /* __ARCH_MISOC_SRC_LM32_LM32_H */

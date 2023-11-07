@@ -58,6 +58,7 @@
 #include <nuttx/arch.h>
 #include <nuttx/wdog.h>
 #include <nuttx/clock.h>
+#include <nuttx/mutex.h>
 #include <nuttx/semaphore.h>
 #include <nuttx/i2c/i2c_master.h>
 
@@ -136,7 +137,7 @@ struct lpc54_i2cdev_s
   int16_t nmsgs;            /* Number of transfer remaining */
   int16_t result;           /* The result of the transfer */
 
-  sem_t exclsem;            /* Only one thread can access at a time */
+  mutex_t lock;             /* Only one thread can access at a time */
 #ifndef CONFIG_I2C_POLLED
   sem_t waitsem;            /* Supports wait for state machine completion */
   uint16_t irq;             /* Flexcomm IRQ number */
@@ -168,7 +169,7 @@ static int  lpc54_i2c_poll(struct lpc54_i2cdev_s *priv);
 static int  lpc54_i2c_transfer(struct i2c_master_s *dev,
               struct i2c_msg_s *msgs, int count);
 #ifdef CONFIG_I2C_RESET
-static int  lpc54_i2c_reset(struct i2c_master_s * dev);
+static int  lpc54_i2c_reset(struct i2c_master_s *dev);
 #endif
 
 /****************************************************************************
@@ -184,34 +185,103 @@ struct i2c_ops_s lpc54_i2c_ops =
 };
 
 #ifdef CONFIG_LPC54_I2C0_MASTER
-static struct lpc54_i2cdev_s g_i2c0_dev;
+static struct lpc54_i2cdev_s g_i2c0_dev =
+{
+  .lock = NXMUTEX_INITIALIZER,
+#  ifndef CONFIG_I2C_POLLED
+  .waitsem = SEM_INITIALIZER(0),
+#  endif
+};
 #endif
+
 #ifdef CONFIG_LPC54_I2C1_MASTER
-static struct lpc54_i2cdev_s g_i2c1_dev;
+static struct lpc54_i2cdev_s g_i2c1_dev =
+{
+  .lock = NXMUTEX_INITIALIZER,
+#  ifndef CONFIG_I2C_POLLED
+  .waitsem = SEM_INITIALIZER(0),
+#  endif
+};
 #endif
+
 #ifdef CONFIG_LPC54_I2C2_MASTER
-static struct lpc54_i2cdev_s g_i2c2_dev;
+static struct lpc54_i2cdev_s g_i2c2_dev =
+{
+  .lock = NXMUTEX_INITIALIZER,
+#  ifndef CONFIG_I2C_POLLED
+  .waitsem = SEM_INITIALIZER(0),
+#  endif
+};
 #endif
+
 #ifdef CONFIG_LPC54_I2C3_MASTER
-static struct lpc54_i2cdev_s g_i2c3_dev;
+static struct lpc54_i2cdev_s g_i2c3_dev =
+{
+  .lock = NXMUTEX_INITIALIZER,
+#  ifndef CONFIG_I2C_POLLED
+  .waitsem = SEM_INITIALIZER(0),
+#  endif
+};
 #endif
+
 #ifdef CONFIG_LPC54_I2C4_MASTER
-static struct lpc54_i2cdev_s g_i2c4_dev;
+static struct lpc54_i2cdev_s g_i2c4_dev =
+{
+  .lock = NXMUTEX_INITIALIZER,
+#  ifndef CONFIG_I2C_POLLED
+  .waitsem = SEM_INITIALIZER(0),
+#  endif
+};
 #endif
+
 #ifdef CONFIG_LPC54_I2C5_MASTER
-static struct lpc54_i2cdev_s g_i2c5_dev;
+static struct lpc54_i2cdev_s g_i2c5_dev =
+{
+  .lock = NXMUTEX_INITIALIZER,
+#  ifndef CONFIG_I2C_POLLED
+  .waitsem = SEM_INITIALIZER(0),
+#  endif
+};
 #endif
+
 #ifdef CONFIG_LPC54_I2C6_MASTER
-static struct lpc54_i2cdev_s g_i2c6_dev;
+static struct lpc54_i2cdev_s g_i2c6_dev =
+{
+  .lock = NXMUTEX_INITIALIZER,
+#  ifndef CONFIG_I2C_POLLED
+  .waitsem = SEM_INITIALIZER(0),
+#  endif
+};
 #endif
+
 #ifdef CONFIG_LPC54_I2C7_MASTER
-static struct lpc54_i2cdev_s g_i2c7_dev;
+static struct lpc54_i2cdev_s g_i2c7_dev =
+{
+  .lock = NXMUTEX_INITIALIZER,
+#  ifndef CONFIG_I2C_POLLED
+  .waitsem = SEM_INITIALIZER(0),
+#  endif
+};
 #endif
+
 #ifdef CONFIG_LPC54_I2C8_MASTER
-static struct lpc54_i2cdev_s g_i2c8_dev;
+static struct lpc54_i2cdev_s g_i2c8_dev =
+{
+  .lock = NXMUTEX_INITIALIZER,
+#  ifndef CONFIG_I2C_POLLED
+  .waitsem = SEM_INITIALIZER(0),
+#  endif
+};
 #endif
+
 #ifdef CONFIG_LPC54_I2C9_MASTER
-static struct lpc54_i2cdev_s g_i2c9_dev;
+static struct lpc54_i2cdev_s g_i2c9_dev =
+{
+  .lock = NXMUTEX_INITIALIZER,
+#  ifndef CONFIG_I2C_POLLED
+  .waitsem = SEM_INITIALIZER(0),
+#  endif
+};
 #endif
 
 /****************************************************************************
@@ -756,7 +826,7 @@ static int lpc54_i2c_transfer(struct i2c_master_s *dev,
 
   /* Get exclusive access to the I2C bus */
 
-  nxsem_wait(&priv->exclsem);
+  nxmutex_lock(&priv->lock);
 
   /* Set up for the transfer */
 
@@ -789,7 +859,7 @@ static int lpc54_i2c_transfer(struct i2c_master_s *dev,
   ret = priv->result;
   i2cinfo("Done, result=%d\n", ret);
 
-  nxsem_post(&priv->exclsem);
+  nxmutex_unlock(&priv->lock);
   return ret;
 }
 
@@ -808,7 +878,7 @@ static int lpc54_i2c_transfer(struct i2c_master_s *dev,
  ****************************************************************************/
 
 #ifdef CONFIG_I2C_RESET
-static int lpc54_i2c_reset(struct i2c_master_s * dev)
+static int lpc54_i2c_reset(struct i2c_master_s *dev)
 {
 #warning Missing logic
   return OK;
@@ -1206,19 +1276,6 @@ struct i2c_master_s *lpc54_i2cbus_initialize(int port)
 
   lpc54_i2c_setfrequency(priv, I2C_DEFAULT_FREQUENCY);
 
-  /* Initialize semaphores */
-
-  nxsem_init(&priv->exclsem, 0, 1);
-#ifndef CONFIG_I2C_POLLED
-  nxsem_init(&priv->waitsem, 0, 0);
-
-  /* The waitsem semaphore is used for signaling and, hence, should not have
-   * priority inheritance enabled.
-   */
-
-  nxsem_set_protocol(&priv->waitsem, SEM_PRIO_NONE);
-#endif
-
 #ifndef CONFIG_I2C_POLLED
   /* Attach Interrupt Handler */
 
@@ -1245,9 +1302,9 @@ struct i2c_master_s *lpc54_i2cbus_initialize(int port)
  *
  ****************************************************************************/
 
-int lpc54_i2cbus_uninitialize(struct i2c_master_s * dev)
+int lpc54_i2cbus_uninitialize(struct i2c_master_s *dev)
 {
-  struct lpc54_i2cdev_s *priv = (struct lpc54_i2cdev_s *) dev;
+  struct lpc54_i2cdev_s *priv = (struct lpc54_i2cdev_s *)dev;
   uint32_t regval;
 
   /* Disable I2C interrupts */

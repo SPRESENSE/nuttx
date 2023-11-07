@@ -32,7 +32,7 @@
 #include <arch/irq.h>
 
 #include <nuttx/kmalloc.h>
-#include <nuttx/semaphore.h>
+#include <nuttx/mutex.h>
 #include <nuttx/net/netconfig.h>
 #include <nuttx/net/net.h>
 #include <nuttx/net/netdev.h>
@@ -56,37 +56,18 @@
 
 /* The array containing all packet socket connections */
 
-#ifndef CONFIG_NET_ALLOC_CONNS
-static struct pkt_conn_s g_pkt_connections[CONFIG_NET_PKT_CONNS];
+#if CONFIG_NET_PKT_PREALLOC_CONNS > 0
+static struct pkt_conn_s g_pkt_connections[CONFIG_NET_PKT_PREALLOC_CONNS];
 #endif
 
 /* A list of all free packet socket connections */
 
 static dq_queue_t g_free_pkt_connections;
-static sem_t g_free_sem = SEM_INITIALIZER(1);
+static mutex_t g_free_lock = NXMUTEX_INITIALIZER;
 
 /* A list of all allocated packet socket connections */
 
 static dq_queue_t g_active_pkt_connections;
-
-/****************************************************************************
- * Private Functions
- ****************************************************************************/
-
-/****************************************************************************
- * Name: _pkt_semtake() and _pkt_semgive()
- *
- * Description:
- *   Take/give semaphore
- *
- ****************************************************************************/
-
-static inline void _pkt_semtake(FAR sem_t *sem)
-{
-  net_lockedwait_uninterruptible(sem);
-}
-
-#define _pkt_semgive(sem) nxsem_post(sem)
 
 /****************************************************************************
  * Public Functions
@@ -103,10 +84,10 @@ static inline void _pkt_semtake(FAR sem_t *sem)
 
 void pkt_initialize(void)
 {
-#ifndef CONFIG_NET_ALLOC_CONNS
+#if CONFIG_NET_PKT_PREALLOC_CONNS > 0
   int i;
 
-  for (i = 0; i < CONFIG_NET_PKT_CONNS; i++)
+  for (i = 0; i < CONFIG_NET_PKT_PREALLOC_CONNS; i++)
     {
       dq_addlast(&g_pkt_connections[i].sconn.node, &g_free_pkt_connections);
     }
@@ -125,20 +106,29 @@ void pkt_initialize(void)
 FAR struct pkt_conn_s *pkt_alloc(void)
 {
   FAR struct pkt_conn_s *conn;
-#ifdef CONFIG_NET_ALLOC_CONNS
+#if CONFIG_NET_PKT_ALLOC_CONNS > 0
   int i;
 #endif
 
-  /* The free list is protected by a semaphore (that behaves like a mutex). */
+  /* The free list is protected by a mutex. */
 
-  _pkt_semtake(&g_free_sem);
-#ifdef CONFIG_NET_ALLOC_CONNS
+  nxmutex_lock(&g_free_lock);
+#if CONFIG_NET_PKT_ALLOC_CONNS > 0
   if (dq_peek(&g_free_pkt_connections) == NULL)
     {
-      conn = kmm_zalloc(sizeof(*conn) * CONFIG_NET_PKT_CONNS);
+#if CONFIG_NET_PKT_MAX_CONNS > 0
+      if (dq_count(&g_active_pkt_connections) + CONFIG_NET_PKT_ALLOC_CONNS
+          >= CONFIG_NET_PKT_MAX_CONNS)
+        {
+          nxmutex_unlock(&g_free_lock);
+          return NULL;
+        }
+#endif
+
+      conn = kmm_zalloc(sizeof(*conn) * CONFIG_NET_PKT_ALLOC_CONNS);
       if (conn != NULL)
         {
-          for (i = 0; i < CONFIG_NET_PKT_CONNS; i++)
+          for (i = 0; i < CONFIG_NET_PKT_ALLOC_CONNS; i++)
             {
               dq_addlast(&conn[i].sconn.node, &g_free_pkt_connections);
             }
@@ -154,7 +144,7 @@ FAR struct pkt_conn_s *pkt_alloc(void)
       dq_addlast(&conn->sconn.node, &g_active_pkt_connections);
     }
 
-  _pkt_semgive(&g_free_sem);
+  nxmutex_unlock(&g_free_lock);
   return conn;
 }
 
@@ -169,24 +159,34 @@ FAR struct pkt_conn_s *pkt_alloc(void)
 
 void pkt_free(FAR struct pkt_conn_s *conn)
 {
-  /* The free list is protected by a semaphore (that behaves like a mutex). */
+  /* The free list is protected by a mutex. */
 
   DEBUGASSERT(conn->crefs == 0);
 
-  _pkt_semtake(&g_free_sem);
+  nxmutex_lock(&g_free_lock);
 
   /* Remove the connection from the active list */
 
   dq_rem(&conn->sconn.node, &g_active_pkt_connections);
 
-  /* Make sure that the connection is marked as uninitialized */
+  /* If this is a preallocated or a batch allocated connection store it in
+   * the free connections list. Else free it.
+   */
 
-  memset(conn, 0, sizeof(*conn));
+#if CONFIG_NET_PKT_ALLOC_CONNS == 1
+  if (conn < g_pkt_connections || conn >= (g_pkt_connections +
+      CONFIG_NET_PKT_PREALLOC_CONNS))
+    {
+      kmm_free(conn);
+    }
+  else
+#endif
+    {
+      memset(conn, 0, sizeof(*conn));
+      dq_addlast(&conn->sconn.node, &g_free_pkt_connections);
+    }
 
-  /* Free the connection */
-
-  dq_addlast(&conn->sconn.node, &g_free_pkt_connections);
-  _pkt_semgive(&g_free_sem);
+  nxmutex_unlock(&g_free_lock);
 }
 
 /****************************************************************************
@@ -210,7 +210,8 @@ FAR struct pkt_conn_s *pkt_active(FAR struct eth_hdr_s *buf)
     {
       /* FIXME lmac in conn should have been set by pkt_bind() */
 
-      if (eth_addr_cmp(buf->dest, conn->lmac))
+      if (eth_addr_cmp(buf->dest, conn->lmac) ||
+          eth_addr_cmp(buf->src, conn->lmac))
         {
           /* Matching connection found.. return a reference to it */
 

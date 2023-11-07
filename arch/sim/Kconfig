@@ -14,6 +14,7 @@ config HOST_X86_64
 	bool "x86_64"
 	select ARCH_HAVE_STACKCHECK
 	select LIBC_ARCH_ELF_64BIT if LIBC_ARCH_ELF && !SIM_M32
+	select ARCH_HAVE_MATH_H
 
 config HOST_X86
 	bool "x86"
@@ -92,7 +93,7 @@ config SIM_X8664_SYSTEMV
 		systems. The first six integer or pointer arguments are passed in registers
 		RDI, RSI, RDX, RCX, R8, and R9, while XMM0, XMM1, XMM2, XMM3, XMM4, XMM5,
 		XMM6 and XMM7 are used for floating point arguments. For system calls, R10
-		is used instead of RCX.   As in the Microsoft x64 calling convention,
+		is used instead of RCX.  As in the Microsoft x64 calling convention,
 		additional arguments are passed on the stack and the return value is stored
 		in RAX.
 
@@ -139,6 +140,19 @@ config SIM_WALLTIME_SIGNAL
 
 endchoice
 
+config SIM_LOOPTASK_PRIORITY
+	int "looptask priority"
+	default SCHED_HPWORKPRIORITY if SCHED_HPWORK
+	default 255 if !SCHED_HPWORK
+	---help---
+		Looptask priority
+
+config SIM_LOOPTASK_INTERVAL
+	int "looptask interval in us"
+	default 10000
+	---help---
+		Looptask sleep time
+
 config SIM_STACKSIZE_ADJUSTMENT
 	int "The adjustment of stack size for sim"
 	default 65536
@@ -151,6 +165,17 @@ config SIM_HOSTFS
 	depends on FS_HOSTFS
 	---help---
 		Access host filesystem through HostFS.
+
+config SIM_IMAGEPATH_AS_CWD
+	bool "Simulator switch working directory"
+	default n
+	---help---
+		If this option is enabled, the working path of nuttx will be modified
+		to the folder where the nuttx file is located.
+		It affects the file access of hostfs, which will start looking for
+		files based on the nuttx image folder.
+		Otherwise the default $CWD will be used as the starting path for the search.
+		Absolute paths are never affected.
 
 choice
 	prompt "Simulated Network Interface"
@@ -193,6 +218,17 @@ config SIM_NETDEV_VPNKIT
 		Build in support for a simulated network device using VPNKit.
 
 endchoice
+
+config SIM_NETDEV_NUMBER
+	int "Number of Simulated Network Device"
+	default 1
+	range 1 8
+	depends on SIM_NETDEV_TAP
+	---help---
+		The number of simulated network devices.
+
+		Note that only one network device will be brought up by netinit automatically,
+		others will be kept in DOWN state by default.
 
 endif
 
@@ -254,6 +290,33 @@ endchoice
 
 endif
 
+config SIM_CAMERA
+	bool "Simulated video support"
+	depends on VIDEO
+	default y
+
+if SIM_CAMERA
+
+choice
+	prompt "Simulated video device type"
+	default SIM_CAMERA_V4L2
+
+config SIM_CAMERA_V4L2
+	bool "V4L2 camera support on sim"
+	depends on HOST_LINUX
+
+endchoice
+
+config HOST_VIDEO_DEV_PATH
+	string "Host video device path"
+	default "/dev/video0"
+
+config SIM_CAMERA_DEV_PATH
+	string "NuttX video device path"
+	default "/dev/video"
+
+endif
+
 menu "Simulated Graphics/Input"
 
 config SIM_X11FB
@@ -263,10 +326,10 @@ config SIM_X11FB
 	---help---
 		Use X11 to provide graphics and input emulation to interact with host.
 
+if SIM_X11FB
 config SIM_X11NOSHM
 	bool "Don't use shared memory with X11"
 	default n
-	depends on SIM_X11FB
 	---help---
 		Don't use shared memory with the X11 graphics device emulation.
 
@@ -292,6 +355,14 @@ config SIM_FBBPP
 		If you use the X11 display emulation, the selected BPP must match the BPP
 		of your graphics hardware (probably 32 bits).  Default: 8
 
+config SIM_FRAMEBUFFER_COUNT
+	int "Framebuffer count"
+	depends on SIM_FRAMEBUFFER
+	default 2
+	---help---
+		Framebuffer count.
+		Simulated frambuffer count.  Default: 2
+
 endmenu
 
 choice
@@ -312,13 +383,9 @@ config SIM_FRAMEBUFFER
 	---help---
 		Emulate a framebuffer
 
-config SIM_VNCSERVER
-	bool "VNC server"
-	depends on VNCSERVER
-	---help---
-		Serve a VNC server
-
 endchoice
+
+endif # SIM_X11FB
 
 if INPUT
 choice
@@ -371,7 +438,7 @@ endmenu
 config SIM_HCISOCKET
 	bool "Attach Host Bluetooth"
 	default false
-	depends on HOST_LINUX
+	depends on HOST_LINUX && (UART_BTH4 || UART_BTH5 || WIRELESS_BLUETOOTH)
 	---help---
 		Attached the local bluetooth device to the simulation
 		target via HCI_CHANNEL_USER. This gives NuttX full
@@ -414,6 +481,14 @@ config SIM_I2CBUS_LINUX
 
 endchoice
 
+config SIM_I2CBUS_ID
+	int "I2C host bus ID to attach to simulator"
+	default 0
+	depends on SIM_I2CBUS
+	---help---
+		This is the bus identifier that should be used by the host implementation to
+		attach to the simulator driver.
+
 endif
 
 config SIM_SPI
@@ -439,9 +514,25 @@ config SIM_SPI_LINUX
 
 endchoice
 
+config SIM_SPIDEV_NAME
+	string "the name of SPI host dev to attach to simulator"
+	default "/dev/spidev0.0"
+	depends on SIM_SPI
+	---help---
+		This is the name of the SPI device on the host implementation to
+		attach to the simulator driver.
+
 endif
 
 menu "Simulated UART"
+
+config SIM_UART_DMA
+	bool "SIM UART use DMA mode"
+	default y
+	select SERIAL_TXDMA
+	select SERIAL_RXDMA
+	---help---
+		console use DMA mode or single char mode
 
 config SIM_UART_NUMBER
 	int "Number of simulated UART ports"
@@ -451,10 +542,10 @@ config SIM_UART_NUMBER
 		Under simulation, a NuttX port can be bound to a serial
 		port on the host machine. This way NuttX can access the
 		host's hardware directly.
-				
+
 		There are two possibilities regarding the host's port:
 		it can be either a physical one, or a simulated one.
-		
+
 		In case of a physical port, NuttX will be able to open
 		this port and communicate with any actual hardware that
 		it is connected to. This is useful for testing code that
@@ -462,18 +553,18 @@ config SIM_UART_NUMBER
 		In order for this to work, NuttX port name must be set to
 		the same name that the host is using for this port (e.g.
 		/dev/ttyUSB0).
-		
+
 		Alternativelly, a "simulated" host port may be used to.
 		This is useful if you need to also simulate the external
 		hardware, or to have NuttX communicate with any other
 		software in your system.
 		You can create a "simulated" port in your host,
 		by running:
-		
+
 			socat PTY,link=/dev/ttySIM0 PTY,link=/dev/ttyNX0
-		 	stty -F /dev/ttySIM0 raw
-		 	stty -F /dev/ttyNX0 raw
-		
+			stty -F /dev/ttySIM0 raw
+			stty -F /dev/ttyNX0 raw
+
 		This will create two new ports on your system.
 		NuttX will use the ttySIM0 port, and another software
 		may open and use the ttyNX0 port.
@@ -487,7 +578,7 @@ config SIM_UART_BUFFER_SIZE
 	---help---
 		The size of the transmit and receive buffers of the
 		simulated UART ports.
-		
+
 		Note that all ports will have the same buffer size.
 
 config SIM_UART0_NAME
@@ -497,7 +588,7 @@ config SIM_UART0_NAME
 	---help---
 		This is the name of the simulated UART port.
 		The port will be mounted in NuttX under this name.
-		
+
 		A UART port must also exist on the host system
 		with the exact same name specified here.
 
@@ -508,7 +599,7 @@ config SIM_UART1_NAME
 	---help---
 		This is the name of the simulated UART port.
 		The port will be mounted in NuttX under this name.
-		
+
 		A UART port must also exist on the host system
 		with the exact same name specified here.
 
@@ -519,7 +610,7 @@ config SIM_UART2_NAME
 	---help---
 		This is the name of the simulated UART port.
 		The port will be mounted in NuttX under this name.
-		
+
 		A UART port must also exist on the host system
 		with the exact same name specified here.
 
@@ -530,10 +621,124 @@ config SIM_UART3_NAME
 	---help---
 		This is the name of the simulated UART port.
 		The port will be mounted in NuttX under this name.
-		
+
 		A UART port must also exist on the host system
 		with the exact same name specified here.
 
+config SIM_RAM_UART
+	bool "SIM RAM UART Device"
+	depends on RAM_UART
+	default n
+	---help---
+		SIM RAM UART. It emulates a UART device but using a RAM memory
+		instead a physical peripheral.
+
+if SIM_RAM_UART
+config SIM_RAM_UART0
+	bool "SIM RAM UART Device 0"
+	default n
+	---help---
+		sim ram uart device 0
+
+config SIM_RAM_UART0_SLAVE
+	bool "SIM_RAM_UART0 is slave"
+	depends on SIM_RAM_UART0
+	default n
+	---help---
+		The sim ram uart0 is slave
+
+config SIM_RAM_UART1
+	bool "SIM RAM UART Device 1"
+	default n
+	---help---
+		sim ram uart device 1
+
+config SIM_RAM_UART1_SLAVE
+	bool "SIM_RAM_UART1 is slave"
+	depends on SIM_RAM_UART1
+	default n
+	---help---
+		The sim ram uart1 is slave
+
+config SIM_RAM_UART2
+	bool "SIM RAM UART Device 2"
+	default n
+	---help---
+		sim ram uart device 2
+
+config SIM_RAM_UART2_SLAVE
+	bool "SIM_RAM_UART2 is slave"
+	depends on SIM_RAM_UART2
+	default n
+	---help---
+		The sim ram uart2 is slave
+endif
+
 endmenu
+
+config SIM_USB_DEV
+	bool "Linux USB Device"
+	select USBDEV
+	---help---
+		Build in support for simulated usb device
+
+if SIM_USB_DEV
+
+config SIM_USB_RAW_GADGET
+	bool "Simulated USB Raw Gadget Dev"
+	default n
+	depends on HOST_LINUX
+	---help---
+		Use USB Raw Gadget and Dummy HCD/UDC to set up virtual
+		USB Device and Host controller that connected to each
+		other inside the kernel.
+
+		Get Raw Gadget:
+		Get Raw Gadget code at https://github.com/xairy/raw-gadget.
+
+		Make Raw Gadget:
+		Run make in the raw_gadget and dummy_hcd directory. If raw_gadget
+		build fail, you need to check which register interface meets your
+		kenel version, usb_gadget_probe_driver or usb_gadget_register_driver.
+
+		Install Raw Gadget:
+		Run ./insmod.sh in the raw_gadget and dummy_hcd directory.
+
+endif
+
+config SIM_USB_HOST
+	bool "Linux USB Host"
+	select USBHOST
+	select USBHOST_HAVE_ASYNCH
+	select USBHOST_ASYNCH
+	---help---
+		Build in support for simulated usb host
+
+if SIM_USB_HOST
+
+config SIM_LIBUSB
+	bool "Simulated USB Host use libusb"
+	default n
+	depends on HOST_LINUX
+	---help---
+		Use libusb to set up virtual USB Host controller.
+
+config SIM_USB_VID
+	hex "Simulated USB Dev VID"
+	default 0x18d1
+
+config SIM_USB_PID
+	hex "Simulated USB Dev PID"
+	default 0x4e11
+
+config SIM_USB_STACKSIZE
+	int "Simulated USB waiter stack size"
+	default 1024
+
+config SIM_USB_PRIO
+	int "Simulated USB waiter task priority"
+	default 100
+
+endif
 
 endif # ARCH_SIM

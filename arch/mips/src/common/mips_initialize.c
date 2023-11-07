@@ -29,6 +29,18 @@
 #include "mips_internal.h"
 
 /****************************************************************************
+ * Public Data
+ ****************************************************************************/
+
+/* g_current_regs holds a references to the current interrupt level
+ * register storage structure.  It is non-NULL only during interrupt
+ * processing.  Access to g_current_regs must be through the macro
+ * CURRENT_REGS for portability.
+ */
+
+volatile uint32_t *g_current_regs;
+
+/****************************************************************************
  * Public Functions
  ****************************************************************************/
 
@@ -53,7 +65,7 @@ void up_initialize(void)
 {
   /* Add any extra memory fragments to the memory manager */
 
-  up_addregion();
+  mips_addregion();
 
 #ifdef CONFIG_PM
   /* Initialize the power management subsystem.  This MCU-specific function
@@ -66,30 +78,30 @@ void up_initialize(void)
 #endif
 
 #ifdef CONFIG_ARCH_DMA
-  /* Initialize the DMA subsystem if the weak function up_dma_initialize has
-   * been brought into the build.
+  /* Initialize the DMA subsystem if the weak function mips_dma_initialize
+   * has been brought into the build.
    */
 
 #ifdef CONFIG_HAVE_WEAKFUNCTIONS
-  if (up_dma_initialize)
+  if (mips_dma_initialize)
 #endif
     {
-      up_dma_initialize();
+      mips_dma_initialize();
     }
 #endif
 
   /* Initialize the serial device driver */
 
 #ifdef USE_SERIALDRIVER
-  up_serialinit();
+  mips_serialinit();
 #endif
 
   /* Initialize the network */
 
-  up_netinitialize();
+  mips_netinitialize();
 
   /* Initialize USB -- device and/or host */
 
-  up_usbinitialize();
+  mips_usbinitialize();
   board_autoled_on(LED_IRQSENABLED);
 }

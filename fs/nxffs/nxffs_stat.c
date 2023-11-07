@@ -63,7 +63,7 @@ int nxffs_statfs(FAR struct inode *mountpt, FAR struct statfs *buf)
   /* Get the mountpoint private data from the NuttX inode structure */
 
   volume = mountpt->i_private;
-  ret = nxsem_wait(&volume->exclsem);
+  ret = nxmutex_lock(&volume->lock);
   if (ret < 0)
     {
       goto errout;
@@ -74,7 +74,6 @@ int nxffs_statfs(FAR struct inode *mountpt, FAR struct statfs *buf)
    * REVISIT: Need f_bfree, f_bavail, f_files, f_ffree calculation
    */
 
-  memset(buf, 0, sizeof(struct statfs));
   buf->f_type    = NXFFS_MAGIC;
   buf->f_bsize   = volume->geo.blocksize;
   buf->f_blocks  = volume->nblocks;
@@ -82,7 +81,7 @@ int nxffs_statfs(FAR struct inode *mountpt, FAR struct statfs *buf)
                    SIZEOF_NXFFS_INODE_HDR;
   ret            = OK;
 
-  nxsem_post(&volume->exclsem);
+  nxmutex_unlock(&volume->lock);
 
 errout:
   return ret;
@@ -111,7 +110,7 @@ int nxffs_stat(FAR struct inode *mountpt, FAR const char *relpath,
   /* Get the mountpoint private data from the NuttX inode structure */
 
   volume = mountpt->i_private;
-  ret = nxsem_wait(&volume->exclsem);
+  ret = nxmutex_lock(&volume->lock);
   if (ret != OK)
     {
       goto errout;
@@ -132,7 +131,7 @@ int nxffs_stat(FAR struct inode *mountpt, FAR const char *relpath,
       if (ret < 0)
         {
           ferr("ERROR: Inode '%s' not found: %d\n", relpath, -ret);
-          goto errout_with_semaphore;
+          goto errout_with_lock;
         }
 
       /* Return status information based on the directory entry */
@@ -159,8 +158,8 @@ int nxffs_stat(FAR struct inode *mountpt, FAR const char *relpath,
 
   ret = OK;
 
-errout_with_semaphore:
-  nxsem_post(&volume->exclsem);
+errout_with_lock:
+  nxmutex_unlock(&volume->lock);
 
 errout:
   return ret;
@@ -182,26 +181,26 @@ int nxffs_fstat(FAR const struct file *filep, FAR struct stat *buf)
   int ret;
 
   finfo("Buf %p\n", buf);
-  DEBUGASSERT(filep != NULL && buf != NULL);
+  DEBUGASSERT(buf != NULL);
 
   /* Recover the open file state from the struct file instance */
 
-  DEBUGASSERT(filep->f_priv != NULL && filep->f_inode != NULL);
+  DEBUGASSERT(filep->f_priv != NULL);
   ofile = (FAR struct nxffs_ofile_s *)filep->f_priv;
 
   /* Recover the volume state from the open file */
 
-  volume = (FAR struct nxffs_volume_s *)filep->f_inode->i_private;
+  volume = filep->f_inode->i_private;
   DEBUGASSERT(volume != NULL);
 
-  /* Get exclusive access to the volume.  Note that the volume exclsem
+  /* Get exclusive access to the volume.  Note that the volume lock
    * protects the open file list.
    */
 
-  ret = nxsem_wait(&volume->exclsem);
+  ret = nxmutex_lock(&volume->lock);
   if (ret != OK)
     {
-      ferr("ERROR: nxsem_wait failed: %d\n", ret);
+      ferr("ERROR: nxmutex_lock failed: %d\n", ret);
       return ret;
     }
 
@@ -215,6 +214,6 @@ int nxffs_fstat(FAR const struct file *filep, FAR struct stat *buf)
   buf->st_mtime  = ofile->entry.utc;
   buf->st_ctime  = ofile->entry.utc;
 
-  nxsem_post(&volume->exclsem);
+  nxmutex_unlock(&volume->lock);
   return OK;
 }

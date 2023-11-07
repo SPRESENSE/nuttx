@@ -28,14 +28,11 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include <sys/statfs.h>
+#include <sys/param.h>
 
 /****************************************************************************
  * Pre-processor definitions
  ****************************************************************************/
-
-#ifndef ARRAY_SIZE
-#  define ARRAY_SIZE(x)         (sizeof(x) / sizeof((x)[0]))
-#endif
 
 #define RPMSGFS_NAME_PREFIX     "rpmsgfs-"
 
@@ -244,5 +241,11 @@ int       rpmsgfs_client_stat(FAR void *handle, FAR const char *path,
                               FAR struct stat *buf);
 int       rpmsgfs_client_chstat(FAR void *handle, FAR const char *path,
                                 FAR const struct stat *buf, int flags);
+
+/****************************************************************************
+ * Public Function Prototypes
+ ****************************************************************************/
+
+int       rpmsgfs_server_init(void);
 
 #endif /* __FS_RPMSGFS_RPMSGFS_H */

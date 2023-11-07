@@ -35,6 +35,7 @@
 #include <nuttx/modem/alt1250.h>
 
 #include "altcom_cmd_sock.h"
+#include "altcom_errno.h"
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -1068,6 +1069,37 @@ int32_t altcom_select_pkt_compose(FAR void **arg, size_t arglen,
   return size;
 }
 
+int32_t altcom_shutdown_pkt_compose(FAR void **arg, size_t arglen,
+                                    uint8_t altver, FAR uint8_t *pktbuf,
+                                    const size_t pktsz, FAR uint16_t *altcid)
+{
+  FAR int32_t sockfd = *((FAR int32_t *)arg[0]);
+  FAR int32_t how = *((FAR int32_t *)arg[1]);
+  FAR struct apicmd_shutdown_s *out =
+    (FAR struct apicmd_shutdown_s *)pktbuf;
+
+  switch (how)
+    {
+      case SHUT_RD:
+        how = ALTCOM_SHUT_RD;
+        break;
+      case SHUT_WR:
+        how = ALTCOM_SHUT_WR;
+        break;
+      case SHUT_RDWR:
+        how = ALTCOM_SHUT_RDWR;
+        break;
+      default:
+        return -EINVAL;
+    }
+
+  out->sockfd = htonl(sockfd);
+  out->how = htonl(how);
+  *altcid = APICMDID_SOCK_SHUTDOWN;
+
+  return sizeof(struct apicmd_shutdown_s);
+}
+
 int32_t altcom_sockcomm_pkt_parse(FAR struct alt1250_dev_s *dev,
                                   FAR uint8_t *pktbuf, size_t pktsz,
                                   uint8_t altver, FAR void **arg,
@@ -1080,7 +1112,7 @@ int32_t altcom_sockcomm_pkt_parse(FAR struct alt1250_dev_s *dev,
     (FAR struct altmdmpktr_sockcomm_s *)pktbuf;
 
   *ret = ntohl(in->ret_code);
-  *errcode = ntohl(in->err_code);
+  *errcode = altcom_errno2nuttx(ntohl(in->err_code));
 
   return 0;
 }
@@ -1101,7 +1133,7 @@ int32_t altcom_scokaddr_pkt_parse(FAR struct alt1250_dev_s *dev,
   struct altcom_sockaddr_storage altsa;
 
   *ret = ntohl(in->ret_code);
-  *errcode = ntohl(in->err_code);
+  *errcode = altcom_errno2nuttx(ntohl(in->err_code));
 
   if (*ret >= 0)
     {
@@ -1145,7 +1177,7 @@ int32_t altcom_getsockopt_pkt_parse(FAR struct alt1250_dev_s *dev,
   int setmode = 0;
 
   *ret = ntohl(in->ret_code);
-  *errcode = ntohl(in->err_code);
+  *errcode = altcom_errno2nuttx(ntohl(in->err_code));
 
   if (*ret >= 0)
     {
@@ -1241,7 +1273,7 @@ int32_t altcom_recvfrom_pkt_parse(FAR struct alt1250_dev_s *dev,
   struct altcom_sockaddr_storage altsa;
 
   *ret = ntohl(in->ret_code);
-  *errcode = ntohl(in->err_code);
+  *errcode = altcom_errno2nuttx(ntohl(in->err_code));
 
   if (*ret >= 0)
     {
@@ -1295,7 +1327,7 @@ int32_t altcom_select_pkt_parse(FAR struct alt1250_dev_s *dev,
   uint16_t used_setbit;
 
   *ret = ntohl(in->ret_code);
-  *errcode = ntohl(in->err_code);
+  *errcode = altcom_errno2nuttx(ntohl(in->err_code));
 
   if (*ret >= 0)
     {

@@ -57,7 +57,7 @@ static int32_t server_op_notice_hndl(FAR uint8_t *pktbuf, size_t pktsz,
 
 struct urc_hdltbl_s
 {
-  const char *head;
+  FAR const char *head;
   uint32_t lcmdid;
   lwm2mstub_hndl_t hdlr;
 };
@@ -120,7 +120,7 @@ static struct urc_hdltbl_s urc_idhandles[] =
  * name: skip_until
  ****************************************************************************/
 
-static uint8_t *skip_until(uint8_t *stream, char *delim)
+static FAR uint8_t *skip_until(FAR uint8_t *stream, FAR char *delim)
 {
   for (; *stream && !strchr(delim, *stream); stream++);
   for (; *stream && strchr(delim, *stream); stream++);
@@ -137,7 +137,7 @@ static uint8_t *skip_until(uint8_t *stream, char *delim)
  * name: strcpy_until
  ****************************************************************************/
 
-static char strcpy_until(char *dst, int n, char **src, char *delim)
+static FAR char strcpy_until(char *dst, int n, char **src, char *delim)
 {
   char *tmp = *src;
 
@@ -172,7 +172,7 @@ static char strcpy_until(char *dst, int n, char **src, char *delim)
  * name: parse_instance
  ****************************************************************************/
 
-static uint8_t *parse_instance(uint8_t *pktbuf, int *seq_no, int *srv_id,
+static FAR uint8_t *parse_instance(uint8_t *pktbuf, int *seq_no, int *srv_id,
                            struct lwm2mstub_instance_s *inst)
 {
   *seq_no = atoi((char *)pktbuf); /* for seq_no */

@@ -68,13 +68,8 @@
 #include "tcp/tcp.h"
 #include "arp/arp.h"
 #include "icmpv6/icmpv6.h"
-
-/****************************************************************************
- * Pre-processor Definitions
- ****************************************************************************/
-
-#define IPv4BUF ((FAR struct ipv4_hdr_s *)&dev->d_buf[NET_LL_HDRLEN(dev)])
-#define IPv6BUF ((FAR struct ipv6_hdr_s *)&dev->d_buf[NET_LL_HDRLEN(dev)])
+#include "nat/nat.h"
+#include "netdev/netdev.h"
 
 /****************************************************************************
  * Private Data
@@ -82,8 +77,8 @@
 
 /* The array containing all TCP connections. */
 
-#ifndef CONFIG_NET_ALLOC_CONNS
-static struct tcp_conn_s g_tcp_connections[CONFIG_NET_TCP_CONNS];
+#if CONFIG_NET_TCP_PREALLOC_CONNS > 0
+static struct tcp_conn_s g_tcp_connections[CONFIG_NET_TCP_PREALLOC_CONNS];
 #endif
 
 /* A list of all free TCP connections */
@@ -169,107 +164,6 @@ static FAR struct tcp_conn_s *
     }
 
   return NULL;
-}
-
-/****************************************************************************
- * Name: tcp_selectport
- *
- * Description:
- *   If the port number is zero; select an unused port for the connection.
- *   If the port number is non-zero, verify that no other connection has
- *   been created with this port number.
- *
- * Input Parameters:
- *   portno -- the selected port number in network order. Zero means no port
- *     selected.
- *
- * Returned Value:
- *   Selected or verified port number in network order on success, a negated
- *   errno on failure:
- *
- *   EADDRINUSE
- *     The given address is already in use.
- *   EADDRNOTAVAIL
- *     Cannot assign requested address (unlikely)
- *
- * Assumptions:
- *   Interrupts are disabled
- *
- ****************************************************************************/
-
-static int tcp_selectport(uint8_t domain,
-                          FAR const union ip_addr_u *ipaddr,
-                          uint16_t portno)
-{
-  static uint16_t g_last_tcp_port;
-  ssize_t ret;
-
-  /* Generate port base dynamically */
-
-  if (g_last_tcp_port == 0)
-    {
-      ret = getrandom(&g_last_tcp_port, sizeof(uint16_t), 0);
-      if (ret < 0)
-        {
-          ret = getrandom(&g_last_tcp_port, sizeof(uint16_t), GRND_RANDOM);
-        }
-
-      if (ret != sizeof(uint16_t))
-        {
-          g_last_tcp_port = clock_systime_ticks() % 32000;
-        }
-      else
-        {
-          g_last_tcp_port = g_last_tcp_port % 32000;
-        }
-
-      if (g_last_tcp_port < 4096)
-        {
-          g_last_tcp_port += 4096;
-        }
-    }
-
-  if (portno == 0)
-    {
-      /* No local port assigned. Loop until we find a valid listen port
-       * number that is not being used by any other connection. NOTE the
-       * following loop is assumed to terminate but could not if all
-       * 32000-4096+1 ports are in used (unlikely).
-       */
-
-      do
-        {
-          /* Guess that the next available port number will be the one after
-           * the last port number assigned. Make sure that the port number
-           * is within range.
-           */
-
-          if (++g_last_tcp_port >= 32000)
-            {
-              g_last_tcp_port = 4096;
-            }
-
-          portno = HTONS(g_last_tcp_port);
-        }
-      while (tcp_listener(domain, ipaddr, portno));
-    }
-  else
-    {
-      /* A port number has been supplied.  Verify that no other TCP/IP
-       * connection is using this local port.
-       */
-
-      if (tcp_listener(domain, ipaddr, portno))
-        {
-          /* It is in use... return EADDRINUSE */
-
-          return -EADDRINUSE;
-        }
-    }
-
-  /* Return the selected or verified port number (host byte order) */
-
-  return portno;
 }
 
 /****************************************************************************
@@ -427,10 +321,40 @@ static inline int tcp_ipv4_bind(FAR struct tcp_conn_s *conn,
 {
   int port;
   int ret;
+  FAR struct net_driver_s *dev;
 
   /* Verify or select a local port and address */
 
   net_lock();
+
+  if (conn->lport != 0)
+    {
+      net_unlock();
+      return -EINVAL;
+    }
+
+  if (!net_ipv4addr_cmp(addr->sin_addr.s_addr, INADDR_ANY) &&
+    !net_ipv4addr_cmp(addr->sin_addr.s_addr, HTONL(INADDR_LOOPBACK)) &&
+    !net_ipv4addr_cmp(addr->sin_addr.s_addr, INADDR_BROADCAST) &&
+    !IN_MULTICAST(NTOHL(addr->sin_addr.s_addr)))
+    {
+      ret = -EADDRNOTAVAIL;
+
+      for (dev = g_netdevices; dev; dev = dev->flink)
+        {
+          if (net_ipv4addr_cmp(addr->sin_addr.s_addr, dev->d_ipaddr))
+            {
+              ret = 0;
+              break;
+            }
+        }
+
+      if (ret == -EADDRNOTAVAIL)
+        {
+          net_unlock();
+          return ret;
+        }
+    }
 
   /* Verify or select a local port (network byte order) */
 
@@ -492,10 +416,44 @@ static inline int tcp_ipv6_bind(FAR struct tcp_conn_s *conn,
 {
   int port;
   int ret;
+  FAR struct net_driver_s *dev;
 
   /* Verify or select a local port and address */
 
   net_lock();
+
+  if (conn->lport != 0)
+    {
+      net_unlock();
+      return -EINVAL;
+    }
+
+  if (!net_ipv6addr_cmp(addr->sin6_addr.in6_u.u6_addr16,
+                        g_ipv6_unspecaddr) &&
+      !net_ipv6addr_cmp(addr->sin6_addr.in6_u.u6_addr16,
+                        g_ipv6_loopback) &&
+      !net_ipv6addr_cmp(addr->sin6_addr.in6_u.u6_addr16,
+                        g_ipv6_allnodes) &&
+      !net_ipv6addr_cmp(addr->sin6_addr.in6_u.u6_addr16, g_ipv6_allnodes))
+    {
+      ret = -EADDRNOTAVAIL;
+
+      for (dev = g_netdevices; dev; dev = dev->flink)
+        {
+          if (net_ipv6addr_cmp(addr->sin6_addr.in6_u.u6_addr16,
+                              dev->d_ipv6addr))
+            {
+              ret = 0;
+              break;
+            }
+        }
+
+      if (ret == -EADDRNOTAVAIL)
+        {
+          net_unlock();
+          return ret;
+        }
+    }
 
   /* Verify or select a local port (network byte order) */
 
@@ -546,8 +504,8 @@ static inline int tcp_ipv6_bind(FAR struct tcp_conn_s *conn,
  *
  ****************************************************************************/
 
-#ifdef CONFIG_NET_ALLOC_CONNS
-FAR struct tcp_conn_s *tcp_alloc_conn(void)
+#if CONFIG_NET_TCP_ALLOC_CONNS > 0
+static FAR struct tcp_conn_s *tcp_alloc_conn(void)
 {
   FAR struct tcp_conn_s *conn;
   int i;
@@ -556,8 +514,16 @@ FAR struct tcp_conn_s *tcp_alloc_conn(void)
 
   if (dq_peek(&g_free_tcp_connections) == NULL)
     {
+#if CONFIG_NET_TCP_MAX_CONNS > 0
+      if (dq_count(&g_active_tcp_connections) + CONFIG_NET_TCP_ALLOC_CONNS
+          >= CONFIG_NET_TCP_MAX_CONNS)
+        {
+          return NULL;
+        }
+#endif
+
       conn = kmm_zalloc(sizeof(struct tcp_conn_s) *
-                        CONFIG_NET_TCP_CONNS);
+                        CONFIG_NET_TCP_ALLOC_CONNS);
       if (conn == NULL)
         {
           return conn;
@@ -565,7 +531,7 @@ FAR struct tcp_conn_s *tcp_alloc_conn(void)
 
       /* Now initialize each connection structure */
 
-      for (i = 0; i < CONFIG_NET_TCP_CONNS; i++)
+      for (i = 0; i < CONFIG_NET_TCP_ALLOC_CONNS; i++)
         {
           /* Mark the connection closed and move it to the free list */
 
@@ -583,6 +549,117 @@ FAR struct tcp_conn_s *tcp_alloc_conn(void)
  ****************************************************************************/
 
 /****************************************************************************
+ * Name: tcp_selectport
+ *
+ * Description:
+ *   If the port number is zero; select an unused port for the connection.
+ *   If the port number is non-zero, verify that no other connection has
+ *   been created with this port number.
+ *
+ * Input Parameters:
+ *   portno -- the selected port number in network order. Zero means no port
+ *     selected.
+ *
+ * Returned Value:
+ *   Selected or verified port number in network order on success, a negated
+ *   errno on failure:
+ *
+ *   EADDRINUSE
+ *     The given address is already in use.
+ *   EADDRNOTAVAIL
+ *     Cannot assign requested address (unlikely)
+ *
+ * Assumptions:
+ *   Interrupts are disabled
+ *
+ ****************************************************************************/
+
+int tcp_selectport(uint8_t domain,
+                   FAR const union ip_addr_u *ipaddr,
+                   uint16_t portno)
+{
+  static uint16_t g_last_tcp_port;
+  ssize_t ret;
+
+  /* Generate port base dynamically */
+
+  if (g_last_tcp_port == 0)
+    {
+      ret = getrandom(&g_last_tcp_port, sizeof(uint16_t), 0);
+      if (ret < 0)
+        {
+          ret = getrandom(&g_last_tcp_port, sizeof(uint16_t), GRND_RANDOM);
+        }
+
+      if (ret != sizeof(uint16_t))
+        {
+          g_last_tcp_port = clock_systime_ticks() % 32000;
+        }
+      else
+        {
+          g_last_tcp_port = g_last_tcp_port % 32000;
+        }
+
+      if (g_last_tcp_port < 4096)
+        {
+          g_last_tcp_port += 4096;
+        }
+    }
+
+  if (portno == 0)
+    {
+      /* No local port assigned. Loop until we find a valid listen port
+       * number that is not being used by any other connection. NOTE the
+       * following loop is assumed to terminate but could not if all
+       * 32000-4096+1 ports are in used (unlikely).
+       */
+
+      do
+        {
+          /* Guess that the next available port number will be the one after
+           * the last port number assigned. Make sure that the port number
+           * is within range.
+           */
+
+          if (++g_last_tcp_port >= 32000)
+            {
+              g_last_tcp_port = 4096;
+            }
+
+          portno = HTONS(g_last_tcp_port);
+        }
+      while (tcp_listener(domain, ipaddr, portno)
+#if defined(CONFIG_NET_NAT) && defined(CONFIG_NET_IPv4)
+             || (domain == PF_INET &&
+                 ipv4_nat_port_inuse(IP_PROTO_TCP, ipaddr->ipv4, portno))
+#endif
+      );
+    }
+  else
+    {
+      /* A port number has been supplied.  Verify that no other TCP/IP
+       * connection is using this local port.
+       */
+
+      if (tcp_listener(domain, ipaddr, portno)
+#if defined(CONFIG_NET_NAT) && defined(CONFIG_NET_IPv4)
+          || (domain == PF_INET &&
+              ipv4_nat_port_inuse(IP_PROTO_TCP, ipaddr->ipv4, portno))
+#endif
+      )
+        {
+          /* It is in use... return EADDRINUSE */
+
+          return -EADDRINUSE;
+        }
+    }
+
+  /* Return the selected or verified port number (host byte order) */
+
+  return portno;
+}
+
+/****************************************************************************
  * Name: tcp_initialize
  *
  * Description:
@@ -593,10 +670,10 @@ FAR struct tcp_conn_s *tcp_alloc_conn(void)
 
 void tcp_initialize(void)
 {
-#ifndef CONFIG_NET_ALLOC_CONNS
+#if CONFIG_NET_TCP_PREALLOC_CONNS > 0
   int i;
 
-  for (i = 0; i < CONFIG_NET_TCP_CONNS; i++)
+  for (i = 0; i < CONFIG_NET_TCP_PREALLOC_CONNS; i++)
     {
       /* Mark the connection closed and move it to the free list */
 
@@ -696,7 +773,12 @@ FAR struct tcp_conn_s *tcp_alloc(uint8_t domain)
 
           tcp_free(conn);
 
-          /* Now there is guaranteed to be one free connection.  Get it! */
+          /* Now there should be one free connection. If dynamic connections
+           * allocation is disabled, it is guaranteed so. In case that
+           * dynamic connections are used, it may be already in the free
+           * list, or at least there should be enough space in the heap for
+           * a new connection.
+           */
 
           conn = (FAR struct tcp_conn_s *)
             dq_remfirst(&g_free_tcp_connections);
@@ -706,7 +788,7 @@ FAR struct tcp_conn_s *tcp_alloc(uint8_t domain)
 
   /* Allocate the connect entry from heap */
 
-#ifdef CONFIG_NET_ALLOC_CONNS
+#if CONFIG_NET_TCP_ALLOC_CONNS > 0
   if (conn == NULL)
     {
       conn = tcp_alloc_conn();
@@ -720,6 +802,7 @@ FAR struct tcp_conn_s *tcp_alloc(uint8_t domain)
   if (conn)
     {
       memset(conn, 0, sizeof(struct tcp_conn_s));
+      conn->sconn.ttl     = IP_TTL_DEFAULT;
       conn->tcpstateflags = TCP_ALLOCATED;
 #if defined(CONFIG_NET_IPv4) && defined(CONFIG_NET_IPv6)
       conn->domain        = domain;
@@ -736,11 +819,64 @@ FAR struct tcp_conn_s *tcp_alloc(uint8_t domain)
       conn->snd_bufs      = CONFIG_NET_SEND_BUFSIZE;
 
       nxsem_init(&conn->snd_sem, 0, 0);
-      nxsem_set_protocol(&conn->snd_sem, SEM_PRIO_NONE);
 #endif
+
+      /* Set the default value of mss to max, this field will changed when
+       * receive SYN.
+       */
+
+#ifdef CONFIG_NET_IPv4
+#ifdef CONFIG_NET_IPv6
+      if (domain == PF_INET)
+#endif
+        {
+          conn->mss = MIN_IPv4_TCP_INITIAL_MSS;
+        }
+#endif /* CONFIG_NET_IPv4 */
+
+#ifdef CONFIG_NET_IPv6
+#ifdef CONFIG_NET_IPv4
+      else
+#endif
+        {
+          conn->mss = MIN_IPv6_TCP_INITIAL_MSS;
+        }
+#endif /* CONFIG_NET_IPv6 */
     }
 
   return conn;
+}
+
+/****************************************************************************
+ * Name: tcp_free_rx_buffers
+ *
+ * Description:
+ *   Free rx buffer of a connection
+ *
+ ****************************************************************************/
+
+void tcp_free_rx_buffers(FAR struct tcp_conn_s *conn)
+{
+  /* Release any read-ahead buffers attached to the connection */
+
+  iob_free_chain(conn->readahead);
+  conn->readahead = NULL;
+
+#ifdef CONFIG_NET_TCP_OUT_OF_ORDER
+  /* Release any out-of-order buffers */
+
+  if (conn->nofosegs > 0)
+    {
+      int i;
+
+      for (i = 0; i < conn->nofosegs; i++)
+        {
+          iob_free_chain(conn->ofosegs[i].data);
+        }
+
+      conn->nofosegs = 0;
+    }
+#endif /* CONFIG_NET_TCP_OUT_OF_ORDER */
 }
 
 /****************************************************************************
@@ -769,7 +905,24 @@ void tcp_free(FAR struct tcp_conn_s *conn)
 
   DEBUGASSERT(conn->crefs == 0);
 
+  /* Cancel close work */
+
+  if ((conn->flags & TCP_CLOSE_ARRANGED) &&
+      work_cancel(LPWORK, &conn->clswork) != OK)
+    {
+      /* Close work is already running, tcp_free will be called again. */
+
+      net_unlock();
+      return;
+    }
+
+  /* Cancel tcp timer */
+
   tcp_stop_timer(conn);
+
+  /* Make sure monitor is stopped. */
+
+  tcp_stop_monitor(conn, TCP_CLOSE);
 
   /* Free remaining callbacks, actually there should be only the send
    * callback for CONFIG_NET_TCP_WRITE_BUFFERS is left.
@@ -792,10 +945,7 @@ void tcp_free(FAR struct tcp_conn_s *conn)
       dq_rem(&conn->sconn.node, &g_active_tcp_connections);
     }
 
-  /* Release any read-ahead buffers attached to the connection */
-
-  iob_free_chain(conn->readahead, IOBUSER_NET_TCP_READAHEAD);
-  conn->readahead = NULL;
+  tcp_free_rx_buffers(conn);
 
 #ifdef CONFIG_NET_TCP_WRITE_BUFFERS
   /* Release any write buffers attached to the connection */
@@ -838,10 +988,26 @@ void tcp_free(FAR struct tcp_conn_s *conn)
     }
 #endif
 
-  /* Mark the connection available and put it into the free list */
+  /* Mark the connection available. */
 
   conn->tcpstateflags = TCP_CLOSED;
-  dq_addlast(&conn->sconn.node, &g_free_tcp_connections);
+
+  /* If this is a preallocated or a batch allocated connection store it in
+   * the free connections list. Else free it.
+   */
+
+#if CONFIG_NET_TCP_ALLOC_CONNS == 1
+  if (conn < g_tcp_connections || conn >= (g_tcp_connections +
+      CONFIG_NET_TCP_PREALLOC_CONNS))
+    {
+      kmm_free(conn);
+    }
+  else
+#endif
+    {
+      dq_addlast(&conn->sconn.node, &g_free_tcp_connections);
+    }
+
   net_unlock();
 }
 
@@ -916,7 +1082,8 @@ FAR struct tcp_conn_s *tcp_nextconn(FAR struct tcp_conn_s *conn)
  ****************************************************************************/
 
 FAR struct tcp_conn_s *tcp_alloc_accept(FAR struct net_driver_s *dev,
-                                        FAR struct tcp_hdr_s *tcp)
+                                        FAR struct tcp_hdr_s *tcp,
+                                        FAR struct tcp_conn_s *listener)
 {
   FAR struct tcp_conn_s *conn;
   uint8_t domain;
@@ -949,9 +1116,6 @@ FAR struct tcp_conn_s *tcp_alloc_accept(FAR struct net_driver_s *dev,
         {
           FAR struct ipv6_hdr_s *ip = IPv6BUF;
 
-          /* Set the IPv6 specific MSS and the IPv6 locally bound address */
-
-          conn->mss = TCP_IPv6_INITIAL_MSS(dev);
           net_ipv6addr_copy(conn->u.ipv6.raddr, ip->srcipaddr);
           net_ipv6addr_copy(conn->u.ipv6.laddr, ip->destipaddr);
 
@@ -977,9 +1141,6 @@ FAR struct tcp_conn_s *tcp_alloc_accept(FAR struct net_driver_s *dev,
         {
           FAR struct ipv4_hdr_s *ip = IPv4BUF;
 
-          /* Set the IPv6 specific MSS and the IPv4 bound remote address. */
-
-          conn->mss = TCP_IPv4_INITIAL_MSS(dev);
           net_ipv4addr_copy(conn->u.ipv4.raddr,
                             net_ip4addr_conv32(ip->srcipaddr));
 
@@ -1019,23 +1180,55 @@ FAR struct tcp_conn_s *tcp_alloc_accept(FAR struct net_driver_s *dev,
           return NULL;
         }
 
+      /* Inherits the necessary fields from listener conn for
+       * the new connection.
+       */
+
+#ifdef CONFIG_NET_SOCKOPTS
+      conn->sconn.s_rcvtimeo = listener->sconn.s_rcvtimeo;
+      conn->sconn.s_sndtimeo = listener->sconn.s_sndtimeo;
+#  ifdef CONFIG_NET_BINDTODEVICE
+      conn->sconn.s_boundto  = listener->sconn.s_boundto;
+#  endif
+#endif
+
+      conn->sconn.s_tos      = listener->sconn.s_tos;
+      conn->sconn.ttl        = listener->sconn.ttl;
+#if CONFIG_NET_RECV_BUFSIZE > 0
+      conn->rcv_bufs         = listener->rcv_bufs;
+#endif
+#if CONFIG_NET_SEND_BUFSIZE > 0
+      conn->snd_bufs         = listener->snd_bufs;
+#endif
+      conn->mss              = listener->mss;
+
       /* Fill in the necessary fields for the new connection. */
 
-      conn->rto           = TCP_RTO;
-      conn->sa            = 0;
-      conn->sv            = 4;
-      conn->nrtx          = 0;
-      conn->lport         = tcp->destport;
-      conn->rport         = tcp->srcport;
-      conn->tcpstateflags = TCP_SYN_RCVD;
+      conn->rto              = TCP_RTO;
+      conn->sa               = 0;
+      conn->sv               = 4;
+      conn->nrtx             = 0;
+      conn->lport            = tcp->destport;
+      conn->rport            = tcp->srcport;
+      conn->tcpstateflags    = TCP_SYN_RCVD;
 
       tcp_initsequence(conn->sndseq);
-      conn->tx_unacked    = 1;
+#if !defined(CONFIG_NET_TCP_WRITE_BUFFERS)
+      conn->rexmit_seq       = tcp_getsequence(conn->sndseq);
+#endif
+
+      conn->tx_unacked       = 1;
 #ifdef CONFIG_NET_TCP_WRITE_BUFFERS
-      conn->expired       = 0;
-      conn->isn           = 0;
-      conn->sent          = 0;
-      conn->sndseq_max    = 0;
+      conn->expired          = 0;
+      conn->isn              = 0;
+      conn->sent             = 0;
+      conn->sndseq_max       = 0;
+#endif
+
+#ifdef CONFIG_NET_TCP_CC_NEWRENO
+      /* Initialize the variables of congestion control */
+
+      tcp_cc_init(conn);
 #endif
 
       /* rcvseq should be the seqno from the incoming packet + 1. */
@@ -1082,6 +1275,15 @@ FAR struct tcp_conn_s *tcp_alloc_accept(FAR struct net_driver_s *dev,
 
 int tcp_bind(FAR struct tcp_conn_s *conn, FAR const struct sockaddr *addr)
 {
+#if defined(CONFIG_NET_IPv4) && defined(CONFIG_NET_IPv6)
+  if (conn->domain != addr->sa_family)
+    {
+      nerr("ERROR: Invalid address type: %d != %d\n", conn->domain,
+           addr->sa_family);
+      return -EINVAL;
+    }
+#endif
+
 #ifdef CONFIG_NET_IPv4
 #ifdef CONFIG_NET_IPv6
   if (conn->domain == PF_INET)
@@ -1206,14 +1408,20 @@ int tcp_connect(FAR struct tcp_conn_s *conn, FAR const struct sockaddr *addr)
       FAR const struct sockaddr_in *inaddr =
         (FAR const struct sockaddr_in *)addr;
 
-      /* Save MSS and the port from the sockaddr (already in network order) */
-
-      conn->mss    = MIN_IPv4_TCP_INITIAL_MSS;
       conn->rport  = inaddr->sin_port;
 
-      /* The sockaddr address is 32-bits in network order. */
+      /* The sockaddr address is 32-bits in network order.
+       * Note: 0.0.0.0 is mapped to 127.0.0.1 by convention.
+       */
 
-      net_ipv4addr_copy(conn->u.ipv4.raddr, inaddr->sin_addr.s_addr);
+      if (inaddr->sin_addr.s_addr == INADDR_ANY)
+        {
+          net_ipv4addr_copy(conn->u.ipv4.raddr, HTONL(INADDR_LOOPBACK));
+        }
+      else
+        {
+          net_ipv4addr_copy(conn->u.ipv4.raddr, inaddr->sin_addr.s_addr);
+        }
 
       /* Find the device that can receive packets on the network associated
        * with this remote address.
@@ -1231,14 +1439,22 @@ int tcp_connect(FAR struct tcp_conn_s *conn, FAR const struct sockaddr *addr)
       FAR const struct sockaddr_in6 *inaddr =
         (FAR const struct sockaddr_in6 *)addr;
 
-      /* Save MSS and the port from the sockaddr (already in network order) */
-
-      conn->mss     = MIN_IPv6_TCP_INITIAL_MSS;
       conn->rport   = inaddr->sin6_port;
 
-      /* The sockaddr address is 128-bits in network order. */
+      /* The sockaddr address is 128-bits in network order.
+       * Note: ::0 is mapped to ::1 by convention.
+       */
 
-      net_ipv6addr_copy(conn->u.ipv6.raddr, inaddr->sin6_addr.s6_addr16);
+      if (net_ipv6addr_cmp(addr, g_ipv6_unspecaddr))
+        {
+          struct in6_addr loopback_sin6_addr = IN6ADDR_LOOPBACK_INIT;
+          net_ipv6addr_copy(conn->u.ipv6.raddr,
+                            loopback_sin6_addr.s6_addr16);
+        }
+      else
+        {
+          net_ipv6addr_copy(conn->u.ipv6.raddr, inaddr->sin6_addr.s6_addr16);
+        }
 
       /* Find the device that can receive packets on the network associated
        * with this local address.
@@ -1282,7 +1498,7 @@ int tcp_connect(FAR struct tcp_conn_s *conn, FAR const struct sockaddr *addr)
     {
       /* Make sure that the IP address mapping is in the Neighbor Table */
 
-      ret = icmpv6_neighbor(conn->u.ipv6.raddr);
+      ret = icmpv6_neighbor(NULL, conn->u.ipv6.raddr);
     }
 #endif /* CONFIG_NET_ICMPv6_NEIGHBOR */
 
@@ -1304,6 +1520,12 @@ int tcp_connect(FAR struct tcp_conn_s *conn, FAR const struct sockaddr *addr)
   conn->tcpstateflags = TCP_SYN_SENT;
   tcp_initsequence(conn->sndseq);
 
+  /* Save initial sndseq to rexmit_seq, otherwise it will be zero */
+
+#if !defined(CONFIG_NET_TCP_WRITE_BUFFERS)
+  conn->rexmit_seq = tcp_getsequence(conn->sndseq);
+#endif
+
   conn->tx_unacked = 1;    /* TCP length of the SYN is one. */
   conn->nrtx       = 0;
   conn->timeout    = true; /* Send the SYN immediately. */
@@ -1316,6 +1538,12 @@ int tcp_connect(FAR struct tcp_conn_s *conn, FAR const struct sockaddr *addr)
   conn->isn        = 0;
   conn->sent       = 0;
   conn->sndseq_max = 0;
+#endif
+
+#ifdef CONFIG_NET_TCP_CC_NEWRENO
+  /* Initialize the variables of congestion control. */
+
+  tcp_cc_init(conn);
 #endif
 
   /* Initialize the list of TCP read-ahead buffers */

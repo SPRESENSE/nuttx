@@ -35,7 +35,7 @@ endif
 
 # Common assembly language files
 CMN_ASRCS  = arm64_vector_table.S arm64_vectors.S arm64_smccc.S
-CMN_ASRCS += arm64_cpu_idle.S arm64_vfork_func.S
+CMN_ASRCS += arm64_cpu_idle.S arm64_fork_func.S
 
 ifeq ($(CONFIG_ARCH_HAVE_TESTSET),y)
 CMN_ASRCS += arm64_testset.S
@@ -43,23 +43,43 @@ endif
 
 # Common C source files ( OS call up_xxx)
 CMN_CSRCS =  arm64_initialize.c arm64_initialstate.c arm64_boot.c
-CMN_CSRCS += arm64_nputs.c arm64_idle.c arm64_copystate.c
-CMN_CSRCS += arm64_createstack.c arm64_releasestack.c arm64_stackframe.c arm64_usestack.c
-CMN_CSRCS += arm64_task_sched.c arm64_exit.c arm64_vfork.c arm64_reprioritizertr.c
-CMN_CSRCS += arm64_releasepending.c arm64_unblocktask.c arm64_blocktask.c
-CMN_CSRCS += arm64_assert.c arm64_schedulesigaction.c arm64_backtrace.c
-CMN_CSRCS += arm64_sigdeliver.c
+CMN_CSRCS += arm64_nputs.c arm64_idle.c arm64_copystate.c arm64_createstack.c
+CMN_CSRCS += arm64_releasestack.c arm64_stackframe.c arm64_usestack.c
+CMN_CSRCS += arm64_task_sched.c arm64_exit.c arm64_fork.c arm64_switchcontext.c
+CMN_CSRCS += arm64_schedulesigaction.c arm64_sigdeliver.c
+CMN_CSRCS += arm64_getintstack.c arm64_registerdump.c
+CMN_CSRCS += arm64_perf.c arm64_tcbinfo.c
 
 # Common C source files ( hardware BSP )
-CMN_CSRCS += arm64_mmu.c arm64_arch_timer.c arm64_cache.c
-CMN_CSRCS += arm64_doirq.c arm64_gicv3.c arm64_fatal.c
-CMN_CSRCS += arm64_syscall.c arm64_cpu_psci.c
+CMN_CSRCS += arm64_arch_timer.c arm64_cache.c
+CMN_CSRCS += arm64_doirq.c arm64_fatal.c
+CMN_CSRCS += arm64_syscall.c
 
 # Use common heap allocation for now (may need to be customized later)
 CMN_CSRCS += arm64_allocateheap.c
 
+ifeq ($(CONFIG_ARM_GIC_VERSION),3)
+CMN_CSRCS += arm64_gicv3.c
+endif
+
+ifeq ($(CONFIG_ARM_GIC_VERSION),2)
+CMN_CSRCS += arm64_gicv2.c
+endif
+
+ifeq ($(CONFIG_ARCH_HAVE_MMU),y)
+CMN_CSRCS += arm64_mmu.c
+endif
+
+ifeq ($(CONFIG_ARCH_HAVE_MPU),y)
+CMN_CSRCS += arm64_mpu.c
+endif
+
+ifeq ($(CONFIG_ARCH_HAVE_PSCI),y)
+CMN_CSRCS += arm64_cpu_psci.c arm64_systemreset.c
+endif
+
 ifeq ($(CONFIG_SMP),y)
-CMN_CSRCS += arm64_cpuidlestack.c arm64_cpustart.c arm64_cpuindex.c
+CMN_CSRCS += arm64_cpuidlestack.c arm64_cpustart.c
 CMN_CSRCS += arm64_cpupause.c
 endif
 
@@ -75,7 +95,7 @@ endif
 ifeq ($(CONFIG_ARCH_KERNEL_STACK),y)
 CMN_CSRCS += arm64_addrenv_kstack.c
 endif
-ifeq ($(CONFIG_MM_SHM),y)
+ifeq ($(CONFIG_ARCH_VMA_MAPPING),y)
 CMN_CSRCS += arm64_addrenv_shm.c
 endif
 endif
@@ -94,4 +114,12 @@ endif
 
 ifeq ($(CONFIG_STACK_COLORATION),y)
 CMN_CSRCS += arm64_checkstack.c
+endif
+
+ifeq ($(CONFIG_SCHED_BACKTRACE),y)
+CMN_CSRCS += arm64_backtrace.c
+endif
+
+ifeq ($(CONFIG_ARM64_SEMIHOSTING_HOSTFS),y)
+  CMN_CSRCS += arm64_hostfs.c
 endif

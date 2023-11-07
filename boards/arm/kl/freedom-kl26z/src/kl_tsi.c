@@ -82,18 +82,11 @@ static uint8_t const g_chsensor[NSENSORS] =
 
 /* Character driver operations */
 
-static const struct file_operations tsi_ops =
+static const struct file_operations g_tsi_ops =
 {
   NULL,        /* open */
   NULL,        /* close */
   tsi_read,    /* read */
-  NULL,        /* write */
-  NULL,        /* seek */
-  NULL,        /* ioctl */
-  NULL         /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL       /* unlink */
-#endif
 };
 
 /****************************************************************************
@@ -250,7 +243,7 @@ void kl_tsi_initialize(void)
 
   /* And finally register the TSI character driver */
 
-  register_driver("/dev/tsi", &tsi_ops, 0444, NULL);
+  register_driver("/dev/tsi", &g_tsi_ops, 0444, NULL);
 }
 
 #endif /* CONFIG_KL_TSI */

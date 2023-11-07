@@ -35,7 +35,7 @@
 #include <arch/board/board.h>
 #include <nuttx/irq.h>
 #include <nuttx/arch.h>
-#include <nuttx/semaphore.h>
+#include <nuttx/mutex.h>
 #include <nuttx/spi/spi.h>
 
 #include "mips_internal.h"
@@ -74,7 +74,7 @@ struct pic32mx_dev_s
   uint8_t          rxirq;      /* SPI receive done interrupt number */
   uint8_t          txirq;      /* SPI transfer done interrupt number */
 #endif
-  sem_t            exclsem;    /* Held while chip is selected for mutual exclusion */
+  mutex_t          lock;       /* Held while chip is selected for mutual exclusion */
   uint32_t         frequency;  /* Requested clock frequency */
   uint32_t         actual;     /* Actual clock frequency */
   uint8_t          nbits;      /* Width of word in bits (8 to 16) */
@@ -138,7 +138,7 @@ static struct pic32mx_dev_s g_spi1dev =
 {
   .spidev            =
   {
-    &g_spi1ops
+    .ops             = &g_spi1ops,
   },
   .base              = PIC32MX_SPI1_K1BASE,
 #ifdef CONFIG_PIC32MX_SPI_INTERRUPTS
@@ -147,6 +147,7 @@ static struct pic32mx_dev_s g_spi1dev =
   .rxirq             = PIC32MX_IRQSRC_SPI1RX,
   .txirq             = PIC32MX_IRQSRC_SPI1TX,
 #endif
+  .lock              = NXMUTEX_INITIALIZER,
 };
 #endif
 
@@ -176,7 +177,7 @@ static struct pic32mx_dev_s g_spi2dev =
 {
   .spidev            =
   {
-    &g_spi2ops
+    .ops             = &g_spi2ops,
   },
   .base              = PIC32MX_SPI2_K1BASE,
 #ifdef CONFIG_PIC32MX_SPI_INTERRUPTS
@@ -185,6 +186,7 @@ static struct pic32mx_dev_s g_spi2dev =
   .rxirq             = PIC32MX_IRQSRC_SPI2RX,
   .txirq             = PIC32MX_IRQSRC_SPI2TX,
 #endif
+  .lock              = NXMUTEX_INITIALIZER,
 };
 #endif
 
@@ -214,7 +216,7 @@ static struct pic32mx_dev_s g_spi3dev =
 {
   .spidev            =
   {
-    &g_spi3ops
+    .ops             = &g_spi3ops,
   },
   .base              = PIC32MX_SPI3_K1BASE,
 #ifdef CONFIG_PIC32MX_SPI_INTERRUPTS
@@ -223,6 +225,7 @@ static struct pic32mx_dev_s g_spi3dev =
   .rxirq             = PIC32MX_IRQSRC_SPI3RX,
   .txirq             = PIC32MX_IRQSRC_SPI3TX,
 #endif
+  .lock              = NXMUTEX_INITIALIZER,
 };
 #endif
 
@@ -252,7 +255,7 @@ static struct pic32mx_dev_s g_spi4dev =
 {
   .spidev            =
   {
-    &g_spi4ops
+    .ops             = &g_spi4ops,
   },
   .base              = PIC32MX_SPI4_K1BASE,
 #ifdef CONFIG_PIC32MX_SPI_INTERRUPTS
@@ -261,6 +264,7 @@ static struct pic32mx_dev_s g_spi4dev =
   .rxirq             = PIC32MX_IRQSRC_SPI4RX,
   .txirq             = PIC32MX_IRQSRC_SPI4TX,
 #endif
+  .lock              = NXMUTEX_INITIALIZER,
 };
 #endif
 
@@ -427,11 +431,11 @@ static int spi_lock(struct spi_dev_s *dev, bool lock)
 
   if (lock)
     {
-      ret = nxsem_wait_uninterruptible(&priv->exclsem);
+      ret = nxmutex_lock(&priv->lock);
     }
   else
     {
-      ret = nxsem_post(&priv->exclsem);
+      ret = nxmutex_unlock(&priv->lock);
     }
 
   return ret;
@@ -962,10 +966,6 @@ struct spi_dev_s *pic32mx_spibus_initialize(int port)
 
   priv->nbits = 8;
   priv->mode  = SPIDEV_MODE0;
-
-  /* Initialize the SPI semaphore that enforces mutually exclusive access */
-
-  nxsem_init(&priv->exclsem, 0, 1);
 
 #ifdef CONFIG_PIC32MX_SPI_INTERRUPTS
   /* Enable interrupts at the SPI controller */

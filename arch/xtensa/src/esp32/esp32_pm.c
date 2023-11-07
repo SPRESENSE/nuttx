@@ -34,6 +34,7 @@
 #include <assert.h>
 #include <debug.h>
 #include <errno.h>
+#include <sys/param.h>
 #include <sys/time.h>
 #include "hardware/esp32_rtccntl.h"
 #include "hardware/esp32_uart.h"
@@ -64,10 +65,6 @@
 /* Minimal amount of time we can sleep for. */
 
 #define LIGHT_SLEEP_MIN_TIME_US    200
-
-#ifndef MAX
-#define MAX(a,b) a > b ? a : b
-#endif
 
 /* Time from VDD_SDIO power up to first flash read in ROM code */
 
@@ -560,7 +557,7 @@ static int IRAM_ATTR esp32_sleep_start(uint32_t pd_flags)
   uint32_t cur_freq;
 
   /* Stop UART output so that output is not lost due to APB frequency change.
-   * For light sleep, suspend UART output — it will resume after wakeup.
+   * For light sleep, suspend UART output - it will resume after wakeup.
    * For deep sleep, wait for the contents of UART FIFO to be sent.
    */
 
@@ -681,7 +678,7 @@ static int IRAM_ATTR esp32_configure_cpu_freq(uint32_t cpu_freq_mhz)
     }
   else
     {
-      return EINVAL;
+      return -EINVAL;
     }
 
   xtal_freq = esp32_rtc_clk_xtal_freq_get();
@@ -973,7 +970,7 @@ void esp32_pmstandby(uint64_t time_in_us)
   uint64_t hw_diff_us;
 #endif
 
-  /* don't power down XTAL — powering it up takes different time on. */
+  /* don't power down XTAL - powering it up takes different time on. */
 
   esp32_sleep_enable_timer_wakeup(time_in_us);
 

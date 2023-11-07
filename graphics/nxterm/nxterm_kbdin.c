@@ -49,7 +49,6 @@
 static void nxterm_pollnotify(FAR struct nxterm_state_s *priv,
                               pollevent_t eventset)
 {
-  FAR struct pollfd *fds;
   irqstate_t flags;
   int i;
 
@@ -58,16 +57,7 @@ static void nxterm_pollnotify(FAR struct nxterm_state_s *priv,
   for (i = 0; i < CONFIG_NXTERM_NPOLLWAITERS; i++)
     {
       flags = enter_critical_section();
-      fds   = priv->fds[i];
-      if (fds)
-        {
-          fds->revents |= (fds->events & eventset);
-          if (fds->revents != 0)
-            {
-              nxsem_post(fds->sem);
-            }
-        }
-
+      poll_notify(&priv->fds[i], 1, eventset);
       leave_critical_section(flags);
     }
 }
@@ -93,15 +83,15 @@ ssize_t nxterm_read(FAR struct file *filep, FAR char *buffer, size_t len)
 
   /* Recover our private state structure */
 
-  DEBUGASSERT(filep && filep->f_priv);
+  DEBUGASSERT(filep->f_priv);
   priv = (FAR struct nxterm_state_s *)filep->f_priv;
 
   /* Get exclusive access to the driver structure */
 
-  ret = nxterm_semwait(priv);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
-      gerr("ERROR: nxterm_semwait failed\n");
+      gerr("ERROR: nxmutex_lock failed\n");
       return ret;
     }
 
@@ -138,9 +128,8 @@ ssize_t nxterm_read(FAR struct file *filep, FAR char *buffer, size_t len)
            * to wake us up.
            */
 
-          sched_lock();
           priv->nwaiters++;
-          nxterm_sempost(priv);
+          nxmutex_unlock(&priv->lock);
 
           /* We may now be pre-empted!  But that should be okay because we
            * have already incremented nwaiters.  Pre-emption is disabled
@@ -149,31 +138,26 @@ ssize_t nxterm_read(FAR struct file *filep, FAR char *buffer, size_t len)
 
           ret = nxsem_wait(&priv->waitsem);
 
-          /* Pre-emption will be disabled when we return.  So the
-           * decrementing nwaiters here is safe.
-           */
-
-          priv->nwaiters--;
-          sched_unlock();
-
           /* Did we successfully get the waitsem? */
 
           if (ret >= 0)
             {
-              /* Yes... then retake the mutual exclusion semaphore */
+              /* Yes... then retake the mutual exclusion mutex */
 
-              ret = nxterm_semwait(priv);
+              ret = nxmutex_lock(&priv->lock);
             }
 
-          /* Was the semaphore wait successful? Did we successful re-take the
-           * mutual exclusion semaphore?
+          priv->nwaiters--;
+
+          /* Was the mutex wait successful? Did we successful re-take the
+           * mutual exclusion mutex?
            */
 
           if (ret < 0)
             {
-              /* No.. One of the two nxterm_semwait's failed. */
+              /* No.. One of the two nxmutex_lock's failed. */
 
-              gerr("ERROR: nxterm_semwait failed\n");
+              gerr("ERROR: nxmutex_lock failed\n");
 
               /* Were we awakened by a signal?  Did we read anything before
                * we received the signal?
@@ -188,10 +172,10 @@ ssize_t nxterm_read(FAR struct file *filep, FAR char *buffer, size_t len)
 
               /* Break out to return what we have.  Note, we can't exactly
                * "break" out because whichever error occurred, we do not hold
-               * the exclusion semaphore.
+               * the exclusion mutex.
                */
 
-              goto errout_without_sem;
+              goto errout_without_lock;
             }
         }
       else
@@ -216,14 +200,13 @@ ssize_t nxterm_read(FAR struct file *filep, FAR char *buffer, size_t len)
         }
     }
 
-  /* Relinquish the mutual exclusion semaphore */
+  /* Relinquish the mutual exclusion mutex */
 
-  nxterm_sempost(priv);
+  nxmutex_unlock(&priv->lock);
 
   /* Notify all poll/select waiters that they can write to the FIFO */
 
-errout_without_sem:
-
+errout_without_lock:
   if (nread > 0)
     {
       nxterm_pollnotify(priv, POLLOUT);
@@ -248,15 +231,15 @@ int nxterm_poll(FAR struct file *filep, FAR struct pollfd *fds, bool setup)
 
   /* Some sanity checking */
 
-  DEBUGASSERT(inode && inode->i_private);
+  DEBUGASSERT(inode->i_private);
   priv = inode->i_private;
 
   /* Get exclusive access to the driver structure */
 
-  ret = nxterm_semwait(priv);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
-      gerr("ERROR: nxterm_semwait failed\n");
+      gerr("ERROR: nxmutex_lock failed\n");
       return ret;
     }
 
@@ -304,10 +287,7 @@ int nxterm_poll(FAR struct file *filep, FAR struct pollfd *fds, bool setup)
           eventset |= POLLIN;
         }
 
-      if (eventset)
-        {
-          nxterm_pollnotify(priv, eventset);
-        }
+      nxterm_pollnotify(priv, eventset);
     }
   else if (fds->priv)
     {
@@ -332,7 +312,7 @@ int nxterm_poll(FAR struct file *filep, FAR struct pollfd *fds, bool setup)
     }
 
 errout:
-  nxterm_sempost(priv);
+  nxmutex_unlock(&priv->lock);
   return ret;
 }
 
@@ -379,10 +359,10 @@ void nxterm_kbdin(NXTERM handle, FAR const uint8_t *buffer, uint8_t buflen)
 
   /* Get exclusive access to the driver structure */
 
-  ret = nxterm_semwait(priv);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
-      gerr("ERROR: nxterm_semwait failed\n");
+      gerr("ERROR: nxmutex_lock failed\n");
       return;
     }
 
@@ -435,10 +415,6 @@ void nxterm_kbdin(NXTERM handle, FAR const uint8_t *buffer, uint8_t buflen)
     {
       int i;
 
-      /* Are there threads waiting for read data? */
-
-      sched_lock();
-
       /* Notify all poll/select waiters that they can read from the FIFO */
 
       nxterm_pollnotify(priv, POLLIN);
@@ -451,11 +427,9 @@ void nxterm_kbdin(NXTERM handle, FAR const uint8_t *buffer, uint8_t buflen)
 
           nxsem_post(&priv->waitsem);
         }
-
-      sched_unlock();
     }
 
-  nxterm_sempost(priv);
+  nxmutex_unlock(&priv->lock);
 }
 
 #endif /* CONFIG_NXTERM_NXKBDIN */

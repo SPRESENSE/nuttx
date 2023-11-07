@@ -18,14 +18,13 @@
 #
 ############################################################################
 
-include chip/Bootloader.mk
 include common/Make.defs
 
 # The start-up, "head", file.  May be either a .S or a .c file.
 
 HEAD_CSRC  = esp32_start.c esp32_wdt.c
 
-ifeq ($(CONFIG_XTENSA_HAVE_EXCEPTION_HOOKS),y)
+ifeq ($(CONFIG_XTENSA_HAVE_WINDOW_EXCEPTION_HOOKS),y)
 HEAD_ASRC += esp32_window_hooks.S
 endif
 
@@ -33,8 +32,8 @@ endif
 
 CHIP_CSRCS  = esp32_allocateheap.c esp32_clockconfig.c esp32_gpio.c
 CHIP_CSRCS += esp32_systemreset.c esp32_resetcause.c
-CHIP_CSRCS += esp32_irq.c esp32_region.c
-CHIP_CSRCS += esp32_user.c
+CHIP_CSRCS += esp32_irq.c esp32_region.c esp32_rtc_gpio.c
+CHIP_CSRCS += esp32_user.c esp32_libc_stubs.c
 CHIP_CSRCS += esp32_dma.c
 
 ifneq ($(CONFIG_ARCH_IDLE_CUSTOM),y)
@@ -70,8 +69,20 @@ ifeq ($(CONFIG_ESP32_I2C),y)
 CHIP_CSRCS += esp32_i2c.c
 endif
 
+ifeq ($(CONFIG_ESP32_I2S),y)
+CHIP_CSRCS += esp32_i2s.c
+endif
+
 ifeq ($(CONFIG_ESP32_TWAI),y)
 CHIP_CSRCS += esp32_twai.c
+endif
+
+ifeq ($(CONFIG_ESP32_PCNT_AS_QE),y)
+CHIP_CSRCS += esp32_qencoder.c
+endif
+
+ifeq ($(CONFIG_ESP32_RMT),y)
+CHIP_CSRCS += esp32_rmt.c
 endif
 
 ifeq ($(CONFIG_ESP32_SPI),y)
@@ -97,6 +108,7 @@ ifeq ($(CONFIG_ESP32_SPIRAM),y)
 CHIP_CSRCS += esp32_spiram.c
 CHIP_CSRCS += esp32_psram.c
 CHIP_CSRCS += esp32_himem.c
+CHIP_CSRCS += esp32_himem_chardev.c
 endif
 
 ifeq ($(CONFIG_ESP32_EFUSE),y)
@@ -164,11 +176,14 @@ endif
 
 ifeq ($(CONFIG_ARCH_USE_TEXT_HEAP),y)
 CHIP_CSRCS += esp32_textheap.c
-CMN_ASRCS  += xtensa_loadstore.S
 endif
 
 ifeq ($(CONFIG_ESP32_RT_TIMER),y)
 CHIP_CSRCS += esp32_rt_timer.c
+endif
+
+ifeq ($(CONFIG_ESP32_TOUCH),y)
+CHIP_CSRCS += esp32_touch.c
 endif
 
 ifeq ($(CONFIG_ESP32_AES_ACCELERATOR),y)
@@ -189,8 +204,7 @@ WIRELESS_DRV_ZIP     = $(WIRELESS_DRV_ID).zip
 WIRELESS_DRV_URL     = https://github.com/espressif/esp-wireless-drivers-3rdparty/archive
 
 $(WIRELESS_DRV_ZIP):
-	$(Q) echo "Downloading: ESP Wireless Drivers"
-	$(Q) curl -L $(WIRELESS_DRV_URL)/$(WIRELESS_DRV_ZIP) -o chip/$(WIRELESS_DRV_ZIP)
+	$(call DOWNLOAD,$(WIRELESS_DRV_URL),$(WIRELESS_DRV_ZIP),chip/$(WIRELESS_DRV_ZIP))
 
 chip/$(WIRELESS_DRV_UNPACK): $(WIRELESS_DRV_ZIP)
 	$(Q) echo "Unpacking: ESP Wireless Drivers"
@@ -198,14 +212,16 @@ chip/$(WIRELESS_DRV_UNPACK): $(WIRELESS_DRV_ZIP)
 	$(Q) mv chip/$(WIRELESS_DRV_UNPACK)-$(WIRELESS_DRV_ID)* chip/$(WIRELESS_DRV_UNPACK)
 	$(Q) touch chip/$(WIRELESS_DRV_UNPACK)
 
+ifeq ($(wildcard chip/$(WIRELESS_DRV_UNPACK)/.git),)
 context:: chip/$(WIRELESS_DRV_UNPACK)
 
 distclean::
 	$(call DELFILE, chip/$(WIRELESS_DRV_ZIP))
 	$(call DELDIR, chip/$(WIRELESS_DRV_UNPACK))
+endif
 
-INCLUDES += $(shell $(INCDIR) "$(CC)" $(ARCH_SRCDIR)$(DELIM)chip$(DELIM)esp-wireless-drivers-3rdparty$(DELIM)include)
-INCLUDES += $(shell $(INCDIR) "$(CC)" $(ARCH_SRCDIR)$(DELIM)chip$(DELIM)esp-wireless-drivers-3rdparty$(DELIM)include$(DELIM)esp32)
+INCLUDES += ${INCDIR_PREFIX}$(ARCH_SRCDIR)$(DELIM)chip$(DELIM)esp-wireless-drivers-3rdparty$(DELIM)include
+INCLUDES += ${INCDIR_PREFIX}$(ARCH_SRCDIR)$(DELIM)chip$(DELIM)esp-wireless-drivers-3rdparty$(DELIM)include$(DELIM)esp32
 
 EXTRA_LIBPATHS += -L $(ARCH_SRCDIR)$(DELIM)chip$(DELIM)esp-wireless-drivers-3rdparty$(DELIM)libs$(DELIM)esp32
 EXTRA_LIBS += -lphy -lrtc
@@ -218,6 +234,13 @@ endif
 ifeq ($(CONFIG_ESP32_WIFI),y)
 CHIP_CSRCS += esp32_wlan.c esp32_wifi_utils.c esp32_wifi_adapter.c
 EXTRA_LIBS += -lcore -lnet80211 -lpp -lsmartconfig -lespnow -lwpa_supplicant
+
+ifeq ($(GCCVER),)
+  export GCCVER := $(shell $(CC) --version | grep gcc | sed -r 's/.* ([0-9]+\.[0-9]+).*/\1/' | cut -d'.' -f1)
+endif
+ifeq ($(GCCVER),12)
+  chip/esp32_wifi_adapter.c_CFLAGS += -Wno-maybe-uninitialized
+endif
 endif
 
 ifeq ($(CONFIG_ESP32_BLE),y)
@@ -227,3 +250,33 @@ EXTRA_LIBS += -lbtdm_app
     EXTRA_LIBS += -lcoexist
   endif
 endif
+
+#############################################################################
+# Espressif HAL for 3rd Party Platforms
+#############################################################################
+
+# Fetch source files and add them to build
+
+ESP_HAL_3RDPARTY_REPO   = esp-hal-3rdparty
+ifndef ESP_HAL_3RDPARTY_VERSION
+	ESP_HAL_3RDPARTY_VERSION = 45c33111b441363e1267158186a60f42525228ca
+endif
+
+ifndef ESP_HAL_3RDPARTY_URL
+	ESP_HAL_3RDPARTY_URL	= https://github.com/espressif/esp-hal-3rdparty.git
+endif
+
+chip/$(ESP_HAL_3RDPARTY_REPO):
+	$(Q) echo "Cloning Espressif HAL for 3rd Party Platforms"
+	$(Q) git clone --quiet $(ESP_HAL_3RDPARTY_URL) chip/$(ESP_HAL_3RDPARTY_REPO)
+	$(Q) echo "Espressif HAL for 3rd Party Platforms: ${ESP_HAL_3RDPARTY_VERSION}"
+	$(Q) git -C chip/$(ESP_HAL_3RDPARTY_REPO) checkout --quiet $(ESP_HAL_3RDPARTY_VERSION)
+
+# Silent preprocessor warnings
+
+CFLAGS += -Wno-undef -Wno-unused-variable
+
+include chip/Bootloader.mk
+
+distclean::
+	$(call DELDIR,chip/$(ESP_HAL_3RDPARTY_REPO))

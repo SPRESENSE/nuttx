@@ -8,7 +8,18 @@ Guides
   nfs.rst
   usbtrace.rst
   simulator.rst
+  qemugdb.rst
+  rndis.rst
   drivers.rst
   tasktrace.rst
   cpp_cmake.rst
   pysimcoder.rst
+  customboards.rst
+  customapps.rst
+  zerolatencyinterrupts.rst
+  nestedinterrupts.rst
+  cortexmhardfaults.rst
+  coredump.rst
+  minidumpserver.rst
+  gdbwithpython.rst
+  ofloader.rst

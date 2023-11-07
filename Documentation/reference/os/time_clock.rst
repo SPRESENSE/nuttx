@@ -11,9 +11,9 @@ by ``CONFIG_USEC_PER_TICK`` (default 10000 microseconds or 100Hz.
 If ``CONFIG_SCHED_TICKLESS`` is selected, the default is 100
 microseconds). The timer generates an interrupt each
 ``CONFIG_USEC_PER_TICK`` microseconds and increments a counter
-called ``g_system_timer``. ``g_system_timer`` then provides a
+called ``g_system_ticks``. ``g_system_ticks`` then provides a
 time-base for calculating *up-time* and elapsed time intervals in
-units of ``CONFIG_USEC_PER_TICK``. The range of ``g_system_timer``
+units of ``CONFIG_USEC_PER_TICK``. The range of ``g_system_ticks``
 is, by default, 32-bits. However, if the MCU supports type
 ``long long`` and ``CONFIG_SYSTEM_TIME16`` is selected, a 64-bit
 system timer will be supported instead.
@@ -159,7 +159,7 @@ which requires the following base functions to read and set time:
 -  ``up_rtc_gettime()``. Get the current time from the high
    resolution RTC clock/counter. This interface is only supported
    by the high-resolution RTC/counter hardware implementation. It
-   is used to replace the system timer (``g_system_tick``).
+   is used to replace the system timer (``g_system_ticks``).
 -  ``up_rtc_settime()``. Set the RTC to the provided time. All RTC
    implementations must be able to set their time based on a
    standard timespec.
@@ -167,7 +167,7 @@ which requires the following base functions to read and set time:
 System Tick and Time
 ====================
 
-The system tick is represented by ``g_system_timer``.
+The system tick is represented by ``g_system_ticks``.
 
 Running at rate of system base timer, used for time-slicing, and
 so forth.
@@ -178,7 +178,7 @@ after successful initialization variables are overridden by calls
 to ``up_rtc_gettime()`` which is running continuously even in
 power-down modes.
 
-In the case of ``CONFIG_RTC_HIRES`` is set the ``g_system_timer``
+In the case of ``CONFIG_RTC_HIRES`` is set the ``g_system_ticks``
 keeps counting at rate of a system timer, which however, is
 disabled in power-down mode. By comparing this time and RTC
 (actual time) one may determine the actual system active time. To
@@ -209,13 +209,13 @@ are, in increasing order of importance:
 
 -  **Overhead**: Although the CPU usage of the system timer
    interrupt at 100Hz is really very low, it is still mostly
-   wasted processing time. One most timer interrupts, there is
-   really nothing that needs be done other than incrementing the
+   wasted processing time. On most timer interrupts, there is
+   really nothing that needs to be done other than incrementing the
    counter.
 -  **Resolution**: Resolution of all system timing is also
-   determined by ``CONFIG_USEC_PER_TICK``. So nothing that be time
-   with resolution finer than 10 milliseconds be default. To
-   increase this resolution, ``CONFIG_USEC_PER_TICK`` an be
+   determined by ``CONFIG_USEC_PER_TICK``. So nothing can be timed
+   with resolution finer than 10 milliseconds by default. To
+   increase this resolution, ``CONFIG_USEC_PER_TICK`` can be
    reduced. However, then the system timer interrupts use more of
    the CPU bandwidth processing useless interrupts.
 -  **Power Usage**: But the biggest issue is power usage. When the
@@ -226,7 +226,7 @@ are, in increasing order of importance:
    greater power consumption.
 
 **Tickless OS**. The so-called *Tickless OS* provides one solution
-to issue. The basic concept here is that the periodic, timer
+to this issue. The basic concept here is that the periodic, timer
 interrupt is eliminated and replaced with a one-shot, interval
 timer. It becomes event driven instead of polled: The default
 system timer is a polled design. On each interrupt, the NuttX
@@ -255,18 +255,26 @@ Tickless Configuration Options
 
 -  ``CONFIG_ARCH_HAVE_TICKLESS``: If the platform provides
    support for the *Tickless OS*, then this setting should be
-   selected in the ``Kconfig`` file for the board. Here is what
-   the selection looks in the ``arch/Kconfig`` file for the
+   selected in the ``Kconfig`` file for the architecture. Here is
+   what the selection looks in the ``arch/Kconfig`` file for the
    simulated platform:
+
+   .. code-block:: console
+ 
+     config ARCH_SIM
+        bool "Simulation"
+        select ARCH_HAVE_TICKLESS
+        ---help---
+                Linux/Cywgin user-mode simulation.
 
    When the simulation platform is selected,
    ``ARCH_HAVE_TICKLESS`` is automatically selected, informing the
    configuration system that *Tickless OS* options can be
    selected.
 
--  ``CONFIG_SCHED_TICKLESS``: If ``CONFIG_ARCH_HAVE_TICKLESS``
-   is selected, then it will enable the Tickless OS features in
-   NuttX.
+-  ``CONFIG_SCHED_TICKLESS``: If ``CONFIG_ARCH_HAVE_TICKLESS`` is
+   selected, then you will be able to use this option to enable the
+   *Tickless OS* features in NuttX.
 
 -  ``CONFIG_SCHED_TICKLESS_ALARM``: The tickless option can be
    supported either via a simple interval timer (plus elapsed
@@ -277,15 +285,15 @@ Tickless Configuration Options
 
    The advantage of an alarm is that it avoids some small timing
    errors; the advantage of the use of the interval timer is that
-   the hardware requirement may be less.
+   the hardware requirement may be simpler.
 
 -  ``CONFIG_USEC_PER_TICK``: This option is not unique to
    *Tickless OS* operation, but changes its relevance when the
-   *Tickless OS* is selected. In the default configuration where
+   *Tickless OS* is selected. In the default configuration, where
    system time is provided by a periodic timer interrupt, the
-   default system timer is configure the timer for 100Hz or
+   default system timer is configured for 100Hz, that is,
    ``CONFIG_USEC_PER_TICK=10000``. If ``CONFIG_SCHED_TICKLESS`` is
-   selected, then there are no system timer interrupt. In this
+   selected, then there are no system timer interrupts. In this
    case, ``CONFIG_USEC_PER_TICK`` does not control any timer
    rates. Rather, it only determines the resolution of time
    reported by ``clock_systime_ticks()`` and the resolution of
@@ -342,26 +350,23 @@ platform code must provide the following verify similar functions:
 -  ``up_timer_start()``: Starts (or re-starts)
    the interval timer.
 
-Note that a platform-specific implementation would probably
-require two hardware timers: (1) A interval timer to satisfy the
-requirements of ``up_timer_start()`` and
-``up_timer_cancel()``, and a (2) a counter to
-handle the requirement of
-``up_timer_gettime()``. Ideally, both timers
+Note that a platform-specific implementation would probably require two
+hardware timers: (1) A interval timer to satisfy the requirements of
+``up_timer_start()`` and ``up_timer_cancel()``, and (2) a counter to
+handle the requirement of ``up_timer_gettime()``. Ideally, both timers
 would run at the rate determined by ``CONFIG_USEC_PER_TICK`` (and
 certainly never slower than that rate).
 
-Since timers are a limited resource, the use of two timers could
-be an issue on some systems. The job could be done with a single
-timer if, for example, the single timer were kept in a
-free-running at all times. Some timer/counters have the capability
-to generate a compare interrupt when the timer matches a
-comparison value but also to continue counting without stopping.
-If your hardware supports such counters, one might used the
-``CONFIG_SCHED_TICKLESS_ALARM`` option and be able to simply set
-the comparison count at the value of the free running timer *PLUS*
-the desired delay. Then you could have both with a single timer:
-An alarm and a free-running counter with the same timer!
+Since timers are a limited resource, the use of two timers could be an
+issue on some systems. The job could be done with a single timer if, for
+example, the single timer were kept in a free-running mode at all times.
+Some timer/counters have the capability to generate a compare interrupt
+when the timer matches a comparison value but also to continue counting
+without stopping. If your hardware supports such counters, one might use
+the ``CONFIG_SCHED_TICKLESS_ALARM`` option and be able to simply set the
+comparison count at the value of the free running timer *PLUS* the
+desired delay. Then you could have both with a single timer: An alarm
+and a free-running counter with the same timer!
 
 In addition to these imported interfaces, the RTOS will export the
 following interfaces for use by the platform-specific interval

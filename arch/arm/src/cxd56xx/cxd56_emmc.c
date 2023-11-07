@@ -24,7 +24,9 @@
 
 #include <nuttx/config.h>
 
+#include <sys/param.h>
 #include <sys/types.h>
+#include <inttypes.h>
 #include <stdint.h>
 #include <string.h>
 #include <assert.h>
@@ -35,6 +37,7 @@
 #include <nuttx/kmalloc.h>
 #include <nuttx/fs/fs.h>
 #include <nuttx/irq.h>
+#include <nuttx/mutex.h>
 #include <nuttx/semaphore.h>
 
 #include <arch/board/board.h>
@@ -73,10 +76,6 @@
 #define EMMC_MSIZE                (6)         /* Burst size is 512B */
 #define EMMC_FIFO_DEPTH           (0x100)     /* FIFO size is 1KB */
 
-#ifndef MIN
-#define MIN(a, b) ((a) < (b) ? (a) : (b))
-#endif
-
 /****************************************************************************
  * Private Types
  ****************************************************************************/
@@ -91,7 +90,7 @@ struct emmc_dma_desc_s
 
 struct cxd56_emmc_state_s
 {
-  sem_t excsem;
+  mutex_t lock;
   int crefs;
   uint32_t total_sectors;
 };
@@ -136,22 +135,15 @@ static const struct block_operations g_bops =
   NULL                 /* ioctl    */
 };
 
-static sem_t g_waitsem;
-struct cxd56_emmc_state_s g_emmcdev;
+static sem_t g_waitsem = SEM_INITIALIZER(0);
+struct cxd56_emmc_state_s g_emmcdev =
+{
+  .lock = NXMUTEX_INITIALIZER,
+};
 
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
-
-static int emmc_takesem(sem_t *sem)
-{
-  return nxsem_wait_uninterruptible(sem);
-}
-
-static void emmc_givesem(sem_t *sem)
-{
-  nxsem_post(sem);
-}
 
 static void emmc_cmdstarted(void)
 {
@@ -277,7 +269,7 @@ static struct emmc_dma_desc_s *emmc_setupdma(void *buf, unsigned int nbytes)
   int i;
   int ndescs;
   struct emmc_dma_desc_s *descs;
-  struct emmc_dma_desc_s  *d;
+  struct emmc_dma_desc_s *d;
   uint32_t addr;
   uint32_t size;
   unsigned int remain;
@@ -429,7 +421,7 @@ static void emmc_send(int datatype, uint32_t opcode, uint32_t arg,
 
   /* Wait for command or data transfer done */
 
-  ret = emmc_takesem(&g_waitsem);
+  ret = nxsem_wait_uninterruptible(&g_waitsem);
   if (ret < 0)
     {
       return;
@@ -592,8 +584,7 @@ static int emmc_interrupt(int irq, void *context, void *arg)
       ferr("End-bit error/write no CRC.\n");
     }
 
-  emmc_givesem(&g_waitsem);
-
+  nxsem_post(&g_waitsem);
   return OK;
 }
 
@@ -705,7 +696,7 @@ static int cxd56_emmc_readsectors(struct cxd56_emmc_state_s *priv,
       return -ENOMEM;
     }
 
-  ret = emmc_takesem(&priv->excsem);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       kmm_free(descs);
@@ -746,9 +737,8 @@ static int cxd56_emmc_readsectors(struct cxd56_emmc_state_s *priv,
     }
 
 finish:
-  emmc_givesem(&priv->excsem);
+  nxmutex_unlock(&priv->lock);
   kmm_free(descs);
-
   return ret;
 }
 
@@ -767,7 +757,7 @@ static int cxd56_emmc_writesectors(struct cxd56_emmc_state_s *priv,
       return -ENOMEM;
     }
 
-  ret = emmc_takesem(&priv->excsem);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       kmm_free(descs);
@@ -822,9 +812,8 @@ static int cxd56_emmc_writesectors(struct cxd56_emmc_state_s *priv,
   emmc_flushwritefifo();
 
 finish:
-  emmc_givesem(&priv->excsem);
+  nxmutex_unlock(&priv->lock);
   kmm_free(descs);
-
   return ret;
 }
 #endif
@@ -834,19 +823,19 @@ static int cxd56_emmc_open(struct inode *inode)
   struct cxd56_emmc_state_s *priv;
   int ret;
 
-  DEBUGASSERT(inode && inode->i_private);
-  priv = (struct cxd56_emmc_state_s *)inode->i_private;
+  DEBUGASSERT(inode->i_private);
+  priv = inode->i_private;
 
   /* Just increment the reference count on the driver */
 
-  ret = emmc_takesem(&priv->excsem);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
     }
 
   priv->crefs++;
-  emmc_givesem(&priv->excsem);
+  nxmutex_unlock(&priv->lock);
   return OK;
 }
 
@@ -855,20 +844,20 @@ static int cxd56_emmc_close(struct inode *inode)
   struct cxd56_emmc_state_s *priv;
   int ret;
 
-  DEBUGASSERT(inode && inode->i_private);
-  priv = (struct cxd56_emmc_state_s *)inode->i_private;
+  DEBUGASSERT(inode->i_private);
+  priv = inode->i_private;
 
   /* Decrement the reference count on the block driver */
 
   DEBUGASSERT(priv->crefs > 0);
-  ret = emmc_takesem(&priv->excsem);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
     }
 
   priv->crefs--;
-  emmc_givesem(&priv->excsem);
+  nxmutex_unlock(&priv->lock);
   return OK;
 }
 
@@ -879,10 +868,10 @@ static ssize_t cxd56_emmc_read(struct inode *inode,
   struct cxd56_emmc_state_s *priv;
   int ret;
 
-  DEBUGASSERT(inode && inode->i_private);
-  priv = (struct cxd56_emmc_state_s *)inode->i_private;
+  DEBUGASSERT(inode->i_private);
+  priv = inode->i_private;
 
-  finfo("Read sector %" PRIu32 " (%u sectors) to %p\n",
+  finfo("Read sector %" PRIuOFF " (%u sectors) to %p\n",
         start_sector, nsectors, buffer);
 
   ret = cxd56_emmc_readsectors(priv, buffer, start_sector, nsectors);
@@ -904,8 +893,8 @@ static ssize_t cxd56_emmc_write(struct inode *inode,
   struct cxd56_emmc_state_s *priv;
   int ret;
 
-  DEBUGASSERT(inode && inode->i_private);
-  priv = (struct cxd56_emmc_state_s *)inode->i_private;
+  DEBUGASSERT(inode->i_private);
+  priv = inode->i_private;
 
   finfo("Write %p to sector %" PRIu32 " (%u sectors)\n", buffer,
         start_sector, nsectors);
@@ -926,8 +915,10 @@ static int cxd56_emmc_geometry(struct inode *inode,
 {
   struct cxd56_emmc_state_s *priv;
 
-  DEBUGASSERT(inode && inode->i_private);
-  priv = (struct cxd56_emmc_state_s *)inode->i_private;
+  DEBUGASSERT(inode->i_private);
+  priv = inode->i_private;
+
+  memset(geometry, 0, sizeof(*geometry));
 
   geometry->geo_available = true;
   geometry->geo_mediachanged = false;
@@ -948,17 +939,10 @@ static int cxd56_emmc_geometry(struct inode *inode,
 
 int cxd56_emmcinitialize(void)
 {
-  struct cxd56_emmc_state_s *priv;
+  struct cxd56_emmc_state_s *priv = &g_emmcdev;
   uint8_t *buf;
   struct emmc_dma_desc_s *descs;
   int ret;
-
-  priv = &g_emmcdev;
-
-  memset(priv, 0, sizeof(struct cxd56_emmc_state_s));
-  nxsem_init(&priv->excsem, 0, 1);
-  nxsem_init(&g_waitsem, 0, 0);
-  nxsem_set_protocol(&g_waitsem, SEM_PRIO_NONE);
 
   ret = emmc_hwinitialize();
   if (ret != OK)
@@ -966,7 +950,7 @@ int cxd56_emmcinitialize(void)
       return -EIO;
     }
 
-  buf = (uint8_t *)kmm_malloc(SECTOR_SIZE);
+  buf = kmm_malloc(SECTOR_SIZE);
   if (buf)
     {
       putreg32(SECTOR_SIZE, EMMC_BYTCNT);

@@ -185,7 +185,7 @@ static char g_uart1txbuffer[CONFIG_UART1_TXBUFSIZE];
 
 #ifdef CONFIG_MISOC_UART1
 #ifndef CONFIG_MISOC_UART1PRIO
-# define CONFIG_MISOC_UART1PRIO 4
+#  define CONFIG_MISOC_UART1PRIO 4
 #endif
 
 static struct misoc_dev_s g_uart1priv =
@@ -328,9 +328,9 @@ static void misoc_detach(struct uart_dev_s *dev)
  *
  * Description:
  *   This is the UART interrupt handler.  It will be invoked when an
- *   interrupt received on the 'irq'  It should call uart_transmitchars or
- *   uart_receivechar to perform the appropriate data transfers.  The
- *   interrupt handling logic must be able to map the 'irq' number into the
+ *   interrupt is received on the 'irq'.  It should call uart_xmitchars or
+ *   uart_recvchars to perform the appropriate data transfers.  The
+ *   interrupt handling logic must be able to map the 'arg' to the
  *   appropriate uart_dev_s structure in order to call these functions.
  *
  ****************************************************************************/

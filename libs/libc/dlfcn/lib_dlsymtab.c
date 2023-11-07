@@ -27,7 +27,6 @@
 #include <dlfcn.h>
 #include <errno.h>
 
-#include <nuttx/module.h>
 #include <nuttx/lib/modlib.h>
 
 /****************************************************************************
@@ -63,7 +62,8 @@ int dlsymtab(FAR const struct symtab_s *symtab, int nsymbols)
    * memory region.
    */
 
-#warning Missing logic
+  /* #warning Missing logic */
+
   return -ENOSYS;
 
 #else

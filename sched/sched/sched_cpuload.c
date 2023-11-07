@@ -62,7 +62,7 @@
       CPULOAD_TICKSPERSEC)
 
 /****************************************************************************
- * Private Data
+ * Public Data
  ****************************************************************************/
 
 /* This is the total number of clock tick counts.  Essentially the
@@ -81,71 +81,57 @@
 volatile uint32_t g_cpuload_total;
 
 /****************************************************************************
- * Private Functions
+ * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: nxsched_cpu_process_cpuload
+ * Name: nxsched_process_taskload_ticks
  *
  * Description:
- *   Collect data that can be used for CPU load measurements.
+ *   Collect data that can be used for task load measurements.
  *
  * Input Parameters:
- *   cpu   - The CPU that we are performing the load operations on.
+ *   tcb   - The task that we are performing the load operations on.
  *   ticks - The ticks that we process in this cpuload.
  *
  * Returned Value:
  *   None
  *
- * Assumptions/Limitations:
- *   This function is called from a timer interrupt handler with all
- *   interrupts disabled.
- *
  ****************************************************************************/
 
-static inline void nxsched_cpu_process_cpuload(int cpu, uint32_t ticks)
+void nxsched_process_taskload_ticks(FAR struct tcb_s *tcb, uint32_t ticks)
 {
-  FAR struct tcb_s *rtcb = current_task(cpu);
+  irqstate_t flags;
 
-  /* Increment the count on the currently executing thread */
+  flags = enter_critical_section();
 
-  rtcb->ticks += ticks;
-
-  /* Increment tick count.  NOTE that the count is increment once for each
-   * CPU on each sample interval.
-   */
-
+  tcb->ticks += ticks;
   g_cpuload_total += ticks;
-}
 
-/****************************************************************************
- * Public Functions
- ****************************************************************************/
+  if (g_cpuload_total > CPULOAD_TIMECONSTANT)
+    {
+      uint32_t total = 0;
+      int i;
 
-/****************************************************************************
- * Name: nxsched_process_cpuload
- *
- * Description:
- *   Collect data that can be used for CPU load measurements.  When
- *   CONFIG_SCHED_CPULOAD_EXTCLK is defined, this is an exported interface,
- *   use the the external clock logic.  Otherwise, it is an OS Internal
- *   interface.
- *
- * Input Parameters:
- *   None
- *
- * Returned Value:
- *   None
- *
- * Assumptions/Limitations:
- *   This function is called from a timer interrupt handler with all
- *   interrupts disabled.
- *
- ****************************************************************************/
+      /* Divide the tick count for every task by two and recalculate the
+       * total.
+       */
 
-void weak_function nxsched_process_cpuload(void)
-{
-  nxsched_process_cpuload_ticks(1);
+      for (i = 0; i < g_npidhash; i++)
+        {
+          if (g_pidhash[i])
+            {
+              g_pidhash[i]->ticks >>= 1;
+              total += g_pidhash[i]->ticks;
+            }
+        }
+
+      /* Save the new total. */
+
+      g_cpuload_total = total;
+    }
+
+  leave_critical_section(flags);
 }
 
 /****************************************************************************
@@ -169,47 +155,17 @@ void weak_function nxsched_process_cpuload(void)
  *
  ****************************************************************************/
 
-void weak_function nxsched_process_cpuload_ticks(uint32_t ticks)
+void nxsched_process_cpuload_ticks(uint32_t ticks)
 {
   int i;
-  irqstate_t flags;
 
   /* Perform scheduler operations on all CPUs. */
 
-  flags = enter_critical_section();
-
   for (i = 0; i < CONFIG_SMP_NCPUS; i++)
     {
-      nxsched_cpu_process_cpuload(i, ticks);
+      FAR struct tcb_s *rtcb = current_task(i);
+      nxsched_process_taskload_ticks(rtcb, ticks);
     }
-
-  /* If the accumulated tick value exceed a time constant, then shift the
-   * accumulators and recalculate the total.
-   */
-
-  if (g_cpuload_total > CPULOAD_TIMECONSTANT)
-    {
-      uint32_t total = 0;
-
-      /* Divide the tick count for every task by two and recalculate the
-       * total.
-       */
-
-      for (i = 0; i < g_npidhash; i++)
-        {
-          if (g_pidhash[i])
-            {
-              g_pidhash[i]->ticks >>= 1;
-              total += g_pidhash[i]->ticks;
-            }
-        }
-
-      /* Save the new total. */
-
-      g_cpuload_total = total;
-    }
-
-  leave_critical_section(flags);
 }
 
 /****************************************************************************

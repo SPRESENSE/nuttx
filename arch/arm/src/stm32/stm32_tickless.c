@@ -614,7 +614,16 @@ int up_timer_gettime(struct timespec *ts)
   int pending;
   irqstate_t flags;
 
-  DEBUGASSERT(g_tickless.tch && ts);
+  DEBUGASSERT(ts);
+
+  /* Timer not initialized yet, return zero */
+
+  if (g_tickless.tch == 0)
+    {
+      ts->tv_nsec = 0;
+      ts->tv_sec  = 0;
+      return OK;
+    }
 
   /* Temporarily disable the overflow counter.  NOTE that we have to be
    * careful here because  stm32_tc_getpending() will reset the pending
@@ -685,7 +694,7 @@ int up_timer_gettime(struct timespec *ts)
 #ifdef CONFIG_CLOCK_TIMEKEEPING
 
 /****************************************************************************
- * Name: up_timer_getcounter
+ * Name: up_timer_gettick
  *
  * Description:
  *   To be provided
@@ -698,9 +707,9 @@ int up_timer_gettime(struct timespec *ts)
  *
  ****************************************************************************/
 
-int up_timer_getcounter(uint64_t *cycles)
+int up_timer_gettick(clock_t *ticks)
 {
-  *cycles = (uint64_t)STM32_TIM_GETCOUNTER(g_tickless.tch);
+  *ticks = (clock_t)STM32_TIM_GETCOUNTER(g_tickless.tch);
   return OK;
 }
 
@@ -718,7 +727,7 @@ int up_timer_getcounter(uint64_t *cycles)
  *
  ****************************************************************************/
 
-void up_timer_getmask(uint64_t *mask)
+void up_timer_getmask(clock_t *mask)
 {
   DEBUGASSERT(mask != NULL);
 #ifdef HAVE_32BIT_TICKLESS
@@ -938,6 +947,7 @@ int up_timer_start(const struct timespec *ts)
   /* Set interval compare value. Rollover is fine,
    * channel will trigger on the next period.
    */
+
 #ifdef HAVE_32BIT_TICKLESS
   DEBUGASSERT(period <= UINT32_MAX);
   g_tickless.period = (uint32_t)(period + count);

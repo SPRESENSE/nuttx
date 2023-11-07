@@ -62,7 +62,7 @@
 /* On-board crystals */
 
 #define BOARD_XTAL_FREQUENCY        12000000 /* 12MHz XTAL */
-#define BOARD_RTC_XTAL_FRQUENCY     32769    /* 32.768KHz RTC XTAL */
+#define BOARD_RTC_XTAL_FREQUENCY    32769    /* 32.768KHz RTC XTAL */
 
 /* TODO: enable the RTC osc, use RTC for time/date
  */
@@ -310,6 +310,18 @@
 #define BOARD_UART0_DX    USIC_DXB
 #define GPIO_UART0_RXD    GPIO_U0C0_DX0B
 #define GPIO_UART0_TXD    (GPIO_U0C0_DOUT0_3 | GPIO_PADA1P_STRONGSOFT | GPIO_OUTPUT_SET)
+
+/* USIC2 CH0 is used as SPI4
+ *
+ *  MOSI - P3.8  (UC2C0.DOUT0)
+ *  MISO - P3.7  (UC2C0.DX0C)
+ *  SCLK - P3.9 (UC2C0.SCLKOUT)
+ */
+
+#define BOARD_SPI_DX      USIC_DXC
+#define GPIO_SPI4_MOSI    (GPIO_U2C0_DOUT0_2 | GPIO_PADA2_STRONGMEDIUM)
+#define GPIO_SPI4_MISO    (GPIO_U2C0_DX0C)
+#define GPIO_SPI4_SCLK    (GPIO_U2C0_SCLKOUT_1 | GPIO_PADA2_STRONGMEDIUM)
 
 /****************************************************************************
  * Public Data

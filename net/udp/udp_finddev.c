@@ -33,63 +33,7 @@
 #include "netdev/netdev.h"
 #include "inet/inet.h"
 #include "udp/udp.h"
-
-/****************************************************************************
- * Private Functions
- ****************************************************************************/
-
-/****************************************************************************
- * Name: upd_bound_device
- *
- * Description:
- *   If the UDP socket is bound to a device, return the reference to the
- *   bound device.
- *
- * Input Parameters:
- *   conn - UDP connection structure (not currently used).
- *
- * Returned Value:
- *   A reference to the bound device.  If the retained interface index no
- *   longer refers to a valid device, this function will unbind the device
- *   and return an arbitrary network device at the head of the list of
- *   registered devices.  This supports legacy IPv4 DHCPD behavior when
- *   there is only a single registered network device.
- *
- ****************************************************************************/
-
-#ifdef CONFIG_NET_UDP_BINDTODEVICE
-static FAR struct net_driver_s *upd_bound_device(FAR struct udp_conn_s *conn)
-{
-  FAR struct net_driver_s *dev = NULL;
-
-  /* Is the UDP socket bound to a device? */
-
-  if (conn->boundto != 0)
-    {
-      /* Yes..This socket has been bound to an interface.  Convert the
-       * interface index into a device structure reference.
-       */
-
-      dev = netdev_findbyindex(conn->boundto);
-      if (dev == NULL)
-        {
-          /* No device?  It must have been unregistered.  Un-bind the UDP
-           * socket.
-           */
-
-          conn->boundto = 0;
-        }
-    }
-
-  /* If no device was bound or the bound device is no longer valid,
-   * then let's try the default network device.
-   */
-
-  return dev == NULL ? netdev_default() : dev;
-}
-#else
-#  define upd_bound_device(c) netdev_default();
-#endif
+#include "utils/utils.h"
 
 /****************************************************************************
  * Public Functions
@@ -210,50 +154,43 @@ udp_find_raddr_device(FAR struct udp_conn_s *conn,
               net_ipv4addr_copy(raddr, conn->u.ipv4.raddr);
             }
 
-          /* Check if the remote, destination address is the broadcast
-           * or multicast address.  If this is the case, select the device
-           * using the locally bound address (assuming that there is one).
-           */
-
-          if (raddr == INADDR_BROADCAST || IN_MULTICAST(NTOHL(raddr)))
+#if defined(CONFIG_NET_IGMP) && defined(CONFIG_NET_BINDTODEVICE)
+          if (IN_MULTICAST(NTOHL(raddr)))
             {
-              /* Make sure that the socket is bound to some non-zero, local
-               * address.  Zero is used as an indication that the laddr is
-               * uninitialized and that the socket is, hence, not bound.
-               */
-
-              if (conn->u.ipv4.laddr == 0) /* INADDR_ANY */
+              if ((conn->sconn.s_boundto == 0) &&
+                  (conn->mreq.imr_ifindex != 0))
                 {
-                  /* Return the device bound to this UDP socket, if any */
-
-                  return upd_bound_device(conn);
+                  return netdev_findbyindex(conn->mreq.imr_ifindex);
                 }
-              else
-                {
-                  return netdev_findby_ripv4addr(conn->u.ipv4.laddr,
-                                                 conn->u.ipv4.laddr);
-                }
-            }
-
-          /* There is no unique device associated with the unspecified
-           * address.
-           */
-
-          else if (raddr != INADDR_ANY)
-            {
-              /* Normal lookup using the verified remote address */
-
-              return netdev_findby_ripv4addr(conn->u.ipv4.laddr,
-                                             raddr);
             }
           else
+#endif
             {
-              /* Not a suitable IPv4 unicast address for device lookup.
-               * Return the device bound to this UDP socket, if any.
-               */
+              if (conn->u.ipv4.laddr != INADDR_ANY)
+                {
+                  /* If the socket is bound to some non-zero, local address.
+                   * Normal lookup using the verified local address.
+                   */
 
-              return upd_bound_device(conn);
+                  return netdev_findby_lipv4addr(conn->u.ipv4.laddr);
+                }
+
+#ifdef CONFIG_NET_BINDTODEVICE
+              if (conn->sconn.s_boundto != 0)
+                {
+                  /* If the socket is bound to a local network device.
+                   * Select the network device that has been bound.
+                   * If the index is invalid, return NULL.
+                   */
+
+                  return netdev_findbyindex(conn->sconn.s_boundto);
+                }
+#endif
             }
+
+          /* Normal lookup using the verified remote address */
+
+          return netdev_findby_ripv4addr(conn->u.ipv4.laddr, raddr);
         }
 #endif
 
@@ -262,64 +199,57 @@ udp_find_raddr_device(FAR struct udp_conn_s *conn,
       else
 #endif
         {
-          net_ipv6addr_t raddr;
-
+          struct in6_addr raddr;
           if (remote)
             {
               FAR const struct sockaddr_in6 *inaddr =
                 (FAR const struct sockaddr_in6 *)remote;
-              net_ipv6addr_copy(raddr, inaddr->sin6_addr.s6_addr16);
+              net_ipv6addr_copy(raddr.in6_u.u6_addr16,
+                                inaddr->sin6_addr.s6_addr16);
             }
           else
             {
-              net_ipv6addr_copy(raddr, conn->u.ipv6.raddr);
+              net_ipv6addr_copy(raddr.in6_u.u6_addr16, conn->u.ipv6.raddr);
             }
 
-          /* Check if the remote, destination address is a multicast
-           * address.  If this is the case, select the device
-           * using the locally bound address (assuming that there is one).
-           */
-
-          if (net_is_addr_mcast(raddr))
+#if defined(CONFIG_NET_MLD) && defined(CONFIG_NET_BINDTODEVICE)
+          if (IN6_IS_ADDR_MULTICAST(&raddr))
             {
-              /* Make sure that the socket is bound to some non-zero, local
-               * address.  The IPv6 unspecified address is used as an
-               * indication that the laddr is uninitialized and that the
-               * socket is, hence, not bound.
-               */
-
-              if (net_ipv6addr_cmp(conn->u.ipv6.laddr, g_ipv6_unspecaddr))
+              if ((conn->sconn.s_boundto == 0) &&
+                  (conn->mreq.imr_ifindex != 0))
                 {
-                  /* Return the device bound to this UDP socket, if any */
-
-                  return upd_bound_device(conn);
+                  return netdev_findbyindex(conn->mreq.imr_ifindex);
                 }
-              else
-                {
-                  return netdev_findby_ripv6addr(conn->u.ipv6.laddr,
-                                                 conn->u.ipv6.laddr);
-                }
-            }
-
-          /* There is no unique device associated with the unspecified
-           * address.
-           */
-
-          else if (!net_ipv6addr_cmp(raddr, g_ipv6_unspecaddr))
-            {
-              /* Normal lookup using the verified remote address */
-
-              return netdev_findby_ripv6addr(conn->u.ipv6.laddr,
-                                             raddr);
             }
           else
+#endif
             {
-              /* Not a suitable IPv6 unicast address for device lookup.
-               * Return the device bound to this UDP socket, if any.
-               */
+              if (!net_ipv6addr_cmp(conn->u.ipv6.laddr, g_ipv6_unspecaddr))
+                {
+                  /* If the socket is bound to some non-zero, local address.
+                   * Normal lookup using the verified local address.
+                   */
 
-              return upd_bound_device(conn);
+                  return netdev_findby_lipv6addr(conn->u.ipv6.laddr);
+                }
+
+#ifdef CONFIG_NET_BINDTODEVICE
+              if (conn->sconn.s_boundto != 0)
+                {
+                  /* If the socket is bound to a local network device.
+                   * Select the network device that has been bound.
+                   * If the index is invalid, return NULL.
+                   */
+
+                  return netdev_findbyindex(conn->sconn.s_boundto);
+                }
+#endif
             }
+
+          /* Normal lookup using the verified remote address */
+
+          return netdev_findby_ripv6addr(conn->u.ipv6.laddr,
+                                         raddr.in6_u.u6_addr16);
         }
 #endif
 }

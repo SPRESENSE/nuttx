@@ -34,7 +34,7 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-#define MIN_EXTEND (2 * SIZEOF_MM_ALLOCNODE)
+#define MIN_EXTEND (2 * MM_SIZEOF_ALLOCNODE)
 
 /****************************************************************************
  * Public Functions
@@ -61,8 +61,8 @@ void mm_extend(FAR struct mm_heap_s *heap, FAR void *mem, size_t size,
 
   DEBUGASSERT(heap && mem);
 #if CONFIG_MM_REGIONS > 1
-  DEBUGASSERT(size >= MIN_EXTEND &&
-      (size_t)region < (size_t)heap->mm_nregions);
+  DEBUGASSERT(size >= MIN_EXTEND && region >= 0 &&
+              region < heap->mm_nregions);
 #else
   DEBUGASSERT(size >= MIN_EXTEND && region == 0);
 #endif
@@ -75,42 +75,45 @@ void mm_extend(FAR struct mm_heap_s *heap, FAR void *mem, size_t size,
   DEBUGASSERT(MM_ALIGN_UP(blockstart) == blockstart);
   DEBUGASSERT(MM_ALIGN_DOWN(blockend) == blockend);
 
-  /* Take the memory manager semaphore */
+  /* Take the memory manager mutex */
 
-  DEBUGVERIFY(mm_takesemaphore(heap));
+  DEBUGVERIFY(mm_lock(heap));
 
   /* Get the terminal node in the old heap.  The block to extend must
    * immediately follow this node.
    */
 
   oldnode = heap->mm_heapend[region];
-  DEBUGASSERT((uintptr_t)oldnode + SIZEOF_MM_ALLOCNODE == (uintptr_t)mem);
+  DEBUGASSERT((uintptr_t)oldnode + MM_SIZEOF_ALLOCNODE == blockstart);
 
   /* The size of the old node now extends to the new terminal node.
-   * This is the old size (SIZEOF_MM_ALLOCNODE) plus the size of
+   * This is the old size (MM_SIZEOF_ALLOCNODE) plus the size of
    * the block (size) minus the size of the new terminal node
-   * (SIZEOF_MM_ALLOCNODE) or simply:
+   * (MM_SIZEOF_ALLOCNODE) or simply:
    */
 
-  oldnode->size = size;
+  oldnode->size = size | (oldnode->size & MM_MASK_BIT);
 
   /* The old node should already be marked as allocated */
 
-  DEBUGASSERT((oldnode->preceding & MM_ALLOC_BIT) != 0);
+  DEBUGASSERT(MM_NODE_IS_ALLOC(oldnode));
 
   /* Get and initialize the new terminal node in the heap */
 
-  newnode            = (FAR struct mm_allocnode_s *)
-                       (blockend - SIZEOF_MM_ALLOCNODE);
-  newnode->size      = SIZEOF_MM_ALLOCNODE;
-  newnode->preceding = oldnode->size | MM_ALLOC_BIT;
+  newnode       = (FAR struct mm_allocnode_s *)
+                  (blockend - MM_SIZEOF_ALLOCNODE);
+  newnode->size = MM_SIZEOF_ALLOCNODE | MM_ALLOC_BIT;
 
   heap->mm_heapend[region] = newnode;
-  mm_givesemaphore(heap);
+
+  /* Finally, increase the total heap size accordingly */
+
+  heap->mm_heapsize += size;
+  mm_unlock(heap);
 
   /* Finally "free" the new block of memory where the old terminal node was
    * located.
    */
 
-  mm_free(heap, (FAR void *)mem);
+  mm_free(heap, mem);
 }

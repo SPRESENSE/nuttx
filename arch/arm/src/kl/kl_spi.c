@@ -30,7 +30,7 @@
 #include <assert.h>
 #include <debug.h>
 
-#include <nuttx/semaphore.h>
+#include <nuttx/mutex.h>
 #include <nuttx/spi/spi.h>
 
 #include <arch/irq.h>
@@ -54,7 +54,7 @@ struct kl_spidev_s
 {
   struct spi_dev_s spidev;     /* Externally visible part of the SPI interface */
   uint32_t         spibase;    /* Base address of SPI registers */
-  sem_t            exclsem;    /* Held while chip is selected for mutual exclusion */
+  mutex_t          lock;       /* Held while chip is selected for mutual exclusion */
   uint32_t         frequency;  /* Requested clock frequency */
   uint32_t         actual;     /* Actual clock frequency */
   uint8_t          nbits;      /* Width of word in bits (8 to 16) */
@@ -122,10 +122,11 @@ static const struct spi_ops_s g_spi0ops =
 static struct kl_spidev_s g_spi0dev =
 {
   .spidev            =
-    {
-      &g_spi0ops
-    },
+  {
+    .ops             = &g_spi0ops
+  },
   .spibase           = KL_SPI0_BASE,
+  .lock              = NXMUTEX_INITIALIZER,
 };
 #endif
 
@@ -154,10 +155,11 @@ static const struct spi_ops_s g_spi1ops =
 static struct kl_spidev_s g_spi1dev =
 {
   .spidev            =
-    {
-      &g_spi1ops
-    },
+  {
+    .ops             = &g_spi1ops
+  },
   .spibase           = KL_SPI1_BASE,
+  .lock              = NXMUTEX_INITIALIZER,
 };
 #endif
 
@@ -236,11 +238,11 @@ static int spi_lock(struct spi_dev_s *dev, bool lock)
 
   if (lock)
     {
-      ret = nxsem_wait_uninterruptible(&priv->exclsem);
+      ret = nxmutex_lock(&priv->lock);
     }
   else
     {
-      ret = nxsem_post(&priv->exclsem);
+      ret = nxmutex_unlock(&priv->lock);
     }
 
   return ret;
@@ -286,7 +288,7 @@ static uint32_t spi_setfrequency(struct spi_dev_s *dev,
    * divisor in the range {2, 4, 8, 16, 32, 64, 128, 256, or 512).
    *
    *
-   * BaudRateDivisor = (SPPR + 1) × 2^(SPR + 1)
+   * BaudRateDivisor = (SPPR + 1) * 2^(SPR + 1)
    * BaudRate = BusClock / BaudRateDivisor
    *
    * The strategy is to pick the smallest divisor that yields an in-range
@@ -688,10 +690,6 @@ struct spi_dev_s *kl_spibus_initialize(int port)
   /* Select a default frequency of approx. 400KHz */
 
   spi_setfrequency((struct spi_dev_s *)priv, 400000);
-
-  /* Initialize the SPI semaphore that enforces mutually exclusive access */
-
-  nxsem_init(&priv->exclsem, 0, 1);
   return &priv->spidev;
 }
 

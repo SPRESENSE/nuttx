@@ -48,6 +48,7 @@
 #include <nuttx/config.h>
 
 #include <debug.h>
+#include <inttypes.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include <time.h>
@@ -133,8 +134,6 @@ void up_timer_initialize(void)
 #else
   irq_attach(TMR_IRQ, (xcpt_t)up_alarm_expire, NULL);
 #endif
-
-  return;
 }
 
 static inline uint64_t up_ts2tick(const struct timespec *ts)
@@ -338,8 +337,6 @@ void up_timer_expire(void)
 
   up_mask_tmr();
   sched_timer_expiration();
-
-  return;
 }
 
 #else /* CONFIG_SCHED_TICKLESS_ALARM */
@@ -437,7 +434,7 @@ int up_alarm_start(const struct timespec *ts)
 
   up_tmr_sync_down();
 
-  tmrinfo("%d.%09ld\n", ts->tv_sec, ts->tv_nsec);
+  tmrinfo("%" PRIdMAX ".%09ld\n", (uintmax_t)ts->tv_sec, ts->tv_nsec);
   tmrinfo("start\n");
 
   return OK;
@@ -469,8 +466,6 @@ void up_alarm_expire(void)
   up_timer_gettime(&now);
 
   nxsched_alarm_expiration(&now);
-
-  return;
 }
 
 #endif /* CONFIG_SCHED_TICKLESS_ALARM */

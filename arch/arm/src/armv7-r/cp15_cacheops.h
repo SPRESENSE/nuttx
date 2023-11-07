@@ -53,11 +53,17 @@
  * Included Files
  ****************************************************************************/
 
+#include "sctlr.h"
+
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
 /* Cache definitions ********************************************************/
+
+#define CP15_CACHE_INVALIDATE       0
+#define CP15_CACHE_CLEAN            1
+#define CP15_CACHE_CLEANINVALIDATE  2
 
 /* L1 Memory */
 
@@ -226,6 +232,7 @@
   mrc p15, 0, \tmp, c1, c0, 0 /* Read SCTLR */
   orr \tmp, \tmp, #(0x1 << 2) /* Enable D cache */
   mcr p15, 0, \tmp, c1, c0, 0 /* Update the SCTLR */
+  isb
 .endm
 
 /****************************************************************************
@@ -246,6 +253,7 @@
   mrc p15, 0, \tmp, c1, c0, 0 /* Read SCTLR */
   bic \tmp, \tmp, #(0x1 << 2) /* Disable D cache */
   mcr p15, 0, \tmp, c1, c0, 0 /* Update the SCTLR */
+  isb
 .endm
 
 /****************************************************************************
@@ -266,6 +274,7 @@
   mrc p15, 0, \tmp, c1, c0, 0  /* Read SCTLR */
   orr \tmp, \tmp, #(0x1 << 12) /* Enable I cache */
   mcr p15, 0, \tmp, c1, c0, 0  /* Update the SCTLR */
+  isb
 .endm
 
 /****************************************************************************
@@ -286,6 +295,7 @@
   mrc p15, 0, \tmp, c1, c0, 0  /* Read SCTLR */
   bic \tmp, \tmp, #(0x1 << 12) /* Disable I cache */
   mcr p15, 0, \tmp, c1, c0, 0  /* Update the SCTLR */
+  isb
 .endm
 
 /****************************************************************************
@@ -305,6 +315,7 @@
 .macro cp15_invalidate_icache_inner_sharable, tmp
   mov \tmp, #0
   mrc p15, 0, \tmp, c7, c1, 0 /* ICIALLUIS */
+  isb
 .endm
 
 /****************************************************************************
@@ -324,10 +335,11 @@
 .macro cp15_invalidate_btb_inner_sharable, tmp
   mov \tmp, #0
   mrc p15, 0, \tmp, c7, c1, 6 /* BPIALLIS */
+  isb
 .endm
 
 /****************************************************************************
- * Name: cp15_invalidate_icache
+ * Name: cp15_invalidate_icache_all
  *
  * Description:
  *   Invalidate all instruction caches to PoU, also flushes branch target
@@ -341,9 +353,10 @@
  *
  ****************************************************************************/
 
-.macro cp15_invalidate_icache, tmp
+.macro cp15_invalidate_icache_all, tmp
   mov \tmp, #0
   mrc p15, 0, \tmp, c7, c5, 0 /* ICIALLU */
+  isb
 .endm
 
 /****************************************************************************
@@ -362,6 +375,7 @@
 
 .macro cp15_invalidate_icache_bymva, va
   mrc p15, 0, \va, c7, c5, 1 /* ICIMVAU */
+  isb
 .endm
 
 /****************************************************************************
@@ -381,6 +395,7 @@
 .macro cp15_flush_btb, tmp
   mov \tmp, #0
   mrc p15, 0, \tmp, c7, c5, 6 /* BPIALL */
+  isb
 .endm
 
 /****************************************************************************
@@ -397,9 +412,9 @@
  *
  ****************************************************************************/
 
-.macro cp15_flush_btb_bymva, tmp
-  mov \tmp, #0
-  mrc p15, 0, \tmp, c7, c5, 7 /* BPIMVA */
+.macro cp15_flush_btb_bymva, va
+  mrc p15, 0, \va, c7, c5, 7 /* BPIMVA */
+  isb
 .endm
 
 /****************************************************************************
@@ -418,6 +433,7 @@
 
 .macro cp15_invalidate_dcacheline_bymva, va
   mrc p15, 0, \va, c7, c6, 1 /* DCIMVAC */
+  isb
 .endm
 
 /****************************************************************************
@@ -436,6 +452,7 @@
 
 .macro cp15_invalidate_dcacheline_bysetway, setway
   mrc p15, 0, \setway, c7, c6, 2 /* DCISW */
+  isb
 .endm
 
 /****************************************************************************
@@ -454,6 +471,7 @@
 
 .macro cp15_clean_dcache_bymva, va
   mrc p15, 0, \va, c7, c10, 1 /* DCCMVAC */
+  isb
 .endm
 
 /****************************************************************************
@@ -472,6 +490,7 @@
 
 .macro cp15_clean_dcache_bysetway, setway
   mrc p15, 0, \setway, c7, c10, 2 /* DCCSW */
+  isb
 .endm
 
 /****************************************************************************
@@ -488,8 +507,9 @@
  *
  ****************************************************************************/
 
-.macro cp15_clean_ucache_bymva, setway
-  mrc p15, 0, \setway, c7, c11, 1 /* DCCMVAU */
+.macro cp15_clean_ucache_bymva, va
+  mrc p15, 0, \va, c7, c11, 1 /* DCCMVAU */
+  isb
 .endm
 
 /****************************************************************************
@@ -508,6 +528,7 @@
 
 .macro cp15_cleaninvalidate_dcacheline_bymva, va
   mrc p15, 0, \va, c7, c14, 1 /* DCCIMVAC */
+  isb
 .endm
 
 /****************************************************************************
@@ -526,6 +547,7 @@
 
 .macro cp15_cleaninvalidate_dcacheline, setway
   mrc p15, 0, \setway, c7, c14, 2 /* DCCISW */
+  isb
 .endm
 
 #endif /* __ASSEMBLY__ */
@@ -552,15 +574,12 @@
 
 static inline void cp15_enable_dcache(void)
 {
-  __asm__ __volatile__
-    (
-      "\tmrc  p15, 0, r0, c1, c0, 0\n"  /* Read SCTLR */
-      "\torr  r0, r0, #(1 << 2)\n"      /* Enable D cache */
-      "\tmcr  p15, 0, r0, c1, c0, 0\n"  /* Update the SCTLR */
-      :
-      :
-      : "r0", "memory"
-    );
+  uint32_t sctlr;
+
+  sctlr = CP15_GET(SCTLR);
+  sctlr |= SCTLR_C;
+  CP15_SET(SCTLR, sctlr);
+  ARM_ISB();
 }
 
 /****************************************************************************
@@ -579,15 +598,12 @@ static inline void cp15_enable_dcache(void)
 
 static inline void cp15_disable_dcache(void)
 {
-  __asm__ __volatile__
-    (
-      "\tmrc  p15, 0, r0, c1, c0, 0\n"  /* Read SCTLR */
-      "\tbic  r0, r0, #(1 << 2)\n"      /* Disable D cache */
-      "\tmcr  p15, 0, r0, c1, c0, 0\n"  /* Update the SCTLR */
-      :
-      :
-      : "r0", "memory"
-    );
+  uint32_t sctlr;
+
+  sctlr = CP15_GET(SCTLR);
+  sctlr &= ~SCTLR_C;
+  CP15_SET(SCTLR, sctlr);
+  ARM_ISB();
 }
 
 /****************************************************************************
@@ -606,15 +622,12 @@ static inline void cp15_disable_dcache(void)
 
 static inline void cp15_enable_icache(void)
 {
-  __asm__ __volatile__
-    (
-      "\tmrc  p15, 0, r0, c1, c0, 0\n"  /* Read SCTLR */
-      "\torr  r0, r0, #(1 << 12)\n"     /* Enable I cache */
-      "\tmcr  p15, 0, r0, c1, c0, 0\n"  /* Update the SCTLR */
-      :
-      :
-      : "r0", "memory"
-    );
+  uint32_t sctlr;
+
+  sctlr = CP15_GET(SCTLR);
+  sctlr |= SCTLR_I;
+  CP15_SET(SCTLR, sctlr);
+  ARM_ISB();
 }
 
 /****************************************************************************
@@ -633,15 +646,12 @@ static inline void cp15_enable_icache(void)
 
 static inline void cp15_disable_icache(void)
 {
-  __asm__ __volatile__
-    (
-      "\tmrc  p15, 0, r0, c1, c0, 0\n"  /* Read SCTLR */
-      "\tbic  r0, r0, #(1 << 12)\n"     /* Disable I cache */
-      "\tmcr  p15, 0, r0, c1, c0, 0\n"  /* Update the SCTLR */
-      :
-      :
-      : "r0", "memory"
-    );
+  uint32_t sctlr;
+
+  sctlr = CP15_GET(SCTLR);
+  sctlr &= ~SCTLR_I;
+  CP15_SET(SCTLR, sctlr);
+  ARM_ISB();
 }
 
 /****************************************************************************
@@ -660,14 +670,8 @@ static inline void cp15_disable_icache(void)
 
 static inline void cp15_invalidate_icache_inner_sharable(void)
 {
-  __asm__ __volatile__
-    (
-      "\tmov r0, #0\n"
-      "\tmcr p15, 0, r0, c7, c1, 0\n" /* ICIALLUIS */
-      :
-      :
-      : "r0", "memory"
-    );
+  CP15_SET(ICIALLUIS, 0);
+  ARM_ISB();
 }
 
 /****************************************************************************
@@ -686,18 +690,12 @@ static inline void cp15_invalidate_icache_inner_sharable(void)
 
 static inline void cp15_invalidate_btb_inner_sharable(void)
 {
-  __asm__ __volatile__
-    (
-      "\tmov r0, #0\n"
-      "\tmcr p15, 0, r0, c7, c1, 6\n" /* BPIALLIS */
-      :
-      :
-      : "r0", "memory"
-    );
+  CP15_SET(BPIALLIS, 0);
+  ARM_ISB();
 }
 
 /****************************************************************************
- * Name: cp15_invalidate_icache
+ * Name: cp15_invalidate_icache_all
  *
  * Description:
  *   Invalidate all instruction caches to PoU, also flushes branch target
@@ -711,16 +709,10 @@ static inline void cp15_invalidate_btb_inner_sharable(void)
  *
  ****************************************************************************/
 
-static inline void cp15_invalidate_icache(void)
+static inline void cp15_invalidate_icache_all(void)
 {
-  __asm__ __volatile__
-    (
-      "\tmov r0, #0\n"
-      "\tmcr p15, 0, r0, c7, c5, 0\n" /* ICIALLU */
-      :
-      :
-      : "r0", "memory"
-    );
+  CP15_SET(ICIALLU, 0);
+  ARM_ISB();
 }
 
 /****************************************************************************
@@ -739,13 +731,8 @@ static inline void cp15_invalidate_icache(void)
 
 static inline void cp15_invalidate_icache_bymva(unsigned int va)
 {
-  __asm__ __volatile__
-    (
-      "\tmcr p15, 0, %0, c7, c5, 1\n" /* ICIMVAU */
-      :
-      : "r" (va)
-      : "memory"
-    );
+  CP15_SET(ICIMVAU, va);
+  ARM_ISB();
 }
 
 /****************************************************************************
@@ -764,14 +751,8 @@ static inline void cp15_invalidate_icache_bymva(unsigned int va)
 
 static inline void cp15_flush_btb(void)
 {
-  __asm__ __volatile__
-    (
-      "\tmov r0, #0\n"
-      "\tmcr p15, 0, r0, c7, c5, 6\n" /* BPIALL */
-      :
-      :
-      : "r0", "memory"
-    );
+  CP15_SET(BPIALL, 0);
+  ARM_ISB();
 }
 
 /****************************************************************************
@@ -781,23 +762,17 @@ static inline void cp15_flush_btb(void)
  *   Invalidate branch predictor array entry by MVA
  *
  * Input Parameters:
- *   None
+ *   va - 32-bit value with VA format
  *
  * Returned Value:
  *   None
  *
  ****************************************************************************/
 
-static inline void cp15_flush_btb_bymva(void)
+static inline void cp15_flush_btb_bymva(unsigned int va)
 {
-  __asm__ __volatile__
-    (
-      "\tmov r0, #0\n"
-      "\tmcr p15, 0, r0, c7, c5, 7\n" /* BPIMVA */
-      :
-      :
-      : "r0", "memory"
-    );
+  CP15_SET(BPIMVA, va);
+  ARM_ISB();
 }
 
 /****************************************************************************
@@ -818,13 +793,8 @@ static inline void cp15_flush_btb_bymva(void)
 
 static inline void cp15_invalidate_dcacheline_bymva(unsigned int va)
 {
-  __asm__ __volatile__
-    (
-      "\tmcr p15, 0, %0, c7, c6, 1\n" /* DCIMVAC */
-      :
-      : "r" (va)
-      : "memory"
-    );
+  CP15_SET(DCIMVAC, va);
+  ARM_ISB();
 }
 
 /****************************************************************************
@@ -845,13 +815,8 @@ static inline void cp15_invalidate_dcacheline_bymva(unsigned int va)
 
 static inline void cp15_invalidate_dcacheline_bysetway(unsigned int setway)
 {
-  __asm__ __volatile__
-    (
-      "\tmcr p15, 0, %0, c7, c6, 2\n" /* DCISW */
-      :
-      : "r" (setway)
-      : "memory"
-    );
+  CP15_SET(DCISW, setway);
+  ARM_ISB();
 }
 
 /****************************************************************************
@@ -872,13 +837,8 @@ static inline void cp15_invalidate_dcacheline_bysetway(unsigned int setway)
 
 static inline void cp15_clean_dcache_bymva(unsigned int va)
 {
-  __asm__ __volatile__
-    (
-      "\tmcr p15, 0, %0, c7, c10, 1\n" /* DCCMVAC */
-      :
-      : "r" (va)
-      : "memory"
-    );
+  CP15_SET(DCCMVAC, va);
+  ARM_ISB();
 }
 
 /****************************************************************************
@@ -897,13 +857,8 @@ static inline void cp15_clean_dcache_bymva(unsigned int va)
 
 static inline void cp15_clean_dcache_bysetway(unsigned int setway)
 {
-  __asm__ __volatile__
-    (
-      "\tmcr p15, 0, %0, c7, c10, 2\n" /* DCCSW */
-      :
-      : "r" (setway)
-      : "memory"
-    );
+  CP15_SET(DCCSW, setway);
+  ARM_ISB();
 }
 
 /****************************************************************************
@@ -913,22 +868,17 @@ static inline void cp15_clean_dcache_bysetway(unsigned int setway)
  *   Clean unified cache line by MVA
  *
  * Input Parameters:
- *   setway - 32-bit value with VA format
+ *   va - 32-bit value with VA format
  *
  * Returned Value:
  *   None
  *
  ****************************************************************************/
 
-static inline void cp15_clean_ucache_bymva(unsigned int setway)
+static inline void cp15_clean_ucache_bymva(unsigned int va)
 {
-  __asm__ __volatile__
-    (
-      "\tmcr p15, 0, %0, c7, c11, 1\n" /* DCCMVAU */
-      :
-      : "r" (setway)
-      : "memory"
-    );
+  CP15_SET(DCCMVAU, va);
+  ARM_ISB();
 }
 
 /****************************************************************************
@@ -947,13 +897,8 @@ static inline void cp15_clean_ucache_bymva(unsigned int setway)
 
 static inline void cp15_cleaninvalidate_dcacheline_bymva(unsigned int va)
 {
-  __asm__ __volatile__
-    (
-      "\tmcr p15, 0, r0, c7, c14, 1\n" /* DCCIMVAC */
-      :
-      : "r" (va)
-      : "memory"
-    );
+  CP15_SET(DCCIMVAC, va);
+  ARM_ISB();
 }
 
 /****************************************************************************
@@ -972,13 +917,8 @@ static inline void cp15_cleaninvalidate_dcacheline_bymva(unsigned int va)
 
 static inline void cp15_cleaninvalidate_dcacheline(unsigned int setway)
 {
-  __asm__ __volatile__
-    (
-      "\tmcr p15, 0, %0, c7, c14, 2\n" /* DCCISW */
-      :
-      : "r" (setway)
-      : "memory"
-    );
+  CP15_SET(DCCISW, setway);
+  ARM_ISB();
 }
 
 #endif /* __ASSEMBLY__ */
@@ -999,6 +939,40 @@ extern "C"
 /****************************************************************************
  * Public Function Prototypes
  ****************************************************************************/
+
+/****************************************************************************
+ * Name: cp15_invalidate_icache
+ *
+ * Description:
+ *   Invalidate the instruction cache within the specified region.
+ *
+ * Input Parameters:
+ *   start - virtual start address of region
+ *   end   - virtual end address of region + 1
+ *
+ * Returned Value:
+ *   None
+ *
+ ****************************************************************************/
+
+void cp15_invalidate_icache(uintptr_t start, uintptr_t end);
+
+/****************************************************************************
+ * Name: cp15_dcache_op_level
+ *
+ * Description:
+ *   Dcache operation from level
+ *
+ * Input Parameters:
+ *   level - cache level
+ *   op    - CP15_CACHE_XX
+ *
+ * Returned Value:
+ *   None
+ *
+ ****************************************************************************/
+
+void cp15_dcache_op_level(uint32_t level, int op);
 
 /****************************************************************************
  * Name: cp15_coherent_dcache
@@ -1124,10 +1098,10 @@ void cp15_flush_dcache(uintptr_t start, uintptr_t end);
 void cp15_flush_dcache_all(void);
 
 /****************************************************************************
- * Name: cp15_cache_size
+ * Name: cp15_icache_size
  *
  * Description:
- *   Get cp15 cache size in byte
+ *   Get cp15 icache size in byte
  *
  * Input Parameters:
  *   None
@@ -1137,7 +1111,55 @@ void cp15_flush_dcache_all(void);
  *
  ****************************************************************************/
 
-uint32_t cp15_cache_size(void);
+uint32_t cp15_icache_size(void);
+
+/****************************************************************************
+ * Name: cp15_cache_size
+ *
+ * Description:
+ *   Get cp15 dcache size in byte
+ *
+ * Input Parameters:
+ *   None
+ *
+ * Returned Value:
+ *   Cache size in byte
+ *
+ ****************************************************************************/
+
+uint32_t cp15_dcache_size(void);
+
+/****************************************************************************
+ * Name: cp15_icache_linesize
+ *
+ * Description:
+ *   Get cp15 icache linesize in byte
+ *
+ * Input Parameters:
+ *   None
+ *
+ * Returned Value:
+ *   ICache linesize in byte
+ *
+ ****************************************************************************/
+
+uint32_t cp15_icache_linesize(void);
+
+/****************************************************************************
+ * Name: cp15_dcache_linesize
+ *
+ * Description:
+ *   Get cp15 dcache linesize in byte
+ *
+ * Input Parameters:
+ *   None
+ *
+ * Returned Value:
+ *   DCache linesize in byte
+ *
+ ****************************************************************************/
+
+uint32_t cp15_dcache_linesize(void);
 
 #undef EXTERN
 #ifdef __cplusplus

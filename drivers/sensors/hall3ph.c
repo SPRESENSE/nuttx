@@ -38,7 +38,7 @@
 #include <nuttx/kmalloc.h>
 #include <nuttx/fs/fs.h>
 #include <nuttx/arch.h>
-#include <nuttx/semaphore.h>
+#include <nuttx/mutex.h>
 #include <nuttx/sensors/hall3ph.h>
 
 #include <arch/irq.h>
@@ -52,7 +52,7 @@
 struct hall3_upperhalf_s
 {
   uint8_t                       crefs;
-  sem_t                         exclsem;
+  mutex_t                       lock;
   FAR struct hall3_lowerhalf_s *lower;
 };
 
@@ -80,10 +80,6 @@ static const struct file_operations g_hall3ops =
   hall3_write, /* write */
   NULL,        /* seek */
   hall3_ioctl, /* ioctl */
-  NULL         /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL       /* unlink */
-#endif
 };
 
 /****************************************************************************
@@ -109,7 +105,7 @@ static int hall3_open(FAR struct file *filep)
 
   /* Get exclusive access to the device structures */
 
-  ret = nxsem_wait(&upper->exclsem);
+  ret = nxmutex_lock(&upper->lock);
   if (ret < 0)
     {
       goto errout;
@@ -126,7 +122,7 @@ static int hall3_open(FAR struct file *filep)
       /* More than 255 opens; uint8_t overflows to zero */
 
       ret = -EMFILE;
-      goto errout_with_sem;
+      goto errout_with_lock;
     }
 
   /* Check if this is the first time that the driver has been opened. */
@@ -143,7 +139,7 @@ static int hall3_open(FAR struct file *filep)
       ret = lower->ops->setup(lower);
       if (ret < 0)
         {
-          goto errout_with_sem;
+          goto errout_with_lock;
         }
     }
 
@@ -152,8 +148,8 @@ static int hall3_open(FAR struct file *filep)
   upper->crefs = tmp;
   ret = OK;
 
-errout_with_sem:
-  nxsem_post(&upper->exclsem);
+errout_with_lock:
+  nxmutex_unlock(&upper->lock);
 
 errout:
   return ret;
@@ -177,7 +173,7 @@ static int hall3_close(FAR struct file *filep)
 
   /* Get exclusive access to the device structures */
 
-  ret = nxsem_wait(&upper->exclsem);
+  ret = nxmutex_lock(&upper->lock);
   if (ret < 0)
     {
       goto errout;
@@ -207,7 +203,7 @@ static int hall3_close(FAR struct file *filep)
       lower->ops->shutdown(lower);
     }
 
-  nxsem_post(&upper->exclsem);
+  nxmutex_unlock(&upper->lock);
   ret = OK;
 
 errout:
@@ -272,7 +268,7 @@ static int hall3_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 
   /* Get exclusive access to the device structures */
 
-  ret = nxsem_wait(&upper->exclsem);
+  ret = nxmutex_lock(&upper->lock);
   if (ret < 0)
     {
       return ret;
@@ -301,7 +297,7 @@ static int hall3_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
         break;
     }
 
-  nxsem_post(&upper->exclsem);
+  nxmutex_unlock(&upper->lock);
   return ret;
 }
 
@@ -349,7 +345,7 @@ int hall3_register(FAR const char *devpath,
    * (it was already zeroed by kmm_zalloc())
    */
 
-  nxsem_init(&upper->exclsem, 0, 1);
+  nxmutex_init(&upper->lock);
   upper->lower = lower;
 
   /* Register the Hall effect sensor device */

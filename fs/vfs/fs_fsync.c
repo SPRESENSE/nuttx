@@ -36,8 +36,6 @@
 
 #include "inode/inode.h"
 
-#ifndef CONFIG_DISABLE_MOUNTPOINT
-
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
@@ -65,14 +63,19 @@ int file_fsync(FAR struct file *filep)
   inode = filep->f_inode;
   if (inode != NULL)
     {
-      if (INODE_IS_MOUNTPT(inode) && inode->u.i_mops &&
-          inode->u.i_mops->sync)
+#ifndef CONFIG_DISABLE_MOUNTPOINT
+      if (INODE_IS_MOUNTPT(inode))
         {
-          /* Yes, then tell the mountpoint to sync this file */
+          if (inode->u.i_mops && inode->u.i_mops->sync)
+            {
+              /* Yes, then tell the mountpoint to sync this file */
 
-          return inode->u.i_mops->sync(filep);
+              return inode->u.i_mops->sync(filep);
+            }
         }
-      else if (inode->u.i_ops && inode->u.i_ops->ioctl)
+      else
+#endif
+      if (inode->u.i_ops && inode->u.i_ops->ioctl)
         {
           ret = inode->u.i_ops->ioctl(filep, BIOC_FLUSH, 0);
           return ret >= 0 ? 0 : ret;
@@ -125,5 +128,3 @@ errout:
   set_errno(-ret);
   return ERROR;
 }
-
-#endif /* !CONFIG_DISABLE_MOUNTPOINT */

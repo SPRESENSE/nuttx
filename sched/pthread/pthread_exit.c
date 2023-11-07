@@ -63,44 +63,45 @@
 void nx_pthread_exit(FAR void *exit_value)
 {
   FAR struct tcb_s *tcb = this_task();
-  sigset_t set = ALL_SIGNAL_SET;
+  sigset_t set;
   int status;
 
   sinfo("exit_value=%p\n", exit_value);
 
   DEBUGASSERT(tcb != NULL);
-  DEBUGASSERT((tcb->flags & TCB_FLAG_TTYPE_MASK) == TCB_FLAG_TTYPE_PTHREAD);
 
   /* Block any signal actions that would awaken us while were
    * are performing the JOIN handshake.
    */
 
+  sigfillset(&set);
   nxsig_procmask(SIG_SETMASK, &set, NULL);
 
   /* Complete pending join operations */
 
-  status = pthread_completejoin(getpid(), exit_value);
+  status = pthread_completejoin(nxsched_gettid(), exit_value);
   if (status != OK)
     {
       /* Assume that the join completion failured because this
        * not really a pthread.  Exit by calling exit().
        */
 
-      exit(EXIT_FAILURE);
+      _exit(EXIT_FAILURE);
     }
 
   /* Perform common task termination logic.  This will get called again later
-   * through logic kicked off by _exit().  However, we need to call it before
-   * calling _exit() in order certain operations if this is the last thread
-   * of a task group:  (2) To handle atexit() and on_exit() callbacks and
-   * (2) so that we can flush buffered I/O (which may required suspending).
+   * through logic kicked off by up_exit().
+   *
+   * REVISIT: Tt should not be necessary to call this here, but releasing the
+   * task group (especially the group file list) requires that it is done
+   * here.
+   *
+   * The reason? up_exit removes the current process from the ready-to-run
+   * list and trying to execute code that depends on this_task() crashes at
+   * once, or does something very naughty.
    */
 
-  nxtask_exithook(tcb, EXIT_SUCCESS, false);
-
-  /* Then just exit, retaining all file descriptors and without
-   * calling atexit() functions.
-   */
+  nxtask_exithook(tcb, status);
 
   up_exit(EXIT_SUCCESS);
 }

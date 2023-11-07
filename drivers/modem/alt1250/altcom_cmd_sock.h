@@ -18,8 +18,8 @@
  *
  ****************************************************************************/
 
-#ifndef __DRIVERS_MODEM_ALT1250_ALTCOM_CMD_SOCK_H__
-#define __DRIVERS_MODEM_ALT1250_ALTCOM_CMD_SOCK_H__
+#ifndef __DRIVERS_MODEM_ALT1250_ALTCOM_CMD_SOCK_H
+#define __DRIVERS_MODEM_ALT1250_ALTCOM_CMD_SOCK_H
 
 /****************************************************************************
  * Included Files
@@ -158,6 +158,14 @@
  */
 
 #define ALTCOM_IPV6_V6ONLY         27 /* Refer to IPV6_V6ONLY on lwIP */
+
+/* Options for level ALTCOM_SHUT
+ * Referenced from sockets.h of lwIP-v2.02
+ */
+
+#define ALTCOM_SHUT_RD             0 /* Refer to SHUT_RD on lwIP */
+#define ALTCOM_SHUT_WR             1 /* Refer to SHUT_WR on lwIP */
+#define ALTCOM_SHUT_RDWR           2 /* Refer to SHUT_RDWR on lwIP */
 
 /****************************************************************************
  * Public Types
@@ -506,4 +514,4 @@ begin_packed_struct struct apicmd_selectres_s
   altcom_fd_set exceptset;
 } end_packed_struct;
 
-#endif  /* __DRIVERS_MODEM_ALT1250_ALTCOM_CMD_SOCK_H__ */
+#endif  /* __DRIVERS_MODEM_ALT1250_ALTCOM_CMD_SOCK_H */

@@ -32,7 +32,7 @@
 #include <arch/irq.h>
 
 #include <nuttx/kmalloc.h>
-#include <nuttx/semaphore.h>
+#include <nuttx/mutex.h>
 #include <nuttx/net/netconfig.h>
 #include <nuttx/net/net.h>
 #include <nuttx/net/netdev.h>
@@ -48,14 +48,14 @@
 
 /* The array containing all IPPROTO_ICMP socket connections */
 
-#ifndef CONFIG_NET_ALLOC_CONNS
-static struct icmp_conn_s g_icmp_connections[CONFIG_NET_ICMP_NCONNS];
+#if CONFIG_NET_ICMP_PREALLOC_CONNS > 0
+static struct icmp_conn_s g_icmp_connections[CONFIG_NET_ICMP_PREALLOC_CONNS];
 #endif
 
 /* A list of all free IPPROTO_ICMP socket connections */
 
 static dq_queue_t g_free_icmp_connections;
-static sem_t g_free_sem = SEM_INITIALIZER(1);
+static mutex_t g_free_lock = NXMUTEX_INITIALIZER;
 
 /* A list of all allocated IPPROTO_ICMP socket connections */
 
@@ -76,10 +76,10 @@ static dq_queue_t g_active_icmp_connections;
 
 void icmp_sock_initialize(void)
 {
-#ifndef CONFIG_NET_ALLOC_CONNS
+#if CONFIG_NET_ICMP_PREALLOC_CONNS > 0
   int i;
 
-  for (i = 0; i < CONFIG_NET_ICMP_NCONNS; i++)
+  for (i = 0; i < CONFIG_NET_ICMP_PREALLOC_CONNS; i++)
     {
       /* Move the connection structure to the free list */
 
@@ -104,18 +104,27 @@ FAR struct icmp_conn_s *icmp_alloc(void)
   FAR struct icmp_conn_s *conn = NULL;
   int ret;
 
-  /* The free list is protected by a semaphore (that behaves like a mutex). */
+  /* The free list is protected by a mutex. */
 
-  ret = net_lockedwait(&g_free_sem);
+  ret = nxmutex_lock(&g_free_lock);
   if (ret >= 0)
     {
-#ifdef CONFIG_NET_ALLOC_CONNS
+#if CONFIG_NET_ICMP_ALLOC_CONNS > 0
       if (dq_peek(&g_free_icmp_connections) == NULL)
         {
-          conn = kmm_zalloc(sizeof(*conn) * CONFIG_NET_ICMP_NCONNS);
+#if CONFIG_NET_ICMP_MAX_CONNS > 0
+          if (dq_count(&g_active_icmp_connections) +
+              CONFIG_NET_ICMP_ALLOC_CONNS >= CONFIG_NET_ICMP_MAX_CONNS)
+            {
+              nxmutex_unlock(&g_free_lock);
+              return NULL;
+            }
+#endif
+
+          conn = kmm_zalloc(sizeof(*conn) * CONFIG_NET_ICMP_ALLOC_CONNS);
           if (conn != NULL)
             {
-              for (ret = 0; ret < CONFIG_NET_ICMP_NCONNS; ret++)
+              for (ret = 0; ret < CONFIG_NET_ICMP_ALLOC_CONNS; ret++)
                 {
                   dq_addlast(&conn[ret].sconn.node,
                              &g_free_icmp_connections);
@@ -132,7 +141,7 @@ FAR struct icmp_conn_s *icmp_alloc(void)
           dq_addlast(&conn->sconn.node, &g_active_icmp_connections);
         }
 
-      nxsem_post(&g_free_sem);
+      nxmutex_unlock(&g_free_lock);
     }
 
   return conn;
@@ -149,13 +158,13 @@ FAR struct icmp_conn_s *icmp_alloc(void)
 
 void icmp_free(FAR struct icmp_conn_s *conn)
 {
-  /* The free list is protected by a semaphore (that behaves like a mutex). */
+  /* The free list is protected by a mutex. */
 
   DEBUGASSERT(conn->crefs == 0);
 
-  /* Take the semaphore (perhaps waiting) */
+  /* Take the mutex (perhaps waiting) */
 
-  net_lockedwait_uninterruptible(&g_free_sem);
+  nxmutex_lock(&g_free_lock);
 
   /* Is this the last reference on the connection?  It might not be if the
    * socket was cloned.
@@ -173,16 +182,25 @@ void icmp_free(FAR struct icmp_conn_s *conn)
 
       dq_rem(&conn->sconn.node, &g_active_icmp_connections);
 
-      /* Clear the connection structure */
+      /* If this is a preallocated or a batch allocated connection store it
+       * in the free connections list. Else free it.
+       */
 
-      memset(conn, 0, sizeof(*conn));
-
-      /* Free the connection */
-
-      dq_addlast(&conn->sconn.node, &g_free_icmp_connections);
+#if CONFIG_NET_ICMP_ALLOC_CONNS == 1
+      if (conn < g_icmp_connections || conn >= (g_icmp_connections +
+          CONFIG_NET_ICMP_PREALLOC_CONNS))
+        {
+          kmm_free(conn);
+        }
+      else
+#endif
+        {
+          memset(conn, 0, sizeof(*conn));
+          dq_addlast(&conn->sconn.node, &g_free_icmp_connections);
+        }
     }
 
-  nxsem_post(&g_free_sem);
+  nxmutex_unlock(&g_free_lock);
 }
 
 /****************************************************************************
@@ -263,12 +281,46 @@ FAR struct icmp_conn_s *icmp_findconn(FAR struct net_driver_s *dev,
 
   for (conn = icmp_nextconn(NULL); conn != NULL; conn = icmp_nextconn(conn))
     {
-      if (conn->id == id && conn->dev == dev && conn->nreqs > 0)
+      if (conn->id == id && conn->dev == dev)
         {
           return conn;
         }
     }
 
   return conn;
+}
+
+/****************************************************************************
+ * Name: icmp_foreach
+ *
+ * Description:
+ *   Enumerate each ICMP connection structure. This function will terminate
+ *   when either (1) all connection have been enumerated or (2) when a
+ *   callback returns any non-zero value.
+ *
+ * Assumptions:
+ *   This function is called from network logic at with the network locked.
+ *
+ ****************************************************************************/
+
+int icmp_foreach(icmp_callback_t callback, FAR void *arg)
+{
+  FAR struct icmp_conn_s *conn;
+  int ret = 0;
+
+  if (callback != NULL)
+    {
+      for (conn = icmp_nextconn(NULL); conn != NULL;
+           conn = icmp_nextconn(conn))
+        {
+          ret = callback(conn, arg);
+          if (ret != 0)
+            {
+              break;
+            }
+        }
+    }
+
+  return ret;
 }
 #endif /* CONFIG_NET_ICMP */

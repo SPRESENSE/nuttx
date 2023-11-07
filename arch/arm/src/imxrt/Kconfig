@@ -151,6 +151,47 @@ config ARCH_FAMILY_IMXRT106x
 	select ARMV7M_HAVE_DTCM
 	select IMXRT_HIGHSPEED_GPIO
 
+config IMXRT_HAVE_OTA_PARTITION
+	bool
+	default n
+
+config IMXRT_PROGMEM
+	bool "Flash progmem support"
+	default n
+	select ARCH_HAVE_PROGMEM
+	---help---
+		Add progmem support, start block and end block options are provided to
+		obtain an uniform flash memory mapping.
+
+menu "Application Image Configuration"
+choice
+	prompt "Application Image Format"
+	default IMXRT_APP_FORMAT_LEGACY
+	---help---
+		Depending on the chosen 2nd stage bootloader, the application may
+		be required to be perform a specific startup routine. Furthermore,
+		the image binary must be formatted according to the definition from
+		the 2nd stage bootloader.
+
+config IMXRT_APP_FORMAT_LEGACY
+	bool "Legacy format"
+	---help---
+		This is the legacy application image format.
+
+config IMXRT_APP_FORMAT_MCUBOOT
+	bool "MCUboot-bootable format"
+	select IMXRT_HAVE_OTA_PARTITION
+	depends on EXPERIMENTAL
+	---help---
+		The MCUboot support of loading the firmware images.		
+
+comment "MCUboot support depends on CONFIG_EXPERIMENTAL"
+	depends on !EXPERIMENTAL
+
+endchoice # Application Image Format
+
+endmenu # Application Image Configuration
+
 # Peripheral support
 
 config IMXRT_USDHC
@@ -169,6 +210,18 @@ config IMXRT_FLEXCAN
 	bool
 	default n
 	select ARCH_HAVE_NETDEV_STATISTICS
+
+config IMXRT_FLEXCAN_ECC
+	bool
+	default n
+
+config IMXRT_FLEXCAN1_FD
+	bool
+	default n
+
+config IMXRT_FLEXCAN2_FD
+	bool
+	default n
 
 config IMXRT_FLEXPWM
 	bool
@@ -495,11 +548,33 @@ menu "FLEXCAN1 Configuration"
 
 config FLEXCAN1_BITRATE
 	int "CAN bitrate"
+	depends on !(NET_CAN_CANFD && IMXRT_FLEXCAN1_FD)
 	default 1000000
 
 config FLEXCAN1_SAMPLEP
 	int "CAN sample point"
+	depends on !(NET_CAN_CANFD && IMXRT_FLEXCAN1_FD)
 	default 80
+
+config FLEXCAN1_ARBI_BITRATE
+	int "CAN FD Arbitration phase bitrate"
+	depends on NET_CAN_CANFD && IMXRT_FLEXCAN1_FD
+	default 1000000
+
+config FLEXCAN1_ARBI_SAMPLEP
+	int "CAN FD Arbitration phase sample point"
+	depends on NET_CAN_CANFD && IMXRT_FLEXCAN1_FD
+	default 80
+
+config FLEXCAN1_DATA_BITRATE
+	int "CAN FD Data phase bitrate"
+	depends on NET_CAN_CANFD && IMXRT_FLEXCAN1_FD
+	default 4000000
+
+config FLEXCAN1_DATA_SAMPLEP
+	int "CAN FD Data phase sample point"
+	depends on NET_CAN_CANFD && IMXRT_FLEXCAN1_FD
+	default 90
 
 endmenu # IMXRT_FLEXCAN1
 
@@ -508,11 +583,33 @@ menu "FLEXCAN2 Configuration"
 
 config FLEXCAN2_BITRATE
 	int "CAN bitrate"
+	depends on !(NET_CAN_CANFD && IMXRT_FLEXCAN2_FD)
 	default 1000000
 
 config FLEXCAN2_SAMPLEP
 	int "CAN sample point"
+	depends on !(NET_CAN_CANFD && IMXRT_FLEXCAN2_FD)
 	default 80
+
+config FLEXCAN2_ARBI_BITRATE
+	int "CAN FD Arbitration phase bitrate"
+	depends on NET_CAN_CANFD && IMXRT_FLEXCAN2_FD
+	default 1000000
+
+config FLEXCAN2_ARBI_SAMPLEP
+	int "CAN FD Arbitration phase sample point"
+	depends on NET_CAN_CANFD && IMXRT_FLEXCAN2_FD
+	default 80
+
+config FLEXCAN2_DATA_BITRATE
+	int "CAN FD Data phase bitrate"
+	depends on NET_CAN_CANFD && IMXRT_FLEXCAN2_FD
+	default 4000000
+
+config FLEXCAN2_DATA_SAMPLEP
+	int "CAN FD Data phase sample point"
+	depends on NET_CAN_CANFD && IMXRT_FLEXCAN2_FD
+	default 90
 
 endmenu # IMXRT_FLEXCAN2
 
@@ -588,9 +685,52 @@ config IMXRT_FLEXPWM1_MOD1
 
 if IMXRT_FLEXPWM1_MOD1
 
+config IMXRT_FLEXPWM1_MOD1_USE_OUT_B
+	bool "Use output B"
+	default n
+
 config IMXRT_FLEXPWM1_MOD1_COMP
 	bool "Use complementary output"
 	default n
+	depends on IMXRT_FLEXPWM1_MOD1_USE_OUT_B
+
+config IMXRT_FLEXPWM1_MOD1_TRIG
+	bool "Enable trigger generation"
+	default n
+	---help---
+		Use PWM submodule to trigger FLEXPWM1_PWM1_OUT_TRIG01 output
+		from submodule 1. This can be used to generate an
+		interrupt that can trigger ADC conversion or synchronize
+		other PWMs for example.
+
+choice
+	prompt "Trigger value source"
+	default IMXRT_FLEXPWM1_MOD1_TRIG_PER
+	depends on IMXRT_FLEXPWM1_MOD1_TRIG
+	---help---
+		PWM can use either duty cycle value or period value register
+		to generate the trigger. The trigger is generated when the timer
+		reaches the corresponding value.
+
+config IMXRT_FLEXPWM1_MOD1_TRIG_PER
+	bool "Period value"
+
+config IMXRT_FLEXPWM1_MOD1_TRIG_DUTY
+	bool "Duty cycle value"
+
+endchoice
+
+config IMXRT_FLEXPWM1_MOD1_SYNC_SRC
+	int "Synchronization source signal"
+	default -1
+	range -1 130
+	---help---
+		PWM module can be synchronized by an external signal. This
+		config option selects the signal's source. The number in
+		IMXRT_FLEXPWM1_MOD1_SYNC_SRC corresponds with the XBAR
+		number (please refer to the documentation for XBAR numbers).
+
+		-1 (default value) means the module is not to be synchronized.
 
 endif
 
@@ -600,9 +740,52 @@ config IMXRT_FLEXPWM1_MOD2
 
 if IMXRT_FLEXPWM1_MOD2
 
+config IMXRT_FLEXPWM1_MOD2_USE_OUT_B
+	bool "Use output B"
+	default n
+
 config IMXRT_FLEXPWM1_MOD2_COMP
 	bool "Use complementary output"
 	default n
+	depends on IMXRT_FLEXPWM1_MOD2_USE_OUT_B
+
+config IMXRT_FLEXPWM1_MOD2_TRIG
+	bool "Enable trigger generation"
+	default n
+	---help---
+		Use PWM submodule to trigger FLEXPWM1_PWM2_OUT_TRIG01 output
+		from submodule 1. This can be used to generate an
+		interrupt that can trigger ADC conversion or synchronize
+		other PWMs for example.
+
+choice
+	prompt "Trigger value source"
+	default IMXRT_FLEXPWM1_MOD2_TRIG_PER
+	depends on IMXRT_FLEXPWM1_MOD1_TRIG
+	---help---
+		PWM can use either duty cycle value or period value register
+		to generate the trigger. The trigger is generated when the timer
+		reaches the corresponding value.
+
+config IMXRT_FLEXPWM1_MOD2_TRIG_PER
+	bool "Period value"
+
+config IMXRT_FLEXPWM1_MOD2_TRIG_DUTY
+	bool "Duty cycle value"
+
+endchoice
+
+config IMXRT_FLEXPWM1_MOD2_SYNC_SRC
+	int "Synchronization source signal"
+	default -1
+	range -1 130
+	---help---
+		PWM module can be synchronized by an external signal. This
+		config option selects the signal's source. The number in
+		IMXRT_FLEXPWM1_MOD2_SYNC_SRC corresponds with the XBAR
+		number (please refer to the documentation for XBAR numbers).
+
+		-1 (default value) means the module is not to be synchronized.
 
 endif
 
@@ -612,9 +795,52 @@ config IMXRT_FLEXPWM1_MOD3
 
 if IMXRT_FLEXPWM1_MOD3
 
+config IMXRT_FLEXPWM1_MOD3_USE_OUT_B
+	bool "Use output B"
+	default n
+
 config IMXRT_FLEXPWM1_MOD3_COMP
 	bool "Use complementary output"
 	default n
+	depends on IMXRT_FLEXPWM1_MOD3_USE_OUT_B
+
+config IMXRT_FLEXPWM1_MOD3_TRIG
+	bool "Enable trigger generation"
+	default n
+	---help---
+		Use PWM submodule to trigger FLEXPWM1_PWM3_OUT_TRIG01 output
+		from submodule 1. This can be used to generate an
+		interrupt that can trigger ADC conversion or synchronize
+		other PWMs for example.
+
+choice
+	prompt "Trigger value source"
+	default IMXRT_FLEXPWM1_MOD3_TRIG_PER
+	depends on IMXRT_FLEXPWM1_MOD3_TRIG
+	---help---
+		PWM can use either duty cycle value or period value register
+		to generate the trigger. The trigger is generated when the timer
+		reaches the corresponding value.
+
+config IMXRT_FLEXPWM1_MOD3_TRIG_PER
+	bool "Period value"
+
+config IMXRT_FLEXPWM1_MOD3_TRIG_DUTY
+	bool "Duty cycle value"
+
+endchoice
+
+config IMXRT_FLEXPWM1_MOD3_SYNC_SRC
+	int "Synchronization source signal"
+	default -1
+	range -1 130
+	---help---
+		PWM module can be synchronized by an external signal. This
+		config option selects the signal's source. The number in
+		IMXRT_FLEXPWM1_MOD3_SYNC_SRC corresponds with the XBAR
+		number (please refer to the documentation for XBAR numbers).
+
+		-1 (default value) means the module is not to be synchronized.
 
 endif
 
@@ -624,9 +850,52 @@ config IMXRT_FLEXPWM1_MOD4
 
 if IMXRT_FLEXPWM1_MOD4
 
+config IMXRT_FLEXPWM1_MOD4_USE_OUT_B
+	bool "Use output B"
+	default n
+
 config IMXRT_FLEXPWM1_MOD4_COMP
 	bool "Use complementary output"
 	default n
+	depends on IMXRT_FLEXPWM1_MOD4_USE_OUT_B
+
+config IMXRT_FLEXPWM1_MOD4_TRIG
+	bool "Enable trigger generation"
+	default n
+	---help---
+		Use PWM submodule to trigger FLEXPWM1_PWM4_OUT_TRIG01 output
+		from submodule 1. This can be used to generate an
+		interrupt that can trigger ADC conversion or synchronize
+		other PWMs for example.
+
+choice
+	prompt "Trigger value source"
+	default IMXRT_FLEXPWM1_MOD4_TRIG_PER
+	depends on IMXRT_FLEXPWM1_MOD4_TRIG
+	---help---
+		PWM can use either duty cycle value or period value register
+		to generate the trigger. The trigger is generated when the timer
+		reaches the corresponding value.
+
+config IMXRT_FLEXPWM1_MOD4_TRIG_PER
+	bool "Period value"
+
+config IMXRT_FLEXPWM1_MOD4_TRIG_DUTY
+	bool "Duty cycle value"
+
+endchoice
+
+config IMXRT_FLEXPWM1_MOD4_SYNC_SRC
+	int "Synchronization source signal"
+	default -1
+	range -1 130
+	---help---
+		PWM module can be synchronized by an external signal. This
+		config option selects the signal's source. The number in
+		IMXRT_FLEXPWM1_MOD4_SYNC_SRC corresponds with the XBAR
+		number (please refer to the documentation for XBAR numbers).
+
+		-1 (default value) means the module is not to be synchronized.
 
 endif
 
@@ -641,9 +910,52 @@ config IMXRT_FLEXPWM2_MOD1
 
 if IMXRT_FLEXPWM2_MOD1
 
+config IMXRT_FLEXPWM2_MOD1_USE_OUT_B
+	bool "Use output B"
+	default n
+
 config IMXRT_FLEXPWM2_MOD1_COMP
 	bool "Use complementary output"
 	default n
+	depends on IMXRT_FLEXPWM2_MOD1_USE_OUT_B
+
+config IMXRT_FLEXPWM2_MOD1_TRIG
+	bool "Enable trigger generation"
+	default n
+	---help---
+		Use PWM submodule to trigger FLEXPWM2_PWM1_OUT_TRIG01 output
+		from submodule 1. This can be used to generate an
+		interrupt that can trigger ADC conversion or synchronize
+		other PWMs for example.
+
+choice
+	prompt "Trigger value source"
+	default IMXRT_FLEXPWM2_MOD1_TRIG_PER
+	depends on IMXRT_FLEXPWM2_MOD1_TRIG
+	---help---
+		PWM can use either duty cycle value or period value register
+		to generate the trigger. The trigger is generated when the timer
+		reaches the corresponding value.
+
+config IMXRT_FLEXPWM2_MOD1_TRIG_PER
+	bool "Period value"
+
+config IMXRT_FLEXPWM2_MOD1_TRIG_DUTY
+	bool "Duty cycle value"
+
+endchoice
+
+config IMXRT_FLEXPWM2_MOD1_SYNC_SRC
+	int "Synchronization source signal"
+	default -1
+	range -1 130
+	---help---
+		PWM module can be synchronized by an external signal. This
+		config option selects the signal's source. The number in
+		IMXRT_FLEXPWM2_MOD1_SYNC_SRC corresponds with the XBAR
+		number (please refer to the documentation for XBAR numbers).
+
+		-1 (default value) means the module is not to be synchronized.
 
 endif
 
@@ -653,9 +965,52 @@ config IMXRT_FLEXPWM2_MOD2
 
 if IMXRT_FLEXPWM2_MOD2
 
+config IMXRT_FLEXPWM2_MOD2_USE_OUT_B
+	bool "Use output B"
+	default n
+
 config IMXRT_FLEXPWM2_MOD2_COMP
 	bool "Use complementary output"
 	default n
+	depends on IMXRT_FLEXPWM2_MOD2_USE_OUT_B
+
+config IMXRT_FLEXPWM2_MOD2_TRIG
+	bool "Enable trigger generation"
+	default n
+	---help---
+		Use PWM submodule to trigger FLEXPWM2_PWM2_OUT_TRIG01 output
+		from submodule 1. This can be used to generate an
+		interrupt that can trigger ADC conversion or synchronize
+		other PWMs for example.
+
+choice
+	prompt "Trigger value source"
+	default IMXRT_FLEXPWM2_MOD2_TRIG_PER
+	depends on IMXRT_FLEXPWM2_MOD2_TRIG
+	---help---
+		PWM can use either duty cycle value or period value register
+		to generate the trigger. The trigger is generated when the timer
+		reaches the corresponding value.
+
+config IMXRT_FLEXPWM2_MOD2_TRIG_PER
+	bool "Period value"
+
+config IMXRT_FLEXPWM2_MOD2_TRIG_DUTY
+	bool "Duty cycle value"
+
+endchoice
+
+config IMXRT_FLEXPWM2_MOD2_SYNC_SRC
+	int "Synchronization source signal"
+	default -1
+	range -1 130
+	---help---
+		PWM module can be synchronized by an external signal. This
+		config option selects the signal's source. The number in
+		IMXRT_FLEXPWM2_MOD2_SYNC_SRC corresponds with the XBAR
+		number (please refer to the documentation for XBAR numbers).
+
+		-1 (default value) means the module is not to be synchronized.
 
 endif
 
@@ -665,9 +1020,52 @@ config IMXRT_FLEXPWM2_MOD3
 
 if IMXRT_FLEXPWM2_MOD3
 
+config IMXRT_FLEXPWM2_MOD3_USE_OUT_B
+	bool "Use output B"
+	default n
+
 config IMXRT_FLEXPWM2_MOD3_COMP
 	bool "Use complementary output"
 	default n
+	depends on IMXRT_FLEXPWM2_MOD3_USE_OUT_B
+
+config IMXRT_FLEXPWM2_MOD3_TRIG
+	bool "Enable trigger generation"
+	default n
+	---help---
+		Use PWM submodule to trigger FLEXPWM2_PWM3_OUT_TRIG01 output
+		from submodule 1. This can be used to generate an
+		interrupt that can trigger ADC conversion or synchronize
+		other PWMs for example.
+
+choice
+	prompt "Trigger value source"
+	default IMXRT_FLEXPWM2_MOD3_TRIG_PER
+	depends on IMXRT_FLEXPWM2_MOD3_TRIG
+	---help---
+		PWM can use either duty cycle value or period value register
+		to generate the trigger. The trigger is generated when the timer
+		reaches the corresponding value.
+
+config IMXRT_FLEXPWM2_MOD3_TRIG_PER
+	bool "Period value"
+
+config IMXRT_FLEXPWM2_MOD3_TRIG_DUTY
+	bool "Duty cycle value"
+
+endchoice
+
+config IMXRT_FLEXPWM2_MOD3_SYNC_SRC
+	int "Synchronization source signal"
+	default -1
+	range -1 130
+	---help---
+		PWM module can be synchronized by an external signal. This
+		config option selects the signal's source. The number in
+		IMXRT_FLEXPWM2_MOD3_SYNC_SRC corresponds with the XBAR
+		number (please refer to the documentation for XBAR numbers).
+
+		-1 (default value) means the module is not to be synchronized.
 
 endif
 
@@ -677,9 +1075,52 @@ config IMXRT_FLEXPWM2_MOD4
 
 if IMXRT_FLEXPWM2_MOD4
 
+config IMXRT_FLEXPWM2_MOD4_USE_OUT_B
+	bool "Use output B"
+	default n
+
 config IMXRT_FLEXPWM2_MOD4_COMP
 	bool "Use complementary output"
 	default n
+	depends on IMXRT_FLEXPWM2_MOD4_USE_OUT_B
+
+config IMXRT_FLEXPWM2_MOD4_TRIG
+	bool "Enable trigger generation"
+	default n
+	---help---
+		Use PWM submodule to trigger FLEXPWM2_PWM4_OUT_TRIG01 output
+		from submodule 1. This can be used to generate an
+		interrupt that can trigger ADC conversion or synchronize
+		other PWMs for example.
+
+choice
+	prompt "Trigger value source"
+	default IMXRT_FLEXPWM2_MOD4_TRIG_PER
+	depends on IMXRT_FLEXPWM2_MOD1_TRIG
+	---help---
+		PWM can use either duty cycle value or period value register
+		to generate the trigger. The trigger is generated when the timer
+		reaches the corresponding value.
+
+config IMXRT_FLEXPWM2_MOD4_TRIG_PER
+	bool "Period value"
+
+config IMXRT_FLEXPWM2_MOD4_TRIG_DUTY
+	bool "Duty cycle value"
+
+endchoice
+
+config IMXRT_FLEXPWM2_MOD4_SYNC_SRC
+	int "Synchronization source signal"
+	default -1
+	range -1 130
+	---help---
+		PWM module can be synchronized by an external signal. This
+		config option selects the signal's source. The number in
+		IMXRT_FLEXPWM2_MOD4_SYNC_SRC corresponds with the XBAR
+		number (please refer to the documentation for XBAR numbers).
+
+		-1 (default value) means the module is not to be synchronized.
 
 endif
 
@@ -694,9 +1135,52 @@ config IMXRT_FLEXPWM3_MOD1
 
 if IMXRT_FLEXPWM3_MOD1
 
+config IMXRT_FLEXPWM3_MOD1_USE_OUT_B
+	bool "Use output B"
+	default n
+
 config IMXRT_FLEXPWM3_MOD1_COMP
 	bool "Use complementary output"
 	default n
+	depends on IMXRT_FLEXPWM3_MOD1_USE_OUT_B
+
+config IMXRT_FLEXPWM3_MOD1_TRIG
+	bool "Enable trigger generation"
+	default n
+	---help---
+		Use PWM submodule to trigger FLEXPWM3_PWM1_OUT_TRIG01 output
+		from submodule 1. This can be used to generate an
+		interrupt that can trigger ADC conversion or synchronize
+		other PWMs for example.
+
+choice
+	prompt "Trigger value source"
+	default IMXRT_FLEXPWM3_MOD1_TRIG_PER
+	depends on IMXRT_FLEXPWM3_MOD1_TRIG
+	---help---
+		PWM can use either duty cycle value or period value register
+		to generate the trigger. The trigger is generated when the timer
+		reaches the corresponding value.
+
+config IMXRT_FLEXPWM3_MOD1_TRIG_PER
+	bool "Period value"
+
+config IMXRT_FLEXPWM3_MOD1_TRIG_DUTY
+	bool "Duty cycle value"
+
+endchoice
+
+config IMXRT_FLEXPWM3_MOD1_SYNC_SRC
+	int "Synchronization source signal"
+	default -1
+	range -1 130
+	---help---
+		PWM module can be synchronized by an external signal. This
+		config option selects the signal's source. The number in
+		IMXRT_FLEXPWM3_MOD1_SYNC_SRC corresponds with the XBAR
+		number (please refer to the documentation for XBAR numbers).
+
+		-1 (default value) means the module is not to be synchronized.
 
 endif
 
@@ -706,9 +1190,52 @@ config IMXRT_FLEXPWM3_MOD2
 
 if IMXRT_FLEXPWM3_MOD2
 
+config IMXRT_FLEXPWM3_MOD2_USE_OUT_B
+	bool "Use output B"
+	default n
+
 config IMXRT_FLEXPWM3_MOD2_COMP
 	bool "Use complementary output"
 	default n
+	depends on IMXRT_FLEXPWM3_MOD2_USE_OUT_B
+
+config IMXRT_FLEXPWM3_MOD2_TRIG
+	bool "Enable trigger generation"
+	default n
+	---help---
+		Use PWM submodule to trigger FLEXPWM3_PWM2_OUT_TRIG01 output
+		from submodule 1. This can be used to generate an
+		interrupt that can trigger ADC conversion or synchronize
+		other PWMs for example.
+
+choice
+	prompt "Trigger value source"
+	default IMXRT_FLEXPWM3_MOD2_TRIG_PER
+	depends on IMXRT_FLEXPWM3_MOD2_TRIG
+	---help---
+		PWM can use either duty cycle value or period value register
+		to generate the trigger. The trigger is generated when the timer
+		reaches the corresponding value.
+
+config IMXRT_FLEXPWM3_MOD2_TRIG_PER
+	bool "Period value"
+
+config IMXRT_FLEXPWM3_MOD2_TRIG_DUTY
+	bool "Duty cycle value"
+
+endchoice
+
+config IMXRT_FLEXPWM3_MOD2_SYNC_SRC
+	int "Synchronization source signal"
+	default -1
+	range -1 130
+	---help---
+		PWM module can be synchronized by an external signal. This
+		config option selects the signal's source. The number in
+		IMXRT_FLEXPWM3_MOD2_SYNC_SRC corresponds with the XBAR
+		number (please refer to the documentation for XBAR numbers).
+
+		-1 (default value) means the module is not to be synchronized.
 
 endif
 
@@ -718,9 +1245,52 @@ config IMXRT_FLEXPWM3_MOD3
 
 if IMXRT_FLEXPWM3_MOD3
 
+config IMXRT_FLEXPWM3_MOD3_USE_OUT_B
+	bool "Use output B"
+	default n
+
 config IMXRT_FLEXPWM3_MOD3_COMP
 	bool "Use complementary output"
 	default n
+	depends on IMXRT_FLEXPWM3_MOD3_USE_OUT_B
+
+config IMXRT_FLEXPWM3_MOD3_TRIG
+	bool "Enable trigger generation"
+	default n
+	---help---
+		Use PWM submodule to trigger FLEXPWM3_PWM3_OUT_TRIG01 output
+		from submodule 1. This can be used to generate an
+		interrupt that can trigger ADC conversion or synchronize
+		other PWMs for example.
+
+choice
+	prompt "Trigger value source"
+	default IMXRT_FLEXPWM3_MOD3_TRIG_PER
+	depends on IMXRT_FLEXPWM3_MOD3_TRIG
+	---help---
+		PWM can use either duty cycle value or period value register
+		to generate the trigger. The trigger is generated when the timer
+		reaches the corresponding value.
+
+config IMXRT_FLEXPWM3_MOD3_TRIG_PER
+	bool "Period value"
+
+config IMXRT_FLEXPWM3_MOD3_TRIG_DUTY
+	bool "Duty cycle value"
+
+endchoice
+
+config IMXRT_FLEXPWM3_MOD3_SYNC_SRC
+	int "Synchronization source signal"
+	default -1
+	range -1 130
+	---help---
+		PWM module can be synchronized by an external signal. This
+		config option selects the signal's source. The number in
+		IMXRT_FLEXPWM3_MOD3_SYNC_SRC corresponds with the XBAR
+		number (please refer to the documentation for XBAR numbers).
+
+		-1 (default value) means the module is not to be synchronized.
 
 endif
 
@@ -730,9 +1300,52 @@ config IMXRT_FLEXPWM3_MOD4
 
 if IMXRT_FLEXPWM3_MOD4
 
+config IMXRT_FLEXPWM3_MOD4_USE_OUT_B
+	bool "Use output B"
+	default n
+
 config IMXRT_FLEXPWM3_MOD4_COMP
 	bool "Use complementary output"
 	default n
+	depends on IMXRT_FLEXPWM3_MOD4_USE_OUT_B
+
+config IMXRT_FLEXPWM3_MOD4_TRIG
+	bool "Enable trigger generation"
+	default n
+	---help---
+		Use PWM submodule to trigger FLEXPWM3_PWM4_OUT_TRIG01 output
+		from submodule 1. This can be used to generate an
+		interrupt that can trigger ADC conversion or synchronize
+		other PWMs for example.
+
+choice
+	prompt "Trigger value source"
+	default IMXRT_FLEXPWM3_MOD4_TRIG_PER
+	depends on IMXRT_FLEXPWM3_MOD4_TRIG
+	---help---
+		PWM can use either duty cycle value or period value register
+		to generate the trigger. The trigger is generated when the timer
+		reaches the corresponding value.
+
+config IMXRT_FLEXPWM3_MOD4_TRIG_PER
+	bool "Period value"
+
+config IMXRT_FLEXPWM3_MOD4_TRIG_DUTY
+	bool "Duty cycle value"
+
+endchoice
+
+config IMXRT_FLEXPWM3_MOD4_SYNC_SRC
+	int "Synchronization source signal"
+	default -1
+	range -1 130
+	---help---
+		PWM module can be synchronized by an external signal. This
+		config option selects the signal's source. The number in
+		IMXRT_FLEXPWM3_MOD4_SYNC_SRC corresponds with the XBAR
+		number (please refer to the documentation for XBAR numbers).
+
+		-1 (default value) means the module is not to be synchronized.
 
 endif
 
@@ -747,9 +1360,52 @@ config IMXRT_FLEXPWM4_MOD1
 
 if IMXRT_FLEXPWM4_MOD1
 
+config IMXRT_FLEXPWM4_MOD1_USE_OUT_B
+	bool "Use output B"
+	default n
+
 config IMXRT_FLEXPWM4_MOD1_COMP
 	bool "Use complementary output"
 	default n
+	depends on IMXRT_FLEXPWM4_MOD1_USE_OUT_B
+
+config IMXRT_FLEXPWM4_MOD1_TRIG
+	bool "Enable trigger generation"
+	default n
+	---help---
+		Use PWM submodule to trigger FLEXPWM4_PWM1_OUT_TRIG01 output
+		from submodule 1. This can be used to generate an
+		interrupt that can trigger ADC conversion or synchronize
+		other PWMs for example.
+
+choice
+	prompt "Trigger value source"
+	default IMXRT_FLEXPWM4_MOD1_TRIG_PER
+	depends on IMXRT_FLEXPWM4_MOD1_TRIG
+	---help---
+		PWM can use either duty cycle value or period value register
+		to generate the trigger. The trigger is generated when the timer
+		reaches the corresponding value.
+
+config IMXRT_FLEXPWM4_MOD1_TRIG_PER
+	bool "Period value"
+
+config IMXRT_FLEXPWM4_MOD1_TRIG_DUTY
+	bool "Duty cycle value"
+
+endchoice
+
+config IMXRT_FLEXPWM4_MOD1_SYNC_SRC
+	int "Synchronization source signal"
+	default -1
+	range -1 130
+	---help---
+		PWM module can be synchronized by an external signal. This
+		config option selects the signal's source. The number in
+		IMXRT_FLEXPWM4_MOD1_SYNC_SRC corresponds with the XBAR
+		number (please refer to the documentation for XBAR numbers).
+
+		-1 (default value) means the module is not to be synchronized.
 
 endif
 
@@ -759,9 +1415,52 @@ config IMXRT_FLEXPWM4_MOD2
 
 if IMXRT_FLEXPWM4_MOD2
 
+config IMXRT_FLEXPWM4_MOD2_USE_OUT_B
+	bool "Use output B"
+	default n
+
 config IMXRT_FLEXPWM4_MOD2_COMP
 	bool "Use complementary output"
 	default n
+	depends on IMXRT_FLEXPWM4_MOD2_USE_OUT_B
+
+config IMXRT_FLEXPWM4_MOD2_TRIG
+	bool "Enable trigger generation"
+	default n
+	---help---
+		Use PWM submodule to trigger FLEXPWM4_PWM2_OUT_TRIG01 output
+		from submodule 1. This can be used to generate an
+		interrupt that can trigger ADC conversion or synchronize
+		other PWMs for example.
+
+choice
+	prompt "Trigger value source"
+	default IMXRT_FLEXPWM4_MOD2_TRIG_PER
+	depends on IMXRT_FLEXPWM4_MOD2_TRIG
+	---help---
+		PWM can use either duty cycle value or period value register
+		to generate the trigger. The trigger is generated when the timer
+		reaches the corresponding value.
+
+config IMXRT_FLEXPWM4_MOD2_TRIG_PER
+	bool "Period value"
+
+config IMXRT_FLEXPWM4_MOD2_TRIG_DUTY
+	bool "Duty cycle value"
+
+endchoice
+
+config IMXRT_FLEXPWM4_MOD2_SYNC_SRC
+	int "Synchronization source signal"
+	default -1
+	range -1 130
+	---help---
+		PWM module can be synchronized by an external signal. This
+		config option selects the signal's source. The number in
+		IMXRT_FLEXPWM4_MOD2_SYNC_SRC corresponds with the XBAR
+		number (please refer to the documentation for XBAR numbers).
+
+		-1 (default value) means the module is not to be synchronized.
 
 endif
 
@@ -771,9 +1470,52 @@ config IMXRT_FLEXPWM4_MOD3
 
 if IMXRT_FLEXPWM4_MOD3
 
+config IMXRT_FLEXPWM4_MOD3_USE_OUT_B
+	bool "Use output B"
+	default n
+
 config IMXRT_FLEXPWM4_MOD3_COMP
 	bool "Use complementary output"
 	default n
+	depends on IMXRT_FLEXPWM4_MOD3_USE_OUT_B
+
+config IMXRT_FLEXPWM4_MOD3_TRIG
+	bool "Enable trigger generation"
+	default n
+	---help---
+		Use PWM submodule to trigger FLEXPWM4_PWM3_OUT_TRIG01 output
+		from submodule 1. This can be used to generate an
+		interrupt that can trigger ADC conversion or synchronize
+		other PWMs for example.
+
+choice
+	prompt "Trigger value source"
+	default IMXRT_FLEXPWM4_MOD3_TRIG_PER
+	depends on IMXRT_FLEXPWM4_MOD3_TRIG
+	---help---
+		PWM can use either duty cycle value or period value register
+		to generate the trigger. The trigger is generated when the timer
+		reaches the corresponding value.
+
+config IMXRT_FLEXPWM4_MOD3_TRIG_PER
+	bool "Period value"
+
+config IMXRT_FLEXPWM4_MOD3_TRIG_DUTY
+	bool "Duty cycle value"
+
+endchoice
+
+config IMXRT_FLEXPWM4_MOD3_SYNC_SRC
+	int "Synchronization source signal"
+	default -1
+	range -1 130
+	---help---
+		PWM module can be synchronized by an external signal. This
+		config option selects the signal's source. The number in
+		IMXRT_FLEXPWM4_MOD3_SYNC_SRC corresponds with the XBAR
+		number (please refer to the documentation for XBAR numbers).
+
+		-1 (default value) means the module is not to be synchronized.
 
 endif
 
@@ -783,9 +1525,52 @@ config IMXRT_FLEXPWM4_MOD4
 
 if IMXRT_FLEXPWM4_MOD4
 
+config IMXRT_FLEXPWM4_MOD4_USE_OUT_B
+	bool "Use output B"
+	default n
+
 config IMXRT_FLEXPWM4_MOD4_COMP
 	bool "Use complementary output"
 	default n
+	depends on IMXRT_FLEXPWM4_MOD4_USE_OUT_B
+
+config IMXRT_FLEXPWM4_MOD4_TRIG
+	bool "Enable trigger generation"
+	default n
+	---help---
+		Use PWM submodule to trigger FLEXPWM4_PWM4_OUT_TRIG01 output
+		from submodule 1. This can be used to generate an
+		interrupt that can trigger ADC conversion or synchronize
+		other PWMs for example.
+
+choice
+	prompt "Trigger value source"
+	default IMXRT_FLEXPWM4_MOD4_TRIG_PER
+	depends on IMXRT_FLEXPWM4_MOD4_TRIG
+	---help---
+		PWM can use either duty cycle value or period value register
+		to generate the trigger. The trigger is generated when the timer
+		reaches the corresponding value.
+
+config IMXRT_FLEXPWM4_MOD4_TRIG_PER
+	bool "Period value"
+
+config IMXRT_FLEXPWM4_MOD4_TRIG_DUTY
+	bool "Duty cycle value"
+
+endchoice
+
+config IMXRT_FLEXPWM4_MOD4_SYNC_SRC
+	int "Synchronization source signal"
+	default -1
+	range -1 130
+	---help---
+		PWM module can be synchronized by an external signal. This
+		config option selects the signal's source. The number in
+		IMXRT_FLEXPWM4_MOD4_SYNC_SRC corresponds with the XBAR
+		number (please refer to the documentation for XBAR numbers).
+
+		-1 (default value) means the module is not to be synchronized.
 
 endif
 
@@ -938,10 +1723,44 @@ menuconfig IMXRT_ADC1
 	default n
 	select IMXRT_ADC
 
+if IMXRT_ADC1
+
+config IMXRT_ADC1_ETC
+	int "ADC1 External Trigger"
+	range -1 130
+	default -1
+	---help---
+		ADC module can be triggered by an external source (timer, PWM, etc).
+		This config option selects the signal's source. The number in
+		IMXRT_ADC1_ETC corresponds with the XBAR number of the source (please
+		refer to the documentation for XBAR numbers).
+
+		-1 (default value) means the conversion is not to be triggered by an
+		external source.
+
+endif
+
 menuconfig IMXRT_ADC2
 	bool "ADC2"
 	default n
 	select IMXRT_ADC
+
+if IMXRT_ADC2
+
+config IMXRT_ADC2_ETC
+	int "ADC2 External Trigger"
+	range -1 130
+	default -1
+	---help---
+		ADC module can be triggered by an external source (timer, PWM, etc).
+		This config option selects the signal's source. The number in
+		IMXRT_ADC2_ETC corresponds with the XBAR number of the source (please
+		refer to the documentation for XBAR numbers).
+
+		-1 (default value) means the conversion is not to be triggered by an
+		external source.
+
+endif
 
 endmenu
 
@@ -1025,6 +1844,10 @@ config ENC1_HNE
 
 endif # ENC1_HIP
 
+config ENC1_XIE
+	bool "INDEX signal position capture"
+	default n
+
 config ENC1_XIP
 	bool "INDEX signal initializes position counter"
 	default n
@@ -1099,6 +1922,10 @@ config ENC2_HNE
 	default n
 
 endif # ENC2_HIP
+
+config ENC2_XIE
+	bool "INDEX signal position capture"
+	default n
 
 config ENC2_XIP
 	bool "INDEX signal initializes position counter"
@@ -1177,6 +2004,10 @@ config ENC3_HNE
 
 endif # ENC3_HIP
 
+config ENC3_XIE
+	bool "INDEX signal position capture"
+	default n
+
 config ENC3_XIP
 	bool "INDEX signal initializes position counter"
 	default n
@@ -1251,6 +2082,10 @@ config ENC4_HNE
 	default n
 
 endif # ENC4_HIP
+
+config ENC4_XIE
+	bool "INDEX signal position capture"
+	default n
 
 config ENC4_XIP
 	bool "INDEX signal initializes position counter"
@@ -1390,7 +2225,7 @@ endchoice # i.MX RT Ethernet Interface
 
 choice
 	prompt "i.MX RT Ethernet TX Clock Source"
-	default IMXRT_PROVIDES_TXC
+	default IMXRT_MAC_PROVIDES_TXC
 	depends on IMXRT_ENET
 
 config IMXRT_MAC_PROVIDES_TXC
@@ -1412,10 +2247,10 @@ config IMXRT_ENET_NTXBUFFERS
 
 config IMXRT_ENET_ENHANCEDBD
 	bool # not optional
-	default n
+	default !ARMV7M_DCACHE_WRITETHROUGH
 
 config IMXRT_ENET_NETHIFS
-	int  # Not optional
+	int # Not optional
 	default 1
 
 config IMXRT_ENET_PHYINIT
@@ -1430,7 +2265,7 @@ config IMXRT_ENET_PHYINIT
 		function one time before it first uses the PHY.
 
 config IMXRT_PHY_POLLING
-	bool "Support network monitoring by poling the PHY"
+	bool "Support network monitoring by polling the PHY"
 	default n
 	depends on IMXRT_ENET
 	select ARCH_PHY_POLLED
@@ -1496,8 +2331,8 @@ choice
 	prompt "i.MX RT Boot Configuration"
 	default IMXRT_BOOT_NOR if IMXRT_SEMC_NOR
 	default IMXRT_BOOT_SDRAM if IMXRT_SEMC_SDRAM && !IMXRT_SEMC_NOR
-	default IMXRT_BOOT_SRAM if IMXRT_SEMC_SRAM && !IMXRT_SEMC_SDRAM  && !IMXRT_SEMC_NOR
-	default IMXRT_BOOT_OCRAM if !IMXRT_SEMC_SRAM && !IMXRT_SEMC_SDRAM  && !IMXRT_SEMC_NOR
+	default IMXRT_BOOT_SRAM if IMXRT_SEMC_SRAM && !IMXRT_SEMC_SDRAM && !IMXRT_SEMC_NOR
+	default IMXRT_BOOT_OCRAM if !IMXRT_SEMC_SRAM && !IMXRT_SEMC_SDRAM && !IMXRT_SEMC_NOR
 	---help---
 		The startup code needs to know if the code is running from internal
 		OCRAM, external SDRAM, external NOR, or external SDRAM in order to
@@ -1506,21 +2341,21 @@ choice
 
 config IMXRT_BOOT_OCRAM
 	bool "Running from internal OCRAM"
-	select BOOT_RUNFROMISRAM
+	depends on BOOT_RUNFROMISRAM
 
 config IMXRT_BOOT_SDRAM
 	bool "Running from external SDRAM"
-	select BOOT_RUNFROMSDRAM
+	depends on BOOT_RUNFROMSDRAM
 	depends on IMXRT_SEMC_SDRAM
 
 config IMXRT_BOOT_NOR
 	bool "Running from external NOR FLASH"
-	select BOOT_RUNFROMFLASH
+	depends on BOOT_RUNFROMFLASH
 	depends on IMXRT_SEMC_NOR
 
 config IMXRT_BOOT_SRAM
 	bool "Running from external SRAM"
-	select BOOT_RUNFROMEXTSRAM
+	depends on BOOT_RUNFROMEXTSRAM
 	depends on IMXRT_SEMC_SRAM
 
 endchoice # i.MX RT Boot Configuration
@@ -1605,7 +2440,7 @@ config IMXRT_SRAM_HEAPOFFSET
 		Used to reserve memory at the beginning of SRAM for, as an example,
 		a framebuffer.
 
-endmenu  # i.MX RT Heap Configuration
+endmenu # i.MX RT Heap Configuration
 endmenu # Memory Configuration
 
 menu "LPI2C Configuration"
@@ -1875,7 +2710,7 @@ menu "RTC Configuration"
 config IMXRT_RTC_MAGIC_REG
 	int "RTC SNVS GPR"
 	default 0
-	range  0 3
+	range 0 3
 	---help---
 		The BKP register used to store/check the Magic value to determine if
 		RTC is already setup
@@ -2121,5 +2956,80 @@ config IMXRT_USBDEV_REGDEBUG
 
 endmenu # USB device controller driver (DCD) options
 endif # IMXRT_USBDEV
+
+menu "Progmem MTD configuration"
+
+if IMXRT_PROGMEM
+
+comment "Progmem instance support"
+
+config IMXRT_PROGMEM_FLEXSPI_INSTANCE
+	int "FlexSPI instance number (0 or 1)"
+	default 1
+	---help---
+		FlexSPI instance number. Base address 0x60000000 is used for instance 0
+		and 0x70000000 for instance 1. Other values are not supported.
+
+endif # IMXRT_PROGMEM
+
+if IMXRT_HAVE_OTA_PARTITION
+
+comment "Application Image OTA Update support"
+
+config IMXRT_PROGMEM_OTA_PARTITION
+	bool "MTD driver"
+	default n
+	select BCH
+	select MTD
+	select MTD_BYTE_WRITE
+	select MTD_PARTITION
+	select MTD_PROGMEM
+	select IMXRT_PROGMEM
+	---help---
+		Initialize an MTD driver for the Flash, which will
+		add an entry at /dev for application access from userspace.
+
+if IMXRT_PROGMEM_OTA_PARTITION
+config IMXRT_MCUBOOT_HEADER_SIZE
+	hex
+	default 0x200
+	depends on IMXRT_APP_FORMAT_MCUBOOT
+
+config IMXRT_OTA_PRIMARY_SLOT_DEVPATH
+	string "Application image primary slot device path"
+	default "/dev/ota0"
+
+config IMXRT_OTA_SECONDARY_SLOT_DEVPATH
+	string "Application image secondary slot device path"
+	default "/dev/ota1"
+
+config IMXRT_OTA_SCRATCH_DEVPATH
+	string "Scratch partition device path"
+	default "/dev/otascratch"
+
+config IMXRT_OTA_PRIMARY_SLOT_OFFSET
+	hex "MCUboot application image primary slot offset"
+	default "0x40000"
+
+config IMXRT_OTA_SECONDARY_SLOT_OFFSET
+	hex "MCUboot application image secondary slot offset"
+	default "0x200000"
+
+config IMXRT_OTA_SCRATCH_OFFSET
+	hex "MCUboot scratch partition offset"
+	default "0x3c0000"
+
+config IMXRT_OTA_SLOT_SIZE
+	hex "MCUboot application image slot size (in bytes)"
+	default "0x1c0000"
+
+config IMXRT_OTA_SCRATCH_SIZE
+	hex "MCUboot scratch partition size (in bytes)"
+	default "0x40000"
+
+endif # IMXRT_PROGMEM_OTA_PARTITION
+endif # IMXRT_HAVE_OTA_PARTITION
+
+endmenu # Progmem configuration
 
 endif # ARCH_CHIP_IMXRT

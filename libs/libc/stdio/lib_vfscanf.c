@@ -55,9 +55,9 @@ int vfscanf(FAR FILE *stream, FAR const IPTR char *fmt, va_list ap)
        * by the next thread.
        */
 
-      lib_take_semaphore(stream);
+      flockfile(stream);
 
-      n = lib_vscanf(&stdinstream.public, &lastc, fmt, ap);
+      n = lib_vscanf(&stdinstream.common, &lastc, fmt, ap);
 
       /* The lib_vscanf function reads always one character more, this
        * character needs to be written back.
@@ -68,7 +68,7 @@ int vfscanf(FAR FILE *stream, FAR const IPTR char *fmt, va_list ap)
           ungetc(lastc, stream);
         }
 
-      lib_give_semaphore(stream);
+      funlockfile(stream);
     }
 
   return n;

@@ -35,6 +35,7 @@
 
 #include <nuttx/arch.h>
 #include <nuttx/wdog.h>
+#include <nuttx/mutex.h>
 #include <nuttx/semaphore.h>
 #include <nuttx/i2c/i2c_master.h>
 
@@ -46,6 +47,7 @@
 #include "lpc31_i2c.h"
 #include "lpc31_evntrtr.h"
 #include "lpc31_syscreg.h"
+#include "lpc31_cgudrvr.h"
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -69,7 +71,7 @@ struct lpc31_i2cdev_s
     uint16_t          rstid;      /* Reset for this device */
     uint16_t          irqid;      /* IRQ for this device */
 
-    sem_t             mutex;      /* Only one thread can access at a time */
+    mutex_t           lock;       /* Only one thread can access at a time */
     sem_t             wait;       /* Place to wait for state machine completion */
     volatile uint8_t  state;      /* State of state machine */
     struct wdog_s     timeout;    /* Watchdog to timeout when bus hung */
@@ -89,7 +91,17 @@ struct lpc31_i2cdev_s
 #define I2C_STATE_HEADER    2
 #define I2C_STATE_TRANSFER  3
 
-static struct lpc31_i2cdev_s i2cdevices[2];
+static struct lpc31_i2cdev_s i2cdevices[2] =
+{
+  {
+    .lock = NXMUTEX_INITIALIZER,
+    .wait = SEM_INITIALIZER(0),
+  },
+  {
+    .lock = NXMUTEX_INITIALIZER,
+    .wait = SEM_INITIALIZER(0),
+  },
+};
 
 /****************************************************************************
  * Private Function Prototypes
@@ -104,7 +116,7 @@ static void i2c_setfrequency(struct lpc31_i2cdev_s *priv,
 static int  i2c_transfer(struct i2c_master_s *dev,
                          struct i2c_msg_s *msgs, int count);
 #ifdef CONFIG_I2C_RESET
-static int  i2c_reset(struct i2c_master_s * dev);
+static int  i2c_reset(struct i2c_master_s *dev);
 #endif
 
 /****************************************************************************
@@ -407,7 +419,7 @@ out:
 
 static void i2c_timeout(wdparm_t arg)
 {
-  struct lpc31_i2cdev_s *priv = (struct lpc31_i2cdev_s *) arg;
+  struct lpc31_i2cdev_s *priv = (struct lpc31_i2cdev_s *)arg;
 
   irqstate_t flags = enter_critical_section();
 
@@ -467,13 +479,13 @@ static void i2c_hwreset(struct lpc31_i2cdev_s *priv)
 static int i2c_transfer(struct i2c_master_s *dev,
                         struct i2c_msg_s *msgs, int count)
 {
-  struct lpc31_i2cdev_s *priv = (struct lpc31_i2cdev_s *) dev;
+  struct lpc31_i2cdev_s *priv = (struct lpc31_i2cdev_s *)dev;
   irqstate_t flags;
   int ret;
 
   /* Get exclusive access to the I2C bus */
 
-  nxsem_wait(&priv->mutex);
+  nxmutex_lock(&priv->lock);
   flags = enter_critical_section();
 
   /* Set up for the transfer */
@@ -509,7 +521,7 @@ static int i2c_transfer(struct i2c_master_s *dev,
   ret = count - priv->nmsg;
 
   leave_critical_section(flags);
-  nxsem_post(&priv->mutex);
+  nxmutex_unlock(&priv->lock);
   return ret;
 }
 
@@ -528,7 +540,7 @@ static int i2c_transfer(struct i2c_master_s *dev,
  ****************************************************************************/
 
 #ifdef CONFIG_I2C_RESET
-static int i2c_reset(struct i2c_master_s * dev)
+static int i2c_reset(struct i2c_master_s *dev)
 {
   return OK;
 }
@@ -554,17 +566,6 @@ struct i2c_master_s *lpc31_i2cbus_initialize(int port)
   priv->clkid = (port == 0) ? CLKID_I2C0PCLK   : CLKID_I2C1PCLK;
   priv->rstid = (port == 0) ? RESETID_I2C0RST  : RESETID_I2C1RST;
   priv->irqid = (port == 0) ? LPC31_IRQ_I2C0   : LPC31_IRQ_I2C1;
-
-  /* Initialize semaphores */
-
-  nxsem_init(&priv->mutex, 0, 1);
-  nxsem_init(&priv->wait, 0, 0);
-
-  /* The wait semaphore is used for signaling and, hence, should not have
-   * priority inheritance enabled.
-   */
-
-  nxsem_set_protocol(&priv->wait, SEM_PRIO_NONE);
 
   /* Enable I2C system clocks */
 

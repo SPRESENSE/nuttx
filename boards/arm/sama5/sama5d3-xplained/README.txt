@@ -108,8 +108,8 @@ GNU Toolchain Options
   a different toolchain, you simply need to add change to one of the following
   configuration options to your .config (or defconfig) file:
 
-    CONFIG_ARMV7A_TOOLCHAIN_BUILDROOT=y  : NuttX buildroot under Linux or Cygwin (default)
-    CONFIG_ARMV7A_TOOLCHAIN_GNU_EABI=y   : Generic GCC ARM EABI toolchain
+    CONFIG_ARM_TOOLCHAIN_BUILDROOT=y  : NuttX buildroot under Linux or Cygwin (default)
+    CONFIG_ARM_TOOLCHAIN_GNU_EABI=y   : Generic GCC ARM EABI toolchain
 
   NOTE about Windows native toolchains
   ------------------------------------
@@ -1025,7 +1025,6 @@ Networking
       CONFIG_NSH_NETINIT_THREAD             : Enable the network initialization thread
       CONFIG_NSH_NETINIT_MONITOR=y          : Enable the network monitor
       CONFIG_NSH_NETINIT_RETRYMSEC=2000     : Configure the network monitor as you like
-      CONFIG_NSH_NETINIT_SIGNO=18
 
   Ethernet Over USB Configuration Script
   --------------------------------------
@@ -2872,7 +2871,6 @@ Shields
     CONFIG_NSH_ARCHINIT=y
     CONFIG_EXAMPLES_AJOYSTICK=y
     CONFIG_EXAMPLES_AJOYSTICK_DEVNAME="/dev/ajoy0"
-    CONFIG_EXAMPLES_AJOYSTICK_SIGNO=13
 
   STATUS:
   2014-12-03:  As nearly I can tell, the Itead Joystick shield cannot be
@@ -3109,7 +3107,7 @@ Configurations
        CONFIG_WINDOWS_CYGWIN=y             : Using Cygwin or other POSIX environment
 
      System Type -> Toolchain:
-       CONFIG_ARMV7A_TOOLCHAIN_GNU_EABI=y  : GNU EABI toolchain
+       CONFIG_ARM_TOOLCHAIN_GNU_EABI=y  : GNU EABI toolchain
 
   4. The SAMA5Dx is running at 396MHz by default in these configurations.
      This is because the original timing for the PLLs, NOR FLASH, and SDRAM
@@ -3172,7 +3170,7 @@ Configurations
 
        CONFIG_HOST_WINDOWS=y                   : Windows operating system
        CONFIG_WINDOWS_CYGWIN=y                 : POSIX environment under Windows
-       CONFIG_ARMV7A_TOOLCHAIN_GNU_EABI=y      : GNU EABI toolchain
+       CONFIG_ARM_TOOLCHAIN_GNU_EABI=y      : GNU EABI toolchain
 
        If you are running on Linux, make *certain* that you have
        CONFIG_HOST_LINUX=y *before* the first make or you will create a
@@ -3234,7 +3232,7 @@ Configurations
 
        CONFIG_HOST_WINDOWS=y                   : Windows operating system
        CONFIG_WINDOWS_CYGWIN=y                 : POSIX environment under windows
-       CONFIG_ARMV7A_TOOLCHAIN_GNU_EABI=y      : GNU EABI toolchain
+       CONFIG_ARM_TOOLCHAIN_GNU_EABI=y      : GNU EABI toolchain
 
        If you are running on Linux, make *certain* that you have
        CONFIG_HOST_LINUX=y *before* the first make or you will create a

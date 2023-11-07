@@ -245,14 +245,12 @@ struct lpc54_dev_s
 static uint32_t lpc54_getreg(uint32_t addr);
 static void lpc54_putreg(uint32_t val, uint32_t addr);
 #else
-# define lpc54_getreg(addr)      getreg32(addr)
-# define lpc54_putreg(val,addr)  putreg32(val,addr)
+#  define lpc54_getreg(addr)     getreg32(addr)
+#  define lpc54_putreg(val,addr) putreg32(val,addr)
 #endif
 
 /* Low-level helpers ********************************************************/
 
-static int  lpc54_takesem(struct lpc54_dev_s *priv);
-#define     lpc54_givesem(priv) (nxsem_post(&priv->waitsem))
 static inline void lpc54_setclock(uint32_t clkdiv);
 static inline void lpc54_sdcard_clock(bool enable);
 static int  lpc54_ciu_sendcmd(uint32_t cmd, uint32_t arg);
@@ -382,6 +380,7 @@ struct lpc54_dev_s g_scard_dev =
     .dmasendsetup     = lpc54_dmasendsetup,
 #endif
   },
+  .waitsem = SEM_INITIALIZER(0),
 };
 
 #ifdef CONFIG_LPC54_SDMMC_DMA
@@ -492,27 +491,6 @@ static void lpc54_putreg(uint32_t val, uint32_t addr)
   putreg32(val, addr);
 }
 #endif
-
-/****************************************************************************
- * Name: lpc54_takesem
- *
- * Description:
- *   Take the wait semaphore (handling false alarm wakeups due to the receipt
- *   of signals).
- *
- * Input Parameters:
- *   dev - Instance of the SD card device driver state structure.
- *
- * Returned Value:
- *   Normally OK, but may return -ECANCELED in the rare event that the task
- *   has been canceled.
- *
- ****************************************************************************/
-
-static int lpc54_takesem(struct lpc54_dev_s *priv)
-{
-  return nxsem_wait_uninterruptible(&priv->waitsem);
-}
 
 /****************************************************************************
  * Name: lpc54_setclock
@@ -865,7 +843,7 @@ static void lpc54_endwait(struct lpc54_dev_s *priv,
 
   /* Wake up the waiting thread */
 
-  lpc54_givesem(priv);
+  nxsem_post(&priv->waitsem);
 }
 
 /****************************************************************************
@@ -1219,7 +1197,11 @@ static int lpc54_lock(struct sdio_dev_s *dev, bool lock)
    * bus is part of board support package.
    */
 
-  lpc54_muxbus_sdio_lock(lock);
+  /* FIXME: Implement the below function to support bus share:
+   *
+   * lpc54_muxbus_sdio_lock(lock);
+   */
+
   return OK;
 }
 #endif
@@ -2304,7 +2286,7 @@ static sdio_eventset_t lpc54_eventwait(struct sdio_dev_s *dev)
        * incremented and there will be no wait.
        */
 
-      ret = lpc54_takesem(priv);
+      ret = nxsem_wait_uninterruptible(&priv->waitsem);
       if (ret < 0)
         {
           /* Task canceled.  Cancel the wdog (assuming it was started) and
@@ -2849,16 +2831,6 @@ struct sdio_dev_s *lpc54_sdmmc_initialize(int slotno)
   /* Enable clocking to the SD/MMC peripheral */
 
   lpc54_sdmmc_enableclk();
-
-  /* Initialize semaphores */
-
-  nxsem_init(&priv->waitsem, 0, 0);
-
-  /* The waitsem semaphore is used for signaling and, hence, should not have
-   * priority inheritance enabled.
-   */
-
-  nxsem_set_protocol(&priv->waitsem, SEM_PRIO_NONE);
 
   /* Configure GPIOs for 4-bit, wide-bus operation */
 

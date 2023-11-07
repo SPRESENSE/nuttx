@@ -30,10 +30,11 @@
 #include <assert.h>
 #include <errno.h>
 #include <nuttx/arch.h>
+#include <nuttx/mutex.h>
 #include <nuttx/timers/rtc.h>
 #include "chip.h"
 #include <rx65n_rtc.h>
-#include "up_internal.h"
+#include "renesas_internal.h"
 
 #ifdef CONFIG_RTC_DRIVER
 
@@ -41,9 +42,9 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-# define rx65n_getreg(addr)      getreg8(addr)
-# define rx65n_putreg(val,addr)  putreg8(val,addr)
-# define RX65N_NALARMS           1
+#  define rx65n_getreg(addr)     getreg8(addr)
+#  define rx65n_putreg(val,addr) putreg8(val,addr)
+#  define RX65N_NALARMS          1
 /* Configuration ************************************************************/
 
 #if defined(CONFIG_RTC_ALARM) && !defined(CONFIG_SCHED_WORKQUEUE)
@@ -58,7 +59,7 @@
 struct rx65n_cbinfo_s
 {
   volatile rtc_alarm_callback_t cb;  /* Callback when the alarm expires */
-  volatile FAR void *priv;           /* Private argument to accompany callback */
+  volatile void *priv;               /* Private argument to accompany callback */
   uint8_t id;                        /* Identifies the alarm */
 };
 #endif
@@ -73,13 +74,13 @@ struct rx65n_lowerhalf_s
    * operations vtable (which may lie in FLASH or ROM)
    */
 
-  FAR const struct rtc_ops_s *ops;
+  const struct rtc_ops_s *ops;
 
   /* Data following is private to this driver and not visible outside of
    * this file.
    */
 
-  sem_t devsem;         /* Threads can only exclusively access the RTC */
+  mutex_t devlock;      /* Threads can only exclusively access the RTC */
 
 #ifdef CONFIG_RTC_ALARM
   /* Alarm callback information */
@@ -100,29 +101,27 @@ struct rx65n_lowerhalf_s
 
 /* Prototypes for static methods in struct rtc_ops_s */
 
-static int rx65n_rdtime(FAR struct rtc_lowerhalf_s *lower,
-                          FAR struct rtc_time *rtctime);
-static int rx65n_settime(FAR struct rtc_lowerhalf_s *lower,
-                           FAR const struct rtc_time *rtctime);
-static bool rx65n_havesettime(FAR struct rtc_lowerhalf_s *lower);
+static int rx65n_rdtime(struct rtc_lowerhalf_s *lower,
+                        struct rtc_time *rtctime);
+static int rx65n_settime(struct rtc_lowerhalf_s *lower,
+                         const struct rtc_time *rtctime);
+static bool rx65n_havesettime(struct rtc_lowerhalf_s *lower);
 
 #ifdef CONFIG_RTC_ALARM
-static int rx65n_setalarm(FAR struct rtc_lowerhalf_s *lower,
-                            FAR const struct lower_setalarm_s *alarminfo);
-static int rx65n_setrelative(FAR struct rtc_lowerhalf_s *lower,
-                             FAR const struct lower_setrelative_s
-                                                         *alarminfo);
-static int rx65n_cancelalarm(FAR struct rtc_lowerhalf_s *lower,
-                               int alarmid);
-static int rx65n_rdalarm(FAR struct rtc_lowerhalf_s *lower,
-                           FAR struct lower_rdalarm_s *alarminfo);
+static int rx65n_setalarm(struct rtc_lowerhalf_s *lower,
+                          const struct lower_setalarm_s *alarminfo);
+static int rx65n_setrelative(struct rtc_lowerhalf_s *lower,
+                             const struct lower_setrelative_s *alarminfo);
+static int rx65n_cancelalarm(struct rtc_lowerhalf_s *lower,
+                             int alarmid);
+static int rx65n_rdalarm(struct rtc_lowerhalf_s *lower,
+                         struct lower_rdalarm_s *alarminfo);
 #endif
 
 #ifdef CONFIG_RTC_PERIODIC
-static int rx65n_setperiodic(FAR struct rtc_lowerhalf_s *lower,
-                             FAR const struct lower_setperiodic_s
-                                                         *alarminfo);
-static int rx65n_cancelperiodic(FAR struct rtc_lowerhalf_s *lower, int id);
+static int rx65n_setperiodic(struct rtc_lowerhalf_s *lower,
+                             const struct lower_setperiodic_s *alarminfo);
+static int rx65n_cancelperiodic(struct rtc_lowerhalf_s *lower, int id);
 #endif
 
 /****************************************************************************
@@ -146,19 +145,14 @@ static const struct rtc_ops_s g_rtc_ops =
   .setperiodic    = rx65n_setperiodic,
   .cancelperiodic = rx65n_cancelperiodic,
 #endif
-#ifdef CONFIG_RTC_IOCTL
-  .ioctl       = NULL,
-#endif
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  .destroy     = NULL,
-#endif
 };
 
 /* RX65N RTC device state */
 
 static struct rx65n_lowerhalf_s g_rtc_lowerhalf =
 {
-  .ops         = &g_rtc_ops,
+  .ops     = &g_rtc_ops,
+  .devlock = NXMUTEX_INITIALIZER,
 };
 
 /****************************************************************************
@@ -181,12 +175,12 @@ static struct rx65n_lowerhalf_s g_rtc_lowerhalf =
  ****************************************************************************/
 
 #ifdef CONFIG_RTC_ALARM
-static void rx65n_alarm_callback(FAR void *arg, unsigned int alarmid)
+static void rx65n_alarm_callback(void *arg, unsigned int alarmid)
 {
-  FAR struct rx65n_lowerhalf_s *lower;
-  FAR struct rx65n_cbinfo_s *cbinfo;
+  struct rx65n_lowerhalf_s *lower;
+  struct rx65n_cbinfo_s *cbinfo;
   rtc_alarm_callback_t cb;
-  FAR void *priv;
+  void *priv;
 
   DEBUGASSERT(arg != NULL);
 
@@ -198,7 +192,7 @@ static void rx65n_alarm_callback(FAR void *arg, unsigned int alarmid)
    */
 
   cb           = (rtc_alarm_callback_t)cbinfo->cb;
-  priv         = (FAR void *)cbinfo->priv;
+  priv         = (void *)cbinfo->priv;
 
   cbinfo->cb   = NULL;
   cbinfo->priv = NULL;
@@ -228,8 +222,8 @@ static void rx65n_alarm_callback(FAR void *arg, unsigned int alarmid)
  *
  ****************************************************************************/
 
-static int rx65n_rdtime(FAR struct rtc_lowerhalf_s *lower,
-                          FAR struct rtc_time *rtctime)
+static int rx65n_rdtime(struct rtc_lowerhalf_s *lower,
+                        struct rtc_time *rtctime)
 {
 #if defined(CONFIG_RTC_DATETIME)
   /* This operation depends on the fact that struct rtc_time is cast
@@ -237,10 +231,10 @@ static int rx65n_rdtime(FAR struct rtc_lowerhalf_s *lower,
    */
 
   int ret;
-  return up_rtc_getdatetime((FAR struct tm *)rtctime);
+  return up_rtc_getdatetime((struct tm *)rtctime);
 
 #elif defined(CONFIG_RTC_HIRES)
-  FAR struct timespec ts;
+  struct timespec ts;
   int ret;
 
   /* Get the higher resolution time */
@@ -256,7 +250,7 @@ static int rx65n_rdtime(FAR struct rtc_lowerhalf_s *lower,
    * compatible.
    */
 
-  if (!gmtime_r(&ts.tv_sec, (FAR struct tm *)rtctime))
+  if (!gmtime_r(&ts.tv_sec, (struct tm *)rtctime))
     {
       ret = -get_errno();
       goto errout;
@@ -286,15 +280,15 @@ errout:
  *
  ****************************************************************************/
 
-static int rx65n_settime(FAR struct rtc_lowerhalf_s *lower,
-                           FAR const struct rtc_time *rtctime)
+static int rx65n_settime(struct rtc_lowerhalf_s *lower,
+                         const struct rtc_time *rtctime)
 {
 #ifdef CONFIG_RTC_DATETIME
   /* This operation depends on the fact that struct rtc_time is cast
    * compatible with struct tm.
    */
 
-  return rx65n_rtc_setdatetime((FAR const struct tm *)rtctime);
+  return rx65n_rtc_setdatetime((const struct tm *)rtctime);
 
 #else
   struct timespec ts;
@@ -303,7 +297,7 @@ static int rx65n_settime(FAR struct rtc_lowerhalf_s *lower,
    * rtc_time is cast compatible with struct tm.
    */
 
-  ts.tv_sec  = timegm((FAR struct tm *)rtctime);
+  ts.tv_sec  = timegm((struct tm *)rtctime);
   ts.tv_nsec = 0;
 
   /* Now set the time (to one second accuracy) */
@@ -326,7 +320,7 @@ static int rx65n_settime(FAR struct rtc_lowerhalf_s *lower,
  *
  ****************************************************************************/
 
-static bool rx65n_havesettime(FAR struct rtc_lowerhalf_s *lower)
+static bool rx65n_havesettime(struct rtc_lowerhalf_s *lower)
 {
   return true ;
 }
@@ -349,18 +343,18 @@ static bool rx65n_havesettime(FAR struct rtc_lowerhalf_s *lower)
  ****************************************************************************/
 
 #ifdef CONFIG_RTC_ALARM
-static int rx65n_setalarm(FAR struct rtc_lowerhalf_s *lower,
-                            FAR const struct lower_setalarm_s *alarminfo)
+static int rx65n_setalarm(struct rtc_lowerhalf_s *lower,
+                          const struct lower_setalarm_s *alarminfo)
 {
-  FAR struct rx65n_lowerhalf_s *priv;
-  FAR struct rx65n_cbinfo_s *cbinfo;
+  struct rx65n_lowerhalf_s *priv;
+  struct rx65n_cbinfo_s *cbinfo;
   struct alm_setalarm_s lowerinfo;
   int ret;
 
   DEBUGASSERT(lower != NULL && alarminfo != NULL && alarminfo->id == 0);
-  priv = (FAR struct rx65n_lowerhalf_s *)lower;
+  priv = (struct rx65n_lowerhalf_s *)lower;
 
-  ret = nxsem_wait(&priv->devsem);
+  ret = nxmutex_lock(&priv->devlock);
   if (ret < 0)
     {
       return ret;
@@ -391,8 +385,7 @@ static int rx65n_setalarm(FAR struct rtc_lowerhalf_s *lower,
         }
     }
 
-  nxsem_post(&priv->devsem);
-
+  nxmutex_unlock(&priv->devlock);
   return ret;
 }
 #endif
@@ -415,9 +408,8 @@ static int rx65n_setalarm(FAR struct rtc_lowerhalf_s *lower,
  ****************************************************************************/
 
 #ifdef CONFIG_RTC_ALARM
-static int rx65n_setrelative(FAR struct rtc_lowerhalf_s *lower,
-                             FAR const struct lower_setrelative_s
-                                                         *alarminfo)
+static int rx65n_setrelative(struct rtc_lowerhalf_s *lower,
+                             const struct lower_setrelative_s *alarminfo)
 {
   struct lower_setalarm_s setalarm;
   struct tm time;
@@ -467,7 +459,7 @@ static int rx65n_setrelative(FAR struct rtc_lowerhalf_s *lower,
 
           /* And convert the time back to broken out format */
 
-          gmtime_r(&seconds, (FAR struct tm *)&setalarm.time);
+          gmtime_r(&seconds, (struct tm *)&setalarm.time);
 
           /* The set the alarm using this absolute time */
 
@@ -511,14 +503,14 @@ static int rx65n_setrelative(FAR struct rtc_lowerhalf_s *lower,
  ****************************************************************************/
 
 #ifdef CONFIG_RTC_ALARM
-static int rx65n_cancelalarm(FAR struct rtc_lowerhalf_s *lower, int alarmid)
+static int rx65n_cancelalarm(struct rtc_lowerhalf_s *lower, int alarmid)
 {
-  FAR struct rx65n_lowerhalf_s *priv;
-  FAR struct rx65n_cbinfo_s *cbinfo;
+  struct rx65n_lowerhalf_s *priv;
+  struct rx65n_cbinfo_s *cbinfo;
 
   DEBUGASSERT(lower != NULL);
   DEBUGASSERT(alarmid == 0);
-  priv = (FAR struct rx65n_lowerhalf_s *)lower;
+  priv = (struct rx65n_lowerhalf_s *)lower;
 
   /* Nullify callback information to reduce window for race conditions */
 
@@ -549,8 +541,8 @@ static int rx65n_cancelalarm(FAR struct rtc_lowerhalf_s *lower, int alarmid)
  ****************************************************************************/
 
 #ifdef CONFIG_RTC_ALARM
-static int rx65n_rdalarm(FAR struct rtc_lowerhalf_s *lower,
-                           FAR struct lower_rdalarm_s *alarminfo)
+static int rx65n_rdalarm(struct rtc_lowerhalf_s *lower,
+                         struct lower_rdalarm_s *alarminfo)
 {
   struct alm_rdalarm_s lowerinfo;
   int ret = -EINVAL;
@@ -595,16 +587,16 @@ static int rx65n_rdalarm(FAR struct rtc_lowerhalf_s *lower,
 #ifdef CONFIG_RTC_PERIODIC
 static int rx65n_periodic_callback(void)
 {
-  FAR struct rx65n_lowerhalf_s *lower;
+  struct rx65n_lowerhalf_s *lower;
   struct lower_setperiodic_s *cbinfo;
   periodiccb_t cb;
-  FAR void *priv;
+  void *priv;
 
-  lower = (FAR struct rx65n_lowerhalf_s *)&g_rtc_lowerhalf;
+  lower = (struct rx65n_lowerhalf_s *)&g_rtc_lowerhalf;
 
   cbinfo = &lower->periodic;
   cb     = (periodiccb_t)cbinfo->cb;
-  priv   = (FAR void *)cbinfo->priv;
+  priv   = (void *)cbinfo->priv;
 
   /* Perform the callback */
 
@@ -636,29 +628,26 @@ static int rx65n_periodic_callback(void)
  ****************************************************************************/
 
 #ifdef CONFIG_RTC_PERIODIC
-static int rx65n_setperiodic(FAR struct rtc_lowerhalf_s *lower,
-                             FAR const struct lower_setperiodic_s
-                                                         *alarminfo)
+static int rx65n_setperiodic(struct rtc_lowerhalf_s *lower,
+                             const struct lower_setperiodic_s *alarminfo)
 {
-  FAR struct rx65n_lowerhalf_s *priv;
+  struct rx65n_lowerhalf_s *priv;
   int ret;
 
   DEBUGASSERT(lower != NULL && alarminfo != NULL);
-  priv = (FAR struct rx65n_lowerhalf_s *)lower;
+  priv = (struct rx65n_lowerhalf_s *)lower;
 
-  ret = nxsem_wait(&priv->devsem);
+  ret = nxmutex_lock(&priv->devlock);
   if (ret < 0)
     {
       return ret;
     }
 
   memcpy(&priv->periodic, alarminfo, sizeof(struct lower_setperiodic_s));
-
   ret = rx65n_rtc_setperiodic(&alarminfo->period,
                               (periodiccb_t)rx65n_periodic_callback);
 
-  nxsem_post(&priv->devsem);
-
+  nxmutex_unlock(&priv->devlock);
   return ret;
 }
 #endif
@@ -680,17 +669,17 @@ static int rx65n_setperiodic(FAR struct rtc_lowerhalf_s *lower,
  ****************************************************************************/
 
 #ifdef CONFIG_RTC_PERIODIC
-static int rx65n_cancelperiodic(FAR struct rtc_lowerhalf_s *lower, int id)
+static int rx65n_cancelperiodic(struct rtc_lowerhalf_s *lower, int id)
 {
-  FAR struct rx65n_lowerhalf_s *priv;
+  struct rx65n_lowerhalf_s *priv;
   int ret;
 
   DEBUGASSERT(lower != NULL);
-  priv = (FAR struct rx65n_lowerhalf_s *)lower;
+  priv = (struct rx65n_lowerhalf_s *)lower;
 
   DEBUGASSERT(id == 0);
 
-  ret = nxsem_wait(&priv->devsem);
+  ret = nxmutex_lock(&priv->devlock);
   if (ret < 0)
     {
       return ret;
@@ -698,8 +687,7 @@ static int rx65n_cancelperiodic(FAR struct rtc_lowerhalf_s *lower, int id)
 
   ret = rx65n_rtc_cancelperiodic();
 
-  nxsem_post(&priv->devsem);
-
+  nxmutex_unlock(&priv->devlock);
   return ret;
 }
 #endif
@@ -730,11 +718,9 @@ static int rx65n_cancelperiodic(FAR struct rtc_lowerhalf_s *lower, int id)
  *
  ****************************************************************************/
 
-FAR struct rtc_lowerhalf_s *rx65n_rtc_lowerhalf(void)
+struct rtc_lowerhalf_s *rx65n_rtc_lowerhalf(void)
 {
-  nxsem_init(&g_rtc_lowerhalf.devsem, 0, 1);
-
-  return (FAR struct rtc_lowerhalf_s *)&g_rtc_lowerhalf;
+  return (struct rtc_lowerhalf_s *)&g_rtc_lowerhalf;
 }
 
 #endif /* CONFIG_RTC_DRIVER */

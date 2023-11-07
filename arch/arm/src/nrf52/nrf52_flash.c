@@ -47,6 +47,7 @@
 #include <nuttx/config.h>
 #include <nuttx/arch.h>
 #include <errno.h>
+#include <debug.h>
 
 #include <nuttx/config.h>
 #include <nuttx/progmem.h>
@@ -60,6 +61,10 @@
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
+
+#ifndef CONFIG_ALLOW_BSD_COMPONENTS
+#  error "This file requires Kconfig ALLOW_BSD_COMPONENTS"
+#endif
 
 #define NRF52_FLASH_PAGE_SIZE  (4*1024)
 
@@ -215,7 +220,7 @@ ssize_t up_progmem_eraseblock(size_t block)
 
   if (block >= up_progmem_neraseblocks())
     {
-      _err("Wrong Page number %d.\n", page);
+      _err("Wrong block number %d.\n", block);
       return -EFAULT;
     }
 

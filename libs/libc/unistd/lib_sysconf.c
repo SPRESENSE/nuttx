@@ -30,6 +30,12 @@
 #include <sched.h>
 #include <errno.h>
 
+#ifdef CONFIG_MM_PGSIZE
+#  define DEFAULT_MM_PGSIZE CONFIG_MM_PGSIZE
+#else
+#  define DEFAULT_MM_PGSIZE CONFIG_PTHREAD_STACK_MIN
+#endif
+
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
@@ -209,6 +215,20 @@ long sysconf(int name)
 
   switch (name)
     {
+#ifdef CONFIG_FS_AIO
+      case _SC_ASYNCHRONOUS_IO:
+        return _POSIX_ASYNCHRONOUS_IO;
+#endif
+      case _SC_PRIORITIZED_IO:
+        return _POSIX_PRIORITIZED_IO;
+      case _SC_AIO_MAX:
+        return _POSIX_AIO_MAX;
+      case _SC_CPUTIME:
+        return _POSIX_CPUTIME;
+      case _SC_THREAD_CPUTIME:
+        return _POSIX_THREAD_CPUTIME;
+      case _SC_REALTIME_SIGNALS:
+        return _POSIX_REALTIME_SIGNALS;
       case _SC_CLK_TCK:
         return CLOCKS_PER_SEC;
 
@@ -226,11 +246,15 @@ long sysconf(int name)
         return 1;
 
       case _SC_PAGESIZE:
-#ifdef CONFIG_MM_PGSIZE
-        return CONFIG_MM_PGSIZE;
-#else
-        return 1;
-#endif
+        return DEFAULT_MM_PGSIZE;
+
+      case _SC_THREAD_STACK_MIN:
+        return CONFIG_PTHREAD_STACK_MIN;
+
+      /* threads limit to tcb_s->group->tg_nmembers(unint_8) */
+
+      case _SC_THREAD_THREADS_MAX:
+        return UINT8_MAX;
 
       default:
 #if 0 /* Assume valid but not implemented for the time being */

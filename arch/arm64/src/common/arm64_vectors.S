@@ -24,6 +24,7 @@
 
 #include <nuttx/config.h>
 
+#include <arch/chip/chip.h>
 #include "arch/syscall.h"
 #include "arm64_macro.inc"
 #include "arch/irq.h"
@@ -60,15 +61,15 @@
  ****************************************************************************/
 
 /****************************************************************************
- * Function: arm64_context_snapshot
+ * Function: up_saveusercontext
  *
  * Description:
  *   Take a snapshot of the thread GP registers context
  *   x0 --- pointer to struct regs_context
  *
  ****************************************************************************/
-GTEXT(arm64_context_snapshot)
-SECTION_FUNC(text, arm64_context_snapshot)
+GTEXT(up_saveusercontext)
+SECTION_FUNC(text, up_saveusercontext)
     str    x0, [sp, #-16]!
 
     stp    x0,  x1,  [x0, #8 * REG_X0]
@@ -121,8 +122,16 @@ SECTION_FUNC(text, arm64_context_switch)
     cmp    x1, #0x0
     beq    restore_new
 
+#if defined(CONFIG_ARCH_FPU) && defined(CONFIG_SMP)
+    stp    x0, x1, [sp, #-16]!
+    stp    xzr, x30, [sp, #-16]!
+    bl     arm64_fpu_context_save
+    ldp    xzr, x30, [sp], #16
+    ldp    x0, x1, [sp], #16
+#endif
+
     /* Save the current SP_EL0 */
-    mov    x4,  sp
+    add    x4, sp, #8 * XCPTCONTEXT_GP_REGS
     str    x4, [x1, #8 * REG_SP_ELX]
 
     /* Save the current task's SP_EL0 and exception depth */
@@ -151,13 +160,7 @@ restore_new:
 
     /* retrieve new thread's SP_ELx */
     ldr    x4, [x0, #8 * REG_SP_ELX]
-    mov    sp, x4
-
-#ifdef CONFIG_SCHED_INSTRUMENTATION_SWITCH
-    stp    xzr, x30, [sp, #-16]!
-    bl     arm64_trace_context_switch
-    ldp    xzr, x30, [sp], #16
-#endif
+    sub    sp, x4, #8 * XCPTCONTEXT_GP_REGS
 
 #ifdef CONFIG_ARCH_FPU
     stp    xzr, x30, [sp, #-16]!

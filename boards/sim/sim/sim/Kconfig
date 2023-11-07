@@ -43,12 +43,6 @@ config SIM_LISTENERPRIO
 	---help---
 		The priority of the event listener thread. Default 80.
 
-config SIM_NOTIFYSIGNO
-	int "Notify Signal Number"
-	default 4
-	---help---
-		The signal number to use with nx_eventnotify().  Default: 4
-
 endif
 
 config SIM_WTGAHRS2_UARTN
@@ -59,20 +53,13 @@ config SIM_WTGAHRS2_UARTN
 		We can select the number according to which SIM_UARTX_NAME is used to sensor.
 		This range is 0-4.
 
-config SIM_I2CBUS_ID
-	int "I2C host bus ID to attach to simulator"
-	default 0
-	depends on SIM_I2CBUS
+config SIM_RNDIS_MACADDR
+	hex "RNDIS MAC address"
+	default 0xfadedeadbeef
+	depends on RNDIS
 	---help---
-		This is the bus identifier that should be used by the host implementation to
-		attach to the simulator driver.
-
-config SIM_SPIDEV_NAME
-	string "the name of SPI host dev to attach to simulator"
-	default "/dev/spidev0.0"
-	depends on SIM_SPI
-	---help---
-		This is the name of the SPI device on the host implementation to
-		attach to the simulator driver.
+		If the hardware has no built-in MAC address then the fixed,
+		software-assigned MAC address MAC address must provided
+		with this selection.
 
 endif

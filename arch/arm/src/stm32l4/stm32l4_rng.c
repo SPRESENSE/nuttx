@@ -31,6 +31,7 @@
 
 #include <nuttx/irq.h>
 #include <nuttx/arch.h>
+#include <nuttx/mutex.h>
 #include <nuttx/semaphore.h>
 #include <nuttx/fs/fs.h>
 #include <nuttx/drivers/drivers.h>
@@ -57,7 +58,7 @@ static ssize_t stm32l4_rngread(struct file *filep, char *buffer, size_t);
 
 struct rng_dev_s
 {
-  sem_t rd_devsem;      /* Threads can only exclusively access the RNG */
+  mutex_t rd_devlock;   /* Threads can only exclusively access the RNG */
   sem_t rd_readsem;     /* To block until the buffer is filled  */
   char *rd_buf;
   size_t rd_buflen;
@@ -69,20 +70,17 @@ struct rng_dev_s
  * Private Data
  ****************************************************************************/
 
-static struct rng_dev_s g_rngdev;
+static struct rng_dev_s g_rngdev =
+{
+  .rd_devlock = NXMUTEX_INITIALIZER,
+  .rd_readsem = SEM_INITIALIZER(0),
+};
 
 static const struct file_operations g_rngops =
 {
   NULL,            /* open */
   NULL,            /* close */
   stm32l4_rngread, /* read */
-  NULL,            /* write */
-  NULL,            /* seek */
-  NULL,            /* ioctl */
-  NULL             /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL           /* unlink */
-#endif
 };
 
 /****************************************************************************
@@ -92,10 +90,6 @@ static const struct file_operations g_rngops =
 static int stm32l4_rng_initialize(void)
 {
   _info("Initializing RNG\n");
-
-  memset(&g_rngdev, 0, sizeof(struct rng_dev_s));
-
-  nxsem_init(&g_rngdev.rd_devsem, 0, 1);
 
   if (irq_attach(STM32L4_IRQ_RNG, stm32l4_rnginterrupt, NULL))
     {
@@ -236,7 +230,7 @@ static ssize_t stm32l4_rngread(struct file *filep,
 {
   int ret;
 
-  ret = nxsem_wait(&g_rngdev.rd_devsem);
+  ret = nxmutex_lock(&g_rngdev.rd_devlock);
   if (ret < 0)
     {
       return ret;
@@ -244,14 +238,11 @@ static ssize_t stm32l4_rngread(struct file *filep,
 
   /* We've got the device semaphore, proceed with reading */
 
-  /* Initialize the operation semaphore with 0 for blocking until the
-   * buffer is filled from interrupts.  The readsem semaphore is used
-   * for signaling and, hence, should not have priority inheritance
-   * enabled.
+  /* Reset the operation semaphore with 0 for blocking until the
+   * buffer is filled from interrupts.
    */
 
-  nxsem_init(&g_rngdev.rd_readsem, 0, 0);
-  nxsem_set_protocol(&g_rngdev.rd_readsem, SEM_PRIO_NONE);
+  nxsem_reset(&g_rngdev.rd_readsem, 0);
 
   g_rngdev.rd_buflen = buflen;
   g_rngdev.rd_buf = buffer;
@@ -264,13 +255,9 @@ static ssize_t stm32l4_rngread(struct file *filep,
 
   nxsem_wait(&g_rngdev.rd_readsem);
 
-  /* Done with the operation semaphore */
+  /* Free RNG via the device mutex for next use */
 
-  nxsem_destroy(&g_rngdev.rd_readsem);
-
-  /* Free RNG via the device semaphore for next use */
-
-  nxsem_post(&g_rngdev.rd_devsem);
+  nxmutex_unlock(&g_rngdev.rd_devlock);
   return buflen;
 }
 

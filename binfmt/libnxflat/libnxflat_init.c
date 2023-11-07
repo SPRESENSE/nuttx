@@ -36,6 +36,8 @@
 #include <nuttx/fs/fs.h>
 #include <nuttx/binfmt/nxflat.h>
 
+#include "libnxflat.h"
+
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
@@ -49,9 +51,9 @@
 #endif
 
 #ifdef CONFIG_NXFLAT_DUMPBUFFER
-# define nxflat_dumpbuffer(m,b,n) binfodumpbuffer(m,b,n)
+#  define nxflat_dumpbuffer(m,b,n) binfodumpbuffer(m,b,n)
 #else
-# define nxflat_dumpbuffer(m,b,n)
+#  define nxflat_dumpbuffer(m,b,n)
 #endif
 
 /****************************************************************************
@@ -94,7 +96,7 @@ int nxflat_init(const char *filename, struct nxflat_loadinfo_s *loadinfo)
 
   /* Open the binary file */
 
-  ret = file_open(&loadinfo->file, filename, O_RDONLY);
+  ret = file_open(&loadinfo->file, filename, O_RDONLY | O_CLOEXEC);
   if (ret < 0)
     {
       berr("ERROR: Failed to open NXFLAT binary %s: %d\n", filename, ret);

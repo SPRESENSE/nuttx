@@ -65,12 +65,11 @@ int ipcc_unlink(FAR struct inode *inode)
 
   /* Get our private data structure */
 
-  DEBUGASSERT(inode);
   priv = inode->i_private;
 
   /* Get exclusive access to the IPCC driver state structure */
 
-  if ((ret = nxsem_wait(&priv->exclsem)) < 0)
+  if ((ret = nxmutex_lock(&priv->lock)) < 0)
     {
       return ret;
     }
@@ -91,6 +90,6 @@ int ipcc_unlink(FAR struct inode *inode)
    */
 
   priv->unlinked = true;
-  nxsem_post(&priv->exclsem);
+  nxmutex_unlock(&priv->lock);
   return OK;
 }

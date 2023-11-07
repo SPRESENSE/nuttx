@@ -61,7 +61,8 @@
 #endif
 
 #if !defined(BOARD_FLASH_PROGDELAY)
-#  if STM32_PWR_VOS_SCALE == PWR_D3CR_VOS_SCALE_1
+#  if (STM32_PWR_VOS_SCALE == PWR_D3CR_VOS_SCALE_1) || \
+      (STM32_PWR_VOS_SCALE == PWR_D3CR_VOS_SCALE_0)
 #    if STM32_SYSCLK_FREQUENCY <= 70000000 && BOARD_FLASH_WAITSTATES == 0
 #      define BOARD_FLASH_PROGDELAY  0
 #    elif STM32_SYSCLK_FREQUENCY <= 140000000 && BOARD_FLASH_WAITSTATES == 1
@@ -75,6 +76,8 @@
 #    else
 #      define BOARD_FLASH_PROGDELAY  2
 #    endif
+#  else
+#    define BOARD_FLASH_PROGDELAY    2
 #  endif
 #endif
 
@@ -102,9 +105,33 @@
 #error When HSI is used, you have to define STM32_BOARD_HSIDIV in board/include/board.h
 #endif
 
-/****************************************************************************
- * Private Data
- ****************************************************************************/
+/* Over-drive is supported only for Voltage output scale 1 mode.
+ * It is required when SYSCLK frequency is over 400 MHz or it can be forced
+ * to a given state by adding define to the board.h configuration file:
+ *
+ *   #define STM32_VOS_OVERDRIVE 1 - force over-drive enabled,
+ *   #define STM32_VOS_OVERDRIVE 0 - force over-drive disabled,
+ *   #undef STM32_VOS_OVERDRIVE    - autoselect over-drive by logic below
+ *
+ * Boosting the core voltage can be a workaround solution to problems with
+ * poor board signal integration for high-speed digital interfaces like ULPI.
+ * Higher voltage means faster clock signal edges which may be sufficient to
+ * synchronise the high-speed clock and data.
+ */
+
+#ifndef STM32_VOS_OVERDRIVE
+#  if (STM32_PWR_VOS_SCALE == PWR_D3CR_VOS_SCALE_1) && \
+      (STM32_SYSCLK_FREQUENCY > 400000000)
+#    define STM32_VOS_OVERDRIVE 1
+#  else
+#    define STM32_VOS_OVERDRIVE 0
+#  endif
+#else
+#  if (STM32_VOS_OVERDRIVE == 1) &&             \
+      (STM32_PWR_VOS_SCALE != PWR_D3CR_VOS_SCALE_1)
+#    error Over-drive can be selected only when VOS1 is configured
+#  endif
+#endif
 
 /****************************************************************************
  * Private Functions
@@ -211,15 +238,15 @@ static inline void rcc_enableahb1(void)
 #endif
 
 #ifdef CONFIG_STM32H7_OTGHS
-#  if defined(CONFIG_STM32H7_OTGHS_EXTERNAL_ULPI)
-  /* Enable clocking for USB OTG HS and external PHY */
-
-  regval |= (RCC_AHB1ENR_OTGHSEN | RCC_AHB1ENR_OTGHSULPIEN);
-#else
+#  ifndef CONFIG_STM32H7_OTGHS_EXTERNAL_ULPI
   /* Enable only clocking for USB OTG HS */
 
   regval |= RCC_AHB1ENR_OTGHSEN;
-#endif
+#  else
+  /* Enable clocking for USB OTG HS and external PHY */
+
+  regval |= RCC_AHB1ENR_OTGHSEN | RCC_AHB1ENR_OTGHSULPIEN;
+#  endif
 #endif
 
 #ifdef CONFIG_STM32H7_ETHMAC
@@ -299,6 +326,12 @@ static inline void rcc_enableahb3(void)
   /* Flexible static memory controller module clock enable */
 
   regval |= RCC_AHB3ENR_FMCEN;
+#endif
+
+#if defined(CONFIG_STM32H7_LTDC) && defined(CONFIG_STM32H7_DMA2D)
+  /* Enable DMA2D */
+
+  regval |= RCC_AHB3ENR_DMA2DEN;
 #endif
 
   /* TODO: ... */
@@ -383,6 +416,12 @@ static inline void rcc_enableahb4(void)
   /* Backup SRAM clock enable */
 
   regval |= RCC_AHB4ENR_BKPSRAMEN;
+#endif
+
+#ifdef CONFIG_STM32H7_HSEM
+  /* HSEM clock enable */
+
+  regval |= RCC_AHB4ENR_HSEMEN;
 #endif
 
   putreg32(regval, STM32_RCC_AHB4ENR);   /* Enable peripherals */
@@ -518,7 +557,11 @@ static inline void rcc_enableapb3(void)
 
   regval = getreg32(STM32_RCC_APB3ENR);
 
-  /* TODO: ... */
+#ifdef CONFIG_STM32H7_LTDC
+  /* LTDC clock enable */
+
+  regval |= RCC_APB3ENR_LTDCEN;
+#endif
 
   putreg32(regval, STM32_RCC_APB3ENR);   /* Enable peripherals */
 }
@@ -837,9 +880,17 @@ void stm32_stdclockconfig(void)
        * N.B. The system shall be power cycled before writing a new value.
        */
 
+#if defined(CONFIG_STM32H7_PWR_DIRECT_SMPS_SUPPLY)
       regval = getreg32(STM32_PWR_CR3);
-      regval |= STM32_PWR_CR3_LDOEN | STM32_PWR_CR3_LDOESCUEN;
+      regval &= ~(STM32_PWR_CR3_BYPASS | STM32_PWR_CR3_LDOEN |
+          STM32_PWR_CR3_SMPSEXTHP | STM32_PWR_CR3_SMPSLEVEL_MASK);
+      regval |= STM32_PWR_CR3_SCUEN;
       putreg32(regval, STM32_PWR_CR3);
+#else
+      regval = getreg32(STM32_PWR_CR3);
+      regval |= STM32_PWR_CR3_LDOEN | STM32_PWR_CR3_SCUEN;
+      putreg32(regval, STM32_PWR_CR3);
+#endif
 
       /* Set the voltage output scale */
 
@@ -858,30 +909,25 @@ void stm32_stdclockconfig(void)
         {
         }
 
-      /* Over-drive is needed if
-       *  - Voltage output scale 1 mode is selected and SYSCLK frequency is
-       *    over 400 MHz.
-       */
+#if STM32_VOS_OVERDRIVE && (STM32_PWR_VOS_SCALE == PWR_D3CR_VOS_SCALE_1)
+      /* Over-drive support for VOS1 */
 
-      if ((STM32_PWR_VOS_SCALE == PWR_D3CR_VOS_SCALE_1) &&
-           STM32_SYSCLK_FREQUENCY > 400000000)
+      /* Enable System configuration controller clock to Enable ODEN */
+
+      regval = getreg32(STM32_RCC_APB4ENR);
+      regval |= RCC_APB4ENR_SYSCFGEN;
+      putreg32(regval, STM32_RCC_APB4ENR);
+
+      /* Enable Overdrive */
+
+      regval = getreg32(STM32_SYSCFG_PWRCR);
+      regval |= SYSCFG_PWRCR_ODEN;
+      putreg32(regval, STM32_SYSCFG_PWRCR);
+
+      while ((getreg32(STM32_PWR_D3CR) & STM32_PWR_D3CR_VOSRDY) == 0)
         {
-          /* Enable System configuration controller clock to Enable ODEN */
-
-          regval = getreg32(STM32_RCC_APB4ENR);
-          regval |= RCC_APB4ENR_SYSCFGEN;
-          putreg32(regval, STM32_RCC_APB4ENR);
-
-          /* Enable Overdrive to extend the clock frequency up to 480 MHz. */
-
-          regval = getreg32(STM32_SYSCFG_PWRCR);
-          regval |= SYSCFG_PWRCR_ODEN;
-          putreg32(regval, STM32_SYSCFG_PWRCR);
-
-          while ((getreg32(STM32_PWR_D3CR) & STM32_PWR_D3CR_VOSRDY) == 0)
-            {
-            }
         }
+#endif
 
       /* Configure FLASH wait states */
 

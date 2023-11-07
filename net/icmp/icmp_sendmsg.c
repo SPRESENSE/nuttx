@@ -56,15 +56,6 @@
 #ifdef CONFIG_NET_ICMP_SOCKET
 
 /****************************************************************************
- * Pre-processor Definitions
- ****************************************************************************/
-
-#define IPv4BUF \
-  ((FAR struct ipv4_hdr_s *)&dev->d_buf[NET_LL_HDRLEN(dev)])
-#define ICMPBUF \
-  ((FAR struct icmp_hdr_s *)&dev->d_buf[NET_LL_HDRLEN(dev) + IPv4_HDRLEN])
-
-/****************************************************************************
  * Private Types
  ****************************************************************************/
 
@@ -106,8 +97,15 @@ struct icmp_sendto_s
 static void sendto_request(FAR struct net_driver_s *dev,
                            FAR struct icmp_sendto_s *pstate)
 {
-  FAR struct ipv4_hdr_s *ipv4;
   FAR struct icmp_hdr_s *icmp;
+
+  /* Set-up to send that amount of data. */
+
+  devif_send(dev, pstate->snd_buf, pstate->snd_buflen, IPv4_HDRLEN);
+  if (dev->d_sndlen != pstate->snd_buflen)
+    {
+      return;
+    }
 
   IFF_SET_IPv4(dev->d_flags);
 
@@ -117,49 +115,26 @@ static void sendto_request(FAR struct net_driver_s *dev,
 
   dev->d_len = IPv4_HDRLEN + pstate->snd_buflen;
 
-  /* The total size of the data (including the size of the ICMP header) */
-
-  dev->d_sndlen += pstate->snd_buflen;
-
   /* Initialize the IP header. */
 
-  ipv4              = IPv4BUF;
-  ipv4->vhl         = 0x45;
-  ipv4->tos         = 0;
-  ipv4->len[0]      = (dev->d_len >> 8);
-  ipv4->len[1]      = (dev->d_len & 0xff);
-  ++g_ipid;
-  ipv4->ipid[0]     = g_ipid >> 8;
-  ipv4->ipid[1]     = g_ipid & 0xff;
-  ipv4->ipoffset[0] = IP_FLAG_DONTFRAG >> 8;
-  ipv4->ipoffset[1] = IP_FLAG_DONTFRAG & 0xff;
-  ipv4->ttl         = IP_TTL_DEFAULT;
-  ipv4->proto       = IP_PROTO_ICMP;
-
-  net_ipv4addr_hdrcopy(ipv4->srcipaddr, &dev->d_ipaddr);
-  net_ipv4addr_hdrcopy(ipv4->destipaddr, &pstate->snd_toaddr);
+  ipv4_build_header(IPv4BUF, dev->d_len, IP_PROTO_ICMP,
+                    &dev->d_ipaddr, &pstate->snd_toaddr,
+                    IP_TTL_DEFAULT, 0, NULL);
 
   /* Copy the ICMP header and payload into place after the IPv4 header */
 
-  icmp              = ICMPBUF;
-  memcpy(icmp, pstate->snd_buf, pstate->snd_buflen);
-
-  /* Calculate IP checksum. */
-
-  ipv4->ipchksum    = 0;
-  ipv4->ipchksum    = ~(ipv4_chksum(dev));
+  icmp = IPBUF(IPv4_HDRLEN);
 
   /* Calculate the ICMP checksum. */
 
-  icmp->icmpchksum  = 0;
-  icmp->icmpchksum  = ~(icmp_chksum(dev, pstate->snd_buflen));
+  icmp->icmpchksum = 0;
+  icmp->icmpchksum = ~icmp_chksum_iob(dev->d_iob);
   if (icmp->icmpchksum == 0)
     {
       icmp->icmpchksum = 0xffff;
     }
 
-  ninfo("Outgoing ICMP packet length: %d (%d)\n",
-        dev->d_len, (ipv4->len[0] << 8) | ipv4->len[1]);
+  ninfo("Outgoing ICMP packet length: %d\n", dev->d_len);
 
 #ifdef CONFIG_NET_STATISTICS
   g_netstats.icmp.sent++;
@@ -178,7 +153,6 @@ static void sendto_request(FAR struct net_driver_s *dev,
  * Input Parameters:
  *   dev        The structure of the network driver that generated the
  *              event.
- *   conn       The received packet, cast to (void *)
  *   pvpriv     An instance of struct icmp_sendto_s cast to (void *)
  *   flags      Set of events describing why the callback was invoked
  *
@@ -191,10 +165,9 @@ static void sendto_request(FAR struct net_driver_s *dev,
  ****************************************************************************/
 
 static uint16_t sendto_eventhandler(FAR struct net_driver_s *dev,
-                                  FAR void *conn,
-                                  FAR void *pvpriv, uint16_t flags)
+                                    FAR void *pvpriv, uint16_t flags)
 {
-  FAR struct icmp_sendto_s *pstate = (struct icmp_sendto_s *)pvpriv;
+  FAR struct icmp_sendto_s *pstate = pvpriv;
 
   ninfo("flags: %04x\n", flags);
 
@@ -230,8 +203,11 @@ static uint16_t sendto_eventhandler(FAR struct net_driver_s *dev,
           ninfo("Send ICMP request\n");
 
           sendto_request(dev, pstate);
-          pstate->snd_result = OK;
-          goto end_wait;
+          if (dev->d_sndlen > 0)
+            {
+              pstate->snd_result = OK;
+              goto end_wait;
+            }
         }
 
       /* Continue waiting */
@@ -314,8 +290,7 @@ ssize_t icmp_sendmsg(FAR struct socket *psock, FAR struct msghdr *msg,
 
   /* Some sanity checks */
 
-  DEBUGASSERT(psock != NULL && psock->s_conn != NULL &&
-              buf != NULL && to != NULL);
+  DEBUGASSERT(buf != NULL && to != NULL);
 
   if (len < ICMP_HDRLEN || tolen < sizeof(struct sockaddr_in))
     {
@@ -327,7 +302,17 @@ ssize_t icmp_sendmsg(FAR struct socket *psock, FAR struct msghdr *msg,
 
   /* Get the device that will be used to route this ICMP ECHO request */
 
-  dev = netdev_findby_ripv4addr(INADDR_ANY, inaddr->sin_addr.s_addr);
+#ifdef CONFIG_NET_BINDTODEVICE
+  if (conn->sconn.s_boundto != 0)
+    {
+      dev = netdev_findbyindex(conn->sconn.s_boundto);
+    }
+  else
+#endif
+    {
+      dev = netdev_findby_ripv4addr(INADDR_ANY, inaddr->sin_addr.s_addr);
+    }
+
   if (dev == NULL)
     {
       nerr("ERROR: Not reachable\n");
@@ -335,6 +320,7 @@ ssize_t icmp_sendmsg(FAR struct socket *psock, FAR struct msghdr *msg,
       goto errout;
     }
 
+#ifndef CONFIG_NET_IPFRAG
   /* Sanity check if the request len is greater than the net payload len */
 
   if (len > NETDEV_PKTSIZE(dev) - (NET_LL_HDRLEN(dev) + IPv4_HDRLEN))
@@ -342,6 +328,7 @@ ssize_t icmp_sendmsg(FAR struct socket *psock, FAR struct msghdr *msg,
       nerr("ERROR: Invalid packet length\n");
       return -EINVAL;
     }
+#endif
 
   /* If we are no longer processing the same ping ID, then flush any pending
    * packets from the read-ahead buffer.
@@ -351,14 +338,13 @@ ssize_t icmp_sendmsg(FAR struct socket *psock, FAR struct msghdr *msg,
    */
 
   icmp = (FAR struct icmp_hdr_s *)buf;
-  if (icmp->type != ICMP_ECHO_REQUEST || icmp->id != conn->id ||
-      dev != conn->dev)
+  if (psock->s_type != SOCK_RAW && (icmp->type != ICMP_ECHO_REQUEST ||
+      icmp->id != conn->id || dev != conn->dev))
     {
-      conn->id    = 0;
-      conn->nreqs = 0;
-      conn->dev   = NULL;
+      conn->id  = 0;
+      conn->dev = NULL;
 
-      iob_free_queue(&conn->readahead, IOBUSER_NET_SOCK_ICMP);
+      iob_free_queue(&conn->readahead);
     }
 
 #ifdef CONFIG_NET_ARP_SEND
@@ -375,12 +361,7 @@ ssize_t icmp_sendmsg(FAR struct socket *psock, FAR struct msghdr *msg,
 
   /* Initialize the state structure */
 
-  /* This semaphore is used for signaling and, hence, should not have
-   * priority inheritance enabled.
-   */
-
   nxsem_init(&state.snd_sem, 0, 0);
-  nxsem_set_protocol(&state.snd_sem, SEM_PRIO_NONE);
 
   state.snd_result = -ENOMEM;                 /* Assume allocation failure */
   state.snd_toaddr = inaddr->sin_addr.s_addr; /* Address of the peer to send
@@ -396,29 +377,28 @@ ssize_t icmp_sendmsg(FAR struct socket *psock, FAR struct msghdr *msg,
   state.snd_cb = icmp_callback_alloc(dev, conn);
   if (state.snd_cb != NULL)
     {
-      state.snd_cb->flags   = (ICMP_POLL | NETDEV_DOWN);
-      state.snd_cb->priv    = (FAR void *)&state;
-      state.snd_cb->event   = sendto_eventhandler;
+      state.snd_cb->flags = (ICMP_POLL | NETDEV_DOWN);
+      state.snd_cb->priv  = (FAR void *)&state;
+      state.snd_cb->event = sendto_eventhandler;
 
       /* Setup to receive ICMP ECHO replies */
 
-      if (icmp->type == ICMP_ECHO_REQUEST)
+      if (psock->s_type != SOCK_RAW && icmp->type == ICMP_ECHO_REQUEST)
         {
-          conn->id    = icmp->id;
-          conn->nreqs = 1;
+          conn->id = icmp->id;
         }
 
-        conn->dev     = dev;
+        conn->dev = dev;
 
       /* Notify the device driver of the availability of TX data */
 
       netdev_txnotify_dev(dev);
 
       /* Wait for either the send to complete or for timeout to occur.
-       * net_timedwait will also terminate if a signal is received.
+       * net_sem_timedwait will also terminate if a signal is received.
        */
 
-      ret = net_timedwait(&state.snd_sem,
+      ret = net_sem_timedwait(&state.snd_sem,
                           _SO_TIMEOUT(conn->sconn.s_sndtimeo));
       if (ret < 0)
         {
@@ -451,6 +431,8 @@ ssize_t icmp_sendmsg(FAR struct socket *psock, FAR struct msghdr *msg,
       icmp_callback_free(dev, conn, state.snd_cb);
     }
 
+  nxsem_destroy(&state.snd_sem);
+
   net_unlock();
 
   /* Return the negated error number in the event of a failure, or the
@@ -467,11 +449,10 @@ ssize_t icmp_sendmsg(FAR struct socket *psock, FAR struct msghdr *msg,
   return len;
 
 errout:
-  conn->id    = 0;
-  conn->nreqs = 0;
-  conn->dev   = NULL;
+  conn->id  = 0;
+  conn->dev = NULL;
 
-  iob_free_queue(&conn->readahead, IOBUSER_NET_SOCK_ICMP);
+  iob_free_queue(&conn->readahead);
   return ret;
 }
 

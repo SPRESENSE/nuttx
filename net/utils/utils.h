@@ -28,6 +28,7 @@
 #include <nuttx/config.h>
 #include <nuttx/net/net.h>
 #include <nuttx/net/ip.h>
+#include <nuttx/net/netdev.h>
 
 /****************************************************************************
  * Public Types
@@ -192,97 +193,44 @@ void net_ipv6_pref2mask(uint8_t preflen, net_ipv6addr_t mask);
 #endif
 
 /****************************************************************************
- * Name: chksum
+ * Name: net_iob_concat
  *
  * Description:
- *   Calculate the raw change some over the memory region described by
- *   data and len.
- *
- * Input Parameters:
- *   sum  - Partial calculations carried over from a previous call to chksum.
- *          This should be zero on the first time that check sum is called.
- *   data - Beginning of the data to include in the checksum.
- *   len  - Length of the data to include in the checksum.
+ *   Concatenate iob_s chain iob2 to iob1, if CONFIG_NET_RECV_PACK is
+ *   endabled, pack all data in the I/O buffer chain.
  *
  * Returned Value:
- *   The updated checksum value.
+ *   The number of bytes actually buffered is returned.  This will be either
+ *   zero or equal to iob1->io_pktlen.
  *
  ****************************************************************************/
 
-uint16_t chksum(uint16_t sum, FAR const uint8_t *data, uint16_t len);
-
-/****************************************************************************
- * Name: net_chksum
- *
- * Description:
- *   Calculate the Internet checksum over a buffer.
- *
- *   The Internet checksum is the one's complement of the one's complement
- *   sum of all 16-bit words in the buffer.
- *
- *   See RFC1071.
- *
- *   If CONFIG_NET_ARCH_CHKSUM is defined, then this function must be
- *   provided by architecture-specific logic.
- *
- * Input Parameters:
- *
- *   buf - A pointer to the buffer over which the checksum is to be computed.
- *
- *   len - Length of the buffer over which the checksum is to be computed.
- *
- * Returned Value:
- *   The Internet checksum of the buffer.
- *
- ****************************************************************************/
-
-uint16_t net_chksum(FAR uint16_t *data, uint16_t len);
-
-/****************************************************************************
- * Name: ipv4_upperlayer_chksum
- *
- * Description:
- *   Perform the checksum calcaultion over the IPv4, protocol headers, and
- *   data payload as necessary.
- *
- * Input Parameters:
- *   dev   - The network driver instance.  The packet data is in the d_buf
- *           of the device.
- *   proto - The protocol being supported
- *
- * Returned Value:
- *   The calculated checksum
- *
- ****************************************************************************/
-
-#ifdef CONFIG_NET_IPv4
-uint16_t ipv4_upperlayer_chksum(FAR struct net_driver_s *dev, uint8_t proto);
+#ifdef CONFIG_MM_IOB
+uint16_t net_iob_concat(FAR struct iob_s **iob1, FAR struct iob_s **iob2);
 #endif
 
 /****************************************************************************
- * Name: ipv6_upperlayer_chksum
+ * Name: net_chksum_adjust
  *
  * Description:
- *   Perform the checksum calculation over the IPv6, protocol headers, and
- *   data payload as necessary.
+ *   Adjusts the checksum of a packet without having to completely
+ *   recalculate it, as described in RFC 3022, Section 4.2, Page 9.
  *
  * Input Parameters:
- *   dev   - The network driver instance.  The packet data is in the d_buf
- *           of the device.
- *   proto - The protocol being supported
- *   iplen - The size of the IPv6 header.  This may be larger than
- *           IPv6_HDRLEN the IPv6 header if IPv6 extension headers are
- *           present.
+ *   chksum - points to the chksum in the packet
+ *   optr   - points to the old data in the packet
+ *   olen   - length of old data
+ *   nptr   - points to the new data in the packet
+ *   nlen   - length of new data
  *
- * Returned Value:
- *   The calculated checksum
+ * Limitations:
+ *   The algorithm is applicable only for even offsets and even lengths.
  *
  ****************************************************************************/
 
-#ifdef CONFIG_NET_IPv6
-uint16_t ipv6_upperlayer_chksum(FAR struct net_driver_s *dev,
-                                uint8_t proto, unsigned int iplen);
-#endif
+void net_chksum_adjust(FAR uint16_t *chksum,
+                       FAR const uint16_t *optr, ssize_t olen,
+                       FAR const uint16_t *nptr, ssize_t nlen);
 
 /****************************************************************************
  * Name: tcp_chksum, tcp_ipv4_chksum, and tcp_ipv6_chksum
@@ -356,6 +304,19 @@ uint16_t icmp_chksum(FAR struct net_driver_s *dev, int len);
 #endif
 
 /****************************************************************************
+ * Name: icmp_chksum_iob
+ *
+ * Description:
+ *   Calculate the checksum of the ICMP message, the input can be an I/O
+ *   buffer chain
+ *
+ ****************************************************************************/
+
+#if defined(CONFIG_NET_ICMP) && defined(CONFIG_MM_IOB)
+uint16_t icmp_chksum_iob(FAR struct iob_s *iob);
+#endif /* CONFIG_NET_ICMP && CONFIG_MM_IOB */
+
+/****************************************************************************
  * Name: icmpv6_chksum
  *
  * Description:
@@ -366,6 +327,34 @@ uint16_t icmp_chksum(FAR struct net_driver_s *dev, int len);
 #ifdef CONFIG_NET_ICMPv6
 uint16_t icmpv6_chksum(FAR struct net_driver_s *dev, unsigned int iplen);
 #endif
+
+/****************************************************************************
+ * Name: cmsg_append
+ *
+ * Description:
+ *   Append specified data into the control message, msg_control and
+ *   msg_controllen will be changed to the appropriate value when success
+ *
+ * Input Parameters:
+ *   msg       - Buffer to receive the message.
+ *   level     - The level of control message.
+ *   type      - The type of control message.
+ *   value     - If the value is not NULL, this interface copies the data
+ *               to the appropriate location in msg_control, and modify
+ *               msg_control and msg_controllen.
+ *               If the value is NULL, just modify the corresponding value
+ *               of msg.
+ *   value_len - The value length of control message.
+ *
+ * Returned Value:
+ *   On success, a pointer to the start address of control message data,
+ *               the caller can copy the data in.
+ *   On failure, return NULL, because of msg_controllen is not enough
+ *
+ ****************************************************************************/
+
+FAR void *cmsg_append(FAR struct msghdr *msg, int level, int type,
+                      FAR void *value, int value_len);
 
 #undef EXTERN
 #ifdef __cplusplus

@@ -76,7 +76,7 @@
 #include <nuttx/signal.h>
 #include <nuttx/analog/adc.h>
 #include <nuttx/analog/ioctl.h>
-#include <nuttx/semaphore.h>
+#include <nuttx/mutex.h>
 
 #include <arch/board/board.h>
 
@@ -128,8 +128,6 @@
 /* ADC support definitions **************************************************/
 
 #define SSE_PROC_TRIG(n)  (1 << (n))
-#define SEM_PROCESS_PRIVATE 0
-#define SEM_PROCESS_SHARED  1
 
 /****************************************************************************
  * Public Functions
@@ -177,7 +175,7 @@ struct tiva_adc_s
 
 struct tiva_adc_sse_s
 {
-  sem_t exclsem;         /* Mutual exclusion semaphore */
+  mutex_t lock;          /* Mutual exclusion mutex */
   struct work_s work;    /* Supports the interrupt handling "bottom half" */
   bool cfg;              /* Configuration state */
   bool ena;              /* Sample sequencer operation state */
@@ -206,20 +204,50 @@ static void tiva_adc_dump_dev(void);
 static struct adc_dev_s      dev0;
 static struct tiva_adc_s     adc0;
 
-static struct tiva_adc_sse_s sse00;
-static struct tiva_adc_sse_s sse01;
-static struct tiva_adc_sse_s sse02;
-static struct tiva_adc_sse_s sse03;
+static struct tiva_adc_sse_s sse00 =
+{
+  .lock = NXMUTEX_INITIALIZER,
+};
+
+static struct tiva_adc_sse_s sse01 =
+{
+  .lock = NXMUTEX_INITIALIZER,
+};
+
+static struct tiva_adc_sse_s sse02 =
+{
+  .lock = NXMUTEX_INITIALIZER,
+};
+
+static struct tiva_adc_sse_s sse03 =
+{
+  .lock = NXMUTEX_INITIALIZER,
+};
 #endif
 
 #ifdef CONFIG_TIVA_ADC1
 static struct adc_dev_s      dev1;
 static struct tiva_adc_s     adc1;
 
-static struct tiva_adc_sse_s sse10;
-static struct tiva_adc_sse_s sse11;
-static struct tiva_adc_sse_s sse12;
-static struct tiva_adc_sse_s sse13;
+static struct tiva_adc_sse_s sse10 =
+{
+  .lock = NXMUTEX_INITIALIZER,
+};
+
+static struct tiva_adc_sse_s sse11 =
+{
+  .lock = NXMUTEX_INITIALIZER,
+};
+
+static struct tiva_adc_sse_s sse12 =
+{
+  .lock = NXMUTEX_INITIALIZER,
+};
+
+static struct tiva_adc_sse_s sse13 =
+{
+  .lock = NXMUTEX_INITIALIZER,
+};
 #endif
 
 /* Offer run-time ADC objects in array form to help reduce the reliance on
@@ -814,7 +842,6 @@ static struct tiva_adc_s *tiva_adc_struct_init(struct tiva_adc_cfg_s *cfg)
                     {
                       sse->adc = cfg->adc;
                       sse->num = s;
-                      nxsem_init(&sse->exclsem, SEM_PROCESS_PRIVATE, 1);
                       sse->ena = false;
                       sse->cfg = true;
                     }
@@ -961,7 +988,7 @@ int tiva_adc_lock(struct tiva_adc_s *priv, int sse)
   struct tiva_adc_sse_s *s = g_sses[SSE_IDX(priv->devno, sse)];
 
   ainfo("Locking...\n");
-  return nxsem_wait_uninterruptible(&s->exclsem);
+  return nxmutex_lock(&s->lock);
 }
 
 /****************************************************************************
@@ -976,7 +1003,7 @@ void tiva_adc_unlock(struct tiva_adc_s *priv, int sse)
 {
   struct tiva_adc_sse_s *s = g_sses[SSE_IDX(priv->devno, sse)];
   ainfo("Unlocking\n");
-  nxsem_post(&s->exclsem);
+  nxmutex_unlock(&s->lock);
 }
 
 #ifdef CONFIG_DEBUG_ANALOG

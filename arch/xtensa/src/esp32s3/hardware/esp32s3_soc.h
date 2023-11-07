@@ -25,14 +25,51 @@
  * Included Files
  ****************************************************************************/
 
+#ifndef __ASSEMBLY__
 #include <stdint.h>
 #include <stdbool.h>
+#endif
 
 #include "xtensa_attr.h"
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
+
+/* Register Bits */
+
+#define BIT31   0x80000000
+#define BIT30   0x40000000
+#define BIT29   0x20000000
+#define BIT28   0x10000000
+#define BIT27   0x08000000
+#define BIT26   0x04000000
+#define BIT25   0x02000000
+#define BIT24   0x01000000
+#define BIT23   0x00800000
+#define BIT22   0x00400000
+#define BIT21   0x00200000
+#define BIT20   0x00100000
+#define BIT19   0x00080000
+#define BIT18   0x00040000
+#define BIT17   0x00020000
+#define BIT16   0x00010000
+#define BIT15   0x00008000
+#define BIT14   0x00004000
+#define BIT13   0x00002000
+#define BIT12   0x00001000
+#define BIT11   0x00000800
+#define BIT10   0x00000400
+#define BIT9    0x00000200
+#define BIT8    0x00000100
+#define BIT7    0x00000080
+#define BIT6    0x00000040
+#define BIT5    0x00000020
+#define BIT4    0x00000010
+#define BIT3    0x00000008
+#define BIT2    0x00000004
+#define BIT1    0x00000002
+#define BIT0    0x00000001
 
 #define PRO_CPU_NUM (0)
 #define APP_CPU_NUM (1)
@@ -115,6 +152,8 @@
 #define DR_REG_APB_SARADC_BASE                  0x60040000
 #define DR_REG_LCD_CAM_BASE                     0x60041000
 
+#define DR_REG_USB_BASE                         0x60080000
+
 #define DR_REG_SYSTEM_BASE                      0x600C0000
 #define DR_REG_SENSITIVE_BASE                   0x600C1000
 #define DR_REG_INTERRUPT_BASE                   0x600C2000
@@ -148,6 +187,8 @@
 
 #define BIT(nr)                 (1UL << (nr))
 
+#ifndef __ASSEMBLY__
+
 /* Write value to register */
 
 #define REG_WRITE(_r, _v)    (*(volatile uint32_t *)(_r)) = (_v)
@@ -176,13 +217,13 @@
  * used when _f is not left shifted by _f##_S
  */
 
-#define REG_GET_FIELD(_r, _f) ((REG_READ(_r) >> (_f##_S)) & (_f##_V))
+#define REG_GET_FIELD(addr, field) ((getreg32(addr) >> (field##_S)) & (field##_V))
 
 /* Set field to register,
  * used when _f is not left shifted by _f##_S
  */
 
-#define REG_SET_FIELD(_r, _f, _v) (REG_WRITE((_r),((REG_READ(_r) & ~((_f##_V) << (_f##_S)))|(((_v) & (_f##_V))<<(_f##_S)))))
+#define REG_SET_FIELD(addr, field, val) (modifyreg32((addr), (field##_M), (((uint32_t) val) & (field##_V)) << (field##_S)))
 
 /* Get field value from a variable,
  * used when _f is not left shifted by _f##_S
@@ -259,6 +300,8 @@
 /* Helper to place a value in a field */
 
 #define VALUE_TO_FIELD(_value, _field) (((_value) << (_field##_S)) & (_field##_M))
+
+#endif /* __ASSEMBLY__ */
 
 /* Peripheral Clock */
 
@@ -405,7 +448,7 @@
 #define ETS_WMAC_INUM                           0
 #define ETS_BT_HOST_INUM                        1
 #define ETS_WBB_INUM                            4
-#define ETS_TG0_T1_INUM                         10 /**< use edge interrupt*/
+#define ETS_TG0_T1_INUM                         10 /* use edge interrupt*/
 #define ETS_FRC1_INUM                           22
 #define ETS_T1_WDT_INUM                         24
 #define ETS_CACHEERR_INUM                       25
@@ -434,6 +477,18 @@
 #define MHZ (1000000)
 #define RTC_PLL_FREQ_320M           320
 #define RTC_PLL_FREQ_480M           480
+
+#define DPORT_CPUPERIOD_SEL_80      0
+#define DPORT_CPUPERIOD_SEL_160     1
+#define DPORT_CPUPERIOD_SEL_240     2
+
+#define DPORT_SOC_CLK_SEL_XTAL      0
+#define DPORT_SOC_CLK_SEL_PLL       1
+#define DPORT_SOC_CLK_SEL_8M        2
+
+#define RTC_FAST_CLK_FREQ_8M        8500000
+
+#ifndef __ASSEMBLY__
 
 /****************************************************************************
  * Inline Functions
@@ -485,5 +540,7 @@ static inline bool IRAM_ATTR esp32s3_ptr_exec(const void *p)
 #endif
       || (ip >= SOC_RTC_IRAM_LOW && ip < SOC_RTC_IRAM_HIGH);
 }
+
+#endif /* __ASSEMBLY__ */
 
 #endif /* __ARCH_XTENSA_SRC_ESP32S3_HARDWARE_ESP32S3_SOC_H */

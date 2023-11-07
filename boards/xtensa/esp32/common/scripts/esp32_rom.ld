@@ -1,3 +1,23 @@
+/****************************************************************************
+ * boards/xtensa/esp32/common/scripts/esp32_rom.ld
+ *
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.  The
+ * ASF licenses this file to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance with the
+ * License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
+ * License for the specific language governing permissions and limitations
+ * under the License.
+ *
+ ****************************************************************************/
+
 /*
 ESP32 ROM address table
 Generated for ROM with MD5sum:
@@ -214,6 +234,7 @@ PROVIDE ( ecc_Jacobian_InfinityPoint256 = 0x3ff972e8 );
 PROVIDE ( em_buf_env = 0x3ffb8d74 );
 PROVIDE ( environ = 0x3ffae0b4 );
 PROVIDE ( __env_lock = 0x40001fd4 );
+PROVIDE ( __env_lock_object = 0x3ffae0b8 );
 PROVIDE ( __env_unlock = 0x40001fe0 );
 PROVIDE ( esp_crc8 = 0x4005d144 );
 PROVIDE ( _etext = 0x4000d66c );
@@ -1688,6 +1709,7 @@ PROVIDE ( __sf_fake_stdout = 0x3ff96478 );
 PROVIDE ( __sflush_r = 0x400591e0 );
 PROVIDE ( __sfmoreglue = 0x40001dc8 );
 PROVIDE ( __sfp = 0x40001e90 );
+PROVIDE ( __sfp_lock = 0x3ffae0ac );
 PROVIDE ( __sfp_lock_acquire = 0x40001e08 );
 PROVIDE ( __sfp_lock_release = 0x40001e14 );
 PROVIDE ( __sfputs_r = 0x40057790 );
@@ -1701,6 +1723,7 @@ PROVIDE ( sha_blk_bits_bytes = 0x3ff99288 );
 PROVIDE ( sha_blk_hash_bytes = 0x3ff9928c );
 PROVIDE ( sig_matrix = 0x3ffae293 );
 PROVIDE ( __sinit = 0x40001e38 );
+PROVIDE ( __sinit_lock = 0x3ffae0a8 );
 PROVIDE ( __sinit_lock_acquire = 0x40001e20 );
 PROVIDE ( __sinit_lock_release = 0x40001e2c );
 PROVIDE ( sip_after_tx_complete = 0x4000b358 );
@@ -1872,6 +1895,7 @@ PROVIDE ( __tz_lock = 0x40001a04 );
 PROVIDE ( _tzname = 0x3ffae030 );
 PROVIDE ( tzset = 0x40001a1c );
 PROVIDE ( _tzset_r = 0x40001a28 );
+PROVIDE ( __tz_lock_object = 0x3ffae080 );
 PROVIDE ( __tz_unlock = 0x40001a10 );
 PROVIDE ( uartAttach = 0x40008fd0 );
 PROVIDE ( uart_baudrate_detect = 0x40009034 );
@@ -1968,14 +1992,27 @@ PROVIDE ( xthal_set_intclear = 0x4000c1ec );
 PROVIDE ( _xtos_set_intlevel = 0x4000bfdc );
 PROVIDE ( g_ticks_per_us_pro = 0x3ffe01e0 );
 PROVIDE ( g_ticks_per_us_app = 0x3ffe40f0 );
-PROVIDE ( esp_rom_spiflash_config_param = 0x40063238 );
-PROVIDE ( esp_rom_spiflash_read_user_cmd = 0x400621b0 );
-PROVIDE ( esp_rom_spiflash_write_encrypted_disable = 0x40062e60 );
-PROVIDE ( esp_rom_spiflash_write_encrypted_enable = 0x40062df4 );
-PROVIDE ( esp_rom_spiflash_prepare_encrypted_data = 0x40062e1c );
-PROVIDE ( esp_rom_spiflash_select_qio_pins = 0x40061ddc );
 PROVIDE ( esp_rom_spiflash_attach = 0x40062a6c );
 PROVIDE ( esp_rom_spiflash_config_clk = 0x40062bc8 );
+PROVIDE ( esp_rom_spiflash_config_param = 0x40063238 );
+PROVIDE ( esp_rom_spiflash_config_readmode = 0x40062b64 ); /* SPIMasterReadModeCnfig */
+PROVIDE ( esp_rom_spiflash_enable_write = 0x40062320 );
+PROVIDE ( esp_rom_spiflash_erase_area = 0x400631ac );
+PROVIDE ( esp_rom_spiflash_erase_block = 0x40062c4c );
+PROVIDE ( esp_rom_spiflash_erase_chip = 0x40062c14 );
+PROVIDE ( esp_rom_spiflash_erase_sector = 0x40062ccc );
+PROVIDE ( esp_rom_spiflash_lock = 0x400628f0 );
+PROVIDE ( esp_rom_spiflash_prepare_encrypted_data = 0x40062e1c );
+PROVIDE ( esp_rom_spiflash_read = 0x40062ed8 );
+PROVIDE ( esp_rom_spiflash_read_status = 0x4006226c );
+PROVIDE ( esp_rom_spiflash_read_statushigh = 0x40062448 );
+PROVIDE ( esp_rom_spiflash_read_user_cmd = 0x400621b0 );
+PROVIDE ( esp_rom_spiflash_select_qio_pins = 0x40061ddc );
+PROVIDE ( esp_rom_spiflash_write = 0x40062d50 );
+PROVIDE ( esp_rom_spiflash_write_encrypted = 0x40062e78 );
+PROVIDE ( esp_rom_spiflash_write_encrypted_disable = 0x40062e60 );
+PROVIDE ( esp_rom_spiflash_write_encrypted_enable = 0x40062df4 );
+PROVIDE ( esp_rom_spiflash_write_status = 0x400622f0 );
 PROVIDE ( g_rom_spiflash_chip = 0x3ffae270 );
 PROVIDE ( hci_le_rd_rem_used_feats_cmd_handler = 0x400417b4 );
 PROVIDE ( llcp_length_req_handler = 0x40043808 );

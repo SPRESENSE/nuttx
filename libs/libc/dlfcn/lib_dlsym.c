@@ -29,8 +29,8 @@
 #include <debug.h>
 #include <errno.h>
 
-#include <nuttx/module.h>
 #include <nuttx/symtab.h>
+#include <nuttx/module.h>
 #include <nuttx/lib/modlib.h>
 
 /****************************************************************************
@@ -171,7 +171,8 @@ FAR void *dlsym(FAR void *handle, FAR const char *name)
    * memory region.
    */
 
-#warning Missing logic
+  /* #warning Missing logic */
+
   return NULL;
 #endif
 }

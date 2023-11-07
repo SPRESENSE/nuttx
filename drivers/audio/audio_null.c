@@ -34,7 +34,6 @@
 #include <string.h>
 #include <assert.h>
 #include <errno.h>
-#include <queue.h>
 #include <debug.h>
 
 #include <nuttx/kmalloc.h>
@@ -866,7 +865,7 @@ FAR struct audio_lowerhalf_s *audio_null_initialize(void)
 
   /* Allocate the null audio device structure */
 
-  priv = (FAR struct null_dev_s *)kmm_zalloc(sizeof(struct null_dev_s));
+  priv = kmm_zalloc(sizeof(struct null_dev_s));
   if (priv)
     {
       /* Initialize the null audio device structure.

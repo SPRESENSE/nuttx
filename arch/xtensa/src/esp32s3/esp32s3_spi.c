@@ -28,6 +28,7 @@
 
 #include <assert.h>
 #include <debug.h>
+#include <sys/param.h>
 #include <sys/types.h>
 #include <inttypes.h>
 #include <stdint.h>
@@ -38,8 +39,7 @@
 #include <nuttx/arch.h>
 #include <nuttx/irq.h>
 #include <nuttx/clock.h>
-#include <nuttx/semaphore.h>
-#include <nuttx/spinlock.h>
+#include <nuttx/mutex.h>
 #include <nuttx/spi/spi.h>
 
 #include <arch/board/board.h>
@@ -48,7 +48,7 @@
 #include "esp32s3_irq.h"
 #include "esp32s3_gpio.h"
 
-#ifdef CONFIG_ESP32S3_SPI2_DMA
+#ifdef CONFIG_ESP32S3_SPI_DMA
 #include "esp32s3_dma.h"
 #endif
 
@@ -71,11 +71,15 @@
 #  define SPI_HAVE_SWCS 0
 #endif
 
-#ifdef CONFIG_ESP32S3_SPI2_DMA
+#ifdef CONFIG_ESP32S3_SPI_DMA
 
-/* SPI DMA RX/TX number of descriptors */
+/* QSPI DMA RX/TX number of descriptors */
 
-#define SPI_DMA_DESC_NUM    (CONFIG_ESP32S3_SPI2_DMADESC_NUM)
+#  if (CONFIG_ESP32S3_SPI_DMA_BUFSIZE % ESP32S3_DMA_BUFLEN_MAX) > 0
+#    define SPI_DMA_DESC_NUM (CONFIG_ESP32S3_SPI_DMA_BUFSIZE / ESP32S3_DMA_BUFLEN_MAX + 1)
+#  else
+#    define SPI_DMA_DESC_NUM (CONFIG_ESP32S3_SPI_DMA_BUFSIZE / ESP32S3_DMA_BUFLEN_MAX)
+#  endif
 
 /* SPI DMA reset before exchange */
 
@@ -106,10 +110,6 @@
 
 #define SPI_MAX_BUF_SIZE (64)
 
-#ifndef MIN
-#  define MIN(a, b) (((a) < (b)) ? (a) : (b))
-#endif
-
 /****************************************************************************
  * Private Types
  ****************************************************************************/
@@ -127,13 +127,13 @@ struct esp32s3_spi_config_s
   uint8_t mosi_pin;           /* GPIO configuration for MOSI */
   uint8_t miso_pin;           /* GPIO configuration for MISO */
   uint8_t clk_pin;            /* GPIO configuration for CLK */
-#ifdef CONFIG_ESP32S3_SPI2_DMA
+#ifdef CONFIG_ESP32S3_SPI_DMA
   uint8_t periph;             /* Peripheral ID */
   uint8_t irq;                /* Interrupt ID */
 #endif
   uint32_t clk_bit;           /* Clock enable bit */
   uint32_t rst_bit;           /* SPI reset bit */
-#ifdef CONFIG_ESP32S3_SPI2_DMA
+#ifdef CONFIG_ESP32S3_SPI_DMA
   uint32_t dma_clk_bit;       /* DMA clock enable bit */
   uint32_t dma_rst_bit;       /* DMA reset bit */
 #endif
@@ -157,18 +157,22 @@ struct esp32s3_spi_priv_s
 
   const struct esp32s3_spi_config_s *config;
   int refs;             /* Reference count */
-  sem_t exclsem;        /* Held while chip is selected for mutual exclusion */
-#ifdef CONFIG_ESP32S3_SPI2_DMA
+  mutex_t lock;         /* Held while chip is selected for mutual exclusion */
+#ifdef CONFIG_ESP32S3_SPI_DMA
   sem_t sem_isr;        /* Interrupt wait semaphore */
   int cpu;              /* CPU ID */
   int cpuint;           /* SPI interrupt ID */
   int32_t dma_channel;  /* Channel assigned by the GDMA driver */
+
+  /* DMA RX/TX description */
+
+  struct esp32s3_dmadesc_s *dma_rxdesc;
+  struct esp32s3_dmadesc_s *dma_txdesc;
 #endif
   uint32_t frequency;   /* Requested clock frequency */
   uint32_t actual;      /* Actual clock frequency */
   enum spi_mode_e mode; /* Actual SPI hardware mode */
   uint8_t nbits;        /* Actual SPI send/receive bits once transmission */
-  spinlock_t lock;      /* Device specific lock. */
 };
 
 /****************************************************************************
@@ -193,7 +197,7 @@ static uint32_t esp32s3_spi_send(struct spi_dev_s *dev, uint32_t wd);
 static void esp32s3_spi_exchange(struct spi_dev_s *dev,
                                  const void *txbuffer,
                                  void *rxbuffer, size_t nwords);
-#ifdef CONFIG_ESP32S3_SPI2_DMA
+#ifdef CONFIG_ESP32S3_SPI_DMA
 static int esp32s3_spi_interrupt(int irq, void *context, void *arg);
 static int esp32s3_spi_sem_waitdone(struct esp32s3_spi_priv_s *priv);
 static void esp32s3_spi_dma_exchange(struct esp32s3_spi_priv_s *priv,
@@ -217,7 +221,7 @@ static void esp32s3_spi_recvblock(struct spi_dev_s *dev,
 #ifdef CONFIG_SPI_TRIGGER
 static int esp32s3_spi_trigger(struct spi_dev_s *dev);
 #endif
-#ifdef CONFIG_ESP32S3_SPI2_DMA
+#ifdef CONFIG_ESP32S3_SPI_DMA
 static void esp32s3_spi_dma_init(struct spi_dev_s *dev);
 #endif
 static void esp32s3_spi_init(struct spi_dev_s *dev);
@@ -238,13 +242,13 @@ static const struct esp32s3_spi_config_s esp32s3_spi2_config =
   .mosi_pin     = CONFIG_ESP32S3_SPI2_MOSIPIN,
   .miso_pin     = CONFIG_ESP32S3_SPI2_MISOPIN,
   .clk_pin      = CONFIG_ESP32S3_SPI2_CLKPIN,
-#ifdef CONFIG_ESP32S3_SPI2_DMA
+#ifdef CONFIG_ESP32S3_SPI_DMA
   .periph       = ESP32S3_PERIPH_SPI2,
   .irq          = ESP32S3_IRQ_SPI2,
 #endif
   .clk_bit      = SYSTEM_SPI2_CLK_EN,
   .rst_bit      = SYSTEM_SPI2_RST,
-#ifdef CONFIG_ESP32S3_SPI2_DMA
+#ifdef CONFIG_ESP32S3_SPI_DMA
   .dma_clk_bit  = SYSTEM_SPI2_DMA_CLK_EN,
   .dma_rst_bit  = SYSTEM_SPI2_DMA_RST,
 #endif
@@ -289,19 +293,30 @@ static const struct spi_ops_s esp32s3_spi2_ops =
   .registercallback  = NULL,
 };
 
+#ifdef CONFIG_ESP32S3_SPI_DMA
+
+/* SPI DMA RX/TX description */
+
+static struct esp32s3_dmadesc_s esp32s3_spi2_dma_txdesc[SPI_DMA_DESC_NUM];
+static struct esp32s3_dmadesc_s esp32s3_spi2_dma_rxdesc[SPI_DMA_DESC_NUM];
+
+#endif
+
 static struct esp32s3_spi_priv_s esp32s3_spi2_priv =
 {
   .spi_dev     =
-                {
-                  .ops = &esp32s3_spi2_ops
-                },
+    {
+      .ops     = &esp32s3_spi2_ops
+    },
   .config      = &esp32s3_spi2_config,
   .refs        = 0,
-  .exclsem     = SEM_INITIALIZER(0),
-#ifdef CONFIG_ESP32S3_SPI2_DMA
+  .lock        = NXMUTEX_INITIALIZER,
+#ifdef CONFIG_ESP32S3_SPI_DMA
   .sem_isr     = SEM_INITIALIZER(0),
   .cpuint      = -ENOMEM,
   .dma_channel = -1,
+  .dma_rxdesc  = esp32s3_spi2_dma_rxdesc,
+  .dma_txdesc  = esp32s3_spi2_dma_txdesc,
 #endif
   .frequency   = 0,
   .actual      = 0,
@@ -321,8 +336,16 @@ static const struct esp32s3_spi_config_s esp32s3_spi3_config =
   .mosi_pin     = CONFIG_ESP32S3_SPI3_MOSIPIN,
   .miso_pin     = CONFIG_ESP32S3_SPI3_MISOPIN,
   .clk_pin      = CONFIG_ESP32S3_SPI3_CLKPIN,
+#ifdef CONFIG_ESP32S3_SPI_DMA
+  .periph       = ESP32S3_PERIPH_SPI3,
+  .irq          = ESP32S3_IRQ_SPI3,
+#endif
   .clk_bit      = SYSTEM_SPI3_CLK_EN,
   .rst_bit      = SYSTEM_SPI3_RST,
+#ifdef CONFIG_ESP32S3_SPI_DMA
+  .dma_clk_bit  = SYSTEM_SPI3_DMA_CLK_EN,
+  .dma_rst_bit  = SYSTEM_SPI3_DMA_RST,
+#endif
   .cs_insig     = FSPICS0_IN_IDX,
   .cs_outsig    = FSPICS0_OUT_IDX,
   .mosi_insig   = FSPID_IN_IDX,
@@ -364,30 +387,37 @@ static const struct spi_ops_s esp32s3_spi3_ops =
   .registercallback  = NULL,
 };
 
+#ifdef CONFIG_ESP32S3_SPI_DMA
+
+/* SPI DMA RX/TX description */
+
+static struct esp32s3_dmadesc_s esp32s3_spi3_dma_txdesc[SPI_DMA_DESC_NUM];
+static struct esp32s3_dmadesc_s esp32s3_spi3_dma_rxdesc[SPI_DMA_DESC_NUM];
+
+#endif
+
 static struct esp32s3_spi_priv_s esp32s3_spi3_priv =
 {
   .spi_dev     =
-                {
-                  .ops = &esp32s3_spi3_ops
-                },
+    {
+      .ops     = &esp32s3_spi3_ops
+    },
   .config      = &esp32s3_spi3_config,
   .refs        = 0,
-  .exclsem     = SEM_INITIALIZER(0),
+  .lock        = NXMUTEX_INITIALIZER,
+#ifdef CONFIG_ESP32S3_SPI_DMA
+  .sem_isr     = SEM_INITIALIZER(0),
+  .cpuint      = -ENOMEM,
+  .dma_channel = -1,
+  .dma_rxdesc  = esp32s3_spi3_dma_rxdesc,
+  .dma_txdesc  = esp32s3_spi3_dma_txdesc,
+#endif
   .frequency   = 0,
   .actual      = 0,
   .mode        = 0,
   .nbits       = 0
 };
 #endif /* CONFIG_ESP32S3_SPI3 */
-
-#ifdef CONFIG_ESP32S3_SPI2_DMA
-
-/* SPI DMA RX/TX description */
-
-static struct esp32s3_dmadesc_s dma_rxdesc[SPI_DMA_DESC_NUM];
-static struct esp32s3_dmadesc_s dma_txdesc[SPI_DMA_DESC_NUM];
-
-#endif
 
 /****************************************************************************
  * Private Functions
@@ -496,11 +526,11 @@ static int esp32s3_spi_lock(struct spi_dev_s *dev, bool lock)
 
   if (lock)
     {
-      ret = nxsem_wait_uninterruptible(&priv->exclsem);
+      ret = nxmutex_lock(&priv->lock);
     }
   else
     {
-      ret = nxsem_post(&priv->exclsem);
+      ret = nxmutex_unlock(&priv->lock);
     }
 
   return ret;
@@ -520,7 +550,7 @@ static int esp32s3_spi_lock(struct spi_dev_s *dev, bool lock)
  *
  ****************************************************************************/
 
-#ifdef CONFIG_ESP32S3_SPI2_DMA
+#ifdef CONFIG_ESP32S3_SPI_DMA
 static int esp32s3_spi_sem_waitdone(struct esp32s3_spi_priv_s *priv)
 {
   return nxsem_tickwait_uninterruptible(&priv->sem_isr, SEC2TICK(10));
@@ -829,7 +859,7 @@ static int esp32s3_spi_hwfeatures(struct spi_dev_s *dev,
  *
  ****************************************************************************/
 
-#ifdef CONFIG_ESP32S3_SPI2_DMA
+#ifdef CONFIG_ESP32S3_SPI_DMA
 static void esp32s3_spi_dma_exchange(struct esp32s3_spi_priv_s *priv,
                                      const void *txbuffer,
                                      void *rxbuffer,
@@ -874,8 +904,9 @@ static void esp32s3_spi_dma_exchange(struct esp32s3_spi_priv_s *priv,
       esp32s3_spi_set_regbits(SPI_DMA_CONF_REG(priv->config->id),
                               SPI_DMA_TX_ENA_M);
 
-      n = esp32s3_dma_setup(channel, true, dma_txdesc, SPI_DMA_DESC_NUM,
-                            tp, bytes);
+      n = esp32s3_dma_setup(priv->dma_txdesc, SPI_DMA_DESC_NUM,
+                            tp, bytes, true);
+      esp32s3_dma_load(priv->dma_txdesc, channel, true);
       esp32s3_dma_enable(channel, true);
 
       putreg32((n * 8 - 1), SPI_MS_DLEN_REG(priv->config->id));
@@ -891,8 +922,9 @@ static void esp32s3_spi_dma_exchange(struct esp32s3_spi_priv_s *priv,
           esp32s3_spi_set_regbits(SPI_DMA_CONF_REG(priv->config->id),
                                   SPI_DMA_RX_ENA_M);
 
-          esp32s3_dma_setup(channel, false, dma_rxdesc, SPI_DMA_DESC_NUM,
-                            rp, bytes);
+          esp32s3_dma_setup(priv->dma_rxdesc, SPI_DMA_DESC_NUM,
+                            rp, bytes, false);
+          esp32s3_dma_load(priv->dma_rxdesc, channel, false);
           esp32s3_dma_enable(channel, false);
 
           esp32s3_spi_set_regbits(SPI_USER_REG(priv->config->id),
@@ -1163,8 +1195,8 @@ static void esp32s3_spi_exchange(struct spi_dev_s *dev,
 {
   struct esp32s3_spi_priv_s *priv = (struct esp32s3_spi_priv_s *)dev;
 
-#ifdef CONFIG_ESP32S3_SPI2_DMA
-  size_t thld = CONFIG_ESP32S3_SPI2_DMATHRESHOLD;
+#ifdef CONFIG_ESP32S3_SPI_DMA
+  size_t thld = CONFIG_ESP32S3_SPI_DMATHRESHOLD;
 
   if (nwords > thld)
     {
@@ -1275,7 +1307,7 @@ static int esp32s3_spi_trigger(struct spi_dev_s *dev)
  *
  ****************************************************************************/
 
-#ifdef CONFIG_ESP32S3_SPI2_DMA
+#ifdef CONFIG_ESP32S3_SPI_DMA
 void esp32s3_spi_dma_init(struct spi_dev_s *dev)
 {
   struct esp32s3_spi_priv_s *priv = (struct esp32s3_spi_priv_s *)dev;
@@ -1329,10 +1361,6 @@ static void esp32s3_spi_init(struct spi_dev_s *dev)
   struct esp32s3_spi_priv_s *priv = (struct esp32s3_spi_priv_s *)dev;
   const struct esp32s3_spi_config_s *config = priv->config;
   uint32_t regval;
-
-  /* Initialize the SPI semaphore that enforces mutually exclusive access */
-
-  nxsem_init(&priv->exclsem, 0, 1);
 
   esp32s3_gpiowrite(config->cs_pin, true);
   esp32s3_gpiowrite(config->mosi_pin, true);
@@ -1398,10 +1426,7 @@ static void esp32s3_spi_init(struct spi_dev_s *dev)
   putreg32(VALUE_MASK(0, SPI_CS_HOLD_TIME),
            SPI_USER1_REG(priv->config->id));
 
-#ifdef CONFIG_ESP32S3_SPI2_DMA
-  nxsem_init(&priv->sem_isr, 0, 0);
-  nxsem_set_protocol(&priv->sem_isr, SEM_PRIO_NONE);
-
+#ifdef CONFIG_ESP32S3_SPI_DMA
   esp32s3_spi_dma_init(dev);
 #endif
 
@@ -1428,7 +1453,7 @@ static void esp32s3_spi_deinit(struct spi_dev_s *dev)
 {
   struct esp32s3_spi_priv_s *priv = (struct esp32s3_spi_priv_s *)dev;
 
-#ifdef CONFIG_ESP32S3_SPI2_DMA
+#ifdef CONFIG_ESP32S3_SPI_DMA
   modifyreg32(SYSTEM_PERIP_CLK_EN0_REG, priv->config->dma_clk_bit, 0);
 #endif
 
@@ -1457,7 +1482,7 @@ static void esp32s3_spi_deinit(struct spi_dev_s *dev)
  *
  ****************************************************************************/
 
-#ifdef CONFIG_ESP32S3_SPI2_DMA
+#ifdef CONFIG_ESP32S3_SPI_DMA
 static int esp32s3_spi_interrupt(int irq, void *context, void *arg)
 {
   struct esp32s3_spi_priv_s *priv = (struct esp32s3_spi_priv_s *)arg;
@@ -1490,7 +1515,6 @@ struct spi_dev_s *esp32s3_spibus_initialize(int port)
 {
   struct spi_dev_s *spi_dev;
   struct esp32s3_spi_priv_s *priv;
-  irqstate_t flags;
 
   switch (port)
     {
@@ -1510,16 +1534,15 @@ struct spi_dev_s *esp32s3_spibus_initialize(int port)
 
   spi_dev = (struct spi_dev_s *)priv;
 
-  flags = spin_lock_irqsave(&priv->lock);
-
+  nxmutex_lock(&priv->lock);
   if (priv->refs != 0)
     {
-      spin_unlock_irqrestore(&priv->lock, flags);
-
+      priv->refs++;
+      nxmutex_unlock(&priv->lock);
       return spi_dev;
     }
 
-#ifdef CONFIG_ESP32S3_SPI2_DMA
+#ifdef CONFIG_ESP32S3_SPI_DMA
   /* If a CPU Interrupt was previously allocated, then deallocate it */
 
   if (priv->cpuint != -ENOMEM)
@@ -1544,8 +1567,7 @@ struct spi_dev_s *esp32s3_spibus_initialize(int port)
     {
       /* Failed to allocate a CPU interrupt of this type. */
 
-      spin_unlock_irqrestore(&priv->lock, flags);
-
+      nxmutex_unlock(&priv->lock);
       return NULL;
     }
 
@@ -1557,7 +1579,7 @@ struct spi_dev_s *esp32s3_spibus_initialize(int port)
 
       esp32s3_teardown_irq(priv->cpu, priv->config->periph, priv->cpuint);
       priv->cpuint = -ENOMEM;
-      spin_unlock_irqrestore(&priv->lock, flags);
+      nxmutex_unlock(&priv->lock);
 
       return NULL;
     }
@@ -1568,11 +1590,9 @@ struct spi_dev_s *esp32s3_spibus_initialize(int port)
 #endif
 
   esp32s3_spi_init(spi_dev);
-
   priv->refs++;
 
-  spin_unlock_irqrestore(&priv->lock, flags);
-
+  nxmutex_unlock(&priv->lock);
   return spi_dev;
 }
 
@@ -1592,7 +1612,6 @@ struct spi_dev_s *esp32s3_spibus_initialize(int port)
 
 int esp32s3_spibus_uninitialize(struct spi_dev_s *dev)
 {
-  irqstate_t flags;
   struct esp32s3_spi_priv_s *priv = (struct esp32s3_spi_priv_s *)dev;
 
   DEBUGASSERT(dev);
@@ -1602,29 +1621,24 @@ int esp32s3_spibus_uninitialize(struct spi_dev_s *dev)
       return ERROR;
     }
 
-  flags = enter_critical_section();
-
+  nxmutex_lock(&priv->lock);
   if (--priv->refs != 0)
     {
-      leave_critical_section(flags);
+      nxmutex_unlock(&priv->lock);
       return OK;
     }
 
-  leave_critical_section(flags);
-
-#ifdef CONFIG_ESP32S3_SPI2_DMA
+#ifdef CONFIG_ESP32S3_SPI_DMA
   up_disable_irq(priv->config->irq);
   esp32s3_teardown_irq(priv->cpu, priv->config->periph, priv->cpuint);
   irq_detach(priv->config->irq);
 
   priv->cpuint = -ENOMEM;
 
-  nxsem_destroy(&priv->sem_isr);
 #endif
 
   esp32s3_spi_deinit(dev);
-
-  nxsem_destroy(&priv->exclsem);
+  nxmutex_unlock(&priv->lock);
 
   return OK;
 }

@@ -147,10 +147,10 @@ config IMX_ENET_NTXBUFFERS
 
 config IMX_ENET_ENHANCEDBD
 	bool # not optional
-	default n
+	default !ARMV7A_DCACHE_DISABLE
 
 config IMX_ENET_NETHIFS
-	int  # Not optional
+	int # Not optional
 	default 1
 
 config IMX_ENET_PHYINIT
@@ -163,6 +163,10 @@ config IMX_ENET_PHYINIT
 		the configuration then the board specific logic must provide
 		imx_phy_boardinitialize();  The i.MX6 ENET driver will call this
 		function one time before it first uses the PHY.
+
+config IMX_ENET_WITH_QEMU
+	bool "With QEMU"
+	default y
 
 endmenu # IMX_ENET
 
@@ -181,19 +185,19 @@ choice
 
 config IMX6_BOOT_OCRAM
 	bool "Running from internal OCRAM"
-	select BOOT_RUNFROMISRAM
+	depends on BOOT_RUNFROMISRAM
 
 config IMX6_BOOT_SDRAM
 	bool "Running from external SDRAM"
-	select BOOT_RUNFROMSDRAM
+	depends on BOOT_RUNFROMSDRAM
 
 config IMX6_BOOT_NOR
 	bool "Running from external NOR FLASH"
-	select BOOT_RUNFROMFLASH
+	depends on BOOT_RUNFROMFLASH
 
 config IMX6_BOOT_SRAM
 	bool "Running from external SRAM"
-	select BOOT_RUNFROMEXTSRAM
+	depends on BOOT_RUNFROMEXTSRAM
 
 endchoice # i.MX6 Boot Configuration
 

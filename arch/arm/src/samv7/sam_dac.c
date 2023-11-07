@@ -189,20 +189,23 @@ static struct sam_dac_s g_dacmodule;
 
 static int dac_interrupt(int irq, void *context, void *arg)
 {
-#ifdef CONFIG_SAMV7_DAC1
   uint32_t status;
 
   status = getreg32(SAM_DACC_ISR) & getreg32(SAM_DACC_IMR);
+
+#ifdef CONFIG_SAMV7_DAC0
+  if (status & DACC_INT_TXRDY0)
+    {
+      dac_txdone(&g_dac1dev);
+    }
+#endif
+
+#ifdef CONFIG_SAMV7_DAC1
   if (status & DACC_INT_TXRDY1)
     {
       dac_txdone(&g_dac2dev);
     }
-
-  if (status & DACC_INT_TXRDY0)
 #endif
-    {
-      dac_txdone(&g_dac1dev);
-    }
 
   return OK;
 }
@@ -388,7 +391,7 @@ static int dac_timer_init(struct sam_dac_s *priv, uint32_t freq_required,
   priv->tc = sam_tc_allocate(channel, mode);
   if (!priv->tc)
     {
-      aerr("ERROR: Failed to allocate channel %d mode %08x\n",
+      aerr("ERROR: Failed to allocate channel %d mode %08" PRIx32 "\n",
             channel, mode);
       return -EINVAL;
     }

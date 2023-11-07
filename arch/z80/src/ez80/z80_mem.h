@@ -1,4 +1,4 @@
-/************************************************************************************
+/****************************************************************************
  * arch/z80/src/ez80/z80_mem.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
@@ -16,20 +16,20 @@
  * License for the specific language governing permissions and limitations
  * under the License.
  *
- ************************************************************************************/
+ ****************************************************************************/
 
 #ifndef __ARCH_Z80_SRC_EZ80_Z80_MEM_H
 #define __ARCH_Z80_SRC_EZ80_Z80_MEM_H
 
-/************************************************************************************
+/****************************************************************************
  * Included Files
- ************************************************************************************/
+ ****************************************************************************/
 
 #include <stdint.h>
 
-/************************************************************************************
+/****************************************************************************
  * Pre-processor Definitions
- ************************************************************************************/
+ ****************************************************************************/
 
 /* For the ZiLOG ZDS-II toolchain(s), the heap will be set using linker-
  * defined values:
@@ -42,18 +42,18 @@
  */
 
 #ifndef CONFIG_HEAP1_BASE
-  extern unsigned long _heapbot;
-#  define CONFIG_HEAP1_BASE ((uint24_t)&_heapbot)
+  extern uint8_t _heapbot[];
+#  define CONFIG_HEAP1_BASE ((uint24_t)_heapbot)
 #endif
 
 #ifndef CONFIG_HEAP1_END
-  extern unsigned long _stack;
-#  define CONFIG_HEAP1_END (((uint24_t)&_stack) - CONFIG_IDLETHREAD_STACKSIZE)
+  extern uint8_t _stack[];
+#  define CONFIG_HEAP1_END (((uint24_t)_stack) - CONFIG_IDLETHREAD_STACKSIZE)
 #endif
 
-/************************************************************************************
+/****************************************************************************
  * Public Function Prototypes
- ************************************************************************************/
+ ****************************************************************************/
 
 #ifndef __ASSEMBLY__
 #ifdef __cplusplus

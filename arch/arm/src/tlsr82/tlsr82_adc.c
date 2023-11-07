@@ -27,12 +27,14 @@
 #include <inttypes.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <sys/param.h>
 #include <assert.h>
 #include <debug.h>
 
 #include <nuttx/analog/adc.h>
 #include <nuttx/analog/ioctl.h>
-#include <nuttx/semaphore.h>
+#include <nuttx/mutex.h>
+#include <arch/board/board.h>
 
 #include "tlsr82_adc.h"
 #include "tlsr82_gpio.h"
@@ -45,16 +47,6 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-/* ADC calibration max count */
-
-#ifndef MIN
-#  define MIN(a, b) ((a) < (b) ? (a) : (b))
-#endif
-
-#ifndef MAX
-#  define MAX(a, b) ((a) > (b) ? (a) : (b))
-#endif
-
 /* Default reference voltage 1175 mV */
 
 #define ADC_DEFAULT_VREF     1175
@@ -64,13 +56,6 @@
 #if (ADC_FILT_NUM & 0x3) != 0
 #  error "The filter number must be multiple of 4 !"
 #endif
-
-/* ADC Channel type definition */
-
-#define ADC_CHAN_TYPE_NONE   0
-#define ADC_CHAN_TYPE_BASE   1
-#define ADC_CHAN_TYPE_VBAT   2
-#define ADC_CHAN_TYPE_TEMP   3
 
 /****************************************************************************
  * Private Types
@@ -159,9 +144,9 @@ static const struct adc_ops_s g_adcops =
 static struct adc_chan_s g_adc_chan0 =
 {
   .info        = &g_adc_module0_info,
-  .channeltype = ADC_CHAN_TYPE_BASE,
-  .channel     = ADC_CHAN_0,
-  .pinset      = GPIO_PIN_PB2,
+  .channeltype = BOARD_ADC0_CHAN_TYPE,
+  .channel     = BOARD_ADC0_CHAN,
+  .pinset      = BOARD_ADC0_PIN,
 };
 
 static struct adc_dev_s g_adc_chan0_dev =
@@ -175,9 +160,9 @@ static struct adc_dev_s g_adc_chan0_dev =
 static struct adc_chan_s g_adc_chan1 =
 {
   .info        = &g_adc_module0_info,
-  .channeltype = ADC_CHAN_TYPE_BASE,
-  .channel     = ADC_CHAN_1,
-  .pinset      = GPIO_PIN_PB3,
+  .channeltype = BOARD_ADC1_CHAN_TYPE,
+  .channel     = BOARD_ADC1_CHAN,
+  .pinset      = BOARD_ADC1_PIN,
 };
 
 static struct adc_dev_s g_adc_chan1_dev =
@@ -191,9 +176,9 @@ static struct adc_dev_s g_adc_chan1_dev =
 static struct adc_chan_s g_adc_chan2 =
 {
   .info        = &g_adc_module0_info,
-  .channeltype = ADC_CHAN_TYPE_BASE,
-  .channel     = ADC_CHAN_2,
-  .pinset      = GPIO_PIN_PB5,
+  .channeltype = BOARD_ADC2_CHAN_TYPE,
+  .channel     = BOARD_ADC2_CHAN,
+  .pinset      = BOARD_ADC2_PIN,
 };
 
 static struct adc_dev_s g_adc_chan2_dev =
@@ -209,9 +194,9 @@ static struct adc_dev_s g_adc_chan2_dev =
 static struct adc_chan_s g_adc_chanbat =
 {
   .info        = &g_adc_module0_info,
-  .channeltype = ADC_CHAN_TYPE_VBAT,
-  .channel     = ADC_CHAN_VBAT,
-  .pinset      = GPIO_INVLD_CFG,
+  .channeltype = BOARD_ADCVBAT_CHAN_TYPE,
+  .channel     = BOARD_ADCVBAT_CHAN,
+  .pinset      = BOARD_ADCVBAT_PIN,
 };
 
 static struct adc_dev_s g_adc_chanbat_dev =
@@ -221,7 +206,7 @@ static struct adc_dev_s g_adc_chanbat_dev =
 };
 #endif
 
-static sem_t g_sem_excl = SEM_INITIALIZER(1);
+static mutex_t g_lock = NXMUTEX_INITIALIZER;
 
 /****************************************************************************
  * Inline Functions
@@ -870,7 +855,7 @@ static void adc_read_work(struct adc_dev_s *dev)
   int32_t adc;
   struct adc_chan_s *priv = (struct adc_chan_s *)dev->ad_priv;
 
-  ret = nxsem_wait(&g_sem_excl);
+  ret = nxmutex_lock(&g_lock);
   if (ret < 0)
     {
       aerr("Failed to wait sem ret=%d\n", ret);
@@ -919,7 +904,7 @@ static void adc_read_work(struct adc_dev_s *dev)
   ainfo("channel: %" PRIu8 ", voltage: %" PRIu32 " mV\n", priv->channel,
         adc);
 
-  nxsem_post(&g_sem_excl);
+  nxmutex_unlock(&g_lock);
 }
 
 /****************************************************************************

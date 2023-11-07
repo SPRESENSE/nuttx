@@ -100,7 +100,7 @@
 /* PRESCALER Register */
 
 #define TIM_PRESCALER_SHIFT                (0)                        /* Bits 0-3: Prescaler value */
-#define TIM_PRESCALER_MAX                  (0xf)
+#define TIM_PRESCALER_MAX                  (9)
 #define TIM_PRESCALER_MASK                 (TIM_PRESCALER_MAX << TIM_PRESCALER_SHIFT)
 
 #endif /* __ARCH_ARM_SRC_NRF52_HARDWARE_NRF52_TIM_H */

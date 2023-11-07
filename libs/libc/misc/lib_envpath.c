@@ -84,6 +84,7 @@ ENVPATH_HANDLE envpath_init(FAR const char *name)
 {
   FAR struct envpath_s *envpath;
   FAR char *path;
+  size_t size;
 
   /* Get the value of the PATH variable */
 
@@ -94,29 +95,30 @@ ENVPATH_HANDLE envpath_init(FAR const char *name)
        * exist in the environment.
        */
 
-      return (ENVPATH_HANDLE)NULL;
+      return NULL;
     }
 
   /* Allocate a container for the PATH variable contents */
 
+  size = strlen(path) + 1;
   envpath = (FAR struct envpath_s *)
-    lib_malloc(SIZEOF_ENVPATH_S(strlen(path) + 1));
+    lib_malloc(SIZEOF_ENVPATH_S(size));
 
   if (!envpath)
     {
       /* Ooops.. we are out of memory */
 
-      return (ENVPATH_HANDLE)NULL;
+      return NULL;
     }
 
   /* Populate the container */
 
-  strcpy(envpath->path, path);
+  strlcpy(envpath->path, path, size);
   envpath->next = envpath->path;
 
   /* And return the containing cast to an opaque handle */
 
-  return (ENVPATH_HANDLE)envpath;
+  return envpath;
 }
 
 /****************************************************************************
@@ -179,7 +181,7 @@ FAR char *envpath_next(ENVPATH_HANDLE handle, FAR const char *relpath)
            * paths in the path variable.
            */
 
-          return (FAR char *)NULL;
+          return NULL;
         }
 
       /* Okay... 'path' points to the beginning of the string.  The string
@@ -213,12 +215,12 @@ FAR char *envpath_next(ENVPATH_HANDLE handle, FAR const char *relpath)
         {
           /* Failed to allocate memory */
 
-          return (FAR char *)NULL;
+          return NULL;
         }
 
       /* Construct the full path */
 
-      sprintf(fullpath, "%s/%s", path, relpath);
+      snprintf(fullpath, pathlen, "%s/%s", path, relpath);
 
       /* Verify that a regular file exists at this path */
 

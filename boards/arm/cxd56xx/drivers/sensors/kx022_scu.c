@@ -131,10 +131,6 @@ static const struct file_operations g_kx022fops =
   kx022_write,                 /* write */
   NULL,                        /* seek */
   kx022_ioctl,                 /* ioctl */
-  NULL                         /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL                       /* unlink */
-#endif
 };
 
 /* Take XYZ data. */
@@ -496,7 +492,7 @@ int kx022_register(const char *devpath, int minor,
 
   /* Initialize the KX022 device structure */
 
-  priv = (struct kx022_dev_s *)kmm_malloc(sizeof(struct kx022_dev_s));
+  priv = kmm_malloc(sizeof(struct kx022_dev_s));
   if (!priv)
     {
       snerr("Failed to allocate instance\n");

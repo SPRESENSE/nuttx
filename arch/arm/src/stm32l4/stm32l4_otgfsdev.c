@@ -24,6 +24,7 @@
 
 #include <nuttx/config.h>
 
+#include <sys/param.h>
 #include <sys/types.h>
 #include <inttypes.h>
 #include <stdbool.h>
@@ -104,10 +105,6 @@
 #ifndef CONFIG_USBDEV_EP5_TXFIFO_SIZE
 #  define CONFIG_USBDEV_EP5_TXFIFO_SIZE 128
 #endif
-
-/* Number of endpoints */
-
-#define STM32L4_NENDPOINTS  (6)          /* ep0-5 x 2 for IN and OUT */
 
 /* Adjust actual number of endpoints based upon size;
  * 0 means 'not available', and we expect that the first 0-length endpoint
@@ -353,16 +350,6 @@
 #define stm32l4_rqempty(ep)            ((ep)->head == NULL)
 #define stm32l4_rqpeek(ep)             ((ep)->head)
 
-/* Standard stuff ***********************************************************/
-
-#ifndef MIN
-#  define MIN(a,b) ((a) < (b) ? (a) : (b))
-#endif
-
-#ifndef MAX
-#  define MAX(a,b) ((a) > (b) ? (a) : (b))
-#endif
-
 /****************************************************************************
  * Private Types
  ****************************************************************************/
@@ -563,8 +550,8 @@ struct stm32l4_usbdev_s
 static uint32_t    stm32l4_getreg(uint32_t addr);
 static void        stm32l4_putreg(uint32_t val, uint32_t addr);
 #else
-# define stm32l4_getreg(addr)     getreg32(addr)
-# define stm32l4_putreg(val,addr) putreg32(val,addr)
+#  define stm32l4_getreg(addr)     getreg32(addr)
+#  define stm32l4_putreg(val,addr) putreg32(val,addr)
 #endif
 
 /* Request queue operations *************************************************/
@@ -1451,6 +1438,19 @@ static void stm32l4_epin_request(struct stm32l4_usbdev_s *priv,
           empmsk |= OTGFS_DIEPEMPMSK(privep->epphy);
           stm32l4_putreg(empmsk, STM32L4_OTGFS_DIEPEMPMSK);
 
+#ifdef CONFIG_DEBUG_FEATURES
+          /* Check if the configured TXFIFO size is sufficient for a given
+           * request. If not, raise an assertion here.
+           */
+
+          regval = stm32l4_getreg(STM32L4_OTG_DIEPTXF(privep->epphy));
+          regval &= OTGFS_DIEPTXF_INEPTXFD_MASK;
+          regval >>= OTGFS_DIEPTXF_INEPTXFD_SHIFT;
+          uerr("EP%" PRId8 " TXLEN=%" PRId32 " nwords=%d\n",
+               privep->epphy, regval, nwords);
+          DEBUGASSERT(regval >= nwords);
+#endif
+
           /* Terminate the transfer.  We will try again when the TxFIFO empty
            * interrupt is received.
            */
@@ -1643,8 +1643,8 @@ static inline void stm32l4_ep0out_receive(struct stm32l4_ep_s *privep,
 
   /* Sanity Checking */
 
-  DEBUGASSERT(privep && privep->ep.priv);
-  priv = (struct stm32l4_usbdev_s *)privep->ep.priv;
+  DEBUGASSERT(privep && privep->dev);
+  priv = (struct stm32l4_usbdev_s *)privep->dev;
 
   uinfo("EP0: bcnt=%d\n", bcnt);
   usbtrace(TRACE_READ(EP0), bcnt);
@@ -5296,9 +5296,6 @@ static void stm32l4_swinitialize(struct stm32l4_usbdev_s *priv)
   priv->epavail[0] = STM32L4_EP_AVAILABLE;
   priv->epavail[1] = STM32L4_EP_AVAILABLE;
 
-  priv->epin[EP0].ep.priv  = priv;
-  priv->epout[EP0].ep.priv = priv;
-
   /* Initialize the IN endpoint list */
 
   for (i = 0; i < STM32L4_NENDPOINTS; i++)
@@ -5420,22 +5417,22 @@ static void stm32l4_hwinitialize(struct stm32l4_usbdev_s *priv)
 
   regval  = OTGFS_GCCFG_PWRDWN;
 
-# ifdef CONFIG_USBDEV_VBUSSENSING
+#ifdef CONFIG_USBDEV_VBUSSENSING
   /* Enable Vbus sensing */
 
   regval |= OTGFS_GCCFG_VBDEN;
-# endif
+#endif
 
   stm32l4_putreg(regval, STM32L4_OTGFS_GCCFG);
   up_mdelay(20);
 
   /* When VBUS sensing is not used we need to force the B session valid */
 
-# ifndef CONFIG_USBDEV_VBUSSENSING
+#ifndef CONFIG_USBDEV_VBUSSENSING
   regval  =  stm32l4_getreg(STM32L4_OTGFS_GOTGCTL);
   regval |= (OTGFS_GOTGCTL_BVALOEN | OTGFS_GOTGCTL_BVALOVAL);
   stm32l4_putreg(regval, STM32L4_OTGFS_GOTGCTL);
-# endif
+#endif
 
   /* Force Device Mode */
 

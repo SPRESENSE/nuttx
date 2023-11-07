@@ -43,11 +43,11 @@
  * Private Functions
  ****************************************************************************/
 
-static uint16_t sendto_event(FAR struct net_driver_s *dev, FAR void *pvconn,
+static uint16_t sendto_event(FAR struct net_driver_s *dev,
                              FAR void *pvpriv, uint16_t flags)
 {
   FAR struct usrsock_reqstate_s *pstate = pvpriv;
-  FAR struct usrsock_conn_s *conn = pvconn;
+  FAR struct usrsock_conn_s *conn = pstate->conn;
 
   if (flags & USRSOCK_EVENT_ABORT)
     {
@@ -57,9 +57,9 @@ static uint16_t sendto_event(FAR struct net_driver_s *dev, FAR void *pvconn,
 
       /* Stop further callbacks */
 
-      pstate->cb->flags   = 0;
-      pstate->cb->priv    = NULL;
-      pstate->cb->event   = NULL;
+      pstate->cb->flags = 0;
+      pstate->cb->priv  = NULL;
+      pstate->cb->event = NULL;
 
       /* Wake up the waiting thread */
 
@@ -71,7 +71,8 @@ static uint16_t sendto_event(FAR struct net_driver_s *dev, FAR void *pvconn,
 
       pstate->result = conn->resp.result;
 
-      if (pstate->result >= 0 || pstate->result == -EAGAIN)
+      if (!(flags & USRSOCK_EVENT_SENDTO_READY) &&
+           (pstate->result >= 0 || pstate->result == -EAGAIN))
         {
           /* After reception of data, mark input not ready. Daemon will
            * send event to restore this flag.
@@ -82,9 +83,9 @@ static uint16_t sendto_event(FAR struct net_driver_s *dev, FAR void *pvconn,
 
       /* Stop further callbacks */
 
-      pstate->cb->flags   = 0;
-      pstate->cb->priv    = NULL;
-      pstate->cb->event   = NULL;
+      pstate->cb->flags = 0;
+      pstate->cb->priv  = NULL;
+      pstate->cb->event = NULL;
 
       /* Wake up the waiting thread */
 
@@ -98,9 +99,9 @@ static uint16_t sendto_event(FAR struct net_driver_s *dev, FAR void *pvconn,
 
       /* Stop further callbacks */
 
-      pstate->cb->flags   = 0;
-      pstate->cb->priv    = NULL;
-      pstate->cb->event   = NULL;
+      pstate->cb->flags = 0;
+      pstate->cb->priv  = NULL;
+      pstate->cb->event = NULL;
 
       /* Wake up the waiting thread */
 
@@ -116,9 +117,9 @@ static uint16_t sendto_event(FAR struct net_driver_s *dev, FAR void *pvconn,
 
       /* Stop further callbacks */
 
-      pstate->cb->flags   = 0;
-      pstate->cb->priv    = NULL;
-      pstate->cb->event   = NULL;
+      pstate->cb->flags = 0;
+      pstate->cb->priv  = NULL;
+      pstate->cb->event = NULL;
 
       /* Wake up the waiting thread */
 
@@ -171,7 +172,7 @@ static int do_sendto_request(FAR struct usrsock_conn_s *conn,
 
   memcpy(&bufs[2], msg->msg_iov, sizeof(struct iovec) * msg->msg_iovlen);
 
-  return usrsockdev_do_request(conn, bufs, ARRAY_SIZE(bufs));
+  return usrsock_do_request(conn, bufs, nitems(bufs));
 }
 
 /****************************************************************************
@@ -208,8 +209,6 @@ ssize_t usrsock_sendmsg(FAR struct socket *psock,
 
   ssize_t ret;
 
-  DEBUGASSERT(conn);
-
   net_lock();
 
   if (conn->state == USRSOCK_CONN_STATE_UNINITIALIZED ||
@@ -225,7 +224,7 @@ ssize_t usrsock_sendmsg(FAR struct socket *psock,
       goto errout_unlock;
     }
 
-  if (conn->type == SOCK_STREAM || conn->type == SOCK_SEQPACKET)
+  if (psock->s_type == SOCK_STREAM || psock->s_type == SOCK_SEQPACKET)
     {
       if (!conn->connected)
         {
@@ -306,8 +305,9 @@ ssize_t usrsock_sendmsg(FAR struct socket *psock,
 
           /* Wait for send-ready (or abort, or timeout, or signal). */
 
-          ret = net_timedwait(&state.recvsem,
+          ret = net_sem_timedwait(&state.recvsem,
                               _SO_TIMEOUT(conn->sconn.s_sndtimeo));
+          usrsock_teardown_request_callback(&state);
           if (ret < 0)
             {
               if (ret == -ETIMEDOUT)
@@ -322,17 +322,10 @@ ssize_t usrsock_sendmsg(FAR struct socket *psock,
                 }
               else
                 {
-                  nerr("net_timedwait errno: %zd\n", ret);
+                  nerr("net_sem_timedwait errno: %zd\n", ret);
                   DEBUGPANIC();
                 }
-            }
 
-          usrsock_teardown_request_callback(&state);
-
-          /* Did wait timeout or got signal? */
-
-          if (ret != 0)
-            {
               goto errout_unlock;
             }
 
@@ -377,7 +370,7 @@ ssize_t usrsock_sendmsg(FAR struct socket *psock,
         {
           /* Wait for completion of request. */
 
-          net_lockedwait_uninterruptible(&state.recvsem);
+          net_sem_wait_uninterruptible(&state.recvsem);
           ret = state.result;
         }
 

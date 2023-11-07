@@ -155,7 +155,7 @@ struct tiva_canmod_s
 
   /* Mutex for threads accessing the interface registers */
 
-  mutex_t   thd_iface_mtx;
+  mutex_t   thd_iface_lock;
 
   /* Interface registers base address for threads threads */
 
@@ -169,7 +169,7 @@ struct tiva_canmod_s
    * The TX FIFO should never be resized at runtime.
    */
 
-  mutex_t   fifo_mtx;
+  mutex_t   fifo_lock;
 
   /* All RX FIFOs + 1 TX FIFO */
 
@@ -248,7 +248,7 @@ static int  tivacan_rxhandler(int argc, char** argv);
 int tivacan_handle_errors(struct can_dev_s *dev);
 
 #ifdef CONFIG_CAN_ERRORS
-void tivacan_handle_errors_wqueue(void * dev);
+void tivacan_handle_errors_wqueue(void *dev);
 #endif
 
 /****************************************************************************
@@ -276,8 +276,11 @@ static struct tiva_canmod_s g_tivacan0priv =
 {
   .modnum           = 0,
   .base             = TIVA_CAN_BASE(0),
+  .rxsem            = SEM_INITIALIZER(0),
+  .thd_iface_lock   = NXMUTEX_INITIALIZER,
   .thd_iface_base   = TIVA_CAN_IFACE_BASE(0, 0),
   .isr_iface_base   = TIVA_CAN_IFACE_BASE(0, 1),
+  .fifo_lock        = NXMUTEX_INITIALIZER,
   .rxdefault_fifo   = NULL,
 };
 
@@ -293,8 +296,11 @@ static struct tiva_canmod_s g_tivacan1priv =
 {
   .modnum           = 1,
   .base             = TIVA_CAN_BASE(1),
+  .rxsem            = SEM_INITIALIZER(0),
+  .thd_iface_lock   = NXMUTEX_INITIALIZER,
   .thd_iface_base   = TIVA_CAN_IFACE_BASE(1, 0),
   .isr_iface_base   = TIVA_CAN_IFACE_BASE(1, 1),
+  .fifo_lock        = NXMUTEX_INITIALIZER,
   .rxdefault_fifo   = NULL,
 };
 
@@ -387,19 +393,12 @@ static void tivacan_reset(struct can_dev_s *dev)
 
 static int tivacan_setup(struct can_dev_s *dev)
 {
-  uint32_t  irq;
-  int       ret;
-  uint32_t  reg;
-  struct tiva_canmod_s    *canmod = dev->cd_priv;
-  char     *kthd_argv[2];
+  uint32_t irq;
+  int      ret;
+  uint32_t reg;
+  struct tiva_canmod_s *canmod = dev->cd_priv;
+  char    *kthd_argv[2];
   kthd_argv[1] = NULL;
-
-  ret = nxsem_init(&canmod->rxsem, 0, 0);
-
-  if (ret < 0)
-    {
-      return ret;
-    }
 
   switch (canmod->modnum)
     {
@@ -479,7 +478,7 @@ static int tivacan_setup(struct can_dev_s *dev)
 
   tivacan_ioctl(dev, CANIOC_SET_BITTIMING, (unsigned long)&default_timing);
 
-  nxmutex_lock(&canmod->thd_iface_mtx);
+  nxmutex_lock(&canmod->thd_iface_lock);
 
   /* Ensure a consistent state */
 
@@ -542,7 +541,7 @@ static int tivacan_setup(struct can_dev_s *dev)
               & TIVA_CANIF_CRQ_BUSY);
     }
 
-  nxmutex_unlock(&canmod->thd_iface_mtx);
+  nxmutex_unlock(&canmod->thd_iface_lock);
 
   /* Register the ISR */
 
@@ -699,7 +698,7 @@ int tivacan_rxhandler(int argc, char** argv)
   struct can_msg_s msg;
 
 #ifdef CONFIG_CAN_ERRORS
-  int      ret;
+  int ret;
 #endif
 
   /* argv[0] contains the thread name */
@@ -735,7 +734,7 @@ int tivacan_rxhandler(int argc, char** argv)
   while (true)
     {
       nxsem_wait(&canmod->rxsem);
-      nxmutex_lock(&canmod->thd_iface_mtx);
+      nxmutex_lock(&canmod->thd_iface_lock);
 
       /* Process the received message(s). Since hardware RX FIFOS are used
        * and new messages are received into the mailbox with the lowest
@@ -847,7 +846,7 @@ int tivacan_rxhandler(int argc, char** argv)
 #endif
         }
 
-        nxmutex_unlock(&canmod->thd_iface_mtx);
+        nxmutex_unlock(&canmod->thd_iface_lock);
 
 #ifdef CONFIG_CAN_ERRORS
         if (ret == OK)
@@ -887,7 +886,6 @@ int tivacan_rxhandler(int argc, char** argv)
 
 static void tivacan_rxintctl(struct can_dev_s *dev, bool enable)
 {
-  return;
 }
 
 /****************************************************************************
@@ -907,7 +905,6 @@ static void tivacan_rxintctl(struct can_dev_s *dev, bool enable)
 
 static void tivacan_txintctl(struct can_dev_s *dev, bool enable)
 {
-  return;
 }
 
 /****************************************************************************
@@ -1199,7 +1196,7 @@ static int tivacan_send(struct can_dev_s *dev, struct can_msg_s *msg)
       return -EBUSY;
     }
 
-  nxmutex_lock(&canmod->thd_iface_mtx);
+  nxmutex_lock(&canmod->thd_iface_lock);
 
   /* Protect the message object due the minute chance that the mailbox was
    * previously used for a remote frame and could receive messages, causing
@@ -1291,7 +1288,7 @@ static int tivacan_send(struct can_dev_s *dev, struct can_msg_s *msg)
   while (getreg32(canmod->thd_iface_base + TIVA_CANIF_OFFSET_CRQ)
           & TIVA_CANIF_CRQ_BUSY);
 
-  nxmutex_unlock(&canmod->thd_iface_mtx);
+  nxmutex_unlock(&canmod->thd_iface_lock);
 
   /* Move to the next message in the h/w TX FIFO.
    * Tell the upper-half the message has been submitted... this recurses
@@ -1380,7 +1377,7 @@ static bool tivacan_txempty(struct can_dev_s *dev)
  ****************************************************************************/
 
 #ifdef CONFIG_CAN_ERRORS
-void tivacan_handle_errors_wqueue(void * dev)
+void tivacan_handle_errors_wqueue(void *dev)
 {
   irqstate_t flags;
   struct tiva_canmod_s *canmod = ((struct can_dev_s *)dev)->cd_priv;
@@ -1663,7 +1660,6 @@ int tivacan_handle_errors(struct can_dev_s *dev)
            canmod->base + TIVA_CAN_OFFSET_STS);
 
 save_regs_and_return:
-
 #endif /* CONFIG_CAN_ERRORS */
 
   /* Save contents of CANSTS and CANERR for other functions to use
@@ -1886,7 +1882,7 @@ static void tivacan_bittiming_set(struct can_dev_s *dev,
   DEBUGASSERT(timing->prescaler > TIVA_CAN_PRESCALER_MIN &&
               timing->prescaler < TIVA_CAN_PRESCALER_MAX);
   DEBUGASSERT(timing->tseg1 > TIVA_CAN_TSEG1_MIN &&
-              timing->tseg1 < TIVA_CAN_PRESCALER_MAX);
+              timing->tseg1 < TIVA_CAN_TSEG1_MAX);
   DEBUGASSERT(timing->tseg2 > TIVA_CAN_TSEG2_MIN &&
               timing->tseg2 < TIVA_CAN_TSEG2_MAX);
   DEBUGASSERT(timing->sjw > TIVA_CAN_SJW_MIN &&
@@ -1973,7 +1969,7 @@ int tivacan_alloc_fifo(struct can_dev_s *dev, int depth)
   int free_fifo_idx = -1;
   struct tiva_canmod_s *canmod = dev->cd_priv;
 
-  nxmutex_lock(&canmod->fifo_mtx);
+  nxmutex_lock(&canmod->fifo_lock);
 
   /* Mailboxes allocated other RX FIFOs or the TX FIFO */
 
@@ -2008,7 +2004,7 @@ int tivacan_alloc_fifo(struct can_dev_s *dev, int depth)
 
   if (numclaimed != depth)
     {
-      nxmutex_unlock(&canmod->fifo_mtx);
+      nxmutex_unlock(&canmod->fifo_lock);
       return -ENOSPC;
     }
   else
@@ -2018,7 +2014,7 @@ int tivacan_alloc_fifo(struct can_dev_s *dev, int depth)
       claimed &= 0xffffffff >> (32 - i);
       canmod->fifos[free_fifo_idx] = claimed;
 
-      nxmutex_unlock(&canmod->fifo_mtx);
+      nxmutex_unlock(&canmod->fifo_lock);
       return free_fifo_idx;
     }
 }
@@ -2044,8 +2040,8 @@ int tivacan_alloc_fifo(struct can_dev_s *dev, int depth)
 static void tivacan_free_fifo(struct can_dev_s *dev,
                               tiva_can_fifo_t *fifo)
 {
-  struct tiva_canmod_s * canmod = dev->cd_priv;
-  nxmutex_lock(&canmod->thd_iface_mtx);
+  struct tiva_canmod_s *canmod = dev->cd_priv;
+  nxmutex_lock(&canmod->thd_iface_lock);
 
   for (int i = 0; i < TIVA_CAN_NUM_MBOXES; ++i)
     {
@@ -2057,7 +2053,7 @@ static void tivacan_free_fifo(struct can_dev_s *dev,
         }
     }
 
-  nxmutex_unlock(&canmod->thd_iface_mtx);
+  nxmutex_unlock(&canmod->thd_iface_lock);
 }
 
 /****************************************************************************
@@ -2322,8 +2318,7 @@ static int  tivacan_initfilter(struct can_dev_s *dev,
         }
     }
 
-  nxmutex_unlock(&canmod->thd_iface_mtx);
-
+  nxmutex_unlock(&canmod->thd_iface_lock);
   return OK;
 }
 
@@ -2349,7 +2344,6 @@ static int  tivacan_initfilter(struct can_dev_s *dev,
 int tiva_can_initialize(char *devpath, int modnum)
 {
   struct can_dev_s *dev;
-  struct tiva_canmod_s *canmod;
   int ret;
   caninfo("tiva_can_initialize module %d\n", modnum);
 
@@ -2376,24 +2370,6 @@ int tiva_can_initialize(char *devpath, int modnum)
       return -ENODEV;
     }
 #endif
-
-  canmod = dev->cd_priv;
-
-  /* Initialize concurrancy objects for accessing interfaces */
-
-  ret = nxmutex_init(&canmod->thd_iface_mtx);
-  if (ret < 0)
-    {
-      canerr("ERROR: failed to initialize mutex: %d\n", ret);
-      return ret;
-    }
-
-  ret = nxmutex_init(&canmod->fifo_mtx);
-  if (ret < 0)
-    {
-      canerr("ERROR: failed to initialize mutex: %d\n", ret);
-      return ret;
-    }
 
   /* Register the driver */
 

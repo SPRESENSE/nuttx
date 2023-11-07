@@ -61,7 +61,12 @@
 
 /* Context switching system calls *******************************************/
 
-/* SYS call 0: (not used) */
+/* SYS call 0:
+ *
+ * int up_saveusercontext(void *saveregs);
+ */
+
+#define SYS_save_context (0)
 
 /* SYS call 1:
  *
@@ -74,11 +79,11 @@
 
 /* SYS call 2:
  *
- * void up_switchcontext(uint32_t *saveregs, uint32_t *restoreregs);
+ * void misoc_switchcontext(uint32_t *saveregs, uint32_t *restoreregs);
  */
 
 #define SYS_switch_context (2)
-#define up_switchcontext(saveregs, restoreregs) \
+#define misoc_switchcontext(saveregs, restoreregs) \
   sys_call2(SYS_switch_context, (uintptr_t)saveregs, \
             (uintptr_t)restoreregs)
 

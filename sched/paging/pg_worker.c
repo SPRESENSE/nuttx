@@ -27,11 +27,11 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <unistd.h>
-#include <queue.h>
 #include <assert.h>
 #include <errno.h>
 #include <debug.h>
 
+#include <nuttx/queue.h>
 #include <nuttx/sched.h>
 #include <nuttx/arch.h>
 #include <nuttx/signal.h>
@@ -177,7 +177,7 @@ static void pg_callback(FAR struct tcb_s *tcb, int result)
   /* Signal the page fill worker thread (in any event) */
 
   pginfo("Signaling worker. PID: %d\n", g_pgworker);
-  nxsig_kill(g_pgworker, SIGWORK);
+  nxsig_kill(g_pgworker, SIGPAGING);
 }
 #endif
 
@@ -215,6 +215,8 @@ static void pg_callback(FAR struct tcb_s *tcb, int result)
 
 static inline bool pg_dequeue(void)
 {
+  FAR struct tcb_s *wtcb = this_task();
+
   /* Loop until either (1) the TCB of a task that requires a fill is found,
    * OR (2) the g_watingforfill list becomes empty.
    */
@@ -223,8 +225,7 @@ static inline bool pg_dequeue(void)
     {
       /* Remove the TCB from the head of the list (if any) */
 
-      g_pftcb = (FAR struct tcb_s *)
-        dq_remfirst((FAR dq_queue_t *)&g_waitingforfill);
+      g_pftcb = (FAR struct tcb_s *)dq_remfirst(&g_waitingforfill);
       pginfo("g_pftcb: %p\n", g_pftcb);
       if (g_pftcb != NULL)
         {
@@ -254,7 +255,6 @@ static inline bool pg_dequeue(void)
                * if a new higher priority fill is required).
                */
 
-              FAR struct tcb_s *wtcb = this_task();
               if (wtcb->sched_priority > CONFIG_PAGING_DEFPRIO &&
                   wtcb->sched_priority > g_pftcb->sched_priority)
                 {
@@ -288,7 +288,15 @@ static inline bool pg_dequeue(void)
            */
 
           pginfo("Restarting TCB: %p\n", g_pftcb);
-          up_unblock_task(g_pftcb);
+
+          /* Add the task to ready-to-run task list and
+           * perform the context switch if one is needed
+           */
+
+          if (nxsched_add_readytorun(g_pftcb))
+            {
+              up_switch_context(g_pftcb, wtcb);
+            }
         }
     }
   while (g_pftcb != NULL);
@@ -470,12 +478,22 @@ static inline void pg_alldone(void)
 
 static inline void pg_fillcomplete(void)
 {
+  FAR struct tcb_s *wtcb = this_task();
+
   /* Call up_unblocktask(g_pftcb) to make the task that just
    * received the fill ready-to-run.
    */
 
   pginfo("Restarting TCB: %p\n", g_pftcb);
-  up_unblock_task(g_pftcb);
+
+  /* Add the task to ready-to-run task list and
+   * perform the context switch if one is needed
+   */
+
+  if (nxsched_add_readytorun(g_pftcb))
+    {
+      up_switch_context(g_pftcb, wtcb);
+    }
 }
 
 /****************************************************************************
@@ -505,8 +523,10 @@ static inline void pg_fillcomplete(void)
  *
  ****************************************************************************/
 
-int pg_worker(int argc, char *argv[])
+int pg_worker(int argc, FAR char *argv[])
 {
+  FAR struct tcb_s *wtcb = this_task();
+
   /* Loop forever -- Notice that interrupts will be disabled at all times
    * that this thread runs.  That is so that we can't lose signals or have
    * asynchronous page faults.
@@ -568,7 +588,15 @@ int pg_worker(int argc, char *argv[])
                */
 
               pginfo("Restarting TCB: %p\n", g_pftcb);
-              up_unblock_task(g_pftcb);
+
+              /* Add the task to ready-to-run task list and
+               * perform the context switch if one is needed
+               */
+
+              if (nxsched_add_readytorun(g_pftcb))
+                {
+                  up_switch_context(g_pftcb, wtcb);
+                }
 
               /* Yes .. Start the next asynchronous fill.  Check the return
                * value to see a fill was actually started (false means that
@@ -645,7 +673,15 @@ int pg_worker(int argc, char *argv[])
            */
 
           pginfo("Restarting TCB: %p\n", g_pftcb);
-          up_unblock_task(g_pftcb);
+
+          /* Add the task to ready-to-run task list and
+           * perform the context switch if one is needed
+           */
+
+          if (nxsched_add_readytorun(g_pftcb))
+            {
+              up_switch_context(g_pftcb, wtcb);
+            }
         }
 
       /* All queued fills have been processed */

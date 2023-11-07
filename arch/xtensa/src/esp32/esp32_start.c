@@ -44,13 +44,14 @@
 #endif
 #include "hardware/esp32_dport.h"
 #include "hardware/esp32_rtccntl.h"
+#include "rom/esp32_libc_stubs.h"
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
 #ifdef CONFIG_DEBUG_FEATURES
-#  define showprogress(c)     up_puts(c)
+#  define showprogress(c)     up_putc(c)
 #else
 #  define showprogress(c)
 #endif
@@ -77,13 +78,13 @@
  ****************************************************************************/
 
 #ifdef CONFIG_ESP32_APP_FORMAT_MCUBOOT
-extern uint32_t _image_irom_vma;
-extern uint32_t _image_irom_lma;
-extern uint32_t _image_irom_size;
+extern uint8_t _image_irom_vma[];
+extern uint8_t _image_irom_lma[];
+extern uint8_t _image_irom_size[];
 
-extern uint32_t _image_drom_vma;
-extern uint32_t _image_drom_lma;
-extern uint32_t _image_drom_size;
+extern uint8_t _image_drom_vma[];
+extern uint8_t _image_drom_lma[];
+extern uint8_t _image_drom_size[];
 #endif
 
 /****************************************************************************
@@ -91,7 +92,7 @@ extern uint32_t _image_drom_size;
  ****************************************************************************/
 
 #ifdef CONFIG_ESP32_APP_FORMAT_MCUBOOT
-extern int ets_printf(const char *fmt, ...) printflike(1, 2);
+extern int ets_printf(const char *fmt, ...) printf_like(1, 2);
 extern void cache_read_enable(int cpu);
 extern void cache_read_disable(int cpu);
 extern void cache_flush(int cpu);
@@ -122,7 +123,7 @@ extern void esp32_lowsetup(void);
  ****************************************************************************/
 
 #ifdef CONFIG_ESP32_APP_FORMAT_MCUBOOT
-HDR_ATTR static void (*_entry_point)(void) = &__start;
+HDR_ATTR static void (*_entry_point)(void) = __start;
 #endif
 
 /****************************************************************************
@@ -172,7 +173,7 @@ static noreturn_function void __esp32_start(void)
    * So we configure CPU to use the VECBASE address in DPORT peripheral.
    */
 
-  regval = ((uint32_t)&_init_start) >> 10;
+  regval = ((uint32_t)_init_start) >> 10;
   putreg32(regval, DPORT_PRO_VECBASE_SET_REG);
 
   regval  = getreg32(DPORT_PRO_VECBASE_CTRL_REG);
@@ -181,12 +182,12 @@ static noreturn_function void __esp32_start(void)
 #else
   /* Move CPU0 exception vectors to IRAM */
 
-  __asm__ __volatile__ ("wsr %0, vecbase\n"::"r"(&_init_start));
+  __asm__ __volatile__ ("wsr %0, vecbase\n"::"r"(_init_start));
 #endif
 
   /* Set .bss to zero */
 
-  memset(&_sbss, 0, (&_ebss - &_sbss) * sizeof(_sbss));
+  memset(_sbss, 0, _ebss - _sbss);
 
 #ifndef CONFIG_SMP
   /* Make sure that the APP_CPU is disabled for now */
@@ -219,7 +220,7 @@ static noreturn_function void __esp32_start(void)
   xtensa_earlyserialinit();
 #endif
 
-  showprogress("A");
+  showprogress('A');
 
 #if defined(CONFIG_ESP32_SPIRAM_BOOT_INIT)
   if (esp_spiram_init() != OK)
@@ -238,17 +239,20 @@ static noreturn_function void __esp32_start(void)
   /* Set external memory bss section to zero */
 
 #  ifdef CONFIG_XTENSA_EXTMEM_BSS
-     memset(&_sbss_extmem, 0,
-            (&_ebss_extmem - &_sbss_extmem) * sizeof(_sbss_extmem));
+     memset(_sbss_extmem, 0, _ebss_extmem - _sbss_extmem);
 #  endif
 
 #endif
+
+  /* Setup the syscall table needed by the ROM code */
+
+  esp_setup_syscall_table();
 
   /* Initialize onboard resources */
 
   esp32_board_initialize();
 
-  showprogress("B");
+  showprogress('B');
 
   /* For the case of the separate user-/kernel-space build, perform whatever
    * platform specific initialization of the user memory is required.
@@ -258,7 +262,7 @@ static noreturn_function void __esp32_start(void)
 
 #ifdef CONFIG_BUILD_PROTECTED
   esp32_userspace();
-  showprogress("C");
+  showprogress('C');
 #endif
 
   /* Bring up NuttX */
@@ -317,12 +321,12 @@ static int map_rom_segments(void)
   uint32_t irom_page_count;
 
   size_t partition_offset = PRIMARY_SLOT_OFFSET;
-  uint32_t app_irom_lma = partition_offset + (uint32_t)&_image_irom_lma;
-  uint32_t app_irom_size = (uint32_t)&_image_irom_size;
-  uint32_t app_irom_vma = (uint32_t)&_image_irom_vma;
-  uint32_t app_drom_lma = partition_offset + (uint32_t)&_image_drom_lma;
-  uint32_t app_drom_size = (uint32_t)&_image_drom_size;
-  uint32_t app_drom_vma = (uint32_t)&_image_drom_vma;
+  uint32_t app_irom_lma = partition_offset + (uint32_t)_image_irom_lma;
+  uint32_t app_irom_size = (uint32_t)_image_irom_size;
+  uint32_t app_irom_vma = (uint32_t)_image_irom_vma;
+  uint32_t app_drom_lma = partition_offset + (uint32_t)_image_drom_lma;
+  uint32_t app_drom_size = (uint32_t)_image_drom_size;
+  uint32_t app_drom_vma = (uint32_t)_image_drom_vma;
 
   volatile uint32_t *pro_flash_mmu_table =
     (volatile uint32_t *)DPORT_PRO_FLASH_MMU_TABLE_REG;

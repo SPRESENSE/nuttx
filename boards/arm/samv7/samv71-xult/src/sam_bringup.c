@@ -25,6 +25,7 @@
 #include <nuttx/config.h>
 
 #include <sys/mount.h>
+#include <sys/param.h>
 
 #include <stdbool.h>
 #include <stdio.h>
@@ -90,8 +91,6 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-#define ARRAY_SIZE(x)   (sizeof(x) / sizeof((x)[0]))
-
 #define NSECTORS(n) \
   (((n)+CONFIG_SAMV71XULT_ROMFS_ROMDISK_SECTSIZE-1) / \
    CONFIG_SAMV71XULT_ROMFS_ROMDISK_SECTSIZE)
@@ -121,7 +120,7 @@ static struct mtd_partition_s g_mtd_partition_table[] =
 };
 
 static const size_t g_mtd_partition_table_size =
-    ARRAY_SIZE(g_mtd_partition_table);
+    nitems(g_mtd_partition_table);
 #else
 #  define g_mtd_partition_table         NULL
 #  define g_mtd_partition_table_size    0
@@ -338,7 +337,7 @@ int sam_bringup(void)
   /* Initialize the HSMCI0 driver */
 
   ret = sam_hsmci_initialize(HSMCI0_SLOTNO, HSMCI0_MINOR, GPIO_HSMCI0_CD,
-                             IRQ_HSMCI0_CD);
+                             IRQ_HSMCI0_CD, true);
   if (ret < 0)
     {
       syslog(LOG_ERR, "ERROR: sam_hsmci_initialize(%d,%d) failed: %d\n",

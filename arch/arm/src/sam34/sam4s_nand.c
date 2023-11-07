@@ -149,7 +149,10 @@ static int nand_wait_ready(struct sam_nandcs_s *priv)
 
   /* The ready/busy (R/nB) signal of the NAND Flash  */
 
-  while (!sam_gpioread(priv->rb));
+  while (!sam_gpioread(priv->rb))
+    {
+    }
+
   WRITE_COMMAND8(&priv->raw, COMMAND_STATUS);
 
   /* Issue command */
@@ -434,8 +437,8 @@ static int nand_rawwrite(struct nand_raw_s *raw, off_t block,
   int ret = OK;
 
   DEBUGASSERT(raw);
-  finfo("block=%d page=%d data=%p spare=%p\n",
-        (int)block, page, data, spare);
+  finfo("block=%" PRIdOFF " page=%d data=%p spare=%p\n",
+        block, page, data, spare);
 
   /* Get page and spare sizes */
 

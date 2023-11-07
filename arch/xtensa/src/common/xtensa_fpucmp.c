@@ -26,15 +26,31 @@
 
 #include <stdint.h>
 #include <string.h>
+#include <strings.h>
+
 #include <nuttx/irq.h>
 
 #include "xtensa.h"
 
+#ifdef CONFIG_ARCH_FPU
+
 /****************************************************************************
- * Pre-processor Definitions
+ * Private Data
  ****************************************************************************/
 
-#ifdef CONFIG_ARCH_FPU
+#ifdef XCHAL_CP_ID_FPU
+static uint32_t g_coproc_sa_offsets[] =
+{
+  XTENSA_CP0_SA, XTENSA_CP1_SA, XTENSA_CP2_SA, XTENSA_CP3_SA,
+  XTENSA_CP4_SA, XTENSA_CP5_SA, XTENSA_CP6_SA, XTENSA_CP7_SA
+};
+
+static uint32_t g_coproc_sa_sizes[] =
+{
+  XCHAL_CP0_SA_SIZE, XCHAL_CP1_SA_SIZE, XCHAL_CP2_SA_SIZE, XCHAL_CP3_SA_SIZE,
+  XCHAL_CP4_SA_SIZE, XCHAL_CP5_SA_SIZE, XCHAL_CP6_SA_SIZE, XCHAL_CP7_SA_SIZE
+};
+#endif
 
 /****************************************************************************
  * Public Functions
@@ -45,6 +61,7 @@
  *
  * Description:
  *   Compare FPU areas from thread context.
+ *   This comparison will skip disabled coprocessors.
  *
  * Input Parameters:
  *   saveregs1 - Pointer to the saved FPU registers.
@@ -57,10 +74,34 @@
 
 bool up_fpucmp(const void *saveregs1, const void *saveregs2)
 {
+#ifdef XCHAL_CP_ID_FPU
   const uint32_t *regs1 = saveregs1;
   const uint32_t *regs2 = saveregs2;
+  uint32_t cpenable = xtensa_get_cpenable();
+  int ndx = 0;
+  bool ret = true;
+  int i;
 
-  return memcmp(&regs1[XCPTCONTEXT_REGS], &regs2[XCPTCONTEXT_REGS],
-                XTENSA_CP_SA_SIZE) == 0;
+  while (ret && (i = ffs(cpenable)))
+    {
+      uint32_t reg_offset;
+
+      ndx += i;
+      if ((ndx - 1) == XCHAL_CP_ID_FPU)
+        {
+          reg_offset = g_coproc_sa_offsets[ndx - 1] / 4;
+          ret = memcmp(&regs1[COMMON_CTX_REGS + reg_offset],
+                       &regs2[COMMON_CTX_REGS + reg_offset],
+                       g_coproc_sa_sizes[ndx - 1]) == 0;
+          break;
+        }
+
+      cpenable >>= i;
+    }
+
+  return ret;
+#else
+  return true;
+#endif
 }
 #endif /* CONFIG_ARCH_FPU */

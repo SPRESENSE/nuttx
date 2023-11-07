@@ -33,6 +33,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/param.h>
 #include <fcntl.h>
 #include <assert.h>
 #include <errno.h>
@@ -43,7 +44,6 @@
 #include <nuttx/kmalloc.h>
 #include <nuttx/fs/fs.h>
 #include <nuttx/fs/procfs.h>
-#include <nuttx/fs/dirent.h>
 
 #include <arch/irq.h>
 
@@ -54,10 +54,6 @@
  ****************************************************************************/
 
 #define DVFS_LINELEN  128
-
-#ifndef MIN
-#  define MIN(a,b) ((a) < (b) ? (a) : (b))
-#endif
 
 /****************************************************************************
  * Private Types
@@ -135,7 +131,7 @@ static int dvfs_open(struct file *filep, const char *relpath,
 
   /* Allocate a container to hold the task and attribute selection */
 
-  priv = (struct dvfs_file_s *)kmm_zalloc(sizeof(struct dvfs_file_s));
+  priv = kmm_zalloc(sizeof(struct dvfs_file_s));
   if (!priv)
     {
       ferr("ERROR: Failed to allocate file attributes\n");
@@ -270,14 +266,12 @@ static ssize_t dvfs_write(struct file *filep, const char *buffer,
   int  n;
   int  tmp;
 
-  n = MIN(buflen, DVFS_LINELEN - 1);
-  strncpy(line, buffer, n);
-  line[n] = '\0';
+  n = MIN(buflen, DVFS_LINELEN);
+  strlcpy(line, buffer, n);
 
   n = strcspn(line, " ");
-  n = MIN(n, sizeof(cmd) - 1);
-  strncpy(cmd, line, n);
-  cmd[n] = '\0';
+  n = MIN(n, sizeof(cmd));
+  strlcpy(cmd, line, n);
 
   if (0 == strcmp(cmd, "cur_freq"))
     {
@@ -320,7 +314,7 @@ static int dvfs_dup(const struct file *oldp, struct file *newp)
 
   /* Allocate a new container to hold the task and attribute selection */
 
-  newpriv = (struct dvfs_file_s *)kmm_zalloc(sizeof(struct dvfs_file_s));
+  newpriv = kmm_zalloc(sizeof(struct dvfs_file_s));
   if (!newpriv)
     {
       ferr("ERROR: Failed to allocate file attributes\n");

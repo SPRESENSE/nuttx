@@ -348,24 +348,6 @@ void fat_putuint32(FAR uint8_t *ptr, uint32_t value32)
 }
 
 /****************************************************************************
- * Name: fat_semtake
- ****************************************************************************/
-
-int fat_semtake(struct fat_mountpt_s *fs)
-{
-  return nxsem_wait_uninterruptible(&fs->fs_sem);
-}
-
-/****************************************************************************
- * Name: fat_semgive
- ****************************************************************************/
-
-void fat_semgive(struct fat_mountpt_s *fs)
-{
-  nxsem_post(&fs->fs_sem);
-}
-
-/****************************************************************************
  * Name: fat_systime2fattime
  *
  * Description:
@@ -670,7 +652,7 @@ int fat_mount(struct fat_mountpt_s *fs, bool writeable)
 
 errout_with_buffer:
   fat_io_free(fs->fs_buffer, fs->fs_hwsectorsize);
-  fs->fs_buffer = 0;
+  fs->fs_buffer = NULL;
 
 errout:
   fs->fs_mounted = false;

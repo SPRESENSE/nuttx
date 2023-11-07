@@ -39,7 +39,7 @@
 #include <nuttx/irq.h>
 #include <nuttx/wdog.h>
 #include <nuttx/wqueue.h>
-#include <nuttx/net/arp.h>
+#include <nuttx/net/ip.h>
 #include <nuttx/net/netdev.h>
 
 #include <arch/board/board.h>
@@ -73,7 +73,7 @@
  */
 
 #ifndef CONFIG_MISOC_NET_NINTERFACES
-# define CONFIG_MISOC_NET_NINTERFACES 1
+#  define CONFIG_MISOC_NET_NINTERFACES 1
 #endif
 
 /* TX timeout = 1 minute */
@@ -282,45 +282,9 @@ static int misoc_net_txpoll(struct net_driver_s *dev)
   struct misoc_net_driver_s *priv =
     (struct misoc_net_driver_s *)dev->d_private;
 
-  /* If the polling resulted in data that should be sent out on the network,
-   * the field d_len is set to a value > 0.
-   */
+  /* Send the packet */
 
-  if (priv->misoc_net_dev.d_len > 0)
-    {
-      /* Look up the destination MAC address and add it to the Ethernet
-       * header.
-       */
-
-#ifdef CONFIG_NET_IPv4
-#ifdef CONFIG_NET_IPv6
-      if (IFF_IS_IPv4(priv->misoc_net_dev.d_flags))
-#endif
-        {
-          arp_out(&priv->misoc_net_dev);
-        }
-#endif /* CONFIG_NET_IPv4 */
-
-#ifdef CONFIG_NET_IPv6
-#ifdef CONFIG_NET_IPv4
-      else
-#endif
-        {
-          neighbor_out(&priv->misoc_net_dev);
-        }
-#endif /* CONFIG_NET_IPv6 */
-
-      if (!devif_loopback(&priv->misoc_net_dev))
-        {
-          /* Send the packet */
-
-          misoc_net_transmit(priv);
-
-          /* Check if there is room in the device to hold another packet.
-           * If not, return a non-zero value to terminate the poll.
-           */
-        }
-    }
+  misoc_net_transmit(priv);
 
   /* If zero is returned, the polling will continue until all connections
    * have been examined.
@@ -406,11 +370,8 @@ static void misoc_net_receive(struct misoc_net_driver_s *priv)
           ninfo("IPv4 frame\n");
           NETDEV_RXIPV4(&priv->misoc_net_dev);
 
-          /* Handle ARP on input then give the IPv4 packet to the network
-           * layer
-           */
+          /* Receive an IPv4 packet from the network device */
 
-          arp_ipin(&priv->misoc_net_dev);
           ipv4_input(&priv->misoc_net_dev);
 
           /* If the above function invocation resulted in data that should be
@@ -419,21 +380,6 @@ static void misoc_net_receive(struct misoc_net_driver_s *priv)
 
           if (priv->misoc_net_dev.d_len > 0)
             {
-              /* Update the Ethernet header with the correct MAC address */
-
-#ifdef CONFIG_NET_IPv6
-              if (IFF_IS_IPv4(priv->misoc_net_dev.d_flags))
-#endif
-                {
-                  arp_out(&priv->misoc_net_dev);
-                }
-#ifdef CONFIG_NET_IPv6
-              else
-                {
-                  neighbor_out(&kel->misoc_net_dev);
-                }
-#endif
-
               /* And send the packet */
 
               misoc_net_transmit(priv);
@@ -457,21 +403,6 @@ static void misoc_net_receive(struct misoc_net_driver_s *priv)
 
           if (priv->misoc_net_dev.d_len > 0)
             {
-              /* Update the Ethernet header with the correct MAC address */
-
-#ifdef CONFIG_NET_IPv4
-              if (IFF_IS_IPv4(priv->misoc_net_dev.d_flags))
-                {
-                  arp_out(&priv->misoc_net_dev);
-                }
-              else
-#endif
-#ifdef CONFIG_NET_IPv6
-                {
-                  neighbor_out(&priv->misoc_net_dev);
-                }
-#endif
-
               /* And send the packet */
 
               misoc_net_transmit(priv);
@@ -482,7 +413,7 @@ static void misoc_net_receive(struct misoc_net_driver_s *priv)
 #ifdef CONFIG_NET_ARP
       if (BUF->type == HTONS(ETHTYPE_ARP))
         {
-          arp_arpin(&priv->misoc_net_dev);
+          arp_input(&priv->misoc_net_dev);
           NETDEV_RXARP(&priv->misoc_net_dev);
 
           /* If the above function invocation resulted in data that should be
@@ -741,9 +672,9 @@ static int misoc_net_ifup(struct net_driver_s *dev)
     (struct misoc_net_driver_s *)dev->d_private;
 
 #ifdef CONFIG_NET_IPv4
-  ninfo("Bringing up: %d.%d.%d.%d\n",
-        dev->d_ipaddr & 0xff, (dev->d_ipaddr >> 8) & 0xff,
-        (dev->d_ipaddr >> 16) & 0xff, dev->d_ipaddr >> 24);
+  ninfo("Bringing up: %u.%u.%u.%u\n",
+        ip4_addr1(dev->d_ipaddr), ip4_addr2(dev->d_ipaddr),
+        ip4_addr3(dev->d_ipaddr), ip4_addr4(dev->d_ipaddr));
 #endif
 #ifdef CONFIG_NET_IPv6
   ninfo("Bringing up: %04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x\n",

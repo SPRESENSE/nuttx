@@ -64,6 +64,12 @@
 
 /* Chip Geometries **********************************************************/
 
+/* MX25L1606E capacity is 16Mbit  (2048Kbit x 8) =   2Mb (256kb x 8) */
+
+#define MX25L_MX25L1606E_SECTOR_SHIFT  12    /* Sector size 1 << 12 = 4Kb */
+#define MX25L_MX25L1606E_NSECTORS      512
+#define MX25L_MX25L1606E_PAGE_SHIFT    8     /* Page size 1 << 8 = 256 */
+
 /* MX25L3233F capacity is 32Mbit  (4096Kbit x 8) =   4Mb (512kb x 8) */
 
 #define MX25L_MX25L3233F_SECTOR_SHIFT  12    /* Sector size 1 << 12 = 4Kb */
@@ -177,6 +183,8 @@
 
 #define MX25L_JEDEC_MANUFACTURER         0xc2  /* Macronix manufacturer ID */
 #define MX25L_JEDEC_MEMORY_TYPE          0x20  /* MX25Lx  memory type */
+
+#define MX25L_JEDEC_MX25L1606E_CAPACITY  0x15  /* MX25L1606E memory capacity */
 #define MX25L_JEDEC_MX25L3233F_CAPACITY  0x16  /* MX25L3233F memory capacity */
 #define MX25L_JEDEC_MX25L6433F_CAPACITY  0x17  /* MX25L6433F memory capacity */
 #define MX25L_JEDEC_MX25L25635F_CAPACITY 0x19  /* MX25L25635F memory capacity */
@@ -201,11 +209,11 @@
 /* Debug ********************************************************************/
 
 #ifdef CONFIG_MX25L_DEBUG
-# define mxlerr(format, ...)    _err(format, ##__VA_ARGS__)
-# define mxlinfo(format, ...)   _info(format, ##__VA_ARGS__)
+#  define mxlerr(format, ...)    _err(format, ##__VA_ARGS__)
+#  define mxlinfo(format, ...)   _info(format, ##__VA_ARGS__)
 #else
-# define mxlerr(x...)
-# define mxlinfo(x...)
+#  define mxlerr(x...)
+#  define mxlinfo(x...)
 #endif
 
 /****************************************************************************
@@ -368,7 +376,17 @@ static inline int mx25l_readid(FAR struct mx25l_dev_s *priv)
     {
       /* Okay.. is it a FLASH capacity that we understand? */
 
-      if (capacity == MX25L_JEDEC_MX25L3233F_CAPACITY)
+      if (capacity == MX25L_JEDEC_MX25L1606E_CAPACITY)
+        {
+          /* Save the FLASH geometry */
+
+          priv->sectorshift  = MX25L_MX25L1606E_SECTOR_SHIFT;
+          priv->nsectors     = MX25L_MX25L1606E_NSECTORS;
+          priv->pageshift    = MX25L_MX25L1606E_PAGE_SHIFT;
+          priv->addressbytes = MX25L_ADDRESSBYTES_3;
+          return OK;
+        }
+      else if (capacity == MX25L_JEDEC_MX25L3233F_CAPACITY)
         {
           /* Save the FLASH geometry */
 
@@ -1035,6 +1053,8 @@ static int mx25l_ioctl(FAR struct mtd_dev_s *dev, int cmd, unsigned long arg)
             (FAR struct mtd_geometry_s *)((uintptr_t)arg);
           if (geo)
             {
+              memset(geo, 0, sizeof(*geo));
+
               /* Populate the geometry structure with information need to
                * know the capacity and how to access the device.
                *
@@ -1141,7 +1161,7 @@ FAR struct mtd_dev_s *mx25l_initialize_spi(FAR struct spi_dev_s *dev)
    * have to be extended to handle multiple FLASH parts on the same SPI bus.
    */
 
-  priv = (FAR struct mx25l_dev_s *)kmm_zalloc(sizeof(struct mx25l_dev_s));
+  priv = kmm_zalloc(sizeof(struct mx25l_dev_s));
   if (priv)
     {
       /* Initialize the allocated structure. (unsupported methods were
@@ -1178,7 +1198,7 @@ FAR struct mtd_dev_s *mx25l_initialize_spi(FAR struct spi_dev_s *dev)
 #ifdef CONFIG_MX25L_SECTOR512        /* Simulate a 512 byte sector */
           /* Allocate a buffer for the erase block cache */
 
-          priv->sector = (FAR uint8_t *)kmm_malloc(1 << priv->sectorshift);
+          priv->sector = kmm_malloc(1 << priv->sectorshift);
           if (!priv->sector)
             {
               /* Allocation failed! Discard all of that work we just did and

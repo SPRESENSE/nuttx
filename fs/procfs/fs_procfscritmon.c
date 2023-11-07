@@ -93,7 +93,7 @@ static int     critmon_stat(FAR const char *relpath, FAR struct stat *buf);
  * with any compiler.
  */
 
-const struct procfs_operations critmon_operations =
+const struct procfs_operations g_critmon_operations =
 {
   critmon_open,       /* open */
   critmon_close,      /* close */
@@ -181,12 +181,10 @@ static ssize_t critmon_read_cpu(FAR struct critmon_file_s *attr,
                                 FAR off_t *offset, int cpu)
 {
   struct timespec maxtime;
-  size_t remaining;
   size_t linesize;
   size_t copysize;
   size_t totalsize;
 
-  remaining = buflen;
   totalsize = 0;
 
   /* Convert the for maximum time pre-emption disabled */
@@ -214,7 +212,6 @@ static ssize_t critmon_read_cpu(FAR struct critmon_file_s *attr,
 
   totalsize += copysize;
   buffer    += copysize;
-  remaining -= copysize;
 
   if (totalsize >= buflen)
     {
