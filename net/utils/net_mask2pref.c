@@ -1,5 +1,5 @@
 /****************************************************************************
- * net/utils/net_ipv6_mask2pref.c
+ * net/utils/net_mask2pref.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -26,7 +26,7 @@
 
 #include "utils/utils.h"
 
-#ifdef CONFIG_NET_IPv6
+#if defined(CONFIG_NET_IPv4) || defined(CONFIG_NET_IPv6)
 
 /****************************************************************************
  * Private Data
@@ -112,9 +112,51 @@ static inline uint8_t net_msbits16(uint16_t hword)
   return ones;
 }
 
+#endif /* CONFIG_NET_IPv4 || CONFIG_NET_IPv6 */
+
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
+
+/****************************************************************************
+ * Name: net_ipv4_mask2pref
+ *
+ * Description:
+ *   Convert a 32-bit netmask to a prefix length.  The NuttX IPv4
+ *   networking uses 32-bit network masks internally.  This function
+ *   converts the IPv4 netmask to a prefix length.
+ *
+ *   The prefix length is the number of MS '1' bits on in the netmask.
+ *   This, of course, assumes that all MS bits are '1' and all LS bits are
+ *   '0' with no intermixed 1's and 0's.  This function searches from the MS
+ *   bit until the first '0' is found (this does not necessary mean that
+ *   there might not be additional '1' bits following the firs '0', but that
+ *   will be a malformed netmask.
+ *
+ * Input Parameters:
+ *   mask   An IPv4 netmask in the form of in_addr_t
+ *
+ * Returned Value:
+ *   The prefix length, range 0-32 on success;  This function will not
+ *   fail.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_NET_IPv4
+
+uint8_t net_ipv4_mask2pref(in_addr_t mask)
+{
+  uint32_t hmask = NTOHL(mask);
+  uint8_t ones = net_msbits16((uint16_t)(hmask >> 16));
+  if (ones == 16)
+    {
+      ones += net_msbits16((uint16_t)(hmask & 0xffff));
+    }
+
+  return ones;
+}
+
+#endif /* CONFIG_NET_IPv4 */
 
 /****************************************************************************
  * Name: net_ipv6_mask2pref
@@ -140,6 +182,8 @@ static inline uint8_t net_msbits16(uint16_t hword)
  *
  ****************************************************************************/
 
+#ifdef CONFIG_NET_IPv6
+
 uint8_t net_ipv6_mask2pref(FAR const uint16_t *mask)
 {
   uint8_t preflen;
@@ -156,6 +200,44 @@ uint8_t net_ipv6_mask2pref(FAR const uint16_t *mask)
   if (i < 8)
     {
       preflen += net_msbits16(NTOHS(mask[i]));
+    }
+
+  /* Return the prefix length */
+
+  return preflen;
+}
+
+/****************************************************************************
+ * Name: net_ipv6_common_pref
+ *
+ * Description:
+ *   Calculate the common prefix length of two IPv6 addresses.
+ *
+ * Input Parameters:
+ *   a1,a2   Points to IPv6 addresses in the form of uint16_t[8]
+ *
+ * Returned Value:
+ *   The common prefix length, range 0-128 on success;  This function will
+ *   not fail.
+ *
+ ****************************************************************************/
+
+uint8_t net_ipv6_common_pref(FAR const uint16_t *a1, FAR const uint16_t *a2)
+{
+  uint8_t preflen;
+  int i;
+
+  /* Count the leading same 16-bit groups */
+
+  for (i = 0, preflen = 0; i < 8 && a1[i] == a2[i]; i++, preflen += 16);
+
+  /* Now i either, (1) indexes past the end of the mask, or (2) is the index
+   * to the first half-word that is not equal between the addresses.
+   */
+
+  if (i < 8)
+    {
+      preflen += net_msbits16(NTOHS(~(a1[i] ^ a2[i])));
     }
 
   /* Return the prefix length */
