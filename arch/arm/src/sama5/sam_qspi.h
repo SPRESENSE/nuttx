@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/sim/src/sim/win/sim_hostmemory.c
+ * arch/arm/src/sama5/sam_qspi.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,81 +18,73 @@
  *
  ****************************************************************************/
 
+#ifndef __ARCH_ARM_SRC_SAMA5_SAM_QSPI_H
+#define __ARCH_ARM_SRC_SAMA5_SAM_QSPI_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#include <windows.h>
+#include <nuttx/config.h>
+
+#include <stdint.h>
+#include <stdbool.h>
+
+#include "chip.h"
+#include "sam_config.h"
 
 /****************************************************************************
- * Public Functions
+ * Pre-processor Definitions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: host_allocheap
+ * Public Types
+ ****************************************************************************/
+
+/****************************************************************************
+ * Inline Functions
+ ****************************************************************************/
+
+#ifndef __ASSEMBLY__
+
+/****************************************************************************
+ * Public Data
+ ****************************************************************************/
+
+#undef EXTERN
+#if defined(__cplusplus)
+#define EXTERN extern "C"
+extern "C"
+{
+#else
+#define EXTERN extern
+#endif
+
+/****************************************************************************
+ * Public Function Prototypes
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: sam_qspi_initialize
  *
  * Description:
- *   Allocate executable memory for heap.
+ *   Initialize the selected QSPI port in master mode
+ *
+ * Input Parameters:
+ *   intf - Interface number(must be zero)
+ *
+ * Returned Value:
+ *   Valid SPI device structure reference on success; a NULL on failure
  *
  ****************************************************************************/
 
-void *host_allocheap(size_t sz, bool exec)
-{
-  return _aligned_malloc(sz, 8);
+struct qspi_dev_s;
+struct qspi_dev_s *sam_qspi_initialize(int intf);
+
+#undef EXTERN
+#if defined(__cplusplus)
 }
+#endif
 
-/****************************************************************************
- * Name: host_freeheap
- *
- * Description:
- *   Free a executable memory block.
- *
- ****************************************************************************/
-
-void host_freeheap(void *mem)
-{
-  _aligned_free(mem);
-}
-
-void *host_allocshmem(const char *name, size_t size, int master)
-{
-  HANDLE handle;
-  void *mem;
-
-  handle = CreateFileMapping(INVALID_HANDLE_VALUE, NULL,
-                             PAGE_READWRITE, 0, 0, name);
-  if (handle == NULL)
-    {
-      return NULL;
-    }
-
-  mem = MapViewOfFile(handle, FILE_MAP_ALL_ACCESS, 0, 0, size);
-  CloseHandle(handle);
-
-  return mem;
-}
-
-void host_freeshmem(void *mem)
-{
-  UnmapViewOfFile(mem);
-}
-
-size_t host_mallocsize(void *mem)
-{
-  return _msize(mem);
-}
-
-void *host_memalign(size_t alignment, size_t size)
-{
-  return _aligned_malloc(size, alignment);
-}
-
-void host_free(void *mem)
-{
-  _aligned_free(mem);
-}
-
-void *host_realloc(void *oldmem, size_t size)
-{
-  return _aligned_realloc(oldmem, size, 8);
-}
+#endif /* __ASSEMBLY__ */
+#endif /* __ARCH_ARM_SRC_SAMA5_SAM_QSPI_H */

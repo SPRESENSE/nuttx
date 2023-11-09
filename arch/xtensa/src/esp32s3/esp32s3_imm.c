@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/xtensa/include/arch.h
+ * arch/xtensa/src/esp32s3/esp32s3_imm.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,49 +18,32 @@
  *
  ****************************************************************************/
 
-/* This file should never be included directly but, rather, only indirectly
- * through nuttx/arch.h
- */
-
-#ifndef __ARCH_XTENSA_INCLUDE_ARCH_H
-#define __ARCH_XTENSA_INCLUDE_ARCH_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
-#ifndef __ASSEMBLY__
-#  include <stddef.h>
-#  include <stdint.h>
-#endif
+
+#include <nuttx/arch.h>
+#include <nuttx/mm/mm.h>
+
+#include "xtensa.h"
+
+#ifdef CONFIG_XTENSA_IMEM_USE_SEPARATE_HEAP
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
 /****************************************************************************
- * Public Types
+ * Private Data
  ****************************************************************************/
+
+struct mm_heap_s *g_iheap;
 
 /****************************************************************************
- * Public Data
+ * Public Functions
  ****************************************************************************/
-
-/****************************************************************************
- * Public Function Prototypes
- ****************************************************************************/
-
-#ifdef __cplusplus
-#define EXTERN extern "C"
-extern "C"
-{
-#else
-#define EXTERN extern
-#endif
-
-#ifdef CONFIG_XTENSA_IMEM_USE_SEPARATE_HEAP
-struct mallinfo; /* Forward reference, see malloc.h */
 
 /****************************************************************************
  * Name: xtensa_imm_initialize
@@ -76,7 +59,15 @@ struct mallinfo; /* Forward reference, see malloc.h */
  *
  ****************************************************************************/
 
-void xtensa_imm_initialize(void);
+void xtensa_imm_initialize(void)
+{
+  void  *start;
+  size_t size;
+
+  start = (void *)_sheap;
+  size  = CONFIG_XTENSA_IMEM_REGION_SIZE;
+  g_iheap = mm_initialize("esp32s3-imem", start, size);
+}
 
 /****************************************************************************
  * Name: xtensa_imm_malloc
@@ -92,7 +83,10 @@ void xtensa_imm_initialize(void);
  *
  ****************************************************************************/
 
-void *xtensa_imm_malloc(size_t size);
+void *xtensa_imm_malloc(size_t size)
+{
+  return mm_malloc(g_iheap, size);
+}
 
 /****************************************************************************
  * Name: xtensa_imm_calloc
@@ -110,7 +104,10 @@ void *xtensa_imm_malloc(size_t size);
  *
  ****************************************************************************/
 
-void *xtensa_imm_calloc(size_t n, size_t elem_size);
+void *xtensa_imm_calloc(size_t n, size_t elem_size)
+{
+  return mm_calloc(g_iheap, n, elem_size);
+}
 
 /****************************************************************************
  * Name: xtensa_imm_realloc
@@ -127,7 +124,10 @@ void *xtensa_imm_calloc(size_t n, size_t elem_size);
  *
  ****************************************************************************/
 
-void *xtensa_imm_realloc(void *ptr, size_t size);
+void *xtensa_imm_realloc(void *ptr, size_t size)
+{
+  return mm_realloc(g_iheap, ptr, size);
+}
 
 /****************************************************************************
  * Name: xtensa_imm_zalloc
@@ -143,7 +143,10 @@ void *xtensa_imm_realloc(void *ptr, size_t size);
  *
  ****************************************************************************/
 
-void *xtensa_imm_zalloc(size_t size);
+void *xtensa_imm_zalloc(size_t size)
+{
+  return mm_zalloc(g_iheap, size);
+}
 
 /****************************************************************************
  * Name: xtensa_imm_free
@@ -159,7 +162,10 @@ void *xtensa_imm_zalloc(size_t size);
  *
  ****************************************************************************/
 
-void xtensa_imm_free(void *mem);
+void xtensa_imm_free(void *mem)
+{
+  mm_free(g_iheap, mem);
+}
 
 /****************************************************************************
  * Name: xtensa_imm_memalign
@@ -181,7 +187,10 @@ void xtensa_imm_free(void *mem);
  *
  ****************************************************************************/
 
-void *xtensa_imm_memalign(size_t alignment, size_t size);
+void *xtensa_imm_memalign(size_t alignment, size_t size)
+{
+  return mm_memalign(g_iheap, alignment, size);
+}
 
 /****************************************************************************
  * Name: xtensa_imm_heapmember
@@ -197,7 +206,10 @@ void *xtensa_imm_memalign(size_t alignment, size_t size);
  *
  ****************************************************************************/
 
-bool xtensa_imm_heapmember(void *mem);
+bool xtensa_imm_heapmember(void *mem)
+{
+  return mm_heapmember(g_iheap, mem);
+}
 
 /****************************************************************************
  * Name: xtensa_imm_mallinfo
@@ -214,12 +226,9 @@ bool xtensa_imm_heapmember(void *mem);
  *
  ****************************************************************************/
 
-struct mallinfo xtensa_imm_mallinfo(void);
-#endif
-
-#undef EXTERN
-#ifdef __cplusplus
+struct mallinfo xtensa_imm_mallinfo(void)
+{
+  return mm_mallinfo(g_iheap);
 }
-#endif
 
-#endif /* __ARCH_XTENSA_INCLUDE_ARCH_H */
+#endif /* CONFIG_XTENSA_IMEM_USE_SEPARATE_HEAP */

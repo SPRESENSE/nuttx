@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/xtensa/src/common/xtensa_mm.h
+ * arch/xtensa/src/esp32s3/esp32s3_extraheaps.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,40 +18,29 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_XTENSA_SRC_COMMON_XTENSA_MM_H
-#define __ARCH_XTENSA_SRC_COMMON_XTENSA_MM_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
-
-#include <nuttx/kmalloc.h>
-#include <nuttx/arch.h>
+#include <nuttx/mm/mm.h>
 
 /****************************************************************************
- * Pre-processor Macros
+ * Public Functions
  ****************************************************************************/
 
+/****************************************************************************
+ * Name: up_extraheaps_init
+ *
+ * Description:
+ *   Initialize any extra heap.
+ *
+ ****************************************************************************/
+
+void up_extraheaps_init(void)
+{
 #ifdef CONFIG_XTENSA_IMEM_USE_SEPARATE_HEAP
-#  define UMM_MALLOC(s)      xtensa_imm_malloc(s)
-#  define UMM_MEMALIGN(a,s)  xtensa_imm_memalign(a,s)
-#  define UMM_FREE(p)        xtensa_imm_free(p)
-#  define UMM_HEAPMEMEBER(p) xtensa_imm_heapmember(p)
-#else
-#  ifdef CONFIG_XTENSA_USE_SPIRAM_HEAP
-#    define UMM_MALLOC(s)      kmm_malloc(s)
-#    define UMM_MEMALIGN(a,s)  kmm_memalign(a,s)
-#    define UMM_FREE(p)        kmm_free(p)
-#    define UMM_HEAPMEMEBER(p) mm_heapmember(p)
-#  else
-#    define UMM_MALLOC(s)      kumm_malloc(s)
-#    define UMM_MEMALIGN(a,s)  kumm_memalign(a,s)
-#    define UMM_FREE(p)        kumm_free(p)
-#    define UMM_HEAPMEMEBER(p) umm_heapmember(p)
-#  endif /* CONFIG_XTENSA_USE_SPIRAM_HEAP */
+  xtensa_imm_initialize();
+#endif
+}
 
-#endif  /* CONFIG_XTENSA_IMEM_USE_SEPARATE_HEAP */
-
-#endif /* __ARCH_XTENSA_SRC_COMMON_XTENSA_MM_H */
