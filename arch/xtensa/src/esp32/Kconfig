@@ -198,6 +198,15 @@ config ESP32_RUN_IRAM
 		This loads all of NuttX inside IRAM.  Used to test somewhat small
 		images that can fit entirely in IRAM.
 
+config ESP32_EXCEPTION_ENABLE_CACHE
+	bool
+	default y
+	depends on ESP32_SPIFLASH
+	---help---
+		When an exception triggers, the panic function reenables the SPI Flash
+		cache to allow functions that are located in SPI Flash to run.
+		Disable this option to save IRAM space.
+
 menu "ESP32 Peripheral Selection"
 
 config ESP32_UART
@@ -757,6 +766,19 @@ config ESP32_WIFI_BT_COEXIST
 	bool "Wi-Fi and BT coexist"
 	default n
 	depends on ESP32_WIFI && ESP32_BLE
+
+menu "Interrupt Configuration"
+
+config ESP32_IRAM_ISR_DEBUG
+	bool "Enable debugging of the IRAM-enabled interrupts"
+	default n
+	---help---
+		This option enables keeping track of the IRAM-enabled interrupts by
+		registering its execution when non-IRAM interrupts are disabled. It
+		keeps track of the IRQ executed and register how many times since
+		boot it was executed.
+
+endmenu # Interrupt Configuration
 
 menu "Memory Configuration"
 
@@ -1858,6 +1880,17 @@ config ESP32_PARTITION_MOUNTPT
 
 endif # ESP32_PARTITION_TABLE
 
+config ESP32_SPIFLASH_OP_TASK_STACKSIZE
+	int "The SPI flash operation task stack size"
+	default 768
+	depends on SMP
+	---help---
+		When SMP is enabled, it is needed to create two tasks (one for each
+		core) to be able to run IRAM-enabled interrupts. These tasks ensures
+		that the core that isn't performing the SPI flash operation is able
+		to disable non-IRAM interrupts and wait for the SPI flash operation
+		to be finished.
+
 endif # ESP32_SPIFLASH
 
 endmenu # SPI Flash configuration
@@ -2093,7 +2126,7 @@ choice EXAMPLE_POWER_SAVE_MODE
 
 config EXAMPLE_POWER_SAVE_NONE
 	bool "none"
-	
+
 config EXAMPLE_POWER_SAVE_MIN_MODEM
 	bool "minimum modem"
 
@@ -2129,6 +2162,12 @@ config ESP32_BLE_TASK_STACK_SIZE
 config ESP32_BLE_TASK_PRIORITY
 	int "Controller task priority"
 	default 110
+
+config ESP32_BLE_INTERRUPT_SAVE_STATUS
+	int "Number of interrupt save status"
+	default 3
+	---help---
+		Number of interrupt save status variables to keep track. Increase it if any related bug is found.
 
 config ESP32_BLE_MAX_CONN
 	int "Maximum BLE simultaneous connections"

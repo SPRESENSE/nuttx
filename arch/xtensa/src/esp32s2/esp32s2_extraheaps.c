@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/xtensa/esp32/common/include/esp32_board_spiflash.h
+ * arch/xtensa/src/esp32s2/esp32s2_extraheaps.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,51 +18,45 @@
  *
  ****************************************************************************/
 
-#ifndef __BOARDS_XTENSA_ESP32_COMMON_INCLUDE_ESP32_BOARD_SPIFLASH_H
-#define __BOARDS_XTENSA_ESP32_COMMON_INCLUDE_ESP32_BOARD_SPIFLASH_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
-#ifndef __ASSEMBLY__
+#include <sys/types.h>
+#include <stdint.h>
+#include <string.h>
+#include <assert.h>
+#include <debug.h>
 
-#undef EXTERN
-#if defined(__cplusplus)
-#define EXTERN extern "C"
-extern "C"
-{
-#else
-#define EXTERN extern
+#include <nuttx/arch.h>
+#include <nuttx/kmalloc.h>
+
+#include "hardware/esp32s2_soc.h"
+
+#ifdef CONFIG_ESP32S2_RTC_HEAP
+#include "esp32s2_rtcheap.h"
 #endif
 
 /****************************************************************************
- * Public Function Prototypes
+ * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: board_spiflash_init
+ * Name: up_extraheaps_init
  *
  * Description:
- *   Initialize the SPI Flash and register the MTD.
- *
- * Input Parameters:
- *   None.
- *
- * Returned Value:
- *   Zero (OK) is returned on success. A negated errno value is returned
- *   on failure.
+ *   Initialize any extra heap.
  *
  ****************************************************************************/
 
-int board_spiflash_init(void);
+void up_extraheaps_init()
+{
+#ifdef CONFIG_ESP32S2_RTC_HEAP
+  /* Initialize the RTC heap */
 
-#undef EXTERN
-#if defined(__cplusplus)
-}
+  esp32s2_rtcheap_initialize();
 #endif
+}
 
-#endif /* __ASSEMBLY__ */
-#endif /* __BOARDS_XTENSA_ESP32_COMMON_INCLUDE_ESP32_BOARD_SPIFLASH_H */

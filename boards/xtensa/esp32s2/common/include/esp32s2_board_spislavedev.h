@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/xtensa/esp32/common/include/esp32_board_spiflash.h
+ * boards/xtensa/esp32s2/common/include/esp32s2_board_spislavedev.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,14 +18,18 @@
  *
  ****************************************************************************/
 
-#ifndef __BOARDS_XTENSA_ESP32_COMMON_INCLUDE_ESP32_BOARD_SPIFLASH_H
-#define __BOARDS_XTENSA_ESP32_COMMON_INCLUDE_ESP32_BOARD_SPIFLASH_H
+#ifndef __BOARDS_XTENSA_ESP32S2_COMMON_INCLUDE_ESP32S2_BOARD_SPISLAVEDEV_H
+#define __BOARDS_XTENSA_ESP32S2_COMMON_INCLUDE_ESP32S2_BOARD_SPISLAVEDEV_H
 
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
+
+/****************************************************************************
+ * Pre-processor Definitions
+ ****************************************************************************/
 
 #ifndef __ASSEMBLY__
 
@@ -43,21 +47,23 @@ extern "C"
  ****************************************************************************/
 
 /****************************************************************************
- * Name: board_spiflash_init
+ * Name: board_spislavedev_initialize
  *
  * Description:
- *   Initialize the SPI Flash and register the MTD.
+ *   Initialize SPI Slave driver and register the /dev/spislv device.
  *
  * Input Parameters:
- *   None.
+ *   bus - The SPI bus number, used to build the device path as /dev/spislvN
  *
  * Returned Value:
- *   Zero (OK) is returned on success. A negated errno value is returned
- *   on failure.
+ *   Zero (OK) is returned on success; A negated errno value is returned
+ *   to indicate the nature of any failure.
  *
  ****************************************************************************/
 
-int board_spiflash_init(void);
+#ifdef CONFIG_SPI_SLAVE
+int board_spislavedev_initialize(int bus);
+#endif
 
 #undef EXTERN
 #if defined(__cplusplus)
@@ -65,4 +71,4 @@ int board_spiflash_init(void);
 #endif
 
 #endif /* __ASSEMBLY__ */
-#endif /* __BOARDS_XTENSA_ESP32_COMMON_INCLUDE_ESP32_BOARD_SPIFLASH_H */
+#endif /* __BOARDS_XTENSA_ESP32S2_COMMON_INCLUDE_ESP32S2_BOARD_SPISLAVEDEV_H */

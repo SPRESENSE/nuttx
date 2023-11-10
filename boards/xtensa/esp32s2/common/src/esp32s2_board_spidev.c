@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/xtensa/esp32/common/include/esp32_board_spiflash.h
+ * boards/xtensa/esp32s2/common/src/esp32s2_board_spidev.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,51 +18,64 @@
  *
  ****************************************************************************/
 
-#ifndef __BOARDS_XTENSA_ESP32_COMMON_INCLUDE_ESP32_BOARD_SPIFLASH_H
-#define __BOARDS_XTENSA_ESP32_COMMON_INCLUDE_ESP32_BOARD_SPIFLASH_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
-#ifndef __ASSEMBLY__
+#include <stdio.h>
+#include <debug.h>
+#include <errno.h>
 
-#undef EXTERN
-#if defined(__cplusplus)
-#define EXTERN extern "C"
-extern "C"
-{
-#else
-#define EXTERN extern
-#endif
+#include <nuttx/spi/spi_transfer.h>
+
+#include "esp32s2_spi.h"
+
+#include "esp32s2_board_spidev.h"
 
 /****************************************************************************
- * Public Function Prototypes
+ * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: board_spiflash_init
+ * Name: board_spidev_initialize
  *
  * Description:
- *   Initialize the SPI Flash and register the MTD.
+ *   Initialize SPI driver and register the /dev/spi device.
  *
  * Input Parameters:
- *   None.
+ *   port - The SPI bus number, used to build the device path as /dev/spiN
  *
  * Returned Value:
- *   Zero (OK) is returned on success. A negated errno value is returned
- *   on failure.
+ *   Zero (OK) is returned on success; A negated errno value is returned
+ *   to indicate the nature of any failure.
  *
  ****************************************************************************/
 
-int board_spiflash_init(void);
+int board_spidev_initialize(int port)
+{
+  int ret;
+  struct spi_dev_s *spi;
 
-#undef EXTERN
-#if defined(__cplusplus)
+  syslog(LOG_INFO, "Initializing /dev/spi%d...\n", port);
+
+  /* Initialize SPI device */
+
+  spi = esp32s2_spibus_initialize(port);
+  if (spi == NULL)
+    {
+      syslog(LOG_ERR, "Failed to initialize SPI%d.\n", port);
+      return -ENODEV;
+    }
+
+  ret = spi_register(spi, port);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "Failed to register /dev/spi%d: %d\n", port, ret);
+
+      esp32s2_spibus_uninitialize(spi);
+    }
+
+  return ret;
 }
-#endif
-
-#endif /* __ASSEMBLY__ */
-#endif /* __BOARDS_XTENSA_ESP32_COMMON_INCLUDE_ESP32_BOARD_SPIFLASH_H */

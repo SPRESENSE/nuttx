@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/xtensa/esp32/common/include/esp32_board_spiflash.h
+ * boards/xtensa/esp32s2/common/src/esp32s2_board_spislavedev.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,51 +18,65 @@
  *
  ****************************************************************************/
 
-#ifndef __BOARDS_XTENSA_ESP32_COMMON_INCLUDE_ESP32_BOARD_SPIFLASH_H
-#define __BOARDS_XTENSA_ESP32_COMMON_INCLUDE_ESP32_BOARD_SPIFLASH_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
-#ifndef __ASSEMBLY__
+#include <stdio.h>
+#include <debug.h>
+#include <errno.h>
 
-#undef EXTERN
-#if defined(__cplusplus)
-#define EXTERN extern "C"
-extern "C"
-{
-#else
-#define EXTERN extern
-#endif
+#include <nuttx/spi/slave.h>
+
+#include "esp32s2_spi.h"
+
+#include "esp32s2_board_spislavedev.h"
 
 /****************************************************************************
- * Public Function Prototypes
+ * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: board_spiflash_init
+ * Name: board_spislavedev_initialize
  *
  * Description:
- *   Initialize the SPI Flash and register the MTD.
+ *   Initialize SPI Slave driver and register the /dev/spislv device.
  *
  * Input Parameters:
- *   None.
+ *   bus - The SPI bus number, used to build the device path as /dev/spislvN
  *
  * Returned Value:
- *   Zero (OK) is returned on success. A negated errno value is returned
- *   on failure.
+ *   Zero (OK) is returned on success; A negated errno value is returned
+ *   to indicate the nature of any failure.
  *
  ****************************************************************************/
 
-int board_spiflash_init(void);
+int board_spislavedev_initialize(int bus)
+{
+  int ret;
 
-#undef EXTERN
-#if defined(__cplusplus)
+  struct spi_slave_ctrlr_s *ctrlr;
+
+  spiinfo("Initializing /dev/spislv%d...\n", bus);
+
+  /* Initialize SPI Slave controller device */
+
+  ctrlr = esp32s2_spislave_ctrlr_initialize(bus);
+  if (ctrlr == NULL)
+    {
+      spierr("Failed to initialize SPI%d as slave.\n", bus);
+      return -ENODEV;
+    }
+
+  ret = spi_slave_register(ctrlr, bus);
+  if (ret < 0)
+    {
+      spierr("Failed to register /dev/spislv%d: %d\n", bus, ret);
+
+      esp32s2_spislave_ctrlr_uninitialize(ctrlr);
+    }
+
+  return ret;
 }
-#endif
-
-#endif /* __ASSEMBLY__ */
-#endif /* __BOARDS_XTENSA_ESP32_COMMON_INCLUDE_ESP32_BOARD_SPIFLASH_H */
