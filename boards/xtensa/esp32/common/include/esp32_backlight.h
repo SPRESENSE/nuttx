@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/arm/stm32h7/linum-stm32h753bi/src/stm32_bringup.c
+ * boards/xtensa/esp32/common/include/esp32_backlight.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,76 +18,66 @@
  *
  ****************************************************************************/
 
+#ifndef __BOARDS_XTENSA_ESP32_COMMON_INCLUDE_ESP32_BACKLIGHT_H
+#define __BOARDS_XTENSA_ESP32_COMMON_INCLUDE_ESP32_BACKLIGHT_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
-#include <sys/types.h>
-#include <syslog.h>
-#include <errno.h>
+/****************************************************************************
+ * Pre-processor Definitions
+ ****************************************************************************/
 
-#include <nuttx/fs/fs.h>
-#include <nuttx/kmalloc.h>
+/****************************************************************************
+ * Type Definitions
+ ****************************************************************************/
 
-#include "stm32_gpio.h"
+/****************************************************************************
+ * Public Types
+ ****************************************************************************/
 
-#include "linum-stm32h753bi.h"
+/****************************************************************************
+ * Public Data
+ ****************************************************************************/
 
-#ifdef CONFIG_USERLED
-#include <nuttx/leds/userled.h>
+#ifdef __cplusplus
+#define EXTERN extern "C"
+extern "C"
+{
+#else
+#define EXTERN extern
 #endif
 
 /****************************************************************************
- * Private Functions
+ * Inline Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Public Functions
+ * Public Function Prototypes
  ****************************************************************************/
 
 /****************************************************************************
- * Name: stm32_bringup
+ * Name: esp32_set_backlight
  *
  * Description:
- *   Perform architecture-specific initialization
+ *    Configure the backlight gpio and set the brightness level.
  *
- *   CONFIG_BOARD_LATE_INITIALIZE=y :
- *     Called from board_late_initialize().
+ * Input Parameters:
+ *    level - select the brightness level
  *
- *   CONFIG_BOARD_LATE_INITIALIZE=n && CONFIG_BOARDCTL=y &&
- *   CONFIG_NSH_ARCHINIT:
- *     Called from the NSH library
+ * Returned Value:
+ *   Zero (OK) on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
-int stm32_bringup(void)
-{
-  int ret;
+int esp32_set_backlight(uint8_t level);
 
-  UNUSED(ret);
-
-#ifdef CONFIG_FS_PROCFS
-  /* Mount the procfs file system */
-
-  ret = nx_mount(NULL, "/proc", "procfs", 0, NULL);
-  if (ret < 0)
-    {
-      syslog(LOG_ERR,
-             "ERROR: Failed to mount the PROC filesystem: %d\n",  ret);
-    }
-#endif /* CONFIG_FS_PROCFS */
-
-#ifdef CONFIG_USERLED
-  /* Register the LED driver */
-
-  ret = userled_lower_initialize("/dev/userleds");
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: userled_lower_initialize() failed: %d\n", ret);
-    }
+#undef EXTERN
+#ifdef __cplusplus
+}
 #endif
 
-  return OK;
-}
+#endif /* __BOARDS_XTENSA_ESP32_COMMON_INCLUDE_ESP32_BACKLIGHT_H */

@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/arm/stm32h7/linum-stm32h753bi/src/stm32_bringup.c
+ * boards/xtensa/esp32/common/src/esp32_backlight.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -24,70 +24,60 @@
 
 #include <nuttx/config.h>
 
-#include <sys/types.h>
-#include <syslog.h>
-#include <errno.h>
+#include <stdio.h>
+#include <debug.h>
 
-#include <nuttx/fs/fs.h>
-#include <nuttx/kmalloc.h>
+#include <nuttx/arch.h>
+#include <arch/board/board.h>
 
-#include "stm32_gpio.h"
-
-#include "linum-stm32h753bi.h"
-
-#ifdef CONFIG_USERLED
-#include <nuttx/leds/userled.h>
-#endif
+#include "esp32_gpio.h"
+#include "esp32_backlight.h"
 
 /****************************************************************************
- * Private Functions
+ * Pre-processor Definitions
  ****************************************************************************/
+#define HAVE_BACKLIGHT    1
+
+#if !defined(DISPLAY_BCKL)
+ #undef HAVE_BACKLIGHT
+#endif
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: stm32_bringup
+ * Name: esp32_set_backlight
  *
  * Description:
- *   Perform architecture-specific initialization
+ *    Configure the backlight gpio and set the brightness level.
  *
- *   CONFIG_BOARD_LATE_INITIALIZE=y :
- *     Called from board_late_initialize().
+ * Input Parameters:
+ *    level - select the brightness level
  *
- *   CONFIG_BOARD_LATE_INITIALIZE=n && CONFIG_BOARDCTL=y &&
- *   CONFIG_NSH_ARCHINIT:
- *     Called from the NSH library
+ * Returned Value:
+ *   Zero (OK) on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
-int stm32_bringup(void)
+int esp32_set_backlight(uint8_t level)
 {
-  int ret;
+  #ifdef HAVE_BACKLIGHT
+  esp32_configgpio(DISPLAY_BCKL, OUTPUT);
 
-  UNUSED(ret);
+  /* TODO: use PWM to set the display brightness */
 
-#ifdef CONFIG_FS_PROCFS
-  /* Mount the procfs file system */
-
-  ret = nx_mount(NULL, "/proc", "procfs", 0, NULL);
-  if (ret < 0)
+  if (level == 0)
     {
-      syslog(LOG_ERR,
-             "ERROR: Failed to mount the PROC filesystem: %d\n",  ret);
+      esp32_gpiowrite(DISPLAY_BCKL, false);
     }
-#endif /* CONFIG_FS_PROCFS */
-
-#ifdef CONFIG_USERLED
-  /* Register the LED driver */
-
-  ret = userled_lower_initialize("/dev/userleds");
-  if (ret < 0)
+  else
     {
-      syslog(LOG_ERR, "ERROR: userled_lower_initialize() failed: %d\n", ret);
+      /* Set full brightness */
+
+      esp32_gpiowrite(DISPLAY_BCKL, true);
     }
-#endif
+  #endif
 
   return OK;
 }
