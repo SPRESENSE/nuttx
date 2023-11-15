@@ -45,6 +45,8 @@
 #define USRSOCK_EVENT_SENDTO_READY   (1 << 2)
 #define USRSOCK_EVENT_RECVFROM_AVAIL (1 << 3)
 #define USRSOCK_EVENT_REMOTE_CLOSED  (1 << 4)
+#define USRSOCK_EVENT_CONNECTED      (1 << 5)
+#define USRSOCK_EVENT_LISTENING      (1 << 6)
 
 /* Response message flags */
 
