@@ -197,12 +197,19 @@ struct tls_info_s
 #endif
 
 #if defined(CONFIG_PTHREAD_CLEANUP_STACKSIZE) && CONFIG_PTHREAD_CLEANUP_STACKSIZE > 0
-  /* tos   - The index to the next available entry at the top of the stack.
-   * stack - The pre-allocated clean-up stack memory.
+  /* tl_tos   - The index to the next available entry at the top of the
+   *            stack.
+   * tl_stack - The pre-allocated clean-up stack memory.
    */
 
-  uint8_t tos;
-  struct pthread_cleanup_s stack[CONFIG_PTHREAD_CLEANUP_STACKSIZE];
+  uint8_t tl_tos;
+  struct pthread_cleanup_s tl_stack[CONFIG_PTHREAD_CLEANUP_STACKSIZE];
+#endif
+
+  uint8_t tl_cpstate;                  /* Cancellation state */
+
+#ifdef CONFIG_CANCELLATION_POINTS
+  int16_t tl_cpcount;                  /* Nested cancellation point count */
 #endif
 
   int tl_errno;                        /* Per-thread error number */
@@ -309,8 +316,27 @@ uintptr_t task_tls_get_value(int tlsindex);
 #elif defined(CONFIG_TLS_ALIGNED) && !defined(__KERNEL__)
 #  define tls_get_info() TLS_INFO(up_getsp())
 #else
-FAR struct tls_info_s *tls_get_info(void);
+#  define tls_get_info() tls_get_info_pid(0)
 #endif
+
+/****************************************************************************
+ * Name: tls_get_info_pid
+ *
+ * Description:
+ *   Return a reference to the tls_info_s structure.  This is used as part
+ *   of the internal implementation of tls_get/set_elem() and ONLY for the
+ *   where CONFIG_TLS_ALIGNED is *not* defined or __KERNEL__ is defined.
+ *
+ * Input Parameters:
+ *   pid - Thread ID to query, set to 0 to query own
+ *
+ * Returned Value:
+ *   A reference to the thread-specific tls_info_s structure is return on
+ *   success.  NULL would be returned in the event of any failure.
+ *
+ ****************************************************************************/
+
+FAR struct tls_info_s *tls_get_info_pid(pid_t pid);
 
 /****************************************************************************
  * Name: tls_destruct
