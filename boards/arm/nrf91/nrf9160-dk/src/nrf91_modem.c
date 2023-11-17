@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/nrf91/nrf91_modem_at.h
+ * boards/arm/nrf91/nrf9160-dk/src/nrf91_modem.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,46 +18,51 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_ARM_SRC_NRF91_NRF91_MODEM_AT_H
-#define __ARCH_ARM_SRC_NRF91_NRF91_MODEM_AT_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
+#include <debug.h>
+
 #include "nrf_modem_at.h"
+#include "nrf91_modem.h"
 
 /****************************************************************************
- * Public Data
+ * Private Functions
  ****************************************************************************/
 
-/* Modem functional mode */
+/****************************************************************************
+ * Public Functions
+ ****************************************************************************/
 
-enum nrf91_modem_func_e
+/****************************************************************************
+ * Name: nrf91_modem_board_init
+ ****************************************************************************/
+
+int nrf91_modem_board_init(void)
 {
-  NRF91_MODEM_FUNC_DISABLED        = 0,
-  NRF91_MODEM_FUNC_FULL            = 1,
-  NRF91_MODEM_FUNC_RXONLY          = 2,
-  NRF91_MODEM_FUNC_FLIGHT          = 4,
-  NRF91_MODEM_FUNC_DEACTIVATE_LTE  = 20,
-  NRF91_MODEM_FUNC_ACTIVATE_LTE    = 21,
-  NRF91_MODEM_FUNC_DEACTIVATE_GNSS = 30,
-  NRF91_MODEM_FUNC_ACTIVATE_GNSS   = 31,
-  NRF91_MODEM_FUNC_DEACTIVATE_UICC = 40,
-  NRF91_MODEM_FUNC_ACTIVATE_UICC   = 41,
-  NRF91_MODEM_FUNC_FLIGHT_UICC     = 44
-};
+  int ret;
 
-/****************************************************************************
- * Public Functions Prototypes
- ****************************************************************************/
+  /* Configure COEX0 pin - on-board antena */
 
-/****************************************************************************
- * Name: nrf91_at_register
- ****************************************************************************/
+  ret = nrf_modem_at_printf("AT%%XCOEX0=1,1,1565,1586");
+  if (ret < 0)
+    {
+      nerr("AT%%XCOEX0 config failed %d", ret);
+      goto errout;
+    }
 
-int nrf91_at_register(const char *path);
+  /* Configure MAGPIO pins */
 
-#endif /* __ARCH_ARM_SRC_NRF91_NRF91_MODEM_AT_H */
+  ret = nrf_modem_at_printf("AT%%XMAGPIO=1,0,0,1,1,1574,1577");
+  if (ret < 0)
+    {
+      nerr("AT%%XMAGPIO config failed %d", ret);
+      goto errout;
+    }
+
+errout:
+  return ret;
+}
