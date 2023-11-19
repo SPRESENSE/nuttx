@@ -1,5 +1,5 @@
 ############################################################################
-# drivers/motor/foc/Make.defs
+# boards/arm/stm32/odrive36/scripts/Make.defs
 #
 # Licensed to the Apache Software Foundation (ASF) under one or more
 # contributor license agreements.  See the NOTICE file distributed with
@@ -18,24 +18,23 @@
 #
 ############################################################################
 
-# Include FOC driver into the build
+include $(TOPDIR)/.config
+include $(TOPDIR)/tools/Config.mk
+include $(TOPDIR)/arch/arm/src/armv7-m/Toolchain.defs
 
-CSRCS += foc_dev.c
+LDSCRIPT = ld.script
 
-ifeq ($(CONFIG_MOTOR_FOC_DUMMY),y)
-CSRCS += foc_dummy.c
-endif
+ARCHSCRIPT += $(BOARD_DIR)$(DELIM)scripts$(DELIM)$(LDSCRIPT)
 
-ifeq ($(CONFIG_MOTOR_FOC_FOCPWR),y)
-CSRCS += foc_pwr.c
-endif
+ARCHPICFLAGS = -fpic -msingle-pic-base -mpic-register=r10
 
-ifeq ($(CONFIG_MOTOR_FOC_DRV8301),y)
-CSRCS += drv8301.c
-endif
+CFLAGS := $(ARCHCFLAGS) $(ARCHOPTIMIZATION) $(ARCHCPUFLAGS) $(ARCHINCLUDES) $(ARCHDEFINES) $(EXTRAFLAGS) -pipe
+CPICFLAGS = $(ARCHPICFLAGS) $(CFLAGS)
+CXXFLAGS := $(ARCHCXXFLAGS) $(ARCHOPTIMIZATION) $(ARCHCPUFLAGS) $(ARCHXXINCLUDES) $(ARCHDEFINES) $(EXTRAFLAGS) -pipe
+CXXPICFLAGS = $(ARCHPICFLAGS) $(CXXFLAGS)
+CPPFLAGS := $(ARCHINCLUDES) $(ARCHDEFINES) $(EXTRAFLAGS)
+AFLAGS := $(CFLAGS) -D__ASSEMBLY__
 
-# Include FOC driver build support
-
-DEPPATH += --dep-path motor$(DELIM)foc
-VPATH += :motor$(DELIM)foc
-CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)drivers$(DELIM)motor$(DELIM)foc
+NXFLATLDFLAGS1 = -r -d -warn-common
+NXFLATLDFLAGS2 = $(NXFLATLDFLAGS1) -T$(TOPDIR)/binfmt/libnxflat/gnu-nxflat-pcrel.ld -no-check-sections
+LDNXFLATFLAGS = -e main -s 2048

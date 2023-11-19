@@ -1,5 +1,5 @@
 # ##############################################################################
-# boards/arm/stm32/smt32f401rc-rs485/src/CMakeLists.txt
+# boards/arm/stm32/odrive36/src/CMakeLists.txt
 #
 # Licensed to the Apache Software Foundation (ASF) under one or more contributor
 # license agreements.  See the NOTICE file distributed with this work for
@@ -20,24 +20,22 @@
 
 set(SRCS stm32_boot.c stm32_bringup.c)
 
-if(CONFIG_ARCH_LEDS)
-  list(APPEND SRCS stm32_autoleds.c)
-endif()
-
-if(CONFIG_USERLED)
-  list(APPEND SRCS stm32_userleds.c)
+if(CONFIG_STM32_SPI)
+  list(APPEND SRCS stm32_spi.c)
 endif()
 
 if(CONFIG_BOARDCTL)
   list(APPEND SRCS stm32_appinit.c)
 endif()
 
-if(CONFIG_ARCH_BUTTONS)
-  list(APPEND SRCS stm32_buttons.c)
+if(CONFIG_STM32_FOC)
+  list(APPEND SRCS stm32_foc.c)
+endif()
+
+if(CONFIG_STM32_OTGFS)
+  list(APPEND SRCS stm32_usb.c)
 endif()
 
 target_sources(board PRIVATE ${SRCS})
 
-if(CONFIG_ARCH_CHIP_STM32F401RC)
-  set_property(GLOBAL PROPERTY LD_SCRIPT "${NUTTX_BOARD_DIR}/scripts/ld.script")
-endif()
+set_property(GLOBAL PROPERTY LD_SCRIPT "${NUTTX_BOARD_DIR}/scripts/ld.script")

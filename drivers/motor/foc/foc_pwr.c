@@ -1,5 +1,6 @@
 /****************************************************************************
- * boards/arm/stm32/stm32f401rc-rs485/src/stm32_bringup.c
+ * drivers/motor/foc/foc_pwr.c
+ * Power-stage FOC logic
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -24,70 +25,45 @@
 
 #include <nuttx/config.h>
 
-#include <stdio.h>
-#include <syslog.h>
-#include <errno.h>
+#include <assert.h>
 
-#include <nuttx/arch.h>
-
-#include <stm32.h>
-#include <stm32_uart.h>
-
-#include <arch/board/board.h>
-
-#ifdef CONFIG_USERLED
-#  include <nuttx/leds/userled.h>
-#endif
-
-#ifdef CONFIG_INPUT_BUTTONS
-#  include <nuttx/input/buttons.h>
-#endif
-
-#include "stm32f401rc-rs485.h"
-
-#include <nuttx/board.h>
+#include <nuttx/motor/foc/foc_pwr.h>
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: stm32_bringup
+ * Name: focpwr_initialize
  *
  * Description:
- *   Perform architecture-specific initialization
+ *   Initialize the FOC common power-stage data
  *
- *   CONFIG_BOARD_LATE_INITIALIZE=y :
- *     Called from board_late_initialize().
- *
- *   CONFIG_BOARD_LATE_INITIALIZE=n && CONFIG_BOARDCTL=y :
- *     Called from the NSH library
+ * Input Parameters:
+ *   pwr   - An instance of the FOC power-stage device
+ *   devno - An instance number
+ *   dev   - An instance of the FOC device
+ *   ops   - power stage ops
  *
  ****************************************************************************/
 
-int stm32_bringup(void)
+int focpwr_initialize(FAR struct focpwr_dev_s *pwr,
+                      int devno,
+                      FAR struct foc_dev_s *dev,
+                      FAR struct focpwr_ops_s *ops)
 {
-  int ret = OK;
+  DEBUGASSERT(ops->setup);
+  DEBUGASSERT(ops->shutdown);
+  DEBUGASSERT(ops->calibration);
+  DEBUGASSERT(ops->ioctl);
 
-#ifdef CONFIG_USERLED
-  /* Register the LED driver */
+  pwr->dev   = dev;
+  pwr->devno = devno;
+  pwr->ops   = ops;
 
-  ret = userled_lower_initialize("/dev/userleds");
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: userled_lower_initialize() failed: %d\n", ret);
-    }
-#endif
+  /* Connet to FOC device */
 
-#ifdef CONFIG_INPUT_BUTTONS
-  /* Register the BUTTON driver */
+  dev->pwr = pwr;
 
-  ret = btn_lower_initialize("/dev/buttons");
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: btn_lower_initialize() failed: %d\n", ret);
-    }
-#endif
-
-  return ret;
+  return OK;
 }

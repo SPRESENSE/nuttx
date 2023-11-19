@@ -1,5 +1,5 @@
 ############################################################################
-# drivers/motor/foc/Make.defs
+# boards/arm/stm32/odrive36/src/Make.defs
 #
 # Licensed to the Apache Software Foundation (ASF) under one or more
 # contributor license agreements.  See the NOTICE file distributed with
@@ -18,24 +18,26 @@
 #
 ############################################################################
 
-# Include FOC driver into the build
+include $(TOPDIR)/Make.defs
 
-CSRCS += foc_dev.c
+CSRCS = stm32_boot.c stm32_bringup.c
 
-ifeq ($(CONFIG_MOTOR_FOC_DUMMY),y)
-CSRCS += foc_dummy.c
+ifeq ($(CONFIG_STM32_SPI),y)
+CSRCS += stm32_spi.c
 endif
 
-ifeq ($(CONFIG_MOTOR_FOC_FOCPWR),y)
-CSRCS += foc_pwr.c
+ifeq ($(CONFIG_BOARDCTL),y)
+CSRCS += stm32_appinit.c
 endif
 
-ifeq ($(CONFIG_MOTOR_FOC_DRV8301),y)
-CSRCS += drv8301.c
+ifeq ($(CONFIG_STM32_FOC),y)
+CSRCS += stm32_foc.c
 endif
 
-# Include FOC driver build support
+ifeq ($(CONFIG_STM32_OTGFS),y)
+CSRCS += stm32_usb.c
+endif
 
-DEPPATH += --dep-path motor$(DELIM)foc
-VPATH += :motor$(DELIM)foc
-CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)drivers$(DELIM)motor$(DELIM)foc
+DEPPATH += --dep-path board
+VPATH += :board
+CFLAGS += $(shell $(INCDIR) "$(CC)" $(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)board$(DELIM)board)
