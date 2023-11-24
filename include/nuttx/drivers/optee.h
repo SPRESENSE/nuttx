@@ -1,5 +1,5 @@
 /****************************************************************************
- * libs/libc/string/lib_bzero.c
+ * include/nuttx/drivers/optee.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,23 +18,49 @@
  *
  ****************************************************************************/
 
+#ifndef __INCLUDE_NUTTX_DRIVERS_OPTEE_H
+#define __INCLUDE_NUTTX_DRIVERS_OPTEE_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
-#include <sys/types.h>
-#include <strings.h>
 
 /****************************************************************************
- * Public Functions
+ * Pre-processor definitions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: bzero
+ * Public Function Prototypes
  ****************************************************************************/
 
-void bzero(FAR void *s, size_t n)
+#ifdef __cplusplus
+#define EXTERN extern "C"
+extern "C"
 {
-  memset(s, 0, n);
+#else
+#define EXTERN extern
+#endif
+
+/****************************************************************************
+ * Name: optee_register
+ *
+ * Description:
+ *   optee-device client initialize function
+ *
+ * Returned Values:
+ *   OK on success; A negated errno value is returned on any failure.
+ *
+ ****************************************************************************/
+
+#ifndef CONFIG_DEV_OPTEE_NONE
+int optee_register(void);
+#endif
+
+#undef EXTERN
+#if defined(__cplusplus)
 }
+#endif
+
+#endif /* __INCLUDE_NUTTX_DRIVERS_OPTEE_H */
