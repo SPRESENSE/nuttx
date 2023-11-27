@@ -1,5 +1,5 @@
 /****************************************************************************
- * sched/semaphore/sem_destroy.c
+ * libs/libc/semaphore/sem_unlink.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -26,57 +26,43 @@
 
 #include <errno.h>
 
-#include "semaphore/semaphore.h"
+#include <nuttx/semaphore.h>
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: nxsem_destroy
+ * Name: sem_unlink
  *
  * Description:
- *   This function is used to destroy the un-named semaphore indicated by
- *   'sem'.  Only a semaphore that was created using nxsem_init() may be
- *   destroyed using nxsem_destroy(); the effect of calling nxsem_destroy()
- *   with a named semaphore is undefined.  The effect of subsequent use of
- *   the semaphore sem is undefined until sem is re-initialized by another
- *   call to nxsem_init().
- *
- *   The effect of destroying a semaphore upon which other processes are
- *   currently blocked is undefined.
+ *   This function removes the semaphore named by the input parameter 'name.'
+ *   If the semaphore named by 'name' is currently referenced by other task,
+ *   the sem_unlink() will have no effect on the state of the semaphore.  If
+ *   one or more processes have the semaphore open when sem_unlink() is
+ *   called, destruction of the semaphore will be postponed until all
+ *   references to the semaphore have been destroyed by calls of sem_close().
  *
  * Input Parameters:
- *   sem - Semaphore to be destroyed.
+ *   name - Semaphore name
  *
  * Returned Value:
- *   This is an internal OS interface and should not be used by applications.
- *   It follows the NuttX internal error return policy:  Zero (OK) is
- *   returned on success.  A negated errno value is returned on failure.
+ *  0 (OK), or -1 (ERROR) if unsuccessful.
+ *
+ * Assumptions:
  *
  ****************************************************************************/
 
-int nxsem_destroy(FAR sem_t *sem)
+int sem_unlink(FAR const char *name)
 {
-  DEBUGASSERT(sem != NULL);
+  int ret;
 
-  /* There is really no particular action that we need
-   * take to destroy a semaphore.  We will just reset
-   * the count to some reasonable value (0) and release
-   * ownership.
-   *
-   * Check if other threads are waiting on the semaphore.
-   * In this case, the behavior is undefined.  We will:
-   * leave the count unchanged but still return OK.
-   */
-
-  if (sem->semcount >= 0)
+  ret = nxsem_unlink(name);
+  if (ret < 0)
     {
-      sem->semcount = 1;
+      set_errno(-ret);
+      return ERROR;
     }
 
-  /* Release holders of the semaphore */
-
-  nxsem_destroyholder(sem);
-  return OK;
+  return ret;
 }
