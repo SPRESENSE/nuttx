@@ -38,6 +38,7 @@
 #include <nuttx/kmalloc.h>
 #include <nuttx/mutex.h>
 
+#include <nuttx/video/video.h>
 #include <nuttx/video/imgsensor.h>
 #include <nuttx/video/imgdata.h>
 
