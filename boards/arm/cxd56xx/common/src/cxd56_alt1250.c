@@ -377,7 +377,8 @@ static void alt1250_reset(void)
 {
   /* Reset Altair modem device */
 
-  board_alt1250_reset();
+  alt1250_poweroff();
+  alt1250_poweron(false);
 }
 
 /****************************************************************************
