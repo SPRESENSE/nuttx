@@ -322,7 +322,8 @@
 #define AUDIO_CALLBACK_DEQUEUE      0x01
 #define AUDIO_CALLBACK_IOERR        0x02
 #define AUDIO_CALLBACK_COMPLETE     0x03
-#define AUDIO_CALLBACK_MESSAGE      0x04
+#define AUDIO_CALLBACK_STOPPED      0x04
+#define AUDIO_CALLBACK_MESSAGE      0x05
 
 /* Audio Pipeline Buffer (AP Buffer) flags **********************************/
 
@@ -353,6 +354,7 @@
 #define AUDIO_MSG_COMMAND          10
 #define AUDIO_MSG_SLIENCE          11
 #define AUDIO_MSG_UNDERRUN         12
+#define AUDIO_MSG_IOERROR          13
 #define AUDIO_MSG_USER             64
 
 /* Audio Pipeline Buffer flags */
