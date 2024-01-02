@@ -18,298 +18,164 @@
  *
  ****************************************************************************/
 
-#ifndef __DRIVERS_AUDIO_CXD56_H
-#define __DRIVERS_AUDIO_CXD56_H
+#ifndef __ARCH_ARM_SRC_CXD56XX_CXD56_AUDIO_DRIVER_H
+#define __ARCH_ARM_SRC_CXD56XX_CXD56_AUDIO_DRIVER_H
 
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#include <pthread.h>
-#include <mqueue.h>
-
-#include <nuttx/audio/audio.h>
-#include <nuttx/config.h>
-#include <nuttx/compiler.h>
-#include <nuttx/fs/ioctl.h>
 #include <nuttx/spinlock.h>
-
-#ifdef CONFIG_AUDIO
+#include <stdint.h>
+#include <nuttx/audio/audio.h>
+#include <nuttx/queue.h>
+#include "hardware/cxd56_audio_lower.h"
+#include "cxd56_audio_reg.h"
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
-#ifndef CONFIG_CXD56_AUDIO_WORKER_STACKSIZE
-#  define CONFIG_CXD56_AUDIO_WORKER_STACKSIZE  768
-#endif
+#define AUDSTATE_SHUTDOWN    (0)
+#define AUDSTATE_INITIAL     (1)
+#define AUDSTATE_CONFIGURED  (2)
+#define AUDSTATE_STARTING    (3)
+#define AUDSTATE_PAUSED      (4)
+#define AUDSTATE_STARTED     (5)
+#define AUDSTATE_STOPPING    (6)
+#define AUDSTATE_CLOSING     (7)
+#define AUDSTATE_PAUSING     (8)
+#define AUDSTATE_COMPLETING  (9)
 
-#ifndef CONFIG_CXD56_MSG_PRIO
-#  define CONFIG_CXD56_MSG_PRIO  1
-#endif
+#define STATECHANGE(d, st) ((d)->state = AUDSTATE_##st)
 
-#ifdef CONFIG_CXD56_AUDIO_I2S_DEVICE_1_MASTER
-#  define CXD56_I2S1_MODE    0    /* Master */
-#else
-#  define CXD56_I2S1_MODE    1    /* Slave */
-#endif
+#define AUDSTATECHG_SHUTDOWN(d)   STATECHANGE(d, SHUTDOWN)
+#define AUDSTATECHG_INITIAL(d)    STATECHANGE(d, INITIAL)
+#define AUDSTATECHG_CONFIGURED(d) STATECHANGE(d, CONFIGURED)
+#define AUDSTATECHG_STARTING(d)   STATECHANGE(d, STARTING)
+#define AUDSTATECHG_PAUSED(d)     STATECHANGE(d, PAUSED)
+#define AUDSTATECHG_STARTED(d)    STATECHANGE(d, STARTED)
+#define AUDSTATECHG_STOPPING(d)   STATECHANGE(d, STOPPING)
+#define AUDSTATECHG_CLOSING(d)    STATECHANGE(d, CLOSING)
+#define AUDSTATECHG_PAUSING(d)    STATECHANGE(d, PAUSING)
+#define AUDSTATECHG_COMPLETING(d) STATECHANGE(d, COMPLETING)
 
-#ifdef CONFIG_CXD56_AUDIO_I2S_FORMAT_1_LEFT
-#  define CXD56_I2S1_FORMAT  1    /* Left */
-#else
-#  define CXD56_I2S1_FORMAT  0    /* Normal */
-#endif
+#define AUDSTATE_IS_SHUTDOWN(d)   ((d)->state == AUDSTATE_SHUTDOWN)
+#define AUDSTATE_IS_INITIAL(d)    ((d)->state == AUDSTATE_INITIAL)
+#define AUDSTATE_IS_CONFIGURED(d) ((d)->state == AUDSTATE_CONFIGURED)
+#define AUDSTATE_IS_STARTING(d)   ((d)->state == AUDSTATE_STARTING)
+#define AUDSTATE_IS_PAUSED(d)     ((d)->state == AUDSTATE_PAUSED)
+#define AUDSTATE_IS_STARTED(d)    ((d)->state == AUDSTATE_STARTED)
+#define AUDSTATE_IS_STOPPING(d)   ((d)->state == AUDSTATE_STOPPING)
+#define AUDSTATE_IS_CLOSING(d)    ((d)->state == AUDSTATE_CLOSING)
+#define AUDSTATE_IS_PAUSING(d)    ((d)->state == AUDSTATE_PAUSING)
+#define AUDSTATE_IS_COMPLETING(d) ((d)->state == AUDSTATE_COMPLETING)
 
-#ifdef CONFIG_CXD56_AUDIO_I2S_BYPASS_MODE_1_ENABLE
-#  define CXD56_I2S1_BYPASS  0    /* Disable */
-#else
-#  define CXD56_I2S1_BYPASS  1    /* Enable */
-#endif
+#define AUDSTATE_IS_DMA_RUNNING(d)                      \
+  (AUDSTATE_IS_STARTED(d)  || AUDSTATE_IS_PAUSING(d) || \
+   AUDSTATE_IS_STOPPING(d) || AUDSTATE_IS_COMPLETING(d))
 
-/* I2S data rate of I2S1 */
+#define AUDSTATE_HAS_RESOURCE(d)                          \
+  (AUDSTATE_IS_DMA_RUNNING(d) || AUDSTATE_IS_PAUSED(d) || \
+   AUDSTATE_IS_STARTING(d)    || AUDSTATE_IS_CLOSING(d))
 
-#if defined(CONFIG_CXD56_I2S0)
-#  define CXD56_I2S1_DATA_RATE   CONFIG_CXD56_AUDIO_I2S_RATE_1
-#else
-#  define CXD56_I2S1_DATA_RATE   0
-#endif
+#define CXD56_AUD_I2S0       (1 << 20)
+#define CXD56_AUD_I2S1       (1 << 21)
+#define CXD56_AUD_I2SDEV     (1 << 24)
+#define CXD56_AUD_MICDEV     (1 << 25)
 
-#define CXD56_XTAL_24_576MHZ  0
-#define CXD56_XTAL_49_152MHZ  1
+#define IS_AUDIO_INPUT(d)  ((d)->type & AUDIO_TYPE_INPUT)
+#define IS_AUDIO_OUTPUT(d) ((d)->type & AUDIO_TYPE_OUTPUT)
+#define IS_AUDIO_I2SDEV(d) ((d)->type & CXD56_AUD_I2SDEV)
+#define IS_AUDIO_MICDEV(d) ((d)->type & CXD56_AUD_MICDEV)
+#define IS_AUDIO_I2S0DEV(d) ((d)->type & CXD56_AUD_I2S0)
+#define IS_AUDIO_I2S1DEV(d) ((d)->type & CXD56_AUD_I2S1)
 
-#ifdef CONFIG_CXD56_AUDIO_XTAL_SEL_49_152MHZ
-#  define CXD56_AUDIO_MCLK   CXD56_XTAL_49_152MHZ
-#else
-#  define CXD56_AUDIO_MCLK   CXD56_XTAL_24_576MHZ
-#endif
-
-/* Drive strength levels */
-#define CXD56_DS_WEAKEST    1
-#define CXD56_DS_WEAKER     2
-#define CXD56_DS_STRONGER   3
-#define CXD56_DS_STRONGEST  4
-
-/* Drive strength of global pin output-A */
-#if defined(CONFIG_CXD56_AUDIO_GPO_A_WEAKEST)
-#  define CXD56_GPO_A_DS    CXD56_DS_WEAKEST
-#elif defined(CONFIG_CXD56_AUDIO_GPO_A_WEAKER)
-#  define CXD56_GPO_A_DS    CXD56_DS_WEAKER
-#elif defined(CONFIG_CXD56_AUDIO_GPO_A_STRONGER)
-#  define CXD56_GPO_A_DS    CXD56_DS_STRONGER
-#else
-#  define CXD56_GPO_A_DS    CXD56_DS_STRONGEST
-#endif
-
-/* Drive strength of D/A converted data */
-#if defined(CONFIG_CXD56_AUDIO_DA_DATA_WEAKEST)
-#  define CXD56_DA_DS    CXD56_DS_WEAKEST
-#elif defined(CONFIG_CXD56_AUDIO_DA_DATA_WEAKER)
-#  define CXD56_DA_DS    CXD56_DS_WEAKER
-#elif defined(CONFIG_CXD56_AUDIO_DA_DATA_STRONGER)
-#  define CXD56_DA_DS    CXD56_DS_STRONGER
-#else
-#  define CXD56_DA_DS    CXD56_DS_STRONGEST
-#endif
-
-/* Drive strength of digital mic clock */
-#if defined(CONFIG_CXD56_AUDIO_CLKOUT_DMIC_WEAKEST)
-#  define CXD56_DMIC_CLK_DS    CXD56_DS_WEAKEST
-#elif defined(CONFIG_CXD56_AUDIO_CLKOUT_DMIC_WEAKER)
-#  define CXD56_DMIC_CLK_DS    CXD56_DS_WEAKER
-#elif defined(CONFIG_CXD56_AUDIO_CLKOUT_DMIC_STRONGER)
-#  define CXD56_DMIC_CLK_DS    CXD56_DS_STRONGER
-#else
-#  define CXD56_DMIC_CLK_DS    CXD56_DS_STRONGEST
-#endif
-
-/* Drive strength of master clock */
-#if defined(CONFIG_CXD56_AUDIO_MCLKOUT_WEAKEST)
-#  define CXD56_MCLKOUT_DS    CXD56_DS_WEAKEST
-#elif defined(CONFIG_CXD56_AUDIO_MCLKOUT_WEAKER)
-#  define CXD56_MCLKOUT_DS    CXD56_DS_WEAKER
-#elif defined(CONFIG_CXD56_AUDIO_MCLKOUT_STRONGER)
-#  define CXD56_MCLKOUT_DS    CXD56_DS_STRONGER
-#else
-#  define CXD56_MCLKOUT_DS    CXD56_DS_STRONGEST
-#endif
-
-/* Speaker time split on drive */
-#if defined(CONFIG_CXD56_AUDIO_SP_SPLIT_LONGEST)
-#  define CXD56_SP_SPLIT_ON    4
-#elif defined(CONFIG_CXD56_AUDIO_SP_SPLIT_LONG)
-#  define CXD56_SP_SPLIT_ON    3
-#elif defined(CONFIG_CXD56_AUDIO_SP_SPLIT_SHORT)
-#  define CXD56_SP_SPLIT_ON    2
-#else
-#  define CXD56_SP_SPLIT_ON    1
-#endif
-
-/* Speaker drive mode */
-
-#if defined(CONFIG_CXD56_AUDIO_SP_DRV_LINEOUT)
-#  define CXD56_SP_DRIVER   0
-#elif defined(CONFIG_CXD56_AUDIO_SP_DRV_1DRIVERT)
-#  define CXD56_SP_DRIVER   1
-#elif defined(CONFIG_CXD56_AUDIO_SP_DRV_2DRIVERT)
-#  define CXD56_SP_DRIVER   2
-#else
-#  define CXD56_SP_DRIVER   3
-#endif
-
-/* Mic bias voltage select */
-
-#define  CXD56_MIC_BIAS_20V  1
-#define  CXD56_MIC_BIAS_28V  2
-
-#if defined(CONFIG_CXD56_AUDIO_MICBIAS_20V)
-#  define CXD56_MIC_BIAS  CXD56_MIC_BIAS_20V
-#else
-#  define CXD56_MIC_BIAS  CXD56_MIC_BIAS_28V
-#endif
-
-/* Mic select */
-
-#define CXD56_AUDIO_CFG_MIC CONFIG_CXD56_AUDIO_MIC_CHANNEL_SEL
-
-/* Mic boot wait time */
-
-#if defined(CONFIG_CXD56_AUDIO_MIC_BOOT_WAIT)
-#define CXD56_MIC_BOOT_WAIT  CONFIG_CXD56_AUDIO_MIC_BOOT_WAIT
-#else
-#define CXD56_MIC_BOOT_WAIT  1100
-#endif
-
-/* CIC filter input path */
-
-#define CXD56_AUDIO_CFG_CIC_IN_SEL_NONE   0
-#define CXD56_AUDIO_CFG_CIC_IN_SEL_CXD    1
-#define CXD56_AUDIO_CFG_CIC_IN_SEL_DMICIF 2
-
-#if defined(CONFIG_CXD56_AUDIO_CIC_IN_SEL_CXD)
-#  define CXD56_AUDIO_CFG_CIC_IN  CXD56_AUDIO_CFG_CIC_IN_SEL_CXD
-#elif defined (CONFIG_CXD56_AUDIO_CIC_IN_SEL_DMIC)
-#  define CXD56_AUDIO_CFG_CIC_IN  CXD56_AUDIO_CFG_CIC_IN_SEL_DMICIF
-#else
-#  define CXD56_AUDIO_CFG_CIC_IN  CXD56_AUDIO_CFG_CIC_IN_SEL_NONE
-#endif
-
-/* DMA format */
-
-#define CXD56_DMA_FORMAT_LR 0
-#define CXD56_DMA_FORMAT_RL 1
-
-#if defined(CONFIG_CXD56_AUDIO_DMA_DATA_FORMAT_LR)
-#  define CXD56_DMA_FORMAT  CXD56_DMA_FORMAT_LR
-#else
-#  define CXD56_DMA_FORMAT  CXD56_DMA_FORMAT_RL
-#endif
-
-/* Audio buffer configuration */
-
-#ifndef CONFIG_CXD56_AUDIO_BUFFER_SIZE
-#  define CONFIG_CXD56_AUDIO_BUFFER_SIZE  4096
-#endif
-
-#ifndef CONFIG_CXD56_AUDIO_NUM_BUFFERS
-#  define CONFIG_CXD56_AUDIO_NUM_BUFFERS  4
-#endif
-
-/* Queue helpers */
-
-#define dq_get(q)    dq_remfirst(q)
-#define dq_put(q,n) dq_addlast((dq_entry_t*)(n),(q))
-#define dq_put_back(q,n) dq_addfirst((dq_entry_t*)(n),(q))
-#define dq_clear(q) \
-  do \
-    { \
-      dq_remlast(q); \
-    } \
-  while (!dq_empty(q))
+#define AUDDISTINATION_MEM  (0)
+#define AUDDISTINATION_SPK  (1)
+#define AUDDISTINATION_I2S  (2)
 
 /****************************************************************************
  * Public Types
  ****************************************************************************/
 
-enum cxd56_dmahandle_e
+struct cxd56_aud_dmaref_s
 {
-  CXD56_AUDIO_DMA_MIC,
-  CXD56_AUDIO_DMA_I2S0_DOWN,
-  CXD56_AUDIO_DMA_COUNT
-};
-typedef enum cxd56_dmahandle_e cxd56_dmahandle_t;
-
-enum cxd56_devstate_e
-{
-  CXD56_DEV_STATE_OFF,
-  CXD56_DEV_STATE_PAUSED,
-  CXD56_DEV_STATE_BUFFERING,
-  CXD56_DEV_STATE_STARTED,
-  CXD56_DEV_STATE_STOPPED
+  spinlock_t uselock; /* Lock for the counter */
+  int        usecnt;  /* dma user counter */
 };
 
-struct cxd56_dev_s
+struct cxd56_dmachannel_s
 {
-  /* We are an audio lower half driver (We are also the upper "half" of
-   * the CS43L22 driver with respect to the board lower half driver).
-   *
-   * Terminology:
-   * Our "lower" half audio instances will be called dev for the publicly
-   * visible version and "priv" for the version that only this driver
-   * knows.  From the point of view of this driver, it is the board lower
-   * "half" that is referred to as "lower".
-   */
+  struct audio_lowerhalf_s lower; /* Inherit lower-half */
 
-  struct audio_lowerhalf_s dev;             /* CXD56 audio lower half (this device) */
+  int type;
+  int bitwidth;
+  int channels;
 
-  /* Our specific driver data goes here */
+  spinlock_t        dma_lock;
+  volatile int state;
+  struct dq_queue_s dma_pendq;
+  struct dq_queue_s dma_runq;
 
-  const struct cxd56_lower_s *lower;        /* Pointer to the board lower functions */
-  enum cxd56_devstate_e   state;            /* Driver state */
-  enum cxd56_dmahandle_e  dma_handle;       /* DMA handle */
-  struct file             mq;               /* Message queue for receiving messages */
-  char                    mqname[16];       /* Our message queue name */
-  pthread_t               threadid;         /* ID of our thread */
+  uint32_t cpu_intr_no;   /* CUP Interrupt Number */
+  uint32_t cpu_intr_bit;
+  xcpt_t isr;             /* Interrupt service routine */
 
-  struct dq_queue_s       up_pendq;         /* Pending buffers from app to process */
-  struct dq_queue_s       up_runq;          /* Buffers from app being played */
+  /* Registers for controlling DMA */
 
-#ifdef CONFIG_AUDIO_CXD56_SRC
-  struct dq_queue_s       down_pendq;       /* Pending SRC buffers to be DMA'd */
-  struct dq_queue_s       down_runq;        /* SRC buffers being processed */
-  struct dq_queue_s       down_doneq;       /* Done SRC buffers to be re-used */
-#endif
+  const cxd56_aureg_t *addr;
+  const cxd56_aureg_t *smpls;
+  const cxd56_aureg_t *cmd;
+  const cxd56_aureg_t *bitw;
+  const cxd56_aureg_t *fifolen;
+  const cxd56_aureg_t *errmon;
+  const cxd56_aureg_t *status;
 
-  uint32_t                samplerate;       /* Sample rate */
-#ifndef CONFIG_AUDIO_EXCLUDE_VOLUME
-  int16_t                 volume;           /* Output volume {0..63} */
-#endif  /* CONFIG_AUDIO_EXCLUDE_VOLUME */
-  uint8_t                 channels;         /* Number of channels (1..8) */
+  const cxd56_aureg_t *chsel;
 
-  uint16_t                mic_gain;         /* Mic gain */
-  uint16_t                mic_dev;          /* Mic device */
-  uint64_t                mic_boot_start;   /* Mic startup wait time */
+  const uint32_t intrbit_done;
+  const uint32_t intrbit_err;
+  const uint32_t intrbit_smp;
+  const uint32_t intrbit_cmb;
 
-  uint8_t                 bitwidth;         /* Bits per sample (16 or 24) */
-  bool                    muted;            /* True: Output is muted */
+  const cxd56_aureg_t *intr_stat;
+  const cxd56_aureg_t *intr_mask;
 
-  bool                    running;          /* True: Worker thread is running */
-  bool                    paused;           /* True: Playing is paused */
-#ifndef CONFIG_AUDIO_EXCLUDE_STOP
-  bool                    terminating;      /* True: Stop requested */
-#endif
-  bool                    reserved;         /* True: Device is reserved */
-  volatile int            result;           /* The result of the last transfer */
-  spinlock_t              lock;             /* Spinlock for SMP */
+  CODE int (*hwresource)(FAR struct cxd56_dmachannel_s *dma_ch, bool en);
+  CODE int (*hwresource_irq)(FAR struct cxd56_dmachannel_s *dma_ch, bool en);
+  CODE void (*chassign)(FAR struct cxd56_dmachannel_s *dma_ch);
+  CODE int (*irqen)(FAR struct cxd56_dmachannel_s *dmach, bool en);
+  void *irq_arg;
+
+  /* Related on NuttX audio framework */
+
+  CODE void (*setvolume)(uint32_t vol);
+  CODE uint8_t (*maxch)(FAR struct cxd56_dmachannel_s *dmach);
+  uint8_t caps;
+  uint16_t supfs;
+  uint16_t fcaps;
+  bool sysinited;
+  uint16_t volgain;
+  int distination;
 };
 
-/****************************************************************************
- * Public Data
- ****************************************************************************/
+struct cxd56_i2sdmachannel_s
+{
+  struct cxd56_dmachannel_s dmach;  /* Inherit */
+  struct cxd56_aud_dmaref_s *ref;
+};
 
 /****************************************************************************
  * Public Function Prototypes
  ****************************************************************************/
 
-#endif /* CONFIG_AUDIO */
+#if 0
+int cxd56_audsystem_initialize(FAR cxd56_audio_lower_t *low);
+struct audio_lowerhalf_s *cxd56_aud_miclower(void);
+struct audio_lowerhalf_s *cxd56_aud_spk0out(void);
+struct audio_lowerhalf_s *cxd56_aud_spk1out(void);
+struct audio_lowerhalf_s *cxd56_aud_i2sin(void);
+#endif
 
-#endif /* __DRIVERS_AUDIO_CXD56_H */
+#endif /* __ARCH_ARM_SRC_CXD56XX_CXD56_AUDIO_DRIVER_H */

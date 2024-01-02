@@ -1,4 +1,4 @@
-/****************************************************************************
+/*****************************************************************************
  * arch/arm/src/cxd56xx/cxd56_audio_driver.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
@@ -16,3786 +16,2172 @@
  * License for the specific language governing permissions and limitations
  * under the License.
  *
- ****************************************************************************/
+ *****************************************************************************/
 
-/****************************************************************************
+/*****************************************************************************
  * Included Files
- ****************************************************************************/
+ *****************************************************************************/
 
-#include <assert.h>
-#include <debug.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <math.h>
-#include <string.h>
-#include <inttypes.h>
-
-#include <nuttx/arch.h>
 #include <nuttx/config.h>
-#include <nuttx/irq.h>
-#include <nuttx/queue.h>
-#include <nuttx/spinlock.h>
+#include <nuttx/arch.h>
+#include <nuttx/audio/audio.h>
 #include <nuttx/kmalloc.h>
-#include <nuttx/mqueue.h>
 
+#include <debug.h>
+#include <math.h>
+#include <semaphore.h>
+
+#include <arch/chip/audio.h>
 #include <arch/board/cxd56_clock.h>
 #include <arch/board/board.h>
-#include <arch/chip/audio.h>
-#include <arch/chip/chip.h>
 
+#include "hardware/cxd5247.h"
+#include "hardware/cxd5602_topreg.h"
+#include "hardware/cxd56_audio_lower.h"
+
+#include "cxd56_gpio.h"
+#include "cxd56_pinconfig.h"
+#include "cxd56_audio_reg.h"
 #include "cxd56_audio_driver.h"
 
-#ifdef CONFIG_AUDIO_CXD56_SRC
-#include "cxd56_nxaudio_src.h"
-#endif
+#include "cxd56_audio_dma.h"
 
-/****************************************************************************
+/*****************************************************************************
  * Pre-processor Definitions
- ****************************************************************************/
+ *****************************************************************************/
 
-#define REG_BASE     0x0e300000
-#define REG_BASE_INT 0xe0045000
+/* Register parameters */
 
-#define CXD56_GEN_MASK(len, pos) (((len) == 32) ? 0xffffffff : \
-                                  ((1 << (len)) - 1) << (pos))
+#define CXD56_AUDPUP_EN  (0)
+#define CXD56_AUDPUP_DIS (1)
 
-#define CXD56_IRQ1_BIT_MIC  (1 << 6)   /* AU0 */
-#define CXD56_IRQ1_BIT_I2S1 (1 << 7)   /* AU1 */
+#define CXD56_AUDBLK_DIS (0)
+#define CXD56_AUDBLK_EN  (1)
 
-#define CXD56_VOL_MIN            (-1020)
-#define CXD56_VOL_MAX            (-30)
-#define CXD56_VOL_MUTE           (CXD56_VOL_MIN - 1)
-#define CXD56_VOL_RANGE          ((CXD56_VOL_MAX - CXD56_VOL_MIN) / 2)
-#define CXD56_VOL_NX_TO_CXD56(v) ((int)((float)((v) / 1000.0) * CXD56_VOL_RANGE) \
-                                 + CXD56_VOL_MIN + CXD56_VOL_RANGE)
-#define CXD56_VOL_WAIT_TIME      20
-#define CXD56_VOL_TO_REG(vol)    (((vol) / 5) & 0xff)
-#define CXD56_VOL_MUTE_REG       0x33
-#define CXD56_VOL_MUTE_TIME(vol, cycles) \
-                                 (((CXD56_VOL_TO_REG(vol) - CXD56_VOL_MUTE_REG) & 0xff) \
-                                 * ((cycles) + 1) * 4 / 48 * 1000)
+#define CXD56_AUDDECFS_4CH (0)
+#define CXD56_AUDDECFS_8CH (1)
 
-#define CXD56_IN_CHANNELS_MAX  8
-#define CXD56_OUT_CHANNELS_MAX 2
+#define CXD56_AUDDSPMICSEL_MIC01  (0)
+#define CXD56_AUDDSPMICSEL_MIC23  (1)
+#define CXD56_AUDDSPMICSEL_MIC45  (2)
+#define CXD56_AUDDSPMICSEL_MIC67  (3)
 
-/* Samplerates field is split into low and high byte */
+#define CXD56_AUDOUTSEL_MIC01 (0)
+#define CXD56_AUDOUTSEL_MIC23 (1)
+#define CXD56_AUDOUTSEL_MIC45 (2)
+#define CXD56_AUDOUTSEL_MIC67 (3)
+#define CXD56_AUDOUTSEL_DMA   (4)
 
-#ifdef CONFIG_AUDIO_CXD56_SRC
-#define CXD56_SUPP_RATES_L  (AUDIO_SAMP_RATE_8K  | AUDIO_SAMP_RATE_11K | \
-                             AUDIO_SAMP_RATE_16K | AUDIO_SAMP_RATE_22K | \
-                             AUDIO_SAMP_RATE_32K | AUDIO_SAMP_RATE_44K | \
-                             AUDIO_SAMP_RATE_48K)
-#define CXD56_SUPP_RATES_H  ((AUDIO_SAMP_RATE_96K  | AUDIO_SAMP_RATE_128K | \
-                              AUDIO_SAMP_RATE_192K) >> 8)
-#define CXD56_SUPP_RATES    (CXD56_SUPP_RATES_L | CXD56_SUPP_RATES_H)
+#define CXD56_AUDSPKDATSEL_SRC0     (0)
+#define CXD56_AUDSPKDATSEL_SRC1     (1)
+#define CXD56_AUDSPKDATSEL_AUDOUT0  (2)
+#define CXD56_AUDSPKDATSEL_AUDOUT1  (3)
+
+#define CXD56_AUDRESOLITION_LOW   (0)
+#define CXD56_AUDRESOLITION_HIGH  (1)
+
+#define CXD56_I2SCLKS_EN  (0)
+#define CXD56_I2SCLKS_DIS (1)
+
+#define CXD56_AUDI2S_SLAVE  (0)
+#define CXD56_AUDI2S_MASTER (1)
+
+#define CXD56_AUDI2SFMT_ORG  (0)
+#define CXD56_AUDI2SFMT_LEFT (1)
+
+#define CXD56_AUDI2SINDATA_I2S0DMA (0)
+#define CXD56_AUDI2SINDATA_I2S1DMA (1)
+#define CXD56_AUDI2SINDATA_ADC     (2)
+#define CXD56_AUDI2SINDATA_MIXED   (3)
+
+#define CXD56_AUDI2SSRC_NOSRC  (0)
+#define CXD56_AUDI2SSRC_UT48K  (1)
+#define CXD56_AUDI2SSRC_UT96K  (2)
+#define CXD56_AUDI2SSRC_UT192K (3)
+
+#define CXD56_AUDRAMP_VOLCTL_OFF (0)
+#define CXD56_AUDRAMP_VOLCTL_ON  (1)
+
+#define CXD56_AUDCICCLK_64FS  (0)
+#define CXD56_AUDCICCLK_128FS (1)
+#define CXD56_AUDCICCLK_256FS (2)
+
+#define CXD56_AUDCICDATAINV_NOINV    (0)
+#define CXD56_AUDCICDATAINV_INVERSE  (1)
+
+#define CXD56_AUDCIC_BOOST_OFF  (0)
+#define CXD56_AUDCIC_BOOST_ON   (1)
+
+#define CXD56_AUDCICMIC_DEV_CXD5247 (0)
+#define CXD56_AUDCICMIC_DEV_DIGITAL (1)
+
+#define CXD56_AUDCIC_GAINMODE_MATSU (0)
+#define CXD56_AUDCIC_GAINMODE_ORG   (1)
+
+#define CXD56_AUDCICIN_NOSWAP (0)
+#define CXD56_AUDCICIN_SWAPLR (1)
+
+#define CXD56_AUDCIC_HPFMODE_OFF  (0)
+#define CXD56_AUDCIC_HPFMODE_LOW  (1)
+#define CXD56_AUDCIC_HPFMODE_MID  (2)
+#define CXD56_AUDCIC_HPFMODE_HI   (3)
+
+#define CXD56_CICGAIN(x)  (0x4000 + (x))
+#define CXD56_AUD_CICGAIN_MIN (0)
+#define CXD56_AUD_CICGAIN_MAX (0x4000)
+
+#define CXD56_MAXGAIN (1000)
+#define CONVERT_CICGAIN(g)  \
+  CXD56_CICGAIN(((CXD56_AUD_CICGAIN_MAX - CXD56_AUD_CICGAIN_MIN) / \
+   CXD56_MAXGAIN) * g)
+
+/* Volume Values 8'h18(d24):+12dB ~ 8'h34(d-204):-102dB */
+
+#define CXD56_AUDVOLUME_LOG1001 (6.908755)
+#define CXD56_AUDVOLUME_MAX (0)    /* 6.908755 */
+#define CXD56_AUDVOLUME_MIN (-205) /* 0x33: Mute 0 */
+
+#define CXD56_AUDVOL_CONVERT(v) \
+          ((CXD56_AUDVOLUME_MIN + \
+            (int)(((float)(CXD56_AUDVOLUME_MAX - CXD56_AUDVOLUME_MIN) / \
+            CXD56_AUDVOLUME_LOG1001) * logf(v+1))) & 0xff)
+
+#define CXD56_AUREG_I2STRANSMODE_NORM  (0)
+#define CXD56_AUREG_I2STRANSMODE_LRDIF (1)
+
+#define CXD56_AUDDESMODE_8CH  (0)
+#define CXD56_AUDDESMODE_4CH  (1)
+
+#define CXD56_AUDDECIM_INFS_4FS (0)
+#define CXD56_AUDDECIM_INFS_8FS (1)
+
+#define CXD56_AUDDECIM_OUTFS_1FS (0)
+#define CXD56_AUDDECIM_OUTFS_2FS (1)
+#define CXD56_AUDDECIM_OUTFS_4FS (2)
+#define CXD56_AUDDECIM_OUTFS_8FS (3)
+
+#define CXD56_AUDDECIMFS_4FS (1)
+#define CXD56_AUDDECIMFS_8FS (2)
+
+#define CXD56_AUDIO_DMA_START       (0x01)
+#define CXD56_AUDIO_DMA_STOP_WOINTR (0x04)
+#define CXD56_AUDIO_DMA_STOP        (0x00)
+
+#define CXD56_DMABITW24 (0)
+#define CXD56_DMABITW16 (1)
+
+/* Dithering Speed setting parameters */
+
+#define CXD56_VOLCTRLSTEP_1 (1) /* Fastest */
+#define CXD56_VOLCTRLSTEP_2 (2)
+#define CXD56_VOLCTRLSTEP_3 (3)
+#define CXD56_VOLCTRLSTEP_4 (4)
+#define CXD56_VOLCTRLSTEP_5 (5)
+#define CXD56_VOLCTRLSTEP_6 (6)
+#define CXD56_VOLCTRLSTEP_7 (7) /* Slowest */
+
+#define CXD56_I2SDATARATE_48KHZ   (0)
+#define CXD56_I2SDATARATE_192KHZ  (1)
+
+/* CXD56_MICCHMAP_BITW16
+ * Odd channels (L-ch side) assigned on MSB side in 32bit data
+ * like big-endian. Data of lower channel number should store
+ * lower address.
+ * To fix this, swap channel assign odd and even channels.
+ */
+
+#define CXD56_MICCHMAP_BITW16 (0x10325476)
+#define CXD56_MICCHMAP_BITW24 (0x01234567)
+
+#define CXD56_NSDD_DITHER_VALUE (0x07FD5)
+
+#define CXD56_SAMPRATE_48K  (48000)
+#define CXD56_SAMPRATE_96K  (96000)
+#define CXD56_SAMPRATE_192K (192000)
+#define CXD56_SAMPRATE_INVALID (0xffffffff)
+#define CXD56_DEFAULT_SYSTEMVOL (1000)
+
+#define BEEP_FREQ_MAX        4085
+#define BEEP_FREQ_MIN        94
+
+/** NX Audio framework related ***********************************************/
+
+/* Audio Multi settion configuration wrapper */
+
+#ifdef CONFIG_AUDIO_MULTI_SESSION
+#define MSESSION_ARG  , FAR void *session
 #else
-/* No sample rate converter, only support system rate of 48kHz */
-#define CXD56_SUPP_RATES_L  AUDIO_SAMP_RATE_48K
-#define CXD56_SUPP_RATES_H  0x0
-#define CXD56_SUPP_RATES    (CXD56_SUPP_RATES_L | CXD56_SUPP_RATES_H)
+#define MSESSION_ARG
 #endif
 
-/* Mic setting definitions */
+/*****************************************************************************
+ * Private Types
+ *****************************************************************************/
 
-#define CXD56_ACA_MIC_AMIC       1  /* Analog MIC */
-#define CXD56_MIC_TRANS_CH_24BIT 8
-#define CXD56_MIC_TRANS_CH_16BIT 4
+struct cxd56_system_s
+{
+  sem_t lock;
+  int usr_cnt;
+};
 
-#define CXD56_AUDIO_CFG_MIC_MODE_64FS  0
-#define CXD56_AUDIO_CFG_MIC_MODE_128FS 1
+struct cxd56_ext_mutectl_s
+{
+  sem_t lock;
+  int mute_cnt;
+};
 
-#define CXD56_MIC_GAIN_MAX     150
-#define CXD56_MIC_PGA_GAIN_MAX 60
-#define CXD56_MIC_CH_BITNUM    4
-#define CXD56_MIC_CH_BITMAP    0xf
-#define CXD56_CIC_MIC_CH_NUM   2
+struct cxd56_hwresource_s
+{
+  int spkout_cnt;
+  int i2susr_cnt;
+  int outfs_cnt;
 
-/* External XTAL */
+  uint16_t volume;
+  bool is_slave;
+  int samprate;
+};
 
-#define CXD56_AUD_MCLK_EXT (0u<<16)
+struct cxd56_aud_beep_s
+{
+  sem_t lock;
+  bool is_inited;
+  struct beep_ctl_s ctl;
+};
 
-/* Oscillator modes */
-
-#define CXD56_ACA_OSC_24_576MHZ       1  /* 24.576MHz */
-#define CXD56_ACA_OSC_24_576MHZ_HIRES 2  /* 24.576MHz, Hi-Res */
-#define CXD56_ACA_OSC_49_152MHZ       3  /* 49.152MHz */
-#define CXD56_ACA_OSC_49_152MHZ_HIRES 4  /* 49.152MHz, Hi-Res */
-
-/* Control IDs for external fw_as_acacontrol */
-#define CXD56_ACA_CTL_CHECK_ID          0
-#define CXD56_ACA_CTL_POWER_ON_COMMON   1
-#define CXD56_ACA_CTL_POWER_ON_INPUT    2
-#define CXD56_ACA_CTL_POWER_ON_OUTPUT   3
-#define CXD56_ACA_CTL_SET_SERDES        4
-#define CXD56_ACA_CTL_SET_SMASTER       5
-#define CXD56_ACA_CTL_POWER_OFF_COMMON  6
-#define CXD56_ACA_CTL_POWER_OFF_INPUT   7
-#define CXD56_ACA_CTL_POWER_OFF_OUTPUT  8
-#define CXD56_ACA_CTL_POWER_ON_MICBIAS  9
-#define CXD56_ACA_CTL_POWER_OFF_MICBIAS 10
-#define CXD56_ACA_CTL_INIT_AMIC         11
-#define CXD56_ACA_CTL_SET_OUTPUT_DEVICE 13
-
-#define CXD56_EXP_REVID    0x20
-#define CXD56_EXP_DEVICEID 0x02
-
-#define CXD56_OUT_DEV_OFF (0)
-#define CXD56_OUT_DEV_SP  (1)
-
-#define CXD56_SMSTR_MODE_FS_16         1
-#define CXD56_SMSTR_MODE_FS_32         2
-#define CXD56_SMSTR_MCK_FS_512         1
-#define CXD56_SMSTR_MCK_FS_1024        2
-#define CXD56_SMSTR_CHSEL_NORMAL       1
-#define CXD56_SMSTR_PWMMD_BOTH         2
-#define CXD56_ACA_OUT_OFF              6
-#define CXD56_ACA_PWMOUT_UNKNOWN       0
-#define CXD56_ACA_SP_DELAY_SEL_UNKNOWN 0
-#define CXD56_ACA_SP_LOOP_MODE_UNKNOWN 0
-#define CXD56_ACA_SP_DLY_FREE_UNKNOWN  0
-
-#define CXD56_AUDAT_SEL_MIC1   0
-#define CXD56_AUDAT_SEL_MIC2   1
-#define CXD56_AUDAT_SEL_MIC3   2
-#define CXD56_AUDAT_SEL_MIC4   3
-#define CXD56_AUDAT_SEL_BUSIF1 4
-#define CXD56_AUDAT_SEL_BUSIF2 4
-
-#define CXD56_DMA_MSTATE_ERR_NO_ENABLE_CH  1
-#define CXD56_DMA_MSTATE_ERR_CH1_4_INVALID 2
-#define CXD56_DMA_MSTATE_ERR_CH5_8_INVALID 3
-#define CXD56_DMA_MSTATE_BUF_EMPTY         3
-
-#define CXD56_DMA_TIMEOUT           10000
-#define CXD56_DMA_START_RETRY_CNT   10
-#define CXD56_DMA_SMP_WAIT_HIRES    10 /* usec per sample. */
-#define CXD56_DMA_SMP_WAIT_NORMALT  40 /* usec per sample. */
-#define CXD56_DMA_CMD_FIFO_NOT_FULL 1
-
-#define CXD56_MICGAIN_INITVAL (120)
-
-/****************************************************************************
+/*****************************************************************************
  * Public Function Prototypes
- ****************************************************************************/
-
-/* Located in arch/arm/src/cxd56xx/cxd56_clock.c */
+ *****************************************************************************/
 
 extern void cxd56_audio_clock_enable(uint32_t clk, uint32_t div);
 extern void cxd56_audio_clock_disable(void);
 extern bool cxd56_audio_clock_is_enabled(void);
 
-/* Located in arch/arm/src/cxd56xx/cxd56_farapistub.S */
+/*****************************************************************************
+ * Private Function Prototypes
+ *****************************************************************************/
 
-extern uint32_t fw_as_acacontrol(uint8_t type, uint32_t param);
+/* NX Audio I/F functions */
 
-/****************************************************************************
- * Private Types
- ****************************************************************************/
+static int cxd56audio_setup(FAR struct audio_lowerhalf_s *lower, int cnt);
+static int cxd56audio_getcaps(FAR struct audio_lowerhalf_s *lower,
+                              int type, FAR struct audio_caps_s *caps);
+static int cxd56audio_config(FAR struct audio_lowerhalf_s *lower
+                             MSESSION_ARG,
+                             FAR const struct audio_caps_s *caps);
+static int cxd56audio_shutdown(FAR struct audio_lowerhalf_s *lower, int cnt);
+static int cxd56audio_start(FAR struct audio_lowerhalf_s *lower
+                            MSESSION_ARG);
+#ifndef CONFIG_AUDIO_EXCLUDE_STOP
+static int cxd56audio_stop(FAR struct audio_lowerhalf_s *lower
+                           MSESSION_ARG);
+#endif  /* CONFIG_AUDIO_EXCLUDE_STOP */
+#ifndef CONFIG_AUDIO_EXCLUDE_PAUSE_RESUME
+static int cxd56audio_pause(FAR struct audio_lowerhalf_s *lower
+                            MSESSION_ARG);
+static int cxd56audio_resume(FAR struct audio_lowerhalf_s *lower
+                             MSESSION_ARG);
+#endif  /* CONFIG_AUDIO_EXCLUDE_PAUSE_RESUME */
+static int cxd56audio_enqbuff(FAR struct audio_lowerhalf_s *lower,
+                              FAR struct ap_buffer_s *apb);
+static int cxd56audio_cancelbuff(FAR struct audio_lowerhalf_s *lower,
+                                 FAR struct ap_buffer_s *apb);
+static int cxd56audio_ioctl(FAR struct audio_lowerhalf_s *lower, int cmd,
+                            unsigned long arg);
+static int cxd56audio_reserve(FAR struct audio_lowerhalf_s *lower
+                              MSESSION_ARG);
+static int cxd56audio_release(FAR struct audio_lowerhalf_s *lower
+                              MSESSION_ARG);
 
-/* CXD56 Audio register value definition */
+#define CONFIG_CXD56_BEEEPDEV
+#define CONFIG_CXD56_BEEPDEV_NAME "/dev/audio/beep"
 
-struct cxd56_aureg_s
+#ifdef CONFIG_CXD56_BEEEPDEV
+static int cxd56_beep_open(FAR struct file *filep);
+static int cxd56_beep_close(FAR struct file *filep);
+static ssize_t cxd56_beep_read(FAR struct file *filep,
+                               FAR char *buffer, size_t buflen);
+static ssize_t cxd56_beep_write(FAR struct file *filep,
+                                FAR const char *buffer, size_t buflen);
+static int cxd56_beep_ioctl(FAR struct file *filep, int cmd,
+                            unsigned long arg);
+#endif
+
+/*****************************************************************************
+ * Private Data
+ *****************************************************************************/
+
+static FAR struct cxd56_audio_lower_s *g_lower = NULL;
+static struct cxd56_system_s    g_system;
+static struct cxd56_hwresource_s g_hwres;
+static struct cxd56_ext_mutectl_s g_mutectl;
+static int mic_samprate = CXD56_SAMPRATE_48K;
+#ifdef CONFIG_CXD56_BEEEPDEV
+static FAR struct cxd56_aud_beep_s *g_beep = NULL;
+static const uint16_t g_beepfreqtable[] =
 {
-  uint32_t addr;
-  uint8_t  pos;
-  uint8_t  len;
-};
-typedef struct cxd56_aureg_s cxd56_aureg_t;
-
-/* DMA interrupt types */
-
-enum cxd56_dma_int_e
-{
-  CXD56_DMA_INT_DONE = 0x01,
-  CXD56_DMA_INT_ERR  = 0x02,
-  CXD56_DMA_INT_SMP  = 0x10,
-  CXD56_DMA_INT_CMB  = 0x20
-};
-
-enum cxd56_pulco_ser_mode_id_e
-{
-  CXD56_SER_MODE_UNKNOWN,
-  CXD56_SER_MODE_8CH,         /* 8ch */
-  CXD56_SER_MODE_4CH,         /* 4ch */
-  CXD56_SER_MODE_MAX_ENTRY
-};
-
-enum csd56_pulco_ser_fs_id_e
-{
-  CXD56_SER_FS_UNKNOWN,
-  CXD56_SER_FS_128,           /* 128fs */
-  CXD56_SER_FS_64,            /* 64fs */
-  CXD56_SER_FS_MAX_ENTRY
-};
-
-enum cxd56_pulco_ser_sel_ch_id_e
-{
-  CXD56_SER_SEL_FIX0 = 0,
-  CXD56_SER_SEL_AMIC1 = 1,
-  CXD56_SER_SEL_AMIC2 = 2,
-  CXD56_SER_SEL_AMIC3 = 3,
-  CXD56_SER_SEL_AMIC4 = 4,
-  CXD56_SER_SEL_DMIC1 = 5,
-  CXD56_SER_SEL_DMIC2 = 6,
-  CXD56_SER_SEL_DMIC3 = 7,
-  CXD56_SER_SEL_DMIC4 = 8,
-  CXD56_SER_SEL_DMIC5 = 9,
-  CXD56_SER_SEL_DMIC6 = 10,
-  CXD56_SER_SEL_DMIC7 = 11,
-  CXD56_SER_SEL_DMIC8 = 12,
-  CXD56_SER_SEL_UNKNOWN = 15,
-  CXD56_SER_SEL_MAX_ENTRY = 16
-};
-
-enum cxd56_sdes_des_sel_out_id_e
-{
-  CXD56_SDES_DES_SEL_UNKNOWN,
-  CXD56_SDES_DES_SEL_CH1,
-  CXD56_SDES_DES_SEL_CH2,
-  CXD56_SDES_DES_SEL_CH3,
-  CXD56_SDES_DES_SEL_CH4,
-  CXD56_SDES_DES_SEL_CH5,
-  CXD56_SDES_DES_SEL_CH6,
-  CXD56_SDES_DES_SEL_CH7,
-  CXD56_SDES_DES_SEL_CH8,
-  CXD56_SDES_DES_SEL_MAX_ENTRY
-};
-
-struct cxd56_ser_des_param_s
-{
-  enum cxd56_pulco_ser_mode_id_e ser_mode;
-  enum csd56_pulco_ser_fs_id_e   ser_fs;
-  union
-  {
-    enum cxd56_pulco_ser_sel_ch_id_e in[CXD56_IN_CHANNELS_MAX];
-    enum cxd56_sdes_des_sel_out_id_e out[CXD56_IN_CHANNELS_MAX];
-  } sel_ch;
-};
-
-enum cxd56_mic_type_e
-{
-  CXD56_AUDIO_CFG_MIC_DEV_NONE = 0,
-  CXD56_AUDIO_CFG_MIC_DEV_ANALOG,
-  CXD56_AUDIO_CFG_MIC_DEV_DIGITAL,
-  CXD56_AUDIO_CFG_MIC_DEV_ANADIG
-};
-
-enum cxd56_mic_bias_sel_e
-{
-  CXD56_AUDIO_CFG_MICBIAS_SEL_UNKNOWN,
-  CXD56_AUDIO_CFG_MICBIAS_SEL_2_0V,     /* 2.0V */
-  CXD56_AUDIO_CFG_MICBIAS_SEL_2_8V,     /* 2.8V */
-  CXD56_AUDIO_CFG_MICBIAS_SEL_MAX_ENTRY
-};
-
-#if 0
-/* TODO: Implement mic gain handling */
-
-struct cxd56_audio_mic_gain_s
-{
-  int32_t gain[CXD56_IN_CHANNELS_MAX];
+  120,  127,  134,  142,  151,  160,  169,  180,  190,  201,  214,  226,
+  240,  254,  269,  285,  302,  320,  339,  360,  381,  403,  428,  453,
+  480,  509,  539,  571,  606,  642,  681,  719,  762,  810,  857,  910,
+  965,  1021, 1079, 1143, 1215, 1289, 1362, 1444, 1536, 1627, 1714, 1829,
+  1939, 2043, 2182, 2313, 2400, 2560, 2704, 2866, 3048, 3200, 3429, 3623,
+  3840, 4085,   94
 };
 #endif
 
-struct cxd56_aca_pwinput_param_s
-{
-  enum cxd56_mic_type_e mic_dev;
-  enum cxd56_mic_bias_sel_e  mic_bias_sel;
-  uint32_t              mic_gain[4];
-  uint32_t              pga_gain[4];
-  int32_t               vgain[4];
-};
-
-struct cxd56_aca_pwon_param_s
-{
-  uint8_t osc_mode;
-  uint8_t mic_dev;
-  uint8_t gpo_ds;
-  uint8_t ad_data_ds;
-  uint8_t dmic_clk_ds;
-  uint8_t mclk_ds;
-};
-
-struct cxd56_aca_smaster_param_s
-{
-  uint8_t mode;
-  uint8_t mck_fs;
-  uint8_t pwm_mode;
-  uint8_t ch_sel;
-  uint8_t out2dly;
-};
-
-struct cxd56_aca_pwoutput_param_s
-{
-  uint8_t out_dev;
-  uint8_t pwm_out[2];
-  uint8_t sp_delay;
-  uint8_t loop_mode;
-  uint8_t mode;
-  uint8_t sp_dly_free;
-  uint8_t sp_spliton;
-  uint8_t sp_drv;
-};
-
-/****************************************************************************
- * Private Function Prototypes
- ****************************************************************************/
-
-/* Interface functions */
-
-#ifdef CONFIG_AUDIO_MULTI_SESSION
-static int     cxd56_configure(struct audio_lowerhalf_s *lower,
-                               void *session,
-                               const struct audio_caps_s *caps);
-static int     cxd56_start(struct audio_lowerhalf_s *lower,
-                           void *session);
-#ifndef CONFIG_AUDIO_EXCLUDE_STOP
-static int     cxd56_stop(struct audio_lowerhalf_s *lower,
-                          void *session);
-#endif  /* CONFIG_AUDIO_EXCLUDE_STOP */
-#ifndef CONFIG_AUDIO_EXCLUDE_PAUSE_RESUME
-static int     cxd56_pause(struct audio_lowerhalf_s *lower,
-                           void *session);
-static int     cxd56_resume(struct audio_lowerhalf_s *lower,
-                            void *session);
-#endif  /* CONFIG_AUDIO_EXCLUDE_PAUSE_RESUME */
-static int     cxd56_reserve(struct audio_lowerhalf_s *lower,
-                             void **session);
-static int     cxd56_release(struct audio_lowerhalf_s *lower,
-                             void *session);
-#else
-
-static int     cxd56_configure(struct audio_lowerhalf_s *lower,
-                               const struct audio_caps_s *caps);
-static int     cxd56_start(struct audio_lowerhalf_s *lower);
-#ifndef CONFIG_AUDIO_EXCLUDE_STOP
-static int     cxd56_stop(struct audio_lowerhalf_s *lower);
-#endif  /* CONFIG_AUDIO_EXCLUDE_STOP */
-#ifndef CONFIG_AUDIO_EXCLUDE_PAUSE_RESUME
-static int     cxd56_pause(struct audio_lowerhalf_s *lower);
-static int     cxd56_resume(struct audio_lowerhalf_s *lower);
-#endif  /* CONFIG_AUDIO_EXCLUDE_PAUSE_RESUME */
-static int     cxd56_reserve(struct audio_lowerhalf_s *lower);
-static int     cxd56_release(struct audio_lowerhalf_s *lower);
-#endif /* CONFIG_AUDIO_MULTI_SESSION */
-
-static int     cxd56_getcaps(struct audio_lowerhalf_s *lower, int type,
-                             struct audio_caps_s *caps);
-static int     cxd56_shutdown(struct audio_lowerhalf_s *lower, int cnt);
-static int     cxd56_enqueuebuffer(struct audio_lowerhalf_s *lower,
-                                   struct ap_buffer_s *apb);
-static int     cxd56_cancelbuffer(struct audio_lowerhalf_s *lower,
-                                  struct ap_buffer_s *apb);
-static int     cxd56_ioctl(struct audio_lowerhalf_s *lower, int cmd,
-                           unsigned long arg);
-
-/* Non-interface functions */
-
-static int cxd56_attach_irq(bool attach);
-static void cxd56_enable_irq(bool enable);
-static uint32_t cxd56_get_i2s_rate(uint32_t samplerate);
-static void cxd56_get_mic_config(uint8_t *count,
-                                 uint8_t *dev,
-                                 uint8_t *mode);
-static void cxd56_init_dma(struct cxd56_dev_s *dev);
-static void cxd56_init_i2s1_output(uint8_t bits);
-static void cxd56_init_mic_input(uint8_t mic_num, uint8_t bits);
-static int cxd56_init_worker(struct audio_lowerhalf_s *lower);
-static uint8_t cxd56_get_mic_mode(void);
-static int cxd56_power_off(struct cxd56_dev_s *dev);
-static int cxd56_power_on(struct cxd56_dev_s *dev);
-static int cxd56_power_on_aca(uint32_t samplerate);
-static int cxd56_power_on_analog_output(struct cxd56_dev_s *dev);
-static void cxd56_audio_power_on_cic(uint8_t mic_in,
-                                     uint8_t mic_mode,
-                                     uint8_t cic_num,
-                                     struct cxd56_audio_mic_gain_s *gain);
-static int cxd56_power_on_decim(uint8_t mic_mode, uint32_t samplerate);
-static void cxd56_power_on_i2s1(struct cxd56_dev_s *dev);
-static int cxd56_power_on_input(struct cxd56_dev_s *dev);
-static int cxd56_power_on_micbias(struct cxd56_dev_s *dev);
-static int cxd56_start_dma(struct cxd56_dev_s *dev);
-static int cxd56_stop_dma(struct cxd56_dev_s *priv);
-static void cxd56_set_dma_int_en(bool enabled);
-static void cxd56_set_dma_running(cxd56_dmahandle_t handle, bool running);
-static int cxd56_set_mic_gains(uint8_t gain, enum cxd56_mic_type_e mic_dev,
-                               struct cxd56_aca_pwinput_param_s *param);
-static void cxd56_set_mic_out_channel(struct cxd56_dev_s *dev);
-static int cxd56_set_volume(enum cxd56_audio_volid_e id, int16_t vol);
-static void cxd56_swap_buffer_rl(uint32_t addr, uint16_t size);
-static void *cxd56_workerthread(pthread_addr_t pvarg);
-
-/****************************************************************************
- * Private Data
- ****************************************************************************/
-
-static struct cxd56_dev_s *g_dev[CXD56_AUDIO_DMA_COUNT] =
-{
-  NULL
-};
-
-static uint16_t g_codec_start_count = 0;
+/* NuttX Audio Operations */
 
 static const struct audio_ops_s g_audioops =
 {
-  NULL,                /* setup          */
-  cxd56_getcaps,       /* getcaps        */
-  cxd56_configure,     /* configure      */
-  cxd56_shutdown,      /* shutdown       */
-  cxd56_start,         /* start          */
+  cxd56audio_setup,       /* setup          */
+  cxd56audio_getcaps,     /* getcaps        */
+  cxd56audio_config,      /* configure      */
+  cxd56audio_shutdown,    /* shutdown       */
+  cxd56audio_start,       /* start          */
 #ifndef CONFIG_AUDIO_EXCLUDE_STOP
-  cxd56_stop,          /* stop           */
+  cxd56audio_stop,        /* stop           */
 #endif
 #ifndef CONFIG_AUDIO_EXCLUDE_PAUSE_RESUME
-  cxd56_pause,         /* pause          */
-  cxd56_resume,        /* resume         */
+  cxd56audio_pause,       /* pause          */
+  cxd56audio_resume,      /* resume         */
 #endif
-  NULL,                /* alloc_buffer   */
-  NULL,                /* free_buffer    */
-  cxd56_enqueuebuffer, /* enqueue_buffer */
-  cxd56_cancelbuffer,  /* cancel_buffer  */
-  cxd56_ioctl,         /* ioctl          */
-  NULL,                /* read           */
-  NULL,                /* write          */
-  cxd56_reserve,       /* reserve        */
-  cxd56_release        /* release        */
+  NULL,                   /* alloc_buffer   */
+  NULL,                   /* free_buffer    */
+  cxd56audio_enqbuff,     /* enqueue_buffer */
+  cxd56audio_cancelbuff,  /* cancel_buffer  */
+  cxd56audio_ioctl,       /* ioctl          */
+  NULL,                   /* read           */
+  NULL,                   /* write          */
+  cxd56audio_reserve,     /* reserve        */
+  cxd56audio_release      /* release        */
 };
 
-/* AC registers */
+/* File Operations for BEEP device */
 
-const cxd56_aureg_t  REG_AC_REVID =
-{
-  REG_BASE + 0x0000, 16,  8
-};
-const cxd56_aureg_t  REG_AC_DEVICEID =
-{
-  REG_BASE + 0x0000, 24,  8
-};
-const cxd56_aureg_t  REG_AC_PDN_AMICEXT =
-{
-  REG_BASE + 0x0100, 4,  1
-};
-const cxd56_aureg_t  REG_AC_PDN_AMIC1 =
-{
-  REG_BASE + 0x0100, 5,  1
-};
-const cxd56_aureg_t  REG_AC_PDN_AMIC2 =
-{
-  REG_BASE + 0x0100, 6,  1
-};
-const cxd56_aureg_t  REG_AC_PDN_DMIC =
-{
-  REG_BASE + 0x0100, 15,  1
-};
-const cxd56_aureg_t  REG_AC_PDN_DSPB =
-{
-  REG_BASE + 0x0100, 16,  1
-};
-const cxd56_aureg_t  REG_AC_PDN_ANC =
-{
-  REG_BASE + 0x0100, 17,  1
-};
-const cxd56_aureg_t  REG_AC_PDN_DNC1 =
-{
-  REG_BASE + 0x0100, 18,  1
-};
-const cxd56_aureg_t  REG_AC_PDN_DNC2 =
-{
-  REG_BASE + 0x0100, 19,  1
-};
-const cxd56_aureg_t  REG_AC_PDN_SMSTR =
-{
-  REG_BASE + 0x0100, 20,  1
-};
-const cxd56_aureg_t  REG_AC_PDN_DSPS2 =
-{
-  REG_BASE + 0x0100, 21,  1
-};
-const cxd56_aureg_t  REG_AC_PDN_DSPS1 =
-{
-  REG_BASE + 0x0100, 22,  1
-};
-const cxd56_aureg_t  REG_AC_PDN_DSPC =
-{
-  REG_BASE + 0x0100, 23,  1
-};
-const cxd56_aureg_t  REG_AC_FS_FS =
-{
-  REG_BASE + 0x0104,  0,  1
-};
-const cxd56_aureg_t  REG_AC_DECIM0_EN =
-{
-  REG_BASE + 0x0104, 16,  1
-};
-const cxd56_aureg_t  REG_AC_DECIM1_EN =
-{
-  REG_BASE + 0x0104, 17,  1
-};
-const cxd56_aureg_t  REG_AC_SDES_EN =
-{
-  REG_BASE + 0x0104, 18,  1
-};
-const cxd56_aureg_t  REG_AC_MCK_AHBMSTR_EN =
-{
-  REG_BASE + 0x0104, 19,  1
-};
-const cxd56_aureg_t  REG_AC_AU_DAT_SEL2 =
-{
-  REG_BASE + 0x0108, 16,  3
-};
-const cxd56_aureg_t  REG_AC_AU_DAT_SEL1 =
-{
-  REG_BASE + 0x0108, 20,  3
-};
-const cxd56_aureg_t  REG_AC_AU_COD_INSEL3 =
-{
-  REG_BASE + 0x0108, 24,  2
-};
-const cxd56_aureg_t  REG_AC_AU_COD_INSEL2 =
-{
-  REG_BASE + 0x0108, 26,  2
-};
-const cxd56_aureg_t  REG_AC_DSR_RATE =
-{
-  REG_BASE + 0x0200,  0,  3
-};
-const cxd56_aureg_t  REG_AC_DIGSFT =
-{
-  REG_BASE + 0x0200, 12,  1
-};
-const cxd56_aureg_t  REG_AC_SRC1 =
-{
-  REG_BASE + 0x0200, 16,  2
-};
-const cxd56_aureg_t  REG_AC_SRC1IN_SEL =
-{
-  REG_BASE + 0x0200, 18,  2
-};
-const cxd56_aureg_t  REG_AC_SRC2IN_SEL =
-{
-  REG_BASE + 0x0200, 22,  2
-};
-const cxd56_aureg_t  REG_AC_DIF1 =
-{
-  REG_BASE + 0x0200, 27,  1
-};
-const cxd56_aureg_t  REG_AC_SD1MASTER =
-{
-  REG_BASE + 0x0200, 29,  1
-};
-const cxd56_aureg_t  REG_AC_SDCK_OUTENX =
-{
-  REG_BASE + 0x0200, 30,  1
-};
-const cxd56_aureg_t  REG_AC_HI_RES_MODE =
-{
-  REG_BASE + 0x0200, 31,  1
-};
-const cxd56_aureg_t  REG_AC_HPF2_MODE =
-{
-  REG_BASE + 0x0204, 0,  2
-};
-const cxd56_aureg_t  REG_AC_CIC2_GAIN_MODE =
-{
-  REG_BASE + 0x0204, 8,  1
-};
-const cxd56_aureg_t  REG_AC_CIC2IN_SEL =
-{
-  REG_BASE + 0x0204, 9,  1
-};
-const cxd56_aureg_t  REG_AC_HPF1_MODE =
-{
-  REG_BASE + 0x0204, 16,  2
-};
-const cxd56_aureg_t  REG_AC_CIC1_GAIN_MODE =
-{
-  REG_BASE + 0x0204, 24,  1
-};
-const cxd56_aureg_t  REG_AC_CIC1IN_SEL =
-{
-  REG_BASE + 0x0204, 25,  1
-};
-const cxd56_aureg_t  REG_AC_ADC_FS =
-{
-  REG_BASE + 0x0204, 28,  2
-};
-const cxd56_aureg_t  REG_AC_HPF4_MODE =
-{
-  REG_BASE + 0x0208, 0,  2
-};
-const cxd56_aureg_t  REG_AC_CIC4IN_SEL =
-{
-  REG_BASE + 0x0208, 9,  1
-};
-const cxd56_aureg_t  REG_AC_HPF3_MODE =
-{
-  REG_BASE + 0x0208, 16,  2
-};
-const cxd56_aureg_t  REG_AC_CIC3IN_SEL =
-{
-  REG_BASE + 0x0208, 25,  1
-};
-const cxd56_aureg_t  REG_AC_CIC1_RGAIN =
-{
-  REG_BASE + 0x020c,  0, 16
-};
-const cxd56_aureg_t  REG_AC_CIC1_LGAIN =
-{
-  REG_BASE + 0x020c, 16, 16
-};
-const cxd56_aureg_t  REG_AC_CIC2_RGAIN =
-{
-  REG_BASE + 0x0210,  0, 16
-};
-const cxd56_aureg_t  REG_AC_CIC2_LGAIN =
-{
-  REG_BASE + 0x0210, 16, 16
-};
-const cxd56_aureg_t  REG_AC_CIC3_RGAIN =
-{
-  REG_BASE + 0x0214,  0, 16
-};
-const cxd56_aureg_t  REG_AC_CIC3_LGAIN =
-{
-  REG_BASE + 0x0214, 16, 16
-};
-const cxd56_aureg_t  REG_AC_CIC4_RGAIN =
-{
-  REG_BASE + 0x0218,  0, 16
-};
-const cxd56_aureg_t  REG_AC_CIC4_LGAIN =
-{
-  REG_BASE + 0x0218, 16, 16
-};
-const cxd56_aureg_t  REG_AC_SPC_EN =
-{
-  REG_BASE + 0x021c, 15,  1
-};
-const cxd56_aureg_t  REG_AC_ALC_EN =
-{
-  REG_BASE + 0x021c, 31,  1
-};
-const cxd56_aureg_t  REG_AC_CS_VOL =
-{
-  REG_BASE + 0x0228,  0,  7
-};
-const cxd56_aureg_t  REG_AC_CS_SIGN =
-{
-  REG_BASE + 0x0228,  7,  1
-};
-const cxd56_aureg_t  REG_AC_SDIN2_VOL =
-{
-  REG_BASE + 0x0228, 16,  8
-};
-const cxd56_aureg_t  REG_AC_SDIN1_VOL =
-{
-  REG_BASE + 0x0228, 24,  8
-};
-const cxd56_aureg_t  REG_AC_SDIN1_EN =
-{
-  REG_BASE + 0x022c,  0,  1
-};
-const cxd56_aureg_t  REG_AC_SDIN2_EN =
-{
-  REG_BASE + 0x022c,  1,  1
-};
-const cxd56_aureg_t  REG_AC_SDOUT1_EN =
-{
-  REG_BASE + 0x022c,  2,  1
-};
-const cxd56_aureg_t  REG_AC_SDOUT2_EN =
-{
-  REG_BASE + 0x022c,  3,  1
-};
-const cxd56_aureg_t  REG_AC_BLF_EN =
-{
-  REG_BASE + 0x022c,  5,  1
-};
-const cxd56_aureg_t  REG_AC_DAC_VOL =
-{
-  REG_BASE + 0x022c,  8,  8
-};
-const cxd56_aureg_t  REG_AC_DNC2_MUTE =
-{
-  REG_BASE + 0x0304, 22,  1
-};
-const cxd56_aureg_t  REG_AC_DNC2_START =
-{
-  REG_BASE + 0x0304, 23,  1
-};
-const cxd56_aureg_t  REG_AC_DNC1_MUTE =
-{
-  REG_BASE + 0x0304, 30,  1
-};
-const cxd56_aureg_t  REG_AC_DNC1_START =
-{
-  REG_BASE + 0x0304, 31,  1
-};
-const cxd56_aureg_t  REG_AC_DCMFS_34 =
-{
-  REG_BASE + 0x0308, 22,  2
-};
-const cxd56_aureg_t  REG_AC_DCMFS =
-{
-  REG_BASE + 0x0308, 30,  2
-};
-const cxd56_aureg_t  REG_AC_NSX2 =
-{
-  REG_BASE + 0x0340, 30,  1
-};
-const cxd56_aureg_t  REG_AC_NSPMUTE =
-{
-  REG_BASE + 0x0340, 31,  1
-};
-const cxd56_aureg_t  REG_AC_NSDD =
-{
-  REG_BASE + 0x0344,  0, 20
-};
-const cxd56_aureg_t  REG_AC_TEST_OUT_SEL0 =
-{
-  REG_BASE + 0x0400,  6,  1
-};
-const cxd56_aureg_t  REG_AC_S_RESET =
-{
-  REG_BASE + 0x0400,  16,  1
-};
-const cxd56_aureg_t  REG_AC_HALT_INHIBIT =
-{
-  REG_BASE + 0x0400,  19,  1
-};
-const cxd56_aureg_t  REG_AC_ARWPHSET =
-{
-  REG_BASE + 0x0400,  24,  1
-};
-const cxd56_aureg_t  REG_AC_DSPRAM4_CLR =
-{
-  REG_BASE + 0x0400,  28,  1
-};
-const cxd56_aureg_t  REG_AC_DSPRAM3_CLR =
-{
-  REG_BASE + 0x0400,  29,  1
-};
-const cxd56_aureg_t  REG_AC_DSPRAM2_CLR =
-{
-  REG_BASE + 0x0400,  30,  1
-};
-const cxd56_aureg_t  REG_AC_DSPRAM1_CLR =
-{
-  REG_BASE + 0x0400,  31,  1
-};
-const cxd56_aureg_t  REG_AC_SER_MODE =
-{
-  REG_BASE + 0x0500,  0,  1
-};
-const cxd56_aureg_t  REG_AC_PDM_OUT_EN =
-{
-  REG_BASE + 0x0500, 16,  1
-};
-const cxd56_aureg_t  REG_AC_FS_CLK_EN =
-{
-  REG_BASE + 0x0500, 24,  1
-};
-const cxd56_aureg_t  REG_AC_SEL_OUT4_R =
-{
-  REG_BASE + 0x0504,  0,  3
-};
-const cxd56_aureg_t  REG_AC_SEL_OUT4_L =
-{
-  REG_BASE + 0x0504,  4,  3
-};
-const cxd56_aureg_t  REG_AC_SEL_OUT3_R =
-{
-  REG_BASE + 0x0504,  8,  3
-};
-const cxd56_aureg_t  REG_AC_SEL_OUT3_L =
-{
-  REG_BASE + 0x0504, 12,  3
-};
-const cxd56_aureg_t  REG_AC_SEL_OUT2_R =
-{
-  REG_BASE + 0x0504, 16,  3
-};
-const cxd56_aureg_t  REG_AC_SEL_OUT2_L =
-{
-  REG_BASE + 0x0504, 20,  3
-};
-const cxd56_aureg_t  REG_AC_SEL_OUT1_R =
-{
-  REG_BASE + 0x0504, 24,  3
-};
-const cxd56_aureg_t  REG_AC_SEL_OUT1_L =
-{
-  REG_BASE + 0x0504, 28,  3
-};
-const cxd56_aureg_t  REG_AC_OUTEN_MIC1L_B =
-{
-  REG_BASE + 0x0580,  0,  1
-};
-const cxd56_aureg_t  REG_AC_OUTEN_MIC1R_B =
-{
-  REG_BASE + 0x0580,  1,  1
-};
-const cxd56_aureg_t  REG_AC_OUTEN_MIC2L_B =
-{
-  REG_BASE + 0x0580,  2,  1
-};
-const cxd56_aureg_t  REG_AC_OUTEN_MIC2R_B =
-{
-  REG_BASE + 0x0580,  3,  1
-};
-const cxd56_aureg_t  REG_AC_OUTEN_MIC1L_A =
-{
-  REG_BASE + 0x0580,  4,  1
-};
-const cxd56_aureg_t  REG_AC_OUTEN_MIC1R_A =
-{
-  REG_BASE + 0x0580,  5,  1
-};
-const cxd56_aureg_t  REG_AC_OUTEN_MIC2L_A =
-{
-  REG_BASE + 0x0580,  6,  1
-};
-const cxd56_aureg_t  REG_AC_OUTEN_MIC2R_A =
-{
-  REG_BASE + 0x0580,  7,  1
-};
-const cxd56_aureg_t  REG_AC_SEL_OUTF =
-{
-  REG_BASE + 0x0580, 16,  2
-};
-const cxd56_aureg_t  REG_AC_SEL_INF =
-{
-  REG_BASE + 0x0580, 20,  1
-};
-const cxd56_aureg_t  REG_AC_SEL_DECIM =
-{
-  REG_BASE + 0x0580, 24,  1
-};
-const cxd56_aureg_t  REG_AC_DEQ_EN =
-{
-  REG_BASE + 0x0600, 31,  1
-};
-const cxd56_aureg_t  REG_AC_LR_SWAP1 =
-{
-  REG_BASE + 0x0678,  0,  1
-};
+#ifdef CONFIG_CXD56_BEEEPDEV
+static struct file_operations g_cxd56_beep_fops =
+{
+  cxd56_beep_open,
+  cxd56_beep_close,
+  cxd56_beep_read,
+  cxd56_beep_write,
+  NULL, /* seek */
+  cxd56_beep_ioctl,
+  NULL, /* poll */
+#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
+  NULL, /* unlink */
+#endif
+};
+#endif
 
-/* BCA registers */
-
-const cxd56_aureg_t  REG_MIC_IN_START_ADR =
-{
-  REG_BASE + 0x1000,  0,  30
-};
-const cxd56_aureg_t  REG_MIC_IN_SAMPLE_NO =
-{
-  REG_BASE + 0x1004,  0,  32
-};
-const cxd56_aureg_t  REG_MIC_RTD_TRG =
-{
-  REG_BASE + 0x1008,  0,  3
-};
-const cxd56_aureg_t  REG_MIC_IN_BITWT =
-{
-  REG_BASE + 0x100c,  0,  1
-};
-const cxd56_aureg_t  REG_MIC_CH8_SEL =
-{
-  REG_BASE + 0x1010,  0,  4
-};
-const cxd56_aureg_t  REG_MIC_CH7_SEL =
-{
-  REG_BASE + 0x1010,  4,  4
-};
-const cxd56_aureg_t  REG_MIC_CH6_SEL =
-{
-  REG_BASE + 0x1010,  8,  4
-};
-const cxd56_aureg_t  REG_MIC_CH5_SEL =
-{
-  REG_BASE + 0x1010, 12,  4
-};
-const cxd56_aureg_t  REG_MIC_CH4_SEL =
-{
-  REG_BASE + 0x1010, 16,  4
-};
-const cxd56_aureg_t  REG_MIC_CH3_SEL =
-{
-  REG_BASE + 0x1010, 20,  4
-};
-const cxd56_aureg_t  REG_MIC_CH2_SEL =
-{
-  REG_BASE + 0x1010, 24,  4
-};
-const cxd56_aureg_t  REG_MIC_CH1_SEL =
-{
-  REG_BASE + 0x1010, 28,  4
-};
-const cxd56_aureg_t  REG_MIC_MON_START =
-{
-  REG_BASE + 0x1014,  0,  1
-};
-const cxd56_aureg_t  REG_MIC_MON_ERRSET =
-{
-  REG_BASE + 0x1014,  8,  8
-};
-const cxd56_aureg_t  REG_MIC_MON_MONBUF =
-{
-  REG_BASE + 0x1014, 16,  4
-};
-const cxd56_aureg_t  REG_I2S1_OUT_START_ADR =
-{
-  REG_BASE + 0x10c0,  0, 30
-};
-const cxd56_aureg_t  REG_I2S1_OUT_SAMPLE_NO =
-{
-  REG_BASE + 0x10c4,  0, 32
-};
-const cxd56_aureg_t  REG_I2S1_OUT_RTD_TRG =
-{
-  REG_BASE + 0x10c8,  0,  3
-};
-const cxd56_aureg_t  REG_I2S1_OUT_BITWT =
-{
-  REG_BASE + 0x10cc,  0,  1
-};
-const cxd56_aureg_t  REG_I2S1_OUT_SD1_R_SEL =
-{
-  REG_BASE + 0x10d0,  0,  2
-};
-const cxd56_aureg_t  REG_I2S1_OUT_SD1_L_SEL =
-{
-  REG_BASE + 0x10d0,  4,  2
-};
-const cxd56_aureg_t  REG_I2S1_OUT_MON_START =
-{
-  REG_BASE + 0x10d4,  0,  1
-};
-const cxd56_aureg_t  REG_I2S1_OUT_MON_ERRSET =
-{
-  REG_BASE + 0x10d4,  8,  8
-};
-const cxd56_aureg_t  REG_I2S1_OUT_MON_MONBUF =
-{
-  REG_BASE + 0x10d4, 16,  4
-};
-const cxd56_aureg_t  REG_I2S_ENSEL =
-{
-  REG_BASE + 0x1110,  0,  1
-};
-const cxd56_aureg_t  REG_MIC_INT_CTRL_DONE =
-{
-  REG_BASE + 0x1140,  0,  1
-};
-const cxd56_aureg_t  REG_MIC_INT_CTRL_ERR =
-{
-  REG_BASE + 0x1140,  1,  1
-};
-const cxd56_aureg_t  REG_MIC_INT_CTRL_SMP =
-{
-  REG_BASE + 0x1140,  2,  1
-};
-const cxd56_aureg_t  REG_MIC_INT_CTRL_CMB =
-{
-  REG_BASE + 0x1140,  3,  1
-};
-const cxd56_aureg_t  REG_I2S1_INT_CTRL_DONE =
-{
-  REG_BASE + 0x1144,  0,  1
-};
-const cxd56_aureg_t  REG_I2S1_INT_CTRL_ERR =
-{
-  REG_BASE + 0x1144,  1,  1
-};
-const cxd56_aureg_t  REG_I2S1_INT_CTRL_SMP =
-{
-  REG_BASE + 0x1144,  4,  1
-};
-const cxd56_aureg_t  REG_I2S1_INT_CTRL_CMB =
-{
-  REG_BASE + 0x1144,  5,  1
-};
-const cxd56_aureg_t  REG_MIC_INT_MASK_DONE =
-{
-  REG_BASE + 0x114c,  0,  1
-};
-const cxd56_aureg_t  REG_MIC_INT_MASK_ERR =
-{
-  REG_BASE + 0x114c,  1,  1
-};
-const cxd56_aureg_t  REG_MIC_INT_MASK_CMB =
-{
-  REG_BASE + 0x114c,  3,  1
-};
-const cxd56_aureg_t  REG_I2S1_INT_MASK_DONE =
-{
-  REG_BASE + 0x1150,  0,  1
-};
-const cxd56_aureg_t  REG_I2S1_INT_MASK_ERR =
-{
-  REG_BASE + 0x1150,  1,  1
-};
-const cxd56_aureg_t  REG_I2S1_INT_MASK_SMP =
-{
-  REG_BASE + 0x1150,  4,  1
-};
-const cxd56_aureg_t  REG_I2S1_INT_MASK_CMB =
-{
-  REG_BASE + 0x1150,  5,  1
-};
-const cxd56_aureg_t  REG_INT_M_I2S1_BCL_ERR1 =
-{
-  REG_BASE + 0x1158,  8,  1
-};
-const cxd56_aureg_t  REG_INT_M_I2S1_BCL_ERR2 =
-{
-  REG_BASE + 0x1158,  9,  1
-};
-const cxd56_aureg_t  REG_INT_M_OVF_SMASL =
-{
-  REG_BASE + 0x1158, 17,  1
-};
-const cxd56_aureg_t  REG_INT_M_OVF_SMASR =
-{
-  REG_BASE + 0x1158, 18,  1
-};
-const cxd56_aureg_t  REG_INT_HRESP_ERR =
-{
-  REG_BASE + 0x1160,  0,  1
-};
-const cxd56_aureg_t  REG_CLK_EN_AHBMSTR_MIC =
-{
-  REG_BASE + 0x11f0,  0,  1
-};
-const cxd56_aureg_t  REG_CLK_EN_AHBMSTR_I2S1 =
-{
-  REG_BASE + 0x11f0,  1,  1
-};
-const cxd56_aureg_t  REG_AHB_MASTER_MIC_MASK =
-{
-  REG_BASE + 0x1730,  0, 32
-};
-const cxd56_aureg_t  REG_AHB_MASTER_I2S1_MASK =
-{
-  REG_BASE + 0x1f30,  0, 32
-};
-
-/* Interrupt registers */
-
-const cxd56_aureg_t  REG_INT_IRQ1 =
-{
-  REG_BASE_INT + 0x30 + 3 * 4, 0, 32
-};
-const cxd56_aureg_t  REG_INT_EN1 =
-{
-  REG_BASE_INT + 0x10 + 3 * 4, 0, 32
-};
-const cxd56_aureg_t  REG_INT_EN1_BITS =
-{
-  REG_BASE_INT + 0x10 + 3 * 4, 6,  4
-};
-
-/****************************************************************************
+/*****************************************************************************
  * Private Functions
- ****************************************************************************/
+ *****************************************************************************/
 
-static uint32_t read_reg_addr(const cxd56_aureg_t *reg)
+/* CXD5602 Audio HW controls */
+
+static void cxd56_i2s0_config(bool en, uint32_t insrc, uint32_t blf,
+                              bool is_slave, bool high_drv)
 {
-  uint32_t mask;
+  uint8_t mode = (is_slave ? 1 : 0) + (high_drv ? 2 : 0);
 
-  mask = CXD56_GEN_MASK(reg->len, reg->pos);
-  return (*((volatile uint32_t *)reg->addr) & mask) >> reg->pos;
-}
-
-static void write_reg_addr(const cxd56_aureg_t *reg, uint32_t val)
-{
-  uint32_t mask;
-  uint32_t curr;
-
-  mask = CXD56_GEN_MASK(reg->len, reg->pos);
-  curr = *((volatile uint32_t *)reg->addr) & ~mask;
-  *((volatile uint32_t *)reg->addr) = curr | ((val << reg->pos) & mask);
-}
-
-#define read_reg(reg)         (read_reg_addr(&(reg)))
-#define read_reg32(reg)       (*((volatile uint32_t *)(reg).addr))
-#define write_reg(reg, val)   (write_reg_addr(&(reg), (val)))
-#define write_reg32(reg, val) (*((volatile uint32_t *)(reg).addr) = (val))
-
-static void cxd56_int_clear(cxd56_dmahandle_t handle, uint8_t intbits)
-{
-  if (handle == CXD56_AUDIO_DMA_MIC)
+  if (en)
     {
-      if (intbits > CXD56_DMA_INT_ERR)
+      /* IO Pin configuration */
+
+      switch (mode)
         {
-          intbits = (intbits & 0x0f) | ((intbits & 0xf0) >> 2);
+          case 0: /* Master & Low Drive */
+            CXD56_PIN_CONFIGS(PINCONFS_I2S0_M_NORM);
+            break;
+
+          case 1: /* Slave & Low Drive */
+            CXD56_PIN_CONFIGS(PINCONFS_I2S0_S_NORM);
+            break;
+
+          case 2: /* Master & High Drive */
+            CXD56_PIN_CONFIGS(PINCONFS_I2S0_M_HIGH);
+            break;
+
+          case 3: /* Slave & High Drive */
+            CXD56_PIN_CONFIGS(PINCONFS_I2S0_S_HIGH);
+            break;
         }
 
-      write_reg32(REG_MIC_INT_CTRL_DONE, intbits);
-    }
-  else if (handle == CXD56_AUDIO_DMA_I2S0_DOWN)
-    {
-      write_reg32(REG_I2S1_INT_CTRL_DONE, intbits);
-    }
-}
-
-static void cxd56_int_mask(cxd56_dmahandle_t handle, uint8_t intbits)
-{
-  if (handle == CXD56_AUDIO_DMA_MIC)
-    {
-      if (intbits > CXD56_DMA_INT_ERR)
-        {
-          intbits = (intbits & 0x0f) | ((intbits & 0xf0) >> 2);
-        }
-
-      intbits |= read_reg32(REG_MIC_INT_MASK_DONE);
-      write_reg32(REG_MIC_INT_MASK_DONE, intbits);
-    }
-  else if (handle == CXD56_AUDIO_DMA_I2S0_DOWN)
-    {
-      intbits |= read_reg32(REG_I2S1_INT_MASK_DONE);
-      write_reg32(REG_I2S1_INT_MASK_DONE, intbits);
-    }
-}
-
-static void cxd56_int_unmask(cxd56_dmahandle_t handle, uint8_t intbits)
-{
-  uint32_t curr;
-
-  if (handle == CXD56_AUDIO_DMA_MIC)
-    {
-      if (intbits > CXD56_DMA_INT_ERR)
-        {
-          intbits = (intbits & 0x0f) | ((intbits & 0xf0) >> 2);
-        }
-
-      curr = read_reg32(REG_MIC_INT_MASK_DONE);
-      write_reg32(REG_MIC_INT_MASK_DONE, curr & ~intbits);
-    }
-  else if (handle == CXD56_AUDIO_DMA_I2S0_DOWN)
-    {
-      curr = read_reg32(REG_I2S1_INT_MASK_DONE);
-      write_reg32(REG_I2S1_INT_MASK_DONE, curr & ~intbits);
-    }
-}
-
-static void cxd56_int_unmask_ahb(cxd56_dmahandle_t handle)
-{
-  if (handle == CXD56_AUDIO_DMA_MIC)
-    {
-      write_reg32(REG_AHB_MASTER_MIC_MASK, 0x00000303);
-    }
-  else if (handle == CXD56_AUDIO_DMA_I2S0_DOWN)
-    {
-      write_reg32(REG_AHB_MASTER_I2S1_MASK, 0x00000202);
-    }
-}
-
-static uint32_t cxd56_int_get_state(cxd56_dmahandle_t handle)
-{
-  if (handle == CXD56_AUDIO_DMA_MIC)
-    {
-      return (0x3f & read_reg32(REG_MIC_INT_CTRL_DONE)
-              & ~(read_reg32(REG_MIC_INT_MASK_DONE)));
-    }
-  else if (handle == CXD56_AUDIO_DMA_I2S0_DOWN)
-    {
-      return (0x3f & read_reg32(REG_I2S1_INT_CTRL_DONE)
-              & ~(read_reg32(REG_I2S1_INT_MASK_DONE)));
-    }
-
-  return 0;
-}
-
-static uint32_t cxd56_int_has_error(cxd56_dmahandle_t handle)
-{
-  if (handle == CXD56_AUDIO_DMA_MIC)
-    {
-      return read_reg(REG_MIC_INT_CTRL_ERR);
-    }
-  else if (handle == CXD56_AUDIO_DMA_I2S0_DOWN)
-    {
-      return read_reg(REG_I2S1_INT_CTRL_ERR);
-    }
-
-  return 0;
-}
-
-static uint32_t cxd56_int_is_done(cxd56_dmahandle_t handle)
-{
-  if (handle == CXD56_AUDIO_DMA_MIC)
-    {
-      return read_reg(REG_MIC_INT_CTRL_DONE);
-    }
-  else if (handle == CXD56_AUDIO_DMA_I2S0_DOWN)
-    {
-      return read_reg(REG_I2S1_INT_CTRL_DONE);
-    }
-
-  return 0;
-}
-
-static uint32_t cxd56_int_has_smp(cxd56_dmahandle_t handle)
-{
-  if (handle == CXD56_AUDIO_DMA_MIC)
-    {
-      return read_reg(REG_MIC_INT_CTRL_SMP);
-    }
-  else if (handle == CXD56_AUDIO_DMA_I2S0_DOWN)
-    {
-      return read_reg(REG_I2S1_INT_CTRL_SMP);
-    }
-
-  return 0;
-}
-
-static uint8_t cxd56_get_mon_buf(cxd56_dmahandle_t handle)
-{
-  if (handle == CXD56_AUDIO_DMA_MIC)
-    {
-      return read_reg(REG_MIC_MON_MONBUF);
-    }
-  else if (handle == CXD56_AUDIO_DMA_I2S0_DOWN)
-    {
-      return read_reg(REG_I2S1_OUT_MON_MONBUF);
-    }
-
-  return 0;
-}
-
-static uint8_t cxd56_get_mon_err(cxd56_dmahandle_t handle)
-{
-  if (handle == CXD56_AUDIO_DMA_MIC)
-    {
-      return read_reg(REG_MIC_MON_ERRSET);
-    }
-  else if (handle == CXD56_AUDIO_DMA_I2S0_DOWN)
-    {
-      return read_reg(REG_I2S1_OUT_MON_ERRSET);
-    }
-
-  return 0;
-}
-
-static uint8_t cxd56_dma_is_busy(cxd56_dmahandle_t handle)
-{
-  if (handle == CXD56_AUDIO_DMA_MIC)
-    {
-      return read_reg(REG_MIC_RTD_TRG) != CXD56_DMA_CMD_FIFO_NOT_FULL;
-    }
-  else if (handle == CXD56_AUDIO_DMA_I2S0_DOWN)
-    {
-      return read_reg(REG_I2S1_OUT_RTD_TRG) != CXD56_DMA_CMD_FIFO_NOT_FULL;
-    }
-
-  return 0;
-}
-
-static void cxd56_reset_channel_sel(cxd56_dmahandle_t handle)
-{
-  uint32_t sel;
-
-  if (handle == CXD56_AUDIO_DMA_MIC)
-    {
-      sel = read_reg32(REG_MIC_CH8_SEL);
-      write_reg32(REG_MIC_CH8_SEL, 0xffffffff);
-      write_reg32(REG_MIC_CH8_SEL, sel);
-    }
-  else if (handle == CXD56_AUDIO_DMA_I2S0_DOWN)
-    {
-      sel = read_reg32(REG_I2S1_OUT_SD1_R_SEL);
-      write_reg32(REG_I2S1_OUT_SD1_R_SEL, 0xffffffff);
-      write_reg32(REG_I2S1_OUT_SD1_R_SEL, sel);
-    }
-}
-
-#ifdef CONFIG_AUDIO_CXD56_SRC
-static void _process_audio_with_src(cxd56_dmahandle_t hdl, uint16_t err_code)
-{
-  struct audio_msg_s msg;
-  struct cxd56_dev_s *dev;
-  irqstate_t flags;
-  bool request_buffer = true;
-  int ret;
-
-  dev = g_dev[hdl];
-
-  /* Trigger new DMA job */
-
-  flags = spin_lock_irqsave(&dev->lock);
-
-  if (err_code == CXD56_AUDIO_ECODE_DMA_TRANS)
-    {
-      /* Notify end of data */
-
-      if (dev->state != CXD56_DEV_STATE_PAUSED &&
-          dev->state != CXD56_DEV_STATE_STOPPED &&
-          dq_count(&dev->down_pendq) == 0)
-        {
-          msg.msg_id = AUDIO_MSG_STOP;
-          msg.u.data = 0;
-          spin_unlock_irqrestore(&dev->lock, flags);
-          ret = file_mq_send(&dev->mq, (const char *)&msg,
-                             sizeof(msg), CONFIG_CXD56_MSG_PRIO);
-          flags = spin_lock_irqsave(&dev->lock);
-          if (ret != OK)
-            {
-              auderr("ERROR: file_mq_send to stop failed (%d)\n", ret);
-            }
-        }
-    }
-
-  if (dq_count(&dev->down_runq) > 0)
-    {
-      struct ap_buffer_s *src_apb;
-
-      src_apb = (struct ap_buffer_s *) dq_get(&dev->down_runq);
-      src_apb->nbytes = 0;
-      dq_put(&dev->down_doneq, &src_apb->dq_entry);
-
-      if (src_apb->flags & AUDIO_APB_SRC_FINAL)
-        {
-          struct ap_buffer_s *apb;
-
-          apb = (struct ap_buffer_s *) dq_get(&dev->up_runq);
-          spin_unlock_irqrestore(&dev->lock, flags);
-          dev->dev.upper(dev->dev.priv, AUDIO_CALLBACK_DEQUEUE, apb, OK);
-          flags = spin_lock_irqsave(&dev->lock);
-
-          /* End of data? */
-
-          if ((apb->flags & AUDIO_APB_FINAL) != 0)
-            {
-              msg.msg_id = AUDIO_MSG_STOP;
-              msg.u.data = 0;
-              spin_unlock_irqrestore(&dev->lock, flags);
-              ret = file_mq_send(&dev->mq, (const char *)&msg,
-                                 sizeof(msg), CONFIG_CXD56_MSG_PRIO);
-              flags = spin_lock_irqsave(&dev->lock);
-              if (ret != OK)
-                {
-                  auderr("ERROR: file_mq_send to stop failed (%d)\n", ret);
-                }
-
-              request_buffer = false;
-            }
-        }
-    }
-
-  if (request_buffer && dev->mq.f_inode != NULL)
-    {
-      /* Request more data */
-
-      msg.msg_id = AUDIO_MSG_DATA_REQUEST;
-      msg.u.data = 0;
-      spin_unlock_irqrestore(&dev->lock, flags);
-      ret = file_mq_send(&dev->mq, (const char *) &msg,
-                         sizeof(msg), CONFIG_CXD56_MSG_PRIO);
-      flags = spin_lock_irqsave(&dev->lock);
-      if (ret != OK)
-        {
-          auderr("ERROR: file_mq_send to request failed (%d)\n", ret);
-        }
-    }
-
-  spin_unlock_irqrestore(&dev->lock, flags);
-}
-
-#else
-static void _process_audio(cxd56_dmahandle_t hdl, uint16_t err_code)
-{
-  struct audio_msg_s msg;
-  struct cxd56_dev_s *dev;
-  irqstate_t flags;
-  int ret;
-
-  dev = g_dev[hdl];
-
-  /* Trigger new DMA job */
-
-  flags = spin_lock_irqsave(&dev->lock);
-
-  if (dq_count(&dev->up_runq) > 0)
-    {
-      struct ap_buffer_s *apb;
-
-      apb = (struct ap_buffer_s *) dq_get(&dev->up_runq);
-      spin_unlock_irqrestore(&dev->lock, flags);
-      dev->dev.upper(dev->dev.priv, AUDIO_CALLBACK_DEQUEUE, apb, OK);
-      flags = spin_lock_irqsave(&dev->lock);
-    }
-
-  spin_unlock_irqrestore(&dev->lock, flags);
-
-  if (err_code == CXD56_AUDIO_ECODE_DMA_TRANS)
-    {
-      /* Notify end of data */
-
-      if (dev->state != CXD56_DEV_STATE_PAUSED &&
-          dev->state != CXD56_DEV_STATE_STOPPED)
-        {
-          audinfo("DMA_TRANS up_pendq=%d\n",
-                 dq_count(&dev->up_pendq));
-          msg.msg_id = AUDIO_MSG_STOP;
-          msg.u.data = 0;
-          ret = file_mq_send(&dev->mq, (const char *)&msg,
-                             sizeof(msg), CONFIG_CXD56_MSG_PRIO);
-          if (ret != OK)
-            {
-              auderr("ERROR: file_mq_send to stop failed (%d)\n", ret);
-            }
-        }
-    }
-  else if (dev->mq.f_inode != NULL)
-    {
-      /* Request more data */
-
-      msg.msg_id = AUDIO_MSG_DATA_REQUEST;
-      msg.u.data = 0;
-      ret = file_mq_send(&dev->mq, (const char *) &msg,
-                         sizeof(msg), CONFIG_CXD56_MSG_PRIO);
-      if (ret != OK)
-        {
-          auderr("ERROR: file_mq_send to request failed (%d)\n", ret);
-        }
-    }
-}
-#endif
-
-static void cxd56_dma_int_handler(void)
-{
-  uint16_t err_code;
-  uint32_t int_irq;
-  uint32_t int_i2s;
-  uint32_t int_mic;
-  cxd56_dmahandle_t hdl;
-
-  err_code = CXD56_AUDIO_ECODE_DMA_HANDLE_INV;
-  int_irq = read_reg32(REG_INT_IRQ1);
-  int_i2s = cxd56_int_get_state(CXD56_AUDIO_DMA_I2S0_DOWN);
-  int_mic = cxd56_int_get_state(CXD56_AUDIO_DMA_MIC);
-
-  if ((int_irq & CXD56_IRQ1_BIT_MIC) && (int_mic != 0))
-    {
-      hdl = CXD56_AUDIO_DMA_MIC;
-
-      write_reg32(REG_MIC_INT_CTRL_DONE, int_mic);
-
-      if (int_mic & (1 << REG_MIC_INT_CTRL_DONE.pos))
-        {
-          err_code = CXD56_AUDIO_ECODE_DMA_CMPLT;
-        }
-
-      if (int_mic & (1 << REG_MIC_INT_CTRL_ERR.pos))
-        {
-          /* Mask and clear transfer error interrupt */
-
-          write_reg(REG_MIC_INT_MASK_ERR, 1);
-          write_reg(REG_MIC_INT_CTRL_ERR, 1);
-
-          err_code = CXD56_AUDIO_ECODE_DMA_TRANS;
-        }
-
-      if (int_mic & (1 << REG_MIC_INT_CTRL_CMB.pos))
-        {
-          /* Mask and clear bus error interrupt */
-
-          write_reg(REG_MIC_INT_MASK_CMB, 1);
-          write_reg(REG_MIC_INT_CTRL_CMB, 1);
-
-          err_code = CXD56_AUDIO_ECODE_DMA_CMB;
-        }
-    }
-  else if ((int_irq & CXD56_IRQ1_BIT_I2S1) && (int_i2s != 0))
-    {
-      hdl = CXD56_AUDIO_DMA_I2S0_DOWN;
-
-      write_reg32(REG_I2S1_INT_CTRL_DONE, int_i2s);
-
-      if (int_i2s & (1 << REG_I2S1_INT_CTRL_DONE.pos))
-        {
-          err_code = CXD56_AUDIO_ECODE_DMA_CMPLT;
-        }
-
-      if (int_i2s & (1 << REG_I2S1_INT_CTRL_ERR.pos))
-        {
-          /* Mask and clear transfer error interrupt */
-
-          write_reg(REG_I2S1_INT_MASK_ERR, 1);
-          write_reg(REG_I2S1_INT_CTRL_ERR, 1);
-
-          err_code = CXD56_AUDIO_ECODE_DMA_TRANS;
-
-          auderr("ERROR: I2S0 transfer failed.\n");
-        }
-
-      if (int_i2s & (1 << REG_I2S1_INT_CTRL_CMB.pos))
-        {
-          /* Mask and clear bus error interrupt */
-
-          write_reg(REG_I2S1_INT_MASK_CMB, 1);
-          write_reg(REG_I2S1_INT_CTRL_CMB, 1);
-
-          err_code = CXD56_AUDIO_ECODE_DMA_CMB;
-
-          auderr("ERROR: I2S0 bus error.\n");
-        }
+      cxd56_waureg(AUREG_SD1MASTER, is_slave ? CXD56_AUDI2S_SLAVE :
+                                               CXD56_AUDI2S_MASTER);
+      cxd56_waureg(AUREG_I2S0_FMT,        CXD56_AUDI2SFMT_ORG);
+      cxd56_waureg(AUREG_I2S1_FILTBYPASS, CXD56_AUDBLK_EN);
+      cxd56_waureg(AUREG_SDOUT1_EN,       CXD56_AUDBLK_EN);
+      cxd56_waureg(AUREG_SDIN1_EN,        CXD56_AUDBLK_EN);
+      cxd56_waureg(AUREG_M_SPCLKERR1,     CXD56_AUDBLK_DIS);
+      cxd56_waureg(AUREG_SRC1IN_SEL,      insrc);
+
+      /* Sampling Rate Converter Frequency range setting */
+
+      cxd56_waureg(AUREG_SRC1,            blf);
     }
   else
     {
-      audinfo("Unhandled interrupt\n");
-
-      return;
-    }
-
-  if (err_code != CXD56_AUDIO_ECODE_DMA_HANDLE_INV)
-    {
-#ifdef CONFIG_AUDIO_CXD56_SRC
-    _process_audio_with_src(hdl, err_code);
-#else
-    _process_audio(hdl, err_code);
-#endif
+      cxd56_waureg(AUREG_SD1MASTER,       CXD56_AUDI2S_MASTER);
+      cxd56_waureg(AUREG_I2S0_FMT,        CXD56_AUDI2SFMT_ORG);
+      cxd56_waureg(AUREG_I2S1_FILTBYPASS, CXD56_AUDBLK_EN);
+      cxd56_waureg(AUREG_SDOUT1_EN,       CXD56_AUDBLK_DIS);
+      cxd56_waureg(AUREG_SDIN1_EN,        CXD56_AUDBLK_DIS);
+      cxd56_waureg(AUREG_M_SPCLKERR1,     CXD56_AUDBLK_DIS);
+      cxd56_waureg(AUREG_SRC1IN_SEL,      CXD56_AUDI2SINDATA_I2S0DMA);
+      cxd56_waureg(AUREG_SRC1,            CXD56_AUDI2SSRC_NOSRC);
+      CXD56_PIN_CONFIGS(PINCONFS_I2S0_GPIO);
     }
 }
 
-static int cxd56_attach_irq(bool attach)
+static void cxd56_i2s1_config(bool en, uint32_t insrc, uint32_t blf,
+                              bool is_slave, bool high_drv)
 {
-  int ret;
-  int cur_irq;
-  const int audio_irqs[4] = {
-    CXD56_IRQ_AUDIO_0,
-    CXD56_IRQ_AUDIO_1,
-    CXD56_IRQ_AUDIO_2,
-    CXD56_IRQ_AUDIO_3
-  };
+  uint8_t mode = (is_slave ? 1 : 0) + (high_drv ? 2 : 0);
 
-  cur_irq = 4;
-  if (attach)
+  if (en)
     {
-      do
+      switch (mode)
         {
-          cur_irq--;
-          ret = irq_attach(audio_irqs[cur_irq],
-                           (xcpt_t)cxd56_dma_int_handler, NULL);
-          if (ret != OK)
-            {
-              auderr("ERROR: Failed to attach handler to irq %d. (%d)\n",
-                     cur_irq, ret);
-              return ret;
-            }
+          case 0: /* Master & Low Drive */
+            CXD56_PIN_CONFIGS(PINCONFS_I2S1_M_NORM);
+            break;
+
+          case 1: /* Slave & Low Drive */
+            CXD56_PIN_CONFIGS(PINCONFS_I2S1_S_NORM);
+            break;
+
+          case 2: /* Master & High Drive */
+            CXD56_PIN_CONFIGS(PINCONFS_I2S1_M_HIGH);
+            break;
+
+          case 3: /* Slave & High Drive */
+            CXD56_PIN_CONFIGS(PINCONFS_I2S1_S_HIGH);
+            break;
         }
-      while (cur_irq > 0);
+
+      cxd56_waureg(AUREG_SD2MASTER, is_slave ? CXD56_AUDI2S_SLAVE :
+                                               CXD56_AUDI2S_MASTER);
+      cxd56_waureg(AUREG_I2S1_FMT,        CXD56_AUDI2SFMT_ORG);
+      cxd56_waureg(AUREG_I2S2_FILTBYPASS, CXD56_AUDBLK_EN);
+      cxd56_waureg(AUREG_SDOUT2_EN,       CXD56_AUDBLK_EN);
+      cxd56_waureg(AUREG_SDIN2_EN,        CXD56_AUDBLK_EN);
+      cxd56_waureg(AUREG_M_SPCLKERR2,     CXD56_AUDBLK_DIS);
+      cxd56_waureg(AUREG_SRC2IN_SEL,      insrc);
+
+      /* Sampling Rate Converter Frequency range setting */
+
+      cxd56_waureg(AUREG_SRC2,            blf);
     }
   else
     {
-      do
+      cxd56_waureg(AUREG_SD2MASTER,       CXD56_AUDI2S_MASTER);
+      cxd56_waureg(AUREG_I2S1_FMT,        CXD56_AUDI2SFMT_ORG);
+      cxd56_waureg(AUREG_I2S2_FILTBYPASS, CXD56_AUDBLK_EN);
+      cxd56_waureg(AUREG_SDOUT2_EN,       CXD56_AUDBLK_DIS);
+      cxd56_waureg(AUREG_SDIN2_EN,        CXD56_AUDBLK_DIS);
+      cxd56_waureg(AUREG_M_SPCLKERR2,     CXD56_AUDBLK_DIS);
+      cxd56_waureg(AUREG_SRC2IN_SEL,      CXD56_AUDI2SINDATA_I2S1DMA);
+      cxd56_waureg(AUREG_SRC2,            CXD56_AUDI2SSRC_NOSRC);
+      CXD56_PIN_CONFIGS(PINCONFS_I2S1_GPIO);
+    }
+}
+
+static void cxd5247_power_en(bool en)
+{
+  board_power_control(POWER_AUDIO_AVDD, en);
+  board_power_control(POWER_AUDIO_DVDD, en);
+}
+
+static void cxd5247_reset(bool en)
+{
+  cxd56_gpio_write(CXD5247_XRST, en ? 0 : 1);
+}
+
+static void cxd56_cxd5247_pinconfig(bool en, bool high_drv)
+{
+  cxd56_gpio_config(CXD5247_XRST, false);
+  cxd5247_reset(true);
+
+  if (en)
+    {
+      CXD56_PIN_CONFIGS(PINCONFS_MCLK);
+      if (high_drv)
         {
-          cur_irq--;
-          ret = irq_detach(audio_irqs[cur_irq]);
-          if (ret != OK)
-            {
-              auderr("ERROR: Failed to detach handler from irq %d. (%d)\n",
-                     cur_irq, ret);
-              return ret;
-            }
-        }
-      while (cur_irq > 0);
-    }
-
-  return OK;
-}
-
-static void cxd56_enable_irq(bool enable)
-{
-  if (enable)
-    {
-      up_enable_irq(CXD56_IRQ_AUDIO_0);
-      up_enable_irq(CXD56_IRQ_AUDIO_1);
-      up_enable_irq(CXD56_IRQ_AUDIO_2);
-    }
-  else
-    {
-      up_disable_irq(CXD56_IRQ_AUDIO_0);
-      up_disable_irq(CXD56_IRQ_AUDIO_1);
-      up_disable_irq(CXD56_IRQ_AUDIO_2);
-    }
-}
-
-static int cxd56_set_volume(enum cxd56_audio_volid_e id, int16_t vol)
-{
-  int ret;
-
-  if (vol == CXD56_VOL_MUTE)
-    {
-      vol = CXD56_VOL_MUTE_REG;
-    }
-  else
-    {
-      vol = CXD56_VOL_TO_REG(vol);
-    }
-
-  switch (id)
-    {
-      case CXD56_AUDIO_VOLID_MIXER_IN1:
-        write_reg(REG_AC_SDIN1_VOL, vol);
-        break;
-      case CXD56_AUDIO_VOLID_MIXER_IN2:
-        write_reg(REG_AC_SDIN2_VOL, vol);
-        break;
-      case CXD56_AUDIO_VOLID_MIXER_OUT:
-        write_reg(REG_AC_DAC_VOL, vol);
-        break;
-    }
-
-  if (vol == CXD56_VOL_MUTE_REG)
-    {
-      /* Disable analog out */
-
-      ret = fw_as_acacontrol(CXD56_ACA_CTL_SET_OUTPUT_DEVICE,
-                           (uint32_t)CXD56_OUT_DEV_OFF);
-      if (ret != CXD56_AUDIO_ECODE_OK)
-        {
-          auderr("ERROR: Set output device for mute failed (%d)\n", ret);
-          return -EBUSY;
-        }
-    }
-  else
-    {
-      /* Enable analog out */
-
-      ret = fw_as_acacontrol(CXD56_ACA_CTL_SET_OUTPUT_DEVICE,
-                           (uint32_t)CXD56_OUT_DEV_SP);
-      if (ret != CXD56_AUDIO_ECODE_OK)
-        {
-          auderr("ERROR: Set output device for volume failed (%d)\n", ret);
-          return -EBUSY;
-        }
-    }
-
-  return OK;
-}
-
-static void cxd56_init_mic_input(uint8_t mic_num, uint8_t bits)
-{
-  uint8_t i;
-
-  const cxd56_aureg_t mic_ch_sel[] =
-    {
-      REG_MIC_CH1_SEL,
-      REG_MIC_CH2_SEL,
-      REG_MIC_CH3_SEL,
-      REG_MIC_CH4_SEL,
-      REG_MIC_CH5_SEL,
-      REG_MIC_CH6_SEL,
-      REG_MIC_CH7_SEL,
-      REG_MIC_CH8_SEL
-    };
-
-  if (bits == 16)
-    {
-      mic_num = (mic_num + 1) / 2;
-      mic_num = (mic_num > CXD56_MIC_TRANS_CH_16BIT) ?
-                CXD56_MIC_TRANS_CH_16BIT : mic_num;
-
-      write_reg(REG_MIC_IN_BITWT, 1);
-    }
-  else
-    {
-      mic_num = (mic_num > CXD56_MIC_TRANS_CH_24BIT) ?
-                CXD56_MIC_TRANS_CH_24BIT : mic_num;
-
-      write_reg(REG_MIC_IN_BITWT, 0);
-    }
-
-  for (i = 0; i < mic_num; i++)
-    {
-      write_reg(mic_ch_sel[i], i);
-    }
-
-  for (i = mic_num; i < CXD56_IN_CHANNELS_MAX; i++)
-    {
-      write_reg(mic_ch_sel[i], 8);
-    }
-
-  write_reg(REG_CLK_EN_AHBMSTR_MIC, 1);
-  write_reg(REG_MIC_IN_START_ADR,   0x00000000);
-  write_reg(REG_MIC_IN_SAMPLE_NO,   0);
-}
-
-static void cxd56_init_i2s1_output(uint8_t bits)
-{
-  write_reg(REG_I2S1_OUT_SD1_L_SEL, 1);
-  write_reg(REG_I2S1_OUT_SD1_R_SEL, 0);
-  write_reg(REG_I2S1_OUT_BITWT, (bits == 16));
-  write_reg(REG_CLK_EN_AHBMSTR_I2S1, 1);
-  write_reg(REG_I2S1_OUT_START_ADR, 0);
-  write_reg(REG_I2S1_OUT_SAMPLE_NO, 0);
-}
-
-static void cxd56_set_dma_int_en(bool enabled)
-{
-  if (enabled)
-    {
-      write_reg(REG_INT_EN1_BITS, 0xf);
-      write_reg(REG_INT_HRESP_ERR, 1);
-    }
-  else
-    {
-      write_reg32(REG_INT_EN1_BITS, 0x0);
-      write_reg32(REG_INT_HRESP_ERR, 0);
-    }
-}
-
-static void cxd56_set_dma_running(cxd56_dmahandle_t handle, bool running)
-{
-  if (handle == CXD56_AUDIO_DMA_MIC)
-    {
-      write_reg(REG_MIC_RTD_TRG, (running ? 0x01 : 0x04));
-    }
-  else if (handle == CXD56_AUDIO_DMA_I2S0_DOWN)
-    {
-      write_reg(REG_I2S1_OUT_RTD_TRG, (running ? 0x01 : 0x04));
-    }
-}
-
-static void cxd56_init_dma(struct cxd56_dev_s *dev)
-{
-  uint8_t err;
-  uint8_t ints;
-
-  audinfo("cxd56_init_dma: state = %d, hdl = %d.\n",
-          dev->state,
-          dev->dma_handle);
-
-  dq_init(&dev->up_pendq);
-  dq_init(&dev->up_runq);
-#ifdef CONFIG_AUDIO_CXD56_SRC
-  dq_init(&dev->down_pendq);
-  dq_init(&dev->down_runq);
-  dq_init(&dev->down_doneq);
-#endif
-
-  ints = CXD56_DMA_INT_DONE | CXD56_DMA_INT_ERR | CXD56_DMA_INT_CMB;
-
-  /* Enable DMA */
-
-  write_reg(REG_AC_MCK_AHBMSTR_EN, 1);
-
-  /* Setup output, bit width etc */
-
-  if (dev->dma_handle == CXD56_AUDIO_DMA_MIC)
-    {
-      cxd56_set_mic_out_channel(dev);
-      cxd56_init_mic_input(dev->channels, dev->bitwidth);
-    }
-  else
-    {
-      cxd56_init_i2s1_output(dev->bitwidth);
-    }
-
-  /* Clear interrupt states */
-
-  cxd56_int_clear(dev->dma_handle, ints);
-
-  /* Enable interrupts */
-
-  cxd56_int_unmask(dev->dma_handle, ints);
-  cxd56_int_unmask_ahb(dev->dma_handle);
-
-  /* Check channel setting. */
-
-  err = cxd56_get_mon_err(dev->dma_handle);
-  if (err == CXD56_DMA_MSTATE_ERR_NO_ENABLE_CH)
-    {
-      auderr("ERROR: No enabled channel for %d\n", dev->dma_handle);
-    }
-  else if (err == CXD56_DMA_MSTATE_ERR_CH1_4_INVALID)
-    {
-      auderr("ERROR: Channel 1-4 invalid for %d\n", dev->dma_handle);
-    }
-  else if (err == CXD56_DMA_MSTATE_ERR_CH5_8_INVALID)
-    {
-      auderr("ERROR: Channel 5-8 invalid for %d\n", dev->dma_handle);
-    }
-
-  cxd56_set_dma_int_en(true);
-}
-
-static uint32_t cxd56_get_i2s_rate(uint32_t samplerate)
-{
-  if (samplerate <= 48000)
-    {
-      return 1;   /* low */
-    }
-  else if (samplerate <= 96000)
-    {
-      return 2;   /* medium */
-    }
-
-  return 3;       /* high */
-}
-
-static void cxd56_power_on_i2s1(struct cxd56_dev_s *dev)
-{
-  uint32_t rate;
-
-  write_reg(REG_AC_PDN_DSPS1, 0);                     /* Power on SRC1 */
-  write_reg(REG_AC_SD1MASTER, CXD56_I2S1_MODE);       /* I2S1 mode */
-  write_reg(REG_AC_DIF1, CXD56_I2S1_FORMAT);          /* I2S1 format */
-  write_reg(REG_AC_LR_SWAP1, CXD56_I2S1_FORMAT);
-  write_reg(REG_AC_TEST_OUT_SEL0, CXD56_I2S1_BYPASS); /* I2S1 bypass mode */
-
-  rate = cxd56_get_i2s_rate(CXD56_I2S1_DATA_RATE);
-  write_reg(REG_AC_SRC1, rate);                       /* I2S1 rate */
-}
-
-static int cxd56_power_on_aca(uint32_t samplerate)
-{
-  struct cxd56_ser_des_param_s ser_param;
-  struct cxd56_aca_pwon_param_s pwon_param;
-  uint8_t mic_mode;
-  uint8_t mic_sel;
-  uint8_t i;
-
-  if (fw_as_acacontrol(CXD56_ACA_CTL_CHECK_ID, 0) != 0)
-    {
-      return -ENXIO;
-    }
-
-  if (samplerate > 48000)
-    {
-      pwon_param.osc_mode = (CXD56_AUDIO_MCLK == CXD56_XTAL_24_576MHZ ?
-                             CXD56_ACA_OSC_24_576MHZ_HIRES :
-                             CXD56_ACA_OSC_49_152MHZ_HIRES);
-    }
-  else
-    {
-      pwon_param.osc_mode = (CXD56_AUDIO_MCLK == CXD56_XTAL_24_576MHZ ?
-                             CXD56_ACA_OSC_24_576MHZ :
-                             CXD56_ACA_OSC_49_152MHZ);
-    }
-
-  pwon_param.dmic_clk_ds = CXD56_DMIC_CLK_DS;
-  pwon_param.ad_data_ds = CXD56_DA_DS;
-  pwon_param.mic_dev = CXD56_ACA_MIC_AMIC;
-  pwon_param.mclk_ds = CXD56_MCLKOUT_DS;
-  pwon_param.gpo_ds = CXD56_GPO_A_DS;
-
-  if (fw_as_acacontrol(CXD56_ACA_CTL_POWER_ON_COMMON,
-                    (uint32_t)&pwon_param) != 0)
-    {
-      return -EBUSY;
-    }
-
-  /* MIC SETUP */
-
-  mic_mode = cxd56_get_mic_mode();
-
-  if (CXD56_AUDIO_CFG_MIC_MODE_128FS == mic_mode)
-    {
-      ser_param.ser_mode = CXD56_SER_MODE_4CH;
-      ser_param.ser_fs   = CXD56_SER_FS_128;
-    }
-  else
-    {
-      ser_param.ser_mode = CXD56_SER_MODE_8CH;
-      ser_param.ser_fs   = CXD56_SER_FS_64;
-    }
-
-  for (i = 0; i < CXD56_IN_CHANNELS_MAX; i++)
-    {
-      mic_sel = (CXD56_AUDIO_CFG_MIC >> (i * CXD56_MIC_CH_BITNUM)) &
-                CXD56_MIC_CH_BITMAP;
-      ser_param.sel_ch.in[i] = (enum cxd56_pulco_ser_sel_ch_id_e)mic_sel;
-    }
-
-  if (fw_as_acacontrol(CXD56_ACA_CTL_SET_SERDES, (uint32_t)&ser_param) != 0)
-    {
-      return -EBUSY;
-    }
-
-  return OK;
-}
-
-static int cxd56_power_on_analog_output(struct cxd56_dev_s *dev)
-{
-  struct cxd56_aca_smaster_param_s smaster_param;
-  struct cxd56_aca_pwoutput_param_s pwon_param;
-
-  if (dev->samplerate > 48000)
-    {
-      smaster_param.mode   = CXD56_SMSTR_MODE_FS_32;
-      smaster_param.mck_fs = CXD56_SMSTR_MCK_FS_1024;
-      pwon_param.mode      = CXD56_SMSTR_MODE_FS_32;
-    }
-  else
-    {
-      smaster_param.mode   = CXD56_SMSTR_MODE_FS_16;
-      smaster_param.mck_fs = CXD56_SMSTR_MCK_FS_512;
-      pwon_param.mode      = CXD56_SMSTR_MODE_FS_16;
-    }
-
-  smaster_param.ch_sel   = CXD56_SMSTR_CHSEL_NORMAL;
-  smaster_param.out2dly  = 0x00;
-  smaster_param.pwm_mode = CXD56_SMSTR_PWMMD_BOTH;
-
-  pwon_param.out_dev     = CXD56_ACA_OUT_OFF;
-  pwon_param.pwm_out[0]  = CXD56_ACA_PWMOUT_UNKNOWN;
-  pwon_param.pwm_out[1]  = CXD56_ACA_PWMOUT_UNKNOWN;
-  pwon_param.sp_delay    = CXD56_ACA_SP_DELAY_SEL_UNKNOWN;
-  pwon_param.loop_mode   = CXD56_ACA_SP_LOOP_MODE_UNKNOWN;
-  pwon_param.sp_dly_free = CXD56_ACA_SP_DLY_FREE_UNKNOWN;
-  pwon_param.sp_spliton  = CXD56_SP_SPLIT_ON;
-  pwon_param.sp_drv      = CXD56_SP_DRIVER;
-
-  if (fw_as_acacontrol(CXD56_ACA_CTL_SET_SMASTER,
-                    (uint32_t)&smaster_param) != 0)
-    {
-      return -EBUSY;
-    }
-
-  if (fw_as_acacontrol(CXD56_ACA_CTL_POWER_ON_OUTPUT,
-                    (uint32_t)&pwon_param) != 0)
-    {
-      return -EBUSY;
-    }
-
-  /* Power on S-Mster. */
-
-  write_reg(REG_AC_PDN_SMSTR, 0);
-  write_reg(REG_AC_NSDD, 0x07fb5);
-
-  if (dev->samplerate > 48000 && CXD56_AUDIO_MCLK == CXD56_XTAL_49_152MHZ)
-    {
-      write_reg(REG_AC_NSX2, 1);
-    }
-  else
-    {
-      write_reg(REG_AC_NSX2, 0);
-    }
-
-  /* Set smaster and enable */
-
-  write_reg(REG_INT_M_OVF_SMASL, 0);
-  write_reg(REG_INT_M_OVF_SMASR, 0);
-  write_reg(REG_AC_NSPMUTE, 0);
-
-  cxd56_set_volume(CXD56_AUDIO_VOLID_MIXER_OUT, dev->volume);
-
-  return OK;
-}
-
-static int cxd56_set_mic_gains(uint8_t gain, enum cxd56_mic_type_e mic_dev,
-                               struct cxd56_aca_pwinput_param_s *param)
-{
-  int i;
-  uint32_t mic_gain = (gain >= CXD56_MIC_GAIN_MAX) ?  CXD56_MIC_GAIN_MAX :
-                                                      (gain / 30) * 30;
-  uint32_t pga_gain = mic_gain - gain;
-           pga_gain = (pga_gain >= CXD56_MIC_PGA_GAIN_MAX) ?
-                                   CXD56_MIC_PGA_GAIN_MAX  : pga_gain;
-
-  param->mic_dev = CXD56_ACA_MIC_AMIC;
-  param->mic_bias_sel = CXD56_AUDIO_CFG_MICBIAS_SEL_2_0V;
-  for (i = 0; i < 4; i++)
-    {
-      param->mic_gain[i] = mic_gain;
-      param->pga_gain[i] = pga_gain;
-      param->vgain[i] = 0;
-    }
-
-  if (fw_as_acacontrol(CXD56_ACA_CTL_INIT_AMIC,
-                       (uint32_t)param) != 0)
-    {
-      return -EBUSY;
-    }
-
-  if (fw_as_acacontrol(CXD56_ACA_CTL_POWER_ON_INPUT,
-                       (uint32_t)param) != 0)
-    {
-      return -EBUSY;
-    }
-
-  return 0;
-}
-
-static void cxd56_get_mic_config(uint8_t *count, uint8_t *dev, uint8_t *mode)
-{
-  uint8_t i;
-  uint8_t is_dmic;
-  uint8_t is_amic;
-  uint8_t mic_sel = 0;
-  uint8_t mic_count = 0;
-
-  *dev = 0;
-  *mode = 0;
-
-  for (i = 0; i < CXD56_IN_CHANNELS_MAX; i++)
-    {
-      mic_sel = (CXD56_AUDIO_CFG_MIC >> (i * CXD56_MIC_CH_BITNUM)) &
-                CXD56_MIC_CH_BITMAP;
-      if ((mic_sel >= 1) && (mic_sel <= 4))
-        {
-          is_amic = true;
-          mic_count++;
-        }
-      else if ((mic_sel >= 5) && (mic_sel <= 12))
-        {
-          is_dmic = true;
-          mic_count++;
-        }
-    }
-
-  if (is_amic)
-    {
-      if (is_dmic)
-        {
-          *dev = CXD56_AUDIO_CFG_MIC_DEV_ANADIG;
-          *mode = CXD56_AUDIO_CFG_MIC_MODE_64FS;
+          CXD56_PIN_CONFIGS(PINCONFS_PDM_HIGH);
         }
       else
         {
-          *dev = CXD56_AUDIO_CFG_MIC_DEV_ANALOG;
-          *mode = CXD56_AUDIO_CFG_MIC_MODE_128FS;
+          CXD56_PIN_CONFIGS(PINCONFS_PDM_NORM);
         }
     }
   else
     {
-      if (is_dmic)
-        {
-          *dev = CXD56_AUDIO_CFG_MIC_DEV_DIGITAL;
-          *mode = CXD56_AUDIO_CFG_MIC_MODE_64FS;
-        }
-      else
-        {
-          *dev = CXD56_AUDIO_CFG_MIC_DEV_NONE;
-          *mode = CXD56_AUDIO_CFG_MIC_MODE_64FS;
-        }
-    }
-
-  *count = mic_count;
-}
-
-static uint8_t cxd56_get_mic_mode(void)
-{
-  uint8_t count;
-  uint8_t dev;
-  uint8_t mode;
-
-  cxd56_get_mic_config(&count, &dev, &mode);
-
-  return mode;
-}
-
-static int cxd56_power_on_micbias(struct cxd56_dev_s *dev)
-{
-  struct timespec start;
-
-  if (fw_as_acacontrol(CXD56_ACA_CTL_POWER_ON_MICBIAS, 0) != 0)
-    {
-      return -EBUSY;
-    }
-
-  /* Set mic boot time */
-
-  if (clock_systime_timespec(&start) < 0)
-    {
-      dev->mic_boot_start = 0x0ull;
-    }
-  else
-    {
-      dev->mic_boot_start = (uint64_t)start.tv_sec * 1000 +
-                            (uint64_t)start.tv_nsec / 1000000;
-    }
-
-  return OK;
-}
-
-static void cxd56_audio_power_on_cic(uint8_t mic_in,
-                                     uint8_t mic_mode,
-                                     uint8_t cic_num,
-                                     struct cxd56_audio_mic_gain_s *gain)
-{
-  /* Power on CIC. */
-
-  if (mic_in == CXD56_AUDIO_CFG_CIC_IN_SEL_CXD)
-    {
-      if (cic_num > 3)
-        {
-          write_reg(REG_AC_CIC4IN_SEL, 0);
-          write_reg(REG_AC_HPF4_MODE,  1);
-        }
-
-      if (cic_num > 2)
-        {
-          if (read_reg(REG_AC_PDN_AMICEXT) == 1)
-            {
-              write_reg(REG_AC_PDN_AMICEXT, 0);
-            }
-
-          write_reg(REG_AC_CIC3IN_SEL, 0);
-          write_reg(REG_AC_HPF3_MODE,  1);
-        }
-
-      if (cic_num > 1)
-        {
-          write_reg(REG_AC_PDN_AMIC2,  0);
-          write_reg(REG_AC_CIC2IN_SEL, 0);
-          write_reg(REG_AC_HPF2_MODE,  1);
-          write_reg(REG_AC_CIC2_GAIN_MODE, 1);
-        }
-
-      if (cic_num > 0)
-        {
-          write_reg(REG_AC_PDN_AMIC1,  0);
-          write_reg(REG_AC_CIC1IN_SEL, 0);
-          write_reg(REG_AC_HPF1_MODE,  1);
-          write_reg(REG_AC_CIC1_GAIN_MODE, 1);
-        }
-    }
-  else if(mic_in == CXD56_AUDIO_CFG_CIC_IN_SEL_DMICIF)
-    {
-      if (read_reg(REG_AC_PDN_DMIC) == 1)
-        {
-          write_reg(REG_AC_PDN_DMIC, 0);
-        }
-
-      if (cic_num > 3)
-        {
-          write_reg(REG_AC_CIC4IN_SEL, 1);
-          write_reg(REG_AC_HPF4_MODE,  1);
-        }
-
-      if (cic_num > 2)
-        {
-          write_reg(REG_AC_CIC3IN_SEL, 1);
-          write_reg(REG_AC_HPF3_MODE,  1);
-        }
-
-      if (cic_num > 1)
-        {
-          write_reg(REG_AC_CIC2IN_SEL, 1);
-          write_reg(REG_AC_HPF2_MODE,  1);
-          write_reg(REG_AC_CIC2_GAIN_MODE, 1);
-        }
-
-      if (cic_num > 0)
-        {
-          write_reg(REG_AC_CIC1IN_SEL, 1);
-          write_reg(REG_AC_HPF1_MODE,  1);
-          write_reg(REG_AC_CIC1_GAIN_MODE, 1);
-        }
-    }
-
-  if (mic_mode == CXD56_AUDIO_CFG_MIC_MODE_128FS)
-    {
-      write_reg(REG_AC_ADC_FS, 1);
-    }
-  else if (mic_mode == CXD56_AUDIO_CFG_MIC_MODE_64FS)
-    {
-      write_reg(REG_AC_ADC_FS, 0);
+      CXD56_PIN_CONFIGS(PINCONFS_MCLK_GPIO);
+      CXD56_PIN_CONFIGS(PINCONFS_PDM_GPIO);
     }
 }
 
-static int cxd56_power_on_decim(uint8_t mic_mode, uint32_t samplerate)
+static void cxd56_audio_if_initialize(void)
 {
-  /* Enable AHBMASTER.
-   * Because the output of DecimationFilter is input to BusIF.
+  cxd56_cxd5247_pinconfig(true, false);
+
+  cxd5247_reset(true);
+
+  cxd5247_power_en(true);
+  up_mdelay(10);
+
+  cxd5247_reset(false);
+
+  up_mdelay(10);
+
+  cxd5247_audio_config(g_lower->is_mclk24m(), CXD56_SAMPRATE_48K,
+                       g_lower->chmaps(), CXD5247_MIC_GAIN_MAX);
+}
+
+/* CXD5602 Internal Audio HW control functions */
+
+static void cxd56_audioblk_reset(void)
+{
+  cxd56_waureg(AUREG_DSPRAM_CLR,  1);
+  cxd56_waureg(AUREG_DSPRAM1_CLR, 1);
+  cxd56_waureg(AUREG_DSPRAM2_CLR, 1);
+  usleep(1);
+  cxd56_waureg(AUREG_DSPRAM_CLR,  0);
+  cxd56_waureg(AUREG_DSPRAM1_CLR, 0);
+  cxd56_waureg(AUREG_DSPRAM2_CLR, 0);
+
+  cxd56_waureg(AUREG_S_RST, 1);
+  usleep(1);
+  cxd56_waureg(AUREG_S_RST, 0);
+}
+
+static void cxd56_audio_block_poweren(bool en)
+{
+  uint32_t pdn = en ? CXD56_AUDPUP_EN : CXD56_AUDPUP_DIS;
+  uint32_t blken = en ? CXD56_AUDBLK_EN : CXD56_AUDBLK_DIS;
+
+  cxd56_waureg(AUREG_PDN_DSPC,    pdn);
+  cxd56_waureg(AUREG_PDN_DSPB,    pdn);
+  cxd56_waureg(AUREG_PDN_DSPS1,   pdn);
+  cxd56_waureg(AUREG_PDN_DSPS2,   pdn);
+  cxd56_waureg(AUREG_PDN_SMSTR,   pdn);
+  cxd56_waureg(AUREG_PDN_AMIC1,   pdn);
+  cxd56_waureg(AUREG_PDN_AMIC2,   pdn);
+  cxd56_waureg(AUREG_PDN_AMICEXT, pdn);
+
+  cxd56_waureg(AUREG_PDN_MIC,     pdn);
+  cxd56_waureg(AUREG_PDN_LINEIN,  pdn);
+  cxd56_waureg(AUREG_PDN_DAC,     pdn);
+
+  cxd56_waureg(AUREG_AHBMIC_CLKEN,  blken);
+  cxd56_waureg(AUREG_AHBI2S1_CLKEN, blken);
+  cxd56_waureg(AUREG_AHBI2S2_CLKEN, blken);
+
+  cxd56_waureg(AUREG_MCK_AHBMSTR_EN, blken);
+  cxd56_waureg(AUREG_SDES_EN,        blken);
+  cxd56_waureg(AUREG_DECIM1_EN,      blken);
+  cxd56_waureg(AUREG_DECIM0_EN,      blken);
+
+  /* Fixed Disable non use HW block */
+
+  cxd56_waureg(AUREG_PDN_DMIC,    CXD56_AUDPUP_DIS);
+
+  cxd56_waureg(AUREG_PDN_DNC2,    CXD56_AUDPUP_DIS);
+  cxd56_waureg(AUREG_PDN_DNC1,    CXD56_AUDPUP_DIS);
+  cxd56_waureg(AUREG_PDN_ANC,     CXD56_AUDPUP_DIS);
+}
+
+static void cxd56_audio_nouseblk_init(void)
+{
+  /* No use block setting */
+
+  /* Auto volume controls
+   *  ALC(AudoLevelControl)
+   *  SPC(SoundPressurControl)
+   *  ARC(AutoRangeControl)
    */
 
-  write_reg(REG_AC_MCK_AHBMSTR_EN, 1);
+  cxd56_waureg(AUREG_ALC_EN,      CXD56_AUDBLK_DIS);
+  cxd56_waureg(AUREG_ALC_REC,     CXD56_AUDBLK_DIS);
+  cxd56_waureg(AUREG_ALCTARGET,   CXD56_AUDBLK_DIS);
+  cxd56_waureg(AUREG_ALC_KNEE,    CXD56_AUDBLK_DIS);
+  cxd56_waureg(AUREG_SPC_EN,      CXD56_AUDBLK_DIS);
+  cxd56_waureg(AUREG_SPC_LIMIT,   CXD56_AUDBLK_DIS);
+  cxd56_waureg(AUREG_ARC,         CXD56_AUDBLK_DIS);
+  cxd56_waureg(AUREG_INV_DIGIPOL, CXD56_AUDBLK_DIS);
+  cxd56_waureg(AUREG_ARC_VOL,     CXD56_AUDBLK_DIS);
 
-  /* Power on DECIM. */
+  cxd56_waureg(AUREG_INV_DMIC1R, CXD56_AUDCICDATAINV_NOINV);
+  cxd56_waureg(AUREG_INV_DMIC1L, CXD56_AUDCICDATAINV_NOINV);
+  cxd56_waureg(AUREG_INV_DMIC2R, CXD56_AUDCICDATAINV_NOINV);
+  cxd56_waureg(AUREG_INV_DMIC2L, CXD56_AUDCICDATAINV_NOINV);
+  cxd56_waureg(AUREG_INV_DMIC3R, CXD56_AUDCICDATAINV_NOINV);
+  cxd56_waureg(AUREG_INV_DMIC3L, CXD56_AUDCICDATAINV_NOINV);
+  cxd56_waureg(AUREG_INV_DMIC4R, CXD56_AUDCICDATAINV_NOINV);
+  cxd56_waureg(AUREG_INV_DMIC4L, CXD56_AUDCICDATAINV_NOINV);
 
-  write_reg(REG_AC_DECIM0_EN, 1);
+  cxd56_waureg(AUREG_CS_SIGN,   0); /* Always 0 */
+  cxd56_waureg(AUREG_CS_VOL,    0); /* Allways 7'b0 */
 
-  /* DECIM param */
+  cxd56_waureg(AUREG_INTMASK_SMASLOVF, CXD56_AUDBLK_EN);
+  cxd56_waureg(AUREG_INTMASK_SMASROVF, CXD56_AUDBLK_EN);
 
-  if ((mic_mode == CXD56_AUDIO_CFG_MIC_MODE_64FS) && (samplerate > 48000))
-    {
-      write_reg(REG_AC_SEL_DECIM, 0);
-    }
-  else
-    {
-      write_reg(REG_AC_SEL_DECIM, 1);
-    }
+  cxd56_waureg(AUREG_ADC2R_VOL, 0);  /* Used Codec block. Unknown usage */
+  cxd56_waureg(AUREG_ADC2L_VOL, 0);  /* Used Codec block. Unknown usage */
+  cxd56_waureg(AUREG_ADC1R_VOL, 0);  /* Used Codec block. Unknown usage */
+  cxd56_waureg(AUREG_ADC1L_VOL, 0);  /* Used Codec block. Unknown usage */
 
-  if (mic_mode == CXD56_AUDIO_CFG_MIC_MODE_128FS)
-    {
-      write_reg(REG_AC_SEL_INF,  1);
-      write_reg(REG_AC_DCMFS,    2);
-      write_reg(REG_AC_DCMFS_34, 2);
-    }
-  else if (mic_mode == CXD56_AUDIO_CFG_MIC_MODE_64FS)
-    {
-      write_reg(REG_AC_SEL_INF,  0);
-      write_reg(REG_AC_DCMFS,    1);
-      write_reg(REG_AC_DCMFS_34, 1);
-    }
-  else
-    {
-      return -EINVAL;
-    }
-
-  if (samplerate > 48000)
-    {
-      write_reg(REG_AC_SEL_OUTF, 2);
-    }
-  else
-    {
-      write_reg(REG_AC_SEL_OUTF, 0);
-    }
-
-  /* DECIM_SEL */
-
-  write_reg(REG_AC_OUTEN_MIC2R_A, ((0x0f >> 3) & 0x01));
-  write_reg(REG_AC_OUTEN_MIC2L_A, ((0x0f >> 2) & 0x01));
-  write_reg(REG_AC_OUTEN_MIC1R_A, ((0x0f >> 1) & 0x01));
-  write_reg(REG_AC_OUTEN_MIC1L_A, ((0x0f >> 0) & 0x01));
-
-  write_reg(REG_AC_OUTEN_MIC2R_B, ((0x0f >> 3) & 0x01));
-  write_reg(REG_AC_OUTEN_MIC2L_B, ((0x0f >> 2) & 0x01));
-  write_reg(REG_AC_OUTEN_MIC1R_B, ((0x0f >> 1) & 0x01));
-  write_reg(REG_AC_OUTEN_MIC1L_B, ((0x0f >> 0) & 0x01));
-
-  return OK;
+  cxd56_waureg(AUREG_DNC1_START, 0);
+  cxd56_waureg(AUREG_DNC1_MUTE,  CXD56_AUDBLK_EN);
+  cxd56_waureg(AUREG_DNC1_START, 0);
+  cxd56_waureg(AUREG_DNC1_MUTE,  CXD56_AUDBLK_EN);
+  cxd56_waureg(AUREG_SMS_INTIM,  0);
 }
 
-static void cxd56_set_mic_out_channel(struct cxd56_dev_s *dev)
+static void cxd56_audio_beep_ctl(bool en, uint32_t freq, uint32_t vol)
 {
-  uint8_t i;
-  uint8_t ch_sel[CXD56_IN_CHANNELS_MAX];
-
-  for (i = 0; i < CXD56_IN_CHANNELS_MAX; i++)
-    {
-      if (dev->bitwidth == 16)
-        {
-          /* Even channel (L-ch side) assigned on MSB side in 32bit data
-           * like big-endian. Data of lower channel number should store
-           * lower address. So swap channel assign odd and even.
-           */
-
-          ch_sel[i] = (i % 2) ? i - 1 : i + 1;
-        }
-      else
-        {
-          ch_sel[i] = i;
-        }
-    }
-
-  write_reg(REG_AC_SEL_OUT1_L, ch_sel[0]);
-  write_reg(REG_AC_SEL_OUT1_R, ch_sel[1]);
-  write_reg(REG_AC_SEL_OUT2_L, ch_sel[2]);
-  write_reg(REG_AC_SEL_OUT2_R, ch_sel[3]);
-  write_reg(REG_AC_SEL_OUT3_L, ch_sel[4]);
-  write_reg(REG_AC_SEL_OUT3_R, ch_sel[5]);
-  write_reg(REG_AC_SEL_OUT4_L, ch_sel[6]);
-  write_reg(REG_AC_SEL_OUT4_R, ch_sel[7]);
+  cxd56_waureg(AUREG_BEEP_ON,   en ? CXD56_AUDBLK_EN : CXD56_AUDBLK_DIS);
+  cxd56_waureg(AUREG_BEEP_FREQ, freq);
+  cxd56_waureg(AUREG_BEEP_VOL, CXD56_AUDVOL_CONVERT(vol));
 }
 
-/****************************************************************************
- * Name: cxd56_power_on_input
- *
- * Description:
- *    Configure and enable input with selected samplerate and mics.
- *
- ****************************************************************************/
-
-static int cxd56_power_on_input(struct cxd56_dev_s *dev)
+static void cxd56_audio_fixedregval_init(void)
 {
-  uint8_t i;
-  uint8_t cic_num;
-  uint8_t cic_write_num;
-  uint8_t mic_dev;
-  uint8_t mic_mode;
-  uint8_t mic_num;
-  uint8_t ret;
-  uint32_t val;
-  struct cxd56_audio_mic_gain_s cic_gain;
-  struct cxd56_aca_pwinput_param_s param;
+  cxd56_waureg(AUREG_TRANS_MODE, CXD56_AUREG_I2STRANSMODE_NORM);
+  cxd56_waureg(AUREG_DEQ_EN, CXD56_AUDBLK_DIS);
+  cxd56_waureg(AUREG_LR_SWAP2, CXD56_AUDBLK_DIS);
+  cxd56_waureg(AUREG_LR_SWAP1, CXD56_AUDBLK_DIS);
 
-  const cxd56_aureg_t cic_gain_reg[CXD56_IN_CHANNELS_MAX] =
+  /* CIC Filter setting */
+
+  cxd56_waureg(AUREG_CIC1_GAIN_MODE, CXD56_AUDCIC_GAINMODE_ORG);
+  cxd56_waureg(AUREG_CIC2_GAIN_MODE, CXD56_AUDCIC_GAINMODE_ORG);
+
+  /* CIC Input device select */
+
+  cxd56_waureg(AUREG_CIC1IN_SEL, CXD56_AUDCICMIC_DEV_CXD5247);
+  cxd56_waureg(AUREG_CIC2IN_SEL, CXD56_AUDCICMIC_DEV_CXD5247);
+  cxd56_waureg(AUREG_CIC3IN_SEL, CXD56_AUDCICMIC_DEV_CXD5247);
+  cxd56_waureg(AUREG_CIC4IN_SEL, CXD56_AUDCICMIC_DEV_CXD5247);
+
+  /* No Inverse signal */
+
+  cxd56_waureg(AUREG_INV_AMIC1R, CXD56_AUDCICDATAINV_NOINV);
+  cxd56_waureg(AUREG_INV_AMIC1L, CXD56_AUDCICDATAINV_NOINV);
+  cxd56_waureg(AUREG_INV_AMIC2R, CXD56_AUDCICDATAINV_NOINV);
+  cxd56_waureg(AUREG_INV_AMIC2L, CXD56_AUDCICDATAINV_NOINV);
+  cxd56_waureg(AUREG_INV_AMIC3R, CXD56_AUDCICDATAINV_NOINV);
+  cxd56_waureg(AUREG_INV_AMIC3L, CXD56_AUDCICDATAINV_NOINV);
+  cxd56_waureg(AUREG_INV_AMIC4R, CXD56_AUDCICDATAINV_NOINV);
+  cxd56_waureg(AUREG_INV_AMIC4L, CXD56_AUDCICDATAINV_NOINV);
+
+  /* No LR Swap in CIC filter block */
+
+  cxd56_waureg(AUREG_CIC1IN_SWAP, CXD56_AUDCICIN_NOSWAP);
+  cxd56_waureg(AUREG_CIC2IN_SWAP, CXD56_AUDCICIN_NOSWAP);
+  cxd56_waureg(AUREG_CIC3IN_SWAP, CXD56_AUDCICIN_NOSWAP);
+  cxd56_waureg(AUREG_CIC4IN_SWAP, CXD56_AUDCICIN_NOSWAP);
+
+  /* BLF is always on */
+
+  cxd56_waureg(AUREG_BLF_EN, CXD56_AUDBLK_EN);
+
+  /* Mic input is connected to CODED directoly but not used this path.
+   * So fixed the mic input selector.
+   */
+
+  cxd56_waureg(AUREG_COD_INSEL1, CXD56_AUDDSPMICSEL_MIC01);
+
+  /* LINEIN and SDOUT path is not used. Both volumes should be 0. */
+
+  cxd56_waureg(AUREG_SDOUT_VOL,  CXD56_AUDVOL_CONVERT(0));
+  cxd56_waureg(AUREG_LINEIN_VOL, CXD56_AUDVOL_CONVERT(0));
+
+  /* Fade in/out Volume control registers */
+
+  cxd56_waureg(AUREG_DIGSFT, CXD56_AUDRAMP_VOLCTL_ON);
+  cxd56_waureg(AUREG_DSR_RATE, CXD56_VOLCTRLSTEP_1);
+
+  cxd56_waureg(AUREG_MUTE_B, CXD56_AUDBLK_DIS);
+  cxd56_waureg(AUREG_FS_CLK_EN,  CXD56_AUDBLK_EN);
+  cxd56_waureg(AUREG_PDM_OUT_EN, CXD56_AUDBLK_EN);
+
+  cxd56_waureg(AUREG_NSDD, CXD56_NSDD_DITHER_VALUE);
+  cxd56_waureg(AUREG_NSX2, 0);
+  cxd56_waureg(AUREG_NSPMUTE, CXD56_AUDBLK_DIS);
+}
+
+static void cxd56_audio_set_miccicgain(int gain)
+{
+  uint8_t *chmaps = g_lower->chmaps();
+
+  gain = (gain >= 1000) ? CXD56_CICGAIN(CXD56_AUD_CICGAIN_MAX) :
+                          CONVERT_CICGAIN(gain);
+
+  cxd56_waureg(AUREG_CIC1_LGAIN,
+               chmaps[0] > CXD5247_MICID_AMIC(3) ? gain :
+               CXD56_CICGAIN(CXD56_AUD_CICGAIN_MAX));
+  cxd56_waureg(AUREG_CIC1_RGAIN,
+               chmaps[1] > CXD5247_MICID_AMIC(3) ? gain :
+               CXD56_CICGAIN(CXD56_AUD_CICGAIN_MAX));
+  cxd56_waureg(AUREG_CIC2_LGAIN,
+               chmaps[2] > CXD5247_MICID_AMIC(3) ? gain :
+               CXD56_CICGAIN(CXD56_AUD_CICGAIN_MAX));
+  cxd56_waureg(AUREG_CIC2_RGAIN,
+               chmaps[3] > CXD5247_MICID_AMIC(3) ? gain :
+               CXD56_CICGAIN(CXD56_AUD_CICGAIN_MAX));
+  cxd56_waureg(AUREG_CIC3_LGAIN,
+               chmaps[4] > CXD5247_MICID_AMIC(3) ? gain :
+               CXD56_CICGAIN(CXD56_AUD_CICGAIN_MAX));
+  cxd56_waureg(AUREG_CIC3_RGAIN,
+               chmaps[5] > CXD5247_MICID_AMIC(3) ? gain :
+               CXD56_CICGAIN(CXD56_AUD_CICGAIN_MAX));
+  cxd56_waureg(AUREG_CIC4_LGAIN,
+               chmaps[6] > CXD5247_MICID_AMIC(3) ? gain :
+               CXD56_CICGAIN(CXD56_AUD_CICGAIN_MAX));
+  cxd56_waureg(AUREG_CIC4_RGAIN,
+               chmaps[7] > CXD5247_MICID_AMIC(3) ? gain :
+               CXD56_CICGAIN(CXD56_AUD_CICGAIN_MAX));
+}
+
+static void cxd56_audio_set_micboost(bool en)
+{
+  uint32_t boost = en ? CXD56_AUDCIC_BOOST_ON : CXD56_AUDCIC_BOOST_OFF;
+  cxd56_waureg(AUREG_ADC1_BOOST, boost);
+  cxd56_waureg(AUREG_ADC2_BOOST, boost);
+  cxd56_waureg(AUREG_ADC3_BOOST, boost);
+  cxd56_waureg(AUREG_ADC4_BOOST, boost);
+}
+
+static void cxd56_audio_set_micfilter_strangth(uint32_t val)
+{
+  cxd56_waureg(AUREG_HPF1_MODE, val);
+  cxd56_waureg(AUREG_HPF2_MODE, val);
+  cxd56_waureg(AUREG_HPF3_MODE, val);
+  cxd56_waureg(AUREG_HPF4_MODE, val);
+}
+
+static void cxd56_audio_set_mic_en(bool en)
+{
+  uint32_t mic_en = en ? CXD56_AUDBLK_EN : CXD56_AUDBLK_DIS;
+
+  cxd56_waureg(AUREG_OUTEN_MIC1R_A, mic_en);
+  cxd56_waureg(AUREG_OUTEN_MIC1L_A, mic_en);
+  cxd56_waureg(AUREG_OUTEN_MIC2R_A, mic_en);
+  cxd56_waureg(AUREG_OUTEN_MIC2L_A, mic_en);
+  cxd56_waureg(AUREG_OUTEN_MIC1R_B, mic_en);
+  cxd56_waureg(AUREG_OUTEN_MIC1L_B, mic_en);
+  cxd56_waureg(AUREG_OUTEN_MIC2R_B, mic_en);
+  cxd56_waureg(AUREG_OUTEN_MIC2L_B, mic_en);
+}
+
+static void cxd56_audio_spkin1_select(uint32_t sel)
+{
+  cxd56_waureg(AUREG_COD_INSEL2, sel);
+}
+
+static void cxd56_audio_spkin2_select(uint32_t sel)
+{
+  cxd56_waureg(AUREG_COD_INSEL3, sel);
+}
+
+static void cxd56_audio_dma1out_select(uint32_t sel)
+{
+  cxd56_waureg(AUREG_AU_DAT_SEL1, sel);
+}
+
+static void cxd56_audio_dma2out_select(uint32_t sel)
+{
+  cxd56_waureg(AUREG_AU_DAT_SEL2, sel);
+}
+
+static void cxd56_i2sclock_out(bool en)
+{
+  cxd56_waureg(AUREG_SDCK_OUTENX, en ? CXD56_AUDBLK_EN :
+                                       CXD56_AUDBLK_DIS);
+}
+
+static void cxd56_audio_outresolution(uint32_t res)
+{
+  cxd56_waureg(AUREG_HI_RES_MODE, res);
+  cxd56_waureg(AUREG_I2SALL_DATARATE, res == CXD56_AUDRESOLITION_LOW ?
+                                      CXD56_I2SDATARATE_48KHZ :
+                                      CXD56_I2SDATARATE_192KHZ);
+}
+
+static void cxd56_audio_micrate(uint32_t rate)
+{
+  /* CXD56_AUDDECIM_OUTFS_1FS for 48k
+   * CXD56_AUDDECIM_OUTFS_2FS for 96k
+   * CXD56_AUDDECIM_OUTFS_4FS for 192k
+   */
+
+  cxd56_waureg(AUREG_SEL_DECIM, CXD56_AUDBLK_EN);
+  cxd56_waureg(AUREG_SEL_OUTF,  rate);
+}
+
+static void cxd56_audio_set_pdm(bool is_mclk24m, FAR uint8_t *chmap)
+{
+  if (!is_mclk24m && cxd5247_get_micdev(chmap) == CXD5247_MIC_AMIC)
     {
-      REG_AC_CIC1_LGAIN,
-      REG_AC_CIC1_RGAIN,
-      REG_AC_CIC2_LGAIN,
-      REG_AC_CIC2_RGAIN,
-      REG_AC_CIC3_LGAIN,
-      REG_AC_CIC3_RGAIN,
-      REG_AC_CIC4_LGAIN,
-      REG_AC_CIC4_RGAIN
-    };
+      /* CXD5247 supports Hi Res Audio with only Analog MIC and 49MHz
+       * master clock.
+       * In this case, PDM Clock is configured 128FS,
+       * 4Ch(Max of Analog MIC chs) and 8FS data after de-serialized.
+       */
 
-  memset((void *)&param, 0, sizeof(param));
-
-  cxd56_get_mic_config(&mic_num, &mic_dev, &mic_mode);
-
-  dev->mic_dev = mic_dev;
-  if (mic_dev == CXD56_AUDIO_CFG_MIC_DEV_ANALOG ||
-      mic_dev == CXD56_AUDIO_CFG_MIC_DEV_ANADIG)
-    {
-      cxd56_power_on_micbias(dev);
+      cxd56_waureg(AUREG_FS_FS,    CXD56_AUDDECFS_4CH);
+      cxd56_waureg(AUREG_ADC_FS,   CXD56_AUDCICCLK_128FS);
+      cxd56_waureg(AUREG_SEL_INF,  CXD56_AUDDECIM_INFS_8FS);
+      cxd56_waureg(AUREG_SER_MODE, CXD56_AUDDESMODE_4CH);
+      cxd56_waureg(AUREG_DCMFS12,  CXD56_AUDDECIMFS_8FS);
+      cxd56_waureg(AUREG_DCMFS34,  CXD56_AUDDECIMFS_8FS);
     }
-
-  if (cxd56_set_mic_gains(dev->mic_gain, dev->mic_dev, &param) < 0)
+  else
     {
-      return -EBUSY;
+      cxd56_waureg(AUREG_FS_FS,    CXD56_AUDDECFS_8CH);
+      cxd56_waureg(AUREG_ADC_FS,   CXD56_AUDCICCLK_64FS);
+      cxd56_waureg(AUREG_SEL_INF,  CXD56_AUDDECIM_INFS_4FS);
+      cxd56_waureg(AUREG_SER_MODE, CXD56_AUDDESMODE_8CH);
+      cxd56_waureg(AUREG_DCMFS12,  CXD56_AUDDECIMFS_4FS);
+      cxd56_waureg(AUREG_DCMFS34,  CXD56_AUDDECIMFS_4FS);
     }
+}
 
-  /* Power on CIC */
+static void cxd56_set_spkin0_vol(uint32_t vol)
+{
+  vol = (vol > 1000) ? 1000 : vol;
+  cxd56_waureg(AUREG_SDIN1_VOL, CXD56_AUDVOL_CONVERT(vol));
+}
 
-  cic_num = (mic_num + 1) / CXD56_CIC_MIC_CH_NUM;
+static void cxd56_set_spkin1_vol(uint32_t vol)
+{
+  vol = (vol > 1000) ? 1000 : vol;
+  cxd56_waureg(AUREG_SDIN2_VOL, CXD56_AUDVOL_CONVERT(vol));
+}
 
-  for (i = 0; i < CXD56_IN_CHANNELS_MAX; i++)
+static void cxd56_set_linin_vol(uint32_t vol)
+{
+  vol = (vol > 1000) ? 1000 : vol;
+  cxd56_waureg(AUREG_LINEIN_VOL, CXD56_AUDVOL_CONVERT(vol));
+}
+
+static void cxd56_set_spkout_vol(uint32_t vol)
+{
+  vol = (vol > 1000) ? 1000 : vol;
+  cxd56_waureg(AUREG_DAC_VOL, CXD56_AUDVOL_CONVERT(vol));
+}
+
+static void cxd56_set_novol(uint32_t vol)
+{
+  /* Do nothing */
+}
+
+static int external_mute_control(bool en)
+{
+  int ret = 0;
+
+  if (en)
     {
-      val = (CXD56_AUDIO_CFG_MIC >> (i * CXD56_MIC_CH_BITNUM)) &
-            CXD56_MIC_CH_BITMAP;
-      cic_gain.gain[i] = (val > 4) ? param.mic_gain[i] : 0;
+      /* Mute ON */
+
+      ret = g_lower->ext_mute(true);
+      usleep(150000);
+      cxd5247_audio_mute(true);
     }
-
-  cic_write_num = (CXD56_IN_CHANNELS_MAX >= (cic_num * 2)) ?
-                (cic_num * 2) : CXD56_IN_CHANNELS_MAX;
-
-  for (i = 0; i < cic_write_num; i++)
+  else
     {
-      val = (uint32_t)(pow(10.0f,
-                           ((float)cic_gain.gain[i] /
-                            100.0f / 20.0f)) * 0x4000 +
-                            0x4000);
+      /* Mute OFF */
 
-      write_reg(cic_gain_reg[i], val);
-    }
-
-  cxd56_audio_power_on_cic(CXD56_AUDIO_CFG_CIC_IN,
-                           mic_mode, cic_num, &cic_gain);
-
-  /* Power on decim */
-
-  ret = cxd56_power_on_decim(mic_mode, dev->samplerate);
-  if (ret != OK)
-    {
-      auderr("ERROR: Decim power on failed (%d)\n", ret);
+      cxd5247_audio_mute(false);
+      usleep(150000);
+      ret = g_lower->ext_mute(false);
     }
 
   return ret;
 }
 
-static int cxd56_power_on(struct cxd56_dev_s *dev)
+/*****************************************************************************
+ * Public Functions
+ *****************************************************************************/
+
+/** test functions **/
+
+static int cxd56_audio_initialize(void)
 {
-  uint8_t mic_mode;
+  cxd56_audio_if_initialize();
+  cxd56_audio_clock_enable(g_lower->clksrc(), g_lower->clkdiv());
+  external_mute_control(true);
 
-  if (g_codec_start_count == 0)
+  /* Global setting */
+
+  cxd56_audio_block_poweren(true);
+
+  /* Reset Assert */
+
+  cxd56_audioblk_reset();
+
+  /* System Setting */
+
+  cxd56_audio_nouseblk_init();
+  cxd56_audio_fixedregval_init();
+
+  /* CXD5247 I/F setting */
+
+  cxd56_audio_set_pdm(g_lower->is_mclk24m(), g_lower->chmaps());
+
+  /* MIC Out */
+
+  cxd56_audio_micrate(CXD56_AUDDECIM_OUTFS_1FS);
+
+  cxd56_audio_set_miccicgain(0);
+  cxd56_audio_set_micboost(false);
+  cxd56_audio_set_micfilter_strangth(CXD56_AUDCIC_HPFMODE_LOW);
+  cxd56_audio_set_mic_en(true);
+
+  /* Output Volume Control */
+
+  cxd56_set_spkin0_vol(0);
+  cxd56_set_spkin1_vol(0);
+  cxd56_set_spkout_vol(0);
+  cxd56_set_linin_vol(0);
+
+  /* I2S Setting */
+
+  cxd56_i2sclock_out(false);
+
+  cxd56_i2s0_config(false, CXD56_AUDI2SINDATA_I2S0DMA,
+                    CXD56_AUDI2SSRC_UT48K, false, false);
+  cxd56_i2s1_config(false, CXD56_AUDI2SINDATA_I2S1DMA,
+                    CXD56_AUDI2SSRC_UT48K, false, false);
+
+  /* Output from CXD5602 resolution */
+
+  cxd56_audio_outresolution(CXD56_AUDRESOLITION_LOW);
+
+  /* Data path selection */
+
+  cxd56_audio_spkin1_select(CXD56_AUDSPKDATSEL_AUDOUT0);
+  cxd56_audio_spkin2_select(CXD56_AUDSPKDATSEL_AUDOUT1);
+
+  cxd56_audio_dma1out_select(CXD56_AUDOUTSEL_DMA);
+  cxd56_audio_dma2out_select(CXD56_AUDOUTSEL_DMA);
+
+  /* Beep Signal Setting */
+
+  cxd56_audio_beep_ctl(false, 0, 0);
+
+  return 0;
+}
+
+static int cxd56_audio_deinitialize(void)
+{
+  g_mutectl.mute_cnt = 0;
+  g_hwres.spkout_cnt = 0;
+  g_hwres.i2susr_cnt = 0;
+  g_hwres.outfs_cnt = 0;
+  g_hwres.volume = 1000;
+  g_hwres.is_slave = false;
+  g_hwres.samprate = CXD56_SAMPRATE_48K;
+
+  cxd56_audio_block_poweren(false);
+  external_mute_control(true);
+  cxd56_audio_clock_disable();
+
+  cxd5247_audio_poweroff();
+  cxd5247_reset(true);
+  cxd5247_power_en(false);
+  cxd56_cxd5247_pinconfig(false, false);
+
+  return OK;
+}
+
+/* System resource control functions *****************************************/
+
+/* Control system power */
+
+static void cxd56_system_power_on(FAR struct cxd56_dmachannel_s *dmach)
+{
+  nxsem_wait_uninterruptible(&g_system.lock);
+
+  if (!dmach->sysinited)
     {
-      uint32_t val;
-
-      board_audio_i2s_enable();
-      board_audio_initialize();
-
-      /* Power on analog audio */
-
-      if (board_aca_power_control(CXD5247_AVDD | CXD5247_DVDD, true) != 0)
+      g_system.usr_cnt++;
+      if (g_system.usr_cnt == 1)
         {
-          return -EBUSY;
+          cxd56_audio_initialize();
         }
 
-      if (!board_aca_power_monitor(CXD5247_AVDD | CXD5247_DVDD))
+      dmach->sysinited = true;
+    }
+
+  nxsem_post(&g_system.lock);
+}
+
+static void cxd56_system_power_off(FAR struct cxd56_dmachannel_s *dmach)
+{
+  nxsem_wait_uninterruptible(&g_system.lock);
+
+  if (dmach->sysinited)
+    {
+      g_system.usr_cnt--;
+      if (g_system.usr_cnt == 0)
         {
-          return -EBUSY;
+          cxd56_audio_deinitialize();
         }
 
-      cxd56_power_on_aca(dev->samplerate);
+      dmach->sysinited = false;
+    }
 
-      cxd56_audio_clock_enable(CXD56_AUD_MCLK_EXT, 0);
+  nxsem_post(&g_system.lock);
+}
 
-      /* Power_on_codec */
+/* Control terminal volumme */
 
-      val = read_reg(REG_AC_REVID);
-      if (val != CXD56_EXP_REVID)
+static void cxd56_update_systemvol(uint16_t volume)
+{
+  irqstate_t flags;
+
+  flags = enter_critical_section();
+  g_hwres.volume = volume;
+  cxd56_set_spkout_vol(g_hwres.volume);
+  leave_critical_section(flags);
+}
+
+static void cxd56_use_mute_off(bool use)
+{
+  if (use)
+    {
+      nxsem_wait_uninterruptible(&g_mutectl.lock);
+
+      g_mutectl.mute_cnt++;
+      if (g_mutectl.mute_cnt == 1)
         {
-          auderr("ERROR: Power on REVID mismatch (%" PRIx32 " vs. %x)\n",
-                 val, CXD56_EXP_REVID);
-          return -ENXIO;
+          external_mute_control(false);
         }
 
-      val = read_reg(REG_AC_DEVICEID);
-      if (val != CXD56_EXP_DEVICEID)
+      nxsem_post(&g_mutectl.lock);
+    }
+  else
+    {
+      nxsem_wait_uninterruptible(&g_mutectl.lock);
+
+      g_mutectl.mute_cnt--;
+      if (g_mutectl.mute_cnt == 0)
         {
-          auderr("ERROR: Power on DEVICEID mismatch (%" PRIx32 " vs. %x)\n",
-                 val, CXD56_EXP_DEVICEID);
-          return -ENXIO;
+          external_mute_control(true);
         }
 
-      /* Power on serializeer */
+      nxsem_post(&g_mutectl.lock);
+    }
+}
 
-      write_reg(REG_AC_SDES_EN, 1);
+static int cxd56_use_spkout_nolock(bool use)
+{
+  int ret;
 
-      /* Set mic mode */
-
-      mic_mode = cxd56_get_mic_mode();
-      if (mic_mode == CXD56_AUDIO_CFG_MIC_MODE_128FS)
+  if (use)
+    {
+      ret = g_hwres.spkout_cnt++;
+      if (ret == 0)
         {
-          write_reg(REG_AC_FS_FS,    0);
-          write_reg(REG_AC_SER_MODE, 1);
-          write_reg(REG_AC_ADC_FS,   1);
+          cxd56_set_spkout_vol(g_hwres.volume);
+        }
+    }
+  else
+    {
+      ret = g_hwres.spkout_cnt--;
+      if (ret <= 1)
+        {
+          cxd56_set_spkout_vol(0);
+        }
+    }
+
+  return ret;
+}
+
+static int cxd56_use_spkout(bool use)
+{
+  int ret;
+  irqstate_t flags;
+
+  flags = enter_critical_section();
+  ret = cxd56_use_spkout_nolock(use);
+  leave_critical_section(flags);
+
+  return ret;
+}
+
+/* Management System sampling frequency except mic input */
+
+static int cxd56_set_audoutfs(int samprate)
+{
+  int ret;
+  irqstate_t flags;
+
+  flags = enter_critical_section();
+
+  if (g_hwres.outfs_cnt == 0)
+    {
+      samprate = samprate >= CXD56_SAMPRATE_192K ? CXD56_SAMPRATE_192K :
+                                                   CXD56_SAMPRATE_48K;
+      g_hwres.samprate = samprate;
+    }
+
+  ret = g_hwres.samprate;
+
+  leave_critical_section(flags);
+
+  return ret;
+}
+
+static int cxd56_use_audoutfs_nolock(bool use)
+{
+  int samprate = 0;
+
+  if (use)
+    {
+      g_hwres.outfs_cnt++;
+      if (g_hwres.outfs_cnt == 1)
+        {
+          cxd56_audio_outresolution(g_hwres.samprate > CXD56_SAMPRATE_48K ?
+                                    CXD56_AUDRESOLITION_HIGH :
+                                    CXD56_AUDRESOLITION_LOW);
+          samprate = g_hwres.samprate;
+        }
+    }
+  else
+    {
+      g_hwres.outfs_cnt--;
+    }
+
+  return samprate;
+}
+
+static int cxd56_use_audoutfs(bool use)
+{
+  int samprate = 0;
+  irqstate_t flags;
+
+  flags = enter_critical_section();
+  samprate = cxd56_use_audoutfs_nolock(use);
+  leave_critical_section(flags);
+
+  return samprate;
+}
+
+/* Management I2S Hardware */
+
+static bool cxd56_set_i2sslave(bool slave)
+{
+  bool ret = false;
+  irqstate_t flags;
+
+  flags = enter_critical_section();
+
+  /* Only when I2S user does not exist,
+   * Master or Slave mode can be changed.
+   */
+
+  if (g_hwres.i2susr_cnt == 0)
+    {
+      g_hwres.is_slave = slave;
+      ret = true;
+    }
+
+  leave_critical_section(flags);
+
+  return ret;
+}
+
+static bool cxd56_use_i2sdevice_nolock(bool use)
+{
+  bool ret = false;
+  int samprate;
+
+  if (use)
+    {
+      samprate = cxd56_use_audoutfs_nolock(true);
+      g_hwres.i2susr_cnt++;
+      if (g_hwres.i2susr_cnt == 1)
+        {
+          ret = true;
+          cxd56_i2s1_config(true, CXD56_AUDI2SINDATA_I2S1DMA,
+                            samprate >= CXD56_SAMPRATE_192K ?
+                                        CXD56_AUDI2SSRC_UT192K :
+                            samprate >= CXD56_SAMPRATE_96K ?
+                                        CXD56_AUDI2SSRC_UT96K :
+                                        CXD56_AUDI2SSRC_UT48K,
+                            g_hwres.is_slave, false);
+          cxd56_i2sclock_out(g_hwres.is_slave ? false : true);
+        }
+    }
+  else
+    {
+      cxd56_use_audoutfs_nolock(false);
+      g_hwres.i2susr_cnt--;
+      if (g_hwres.i2susr_cnt == 0)
+        {
+          cxd56_i2s1_config(false, CXD56_AUDI2SINDATA_I2S1DMA,
+                            CXD56_AUDI2SSRC_UT48K,
+                            g_hwres.is_slave, false);
+          cxd56_i2sclock_out(false);
+        }
+    }
+
+  return ret;
+}
+
+static bool cxd56_use_i2sdevice(bool use)
+{
+  bool ret;
+  irqstate_t flags;
+  flags = enter_critical_section();
+  ret = cxd56_use_i2sdevice_nolock(use);
+  leave_critical_section(flags);
+  return ret;
+}
+
+/* Utility functions for configuration ***************************************/
+
+static void cxd56_aud_setvolgain(FAR struct cxd56_dmachannel_s *dmach,
+                                 uint16_t vol)
+{
+  if (AUDSTATE_IS_STARTED(dmach))
+    {
+      dmach->setvolume(vol);
+    }
+}
+
+static int cxd56_aud_setconfig(FAR struct cxd56_dmachannel_s *dmach,
+                               uint32_t samprate, int chs, uint16_t bitw)
+{
+  int ret = -EINVAL;
+
+  if (!AUDSTATE_IS_INITIAL(dmach) && !AUDSTATE_IS_CONFIGURED(dmach))
+    {
+      return -EAGAIN;
+    }
+
+  if ((bitw != 32 && bitw != 16) || (chs <= 0 || chs > dmach->maxch(dmach)))
+    {
+      AUDSTATECHG_INITIAL(dmach);
+      return ret;
+    }
+
+  if (IS_AUDIO_MICDEV(dmach))
+    {
+      if (samprate == CXD56_SAMPRATE_48K || samprate == CXD56_SAMPRATE_192K ||
+          samprate == CXD56_SAMPRATE_96K)
+        {
+          ret = OK;
+          mic_samprate = samprate;
+          dmach->bitwidth = bitw;
+          dmach->channels = chs;
+          AUDSTATECHG_CONFIGURED(dmach);
         }
       else
         {
-          write_reg(REG_AC_FS_FS,    1);
-          write_reg(REG_AC_SER_MODE, 0);
-          write_reg(REG_AC_ADC_FS,   0);
+          AUDSTATECHG_INITIAL(dmach);
         }
-
-      /* Power on codec */
-
-      write_reg(REG_AC_PDN_DSPC, 0);
-      write_reg(REG_AC_DSR_RATE, 1);
-      write_reg(REG_AC_DIGSFT,   1);
-
-      /* Clear interrupt status of bck_err */
-
-      write_reg(REG_INT_M_I2S1_BCL_ERR1, 0);
-      write_reg(REG_INT_M_I2S1_BCL_ERR2, 0);
-
-      cxd56_power_on_i2s1(dev);
-
-      /* Hi Res Mode */
-
-      write_reg(REG_AC_HI_RES_MODE, ((dev->samplerate > 48000) ? 1 : 0));
-
-      /* Enable I2S data input and output of SRC1 */
-
-      write_reg(REG_AC_SDIN1_EN, 1);
-      write_reg(REG_AC_SDOUT1_EN, 1);
-
-      /* Enable BCK, LRCK output if master (1). */
-
-      write_reg(REG_AC_SDCK_OUTENX, CXD56_I2S1_MODE);
-
-      /* Enable serial interface */
-
-      write_reg(REG_AC_FS_CLK_EN,  1);
-      write_reg(REG_AC_PDM_OUT_EN, 1);
-
-      /* Initialize data path selection */
-
-      write_reg(REG_AC_AU_DAT_SEL1, 4);
-      write_reg(REG_AC_AU_DAT_SEL2, 4);
-      write_reg(REG_AC_AU_COD_INSEL2,  2);
-      write_reg(REG_AC_AU_COD_INSEL3,  3);
-      write_reg(REG_AC_SRC1IN_SEL,  0);
-      write_reg(REG_AC_SRC2IN_SEL,  1);
-
-      /* Set BCA data rate */
-
-      write_reg(REG_I2S_ENSEL, ((dev->samplerate > 48000) ? 1 : 0));
-
-      /* Disable DEQ */
-
-      write_reg(REG_AC_DEQ_EN, 0);
-
-      /* Disable DNC. */
-
-      write_reg(REG_AC_DNC1_MUTE, 1);
-      write_reg(REG_AC_DNC2_MUTE, 1);
-      write_reg(REG_AC_DNC1_START, 0);
-      write_reg(REG_AC_DNC2_START, 0);
-
-      /* Disable ALC/SPC */
-
-      write_reg(REG_AC_ALC_EN, 0);
-      write_reg(REG_AC_SPC_EN, 0);
-
-      /* Disable Clear Stereo */
-
-      write_reg(REG_AC_CS_SIGN, 0);
-      write_reg(REG_AC_CS_VOL, 0x00);
-
-      cxd56_attach_irq(true);
-      cxd56_enable_irq(true);
     }
-
-  g_codec_start_count++;
-
-  return OK;
-}
-
-static int cxd56_power_off(struct cxd56_dev_s *dev)
-{
-  /* Disable AHBMASTER. */
-
-  write_reg(REG_AC_MCK_AHBMSTR_EN, 0);
-
-  /* Disable SRC. */
-
-  write_reg(REG_AC_SDIN1_EN, 0);
-  write_reg(REG_AC_SDIN2_EN, 0);
-  write_reg(REG_AC_SDOUT1_EN, 0);
-  write_reg(REG_AC_SDOUT2_EN, 0);
-  write_reg(REG_AC_SDCK_OUTENX, 1);
-  write_reg(REG_AC_BLF_EN, 0);
-
-  /* Disable SDES. */
-
-  write_reg(REG_AC_PDM_OUT_EN, 0);
-  write_reg(REG_AC_FS_CLK_EN, 0);
-  write_reg(REG_AC_SDES_EN, 0);
-
-  /* Power off SRC. */
-
-  write_reg(REG_AC_PDN_DSPS1, 1);
-  write_reg(REG_AC_PDN_DSPS2, 1);
-  write_reg(REG_AC_PDN_DSPB, 1);
-
-  /* Power off CODEC. */
-
-  write_reg(REG_AC_PDN_DSPC, 1);
-
-  /* Power off DNC. */
-
-  write_reg(REG_AC_PDN_DNC1, 1);
-  write_reg(REG_AC_PDN_DNC2, 1);
-  write_reg(REG_AC_PDN_ANC, 1);
-
-  /* Disable audio clock */
-
-  cxd56_audio_clock_disable();
-
-  if (fw_as_acacontrol(CXD56_ACA_CTL_POWER_OFF_COMMON, 0) != 0)
+  else
     {
-      return -EBUSY;
+      if (samprate == CXD56_SAMPRATE_48K || samprate == CXD56_SAMPRATE_192K)
+        {
+          if (samprate != cxd56_set_audoutfs(samprate))
+            {
+              ret = -EBUSY;
+            }
+          else
+            {
+              ret = OK;
+              dmach->bitwidth = bitw;
+              dmach->channels = chs;
+              AUDSTATECHG_CONFIGURED(dmach);
+            }
+        }
+      else
+        {
+          AUDSTATECHG_INITIAL(dmach);
+        }
     }
 
-  board_aca_power_control(CXD5247_AVDD | CXD5247_DVDD, false);
+  return ret;
+}
 
-  /* Disable interrupts */
+/* Inherited methods *********************************************************/
 
-  cxd56_attach_irq(false);
-  cxd56_enable_irq(false);
+/* For Mic DMA instance */
 
-  board_audio_finalize();
+static void cxd56_aud_micgain(uint32_t vol)
+{
+  cxd56_audio_set_miccicgain(vol);
+  cxd5247_audio_micgain(vol, g_lower->chmaps());
+}
+
+static uint8_t cxd56_aud_micmaxch(FAR struct cxd56_dmachannel_s *dmach)
+{
+  int i;
+  uint8_t ret = 0;
+  uint8_t *chs = g_lower->chmaps();
+
+  for (i = 0; i < 8; i++)
+    {
+      if (chs[i] != CXD5247_MICID_NOTUSED)
+        {
+          ret++;
+        }
+    }
+
+  return ret;
+}
+
+static int cxd56_aud_michwres(FAR struct cxd56_dmachannel_s *dmach,
+                                 bool en)
+{
+  int ret = -EAGAIN;
+
+  if (en)
+    {
+      if (AUDSTATE_IS_CONFIGURED(dmach))
+        {
+          switch (mic_samprate)
+            {
+              case CXD56_SAMPRATE_192K:
+                cxd56_audio_micrate(CXD56_AUDDECIM_OUTFS_4FS);
+                break;
+              case CXD56_SAMPRATE_96K:
+                cxd56_audio_micrate(CXD56_AUDDECIM_OUTFS_2FS);
+                break;
+              case CXD56_SAMPRATE_48K:
+                cxd56_audio_micrate(CXD56_AUDDECIM_OUTFS_1FS);
+                break;
+            }
+
+          cxd56_audio_set_micboost(false);
+          cxd56_audio_set_micfilter_strangth(CXD56_AUDCIC_HPFMODE_LOW);
+          cxd56_audio_set_mic_en(true);
+
+          dmach->setvolume(dmach->volgain);
+
+          ret = OK;
+        }
+    }
+  else
+    {
+      cxd56_audio_set_mic_en(false);
+      ret = OK;
+    }
+
+  return ret;
+}
+
+/* For I2S DMA */
+
+static uint8_t cxd56_aud_generic_maxch(FAR struct cxd56_dmachannel_s *dmach)
+{
+  return 2;
+}
+
+static int cxd56_aud_i2s0outhwres(FAR struct cxd56_dmachannel_s *dmach,
+                                     bool en)
+{
+  if (en)
+    {
+      /* I2S Output DMA is fixed to speaker.
+       * So I2S0 HW block is always disabled
+       */
+
+      cxd56_i2s0_config(false, CXD56_AUDI2SINDATA_I2S0DMA,
+                        CXD56_AUDI2SSRC_UT48K, false, false);
+
+      cxd56_set_spkin0_vol(dmach->volgain);
+      cxd56_use_audoutfs(true);
+      cxd56_use_spkout(true);
+    }
+  else
+    {
+      cxd56_use_audoutfs(false);
+      cxd56_use_spkout(false);
+    }
 
   return OK;
 }
 
-/****************************************************************************
- * Name: cxd56_getcaps
- *
- * Description: Get the audio device capabilities.
- *
- ****************************************************************************/
-
-static int cxd56_getcaps(struct audio_lowerhalf_s *lower, int type,
-                         struct audio_caps_s *caps)
+static int cxd56_aud_i2s0outhwres_irq(FAR struct cxd56_dmachannel_s *dmach,
+                                         bool en)
 {
-  DEBUGASSERT(caps && caps->ac_len >= sizeof(struct audio_caps_s));
+  cxd56_use_audoutfs_nolock(en);
+  cxd56_use_spkout_nolock(en);
+  return OK;
+}
 
-  /* Fill in the caller's structure based on requested info */
+static int cxd56_aud_i2s1outhwres(FAR struct cxd56_dmachannel_s *inst,
+                                     bool en)
+{
+  if (inst->distination == AUDDISTINATION_I2S)
+    {
+      cxd56_use_i2sdevice(en);
+    }
+  else
+    {
+      cxd56_set_spkin1_vol(en ? inst->volgain : 0);
+      cxd56_use_audoutfs(en);
+      cxd56_use_spkout(en);
+    }
 
-  caps->ac_format.hw  = 0;
+  return OK;
+}
+
+static int cxd56_aud_i2s1outhwres_irq(FAR struct cxd56_dmachannel_s *inst,
+                                         bool en)
+{
+  if (inst->distination == AUDDISTINATION_I2S)
+    {
+      cxd56_use_i2sdevice_nolock(en);
+    }
+  else
+    {
+      cxd56_set_spkin1_vol(en ? inst->volgain : 0);
+      cxd56_use_audoutfs_nolock(en);
+      cxd56_use_spkout_nolock(en);
+    }
+
+  return OK;
+}
+
+static int cxd56_aud_i2s1inhwres(FAR struct cxd56_dmachannel_s *inst,
+                                    bool en)
+{
+  cxd56_use_i2sdevice(en);
+  return OK;
+}
+
+static int cxd56_aud_i2s1inhwres_irq(FAR struct cxd56_dmachannel_s *inst,
+                                        bool en)
+{
+  cxd56_use_i2sdevice_nolock(en);
+  return OK;
+}
+
+/* NuttX Audio operations implementations ************************************/
+
+static int cxd56audio_setup(FAR struct audio_lowerhalf_s *lower, int cnt)
+{
+  FAR struct cxd56_dmachannel_s *dmach =
+        (FAR struct cxd56_dmachannel_s *)lower;
+
+  if (cnt == 1)
+    {
+      cxd56_system_power_on(dmach);
+      AUDSTATECHG_INITIAL(dmach);
+
+      if (IS_AUDIO_OUTPUT(dmach))
+        {
+          cxd56_use_mute_off(true);
+        }
+    }
+
+  return OK;
+}
+
+static int cxd56audio_getcaps(FAR struct audio_lowerhalf_s *lower,
+                              int type, FAR struct audio_caps_s *caps)
+{
+  FAR struct cxd56_dmachannel_s *dmach =
+        (FAR struct cxd56_dmachannel_s *)lower;
+
+  caps->ac_format.hw = 0;
   caps->ac_controls.w = 0;
 
-  switch (caps->ac_type)
+  if (AUDSTATE_IS_SHUTDOWN(dmach))
     {
-      /* Query for supported types of units */
+      return -EAGAIN;
+    }
 
+  switch (type)
+    {
       case AUDIO_TYPE_QUERY:
-
-        /* Stereo output */
-
-        caps->ac_channels = 2;
-
+        caps->ac_channels = dmach->maxch(dmach);
         switch (caps->ac_subtype)
           {
             case AUDIO_TYPE_QUERY:
-
-              /* The types of audio units we implement */
-
-              caps->ac_controls.b[0] = AUDIO_TYPE_OUTPUT |
-                                       AUDIO_TYPE_INPUT |
-                                       AUDIO_TYPE_FEATURE;
+              caps->ac_controls.b[0] = dmach->caps;
               break;
 
             default:
               caps->ac_controls.b[0] = AUDIO_SUBFMT_END;
               break;
           }
-        break;
 
-      /* Output capabilities */
+        break;
 
       case AUDIO_TYPE_OUTPUT:
-
-        caps->ac_channels = CXD56_OUT_CHANNELS_MAX;
-
-        switch (caps->ac_subtype)
+        if (IS_AUDIO_OUTPUT(dmach))
           {
-            case AUDIO_TYPE_QUERY:
-
-              /* Report supported output sample rates */
-
-              caps->ac_controls.b[0] = CXD56_SUPP_RATES_L;
-              caps->ac_controls.b[1] = CXD56_SUPP_RATES_H;
-              break;
-
-            default:
-              break;
+            caps->ac_channels = dmach->maxch(dmach);
+            switch (caps->ac_subtype)
+              {
+                case AUDIO_TYPE_QUERY:
+                  caps->ac_controls.hw[0] = dmach->supfs;
+                  break;
+                default:
+                  break;
+              }
           }
-        break;
 
-      /* Output capabilities */
+        break;
 
       case AUDIO_TYPE_INPUT:
-
-        caps->ac_channels = CXD56_IN_CHANNELS_MAX;
-
-        switch (caps->ac_subtype)
+        if (IS_AUDIO_INPUT(dmach))
           {
-            case AUDIO_TYPE_QUERY:
-
-              /* Report supported input sample rates */
-
-              caps->ac_controls.b[0] = CXD56_SUPP_RATES_L;
-              caps->ac_controls.b[1] = CXD56_SUPP_RATES_H;
-              break;
-
-            default:
-              break;
+            caps->ac_channels = dmach->maxch(dmach);
+            switch (caps->ac_subtype)
+              {
+                case AUDIO_TYPE_QUERY:
+                  caps->ac_controls.hw[0] = dmach->supfs;
+                  break;
+                default:
+                  break;
+              }
           }
-        break;
 
-      /* Feature capabilities */
+        break;
 
       case AUDIO_TYPE_FEATURE:
-
-        /* Report supported feature units */
-
         if (caps->ac_subtype == AUDIO_FU_UNDEF)
           {
-            caps->ac_controls.b[0] = AUDIO_FU_VOLUME | AUDIO_FU_MUTE;
-            caps->ac_controls.b[1] = AUDIO_FU_INP_GAIN >> 8;
+            caps->ac_controls.hw[0] = dmach->fcaps;
           }
+
         break;
 
-      /* Others are unsupported */
-
       default:
-
-        /* Zero out the fields to indicate no support */
-
         caps->ac_subtype = 0;
         caps->ac_channels = 0;
         break;
     }
 
-  /* Return the length of the audio_caps_s struct for validation */
-
   return caps->ac_len;
 }
 
-/****************************************************************************
- * Name: cxd56_shutdown
- *
- * Description: Shutdown the chip and puts it in the lowest power
- *              state possible.
- *
- ****************************************************************************/
-
-static int cxd56_shutdown(struct audio_lowerhalf_s *lower, int cnt)
+static int cxd56audio_config(FAR struct audio_lowerhalf_s *lower
+                             MSESSION_ARG,
+                             FAR const struct audio_caps_s *caps)
 {
-  int ret;
-  struct cxd56_dev_s *priv = (struct cxd56_dev_s *)lower;
+  FAR struct cxd56_dmachannel_s *dmach =
+        (FAR struct cxd56_dmachannel_s *)lower;
+  int samprate;
+  int bitw;
+  int chs;
+  int ret = OK;
 
-  if (priv->state != CXD56_DEV_STATE_OFF)
+  if (AUDSTATE_IS_SHUTDOWN(dmach))
     {
-      ret = cxd56_power_off(priv);
-      if (ret != OK)
-        {
-          auderr("ERROR: Power off failed (%d)\n", ret);
-          return ret;
-        }
-
-      g_codec_start_count = 0;
-      priv->state = CXD56_DEV_STATE_OFF;
+      return -EAGAIN;
     }
-
-  return OK;
-}
-
-/****************************************************************************
- * Name: cxd56_configure
- *
- * Description: Configure the audio device for the specified mode.
- *
- ****************************************************************************/
-
-#ifdef CONFIG_AUDIO_MULTI_SESSION
-static int cxd56_configure(struct audio_lowerhalf_s *lower,
-                           void *session, const struct audio_caps_s *caps)
-#else
-static int cxd56_configure(struct audio_lowerhalf_s *lower,
-                           const struct audio_caps_s *caps)
-#endif
-{
-  int ret = 0;
-  uint8_t poweron = 0;
-  struct cxd56_dev_s *priv = (struct cxd56_dev_s *)lower;
 
   switch (caps->ac_type)
     {
-    case AUDIO_TYPE_FEATURE:
-
-      switch (caps->ac_format.hw)
-        {
+      case AUDIO_TYPE_FEATURE:
+        switch (caps->ac_format.hw)
+          {
 #ifndef CONFIG_AUDIO_EXCLUDE_VOLUME
-        case AUDIO_FU_VOLUME:
-          {
-            uint16_t volume = caps->ac_controls.hw[0];
+            case AUDIO_FU_VOLUME:
+              if (IS_AUDIO_OUTPUT(dmach))
+                {
+                  dmach->volgain = caps->ac_controls.hw[0];
+                  dmach->volgain = (dmach->volgain > 1000) ? 1000 :
+                                                         dmach->volgain;
+                  if (dmach->distination == AUDDISTINATION_SPK)
+                    {
+                      cxd56_aud_setvolgain(dmach, dmach->volgain);
+                    }
+                }
+              else
+                {
+                  auderr("ERROR: No volume control. Device is not aout\n");
+                  ret = -EINVAL;
+                }
 
-            if (volume >= 0 && volume <= 1000)
-              {
-                /* Scale the volume setting to the range {-1020..120} */
-
-                priv->volume = CXD56_VOL_NX_TO_CXD56(volume);
-
-                cxd56_set_volume(CXD56_AUDIO_VOLID_MIXER_OUT, priv->volume);
-                cxd56_set_volume(CXD56_AUDIO_VOLID_MIXER_IN1, 0);
-                cxd56_set_volume(CXD56_AUDIO_VOLID_MIXER_IN2, 0);
-              }
-            else
-              {
-                return -EDOM;
-              }
-          }
-          break;
+              break;
 #endif /* CONFIG_AUDIO_EXCLUDE_VOLUME */
+
 #ifndef CONFIG_AUDIO_EXCLUDE_MUTE
-        case AUDIO_FU_MUTE:
-          {
-            /* Set mic mute/unmute status */
-
-            bool mute = (bool) caps->ac_controls.hw[0];
-            audinfo("    Mute: %d\n", mute);
-            if (mute)
-              {
-                cxd56_set_volume(CXD56_AUDIO_VOLID_MIXER_OUT,
-                                 CXD56_VOL_MUTE);
-                cxd56_set_volume(CXD56_AUDIO_VOLID_MIXER_IN1,
-                                 CXD56_VOL_MUTE);
-                cxd56_set_volume(CXD56_AUDIO_VOLID_MIXER_IN2,
-                                 CXD56_VOL_MUTE);
-              }
-            else
-              {
-                cxd56_set_volume(CXD56_AUDIO_VOLID_MIXER_OUT, priv->volume);
-                cxd56_set_volume(CXD56_AUDIO_VOLID_MIXER_IN1, 0);
-                cxd56_set_volume(CXD56_AUDIO_VOLID_MIXER_IN2, 0);
-              }
-
-            if (CXD56_AUDIO_ECODE_OK != ret)
-              {
-                return ret;
-              }
-          }
-          break;
-#endif /* CONFIG_AUDIO_EXCLUDE_MUTE */
-        case AUDIO_FU_INP_GAIN:
-          {
-            /* Set the mic gain */
-
-            /* mic_gain range : 0 ~ 210 (= 150 + 60) */
-
-            priv->mic_gain = caps->ac_controls.hw[0];
-            audinfo("    Mic gain: %d\n", priv->mic_gain);
-
-            if (priv->state != CXD56_DEV_STATE_OFF &&
-                priv->state != CXD56_DEV_STATE_STOPPED)
-              {
-                struct cxd56_aca_pwinput_param_s param;
-                if (cxd56_set_mic_gains(priv->mic_gain,
-                                        priv->mic_dev, &param) < 0)
-                  {
-                    return -EBUSY;
-                  }
-              }
-          }
-          break;
-
-        default:
-          auderr("ERROR: Unknown feature unit: %d\n", caps->ac_format.hw);
-          return -ENOTTY;
-        }
-      break;
-
-    case AUDIO_TYPE_OUTPUT:
-      {
-        if (caps->ac_controls.b[2] != 16 && caps->ac_controls.b[2] != 24)
-          {
-            auderr("ERROR: Unsupported bits per sample: %d\n",
-                   caps->ac_controls.b[2]);
-            return -ERANGE;
-          }
-
-        /* Save the configuration */
-
-        priv->dma_handle = CXD56_AUDIO_DMA_I2S0_DOWN;
-        priv->samplerate = (uint32_t)caps->ac_controls.hw[0] +
-                           ((uint32_t)caps->ac_controls.b[3] << 16);
-        priv->channels = caps->ac_channels;
-        priv->bitwidth = caps->ac_controls.b[2];
-
-#ifdef CONFIG_AUDIO_CXD56_SRC
-        ret = cxd56_src_init(priv, &priv->down_doneq, &priv->down_pendq);
-        if (ret != OK)
-          {
-            auderr("ERROR: Could not initialize SRC (%d)\n", ret);
-            return -ENOMEM;
-          }
-
-#endif
-        g_dev[priv->dma_handle] = priv;
-        poweron = 1;
-
-        audinfo("Configured output using %d:\n", priv->dma_handle);
-        audinfo("  Channels:    %d\n", priv->channels);
-        audinfo("  Samplerate:  %" PRIu32 "\n", priv->samplerate);
-        audinfo("  Bit width:   %d\n", priv->bitwidth);
-      }
-      break;
-
-    case AUDIO_TYPE_INPUT:
-      {
-        /* Save the configuration */
-
-        priv->dma_handle = CXD56_AUDIO_DMA_MIC;
-        priv->samplerate = (uint32_t)caps->ac_controls.hw[0] +
-                           ((uint32_t)caps->ac_controls.b[3] << 16);
-        priv->channels = caps->ac_channels;
-        priv->bitwidth = caps->ac_controls.b[2];
-
-        g_dev[priv->dma_handle] = priv;
-        poweron = 1;
-
-        audinfo("Configured input using %d:\n", priv->dma_handle);
-        audinfo("  Channels:    %d\n", priv->channels);
-        audinfo("  Samplerate:  %" PRIu32 "\n", priv->samplerate);
-        audinfo("  Bit width:   %d\n", priv->bitwidth);
-      }
-      break;
-    }
-
-  if (poweron)
-    {
-      /* Get ready to start receiving buffers */
-
-      ret = cxd56_power_on(priv);
-      if (ret != OK)
-        {
-          auderr("ERROR: Power on error (%d)\n", ret);
-          return ret;
-        }
-
-      cxd56_init_dma(priv);
-
-      priv->state = CXD56_DEV_STATE_STOPPED;
-    }
-
-  return OK;
-}
-
-/****************************************************************************
- * Name: cxd56_start
- *
- * Description: Starts playback with the current configuration.
- *
- ****************************************************************************/
-
-#ifdef CONFIG_AUDIO_MULTI_SESSION
-static int cxd56_start(struct audio_lowerhalf_s *lower, void *session)
-#else
-static int cxd56_start(struct audio_lowerhalf_s *lower)
-#endif
-{
-  int ret;
-  struct cxd56_dev_s *priv = (struct cxd56_dev_s *)lower;
-
-  /* Set audio path and enable analog input/output */
-
-  if (priv->dma_handle == CXD56_AUDIO_DMA_I2S0_DOWN)
-    {
-      write_reg(REG_AC_AU_DAT_SEL1, CXD56_AUDAT_SEL_BUSIF1);
-
-      ret = cxd56_power_on_analog_output(priv);
-      if (ret != OK)
-        {
-          auderr("ERROR: Power on analog output failed (%d)\n", ret);
-          return ret;
-        }
-    }
-  else if (priv->dma_handle == CXD56_AUDIO_DMA_MIC)
-    {
-#if 0
-      /* TODO: Check configuration. From audio_manager.cpp:221 */
-
-      sel_info.au_dat_sel1 = true;
-      if (AS_THROUGH_PATH_OUT_MIXER1 == out_path)
-          sel_info.cod_insel2  = true;
-      else if (AS_THROUGH_PATH_OUT_MIXER2 == out_path)
-          sel_info.cod_insel3  = true;
-      else if (AS_THROUGH_PATH_OUT_I2S1 == out_path)
-          sel_info.src1in_sel  = true;
-      else
-          sel_info.src2in_sel  = true;
-#endif
-      write_reg(REG_AC_AU_DAT_SEL1, CXD56_AUDAT_SEL_MIC1);
-      write_reg(REG_AC_AU_DAT_SEL2, CXD56_AUDAT_SEL_MIC1);
-
-      ret = cxd56_power_on_input(priv);
-      if (ret != OK)
-        {
-          auderr("ERROR: Power on analog input failed (%d)\n", ret);
-          return ret;
-        }
-
-      if (priv->mic_boot_start != 0x0ull)
-        {
-          struct timespec end;
-          if (clock_systime_timespec(&end) == 0)
-            {
-              uint64_t time = (uint64_t)end.tv_sec * 1000 +
-                              (uint64_t)end.tv_nsec / 1000000 -
-                               priv->mic_boot_start;
-
-              if (time < CXD56_MIC_BOOT_WAIT)
+            case AUDIO_FU_MUTE:
+              if (IS_AUDIO_OUTPUT(dmach))
                 {
-                  nxsig_usleep((CXD56_MIC_BOOT_WAIT - time) * 1000);
-                }
-            }
-        }
-    }
+                  bool mute = (bool) caps->ac_controls.hw[0];
+                  audinfo("    Mute: %d\n", mute);
 
-  ret = cxd56_init_worker(lower);
-  if (ret != OK)
-    {
-      auderr("ERROR: Could not feed DMA (%d)\n", ret);
-      return ret;
-    }
-
-  return OK;
-}
-
-/****************************************************************************
- * Name: cxd56_stop
- *
- * Description: Stops playback with the current configuration.
- *
- ****************************************************************************/
-
-static int cxd56_stop_dma(struct cxd56_dev_s *priv)
-{
-  int ret;
-
-  if (priv->state != CXD56_DEV_STATE_STOPPED)
-    {
-      /* Stop DMA */
-
-      cxd56_set_dma_running(priv->dma_handle, false);
-
-      if (priv->dma_handle == CXD56_AUDIO_DMA_MIC)
-        {
-          /* Power off decimator */
-
-          write_reg(REG_AC_DECIM0_EN, 0);
-
-          /* Power off CIC. */
-
-          write_reg(REG_AC_PDN_AMIC1,   1);
-          write_reg(REG_AC_PDN_AMIC2,   1);
-          write_reg(REG_AC_PDN_AMICEXT, 1);
-          write_reg(REG_AC_PDN_DMIC,    1);
-
-          /* Disable input */
-
-          if (fw_as_acacontrol(CXD56_ACA_CTL_POWER_OFF_INPUT,
-                             0) != 0)
-            {
-              return -EBUSY;
-            }
-
-          priv->mic_boot_start = 0x0ull;
-        }
-      else if (priv->dma_handle == CXD56_AUDIO_DMA_I2S0_DOWN)
-        {
-          /* Turn off amplifier */
-
-          ret = board_external_amp_mute_control(true);
-          if (ret != CXD56_AUDIO_ECODE_OK)
-            {
-              auderr("ERROR: Couldn't mute amplifier (%d)\n", ret);
-              return -EBUSY;
-            }
-
-          /* Mute and disable output */
-
-          write_reg(REG_AC_NSPMUTE, 1);
-          write_reg(REG_AC_PDN_SMSTR, 1);
-
-          if (fw_as_acacontrol(CXD56_ACA_CTL_POWER_OFF_OUTPUT,
-                               0) != 0)
-            {
-              return -EBUSY;
-            }
-        }
-    }
-
-  return OK;
-}
-
-#ifndef CONFIG_AUDIO_EXCLUDE_STOP
-#ifdef CONFIG_AUDIO_MULTI_SESSION
-static int cxd56_stop(struct audio_lowerhalf_s *lower, void *session)
-#else
-static int cxd56_stop(struct audio_lowerhalf_s *lower)
-#endif
-{
-  int ret;
-  void *value;
-  struct audio_msg_s msg;
-  struct cxd56_dev_s *priv = (struct cxd56_dev_s *)lower;
-
-  audinfo("cxd56_stop\n");
-
-  msg.msg_id = AUDIO_MSG_STOP;
-  msg.u.data = 0;
-  ret = file_mq_send(&priv->mq, (const char *)&msg,
-                     sizeof(msg), CONFIG_CXD56_MSG_PRIO);
-  if (ret != OK)
-    {
-      auderr("ERROR: file_mq_send stop message failed (%d)\n", ret);
-      return ret;
-    }
-
-  /* Join the worker thread */
-
-  pthread_join(priv->threadid, &value);
-  priv->threadid = 0;
-
-  return OK;
-}
-#endif /* CONFIG_AUDIO_EXCLUDE_STOP */
-
-/****************************************************************************
- * Name: cxd56_pause
- *
- * Description: Pauses the playback.
- *
- ****************************************************************************/
-
-#ifndef CONFIG_AUDIO_EXCLUDE_PAUSE_RESUME
-#ifdef CONFIG_AUDIO_MULTI_SESSION
-static int cxd56_pause(struct audio_lowerhalf_s *lower, void *session)
-#else
-static int cxd56_pause(struct audio_lowerhalf_s *lower)
-#endif
-{
-  int ret;
-  struct cxd56_dev_s *dev = (struct cxd56_dev_s *)lower;
-
-  if (dev->state == CXD56_DEV_STATE_STARTED)
-    {
-      dev->state = CXD56_DEV_STATE_PAUSED;
-
-      ret = cxd56_stop_dma(dev);
-      if (ret != OK)
-        {
-          auderr("ERROR: Could not stop DMA transfer (%d)\n", ret);
-          return ret;
-        }
-    }
-
-  return OK;
-}
-
-/****************************************************************************
- * Name: cxd56_resume
- *
- * Description: Resumes the playback.
- *
- ****************************************************************************/
-
-#ifdef CONFIG_AUDIO_MULTI_SESSION
-static int cxd56_resume(struct audio_lowerhalf_s *lower, void *session)
-#else
-static int cxd56_resume(struct audio_lowerhalf_s *lower)
-#endif
-{
-  int ret;
-  struct cxd56_dev_s *dev = (struct cxd56_dev_s *)lower;
-
-  if (dev->state == CXD56_DEV_STATE_PAUSED ||
-      dev->state == CXD56_DEV_STATE_BUFFERING)
-    {
-      if (dev->state == CXD56_DEV_STATE_PAUSED)
-        {
-          dev->state = CXD56_DEV_STATE_STARTED;
-          cxd56_power_on_analog_output(dev);
-          board_external_amp_mute_control(false);
-        }
-      else
-        {
-          /* NOTE: only power on the analog output
-           * when resumed from buffering
-           */
-
-          cxd56_power_on_analog_output(dev);
-        }
-
-      audinfo("START DMA up_pendq=%d\n", dq_count(&dev->up_pendq));
-      ret = cxd56_start_dma(dev);
-      if (ret != OK)
-        {
-          auderr("ERROR: Could not resume DMA transfer (%d)\n", ret);
-          return ret;
-        }
-    }
-
-  return OK;
-}
-#endif /* CONFIG_AUDIO_EXCLUDE_PAUSE_RESUME */
-
-/****************************************************************************
- * Name: cxd56_release
- *
- * Description: Releases the session.
- *
- ****************************************************************************/
-
-#ifdef CONFIG_AUDIO_MULTI_SESSION
-static int cxd56_release(struct audio_lowerhalf_s *lower, void *session)
-#else
-static int cxd56_release(struct audio_lowerhalf_s *lower)
-#endif
-{
-  return OK;
-}
-
-/****************************************************************************
- * Name: cxd56_reserve
- *
- * Description: Reserves a session.
- *
- ****************************************************************************/
-
-#ifdef CONFIG_AUDIO_MULTI_SESSION
-static int cxd56_reserve(struct audio_lowerhalf_s *lower, void **session)
-#else
-static int cxd56_reserve(struct audio_lowerhalf_s *lower)
-#endif
-{
-  return OK;
-}
-
-static void cxd56_swap_buffer_rl(uint32_t addr, uint16_t size)
-{
-  uint32_t i = 0;
-  uint16_t tmp_buffer;
-  uint16_t *p_lch = (uint16_t *)addr;
-  uint16_t *p_rch = p_lch + 1;
-
-  while (i++ < size / 4)
-    {
-      tmp_buffer = *p_lch;
-      *p_lch = *p_rch;
-      *p_rch = tmp_buffer;
-
-      p_lch += 2;
-      p_rch += 2;
-    }
-}
-
-static void send_message_underrun(struct cxd56_dev_s *dev)
-{
-  struct audio_msg_s msg;
-
-  msg.msg_id = AUDIO_MSG_UNDERRUN;
-  msg.u.ptr = NULL;
-  dev->dev.upper(dev->dev.priv, AUDIO_CALLBACK_MESSAGE,
-                 (struct ap_buffer_s *)&msg, OK);
-}
-
-static int cxd56_start_dma(struct cxd56_dev_s *dev)
-{
-  struct ap_buffer_s *apb;
-  irqstate_t flags;
-  int retry;
-  int timeout;
-  uint32_t addr;
-  uint32_t size;
-  int ret = OK;
-
-  flags = spin_lock_irqsave(&dev->lock);
-#ifdef CONFIG_AUDIO_CXD56_SRC
-  struct ap_buffer_s *src_apb;
-
-  if (dq_count(&dev->down_pendq) == 0)
-#else
-  if (dq_count(&dev->up_pendq) == 0)
-#endif
-    {
-      /* Underrun occurred, stop DMA and change state for buffering */
-
-      audwarn("Underrun\n");
-
-      spin_unlock_irqrestore(&dev->lock, flags);
-      ret = cxd56_stop_dma(dev);
-      flags = spin_lock_irqsave(&dev->lock);
-      audwarn("STOP DMA due to underrun\n");
-      if (ret != CXD56_AUDIO_ECODE_OK)
-        {
-          auderr("ERROR: Could not stop DMA transfer (%d)\n", ret);
-          dev->running = false;
-        }
-
-      send_message_underrun(dev);
-
-      dev->state = CXD56_DEV_STATE_BUFFERING;
-    }
-  else
-    {
-      /* Fill up with as many DMA requests as we can */
-
-#ifdef CONFIG_AUDIO_CXD56_SRC
-      while (dq_count(&dev->down_pendq) > 0)
-#else
-      while (dq_count(&dev->up_pendq) > 0)
-#endif
-        {
-          if (cxd56_dma_is_busy(dev->dma_handle))
-            {
-              /* DMA busy, will retry next time */
-
-              ret = OK;
-              goto exit;
-            }
-
-#ifdef CONFIG_AUDIO_CXD56_SRC
-          src_apb = (struct ap_buffer_s *) dq_peek(&dev->down_pendq);
-          addr = CXD56_PHYSADDR(src_apb->samp);
-          size = (src_apb->nbytes / (dev->bitwidth / 8) / dev->channels) - 1;
-#else
-          apb = (struct ap_buffer_s *) dq_peek(&dev->up_pendq);
-
-          /* Mic input device generate audio data,
-           * so all buffer should be able to use.
-           */
-
-          size = (dev->dma_handle == CXD56_AUDIO_DMA_MIC) ? apb->nmaxbytes :
-                                                            apb->nbytes;
-          addr = CXD56_PHYSADDR(apb->samp);
-          size = (size / (dev->bitwidth / 8) / dev->channels) - 1;
-#endif
-
-          if (dev->dma_handle == CXD56_AUDIO_DMA_MIC)
-            {
-              write_reg(REG_MIC_IN_START_ADR, addr);
-              write_reg(REG_MIC_IN_SAMPLE_NO, size);
-            }
-          else
-            {
-              if (dev->bitwidth == 16 &&
-                  CXD56_DMA_FORMAT == CXD56_DMA_FORMAT_RL)
-                {
-#ifdef CONFIG_AUDIO_CXD56_SRC
-                  cxd56_swap_buffer_rl((uint32_t)src_apb->samp,
-                                       src_apb->nbytes);
-#else
-                  cxd56_swap_buffer_rl((uint32_t)apb->samp,
-                                        apb->nbytes);
-#endif
-                }
-
-              write_reg(REG_I2S1_OUT_START_ADR, addr);
-              write_reg(REG_I2S1_OUT_SAMPLE_NO, size);
-            }
-
-          /* Start DMA, use workaround with first buffer */
-
-          if (dev->state != CXD56_DEV_STATE_STARTED)
-            {
-              if (dev->dma_handle == CXD56_AUDIO_DMA_I2S0_DOWN)
-                {
-                  /* Turn on amplifier */
-
-                  spin_unlock_irqrestore(&dev->lock, flags);
-                  board_external_amp_mute_control(false);
-                  flags = spin_lock_irqsave(&dev->lock);
-                }
-
-              /* Mask interrupts */
-
-              cxd56_int_mask(dev->dma_handle, CXD56_DMA_INT_ERR);
-              cxd56_int_mask(dev->dma_handle, CXD56_DMA_INT_DONE);
-
-              /* Sync workaround loop */
-
-              for (retry = 0; retry < CXD56_DMA_START_RETRY_CNT; retry++)
-                {
-                  /* Clear interrupt status */
-
-                  cxd56_int_clear(dev->dma_handle, CXD56_DMA_INT_ERR);
-                  cxd56_int_clear(dev->dma_handle, CXD56_DMA_INT_SMP);
-
-                  for (timeout = 0; timeout < CXD56_DMA_TIMEOUT; timeout++)
+                  if (mute)
                     {
-                      if (cxd56_int_has_smp(dev->dma_handle))
-                        {
-                          break;
-                        }
-                    }
-
-                  if (timeout == CXD56_DMA_TIMEOUT)
-                    {
-                      ret = -ETIME;
-                      goto exit;
-                    }
-
-                  /* Reset channel select */
-
-                  cxd56_reset_channel_sel(dev->dma_handle);
-
-                  /* Start DMA */
-
-                  cxd56_set_dma_running(dev->dma_handle, true);
-
-                  /* Wait for 1sample tramsfer */
-
-                  if (dev->samplerate > 48000)
-                    {
-                      up_udelay(CXD56_DMA_SMP_WAIT_HIRES);
+                      cxd56_aud_setvolgain(dmach, 0);
                     }
                   else
                     {
-                      up_udelay(CXD56_DMA_SMP_WAIT_NORMALT);
-                    }
-
-                  /* Check if an error interrupt has occurred */
-
-                  if (cxd56_int_has_error(dev->dma_handle))
-                    {
-                      cxd56_set_dma_running(dev->dma_handle, false);
-                      cxd56_int_clear(dev->dma_handle, CXD56_DMA_INT_ERR);
-
-                      for (timeout = 0;
-                           timeout < CXD56_DMA_TIMEOUT;
-                           timeout++)
-                        {
-                          if (CXD56_DMA_MSTATE_BUF_EMPTY ==
-                              cxd56_get_mon_buf(dev->dma_handle))
-                            {
-                              if (cxd56_int_is_done(dev->dma_handle))
-                                {
-                                  cxd56_int_clear(dev->dma_handle,
-                                                  CXD56_DMA_INT_DONE);
-                                  break;
-                                }
-                            }
-                        }
-                    }
-                      else
-                    {
-                      break;
+                      cxd56_aud_setvolgain(dmach, dmach->volgain);
                     }
                 }
-
-              if (retry == CXD56_DMA_START_RETRY_CNT)
+              else
                 {
-                  audinfo("Workaround retries maxed out\n");
+                  auderr("ERROR: No Mute control. Device is input\n");
+                  ret = -EINVAL;
                 }
 
-              cxd56_int_unmask(dev->dma_handle, CXD56_DMA_INT_DONE);
-              cxd56_int_clear(dev->dma_handle, CXD56_DMA_INT_ERR);
-              cxd56_int_unmask(dev->dma_handle, CXD56_DMA_INT_ERR);
-            }
-          else
-            {
-              /* start DMA */
+              break;
+#endif /* CONFIG_AUDIO_EXCLUDE_MUTE */
 
-              cxd56_set_dma_running(dev->dma_handle, true);
-            }
-
-#ifdef CONFIG_AUDIO_CXD56_SRC
-          dq_get(&dev->down_pendq);
-          dq_put(&dev->down_runq, &src_apb->dq_entry);
-
-          apb = (struct ap_buffer_s *) dq_get(&dev->up_pendq);
-#else
-          /* Just drop the buffer from the queue */
-
-          dq_get(&dev->up_pendq);
-#endif
-          dq_put(&dev->up_runq, &apb->dq_entry);
-
-          dev->state = CXD56_DEV_STATE_STARTED;
-
-#ifndef CONFIG_AUDIO_CXD56_SRC
-          if ((apb->flags & AUDIO_APB_FINAL) != 0)
-            {
-              /* If the apb is final, send stop message */
-
-              audinfo("Final apb\n");
-              struct audio_msg_s msg;
-              msg.msg_id = AUDIO_MSG_STOP;
-              msg.u.data = 0;
-
-              spin_unlock_irqrestore(&dev->lock, flags);
-              ret = file_mq_send(&dev->mq, (const char *)&msg,
-                                 sizeof(msg), CONFIG_CXD56_MSG_PRIO);
-              flags = spin_lock_irqsave(&dev->lock);
-
-              if (ret != OK)
+            case AUDIO_FU_INP_GAIN:
+              if (IS_AUDIO_INPUT(dmach))
                 {
-                  auderr("ERROR: file_mq_send for stop failed (%d)\n", ret);
-                  goto exit;
+                  dmach->volgain = caps->ac_controls.hw[0];
+                  dmach->volgain = (dmach->volgain > 1000) ? 1000 :
+                                                         dmach->volgain;
+                  cxd56_aud_setvolgain(dmach, dmach->volgain);
                 }
-            }
-#endif
+              else
+                {
+                  auderr("ERROR: No Gain control. Device is output\n");
+                  ret = -EINVAL;
+                }
+
+              break;
+
+            default:
+              auderr("ERROR: Unknown feature unit: %d\n", caps->ac_format.hw);
+              ret = -ENOTTY;
+          }
+
+        break;
+
+      case AUDIO_TYPE_OUTPUT:
+        if (!IS_AUDIO_OUTPUT(dmach))
+          {
+              auderr("ERROR: Can't configure, device is output\n");
+              ret = -EINVAL;
+          }
+
+        samprate = (uint32_t)caps->ac_controls.hw[0] +
+                   ((uint32_t)caps->ac_controls.b[3] << 16);
+        chs = caps->ac_channels;
+        bitw = caps->ac_controls.b[2];
+
+        ret = cxd56_aud_setconfig(dmach, samprate, chs, bitw);
+        if (ret != OK)
+          {
+              auderr("ERROR: Output Configuration Error : %d\n", ret);
+          }
+
+        break;
+
+      case AUDIO_TYPE_INPUT:
+        if (!IS_AUDIO_INPUT(dmach))
+          {
+              auderr("ERROR: Can't configure, device is input\n");
+              ret = -EINVAL;
+          }
+        else
+          {
+            samprate = (uint32_t)caps->ac_controls.hw[0] +
+                       ((uint32_t)caps->ac_controls.b[3] << 16);
+            chs = caps->ac_channels;
+            bitw = caps->ac_controls.b[2];
+
+            ret = cxd56_aud_setconfig(dmach, samprate, chs, bitw);
+            if (ret != OK)
+              {
+                  auderr("ERROR: Input Configuration Error %d \n", ret);
+                  ret = -EBUSY;
+              }
         }
-    }
 
-exit:
-  spin_unlock_irqrestore(&dev->lock, flags);
+      default:
+        ret = -ENOTSUP;
+        break;
+    }
 
   return ret;
 }
 
-/****************************************************************************
- * Name: cxd56_enqueuebuffer
- *
- * Description: Enqueue an audio buffer for playback.
- *
- ****************************************************************************/
-
-static int cxd56_enqueuebuffer(struct audio_lowerhalf_s *lower,
-                               struct ap_buffer_s *apb)
+static int cxd56audio_shutdown(FAR struct audio_lowerhalf_s *lower, int cnt)
 {
-  struct cxd56_dev_s *priv = (struct cxd56_dev_s *)lower;
-  struct audio_msg_s msg;
-  irqstate_t flags;
-  int ret;
+  FAR struct cxd56_dmachannel_s *dmach =
+        (FAR struct cxd56_dmachannel_s *)lower;
 
-#ifdef CONFIG_AUDIO_CXD56_SRC
-  ret = cxd56_src_enqueue(apb);
-  if (ret != OK)
+  if (cnt == 0)
     {
-      auderr("ERROR: SRC processing failed (%d)\n", ret);
+      /* Reference counter is zero, means closing the device file.
+       * So audio system power is shutdown.
+       */
+
+      cxd56_auddma_shutdown(dmach);
+
+      if (IS_AUDIO_OUTPUT(dmach))
+        {
+          cxd56_use_mute_off(false);
+        }
+
+      cxd56_system_power_off(dmach);
     }
   else
     {
-#endif
-      flags = spin_lock_irqsave(&priv->lock);
+      /* Othewise, user is requesting to re-initialize the device. */
 
-      apb->dq_entry.flink = NULL;
-      dq_put(&priv->up_pendq, &apb->dq_entry);
-
-      spin_unlock_irqrestore(&priv->lock, flags);
-
-      if (priv->mq.f_inode != NULL)
-        {
-          msg.msg_id = AUDIO_MSG_ENQUEUE;
-          msg.u.data = 0;
-
-          ret = file_mq_send(&priv->mq, (const char *) &msg,
-                             sizeof(msg), CONFIG_CXD56_MSG_PRIO);
-          if (ret != OK)
-            {
-              auderr("ERROR: file_mq_send to enqueue failed (%d)\n", ret);
-              return ret;
-            }
-        }
-#ifdef CONFIG_AUDIO_CXD56_SRC
+      cxd56_auddma_shutdown(dmach);
+      AUDSTATECHG_INITIAL(dmach);
     }
-#endif
 
   return OK;
 }
 
-/****************************************************************************
- * Name: cxd56_cancelbuffer
- *
- * Description: Called when an enqueued buffer is being cancelled.
- *
- ****************************************************************************/
-
-static int cxd56_cancelbuffer(struct audio_lowerhalf_s *lower,
-                              struct ap_buffer_s *apb)
+static int cxd56audio_start(FAR struct audio_lowerhalf_s *lower
+                            MSESSION_ARG)
 {
-  return OK;
-}
+  int ret = -EAGAIN;
+  FAR struct cxd56_dmachannel_s *dmach =
+        (FAR struct cxd56_dmachannel_s *)lower;
 
-/****************************************************************************
- * Name: cxd56_ioctl
- *
- * Description: Perform a device ioctl
- *
- ****************************************************************************/
-
-static int cxd56_ioctl(struct audio_lowerhalf_s *lower, int cmd,
-                       unsigned long arg)
-{
-  int ret = OK;
-#ifdef CONFIG_AUDIO_DRIVER_SPECIFIC_BUFFERS
-  struct ap_buffer_info_s *bufinfo;
-#endif
-
-  /* Handle ioctl commands from the upper-half driver */
-
-  switch (cmd)
+  if (AUDSTATE_IS_CONFIGURED(dmach))
     {
-       /* Return our preferred buffer size and count */
-
-#ifdef CONFIG_AUDIO_DRIVER_SPECIFIC_BUFFERS
-      case AUDIOIOC_GETBUFFERINFO:
+      ret = cxd56_auddma_start(dmach);
+      if (ret == OK)
         {
-          audinfo("AUDIOIOC_GETBUFFERINFO:\n");
-          bufinfo              = (struct ap_buffer_info_s *) arg;
-          bufinfo->buffer_size = CONFIG_CXD56_AUDIO_BUFFER_SIZE;
-          bufinfo->nbuffers    = CONFIG_CXD56_AUDIO_NUM_BUFFERS;
+          dmach->hwresource(dmach, true);
         }
-        break;
-#endif
-
-      default:
-        ret = -ENOTTY;
-        audinfo("Unhandled ioctl: %d\n", cmd);
-        break;
     }
 
   return ret;
 }
 
-/****************************************************************************
- * Name: cxd56_workerthread
- *
- *  This is the thread that feeds data to the chip and keeps the audio
- *  stream going.
- *
- ****************************************************************************/
-
-static void *cxd56_workerthread(pthread_addr_t pvarg)
-{
-  struct cxd56_dev_s *priv = (struct cxd56_dev_s *)pvarg;
-  struct audio_msg_s msg;
-  unsigned int prio;
-  int size;
-  int ret;
-  irqstate_t flags;
-
-  audinfo("Workerthread started.\n");
-
 #ifndef CONFIG_AUDIO_EXCLUDE_STOP
-  priv->terminating = false;
-#endif
+static int cxd56audio_stop(FAR struct audio_lowerhalf_s *lower
+                           MSESSION_ARG)
+{
+  FAR struct cxd56_dmachannel_s *dmach =
+        (FAR struct cxd56_dmachannel_s *)lower;
 
-  /* Mark ourself as running */
-
-  priv->running = true;
-
-  /* Initial buffering */
-
-  ret = cxd56_start_dma(priv);
-  if (ret != OK)
+  if (AUDSTATE_IS_SHUTDOWN(dmach))
     {
-      auderr("ERROR: Could not start DMA transfer (%d)\n", ret);
-      priv->running = false;
+      return -EAGAIN;
+    }
+  else if (cxd56_auddma_stop(dmach))
+    {
+      /* cxd56_auddma_stop() returned if HW resource is needed to
+       * release here or not.
+       */
+
+      dmach->hwresource(dmach, false);
     }
 
-  while (priv->running)
+  return OK;
+}
+#endif  /* CONFIG_AUDIO_EXCLUDE_STOP */
+
+#ifndef CONFIG_AUDIO_EXCLUDE_PAUSE_RESUME
+static int cxd56audio_pause(FAR struct audio_lowerhalf_s *lower
+                            MSESSION_ARG)
+{
+  int ret = -EAGAIN;
+  FAR struct cxd56_dmachannel_s *dmach =
+        (FAR struct cxd56_dmachannel_s *)lower;
+
+  if (!AUDSTATE_IS_SHUTDOWN(dmach))
     {
-      size = file_mq_receive(&priv->mq, (char *)&msg,
-                             sizeof(msg), &prio);
-
-      /* Handle the case when we return with no message */
-
-      if (size == 0)
-        {
-          priv->running = false;
-          break;
-        }
-
-      /* Process the message */
-
-      switch (msg.msg_id)
-        {
-          case AUDIO_MSG_STOP:
-            ret = cxd56_stop_dma(priv);
-            if (ret != CXD56_AUDIO_ECODE_OK)
-              {
-                priv->running = false;
-              }
-
-#ifdef CONFIG_AUDIO_CXD56_SRC
-            ret = cxd56_src_stop();
-            if (ret != OK)
-              {
-                auderr("ERROR: Could not stop SRC (%d)\n", ret);
-              }
-
-            ret = cxd56_src_deinit();
-            if (ret != OK)
-              {
-                auderr("ERROR: Could not deinit SRC (%d)\n", ret);
-              }
-
-#endif
-            priv->state = CXD56_DEV_STATE_STOPPED;
-            priv->running = false;
-            audinfo("Workerthread stopped.\n");
-            break;
-
-          case AUDIO_MSG_DATA_REQUEST:
-            if (priv->state == CXD56_DEV_STATE_STARTED)
-            {
-                cxd56_start_dma(priv);
-            }
-            break;
-
-          case AUDIO_MSG_ENQUEUE:
-            if (priv->state == CXD56_DEV_STATE_BUFFERING)
-              {
-                audwarn("Buffering up_pendq=%d\n",
-                        dq_count(&priv->up_pendq));
-
-                struct ap_buffer_s *apb;
-                apb = (struct ap_buffer_s *)(&priv->up_pendq)->tail;
-
-                bool final = (apb != NULL) &&
-                  ((apb->flags & AUDIO_APB_FINAL) != 0);
-
-                /* If up_pendq exceeds the threshold or up_pendq
-                 * contains the final buffer, then start dma.
-                 */
-
-                if (CONFIG_CXD56_AUDIO_NUM_BUFFERS <=
-                    dq_count(&priv->up_pendq) || final)
-                  {
-                    cxd56_resume((struct audio_lowerhalf_s *)priv);
-                  }
-              }
-            break;
-
-          default:
-            break;
-        }
+      ret = cxd56_auddma_pause(dmach);
     }
 
-  file_mq_close(&priv->mq);
-  file_mq_unlink(priv->mqname);
-
-  /* Clean up queue */
-
-  flags = spin_lock_irqsave(&priv->lock);
-  dq_init(&priv->up_runq);
-  dq_init(&priv->up_pendq);
-  spin_unlock_irqrestore(&priv->lock, flags);
-
-  /* Send AUDIO_MSG_COMPLETE to the client */
-
-#ifdef CONFIG_AUDIO_MULTI_SESSION
-  priv->dev.upper(priv->dev.priv, AUDIO_CALLBACK_COMPLETE, NULL, OK, NULL);
-#else
-  priv->dev.upper(priv->dev.priv, AUDIO_CALLBACK_COMPLETE, NULL, OK);
-#endif
-
-  return NULL;
+  return ret;
 }
 
-/* Setup worker thread and message queue */
-
-static int cxd56_init_worker(struct audio_lowerhalf_s *dev)
+static int cxd56audio_resume(FAR struct audio_lowerhalf_s *lower
+                             MSESSION_ARG)
 {
-  struct cxd56_dev_s *priv = (struct cxd56_dev_s *)dev;
-  struct sched_param sparam;
-  struct mq_attr m_attr;
-  pthread_attr_t t_attr;
-  void *value;
-  int ret;
+  FAR struct cxd56_dmachannel_s *dmach =
+        (FAR struct cxd56_dmachannel_s *)lower;
 
-  snprintf(priv->mqname, sizeof(priv->mqname), "/tmp/%" PRIXPTR,
-           (uintptr_t)priv);
+  /* At first, make sure the DMA is not going to stop */
 
-  m_attr.mq_maxmsg  = 16;
-  m_attr.mq_msgsize = sizeof(struct audio_msg_s);
-  m_attr.mq_curmsgs = 0;
-  m_attr.mq_flags   = 0;
-
-  ret = file_mq_open(&priv->mq, priv->mqname,
-                     O_RDWR | O_CREAT, 0644, &m_attr);
-  if (ret < 0)
+  while (AUDSTATE_IS_PAUSING(dmach) ||
+         AUDSTATE_IS_COMPLETING(dmach) ||
+         AUDSTATE_IS_STOPPING(dmach))
     {
-      auderr("ERROR: Could not allocate message queue.\n");
-      return ret;
+      usleep(1);
     }
 
-  /* Join any old worker thread we had created to prevent a memory leak */
+  return cxd56_auddma_resume(dmach);
+}
+#endif  /* CONFIG_AUDIO_EXCLUDE_PAUSE_RESUME */
 
-  if (priv->threadid != 0)
+static int cxd56audio_enqbuff(FAR struct audio_lowerhalf_s *lower,
+                              FAR struct ap_buffer_s *apb)
+{
+  FAR struct cxd56_dmachannel_s *dmach =
+        (FAR struct cxd56_dmachannel_s *)lower;
+
+  if (AUDSTATE_IS_SHUTDOWN(dmach))
     {
-      pthread_join(priv->threadid, &value);
+      return -EAGAIN;
     }
 
-  pthread_attr_init(&t_attr);
-  sparam.sched_priority = sched_get_priority_max(SCHED_FIFO) - 3;
-  pthread_attr_setschedparam(&t_attr, &sparam);
-  pthread_attr_setstacksize(&t_attr,
-                            CONFIG_CXD56_AUDIO_WORKER_STACKSIZE);
+  return cxd56_auddma_enqueue(dmach, apb);
+}
 
-  ret = pthread_create(&priv->threadid, &t_attr, cxd56_workerthread,
-                       (pthread_addr_t)priv);
-  if (ret != OK)
+static int cxd56audio_cancelbuff(FAR struct audio_lowerhalf_s *lower,
+                                 FAR struct ap_buffer_s *apb)
+{
+  FAR struct cxd56_dmachannel_s *dmach =
+        (FAR struct cxd56_dmachannel_s *)lower;
+
+  /* When app wants to cancel buffer, it is not for a specific buffer.
+   * Because canceling it is to stop playing or recording, and to get back
+   * buffer(s) which is/are already enqueued.
+   * So avoid the apb argument and remove all buffer(s) not run yet.
+   */
+
+  return cxd56_auddma_cancelbuff(dmach);
+}
+
+static int cxd56audio_ioctl(FAR struct audio_lowerhalf_s *lower, int cmd,
+                            unsigned long arg)
+{
+  int ret = -EINVAL;
+#ifdef CONFIG_AUDIO_DRIVER_SPECIFIC_BUFFERS
+  FAR struct ap_buffer_info_s *bufinfo;
+#endif
+
+  FAR struct cxd56_dmachannel_s *dmach =
+        (FAR struct cxd56_dmachannel_s *)lower;
+  FAR struct cxd56_audio_ioctl_s *acmd =
+        (FAR struct cxd56_audio_ioctl_s *)arg;
+
+  if (AUDSTATE_IS_SHUTDOWN(dmach) || AUDSTATE_IS_CLOSING(dmach))
     {
-      auderr("ERROR: pthread_create failed (%d)\n", ret);
-      return ret;
+      return -EAGAIN;
     }
 
-  pthread_setname_np(priv->threadid, "cxd56");
+  switch (cmd)
+    {
+#ifdef CONFIG_AUDIO_DRIVER_SPECIFIC_BUFFERS
+      case AUDIOIOC_GETBUFFERINFO:
+        {
+          bufinfo              = (FAR struct ap_buffer_info_s *) arg;
+          bufinfo->buffer_size = CONFIG_CXD56_AUDIO_BUFFER_SIZE;
+          bufinfo->nbuffers    = CONFIG_CXD56_AUDIO_NUM_BUFFERS;
+          ret = OK;
+        }
+        break;
+#endif
+
+      case AUDIOIOC_VENDORSPECIFIC:
+        switch (acmd->cmd)
+          {
+            case CXD56AUD_SET_SYSVOLUME:
+              if (IS_AUDIO_OUTPUT(dmach))
+                {
+                  cxd56_update_systemvol((uint16_t)acmd->arg);
+                  ret = OK;
+                }
+
+              break;
+
+            case CXD56AUD_SET_AUDIOPATH:
+
+              /* To implement to make I2SDown DMA to I2S out or SPK out */
+
+              ret = -ENOTSUP;
+              break;
+
+            case CXD56AUD_SET_I2SMODE:
+              if (IS_AUDIO_I2SDEV(dmach))
+                {
+                  ret = -EBUSY;
+                  if (cxd56_set_i2sslave((bool)acmd->arg))
+                    {
+                      ret = OK;
+                    }
+                }
+
+              break;
+
+            case CXD56AUD_SET_SAMPLERATE:
+              ret = cxd56_aud_setconfig(dmach, acmd->arg,
+                                        dmach->channels, dmach->bitwidth);
+              break;
+          }
+
+        break; /* of case AUDIOIOC_VENDORSPECIFIC */
+    }
+
+  return ret;
+}
+
+static int cxd56audio_reserve(FAR struct audio_lowerhalf_s *lower
+                              MSESSION_ARG)
+{
+  /* Do nothing for this driver */
 
   return OK;
 }
 
-/****************************************************************************
- * Public Functions
- ****************************************************************************/
-
-/****************************************************************************
- * Name: cxd56_initialize
- *
- * Description:
- *   Initialize audio on the CXD56 device
- *
- * Input Parameters:
- *
- ****************************************************************************/
-
-struct audio_lowerhalf_s *cxd56_initialize(const struct cxd56_lower_s *lower)
+static int cxd56audio_release(FAR struct audio_lowerhalf_s *lower
+                              MSESSION_ARG)
 {
-  struct cxd56_dev_s *priv;
+  /* Do nothing for this driver */
 
-  audinfo("cxd56_initialize\n");
-  priv = kmm_zalloc(sizeof(struct cxd56_dev_s));
-  if (priv)
+  return OK;
+}
+
+/* CXD56 BEEP device driver operations ***************************************/
+
+#ifdef CONFIG_CXD56_BEEEPDEV
+uint32_t convert_beep_freq(uint32_t freq)
+{
+  uint32_t prev;
+  uint32_t i;
+
+  /* Clip frequency */
+
+  freq = freq > BEEP_FREQ_MAX ? BEEP_FREQ_MAX :
+         freq < BEEP_FREQ_MIN ? BEEP_FREQ_MIN : freq;
+
+  for (i = 0; i < sizeof(g_beepfreqtable) / sizeof(uint16_t); i++)
     {
-      priv->dev.ops = &g_audioops;
-      priv->lower   = lower;
-      priv->state   = CXD56_DEV_STATE_OFF;
-
-      priv->mic_gain = CXD56_MICGAIN_INITVAL;
-
-      dq_init(&priv->up_pendq);
-      dq_init(&priv->up_runq);
-#ifdef CONFIG_AUDIO_CXD56_SRC
-      dq_init(&priv->down_pendq);
-      dq_init(&priv->down_runq);
-      dq_init(&priv->down_doneq);
-#endif
+      prev = (i + 62) % 63;
+      if (freq < g_beepfreqtable[i])
+        {
+          if (prev == 62)
+            {
+              break;
+            }
+          else if(g_beepfreqtable[prev] <= freq)
+            {
+              break;
+            }
+        }
     }
 
-  return &priv->dev;
+  return prev;
+}
+
+static int cxd56_beep_open(FAR struct file *filep)
+{
+  int ret = -EBUSY;
+  FAR struct cxd56_aud_beep_s *beep;
+  beep = (FAR struct cxd56_aud_beep_s *)filep->f_inode->i_private;
+
+  if (!beep->is_inited)
+    {
+      nxsem_wait_uninterruptible(&g_system.lock);
+
+      g_system.usr_cnt++;
+      if (g_system.usr_cnt == 1)
+        {
+          cxd56_audio_initialize();
+        }
+
+      nxsem_post(&g_system.lock);
+
+      cxd56_use_mute_off(true);
+      cxd56_use_spkout(true);
+      beep->is_inited = true;
+      ret = OK;
+    }
+
+  return ret;
+}
+
+static int cxd56_beep_close(FAR struct file *filep)
+{
+  FAR struct cxd56_aud_beep_s *beep;
+  beep = (FAR struct cxd56_aud_beep_s *)filep->f_inode->i_private;
+
+  if (beep->is_inited)
+    {
+      cxd56_use_spkout(false);
+      cxd56_use_mute_off(false);
+
+      nxsem_wait_uninterruptible(&g_system.lock);
+
+      g_system.usr_cnt--;
+      if (g_system.usr_cnt == 0)
+        {
+          cxd56_audio_deinitialize();
+        }
+
+      nxsem_post(&g_system.lock);
+
+      beep->is_inited = false;
+    }
+
+  return OK;
+}
+
+static ssize_t cxd56_beep_read(FAR struct file *filep,
+                               FAR char *buffer, size_t buflen)
+{
+  ssize_t ret = -EINVAL;
+  FAR struct cxd56_aud_beep_s *beep;
+  beep = (FAR struct cxd56_aud_beep_s *)filep->f_inode->i_private;
+
+  if (buflen >= sizeof(struct beep_ctl_s))
+    {
+      memcpy(buffer, &beep->ctl, sizeof(struct beep_ctl_s));
+      ret = sizeof(struct beep_ctl_s);
+    }
+
+  return ret;
+}
+
+static ssize_t cxd56_beep_write(FAR struct file *filep,
+                                FAR const char *buffer, size_t buflen)
+{
+  int ret = -EINVAL;
+  FAR struct cxd56_aud_beep_s *beep;
+  beep = (FAR struct cxd56_aud_beep_s *)filep->f_inode->i_private;
+
+  if (buflen >= sizeof(struct beep_ctl_s))
+    {
+      memcpy(&beep->ctl, buffer, sizeof(struct beep_ctl_s));
+      cxd56_audio_beep_ctl(beep->ctl.en, convert_beep_freq(beep->ctl.freq),
+                           beep->ctl.vol);
+      ret = sizeof(struct beep_ctl_s);
+    }
+
+  return ret;
+}
+
+static int cxd56_beep_ioctl(FAR struct file *filep, int cmd,
+                            unsigned long arg)
+{
+  int ret = -EINVAL;
+
+  switch (cmd)
+    {
+      case CXD56AUD_SET_SYSVOLUME:
+        cxd56_update_systemvol((uint16_t)arg);
+        ret = OK;
+        break;
+    }
+
+  return ret;
+}
+#endif
+
+/*****************************************************************************
+ * Public Functions
+ *****************************************************************************/
+
+int cxd56_audsystem_initialize(FAR cxd56_audio_lower_t *low)
+{
+  if (low == NULL)
+    {
+      return -EINVAL;
+    }
+
+  g_lower = low;
+
+#ifdef CONFIG_CXD56_BEEEPDEV
+  g_beep = (FAR struct cxd56_aud_beep_s *)
+                kmm_zalloc(sizeof(struct cxd56_aud_beep_s));
+
+  if (g_beep == NULL)
+    {
+      g_lower = NULL;
+      return -ENOMEM;
+    }
+#endif
+
+  /* Initialize HW resource management variables */
+
+  nxsem_init(&g_system.lock, 0, 1);
+  g_system.usr_cnt = 0;
+
+  nxsem_init(&g_mutectl.lock, 0, 1);
+  g_mutectl.mute_cnt = 0;
+
+  g_hwres.spkout_cnt = 0;
+  g_hwres.i2susr_cnt = 0;
+  g_hwres.outfs_cnt = 0;
+  g_hwres.volume = 1000;
+  g_hwres.is_slave = false;
+  g_hwres.samprate = CXD56_SAMPRATE_48K;
+
+#ifdef CONFIG_CXD56_BEEEPDEV
+  nxsem_init(&g_beep->lock, 0, 1);
+  register_driver(CONFIG_CXD56_BEEPDEV_NAME, &g_cxd56_beep_fops,
+                  0666, g_beep);
+#endif
+
+  return OK;
+}
+
+struct audio_lowerhalf_s *cxd56_aud_miclower(void)
+{
+  struct cxd56_dmachannel_s *dmach = NULL;
+
+  if (g_lower)
+    {
+      dmach = cxd56_get_micdmach();
+      dmach->maxch = cxd56_aud_micmaxch;
+      dmach->setvolume = cxd56_aud_micgain;
+      dmach->hwresource = cxd56_aud_michwres;
+      dmach->hwresource_irq = cxd56_aud_michwres;
+      dmach->lower.ops = &g_audioops;
+    }
+
+  return (FAR struct audio_lowerhalf_s *)dmach;
+}
+
+struct audio_lowerhalf_s *cxd56_aud_spk0out(void)
+{
+  struct cxd56_dmachannel_s *dmach = NULL;
+
+  if (g_lower)
+    {
+      dmach = cxd56_get_i2s0out_dmach();
+      dmach->maxch = cxd56_aud_generic_maxch;
+      dmach->setvolume = cxd56_set_spkin0_vol;
+      dmach->hwresource = cxd56_aud_i2s0outhwres;
+      dmach->hwresource_irq = cxd56_aud_i2s0outhwres_irq;
+      dmach->lower.ops = &g_audioops;
+    }
+
+  return (FAR struct audio_lowerhalf_s *)dmach;
+}
+
+struct audio_lowerhalf_s *cxd56_aud_spk1out(void)
+{
+  struct cxd56_dmachannel_s *dmach = NULL;
+
+  if (g_lower)
+    {
+      dmach = cxd56_get_i2s1out_dmach();
+      dmach->maxch = cxd56_aud_generic_maxch;
+      dmach->setvolume = cxd56_set_spkin1_vol;
+      dmach->hwresource = cxd56_aud_i2s1outhwres;
+      dmach->hwresource_irq = cxd56_aud_i2s1outhwres_irq;
+      dmach->lower.ops = &g_audioops;
+    }
+
+  return (FAR struct audio_lowerhalf_s *)dmach;
+}
+
+struct audio_lowerhalf_s *cxd56_aud_i2sin(void)
+{
+  struct cxd56_dmachannel_s *dmach = NULL;
+
+  if (g_lower)
+    {
+      dmach = cxd56_get_i2s1in_dmach();
+      dmach->maxch = cxd56_aud_generic_maxch;
+      dmach->setvolume = cxd56_set_novol;
+      dmach->hwresource = cxd56_aud_i2s1inhwres;
+      dmach->hwresource_irq = cxd56_aud_i2s1inhwres_irq;
+      dmach->lower.ops = &g_audioops;
+    }
+
+  return (FAR struct audio_lowerhalf_s *)dmach;
 }
