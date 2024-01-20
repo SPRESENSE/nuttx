@@ -812,7 +812,6 @@ static const int32_t g_isx019_wbmode[] =
 
 static const int32_t g_isx019_iso[] =
 {
-  800,      /* ISO0.8 */
   1000,     /* ISO1 */
   1200,     /* ISO1.2 */
   1600,     /* ISO1.6 */
@@ -854,6 +853,52 @@ static const int32_t g_isx019_iso[] =
 };
 
 #define NR_ISO (sizeof(g_isx019_iso) / sizeof(int32_t))
+
+/* Gain values corresponding to each elements of g_isx019_iso table.
+ * This needs to have the same size of g_isx019_iso.
+ */
+
+static const uint8_t g_isx019_gain[] =
+{
+  1,   /* gain for ISO1 */
+  2,   /* gain for ISO1.2 */
+  3,   /* gain for ISO1.6 */
+  4,   /* gain for ISO2 */
+  5,   /* gain for ISO2.5 */
+  6,   /* gain for ISO3 */
+  7,   /* gain for ISO4 */
+  8,   /* gain for ISO5 */
+  9,   /* gain for ISO6 */
+  10,  /* gain for ISO8 */
+  11,  /* gain for ISO10 */
+  12,  /* gain for ISO12 */
+  13,  /* gain for ISO16 */
+  14,  /* gain for ISO20 */
+  15,  /* gain for ISO25 */
+  16,  /* gain for ISO32 */
+  17,  /* gain for ISO40 */
+  18,  /* gain for ISO50 */
+  19,  /* gain for ISO64 */
+  20,  /* gain for ISO80 */
+  21,  /* gain for ISO100 */
+  22,  /* gain for ISO125 */
+  23,  /* gain for ISO160 */
+  24,  /* gain for ISO200 */
+  25,  /* gain for ISO250 */
+  26,  /* gain for ISO320 */
+  27,  /* gain for ISO400 */
+  28,  /* gain for ISO500 */
+  29,  /* gain for ISO640 */
+  30,  /* gain for ISO800 */
+  31,  /* gain for ISO1000 */
+  32,  /* gain for ISO1250 */
+  33,  /* gain for ISO1600 */
+  34,  /* gain for ISO2000 */
+  35,  /* gain for ISO2500 */
+  36,  /* gain for ISO3200 */
+  37,  /* gain for ISO4000 */
+  38,  /* gain for ISO5000 */
+};
 
 static const int32_t g_isx019_iso_auto[] =
 {
@@ -2684,7 +2729,9 @@ static uint16_t get_gain_from_iso(int32_t iso)
         }
     }
 
-  return i;
+  /* Return gain corresponding to specified ISO sensitivity. */
+
+  return (uint16_t)g_isx019_gain[i];
 }
 
 static int set_iso(FAR isx019_dev_t *priv,
@@ -3384,10 +3431,32 @@ static int get_3astatus(FAR isx019_dev_t *priv,
   return OK;
 }
 
+static int32_t get_iso_from_gain(uint8_t gain)
+{
+  int i;
+
+  /* g_isx019_gain and g_isx019_iso has the common index. */
+
+  for (i = 0; i < NR_ISO; i++)
+    {
+      if (g_isx019_gain[i] == gain)
+        {
+          break;
+        }
+    }
+
+  if (i >= NR_ISO)
+    {
+      i = NR_ISO - 1;
+    }
+
+  return g_isx019_iso[i];
+}
+
 static int get_iso(FAR isx019_dev_t *priv,
                    FAR imgsensor_value_t *val)
 {
-  uint8_t buf = 0;
+  uint8_t gain = 0;
 
   if (val == NULL)
     {
@@ -3398,14 +3467,10 @@ static int get_iso(FAR isx019_dev_t *priv,
    * So, round the gain to integer, and convert to ISO.
    */
 
-  isx019_i2c_read(priv, CAT_AECOM, GAIN_LEVEL, &buf, 1);
-  buf = ((buf * 3) + 5) / 10;
-  if (buf >= NR_ISO)
-    {
-      buf = NR_ISO - 1;
-    }
+  isx019_i2c_read(priv, CAT_AECOM, GAIN_LEVEL, &gain, 1);
+  gain = ((gain * 3) + 5) / 10;
 
-  val->value32 = g_isx019_iso[buf];
+  val->value32 = get_iso_from_gain(gain);
 
   return OK;
 }
