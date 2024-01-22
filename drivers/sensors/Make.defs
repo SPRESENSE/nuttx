@@ -386,6 +386,12 @@ ifeq ($(CONFIG_SENSORS_HDC1008),y)
   CSRCS += hdc1008.c
 endif
 
+# SONY CXD5602PWBIMU
+
+ifeq ($(CONFIG_SENSORS_CXD5602PWBIMU),y)
+  CSRCS += cxd5602pwbimu.c
+endif
+
 # Include sensor driver build support
 
 DEPPATH += --dep-path sensors

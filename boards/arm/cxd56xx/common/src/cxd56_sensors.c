@@ -113,7 +113,13 @@
 #  define _RPR0521RS  0
 #endif
 
-#if (_BMI160 + _BMI270 + _KX022) > 1
+#if defined(CONFIG_SENSORS_CXD5602PWBIMU)
+#  define _CXD5602PWBIMU  1
+#else
+#  define _CXD5602PWBIMU  0
+#endif
+
+#if (_BMI160 + _BMI270 + _KX022 + _CXD5602PWBIMU) > 1
 #  error "Duplicate accelerometer sensor device."
 #endif
 
@@ -127,6 +133,10 @@
 
 #if (_APDS9930 + _LT1PA01 + _BH1721FVC + _RPR0521RS) > 1
 # error "Duplicate proximity and ambient light sensor device."
+#endif
+
+#if (_BMI270 + _CXD5602PWBIMU) > 1
+#  error "Duplicate imu sensor device."
 #endif
 
 /* Sensor Device Registration Macro */
@@ -231,6 +241,9 @@ static struct sensor_device_s sensor_device[] =
 #endif
 #if defined(CONFIG_SENSORS_SCD41)
   _I2C_DEVICE(scd41, "/dev/co2"), /* CO2 */
+#endif
+#if defined(CONFIG_SENSORS_CXD5602PWBIMU)
+  _DEVICE_WOPATH(cxd5602pwbimu, 5), /* CXD5602PWBIMU */
 #endif
 };
 
