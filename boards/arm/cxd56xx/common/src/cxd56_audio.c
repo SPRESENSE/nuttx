@@ -38,10 +38,7 @@
 #include <arch/chip/audio.h>
 
 #ifdef CONFIG_AUDIO_CXD56
-#include "hardware/cxd56_audio_lower.h"
-#if 0
-#include <arch/chip/cxd56_audio_driver.h>
-#endif
+#include "arch/chip/cxd56_audio_lower.h"
 #endif
 
 #include "chip.h"

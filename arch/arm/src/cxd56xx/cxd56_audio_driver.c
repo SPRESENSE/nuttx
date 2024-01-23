@@ -37,7 +37,7 @@
 
 #include "hardware/cxd5247.h"
 #include "hardware/cxd5602_topreg.h"
-#include "hardware/cxd56_audio_lower.h"
+#include "arch/chip/cxd56_audio_lower.h"
 
 #include "cxd56_gpio.h"
 #include "cxd56_pinconfig.h"

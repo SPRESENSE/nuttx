@@ -28,7 +28,7 @@
 
 #include <arch/board/board.h>
 #include <arch/board/cxd56_power.h>
-#include "hardware/cxd56_audio_lower.h"
+#include "arch/chip/cxd56_audio_lower.h"
 #include "hardware/cxd5602_topreg.h"
 
 /*****************************************************************************

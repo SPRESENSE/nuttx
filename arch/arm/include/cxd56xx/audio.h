@@ -42,7 +42,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#include "hardware/cxd56_audio_lower.h"
+#include "arch/chip/cxd56_audio_lower.h"
 
 /****************************************************************************
  * Pre-processor Prototypes

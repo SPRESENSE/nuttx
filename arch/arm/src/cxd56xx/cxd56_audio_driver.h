@@ -29,7 +29,7 @@
 #include <stdint.h>
 #include <nuttx/audio/audio.h>
 #include <nuttx/queue.h>
-#include "hardware/cxd56_audio_lower.h"
+#include "arch/chip/cxd56_audio_lower.h"
 #include "cxd56_audio_reg.h"
 
 /****************************************************************************
@@ -165,17 +165,5 @@ struct cxd56_i2sdmachannel_s
   struct cxd56_dmachannel_s dmach;  /* Inherit */
   struct cxd56_aud_dmaref_s *ref;
 };
-
-/****************************************************************************
- * Public Function Prototypes
- ****************************************************************************/
-
-#if 0
-int cxd56_audsystem_initialize(FAR cxd56_audio_lower_t *low);
-struct audio_lowerhalf_s *cxd56_aud_miclower(void);
-struct audio_lowerhalf_s *cxd56_aud_spk0out(void);
-struct audio_lowerhalf_s *cxd56_aud_spk1out(void);
-struct audio_lowerhalf_s *cxd56_aud_i2sin(void);
-#endif
 
 #endif /* __ARCH_ARM_SRC_CXD56XX_CXD56_AUDIO_DRIVER_H */

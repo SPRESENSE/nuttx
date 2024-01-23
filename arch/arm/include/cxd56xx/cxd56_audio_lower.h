@@ -1,5 +1,5 @@
 /*****************************************************************************
- * arch/arm/src/cxd56xx/hardware/cxd56_audio_lower.h
+ * arch/arm/include/cxd56xx/cxd56_audio_lower.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,8 +18,8 @@
  *
  *****************************************************************************/
 
-#ifndef __ARCH_ARM_SRC_CXD56XX_HARDWARE_CXD56_AUDIO_LOWER_H
-#define __ARCH_ARM_SRC_CXD56XX_HARDWARE_CXD56_AUDIO_LOWER_H
+#ifndef __ARCH_ARM_INCLUDE_CXD56XX_CXD56_AUDIO_LOWER_H
+#define __ARCH_ARM_INCLUDE_CXD56XX_CXD56_AUDIO_LOWER_H
 
 /*****************************************************************************
  * Included Files
@@ -50,4 +50,4 @@ typedef struct cxd56_audio_lower_s cxd56_audio_lower_t;
 
 struct cxd56_audio_lower_s *cxd56_audio_lower(void);
 
-#endif /* __ARCH_ARM_SRC_CXD56XX_HARDWARE_CXD56_AUDIO_LOWER_H */
+#endif /* __ARCH_ARM_INCLUDE_CXD56XX_CXD56_AUDIO_LOWER_H */
