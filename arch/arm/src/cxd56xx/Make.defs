@@ -125,9 +125,6 @@ CHIP_CSRCS += cxd5247.c
 CHIP_CSRCS += cxd56_audio_dma.c
 CHIP_CSRCS += cxd56_audio_reg.c
 CHIP_CSRCS += cxd56_audio_driver.c
-ifeq ($(CONFIG_AUDIO_CXD56_SRC),y)
-# CHIP_CSRCS += cxd56_nxaudio_src.c
-endif
 endif
 
 ifeq ($(CONFIG_CXD56_GE2D),y)

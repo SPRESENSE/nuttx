@@ -18,6 +18,15 @@
  *
  *****************************************************************************/
 
+/* Multiple inclusion guard of header file is not needed for this file.
+ * Do not add it.
+ */
+
+/* CXD56_AUREGDEF() and CXD56_AUINTREGDEF() are macros for defining instance
+ * or symbol definitions. These macros are defined c file which is including
+ * this file.
+ */
+
 /* CXD56_AUREGDEF(offset, bit-length, start-bit-pos, reg-name); **************/
 
 /* Audio block Power Down Registers 0:En 1:Dis */
@@ -508,7 +517,7 @@ CXD56_AUREGDEF(0x1158, 1, 0,  INTMASK_HRESPERR);
 CXD56_AUREGDEF(0x1158, 1, 8,  INTMASK_I2S1BCKERR);
 CXD56_AUREGDEF(0x1158, 1, 9,  INTMASK_I2S2BCKERR);
 
-/* Interrupt Clear register. Wite 1 clear */
+/* Interrupt Clear register. Write 1 clear */
 
 CXD56_AUREGDEF(0x115c, 1, 0,  INTCLR_HRESPERR);
 CXD56_AUREGDEF(0x115c, 1, 8,  INTCLR_I2S1BCKERR1);
@@ -559,6 +568,8 @@ CXD56_AUREGDEF(0x11f0, 1, 1,  AHBI2S1_CLKEN);
 CXD56_AUREGDEF(0x11f0, 1, 2,  AHBI2S2_CLKEN);
 
 CXD56_AUREGDEF(0x11fc, 8, 0,  MCLK_MONTHRESH);
+
+/* CXD56_AUINTREGDEF(offset, bit-length, start-bit-pos, reg-name); **************/
 
 /* System Interrupt Registers */
 

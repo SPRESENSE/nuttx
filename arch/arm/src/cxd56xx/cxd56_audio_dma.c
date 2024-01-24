@@ -470,7 +470,7 @@ static void handle_actual_dmaaction(FAR struct cxd56_dmachannel_s *dmach,
       /* Handle DMA Done */
 
       /* Don't need to check if apb is NULL from dma_runq
-       * because it must checke in jnect_dma() to kick the DMA.
+       * because it must checke injnect_dma() to kick the DMA.
        */
 
       apb = (FAR struct ap_buffer_s *)dq_get(dmach->dma_runq);

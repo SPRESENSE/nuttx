@@ -687,7 +687,7 @@ static void cxd56_audio_fixedregval_init(void)
 
   cxd56_waureg(AUREG_BLF_EN, CXD56_AUDBLK_EN);
 
-  /* Mic input is connected to CODED directoly but not used this path.
+  /* Mic input is connected to CODEC directoly but not used this path.
    * So fixed the mic input selector.
    */
 

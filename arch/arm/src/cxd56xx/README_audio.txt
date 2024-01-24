@@ -64,7 +64,7 @@ CXD5602 Audio Driver Design Document
 Audio Device Files
 ~~~~~~~~~~~~~~~~~~
 
-  As thre logical block diagram above, this driver uses 4 audio DMA channels.
+  As the logical block diagram above, this driver uses 4 audio DMA channels.
   And device files are created for each channels.
 
     MIC-DMA-Ch        => /dev/pcm_in0
@@ -159,7 +159,7 @@ Audio Driver State
   STOPPING    DMA stop is requested and waiting for final DMA finished.
   CLOSING     close() is called and wait for final DMA finished.
   PAUSING     pause() is called and wait for stop DMA.
-  COMPLETING  received APB buffer wich APB_FINAL flag and wait to final DMA.
+  COMPLETING  received APB buffer with APB_FINAL flag and wait for final DMA.
 
 
   === State Transition Chart === (LEGEND: <...> Condition to transit)

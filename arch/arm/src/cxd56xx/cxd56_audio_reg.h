@@ -61,6 +61,10 @@ typedef struct cxd56_aureg_s cxd56_aureg_t;
 #undef CXD56_AUINTREGDEF
 #endif
 
+/* Register definition macros for Audio Registers.
+ * See cxd56_audio_regdef.h for details of registers.
+ */
+
 #define CXD56_AUREGDEF(ofs,len,pos,name) \
         extern const cxd56_aureg_t AUREG_##name
 #define CXD56_AUINTREGDEF(ofs,len,pos,name) \

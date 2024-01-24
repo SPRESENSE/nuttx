@@ -39,17 +39,14 @@
 #undef CXD56_AUINTREGDEF
 #endif
 
-#ifdef DEBUG_AUDIO_REG
-#define CXD56_AUREGDEF(ofs,len,pos,name) \
-  const cxd56_aureg_t AUREG_##name = { REG_BASE + ofs, pos, len, #name }
-#define CXD56_AUINTREGDEF(ofs,len,pos,name) \
-  const cxd56_aureg_t AUREG_##name = { REG_BASE_INT + ofs, pos, len, #name }
-#else
+/* Register definition macros for Audio Registers.
+ * See cxd56_audio_regdef.h for details of registers.
+ */
+
 #define CXD56_AUREGDEF(ofs,len,pos,name) \
   const cxd56_aureg_t AUREG_##name = { REG_BASE + ofs, pos, len }
 #define CXD56_AUINTREGDEF(ofs,len,pos,name) \
   const cxd56_aureg_t AUREG_##name = { REG_BASE_INT + ofs, pos, len }
-#endif
 
 #include "cxd56_audio_regdef.h"
 
