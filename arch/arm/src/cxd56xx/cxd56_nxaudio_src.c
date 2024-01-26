@@ -35,7 +35,7 @@
 #include <nuttx/mqueue.h>
 #include <nuttx/queue.h>
 
-#include "cxd56_nxaudio.h"
+#include "cxd56_audio_driver.h"
 #include "cxd56_nxaudio_src.h"
 
 /****************************************************************************
