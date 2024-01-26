@@ -139,6 +139,7 @@ static int audio_open(FAR struct file *filep)
 {
   FAR struct inode *inode = filep->f_inode;
   FAR struct audio_upperhalf_s *upper = inode->i_private;
+  FAR struct audio_lowerhalf_s *lower = upper->dev;
   uint8_t tmp;
   int ret;
 
@@ -164,6 +165,17 @@ static int audio_open(FAR struct file *filep)
 
       ret = -EMFILE;
       goto errout_with_lock;
+    }
+
+  /* Call open method of lowerhalf if exist */
+
+  if (lower && lower->ops && lower->ops->setup)
+    {
+      ret = lower->ops->setup(lower, tmp);
+      if (ret < 0)
+        {
+          goto errout_with_lock;
+        }
     }
 
   /* Save the new open count on success */
@@ -223,7 +235,7 @@ static int audio_close(FAR struct file *filep)
       DEBUGASSERT(lower->ops->shutdown != NULL);
       audinfo("calling shutdown\n");
 
-      lower->ops->shutdown(lower);
+      lower->ops->shutdown(lower, upper->crefs);
       upper->usermq = NULL;
     }
 
@@ -415,7 +427,7 @@ static int audio_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 
           /* Call the lower-half driver initialize handler */
 
-          ret = lower->ops->shutdown(lower);
+          ret = lower->ops->shutdown(lower, upper->crefs);
         }
         break;
 
@@ -724,6 +736,83 @@ static inline void audio_dequeuebuffer(FAR struct audio_upperhalf_s *upper,
 }
 
 /****************************************************************************
+ * Name: audio_ioerror
+ *
+ * Description:
+ *   Send an AUDIO_MSG_IOERROR message to the client to indicate that a
+ *   something error was happend in lower-half driver. The lower-half
+ *   driver initiates this call via its callback pointer to our upper-half
+ *   driver.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_AUDIO_MULTI_SESSION
+static inline void audio_ioerror(FAR struct audio_upperhalf_s *upper,
+                    FAR struct ap_buffer_s *apb, uint16_t status,
+                    FAR void *session)
+#else
+static inline void audio_ioerror(FAR struct audio_upperhalf_s *upper,
+                    FAR struct ap_buffer_s *apb, uint16_t status)
+#endif
+{
+  struct audio_msg_s    msg;
+
+  audinfo("Entry\n");
+
+  /* Send a dequeue message to the user if a message queue is registered */
+
+  upper->started = false;
+  if (upper->usermq != NULL)
+    {
+      msg.msg_id = AUDIO_MSG_IOERROR;
+      msg.u.data = (uint32_t)status;
+#ifdef CONFIG_AUDIO_MULTI_SESSION
+      msg.session = session;
+#endif
+      file_mq_send(upper->usermq, (FAR const char *)&msg, sizeof(msg),
+                   CONFIG_AUDIO_BUFFER_DEQUEUE_PRIO);
+    }
+}
+
+/****************************************************************************
+ * Name: audio_stopped
+ *
+ * Description:
+ *   Send an AUDIO_MSG_STOP message to the client to indicate that the
+ *   lower-half device just stopped audio streaming. The lower-half driver
+ *   initiates this call via its callback pointer to our upper-half driver.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_AUDIO_MULTI_SESSION
+static inline void audio_stopped(FAR struct audio_upperhalf_s *upper,
+                    FAR struct ap_buffer_s *apb, uint16_t status,
+                    FAR void *session)
+#else
+static inline void audio_stopped(FAR struct audio_upperhalf_s *upper,
+                    FAR struct ap_buffer_s *apb, uint16_t status)
+#endif
+{
+  struct audio_msg_s    msg;
+
+  audinfo("Entry\n");
+
+  /* Send a dequeue message to the user if a message queue is registered */
+
+  upper->started = false;
+  if (upper->usermq != NULL)
+    {
+      msg.msg_id = AUDIO_MSG_STOP;
+      msg.u.data = (uint32_t)status;
+#ifdef CONFIG_AUDIO_MULTI_SESSION
+      msg.session = session;
+#endif
+      file_mq_send(upper->usermq, (FAR const char *)&msg, sizeof(msg),
+                   CONFIG_AUDIO_BUFFER_DEQUEUE_PRIO);
+    }
+}
+
+/****************************************************************************
  * Name: audio_complete
  *
  * Description:
@@ -849,6 +938,11 @@ static void audio_callback(FAR void *handle, uint16_t reason,
 
       case AUDIO_CALLBACK_IOERR:
         {
+#ifdef CONFIG_AUDIO_MULTI_SESSION
+          audio_ioerror(upper, apb, status, session);
+#else
+          audio_ioerror(upper, apb, status);
+#endif
         }
         break;
 
@@ -867,6 +961,19 @@ static void audio_callback(FAR void *handle, uint16_t reason,
 #endif
         }
         break;
+
+      case AUDIO_CALLBACK_STOPPED:
+        {
+          /* Send a stop message to the user if a message queue
+           * is registered
+           */
+
+#ifdef CONFIG_AUDIO_MULTI_SESSION
+          audio_stopped(upper, apb, status, session);
+#else
+          audio_stopped(upper, apb, status);
+#endif
+        }
 
       case AUDIO_CALLBACK_MESSAGE:
         {

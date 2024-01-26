@@ -114,6 +114,7 @@
 #define AUDIOIOC_SETPARAMTER        _AUDIOIOC(18)
 #define AUDIOIOC_GETLATENCY         _AUDIOIOC(19)
 #define AUDIOIOC_FLUSH              _AUDIOIOC(20)
+#define AUDIOIOC_VENDORSPECIFIC     _AUDIOIOC(255)
 
 /* Audio Device Types *******************************************************/
 
@@ -321,7 +322,8 @@
 #define AUDIO_CALLBACK_DEQUEUE      0x01
 #define AUDIO_CALLBACK_IOERR        0x02
 #define AUDIO_CALLBACK_COMPLETE     0x03
-#define AUDIO_CALLBACK_MESSAGE      0x04
+#define AUDIO_CALLBACK_STOPPED      0x04
+#define AUDIO_CALLBACK_MESSAGE      0x05
 
 /* Audio Pipeline Buffer (AP Buffer) flags **********************************/
 
@@ -352,6 +354,7 @@
 #define AUDIO_MSG_COMMAND          10
 #define AUDIO_MSG_SLIENCE          11
 #define AUDIO_MSG_UNDERRUN         12
+#define AUDIO_MSG_IOERROR          13
 #define AUDIO_MSG_USER             64
 
 /* Audio Pipeline Buffer flags */
@@ -533,6 +536,10 @@ typedef CODE void (*audio_callback_t)(FAR void *priv, uint16_t reason,
 struct audio_lowerhalf_s;
 struct audio_ops_s
 {
+  /* This method is called when the related device file is opened. */
+
+  CODE int (*setup)(FAR struct audio_lowerhalf_s *dev, int opencnt);
+
   /* This method is called to retrieve the lower-half device capabilities.
    * It will be called with device type AUDIO_TYPE_QUERY to request the
    * overall capabilities, such as to determine the types of devices
@@ -570,7 +577,7 @@ struct audio_ops_s
    * processed / dequeued should be dequeued by this function.
    */
 
-  CODE int (*shutdown)(FAR struct audio_lowerhalf_s *dev);
+  CODE int (*shutdown)(FAR struct audio_lowerhalf_s *dev, int opencnt);
 
   /* Start audio streaming in the configured mode.  For input and synthesis
    * devices, this means it should begin sending streaming audio data.
