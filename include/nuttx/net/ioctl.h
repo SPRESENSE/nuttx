@@ -126,6 +126,8 @@
 /* Network socket control ***************************************************/
 
 #define SIOCDENYINETSOCK _SIOC(0x003C) /* Deny network socket. */
+#define SIOCGETCONTEXT   _SIOC(0x003D) /* Get socket context */
+#define SIOCSETCONTEXT   _SIOC(0x003E) /* Set socket context */
 
 /* Bridge calls *************************************************************/
 

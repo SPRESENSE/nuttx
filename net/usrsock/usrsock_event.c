@@ -100,6 +100,16 @@ int usrsock_event(FAR struct usrsock_conn_s *conn)
         {
           conn->flags |= USRSOCK_EVENT_RECVFROM_AVAIL;
         }
+
+      if (events & USRSOCK_EVENT_CONNECTED)
+        {
+          conn->connected = true;
+        }
+
+      if (events & USRSOCK_EVENT_LISTENING)
+        {
+          conn->sconn.s_flags |= _SF_LISTENING;
+        }
     }
 
   if (events & USRSOCK_EVENT_REMOTE_CLOSED)
