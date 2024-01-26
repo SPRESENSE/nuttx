@@ -250,6 +250,24 @@ config SENSORS_BMI270_LOAD_FROM_HEAP
 
 endif
 
+config SENSORS_CXD5602PWBIMU
+	bool "SONY CXD5602PWBIMU Inertial Measurement Sensor support"
+	default n
+	select SPI
+	---help---
+		Enable driver support for the SONY CXD5602PWBIMU Inertial
+		Measurement sensor
+
+if SENSORS_CXD5602PWBIMU
+
+config CXD5602PWBIMU_NPOLLWAITERS
+	int "Number of waiters to poll"
+	default 1
+	---help---
+		Number of waiters to poll
+
+endif # SENSORS_CXD5602PWBIMU
+
 config SENSORS_BMP180
 	bool "Bosch BMP180 Barometer Sensor support"
 	default n
