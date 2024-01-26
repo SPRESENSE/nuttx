@@ -668,11 +668,11 @@ static void pcm_subsample(FAR struct pcm_decode_s *priv,
 #endif
 
 /****************************************************************************
- * Name: pcm_open
+ * Name: pcm_setup
  *
  * Description:
  *   This method is called when the related device file is opened.
- *   And then next lower's open is called in this method.
+ *   And then next lower's setup is called in this method.
  *
  ****************************************************************************/
 
@@ -687,9 +687,9 @@ static int  pcm_setup(FAR struct audio_lowerhalf_s *dev, int opencnt)
 
   DEBUGASSERT(lower);
 
-  if (lower->ops && lower->ops->open)
+  if (lower->ops && lower->ops->setup)
     {
-      return lower->ops->open(lower, opencnt);
+      return lower->ops->setup(lower, opencnt);
     }
 
   return OK;
