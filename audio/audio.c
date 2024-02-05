@@ -428,6 +428,7 @@ static int audio_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
           /* Call the lower-half driver initialize handler */
 
           ret = lower->ops->shutdown(lower, upper->crefs);
+          upper->started = false;
         }
         break;
 
@@ -491,6 +492,7 @@ static int audio_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
           audinfo("AUDIOIOC_PAUSE\n");
           DEBUGASSERT(lower->ops->pause != NULL);
 
+          ret = -EAGAIN;
           if (upper->started)
             {
 #ifdef CONFIG_AUDIO_MULTI_SESSION
@@ -513,6 +515,7 @@ static int audio_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
           audinfo("AUDIOIOC_RESUME\n");
           DEBUGASSERT(lower->ops->resume != NULL);
 
+          ret = -EAGAIN;
           if (upper->started)
             {
 #ifdef CONFIG_AUDIO_MULTI_SESSION

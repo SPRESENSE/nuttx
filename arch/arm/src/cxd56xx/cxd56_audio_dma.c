@@ -83,12 +83,10 @@
 #define IS_DMACMB(dmach) (cxd56_raureg32(*(dmach)->intr_stat) & \
                           (dmach)->intrbit_cmb)
 
-#define CXD56_AUDIO_DMASTAT_STOPPED (0)
-#define CXD56_AUDIO_DMASTAT_STARTED (1)
-#define CXD56_AUDIO_DMASTAT_STOPPING (2)
-
 #define CXD56_DMABUG_DMA_SMP_WAIT (40) /* usec */
 #define CXD56_DMABUG_WOKARND_RETRY (10000)
+
+#define CXD56_AUD_MAXDMASAMPLE (1024)
 
 #define dq_get(q)   ((FAR struct ap_buffer_s *)dq_remfirst(&(q)))
 #define dq_put(q,n) ({dq_addlast((dq_entry_t*)&(n),&(q));})
@@ -355,10 +353,24 @@ static void dequeue_apb_to_app(FAR struct cxd56_dmachannel_s *dmach,
   dmach->lower.upper(dmach->lower.priv, AUDIO_CALLBACK_DEQUEUE, apb, OK);
 }
 
-static void avoid_allapbs(FAR struct cxd56_dmachannel_s *dmach)
+static void avoid_allapbs(FAR struct cxd56_dmachannel_s *dmach,
+                          FAR irqstate_t *flags)
 {
-  while (dq_get(dmach->dma_runq) != NULL);
-  while (dq_get(dmach->dma_pendq) != NULL);
+  FAR struct ap_buffer_s *apb;
+
+  while ((apb = dq_get(dmach->dma_runq)) != NULL)
+    {
+      spin_unlock_irqrestore(&dmach->dma_lock, *flags);
+      dequeue_apb_to_app(dmach, apb);
+      *flags = spin_lock_irqsave(&dmach->dma_lock);
+    }
+
+  while ((apb = dq_get(dmach->dma_pendq)) != NULL)
+    {
+      spin_unlock_irqrestore(&dmach->dma_lock, *flags);
+      dequeue_apb_to_app(dmach, apb);
+      *flags = spin_lock_irqsave(&dmach->dma_lock);
+    }
 }
 
 static void send_message_underrun(FAR struct cxd56_dmachannel_s *dmach)
@@ -386,6 +398,10 @@ static void handle_actual_dmaaction(FAR struct cxd56_dmachannel_s *dmach,
 
       cxd56_waureg(*dmach->cmd, CXD56_AUDIO_DMA_STOP_WOINTR);
       dmach->irqen(dmach, false);  /* Stop DMA Interrupt */
+      dma_intr_mask(dmach, dmach->intrbit_done |
+                           dmach->intrbit_err  |
+                           dmach->intrbit_smp  |
+                           dmach->intrbit_cmb);
 
       /* Dequeue all audio buffers from runq */
 
@@ -462,21 +478,20 @@ static void handle_actual_dmaaction(FAR struct cxd56_dmachannel_s *dmach,
           dmach->lower.upper(dmach->lower.priv,
                              AUDIO_CALLBACK_IOERR, NULL, EIO);
           flags = spin_lock_irqsave(&dmach->dma_lock);
-          avoid_allapbs(dmach);
+          avoid_allapbs(dmach, &flags);
         }
     }
   else if (intbit & dmach->intrbit_done)
     {
       /* Handle DMA Done */
 
-      /* Don't need to check if apb is NULL from dma_runq
-       * because it must checke injnect_dma() to kick the DMA.
-       */
-
       apb = (FAR struct ap_buffer_s *)dq_get(dmach->dma_runq);
-      spin_unlock_irqrestore(&dmach->dma_lock, flags);
-      dequeue_apb_to_app(dmach, apb);
-      flags = spin_lock_irqsave(&dmach->dma_lock);
+      if (apb)
+        {
+          spin_unlock_irqrestore(&dmach->dma_lock, flags);
+          dequeue_apb_to_app(dmach, apb);
+          flags = spin_lock_irqsave(&dmach->dma_lock);
+        }
 
       if (AUDSTATE_IS_STARTED(dmach))
         {
@@ -532,7 +547,7 @@ static int audio_i2sdma_hdlr(int irq, FAR void *context, FAR void *arg)
 
   for (i = 0; i < 2; i++)
     {
-      if (dmachs[i])
+      if (intbit != 0 && dmachs[i])
         {
           dma_intr_clear(dmachs[i], intbit);
           handle_actual_dmaaction(dmachs[i], intbit);
@@ -754,6 +769,7 @@ static int kick_dma_workaroundbug(struct cxd56_dmachannel_s *dmach)
     {
       if (dma_bug1_workaround_1and2(dmach) != 0)
         {
+          spin_unlock_irqrestore(&dmach->dma_lock, flags);
           return -ETIME;
         }
 
@@ -765,7 +781,7 @@ static int kick_dma_workaroundbug(struct cxd56_dmachannel_s *dmach)
       up_udelay(CXD56_DMABUG_DMA_SMP_WAIT);
       if (check_dma_no_error(dmach))
         {
-          break; /* Exit for loop */
+          break; /* Exit from loop */
         }
     }
 
@@ -773,7 +789,7 @@ static int kick_dma_workaroundbug(struct cxd56_dmachannel_s *dmach)
   dma_intr_clear(dmach, dmach->intrbit_err);
   dma_intr_unmask(dmach, dmach->intrbit_err);
 
-  spin_unlock_irqrestore(&dmach->lock, flags);
+  spin_unlock_irqrestore(&dmach->dma_lock, flags);
 
   return 0;
 }
@@ -792,8 +808,34 @@ static int inject_dma(FAR struct cxd56_dmachannel_s *dmach,
       return -EAGAIN;
     }
 
-  sampls = IS_AUDIO_OUTPUT(dmach) ? apb->nbytes : apb->nmaxbytes;
-  sampls = (sampls / (dmach->bitwidth / 8) / dmach->channels) - 1;
+  if (IS_AUDIO_INPUT(dmach))
+    {
+      /* DMA size is set as sample number.
+       * But it is limited up to 1024 samples.
+       * Because size register is only available 10 bits.
+       */
+
+      sampls = apb->nmaxbytes / (dmach->bitwidth / 8) / dmach->channels;
+      sampls = sampls <= CXD56_AUD_MAXDMASAMPLE ? sampls :
+                                                  CXD56_AUD_MAXDMASAMPLE;
+
+      /* In input device case, expected capture bytes is set on nbytes. */
+
+      apb->nbytes = sampls * (dmach->bitwidth / 8) * dmach->channels;
+    }
+  else
+    {
+      /* DMA size is set as sample number.
+       * But it is limited to 1024 samples.
+       * Because size register is only available 10 bits.
+       */
+
+      sampls = apb->nbytes / (dmach->bitwidth / 8) / dmach->channels;
+      sampls = sampls <= CXD56_AUD_MAXDMASAMPLE ? sampls :
+                                                  CXD56_AUD_MAXDMASAMPLE;
+    }
+
+  sampls = sampls - 1;
 
   cxd56_waureg32(*dmach->addr,  CXD56_PHYSADDR(apb->samp));
   cxd56_waureg32(*dmach->smpls, sampls);
@@ -878,7 +920,9 @@ int cxd56_auddma_enqueue(FAR struct cxd56_dmachannel_s *dmach,
   bool do_start = false;
 
   flags = spin_lock_irqsave(&dmach->dma_lock);
-  if (!AUDSTATE_IS_INITIAL(dmach) && !AUDSTATE_IS_STOPPING(dmach))
+  if (!AUDSTATE_IS_INITIAL(dmach) &&
+      !AUDSTATE_IS_STOPPING(dmach) &&
+      !AUDSTATE_IS_CLOSING(dmach))
     {
       apb->flags = (apb->flags & ~AUDIO_APB_DEQUEUED) |
                    AUDIO_APB_OUTPUT_ENQUEUED;
@@ -1010,7 +1054,7 @@ bool cxd56_auddma_stop(struct cxd56_dmachannel_s *dmach)
     }
 
   flags = spin_lock_irqsave(&dmach->dma_lock);
-  avoid_allapbs(dmach);
+  avoid_allapbs(dmach, &flags);
   spin_unlock_irqrestore(&dmach->dma_lock, flags);
 
   return  need_release_resource;
@@ -1079,7 +1123,7 @@ bool cxd56_auddma_shutdown(struct cxd56_dmachannel_s *dmach)
     }
 
   flags = spin_lock_irqsave(&dmach->dma_lock);
-  avoid_allapbs(dmach);
+  avoid_allapbs(dmach, &flags);
   spin_unlock_irqrestore(&dmach->dma_lock, flags);
 
   return  need_release_resource;
@@ -1087,6 +1131,8 @@ bool cxd56_auddma_shutdown(struct cxd56_dmachannel_s *dmach)
 
 int cxd56_auddma_pause(struct cxd56_dmachannel_s *dmach)
 {
+  int ret = -EAGAIN;
+
   irqstate_t flags;
 
   flags = spin_lock_irqsave(&dmach->dma_lock);
@@ -1097,11 +1143,17 @@ int cxd56_auddma_pause(struct cxd56_dmachannel_s *dmach)
 
       cxd56_waureg(*dmach->cmd, CXD56_AUDIO_DMA_STOP);
       AUDSTATECHG_PAUSING(dmach);
+      ret = OK;
+    }
+  else if (AUDSTATE_IS_STARTING(dmach))
+    {
+      AUDSTATECHG_PAUSED(dmach);
+      ret = OK;
     }
 
   spin_unlock_irqrestore(&dmach->dma_lock, flags);
 
-  return OK;
+  return ret;
 }
 
 int cxd56_auddma_resume(struct cxd56_dmachannel_s *dmach)

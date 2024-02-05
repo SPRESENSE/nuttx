@@ -1261,7 +1261,7 @@ static int cxd56_aud_setconfig(FAR struct cxd56_dmachannel_s *dmach,
 
   if (!AUDSTATE_IS_INITIAL(dmach) && !AUDSTATE_IS_CONFIGURED(dmach))
     {
-      return -EAGAIN;
+      return -EBUSY;
     }
 
   if ((bitw != 32 && bitw != 16) || (chs <= 0 || chs > dmach->maxch(dmach)))
@@ -1345,29 +1345,26 @@ static int cxd56_aud_michwres(FAR struct cxd56_dmachannel_s *dmach,
 
   if (en)
     {
-      if (AUDSTATE_IS_CONFIGURED(dmach))
+      switch (mic_samprate)
         {
-          switch (mic_samprate)
-            {
-              case CXD56_SAMPRATE_192K:
-                cxd56_audio_micrate(CXD56_AUDDECIM_OUTFS_4FS);
-                break;
-              case CXD56_SAMPRATE_96K:
-                cxd56_audio_micrate(CXD56_AUDDECIM_OUTFS_2FS);
-                break;
-              case CXD56_SAMPRATE_48K:
-                cxd56_audio_micrate(CXD56_AUDDECIM_OUTFS_1FS);
-                break;
-            }
-
-          cxd56_audio_set_micboost(false);
-          cxd56_audio_set_micfilter_strangth(CXD56_AUDCIC_HPFMODE_LOW);
-          cxd56_audio_set_mic_en(true);
-
-          dmach->setvolume(dmach->volgain);
-
-          ret = OK;
+          case CXD56_SAMPRATE_192K:
+            cxd56_audio_micrate(CXD56_AUDDECIM_OUTFS_4FS);
+            break;
+          case CXD56_SAMPRATE_96K:
+            cxd56_audio_micrate(CXD56_AUDDECIM_OUTFS_2FS);
+            break;
+          case CXD56_SAMPRATE_48K:
+            cxd56_audio_micrate(CXD56_AUDDECIM_OUTFS_1FS);
+            break;
         }
+
+      cxd56_audio_set_micboost(false);
+      cxd56_audio_set_micfilter_strangth(CXD56_AUDCIC_HPFMODE_LOW);
+      cxd56_audio_set_mic_en(true);
+
+      dmach->setvolume(dmach->volgain);
+
+      ret = OK;
     }
   else
     {
@@ -1660,19 +1657,21 @@ static int cxd56audio_config(FAR struct audio_lowerhalf_s *lower
       case AUDIO_TYPE_OUTPUT:
         if (!IS_AUDIO_OUTPUT(dmach))
           {
-              auderr("ERROR: Can't configure, device is output\n");
-              ret = -EINVAL;
+            auderr("ERROR: Can't configure, device is output\n");
+            ret = -EINVAL;
           }
-
-        samprate = (uint32_t)caps->ac_controls.hw[0] +
-                   ((uint32_t)caps->ac_controls.b[3] << 16);
-        chs = caps->ac_channels;
-        bitw = caps->ac_controls.b[2];
-
-        ret = cxd56_aud_setconfig(dmach, samprate, chs, bitw);
-        if (ret != OK)
+        else
           {
-              auderr("ERROR: Output Configuration Error : %d\n", ret);
+            samprate = (uint32_t)caps->ac_controls.hw[0] +
+                      ((uint32_t)caps->ac_controls.b[3] << 16);
+            chs = caps->ac_channels;
+            bitw = caps->ac_controls.b[2];
+
+            ret = cxd56_aud_setconfig(dmach, samprate, chs, bitw);
+            if (ret != OK)
+              {
+                  auderr("ERROR: Output Configuration Error : %d\n", ret);
+              }
           }
 
         break;
@@ -1694,9 +1693,10 @@ static int cxd56audio_config(FAR struct audio_lowerhalf_s *lower
             if (ret != OK)
               {
                   auderr("ERROR: Input Configuration Error %d \n", ret);
-                  ret = -EBUSY;
               }
-        }
+          }
+
+        break;
 
       default:
         ret = -ENOTSUP;
@@ -1717,7 +1717,10 @@ static int cxd56audio_shutdown(FAR struct audio_lowerhalf_s *lower, int cnt)
        * So audio system power is shutdown.
        */
 
-      cxd56_auddma_shutdown(dmach);
+      if (cxd56_auddma_shutdown(dmach))
+        {
+          dmach->hwresource(dmach, false);
+        }
 
       if (IS_AUDIO_OUTPUT(dmach))
         {
@@ -1730,7 +1733,11 @@ static int cxd56audio_shutdown(FAR struct audio_lowerhalf_s *lower, int cnt)
     {
       /* Othewise, user is requesting to re-initialize the device. */
 
-      cxd56_auddma_shutdown(dmach);
+      if (cxd56_auddma_shutdown(dmach))
+        {
+          dmach->hwresource(dmach, false);
+        }
+
       AUDSTATECHG_INITIAL(dmach);
     }
 
@@ -1746,10 +1753,11 @@ static int cxd56audio_start(FAR struct audio_lowerhalf_s *lower
 
   if (AUDSTATE_IS_CONFIGURED(dmach))
     {
+      dmach->hwresource(dmach, true);
       ret = cxd56_auddma_start(dmach);
-      if (ret == OK)
+      if (ret != OK)
         {
-          dmach->hwresource(dmach, true);
+          dmach->hwresource(dmach, false);
         }
     }
 
