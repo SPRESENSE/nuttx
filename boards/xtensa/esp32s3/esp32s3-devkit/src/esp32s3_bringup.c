@@ -38,6 +38,7 @@
 #include <errno.h>
 #include <nuttx/fs/fs.h>
 #include <nuttx/himem/himem.h>
+#include <arch/board/board.h>
 
 #ifdef CONFIG_ESP32S3_TIMER
 #  include "esp32s3_board_tim.h"
@@ -95,6 +96,15 @@
 #  include "esp32s3_partition.h"
 #endif
 
+#ifdef CONFIG_ESP_RMT
+#  include "esp32s3_board_rmt.h"
+#endif
+
+#ifdef CONFIG_ESP32S3_SPI
+#include "esp32s3_spi.h"
+#include "esp32s3_board_spidev.h"
+#endif
+
 #include "esp32s3-devkit.h"
 
 /****************************************************************************
@@ -131,6 +141,24 @@ int esp32s3_bringup(void)
     {
       syslog(LOG_ERR, "ERROR: Failed to init HIMEM: %d\n", ret);
     }
+#endif
+
+#if defined(CONFIG_ESP32S3_SPI) && defined(CONFIG_SPI_DRIVER)
+  #ifdef CONFIG_ESP32S3_SPI2
+  ret = board_spidev_initialize(ESP32S3_SPI2);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: Failed to init spidev 2: %d\n", ret);
+    }
+  #endif
+
+  #ifdef CONFIG_ESP32S3_SPI3
+  ret = board_spidev_initialize(ESP32S3_SPI3);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: Failed to init spidev 3: %d\n", ret);
+    }
+  #endif
 #endif
 
 #if defined(CONFIG_ESP32S3_EFUSE)
@@ -202,6 +230,20 @@ int esp32s3_bringup(void)
   if (ret < 0)
     {
       syslog(LOG_ERR, "Failed to initialize RT timer: %d\n", ret);
+    }
+#endif
+
+#ifdef CONFIG_ESP_RMT
+  ret = board_rmt_txinitialize(RMT_TXCHANNEL, RMT_OUTPUT_PIN);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: board_rmt_txinitialize() failed: %d\n", ret);
+    }
+
+  ret = board_rmt_rxinitialize(RMT_RXCHANNEL, RMT_INPUT_PIN);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: board_rmt_txinitialize() failed: %d\n", ret);
     }
 #endif
 
@@ -315,7 +357,7 @@ int esp32s3_bringup(void)
              CONFIG_ESP32S3_I2S1, ret);
     }
 
-#endif  /* CONFIG_ESP32S3_I2S1 */
+#endif /* CONFIG_ESP32S3_I2S1 */
 
 #endif /* CONFIG_ESP32S3_I2S */
 
@@ -385,6 +427,14 @@ int esp32s3_bringup(void)
   if (ret < 0)
     {
       syslog(LOG_ERR, "ERROR: Failed to initialize LCD.\n");
+    }
+#endif
+
+#ifdef CONFIG_NET_LAN9250
+  ret = esp32s3_lan9250_initialize(LAN9250_SPI);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: Failed to initialize SPI ethernet LAN9250.\n");
     }
 #endif
 

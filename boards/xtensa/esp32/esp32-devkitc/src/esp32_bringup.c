@@ -165,6 +165,10 @@
 #  include "esp32_rmt.h"
 #endif
 
+#ifdef CONFIG_DAC
+#  include "esp32_board_dac.h"
+#endif
+
 #include "esp32-devkitc.h"
 
 /****************************************************************************
@@ -550,7 +554,7 @@ int esp32_bringup(void)
 
 #endif /* CONFIG_AUDIO_CS4344 */
 
-#endif  /* CONFIG_ESP32_I2S0 */
+#endif /* CONFIG_ESP32_I2S0 */
 
 #ifdef CONFIG_ESP32_I2S1
 
@@ -575,7 +579,7 @@ int esp32_bringup(void)
              CONFIG_ESP32_I2S1, ret);
     }
 
-#endif  /* CONFIG_ESP32_I2S1 */
+#endif /* CONFIG_ESP32_I2S1 */
 
 #endif /* CONFIG_ESP32_I2S */
 
@@ -642,6 +646,14 @@ int esp32_bringup(void)
   if (ret < 0)
     {
       syslog(LOG_ERR, "ERROR: board_rmt_initialize() failed: %d\n", ret);
+    }
+#endif
+
+#ifdef CONFIG_DAC
+  ret = board_dac_initialize(CONFIG_ESP32_DAC_DEVPATH);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: board_dac_initialize(0) failed: %d\n", ret);
     }
 #endif
 

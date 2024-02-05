@@ -320,6 +320,9 @@ struct net_driver_s
   in_addr_t      d_ipaddr;      /* Host IPv4 address assigned to the network interface */
   in_addr_t      d_draddr;      /* Default router IP address */
   in_addr_t      d_netmask;     /* Network subnet mask */
+#ifdef CONFIG_NET_ARP_ACD
+  struct arp_acd_s d_acd;       /* ipv4 acd entry */
+#endif /* CONFIG_NET_ARP_ACD */
 #endif
 
 #ifdef CONFIG_NET_IPv6
@@ -736,8 +739,8 @@ int netdev_ifdown(FAR struct net_driver_s *dev);
  *
  ****************************************************************************/
 
-int netdev_carrier_on(FAR struct net_driver_s *dev);
-int netdev_carrier_off(FAR struct net_driver_s *dev);
+void netdev_carrier_on(FAR struct net_driver_s *dev);
+void netdev_carrier_off(FAR struct net_driver_s *dev);
 
 /****************************************************************************
  * Name: chksum
@@ -1062,11 +1065,19 @@ int netdev_ipv6_del(FAR struct net_driver_s *dev, const net_ipv6addr_t addr,
  * Name: netdev_ipv6_srcaddr/srcifaddr
  *
  * Description:
- *   Get the source IPv6 address (RFC6724).
+ *   Get the source IPv6 address (RFC6724) to use for transmitted packets.
+ *   If we are responding to a received packet, use the destination address
+ *   from that packet. If we are initiating communication, pick a local
+ *   address that best matches the destination address.
+ *
+ * Input parameters:
+ *   dev - Network device that packet is being transmitted from
+ *   dst - Address to compare against when choosing local address.
  *
  * Returned Value:
- *   A pointer to the IPv6 address is returned on success.  It will never be
- *   NULL, but can be an address containing g_ipv6_unspecaddr.
+ *   A pointer to a net_ipv6addr_t contained in net_driver_s is returned on
+ *   success.  It will never be NULL, but can be an address containing
+ *   g_ipv6_unspecaddr.
  *
  * Assumptions:
  *   The caller has locked the network.

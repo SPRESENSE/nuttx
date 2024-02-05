@@ -32,6 +32,8 @@
 #include <nuttx/kmalloc.h>
 
 #include "esp32s3_spiflash_mtd.h"
+#include "esp32s3_partition.h"
+#include "esp32s3_spiflash.h"
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -70,6 +72,10 @@
 
 #define PARTITION_MOUNT_POINT CONFIG_ESP32S3_PARTITION_MOUNTPT
 
+/* Partition encrypted flag */
+
+#define PARTITION_FLAG_ENCRYPTED          (1 << 0)
+
 /****************************************************************************
  * Private Types
  ****************************************************************************/
@@ -86,17 +92,15 @@ enum ota_img_ctrl_e
 
 enum ota_img_state_e
 {
-  /**
-   *  Monitor the first boot. In bootloader of esp-idf this state is changed
-   *  to ESP_OTA_IMG_PENDING_VERIFY if this bootloader enable app rollback.
+  /* Monitor the first boot. In bootloader of esp-idf this state is changed
+   * to ESP_OTA_IMG_PENDING_VERIFY if this bootloader enable app rollback.
    *
-   *  So this driver doesn't use this state currently.
+   * So this driver doesn't use this state currently.
    */
 
   OTA_IMG_NEW             = 0x0,
 
-  /**
-   * First boot for this app was. If while the second boot this state is then
+  /* First boot for this app was. If while the second boot this state is then
    * it will be changed to ABORTED if this bootloader enable app rollback.
    *
    * So this driver doesn't use this state currently.
@@ -112,8 +116,7 @@ enum ota_img_state_e
 
   OTA_IMG_INVALID         = 0x3,
 
-  /**
-   * App could not confirm the workable or non-workable. In bootloader
+  /* App could not confirm the workable or non-workable. In bootloader
    * IMG_PENDING_VERIFY state will be changed to IMG_ABORTED. This app will
    * not selected to boot at all if this bootloader enable app rollback.
    *
@@ -122,8 +125,7 @@ enum ota_img_state_e
 
   OTA_IMG_ABORTED         = 0x4,
 
-  /**
-   * Undefined. App can boot and work without limits in esp-idf.
+  /* Undefined. App can boot and work without limits in esp-idf.
    *
    * This state is not used.
    */
@@ -166,9 +168,11 @@ struct mtd_dev_priv_s
   uint8_t  type;                        /* Partition type */
   uint8_t  subtype;                     /* Partition sub-type */
   uint32_t flags;                       /* Partition flags */
-
+  uint32_t offset;                      /* Partition offset in SPI Flash */
+  uint32_t size;                        /* Partition size in SPI Flash */
   struct mtd_dev_s  *ll_mtd;            /* Low-level MTD data */
   struct mtd_dev_s  *part_mtd;          /* Partition MTD data */
+  struct mtd_geometry_s   geo;          /* Partition geometry information */
 };
 
 /* OTA data entry */
@@ -625,8 +629,11 @@ int esp32s3_partition_init(void)
   int i;
   struct partition_info_priv_s *info;
   uint8_t *pbuf;
+  bool encrypt;
+  uint32_t flags;
   struct mtd_dev_s *mtd;
-  struct mtd_dev_s *mtd_part;
+  struct mtd_dev_s *mtd_ll;
+  struct mtd_dev_s *mtd_encrypt;
   struct mtd_geometry_s geo;
   struct mtd_dev_priv_s *mtd_priv;
   int ret = 0;
@@ -636,7 +643,7 @@ int esp32s3_partition_init(void)
   char path[PARTITION_LABEL_LEN + sizeof(PARTITION_MOUNT_POINT)];
 
   pbuf = kmm_malloc(PARTITION_MAX_SIZE);
-  if (pbuf == NULL)
+  if (!pbuf)
     {
       ferr("ERROR: Failed to allocate %d byte\n", PARTITION_MAX_SIZE);
       ret = -ENOMEM;
@@ -644,22 +651,27 @@ int esp32s3_partition_init(void)
     }
 
   mtd = esp32s3_spiflash_mtd();
-  if (mtd == NULL)
+  if (!mtd)
     {
       ferr("ERROR: Failed to get SPI flash MTD\n");
-      ret = -EIO;
+      ret = -ENOSYS;
       goto errout_with_mtd;
     }
 
-  ret = MTD_IOCTL(mtd, MTDIOC_GEOMETRY, (unsigned long)&geo);
-  if (ret < 0)
+  mtd_encrypt = esp32s3_spiflash_encrypt_mtd();
+  if (!mtd_encrypt)
     {
-      ferr("ERROR: Failed to get info from MTD\n");
-      ret = -EIO;
+      ferr("ERROR: Failed to get SPI flash encrypted MTD\n");
+      ret = -ENOSYS;
       goto errout_with_mtd;
     }
 
-  ret = MTD_READ(mtd, PARTITION_TABLE_OFFSET, PARTITION_MAX_SIZE, pbuf);
+  /* Even without SPI Flash encryption, we can also use encrypted
+   * MTD to read no-encrypted data.
+   */
+
+  ret = MTD_READ(mtd_encrypt, PARTITION_TABLE_OFFSET,
+                 PARTITION_MAX_SIZE, pbuf);
   if (ret != PARTITION_MAX_SIZE)
     {
       ferr("ERROR: Failed to get read data from MTD\n");
@@ -668,7 +680,7 @@ int esp32s3_partition_init(void)
     }
 
   info = (struct partition_info_priv_s *)pbuf;
-
+  encrypt = esp32s3_flash_encryption_enabled();
   for (i = 0; i < num; i++)
     {
       if (info->magic != PARTITION_MAGIC)
@@ -678,6 +690,23 @@ int esp32s3_partition_init(void)
 
       strlcpy(label, (char *)info->label, sizeof(label));
       snprintf(path, sizeof(path), "%s%s", path_base, label);
+      mtd_ll = mtd;
+
+      /* If SPI Flash encryption is enable, "APP", "OTA data" and "NVS keys"
+       * are force to set as encryption partition.
+       */
+
+      flags = info->flags;
+      if (encrypt)
+        {
+          if ((info->type == PARTITION_TYPE_DATA &&
+              info->subtype == PARTITION_SUBTYPE_DATA_OTA) ||
+              (info->type == PARTITION_TYPE_DATA &&
+              info->subtype == PARTITION_SUBTYPE_DATA_NVS_KEYS))
+            {
+              flags |= PARTITION_FLAG_ENCRYPTED;
+            }
+        }
 
       finfo("INFO: [label]:   %s\n", label);
       finfo("INFO: [type]:    %d\n", info->type);
@@ -686,17 +715,41 @@ int esp32s3_partition_init(void)
       finfo("INFO: [size]:    0x%08" PRIx32 "\n", info->size);
       finfo("INFO: [flags]:   0x%08" PRIx32 "\n", info->flags);
       finfo("INFO: [mount]:   %s\n", path);
+      if (flags & PARTITION_FLAG_ENCRYPTED)
+        {
+          mtd_ll = mtd_encrypt;
+          finfo("INFO: [encrypted]\n\n");
+        }
+      else
+        {
+          mtd_ll = mtd;
+          finfo("INFO: [no-encrypted]\n\n");
+        }
+
+      ret = MTD_IOCTL(mtd_ll, MTDIOC_GEOMETRY, (unsigned long)&geo);
+      if (ret < 0)
+        {
+          ferr("ERROR: Failed to get info from MTD\n");
+          goto errout_with_mtd;
+        }
 
       mtd_priv = kmm_malloc(sizeof(struct mtd_dev_priv_s));
       if (!mtd_priv)
         {
           ferr("ERROR: Failed to allocate %d byte\n",
                sizeof(struct mtd_dev_priv_s));
-          ret = -1;
+          ret = -ENOMEM;
           goto errout_with_mtd;
         }
 
-      mtd_priv->ll_mtd = mtd;
+      mtd_priv->offset  = info->offset;
+      mtd_priv->size    = info->size;
+      mtd_priv->type    = info->type;
+      mtd_priv->subtype = info->subtype;
+      mtd_priv->flags   = flags;
+      mtd_priv->ll_mtd  = mtd_ll;
+      memcpy(&mtd_priv->geo, &geo, sizeof(geo));
+
       mtd_priv->mtd.bread  = esp32s3_part_bread;
       mtd_priv->mtd.bwrite = esp32s3_part_bwrite;
       mtd_priv->mtd.erase  = esp32s3_part_erase;
@@ -705,25 +758,22 @@ int esp32s3_partition_init(void)
       mtd_priv->mtd.write  = esp32s3_part_write;
       mtd_priv->mtd.name   = label;
 
-      mtd_part = mtd_partition(&mtd_priv->mtd,
-                               info->offset / geo.blocksize,
-                               info->size / geo.blocksize);
-      if (!mtd_part)
+      mtd_priv->part_mtd = mtd_partition(&mtd_priv->mtd,
+                                         info->offset / geo.blocksize,
+                                         info->size / geo.blocksize);
+      if (!mtd_priv->part_mtd)
         {
           ferr("ERROR: Failed to create MTD partition\n");
           kmm_free(mtd_priv);
-          ret = -1;
+          ret = -ENOSPC;
           goto errout_with_mtd;
         }
 
-      mtd_priv->part_mtd = mtd_part;
-
-      ret = register_mtddriver(path, mtd_part, 0777, NULL);
+      ret = register_mtddriver(path, mtd_priv->part_mtd, 0777, NULL);
       if (ret < 0)
         {
           ferr("ERROR: Failed to register MTD @ %s\n", path);
           kmm_free(mtd_priv);
-          ret = -1;
           goto errout_with_mtd;
         }
 

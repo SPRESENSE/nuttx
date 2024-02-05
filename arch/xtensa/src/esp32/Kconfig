@@ -1870,6 +1870,7 @@ comment "Partition Table Configuration"
 config ESP32_PARTITION_TABLE
 	bool "Create MTD partitions from Partition Table"
 	default n
+	select ESP32_BOOTLOADER_BUILD_FROM_SOURCE
 	---help---
 		Decode partition table and initialize partitions as MTD.
 
@@ -2354,6 +2355,35 @@ config ESP32_RTC_CLK_SRC_INT_8MD256
 endchoice
 endmenu # "RTC Configuration"
 
+menu "DAC Configuration"
+	depends on ANALOG && DAC
+
+config ESP32_DAC_DEVPATH
+	string "DAC device path"
+	default "/dev/dac0"
+
+choice ESP32_DAC_MODE
+	prompt "DAC mode of operation"
+	default ESP32_DAC_MODE_ONE_SHOT
+	---help---
+		One-shot mode requires to write every single value with a write call while
+		retaining the last value on output.
+
+		Following modes are not implemented yet.
+		Timer mode utilizes timer IRQs to call handler which can manage the write.
+		DMA is using a ring buffer accessed directly by the driver.
+		Cosine Wave Generator can output preset wave without the need to generate
+		the data and write in memory.
+
+config ESP32_DAC_MODE_ONE_SHOT
+	bool "One-shot mode"
+	---help---
+		One-shot mode requires to write every single value with a write call while
+		retaining the last value on output.
+
+endchoice # "DAC mode of operation"
+endmenu # "DAC Configuration"
+
 menu "LEDC Configuration"
 	depends on ESP32_LEDC
 
@@ -2443,41 +2473,28 @@ config ESP32_HAVE_OTA_PARTITION
 	bool
 	default n
 
-menu "Application Image Configuration"
-
-choice
-	prompt "Application Image Format"
-	default ESP32_APP_FORMAT_LEGACY
-	---help---
-		Depending on the chosen 2nd stage bootloader, the application may
-		be required to be perform a specific startup routine. Furthermore,
-		the image binary must be formatted according to the definition from
-		the 2nd stage bootloader.
+menu "Bootloader and Image Configuration"
 
 config ESP32_APP_FORMAT_LEGACY
-	bool "Legacy format"
+	bool
+	default y if !ESP32_APP_FORMAT_MCUBOOT
+	depends on !ESP32_APP_FORMAT_MCUBOOT
 	---help---
 		This is the legacy application image format, as supported by the ESP-IDF
 		2nd stage bootloader.
 
 config ESP32_APP_FORMAT_MCUBOOT
-	bool "MCUboot-bootable format"
+	bool "Enable MCUboot-bootable format"
+	depends on !MCUBOOT_BOOTLOADER
 	select ESP32_HAVE_OTA_PARTITION
+	select ESP32_BOOTLOADER_BUILD_FROM_SOURCE
 	---help---
-		The ESP32 port of MCUboot supports the loading of unsegmented firmware
-		images.
-
-endchoice # Application Image Format
-
-choice
-	prompt "Source for bootloader binaries"
-	default ESP32_BOOTLOADER_DOWNLOAD_PREBUILT
-	---help---
-		Select the action to be taken by the build system for the
-		"make bootloader" target.
+		Enables the Espressif port of MCUboot to be used as 2nd stage bootloader.
 
 config ESP32_BOOTLOADER_DOWNLOAD_PREBUILT
-	bool "Download prebuilt binaries"
+	bool
+	default y if !ESP32_BOOTLOADER_BUILD_FROM_SOURCE
+	depends on !ESP32_BOOTLOADER_BUILD_FROM_SOURCE
 	---help---
 		The build system will download the prebuilt binaries from
 		https://github.com/espressif/esp-nuttx-bootloader according to the chosen
@@ -2490,8 +2507,6 @@ config ESP32_BOOTLOADER_BUILD_FROM_SOURCE
 		the https://github.com/espressif/esp-nuttx-bootloader repository and build a
 		custom bootloader according to the chosen Application Image Format
 		(ESP32_APP_FORMAT_LEGACY or ESP32_APP_FORMAT_MCUBOOT) and partition information.
-
-endchoice
 
 choice
 	prompt "Target slot for image flashing"
@@ -2528,10 +2543,36 @@ config ESP32_APP_MCUBOOT_HEADER_SIZE
 	default 32
 	depends on ESP32_APP_FORMAT_MCUBOOT
 
-config ESP32_PARTITION_TABLE_OFFSET
-	hex "Partition Table offset"
+config ESP32_PARTITION_TABLE_OFFSET_DEFAULT
+	hex
 	default 0x8000
 	depends on ESP32_APP_FORMAT_LEGACY
+
+config ESP32_CUSTOM_PARTITION_TABLE_OFFSET
+	bool "Customize partition table offset"
+	default n
+	depends on ESP32_APP_FORMAT_LEGACY
+	select ESP32_BOOTLOADER_BUILD_FROM_SOURCE
+	---help---
+		Enable to select the offset of the partition table in the flash.
+
+if ESP32_CUSTOM_PARTITION_TABLE_OFFSET
+
+config ESP32_PARTITION_TABLE_OFFSET
+	hex "Partition Table offset"
+	default ESP32_PARTITION_TABLE_OFFSET_DEFAULT
+	depends on ESP32_APP_FORMAT_LEGACY
+
+endif # ESP32_CUSTOM_PARTITION_TABLE_OFFSET
+
+if !ESP32_CUSTOM_PARTITION_TABLE_OFFSET
+
+config ESP32_PARTITION_TABLE_OFFSET
+	hex
+	default ESP32_PARTITION_TABLE_OFFSET_DEFAULT
+	depends on ESP32_APP_FORMAT_LEGACY
+
+endif # !ESP32_CUSTOM_PARTITION_TABLE_OFFSET
 
 if BUILD_PROTECTED
 

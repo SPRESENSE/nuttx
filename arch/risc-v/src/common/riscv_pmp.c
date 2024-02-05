@@ -143,7 +143,7 @@ static bool pmp_check_region_attrs(uintptr_t base, uintptr_t size,
 
         /* Get the power-of-two for size, rounded up */
 
-        if ((base & ((UINT64_C(1) << LOG2_CEIL(size)) - 1)) != 0)
+        if ((base & ((UINT64_C(1) << log2ceil(size)) - 1)) != 0)
           {
             /* The start address is not properly aligned with size */
 

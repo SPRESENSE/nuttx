@@ -106,7 +106,7 @@ RUN mkdir clang-arm-none-eabi && \
 
 # Download the latest ARM GCC toolchain prebuilt by ARM
 RUN mkdir gcc-arm-none-eabi && \
-  curl -s -L  "https://developer.arm.com/-/media/Files/downloads/gnu/12.3.rel1/binrel/arm-gnu-toolchain-12.3.rel1-x86_64-arm-none-eabi.tar.xz" \
+  curl -s -L  "https://developer.arm.com/-/media/Files/downloads/gnu/13.2.Rel1/binrel/arm-gnu-toolchain-13.2.Rel1-x86_64-arm-none-eabi.tar.xz" \
   | tar -C gcc-arm-none-eabi --strip-components 1 -xJ
 
 ###############################################################################
@@ -115,7 +115,7 @@ RUN mkdir gcc-arm-none-eabi && \
 FROM nuttx-toolchain-base AS nuttx-toolchain-arm64
 # Download the latest ARM64 GCC toolchain prebuilt by ARM
 RUN mkdir gcc-aarch64-none-elf && \
-  curl -s -L  "https://developer.arm.com/-/media/Files/downloads/gnu/12.3.rel1/binrel/arm-gnu-toolchain-12.3.rel1-x86_64-aarch64-none-elf.tar.xz" \
+  curl -s -L  "https://developer.arm.com/-/media/Files/downloads/gnu/13.2.Rel1/binrel/arm-gnu-toolchain-13.2.Rel1-x86_64-aarch64-none-elf.tar.xz" \
   | tar -C gcc-aarch64-none-elf --strip-components 1 -xJ
 
 ###############################################################################
@@ -192,7 +192,7 @@ RUN cd /tools/renesas-tools/build/gcc && \
 FROM nuttx-toolchain-base AS nuttx-toolchain-riscv
 # Download the latest RISCV GCC toolchain prebuilt by xPack
 RUN mkdir riscv-none-elf-gcc && \
-  curl -s -L "https://github.com/xpack-dev-tools/riscv-none-elf-gcc-xpack/releases/download/v12.3.0-2/xpack-riscv-none-elf-gcc-12.3.0-2-linux-x64.tar.gz" \
+  curl -s -L "https://github.com/xpack-dev-tools/riscv-none-elf-gcc-xpack/releases/download/v13.2.0-2/xpack-riscv-none-elf-gcc-13.2.0-2-linux-x64.tar.gz" \
   | tar -C riscv-none-elf-gcc --strip-components 1 -xz
 
 ###############################################################################
@@ -343,10 +343,11 @@ RUN pip3 install pytest==6.2.5
 RUN pip3 install pytest-json==0.4.0
 RUN pip3 install pytest-ordering==0.6
 RUN pip3 install pytest-repeat==0.9.1
-# Install lark stringcase and jinja2 for matter build
+# Install lark stringcase jinja2 and coloredlogs for matter build
 RUN pip3 install lark
 RUN pip3 install stringcase
 RUN pip3 install jinja2
+RUN pip3 install coloredlogs
 
 # Upgrade nodejs to the latest version
 RUN npm install -g n && n stable && hash -r
@@ -417,8 +418,9 @@ ENV WASI_SDK_PATH="/tools/wasi-sdk"
 ENV PATH="/tools/wamr:$PATH"
 
 # gn tool
-COPY --from=nuttx-tools /tools/gn/ /tools/gn/
-ENV PATH="/tools/gn/gn/out:$PATH"
+RUN mkdir -p /tools/gn
+COPY --from=nuttx-tools /tools/gn/gn/out/gn /tools/gn
+ENV PATH="/tools/gn:$PATH"
 
 # ZAP tool and nodejs packet
 COPY --from=nuttx-tools /tools/zap/ /tools/zap/

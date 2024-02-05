@@ -181,7 +181,7 @@ static int uart_putxmitchar(FAR uart_dev_t *dev, int ch, bool oktoblock)
 
           dev->xmit.buffer[dev->xmit.head] = ch;
           dev->xmit.head = nexthead;
-          return OK;
+          break;
         }
 
       /* The TX buffer is full.  Should be block, waiting for the hardware
@@ -874,10 +874,8 @@ static ssize_t uart_read(FAR struct file *filep,
                 {
                   /* Skipping character count down */
 
-                  if (dev->escape-- > 0)
-                    {
-                      continue;
-                    }
+                  dev->escape--;
+                  continue;
                 }
 
               /* Echo if the character is not a control byte */
@@ -1835,6 +1833,13 @@ int uart_register(FAR const char *path, FAR uart_dev_t *dev)
 #endif
 
   /* Register the serial driver */
+
+#ifdef CONFIG_SERIAL_GDBSTUB
+  if (strcmp(path, CONFIG_SERIAL_GDBSTUB_PATH) == 0)
+    {
+      return uart_gdbstub_register(dev);
+    }
+#endif
 
   sinfo("Registering %s\n", path);
   return register_driver(path, &g_serialops, 0666, dev);

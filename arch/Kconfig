@@ -335,6 +335,13 @@ config ARCH_COVERAGE_ALL
 		will get image size increased and performance decreased
 		significantly.
 
+config ARCH_INSTRUMENT_ALL
+	bool "Instrument All"
+	default n
+	---help---
+		Add instrument to all source files. we can use instrument_register
+		to register the instrument function.
+
 comment "Architecture Options"
 
 config ARCH_NOINTC
@@ -433,6 +440,11 @@ config ARCH_HAVE_DPFPU
 	default n
 	select ARCH_HAVE_FPU
 
+config ARCH_HAVE_QPFPU
+	bool
+	default n
+	select ARCH_HAVE_DPFPU
+
 config ARCH_HAVE_LAZYFPU
 	bool
 	default n
@@ -499,6 +511,10 @@ config ARCH_HAVE_BACKTRACE
 	bool
 	default n
 
+config ARCH_HAVE_DEBUG
+	bool "Architecture have debug support"
+	default n
+
 config ARCH_HAVE_PERF_EVENTS
 	bool
 	default n
@@ -507,7 +523,7 @@ config ARCH_HAVE_PERF_EVENTS
 
 config ARCH_PERF_EVENTS
 	bool "Configure hardware performance counting"
-	default y if SCHED_CRITMONITOR || SCHED_IRQMONITOR || RPTUN_PING || SEGGER_SYSVIEW
+	default y if SCHED_CRITMONITOR || SCHED_IRQMONITOR || RPMSG_PING || SEGGER_SYSVIEW
 	default n
 	depends on ARCH_HAVE_PERF_EVENTS
 	---help---
@@ -564,6 +580,14 @@ config ARCH_DPFPU
 	depends on ARCH_FPU && ARCH_HAVE_DPFPU
 	---help---
 		Enable toolchain support for double precision (64-bit) floating
+		point if both the toolchain and the hardware support it.
+
+config ARCH_QPFPU
+	bool "Quad-Precision FPU support"
+	default y
+	depends on ARCH_FPU && ARCH_HAVE_DPFPU && ARCH_HAVE_QPFPU
+	---help---
+		Enable toolchain support for quadruple precision (128 bits or 16 bytes) floating
 		point if both the toolchain and the hardware support it.
 
 config ARCH_LAZYFPU
@@ -685,6 +709,7 @@ config ARCH_SHM_VBASE
 
 config ARCH_KMAP_VBASE
 	hex "Kernel dynamic virtual mappings base"
+	depends on MM_KMAP
 	---help---
 		The virtual address of the beginning of the kernel dynamic mapping
 		region.

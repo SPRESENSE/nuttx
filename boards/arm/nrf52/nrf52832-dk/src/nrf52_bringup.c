@@ -59,7 +59,7 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-#define NRF52_TIMER (0)
+#define NRF52_TIMER (1)
 
 /****************************************************************************
  * Public Functions
@@ -138,7 +138,6 @@ int nrf52_bringup(void)
 
 #ifdef CONFIG_NRF52_SOFTDEVICE_CONTROLLER
   ret = nrf52_sdc_initialize();
-
   if (ret < 0)
     {
       syslog(LOG_ERR, "ERROR: nrf52_sdc_initialize() failed: %d\n", ret);
