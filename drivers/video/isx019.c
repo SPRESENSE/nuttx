@@ -236,6 +236,7 @@ struct isx019_dev_s
   isx019_rect_t clip_still;
   double  gamma;
   int32_t jpg_quality;
+  int32_t hue;
   imgsensor_colorfx_t colorfx;
 };
 
@@ -810,9 +811,8 @@ static const int32_t g_isx019_wbmode[] =
 
 #define NR_WBMODE (sizeof(g_isx019_wbmode) / sizeof(int32_t))
 
-static int32_t g_isx019_iso[] =
+static const int32_t g_isx019_iso[] =
 {
-  800,      /* ISO0.8 */
   1000,     /* ISO1 */
   1200,     /* ISO1.2 */
   1600,     /* ISO1.6 */
@@ -854,6 +854,78 @@ static int32_t g_isx019_iso[] =
 };
 
 #define NR_ISO (sizeof(g_isx019_iso) / sizeof(int32_t))
+
+/* Gain values corresponding to each elements of g_isx019_iso table.
+ * This needs to have the same size of g_isx019_iso.
+ */
+
+static const uint8_t g_isx019_gain[] =
+{
+  1,   /* gain for ISO1 */
+  2,   /* gain for ISO1.2 */
+  3,   /* gain for ISO1.6 */
+  4,   /* gain for ISO2 */
+  5,   /* gain for ISO2.5 */
+  6,   /* gain for ISO3 */
+  7,   /* gain for ISO4 */
+  8,   /* gain for ISO5 */
+  9,   /* gain for ISO6 */
+  10,  /* gain for ISO8 */
+  11,  /* gain for ISO10 */
+  12,  /* gain for ISO12 */
+  13,  /* gain for ISO16 */
+  14,  /* gain for ISO20 */
+  15,  /* gain for ISO25 */
+  16,  /* gain for ISO32 */
+  17,  /* gain for ISO40 */
+  18,  /* gain for ISO50 */
+  19,  /* gain for ISO64 */
+  20,  /* gain for ISO80 */
+  21,  /* gain for ISO100 */
+  22,  /* gain for ISO125 */
+  23,  /* gain for ISO160 */
+  24,  /* gain for ISO200 */
+  25,  /* gain for ISO250 */
+  26,  /* gain for ISO320 */
+  27,  /* gain for ISO400 */
+  28,  /* gain for ISO500 */
+  29,  /* gain for ISO640 */
+  30,  /* gain for ISO800 */
+  31,  /* gain for ISO1000 */
+  32,  /* gain for ISO1250 */
+  33,  /* gain for ISO1600 */
+  34,  /* gain for ISO2000 */
+  35,  /* gain for ISO2500 */
+  36,  /* gain for ISO3200 */
+  37,  /* gain for ISO4000 */
+  38,  /* gain for ISO5000 */
+};
+
+static const int32_t g_isx019_iso_auto[] =
+{
+  IMGSENSOR_ISO_SENSITIVITY_MANUAL,
+  IMGSENSOR_ISO_SENSITIVITY_AUTO,
+};
+
+#define NR_ISO_AUTO (sizeof(g_isx019_iso_auto) / sizeof(int32_t))
+
+static const int32_t g_isx019_metering[] =
+{
+  IMGSENSOR_EXPOSURE_METERING_AVERAGE,
+  IMGSENSOR_EXPOSURE_METERING_CENTER_WEIGHTED,
+  IMGSENSOR_EXPOSURE_METERING_SPOT,
+  IMGSENSOR_EXPOSURE_METERING_MATRIX,
+};
+
+#define NR_METERING (sizeof(g_isx019_metering) / sizeof(int32_t))
+
+static const int32_t g_isx019_ae[] =
+{
+  IMGSENSOR_EXPOSURE_AUTO,
+  IMGSENSOR_EXPOSURE_MANUAL,
+};
+
+#define NR_AE (sizeof(g_isx019_ae) / sizeof(int32_t))
 
 /****************************************************************************
  * Private Functions
@@ -1324,6 +1396,10 @@ static int isx019_init(FAR struct imgsensor_s *sensor)
   initialize_wbmode(priv);
   initialize_jpg_quality(priv);
 
+  /* Set initial gamma value for getting current value API. */
+
+  priv->gamma = 1000;
+
   /* Because store_default_value() needs the clock ratio,
    * clock_ratio has to be calulated first.
    */
@@ -1331,6 +1407,10 @@ static int isx019_init(FAR struct imgsensor_s *sensor)
   clk = board_isx019_get_master_clock();
   priv->clock_ratio = (float)clk / ISX019_STANDARD_MASTER_CLOCK;
   store_default_value(priv);
+
+  /* Store initial HUE value for getting current value API. */
+
+  priv->hue = priv->default_value.hue;
 
   return OK;
 }
@@ -1911,9 +1991,11 @@ static int isx019_get_supported_value(FAR struct imgsensor_s *sensor,
         break;
 
       case IMGSENSOR_ID_EXPOSURE_AUTO:
-        val->type = IMGSENSOR_CTRL_TYPE_INTEGER;
-        SET_RANGE(val->u.range, MIN_AE, MAX_AE,
-                                STEP_AE, def->ae);
+        val->type = IMGSENSOR_CTRL_TYPE_INTEGER_MENU;
+        SET_DISCRETE(val->u.discrete,
+                     NR_AE,
+                     g_isx019_ae,
+                     IMGSENSOR_EXPOSURE_AUTO);
         break;
 
       case IMGSENSOR_ID_EXPOSURE_ABSOLUTE:
@@ -1941,19 +2023,23 @@ static int isx019_get_supported_value(FAR struct imgsensor_s *sensor,
         SET_DISCRETE(val->u.discrete,
                      NR_ISO,
                      g_isx019_iso,
-                     0);
+                     def->iso);
         break;
 
       case IMGSENSOR_ID_ISO_SENSITIVITY_AUTO:
-        val->type = IMGSENSOR_CTRL_TYPE_INTEGER;
-        SET_RANGE(val->u.range, MIN_AUTOISO, MAX_AUTOISO,
-                                STEP_AUTOISO, def->iso_auto);
+        val->type = IMGSENSOR_CTRL_TYPE_INTEGER_MENU;
+        SET_DISCRETE(val->u.discrete,
+                     NR_ISO_AUTO,
+                     g_isx019_iso_auto,
+                     IMGSENSOR_ISO_SENSITIVITY_AUTO);
         break;
 
       case IMGSENSOR_ID_EXPOSURE_METERING:
-        val->type = IMGSENSOR_CTRL_TYPE_INTEGER;
-        SET_RANGE(val->u.range, MIN_METER, MAX_METER,
-                                STEP_METER, def->meter);
+        val->type = IMGSENSOR_CTRL_TYPE_INTEGER_MENU;
+        SET_DISCRETE(val->u.discrete,
+                     NR_METERING,
+                     g_isx019_metering,
+                     IMGSENSOR_EXPOSURE_METERING_AVERAGE);
         break;
 
       case IMGSENSOR_ID_SPOT_POSITION:
@@ -2014,16 +2100,6 @@ static int32_t convert_brightness_is2reg(int32_t val)
 static int32_t convert_brightness_reg2is(int32_t val)
 {
   return (val / 4);
-}
-
-static int32_t convert_hue_is2reg(int32_t val)
-{
-  return (val * 90) / 128;
-}
-
-static int32_t convert_hue_reg2is(int32_t val)
-{
-  return (val * 128) / 90;
 }
 
 static int32_t convert_hdr_is2reg(int32_t val)
@@ -2102,11 +2178,6 @@ static convert_t get_reginfo(uint32_t id, bool is_set,
         cvrt = not_convert;
         break;
 
-      case IMGSENSOR_ID_HUE:
-        SET_REGINFO_INT8(reg, CAT_PICTTUNE, UIHUE);
-        cvrt = is_set ? convert_hue_is2reg : convert_hue_reg2is;
-        break;
-
       case IMGSENSOR_ID_EXPOSURE:
         SET_REGINFO_INT8(reg, CAT_AEDGRM, EVSEL);
         cvrt = not_convert;
@@ -2127,6 +2198,23 @@ static convert_t get_reginfo(uint32_t id, bool is_set,
     }
 
   return cvrt;
+}
+
+static int set_hue(FAR isx019_dev_t *priv,
+                   imgsensor_value_t val)
+{
+  int ret;
+  int val32 = val.value32 * 90 / 128;
+
+  ret = isx019_i2c_write(priv, CAT_PICTTUNE, UIHUE, &val32, 1);
+  if (ret == OK)
+    {
+      /* Store value before conversion for get_hue(). */
+
+      priv->hue = val.value32;
+    }
+
+  return ret;
 }
 
 static void set_flip(FAR uint8_t *flip, uint8_t direction, int32_t val)
@@ -2652,7 +2740,9 @@ static uint16_t get_gain_from_iso(int32_t iso)
         }
     }
 
-  return i;
+  /* Return gain corresponding to specified ISO sensitivity. */
+
+  return (uint16_t)g_isx019_gain[i];
 }
 
 static int set_iso(FAR isx019_dev_t *priv,
@@ -2952,6 +3042,10 @@ static setvalue_t set_value_func(uint32_t id)
 
   switch (id)
     {
+      case IMGSENSOR_ID_HUE:
+        func = set_hue;
+        break;
+
       case IMGSENSOR_ID_GAMMA:
         func = set_gamma;
         break;
@@ -3033,6 +3127,21 @@ static setvalue_t set_value_func(uint32_t id)
     }
 
   return func;
+}
+
+static int get_hue(FAR isx019_dev_t *priv,
+                   FAR imgsensor_value_t *val)
+{
+  if (val == NULL)
+    {
+      return -EINVAL;
+    }
+
+  /* Return stored value without reading register. */
+
+  val->value32 = priv->hue;
+
+  return OK;
 }
 
 static int32_t get_flip(FAR uint8_t *flip, uint8_t direction)
@@ -3352,10 +3461,32 @@ static int get_3astatus(FAR isx019_dev_t *priv,
   return OK;
 }
 
+static int32_t get_iso_from_gain(uint8_t gain)
+{
+  int i;
+
+  /* g_isx019_gain and g_isx019_iso has the common index. */
+
+  for (i = 0; i < NR_ISO; i++)
+    {
+      if (g_isx019_gain[i] == gain)
+        {
+          break;
+        }
+    }
+
+  if (i >= NR_ISO)
+    {
+      i = NR_ISO - 1;
+    }
+
+  return g_isx019_iso[i];
+}
+
 static int get_iso(FAR isx019_dev_t *priv,
                    FAR imgsensor_value_t *val)
 {
-  uint8_t buf = 0;
+  uint8_t gain = 0;
 
   if (val == NULL)
     {
@@ -3366,14 +3497,10 @@ static int get_iso(FAR isx019_dev_t *priv,
    * So, round the gain to integer, and convert to ISO.
    */
 
-  isx019_i2c_read(priv, CAT_AECOM, GAIN_LEVEL, &buf, 1);
-  buf = ((buf * 3) + 5) / 10;
-  if (buf >= NR_ISO)
-    {
-      buf = NR_ISO - 1;
-    }
+  isx019_i2c_read(priv, CAT_AECOM, GAIN_LEVEL, &gain, 1);
+  gain = ((gain * 3) + 5) / 10;
 
-  val->value32 = g_isx019_iso[buf];
+  val->value32 = get_iso_from_gain(gain);
 
   return OK;
 }
@@ -3426,6 +3553,10 @@ static getvalue_t get_value_func(uint32_t id)
 
   switch (id)
     {
+      case IMGSENSOR_ID_HUE:
+        func = get_hue;
+        break;
+
       case IMGSENSOR_ID_GAMMA:
         func = get_gamma;
         break;
