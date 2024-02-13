@@ -56,7 +56,7 @@ Header Files
 
 The interface to the binary loader is described in the header file
 ``include/nuttx/binfmt/binfmt.h``.
-A brief summary of the data structurs and interfaces prototyped in that
+A brief summary of the data structures and interfaces prototyped in that
 header file are listed below.
 
 Data Structures
@@ -123,7 +123,7 @@ pointer to a write-able instance of :c:struct:`binfmt_s`.
        */
 
     #ifdef CONFIG_ARCH_ADDRENV
-      group_addrenv_t addrenv;             /* Task group address environment */
+      arch_addrenv_t addrenv;              /* Task group address environment */
     #endif
 
       size_t mapsize;                      /* Size of the mapped address region (needed for munmap) */
@@ -134,6 +134,9 @@ pointer to a write-able instance of :c:struct:`binfmt_s`.
 
       uint8_t priority;                    /* Task execution priority */
       size_t stacksize;                    /* Size of the stack in bytes (unallocated) */
+    #ifndef CONFIG_BUILD_KERNEL
+      FAR void *stackaddr;                 /* Task stack address */
+    #endif
     };
 
   Where the types ``binfmt_ctor_t`` and ``binfmt_dtor_t`` define the type

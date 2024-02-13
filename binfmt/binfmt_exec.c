@@ -37,11 +37,11 @@
 #ifndef CONFIG_BINFMT_DISABLE
 
 /****************************************************************************
- * Public Functions
+ * Private Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: exec_spawn
+ * Name: exec_internal
  *
  * Description:
  *   exec() configurable version, delivery the spawn attribute if this
@@ -62,7 +62,9 @@
  *              exported by the caller and made available for linking the
  *              module into the system.
  *   nexports - The number of symbols in the exports table.
+ *   actions  - The spawn file actions
  *   attr     - The spawn attributes.
+ *   spawn    - Is spawn in new task.
  *
  * Returned Value:
  *   It returns the PID of the exec'ed module.  On failure, it returns
@@ -70,17 +72,20 @@
  *
  ****************************************************************************/
 
-int exec_spawn(FAR const char *filename, FAR char * const *argv,
-               FAR char * const *envp, FAR const struct symtab_s *exports,
-               int nexports, FAR const posix_spawnattr_t *attr)
+static int exec_internal(FAR const char *filename,
+                         FAR char * const *argv, FAR char * const *envp,
+                         FAR const struct symtab_s *exports, int nexports,
+                         FAR const posix_spawn_file_actions_t *actions,
+                         FAR const posix_spawnattr_t *attr, bool spawn)
 {
   FAR struct binary_s *bin;
+  irqstate_t flags;
   int pid;
   int ret;
 
   /* Allocate the load information */
 
-  bin = (FAR struct binary_s *)kmm_zalloc(sizeof(struct binary_s));
+  bin = kmm_zalloc(sizeof(struct binary_s));
   if (!bin)
     {
       berr("ERROR: Failed to allocate binary_s\n");
@@ -106,10 +111,15 @@ int exec_spawn(FAR const char *filename, FAR char * const *argv,
           bin->priority = attr->priority;
         }
 
-#ifndef CONFIG_BUILD_KERNEL
       if (attr->stacksize > 0)
         {
           bin->stacksize = attr->stacksize;
+        }
+
+#ifndef CONFIG_BUILD_KERNEL
+      if (attr->stackaddr != NULL)
+        {
+          bin->stackaddr = attr->stackaddr;
         }
 #endif
     }
@@ -119,11 +129,12 @@ int exec_spawn(FAR const char *filename, FAR char * const *argv,
    * handler.
    */
 
+  flags = enter_critical_section();
   sched_lock();
 
   /* Then start the module */
 
-  pid = exec_module(bin, filename, argv, envp);
+  pid = exec_module(bin, filename, argv, envp, actions, spawn);
   if (pid < 0)
     {
       ret = pid;
@@ -153,15 +164,61 @@ int exec_spawn(FAR const char *filename, FAR char * const *argv,
 #endif
 
   sched_unlock();
+  leave_critical_section(flags);
   return pid;
 
 errout_with_lock:
   sched_unlock();
+  leave_critical_section(flags);
   unload_module(bin);
 errout_with_bin:
   kmm_free(bin);
 errout:
   return ret;
+}
+
+/****************************************************************************
+ * Public Functions
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: exec_spawn
+ *
+ * Description:
+ *   exec() configurable version, delivery the spawn attribute if this
+ *   process has special customization.
+ *
+ * Input Parameters:
+ *   filename - The path to the program to be executed. If
+ *              CONFIG_LIBC_ENVPATH is defined in the configuration, then
+ *              this may be a relative path from the current working
+ *              directory. Otherwise, path must be the absolute path to the
+ *              program.
+ *   argv     - A pointer to an array of string arguments. The end of the
+ *              array is indicated with a NULL entry.
+ *   envp     - A pointer to an array of environment strings. Terminated with
+ *              a NULL entry.
+ *   exports  - The address of the start of the caller-provided symbol
+ *              table. This symbol table contains the addresses of symbols
+ *              exported by the caller and made available for linking the
+ *              module into the system.
+ *   nexports - The number of symbols in the exports table.
+ *   actions  - The spawn file actions
+ *   attr     - The spawn attributes.
+ *
+ * Returned Value:
+ *   It returns the PID of the exec'ed module.  On failure, it returns
+ *   the negative errno value appropriately.
+ *
+ ****************************************************************************/
+
+int exec_spawn(FAR const char *filename, FAR char * const *argv,
+               FAR char * const *envp, FAR const struct symtab_s *exports,
+               int nexports, FAR const posix_spawn_file_actions_t *actions,
+               FAR const posix_spawnattr_t *attr)
+{
+  return exec_internal(filename, argv, envp,
+                       exports, nexports, actions, attr, true);
 }
 
 /****************************************************************************
@@ -234,7 +291,8 @@ int exec(FAR const char *filename, FAR char * const *argv,
 {
   int ret;
 
-  ret = exec_spawn(filename, argv, envp, exports, nexports, NULL);
+  ret = exec_internal(filename, argv, envp,
+                      exports, nexports, NULL, NULL, false);
   if (ret < 0)
     {
       set_errno(-ret);

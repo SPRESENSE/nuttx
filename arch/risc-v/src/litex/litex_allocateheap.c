@@ -29,9 +29,44 @@
 
 #include "litex.h"
 
+#ifdef CONFIG_MM_KERNEL_HEAP
+#include <arch/board/board_memorymap.h>
+#endif
+
+#include "riscv_internal.h"
+
+/****************************************************************************
+ * Pre-processor Definitions
+ ****************************************************************************/
+
+#ifdef CONFIG_MM_KERNEL_HEAP
+#define KRAM_END    KSRAM_END
+#else
+#define KRAM_END    CONFIG_RAM_END
+#endif
+
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
+
+/****************************************************************************
+ * Name: up_allocate_heap
+ *
+ * Description:
+ *   This function will be called to dynamically set aside the heap region
+ *   based on kernel or flat builds.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_BUILD_KERNEL
+void up_allocate_kheap(void **heap_start, size_t *heap_size)
+#else
+void up_allocate_heap(void **heap_start, size_t *heap_size)
+#endif /* CONFIG_BUILD_KERNEL */
+{
+  *heap_start = (void *)g_idle_topstack;
+  *heap_size = KRAM_END - g_idle_topstack;
+}
 
 /****************************************************************************
  * Name: riscv_addregion

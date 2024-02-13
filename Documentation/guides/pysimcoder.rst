@@ -4,7 +4,7 @@
 pysimCoder integration with NuttX
 =================================
 
-`PysimCoder <https://github.com/robertobucher/pysimCoder>`_ is as an open source
+`PysimCoder <https://github.com/robertobucher/pysimCoder>`__ is as an open source
 Rapid Control Application Development Tool which is able to transfer block diagrams into C code.
 Combined with NuttX, it can be used in real time control application and as an alternative to
 expensive licensed programs and prototyping platforms. Example of `DC motor control application
@@ -50,7 +50,7 @@ with NuttX. The list is the following:
 ``CONFIG_BOARDCTL_OS_SYMTAB=y``      ``CONFIG_NSH_READLINE=y``
 ``CONFIG_BUILTIN=y``                 ``CONFIG_NSH_ROMFSETC=y``
 ``CONFIG_ELF=y``                     ``CONFIG_PSEUDOTERM=y``
-``CONFIG_FS_BINFS=y``                ``CONFIG_PTHREAD_CLEANUP=y``
+``CONFIG_FS_BINFS=y``                ``CONFIG_PTHREAD_CLEANUP_STACKSIZE=1``
 ``CONFIG_FS_PROCFS=y``               ``CONFIG_PTHREAD_MUTEX_TYPES=y``
 ``CONFIG_FS_PROCFS_REGISTER=y``      ``CONFIG_PTHREAD_STACK_MIN=1024``
 ``CONFIG_FS_ROMFS=y``                ``CONFIG_LIBM=y``

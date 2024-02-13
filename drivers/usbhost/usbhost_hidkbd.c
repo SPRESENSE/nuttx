@@ -44,6 +44,7 @@
 #include <nuttx/arch.h>
 #include <nuttx/wqueue.h>
 #include <nuttx/signal.h>
+#include <nuttx/mutex.h>
 #include <nuttx/semaphore.h>
 #include <nuttx/fs/fs.h>
 
@@ -178,7 +179,7 @@ struct usbhost_state_s
 
   struct usbhost_class_s  usbclass;
 
-  /* The remainder of the fields are provide o the keyboard class driver */
+  /* The remainder of the fields are provided to the keyboard class driver */
 
   char                    devchar;      /* Character identifying the /dev/kbd[n] device */
   volatile bool           disconnected; /* TRUE: Device has been disconnected */
@@ -187,7 +188,7 @@ struct usbhost_state_s
   volatile bool           waiting;      /* TRUE: waiting for keyboard data */
   uint8_t                 ifno;         /* Interface number */
   int16_t                 crefs;        /* Reference count on the driver instance */
-  sem_t                   exclsem;      /* Used to maintain mutual exclusive access */
+  mutex_t                 lock;         /* Used to maintain mutual exclusive access */
   sem_t                   waitsem;      /* Used to wait for keyboard data */
   FAR uint8_t            *tbuffer;      /* The allocated transfer buffer */
   size_t                  tbuflen;      /* Size of the allocated transfer buffer */
@@ -221,6 +222,21 @@ struct usbhost_state_s
   volatile uint16_t       headndx;      /* Buffer head index */
   volatile uint16_t       tailndx;      /* Buffer tail index */
   uint8_t                 kbdbuffer[CONFIG_HIDKBD_BUFSIZE];
+
+  FAR uint8_t            *ctrlreq;      /* Allocated ctrl request structure */
+  size_t                  ctrllen;      /* Size of the allocated control buffer */
+  bool                    caps_lock;    /* Private caps lock status */
+  bool                    sync_led;     /* For LED update */
+  bool                    empty;        /* Keep track of data availability */
+  sem_t                   syncsem;      /* Semaphore to wait for a poll thread */
+
+#ifdef CONFIG_HIDKBD_NOGETREPORT
+  struct work_s           rwork;        /* For interrupt transfer work */
+  int16_t                 nbytes;       /* # of bytes actually transferred */
+#endif
+#ifndef CONFIG_HIDKBD_NODEBOUNCE
+  uint8_t                 lastkey[6];   /* For debouncing */
+#endif
 };
 
 /* This type is used for encoding special characters */
@@ -236,16 +252,6 @@ struct usbhost_outstream_s
 /****************************************************************************
  * Private Function Prototypes
  ****************************************************************************/
-
-/* Semaphores */
-
-static int  usbhost_takesem(FAR sem_t *sem);
-static void usbhost_forcetake(FAR sem_t *sem);
-#define usbhost_givesem(s) nxsem_post(s);
-
-/* Polling support */
-
-static void usbhost_pollnotify(FAR struct usbhost_state_s *dev);
 
 /* Memory allocation services */
 
@@ -265,7 +271,7 @@ static void usbhost_destroy(FAR void *arg);
 static void usbhost_putbuffer(FAR struct usbhost_state_s *priv,
               uint8_t keycode);
 #ifdef CONFIG_HIDKBD_ENCODED
-static void usbhost_putstream(FAR struct lib_outstream_s *this, int ch);
+static void usbhost_putstream(FAR struct lib_outstream_s *self, int ch);
 #endif
 static inline uint8_t usbhost_mapscancode(uint8_t scancode,
               uint8_t modifier);
@@ -274,6 +280,20 @@ static inline void usbhost_encodescancode(FAR struct usbhost_state_s *priv,
               uint8_t scancode, uint8_t modifier);
 #endif
 static int  usbhost_kbdpoll(int argc, char *argv[]);
+
+#ifdef CONFIG_HIDKBD_NOGETREPORT
+static void usbhost_kbd_work(FAR void *arg);
+static void usbhost_kbd_callback(FAR void *arg, ssize_t nbytes);
+#endif
+
+static int usbhost_extract_keys(FAR struct usbhost_state_s *priv);
+
+static int usbhost_send_request(FAR struct usbhost_state_s *priv,
+                                uint8_t dir, uint8_t req, uint16_t value,
+                                uint16_t index, uint16_t len, uint8_t *data);
+
+static inline bool usbhost_get_capslock(void);
+static inline void usbhost_toggle_capslock(void);
 
 /* Helpers for usbhost_connect() */
 
@@ -285,19 +305,20 @@ static inline int usbhost_devinit(FAR struct usbhost_state_s *priv);
 
 static inline uint16_t usbhost_getle16(const uint8_t *val);
 static inline void usbhost_putle16(uint8_t *dest, uint16_t val);
-static inline uint32_t usbhost_getle32(const uint8_t *val);
-#if 0 /* Not used */
-static void usbhost_putle32(uint8_t *dest, uint32_t val);
-#endif
 
 /* Transfer descriptor memory management */
 
 static inline int usbhost_tdalloc(FAR struct usbhost_state_s *priv);
 static inline int usbhost_tdfree(FAR struct usbhost_state_s *priv);
 
+/* Control request memory management */
+
+static int usbhost_cralloc(FAR struct usbhost_state_s *priv);
+static int usbhost_crfree(FAR struct usbhost_state_s *priv);
+
 /* struct usbhost_registry_s methods */
 
-static struct usbhost_class_s *usbhost_create(
+static FAR struct usbhost_class_s *usbhost_create(
               FAR struct usbhost_hubport_s *hport,
               FAR const struct usbhost_id_s *id);
 
@@ -354,10 +375,9 @@ static const struct file_operations g_hidkbd_fops =
   usbhost_write,            /* write */
   NULL,                     /* seek */
   NULL,                     /* ioctl */
+  NULL,                     /* mmap */
+  NULL,                     /* truncate */
   usbhost_poll              /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL                    /* unlink */
-#endif
 };
 
 /* This is a bitmap that is used to allocate device names /dev/kbda-z. */
@@ -366,11 +386,14 @@ static uint32_t g_devinuse;
 
 /* The following are used to managed the class creation operation */
 
-static sem_t                   g_exclsem; /* For mutually exclusive thread creation */
-static sem_t                   g_syncsem; /* Thread data passing interlock */
-static struct usbhost_state_s *g_priv;    /* Data passed to thread */
+static mutex_t g_lock = NXMUTEX_INITIALIZER;
+static FAR struct usbhost_state_s *g_priv;
 
-/* The following tables map keyboard scan codes to printable ASIC
+/* Global caps lock status */
+
+static bool g_caps_lock = false;
+
+/* The following tables map keyboard scan codes to printable ASCII
  * characters.  There is no support here for function keys or cursor
  * controls.
  */
@@ -546,7 +569,7 @@ static const uint8_t encoding[USBHID_NUMENCODINGS] =
   0,                    0,
   0,                    0,
 
-  /* 0xd0-0xd7: Memory Store,Recall,Clear,Add,Subtract,Muliply,Divide,+/- */
+  /* 0xd0-0xd7: Memory Store,Recall,Clear,Add,Subtract,Multiply,Divide,+/- */
 
   KEYCODE_MEMSTORE,     KEYCODE_MEMRECALL,
   KEYCODE_MEMCLEAR,     KEYCODE_MEMADD,
@@ -592,7 +615,7 @@ static const uint8_t ucmap[USBHID_NUMSCANCODES] =
   '{',  '}',    '\t',    \177,   'A',  'B',  'C',    'D',  /* 0xb8-0xbf: {,},tab,backspace,A-D */
   'F',  'F',     0,      '^',    '%',  '<', '>',     '&',  /* 0xc0-0xc7: E-F,XOR,^,%,<,>,& */
   0,    '|',     0,      ':',    '%',  ' ', '@',     '!',  /* 0xc8-0xcf: &&,|,||,:,#, ,@,! */
-  0,    0,       0,      0,      0,    0,   0,       0,    /* 0xd0-0xd7: Memory Store,Recall,Clear,Add,Subtract,Muliply,Divide,+/- */
+  0,    0,       0,      0,      0,    0,   0,       0,    /* 0xd0-0xd7: Memory Store,Recall,Clear,Add,Subtract,Multiply,Divide,+/- */
   0,    0,       0,      0,      0,    0,   0,       0,    /* 0xd8-0xdf: Clear,ClearEntry,Binary,Octal,Decimal,Hexadecimal */
   0,    0,       0,      0,      0,    0,   0,       0,    /* 0xe0-0xe7: Left Ctrl,Shift,Alt,GUI, Right Ctrl,Shift,Alt,GUI */
 #endif
@@ -627,7 +650,7 @@ static const uint8_t lcmap[USBHID_NUMSCANCODES] =
   '{',  '}',    '\t',    '\177', 'A',  'B', 'C',     'D',  /* 0xb8-0xbf: {,},tab,backspace,A-D */
   'F',  'F',     0,      '^',    '%',  '<', '>',     '&',  /* 0xc0-0xc7: E-F,XOR,^,%,<,>,& */
   0,    '|',     0,      ':',    '%',  ' ', '@',     '!',  /* 0xc8-0xcf: &&,|,||,:,#, ,@,! */
-  0,    0,       0,      0,      0,    0,   0,       0,    /* 0xd0-0xd7: Memory Store,Recall,Clear,Add,Subtract,Muliply,Divide,+/- */
+  0,    0,       0,      0,      0,    0,   0,       0,    /* 0xd0-0xd7: Memory Store,Recall,Clear,Add,Subtract,Multiply,Divide,+/- */
   0,    0,       0,      0,      0,    0,   0,       0,    /* 0xd8-0xdf: Clear,ClearEntry,Binary,Octal,Decimal,Hexadecimal */
   0,    0,       0,      0,      0,    0,   0,       0,    /* 0xe0-0xe7: Left Ctrl,Shift,Alt,GUI, Right Ctrl,Shift,Alt,GUI */
 #endif
@@ -637,71 +660,6 @@ static const uint8_t lcmap[USBHID_NUMSCANCODES] =
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
-
-/****************************************************************************
- * Name: usbhost_takesem
- *
- * Description:
- *   This is just a wrapper to handle the annoying behavior of semaphore
- *   waits that return due to the receipt of a signal.
- *
- ****************************************************************************/
-
-static int usbhost_takesem(FAR sem_t *sem)
-{
-  return nxsem_wait_uninterruptible(sem);
-}
-
-/****************************************************************************
- * Name: usbhost_forcetake
- *
- * Description:
- *   This is just another wrapper but this one continues even if the thread
- *   is canceled.  This must be done in certain conditions where were must
- *   continue in order to clean-up resources.
- *
- ****************************************************************************/
-
-static void usbhost_forcetake(FAR sem_t *sem)
-{
-  int ret;
-
-  do
-    {
-      ret = nxsem_wait_uninterruptible(sem);
-
-      /* The only expected error would -ECANCELED meaning that the
-       * parent thread has been canceled.  We have to continue and
-       * terminate the poll in this case.
-       */
-
-      DEBUGASSERT(ret == OK || ret == -ECANCELED);
-    }
-  while (ret < 0);
-}
-
-/****************************************************************************
- * Name: usbhost_pollnotify
- ****************************************************************************/
-
-static void usbhost_pollnotify(FAR struct usbhost_state_s *priv)
-{
-  int i;
-
-  for (i = 0; i < CONFIG_HIDKBD_NPOLLWAITERS; i++)
-    {
-      struct pollfd *fds = priv->fds[i];
-      if (fds)
-        {
-          fds->revents |= (fds->events & POLLIN);
-          if (fds->revents != 0)
-            {
-              uinfo("Report events: %08" PRIx32 "\n", fds->revents);
-              nxsem_post(fds->sem);
-            }
-        }
-    }
-}
 
 /****************************************************************************
  * Name: usbhost_allocclass
@@ -860,9 +818,13 @@ static void usbhost_destroy(FAR void *arg)
 
   usbhost_tdfree(priv);
 
-  /* Destroy the semaphores */
+  /* Free any control request buffers */
 
-  nxsem_destroy(&priv->exclsem);
+  usbhost_crfree(priv);
+
+  /* Destroy the mutex & semaphores */
+
+  nxmutex_destroy(&priv->lock);
   nxsem_destroy(&priv->waitsem);
 
   /* Disconnect the USB host device */
@@ -981,6 +943,11 @@ static void usbhost_putstream(FAR struct lib_outstream_s *stream, int ch)
 
 static inline uint8_t usbhost_mapscancode(uint8_t scancode, uint8_t modifier)
 {
+  if (usbhost_get_capslock())
+    {
+      modifier |= (USBHID_MODIFER_LSHIFT | USBHID_MODIFER_RSHIFT);
+    }
+
 #ifndef CONFIG_HIDKBD_RAWSCANCODES
   /* Range check */
 
@@ -1043,7 +1010,7 @@ static inline void usbhost_encodescancode(FAR struct usbhost_state_s *priv,
 
           /* And it does correspond to a special function key */
 
-          usbstream.stream.put  = usbhost_putstream;
+          usbstream.stream.putc = usbhost_putstream;
           usbstream.stream.nput = 0;
           usbstream.priv        = priv;
 
@@ -1054,6 +1021,332 @@ static inline void usbhost_encodescancode(FAR struct usbhost_state_s *priv,
         }
     }
 }
+#endif
+
+/****************************************************************************
+ * Name: usbhost_get_capslock
+ *
+ * Description:
+ *  Get the global value of caps lock.
+ *
+ * Input Parameters:
+ *   None
+ *
+ * Returned Value:
+ *   The value of g_caps_lock
+ *
+ ****************************************************************************/
+
+static inline bool usbhost_get_capslock(void)
+{
+  irqstate_t flags;
+  bool retval;
+
+  flags = enter_critical_section();
+  retval = g_caps_lock;
+  leave_critical_section(flags);
+
+  return retval;
+}
+
+/****************************************************************************
+ * Name: usbhost_toggle_capslock
+ *
+ * Description:
+ *  Toggle g_caps_lock.
+ *
+ * Input Parameters:
+ *   None
+ *
+ * Returned Value:
+ *   None
+ *
+ ****************************************************************************/
+
+static inline void usbhost_toggle_capslock(void)
+{
+  irqstate_t flags;
+
+  flags = enter_critical_section();
+  g_caps_lock = !g_caps_lock;
+  leave_critical_section(flags);
+}
+
+/****************************************************************************
+ * Name: usbhost_extract_keys
+ *
+ * Description:
+ *  Check if the key has a special function encoding and, if it does, add
+ *  the encoded value to the user buffer.
+ *
+ * Input Parameters:
+ *   priv - Driver internal state
+ *   scancode - Scan code to be mapped.
+ *   modifier - Ctrl, Alt, Shift, GUI modifier bits
+ *
+ * Returned Value:
+ *   None
+ *
+ ****************************************************************************/
+
+static int usbhost_extract_keys(FAR struct usbhost_state_s *priv)
+{
+  struct usbhid_kbdreport_s *rpt =
+    (struct usbhid_kbdreport_s *)priv->tbuffer;
+  uint8_t keycode;
+  int i;
+  int ret;
+  bool newstate;
+
+  /* Add the newly received keystrokes to our internal buffer */
+
+  ret = nxmutex_lock(&priv->lock);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  for (i = 0; i < 6; i++)
+    {
+      /* Is this key pressed?  But not pressed last time?
+       * HID spec: "The order of keycodes in array fields has no
+       * significance. Order determination is done by the host
+       * software comparing the contents of the previous report to
+       * the current report. If two or more keys are reported in
+       * one report, their order is indeterminate. Keyboards may
+       * buffer events that would have otherwise resulted in
+       * multiple event in a single report.
+       *
+       * "'Repeat Rate' and 'Delay Before First Repeat' are
+       * implemented by the host and not in the keyboard (this
+       * means the BIOS in legacy mode). The host may use the
+       * device report rate and the number of reports to determine
+       * how long a key is being held down. Alternatively, the host
+       * may use its own clock or the idle request for the timing
+       * of these features."
+       */
+
+      if (rpt->key[i] != USBHID_KBDUSE_NONE
+#ifndef CONFIG_HIDKBD_NODEBOUNCE
+        && rpt->key[i] != priv->lastkey[0]
+        && rpt->key[i] != priv->lastkey[1]
+        && rpt->key[i] != priv->lastkey[2]
+        && rpt->key[i] != priv->lastkey[3]
+        && rpt->key[i] != priv->lastkey[4]
+        && rpt->key[i] != priv->lastkey[5]
+#endif
+         )
+        {
+          /* Yes.. Add it to the buffer. */
+
+          /* Map the keyboard scancode to a printable ASCII
+           * character.  There is no support here for function keys
+           * or cursor controls in this version of the driver.
+           */
+
+          keycode = usbhost_mapscancode(rpt->key[i], rpt->modifier);
+          iinfo("Key %d: %02x keycode:%c modifier: %02x\n",
+                 i, rpt->key[i], keycode ? keycode : ' ',
+                 rpt->modifier);
+
+          if (rpt->key[i] == 57)
+            {
+              usbhost_toggle_capslock();
+            }
+
+          /* Zero at this point means that the key does not map to a
+           * printable character.
+           */
+
+          if (keycode != 0)
+            {
+              /* Handle control characters.  Zero after this means
+               * a valid, NUL character.
+               */
+
+              if ((rpt->modifier & (USBHID_MODIFER_LCTRL |
+                                    USBHID_MODIFER_RCTRL)) != 0)
+                {
+                  keycode &= 0x1f;
+                }
+
+              /* Copy the next keyboard character into the user
+               * buffer.
+               */
+
+              usbhost_putbuffer(priv, keycode);
+            }
+
+          /* The zero might, however, map to a special keyboard
+           * action (such as a cursor movement or function key).
+           * Attempt to encode the special key.
+           */
+
+#ifdef CONFIG_HIDKBD_ENCODED
+          else
+            {
+              usbhost_encodescancode(priv, rpt->key[i],
+                                     rpt->modifier);
+            }
+#endif
+        }
+
+      /* Save the scancode (or lack thereof) for key debouncing on
+       * next keyboard report.
+       */
+
+#ifndef CONFIG_HIDKBD_NODEBOUNCE
+      priv->lastkey[i] = rpt->key[i];
+#endif
+    }
+
+  /* Is there data available? */
+
+  newstate = (priv->headndx == priv->tailndx);
+  if (!newstate)
+    {
+      /* Did we just transition from no data available to data
+       * available?  If so, wake up any threads waiting for the
+       * POLLIN event.
+       */
+
+      if (priv->empty)
+        {
+          poll_notify(priv->fds, CONFIG_HIDKBD_NPOLLWAITERS, POLLIN);
+        }
+
+      /* Yes.. Is there a thread waiting for keyboard data now? */
+
+      if (priv->waiting)
+        {
+          /* Yes.. wake it up */
+
+          nxsem_post(&priv->waitsem);
+          priv->waiting = false;
+        }
+    }
+
+  priv->empty = newstate;
+  nxmutex_unlock(&priv->lock);
+
+  return 0;
+}
+
+/****************************************************************************
+ * Name: usbhost_kbd_work
+ *
+ * Description:
+ *   Handle receipt of an asynchronous notification from the HID device
+ *
+ * Input Parameters:
+ *   arg - The argument provided when the asynchronous I/O was setup
+ *
+ * Returned Value:
+ *   None
+ *
+ * Assumptions:
+ *   Probably called from an interrupt handler.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_HIDKBD_NOGETREPORT
+static void usbhost_kbd_work(FAR void *arg)
+{
+  FAR struct usbhost_state_s *priv;
+  FAR struct usbhost_hubport_s *hport;
+  int ret;
+
+  priv = (FAR struct usbhost_state_s *)arg;
+  DEBUGASSERT(priv);
+
+  hport = priv->usbclass.hport;
+  DEBUGASSERT(hport);
+
+  /* Are we still connected? */
+
+  if (!priv->disconnected && priv->epin)
+    {
+      /* Yes.. Was an interrupt IN message received correctly? */
+
+      if (priv->open && priv->nbytes >= 0)
+        {
+          /* Add the newly received keystrokes to our internal buffer */
+
+          usbhost_extract_keys(priv);
+
+          /* No bytes left to process */
+
+          priv->nbytes = 0;
+        }
+
+      /* Is the caps lock status in sync? */
+
+      if (priv->caps_lock != usbhost_get_capslock())
+        {
+          /* No.. The LED needs to be changed by the polling thread. */
+
+          priv->sync_led = true;
+        }
+      else
+        {
+          /* Setup to receive the next report */
+
+          ret = DRVR_ASYNCH(hport->drvr, priv->epin,
+                            (FAR uint8_t *)priv->tbuffer,
+                            sizeof(struct usbhid_kbdreport_s),
+                            usbhost_kbd_callback,
+                            priv);
+
+          if (ret < 0)
+            {
+              uerr("ERROR: DRVR_ASYNCH failed: %d\n", ret);
+            }
+        }
+    }
+}
+
+/****************************************************************************
+ * Name: usbhost_kbd_callback
+ *
+ * Description:
+ *   Handle receipt of data
+ *
+ * Input Parameters:
+ *   arg - The argument provided when the asynchronous I/O was setup
+ *   nbytes - The number of bytes actually transferred (or a negated errno
+ *     value;
+ *
+ * Returned Value:
+ *   None
+ *
+ * Assumptions:
+ *   Probably called from an interrupt handler.
+ *
+ ****************************************************************************/
+
+static void usbhost_kbd_callback(FAR void *arg, ssize_t nbytes)
+{
+  FAR struct usbhost_state_s *priv = (FAR struct usbhost_state_s *)arg;
+
+  DEBUGASSERT(priv);
+
+  /* Are we still connected? */
+
+  if (!priv->disconnected)
+    {
+      DEBUGASSERT(nbytes >= INT16_MIN && nbytes <= INT16_MAX);
+
+      /* Save nbytes */
+
+      priv->nbytes = (int16_t)nbytes;
+
+      if (work_available(&priv->rwork))
+        {
+          work_queue(HPWORK, &priv->rwork, usbhost_kbd_work, priv, 0);
+        }
+    }
+}
+
 #endif
 
 /****************************************************************************
@@ -1073,24 +1366,15 @@ static inline void usbhost_encodescancode(FAR struct usbhost_state_s *priv,
 static int usbhost_kbdpoll(int argc, char *argv[])
 {
   FAR struct usbhost_state_s *priv;
-  FAR struct usbhost_hubport_s *hport;
-  FAR struct usb_ctrlreq_s *ctrlreq;
   irqstate_t flags;
-#ifndef CONFIG_HIDKBD_NODEBOUNCE
-  uint8_t lastkey[6] =
-  {
-    0, 0, 0, 0, 0, 0
-  };
-#endif
 
 #if defined(CONFIG_DEBUG_USB) && defined(CONFIG_DEBUG_INFO)
   unsigned int npolls = 0;
 #endif
   unsigned int nerrors = 0;
   useconds_t delay;
-  bool empty = true;
-  bool newstate;
   int ret;
+  uint8_t leds;
 
   uinfo("Started\n");
 
@@ -1106,10 +1390,9 @@ static int usbhost_kbdpoll(int argc, char *argv[])
 
   priv = g_priv;
   DEBUGASSERT(priv != NULL && priv->usbclass.hport);
-  hport = priv->usbclass.hport;
 
   priv->polling = true;
-  usbhost_givesem(&g_syncsem);
+  nxsem_post(&priv->syncsem);
   nxsig_sleep(1);
 
   /* Loop here until the device is disconnected */
@@ -1123,35 +1406,52 @@ static int usbhost_kbdpoll(int argc, char *argv[])
        * open and actively trying to interact with the class driver.
        */
 
-      ret = usbhost_takesem(&priv->exclsem);
+      ret = nxmutex_lock(&priv->lock);
       if (ret < 0)
         {
           return ret;
         }
 
-      /* Format the HID report request:
-       *
-       *   bmRequestType 10100001
-       *   bRequest      GET_REPORT (0x01)
-       *   wValue        Report Type and Report Index
-       *   wIndex        Interface Number
-       *   wLength       Descriptor Length
-       *   Data          Descriptor Data
-       */
+      /* Keep the Caps Lock LED in sync */
 
-      ctrlreq       = (struct usb_ctrlreq_s *)priv->tbuffer;
-      ctrlreq->type = USB_REQ_DIR_IN | USB_REQ_TYPE_CLASS |
-                      USB_REQ_RECIPIENT_INTERFACE;
-      ctrlreq->req  = USBHID_REQUEST_GETREPORT;
+      if (priv->sync_led)
+        {
+          priv->sync_led = false;
+          priv->caps_lock = usbhost_get_capslock();
 
-      usbhost_putle16(ctrlreq->value, (USBHID_REPORTTYPE_INPUT << 8));
-      usbhost_putle16(ctrlreq->index, priv->ifno);
-      usbhost_putle16(ctrlreq->len,   sizeof(struct usbhid_kbdreport_s));
+          leds = usbhost_get_capslock() ? USBHID_KBDOUT_CAPSLOCK : 0x00;
+          *priv->tbuffer = leds;
 
+          /* Send a report request to change the LED */
+
+          usbhost_send_request(priv, USB_REQ_DIR_OUT,
+                               USBHID_REQUEST_SETREPORT,
+                               USBHID_REPORTTYPE_OUTPUT << 8, 0, 1,
+                               priv->tbuffer);
+
+#ifdef CONFIG_HIDKBD_NOGETREPORT
+          /* Setup to receive the next report */
+
+          if (work_available(&priv->rwork))
+            {
+              work_queue(HPWORK, &priv->rwork, usbhost_kbd_work, priv, 0);
+            }
+#endif
+        }
+
+#ifdef CONFIG_HIDKBD_NOGETREPORT
+      nxmutex_unlock(&priv->lock);
+#else
       /* Send HID report request */
 
-      ret = DRVR_CTRLIN(hport->drvr, hport->ep0, ctrlreq, priv->tbuffer);
-      usbhost_givesem(&priv->exclsem);
+      ret = usbhost_send_request(priv, USB_REQ_DIR_IN,
+                                 USBHID_REQUEST_GETREPORT,
+                                 USBHID_REPORTTYPE_INPUT << 8,
+                                 priv->ifno,
+                                 sizeof(struct usbhid_kbdreport_s),
+                                 priv->tbuffer);
+
+      nxmutex_unlock(&priv->lock);
 
       /* Check for errors -- Bail if an excessive number of consecutive
        * errors are encountered.
@@ -1176,141 +1476,26 @@ static int usbhost_kbdpoll(int argc, char *argv[])
 
       else if (priv->open)
         {
-          struct usbhid_kbdreport_s *rpt =
-            (struct usbhid_kbdreport_s *)priv->tbuffer;
-          uint8_t keycode;
-          int i;
-
           /* Success, reset the error counter */
 
           nerrors = 0;
 
           /* Add the newly received keystrokes to our internal buffer */
 
-          ret = usbhost_takesem(&priv->exclsem);
+          ret = usbhost_extract_keys(priv);
           if (ret < 0)
             {
               return ret;
             }
 
-          for (i = 0; i < 6; i++)
+          /* Make sure the LED is in sync */
+
+          if (priv->caps_lock != usbhost_get_capslock())
             {
-              /* Is this key pressed?  But not pressed last time?
-               * HID spec: "The order of keycodes in array fields has no
-               * significance. Order determination is done by the host
-               * software comparing the contents of the previous report to
-               * the current report. If two or more keys are reported in
-               * one report, their order is indeterminate. Keyboards may
-               * buffer events that would have otherwise resulted in
-               * multiple event in a single report.
-               *
-               * "'Repeat Rate' and 'Delay Before First Repeat' are
-               * implemented by the host and not in the keyboard (this
-               * means the BIOS in legacy mode). The host may use the
-               * device report rate and the number of reports to determine
-               * how long a key is being held down. Alternatively, the host
-               * may use its own clock or the idle request for the timing
-               * of these features."
-               */
-
-              if (rpt->key[i] != USBHID_KBDUSE_NONE
-#ifndef CONFIG_HIDKBD_NODEBOUNCE
-                 && rpt->key[i] != lastkey[0]
-                 && rpt->key[i] != lastkey[1]
-                 && rpt->key[i] != lastkey[2]
-                 && rpt->key[i] != lastkey[3]
-                 && rpt->key[i] != lastkey[4]
-                 && rpt->key[i] != lastkey[5]
-#endif
-                 )
-                {
-                  /* Yes.. Add it to the buffer. */
-
-                  /* Map the keyboard scancode to a printable ASCII
-                   * character.  There is no support here for function keys
-                   * or cursor controls in this version of the driver.
-                   */
-
-                  keycode = usbhost_mapscancode(rpt->key[i], rpt->modifier);
-                  iinfo("Key %d: %02x keycode:%c modifier: %02x\n",
-                         i, rpt->key[i], keycode ? keycode : ' ',
-                         rpt->modifier);
-
-                  /* Zero at this point means that the key does not map to a
-                   * printable character.
-                   */
-
-                  if (keycode != 0)
-                    {
-                      /* Handle control characters.  Zero after this means
-                       * a valid, NUL character.
-                       */
-
-                      if ((rpt->modifier & (USBHID_MODIFER_LCTRL |
-                                            USBHID_MODIFER_RCTRL)) != 0)
-                        {
-                          keycode &= 0x1f;
-                        }
-
-                      /* Copy the next keyboard character into the user
-                       * buffer.
-                       */
-
-                      usbhost_putbuffer(priv, keycode);
-                    }
-
-                  /* The zero might, however, map to a special keyboard
-                   * action (such as a cursor movement or function key).
-                   * Attempt to encode the special key.
-                   */
-
-#ifdef CONFIG_HIDKBD_ENCODED
-                  else
-                    {
-                      usbhost_encodescancode(priv, rpt->key[i],
-                                             rpt->modifier);
-                    }
-#endif
-                }
-
-              /* Save the scancode (or lack thereof) for key debouncing on
-               * next keyboard report.
-               */
-
-#ifndef CONFIG_HIDKBD_NODEBOUNCE
-              lastkey[i] = rpt->key[i];
-#endif
+              priv->sync_led = true;
             }
-
-          /* Is there data available? */
-
-          newstate = (priv->headndx == priv->tailndx);
-          if (!newstate)
-            {
-              /* Did we just transition from no data available to data
-               * available?  If so, wake up any threads waiting for the
-               * POLLIN event.
-               */
-
-              if (empty)
-                {
-                  usbhost_pollnotify(priv);
-                }
-
-              /* Yes.. Is there a thread waiting for keyboard data now? */
-
-              if (priv->waiting)
-                {
-                  /* Yes.. wake it up */
-
-                  usbhost_givesem(&priv->waitsem);
-                  priv->waiting = false;
-                }
-            }
-
-          empty = newstate;
-          usbhost_givesem(&priv->exclsem);
         }
+#endif
 
       /* If USB debug is on, then provide some periodic indication that
        * polling is still happening.
@@ -1353,7 +1538,7 @@ static int usbhost_kbdpoll(int argc, char *argv[])
    * trying to interact with the class driver.
    */
 
-  usbhost_forcetake(&priv->exclsem);
+  nxmutex_lock(&priv->lock);
 
   /* Indicate that we are no longer running and decrement the reference
    * count held by this thread.  If there are no other users of the class,
@@ -1384,18 +1569,18 @@ static int usbhost_kbdpoll(int argc, char *argv[])
   if (priv->crefs < 1)
     {
       /* Unregister the driver and destroy the instance (while we hold
-       * the semaphore!)
+       * the mutex!)
        */
 
       usbhost_destroy(priv);
     }
   else
     {
-      /* No, we will destroy the driver instance when it is final open
+      /* No, we will destroy the driver instance when its final open
        * reference is closed
        */
 
-      usbhost_givesem(&priv->exclsem);
+      nxmutex_unlock(&priv->lock);
     }
 
   leave_critical_section(flags);
@@ -1691,7 +1876,11 @@ static inline int usbhost_devinit(FAR struct usbhost_state_s *priv)
 {
   char devname[DEV_NAMELEN];
   int ret;
-
+  uint8_t leds;
+#ifdef CONFIG_HIDKBD_NOGETREPORT
+  FAR struct usbhost_hubport_s *hport;
+  hport = priv->usbclass.hport;
+#endif
   /* Set aside a transfer buffer for exclusive
    * use by the keyboard class driver
    */
@@ -1702,6 +1891,56 @@ static inline int usbhost_devinit(FAR struct usbhost_state_s *priv)
       uerr("ERROR: Failed to allocate transfer buffer\n");
       return ret;
     }
+
+  /* Allocate memory for control requests */
+
+  ret = usbhost_cralloc(priv);
+  if (ret < 0)
+    {
+      uerr("ERROR: Failed to allocate control buffer\n");
+      return ret;
+    }
+
+  /* Set the idle rate */
+
+  usbhost_send_request(priv, USB_REQ_DIR_OUT, USBHID_REQUEST_SETIDLE,
+                       25 << 8, priv->ifno, 0, NULL);
+
+  /* Choose the boot protocol */
+
+  usbhost_send_request(priv, USB_REQ_DIR_OUT, USBHID_REQUEST_SETPROTOCOL,
+                       0, 0, 0, NULL);
+
+  /* Initialize the Caps Lock LED */
+
+  priv->caps_lock = usbhost_get_capslock();
+
+  leds = usbhost_get_capslock() ? USBHID_KBDOUT_CAPSLOCK : 0x00;
+  *priv->tbuffer = leds;
+  usbhost_send_request(priv, USB_REQ_DIR_OUT, USBHID_REQUEST_SETREPORT,
+                       USBHID_REPORTTYPE_OUTPUT << 8, 0, 1,
+                       priv->tbuffer);
+
+#ifdef CONFIG_HIDKBD_NOGETREPORT
+
+  /* Do we have an interrupt IN endpoint? */
+
+  if (priv->epin)
+    {
+      /* Use interrupt tranfers to get reports. */
+
+      uinfo("Start waiting for key reports\n");
+      ret = DRVR_ASYNCH(hport->drvr, priv->epin,
+                        (FAR uint8_t *)priv->tbuffer,
+                        sizeof(struct usbhid_kbdreport_s),
+                        usbhost_kbd_callback,
+                        priv);
+      if (ret < 0)
+        {
+          uerr("ERROR: DRVR_ASYNCH failed: %d\n", ret);
+        }
+    }
+#endif
 
   /* Increment the reference count.  This will prevent usbhost_destroy() from
    * being called asynchronously if the device is removed.
@@ -1729,7 +1968,7 @@ static inline int usbhost_devinit(FAR struct usbhost_state_s *priv)
    * likelihood of this being used?  About zero, but we protect it anyway).
    */
 
-  ret = usbhost_takesem(&g_exclsem);
+  ret = nxmutex_lock(&g_lock);
   if (ret < 0)
     {
       usbhost_tdfree(priv);
@@ -1739,15 +1978,14 @@ static inline int usbhost_devinit(FAR struct usbhost_state_s *priv)
   g_priv = priv;
 
   ret = kthread_create("kbdpoll", CONFIG_HIDKBD_DEFPRIO,
-                       CONFIG_HIDKBD_STACKSIZE, (main_t)usbhost_kbdpoll,
-                       (FAR char * const *)NULL);
+                       CONFIG_HIDKBD_STACKSIZE, usbhost_kbdpoll, NULL);
   if (ret < 0)
     {
       /* Failed to started the poll thread...
        * probably due to memory resources
        */
 
-      usbhost_givesem(&g_exclsem);
+      nxmutex_unlock(&g_lock);
       goto errout;
     }
 
@@ -1755,8 +1993,8 @@ static inline int usbhost_devinit(FAR struct usbhost_state_s *priv)
 
   /* Now wait for the poll task to get properly initialized */
 
-  ret = usbhost_takesem(&g_syncsem);
-  usbhost_givesem(&g_exclsem);
+  ret = nxsem_wait_uninterruptible(&priv->syncsem);
+  nxmutex_unlock(&g_lock);
 
   if (ret < 0)
     {
@@ -1774,9 +2012,9 @@ static inline int usbhost_devinit(FAR struct usbhost_state_s *priv)
    */
 
 errout:
-  usbhost_forcetake(&priv->exclsem);
+  nxmutex_lock(&priv->lock);
   priv->crefs--;
-  usbhost_givesem(&priv->exclsem);
+  nxmutex_unlock(&priv->lock);
 
   return ret;
 }
@@ -1820,54 +2058,6 @@ static void usbhost_putle16(uint8_t *dest, uint16_t val)
   dest[0] = val & 0xff; /* Little endian means LS byte first in byte stream */
   dest[1] = val >> 8;
 }
-
-/****************************************************************************
- * Name: usbhost_getle32
- *
- * Description:
- *   Get a (possibly unaligned) 32-bit little endian value.
- *
- * Input Parameters:
- *   dest - A pointer to the first byte to save the big endian value.
- *   val - The 32-bit value to be saved.
- *
- * Returned Value:
- *   None
- *
- ****************************************************************************/
-
-static inline uint32_t usbhost_getle32(const uint8_t *val)
-{
-  /* Little endian means LS halfword first in byte stream */
-
-  return (uint32_t)usbhost_getle16(&val[2]) << 16 |
-         (uint32_t)usbhost_getle16(val);
-}
-
-/****************************************************************************
- * Name: usbhost_putle32
- *
- * Description:
- *   Put a (possibly unaligned) 32-bit little endian value.
- *
- * Input Parameters:
- *   dest - A pointer to the first byte to save the little endian value.
- *   val - The 32-bit value to be saved.
- *
- * Returned Value:
- *   None
- *
- ****************************************************************************/
-
-#if 0 /* Not used */
-static void usbhost_putle32(uint8_t *dest, uint32_t val)
-{
-  /* Little endian means LS halfword first in byte stream */
-
-  usbhost_putle16(dest, (uint16_t)(val & 0xffff));
-  usbhost_putle16(dest + 2, (uint16_t)(val >> 16));
-}
-#endif
 
 /****************************************************************************
  * Name: usbhost_tdalloc
@@ -1930,6 +2120,132 @@ static int usbhost_tdfree(FAR struct usbhost_state_s *priv)
 }
 
 /****************************************************************************
+ * Name: usbhost_cralloc
+ *
+ * Description:
+ *   Allocate control request buffer memory.
+ *
+ * Input Parameters:
+ *   priv - A reference to the class instance.
+ *
+ * Returned Value:
+ *   On success, zero (OK) is returned.  On failure, an negated errno value
+ *   is returned to indicate the nature of the failure.
+ *
+ ****************************************************************************/
+
+static int usbhost_cralloc(FAR struct usbhost_state_s *priv)
+{
+  FAR struct usbhost_hubport_s *hport;
+
+  DEBUGASSERT(priv != NULL && priv->usbclass.hport != NULL &&
+              priv->ctrlreq == NULL);
+  hport = priv->usbclass.hport;
+
+  return DRVR_ALLOC(hport->drvr, &priv->ctrlreq, &priv->ctrllen);
+}
+
+/****************************************************************************
+ * Name: usbhost_crfree
+ *
+ * Description:
+ *   Free control request buffer memory.
+ *
+ * Input Parameters:
+ *   priv - A reference to the class instance.
+ *
+ * Returned Value:
+ *   On success, zero (OK) is returned.  On failure, an negated errno value
+ *   is returned to indicate the nature of the failure.
+ *
+ ****************************************************************************/
+
+static int usbhost_crfree(FAR struct usbhost_state_s *priv)
+{
+  FAR struct usbhost_hubport_s *hport;
+  int result = OK;
+
+  DEBUGASSERT(priv);
+
+  if (priv->ctrlreq)
+    {
+      DEBUGASSERT(priv->usbclass.hport);
+      hport         = priv->usbclass.hport;
+      result        = DRVR_FREE(hport->drvr, priv->ctrlreq);
+      priv->ctrlreq = NULL;
+      priv->ctrllen = 0;
+    }
+
+  return result;
+}
+
+/****************************************************************************
+ * Name: usbhost_send_request
+ *
+ * Description:
+ *   Send a request.
+ *
+ * Input Parameters:
+ *   priv  - A reference to the class instance.
+ *   dir   - USB_REQ_DIR_IN or USB_REQ_DIR_OUT
+ *   req   - request identifier
+ *   value - request value
+ *   index - request index
+ *   len   - request length
+ *
+ * Returned Value:
+ *   On success, zero (OK) is returned.  On failure, an negated errno value
+ *   is returned to indicate the nature of the failure.
+ *
+ ****************************************************************************/
+
+static int usbhost_send_request(FAR struct usbhost_state_s *priv,
+                                uint8_t dir,
+                                uint8_t req,
+                                uint16_t value,
+                                uint16_t index,
+                                uint16_t len,
+                                uint8_t *data)
+{
+  FAR struct usbhost_hubport_s *hport;
+  int ret = OK;
+  FAR struct usb_ctrlreq_s *ctrlreq;
+
+  DEBUGASSERT(priv);
+
+  hport            = priv->usbclass.hport;
+
+  /* Initialize the control request */
+
+  ctrlreq          = (FAR struct usb_ctrlreq_s *)priv->ctrlreq;
+  ctrlreq->type    = dir | USB_REQ_TYPE_CLASS |
+                     USB_REQ_RECIPIENT_INTERFACE;
+  ctrlreq->req     = req;
+
+  usbhost_putle16(ctrlreq->value, value);
+  usbhost_putle16(ctrlreq->index, index);
+  usbhost_putle16(ctrlreq->len, len);
+
+  /* And send the request */
+
+  if (dir == USB_REQ_DIR_IN)
+    {
+      ret = DRVR_CTRLIN(hport->drvr, hport->ep0, ctrlreq, data);
+    }
+  else
+    {
+      ret = DRVR_CTRLOUT(hport->drvr, hport->ep0, ctrlreq, data);
+    }
+
+  if (ret < 0)
+    {
+      uerr("ERROR: Control request failed: %d\n", ret);
+    }
+
+  return ret;
+}
+
+/****************************************************************************
  * struct usbhost_registry_s methods
  ****************************************************************************/
 
@@ -1960,8 +2276,8 @@ static int usbhost_tdfree(FAR struct usbhost_state_s *priv)
  ****************************************************************************/
 
 static FAR struct usbhost_class_s *
-  usbhost_create(FAR struct usbhost_hubport_s *hport,
-                 FAR const struct usbhost_id_s *id)
+usbhost_create(FAR struct usbhost_hubport_s *hport,
+               FAR const struct usbhost_id_s *id)
 {
   FAR struct usbhost_state_s *priv;
 
@@ -1990,16 +2306,13 @@ static FAR struct usbhost_class_s *
 
           priv->crefs = 1;
 
-          /* Initialize semaphores */
+          /* Initialize mutex & semaphores */
 
-          nxsem_init(&priv->exclsem, 0, 1);
+          nxmutex_init(&priv->lock);
           nxsem_init(&priv->waitsem, 0, 0);
+          nxsem_init(&priv->syncsem, 0, 0);
 
-          /* The waitsem semaphore is used for signaling and, hence, should
-           * not have priority inheritance enabled.
-           */
-
-          nxsem_set_protocol(&priv->waitsem, SEM_PRIO_NONE);
+          priv->empty = true;
 
           /* Return the instance of the USB keyboard class driver */
 
@@ -2111,7 +2424,7 @@ static int usbhost_connect(FAR struct usbhost_class_s *usbclass,
  *
  ****************************************************************************/
 
-static int usbhost_disconnected(struct usbhost_class_s *usbclass)
+static int usbhost_disconnected(FAR struct usbhost_class_s *usbclass)
 {
   FAR struct usbhost_state_s *priv = (FAR struct usbhost_state_s *)usbclass;
 
@@ -2130,7 +2443,7 @@ static int usbhost_disconnected(struct usbhost_class_s *usbclass)
     {
       /* Yes.. wake it up */
 
-      usbhost_givesem(&priv->waitsem);
+      nxsem_post(&priv->waitsem);
       priv->waiting = false;
     }
 
@@ -2183,14 +2496,13 @@ static int usbhost_open(FAR struct file *filep)
   int ret;
 
   uinfo("Entry\n");
-  DEBUGASSERT(filep && filep->f_inode);
   inode = filep->f_inode;
   priv  = inode->i_private;
 
   /* Make sure that we have exclusive access to the private data structure */
 
   DEBUGASSERT(priv && priv->crefs > 0 && priv->crefs < USBHOST_MAX_CREFS);
-  ret = usbhost_takesem(&priv->exclsem);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
@@ -2222,7 +2534,7 @@ static int usbhost_open(FAR struct file *filep)
 
   leave_critical_section(flags);
 
-  usbhost_givesem(&priv->exclsem);
+  nxmutex_unlock(&priv->lock);
   return ret;
 }
 
@@ -2242,14 +2554,13 @@ static int usbhost_close(FAR struct file *filep)
   int ret;
 
   uinfo("Entry\n");
-  DEBUGASSERT(filep && filep->f_inode);
   inode = filep->f_inode;
   priv  = inode->i_private;
 
   /* Decrement the reference count on the driver */
 
   DEBUGASSERT(priv->crefs >= 1);
-  ret = usbhost_takesem(&priv->exclsem);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
@@ -2318,7 +2629,7 @@ static int usbhost_close(FAR struct file *filep)
         }
     }
 
-  usbhost_givesem(&priv->exclsem);
+  nxmutex_unlock(&priv->lock);
   leave_critical_section(flags);
   return OK;
 }
@@ -2341,14 +2652,14 @@ static ssize_t usbhost_read(FAR struct file *filep, FAR char *buffer,
   int                         ret;
 
   uinfo("Entry\n");
-  DEBUGASSERT(filep && filep->f_inode && buffer);
+  DEBUGASSERT(buffer);
   inode = filep->f_inode;
   priv  = inode->i_private;
 
   /* Make sure that we have exclusive access to the private data structure */
 
   DEBUGASSERT(priv && priv->crefs > 0 && priv->crefs < USBHOST_MAX_CREFS);
-  ret = usbhost_takesem(&priv->exclsem);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
@@ -2388,14 +2699,14 @@ static ssize_t usbhost_read(FAR struct file *filep, FAR char *buffer,
           uinfo("Waiting...\n");
 
           priv->waiting = true;
-          usbhost_givesem(&priv->exclsem);
-          ret = usbhost_takesem(&priv->waitsem);
+          nxmutex_unlock(&priv->lock);
+          ret = nxsem_wait_uninterruptible(&priv->waitsem);
           if (ret < 0)
             {
               return ret;
             }
 
-          ret = usbhost_takesem(&priv->exclsem);
+          ret = nxmutex_lock(&priv->lock);
           if (ret < 0)
             {
               return ret;
@@ -2436,7 +2747,7 @@ static ssize_t usbhost_read(FAR struct file *filep, FAR char *buffer,
     }
 
 errout:
-  usbhost_givesem(&priv->exclsem);
+  nxmutex_unlock(&priv->lock);
   return (ssize_t)ret;
 }
 
@@ -2473,14 +2784,14 @@ static int usbhost_poll(FAR struct file *filep, FAR struct pollfd *fds,
   int                         i;
 
   uinfo("Entry\n");
-  DEBUGASSERT(filep && filep->f_inode && fds);
+  DEBUGASSERT(fds);
   inode = filep->f_inode;
   priv  = inode->i_private;
 
   /* Make sure that we have exclusive access to the private data structure */
 
   DEBUGASSERT(priv);
-  ret = usbhost_takesem(&priv->exclsem);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
@@ -2532,7 +2843,7 @@ static int usbhost_poll(FAR struct file *filep, FAR struct pollfd *fds,
 
       if (priv->headndx != priv->tailndx)
         {
-          usbhost_pollnotify(priv);
+          poll_notify(priv->fds, CONFIG_HIDKBD_NPOLLWAITERS, POLLIN);
         }
     }
   else
@@ -2549,7 +2860,7 @@ static int usbhost_poll(FAR struct file *filep, FAR struct pollfd *fds,
     }
 
 errout:
-  nxsem_post(&priv->exclsem);
+  nxmutex_unlock(&priv->lock);
   return ret;
 }
 
@@ -2576,17 +2887,6 @@ errout:
 
 int usbhost_kbdinit(void)
 {
-  /* Perform any one-time initialization of the class implementation */
-
-  nxsem_init(&g_exclsem, 0, 1);
-  nxsem_init(&g_syncsem, 0, 0);
-
-  /* The g_syncsem semaphore is used for signaling and, hence, should not
-   * have priority inheritance enabled.
-   */
-
-  nxsem_set_protocol(&g_syncsem, SEM_PRIO_NONE);
-
   /* Advertise our availability to support (certain) devices */
 
   return usbhost_registerclass(&g_hidkbd);

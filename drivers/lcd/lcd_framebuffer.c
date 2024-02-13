@@ -211,6 +211,11 @@ static int lcdfb_updateearea(FAR struct fb_vtable_s *vtable,
           unsigned int pixperbyte = 8 / pinfo->bpp;
           startx &= ~(pixperbyte - 1);
         }
+
+      /* Get the starting position in the framebuffer */
+
+      run  = priv->fbmem + starty * priv->stride;
+      run += (startx * pinfo->bpp + 7) >> 3;
     }
 
   if (pinfo->putarea != NULL)
@@ -225,7 +230,8 @@ static int lcdfb_updateearea(FAR struct fb_vtable_s *vtable,
        * - apply DMA channel to transfer data to driver memory.
        */
 
-      ret = pinfo->putarea(pinfo->dev, starty, endy, startx, endx, run);
+      ret = pinfo->putarea(pinfo->dev, starty, endy, startx, endx,
+                           run, priv->stride);
       if (ret < 0)
         {
           lcderr("Failed to update area");
@@ -235,11 +241,6 @@ static int lcdfb_updateearea(FAR struct fb_vtable_s *vtable,
   else
     {
       width = endx - startx + 1;
-
-      /* Get the starting position in the framebuffer */
-
-      run  = priv->fbmem + starty * priv->stride;
-      run += (startx * pinfo->bpp + 7) >> 3;
 
       for (row = starty; row <= endy; row++)
         {
@@ -399,7 +400,7 @@ static int lcdfb_putcmap(FAR struct fb_vtable_s *vtable,
 
 #ifdef CONFIG_FB_HWCURSOR
 static int lcdfb_getcursor(FAR struct fb_vtable_s *vtable,
-                        FAR struct fb_cursorattrib_s *attrib)
+                           FAR struct fb_cursorattrib_s *attrib)
 {
   lcdinfo("vtable=%p attrib=%p\n", vtable, attrib);
   FAR struct lcdfb_dev_s *priv;
@@ -434,7 +435,7 @@ static int lcdfb_getcursor(FAR struct fb_vtable_s *vtable,
 
 #ifdef CONFIG_FB_HWCURSOR
 static int lcdfb_setcursor(FAR struct fb_vtable_s *vtable,
-                       FAR struct fb_setcursor_s *settings)
+                           FAR struct fb_setcursor_s *settings)
 {
   FAR struct lcdfb_dev_s *priv;
   FAR struct lcd_dev_s *lcd;
@@ -492,6 +493,38 @@ static int lcdfb_setpower(FAR struct fb_vtable_s *vtable, FAR int power)
 }
 
 /****************************************************************************
+ * Name: lcdfb_ioctl
+ ****************************************************************************/
+
+static int lcdfb_ioctl(FAR struct fb_vtable_s *vtable,
+                       int cmd, unsigned long arg)
+{
+  int ret = -EINVAL;
+  FAR struct lcdfb_dev_s *priv;
+  FAR struct lcd_dev_s *lcd;
+
+  DEBUGASSERT(vtable != NULL);
+
+  priv = (FAR struct lcdfb_dev_s *)vtable;
+
+  if (priv != NULL)
+    {
+      lcd = priv->lcd;
+
+      if (lcd->ioctl)
+        {
+          ret = lcd->ioctl(lcd, cmd, arg);
+        }
+      else
+        {
+          ret = -ENOTTY;
+        }
+    }
+
+  return ret;
+}
+
+/****************************************************************************
  * Public Functions
  ****************************************************************************/
 
@@ -524,7 +557,7 @@ int up_fbinitialize(int display)
 
   /* Allocate the framebuffer state structure */
 
-  priv = (FAR struct lcdfb_dev_s *)kmm_zalloc(sizeof(struct lcdfb_dev_s));
+  priv = kmm_zalloc(sizeof(struct lcdfb_dev_s));
   if (priv == NULL)
     {
       lcderr("ERROR: Failed to allocate state structure\n");
@@ -547,6 +580,7 @@ int up_fbinitialize(int display)
 #endif
   priv->vtable.updatearea   = lcdfb_updateearea,
   priv->vtable.setpower     = lcdfb_setpower,
+  priv->vtable.ioctl        = lcdfb_ioctl,
 
 #ifdef CONFIG_LCD_EXTERNINIT
   /* Use external graphics driver initialization */
@@ -607,7 +641,7 @@ int up_fbinitialize(int display)
   priv->stride = ((size_t)priv->xres * priv->pinfo.bpp + 7) >> 3;
   priv->fblen  = priv->stride * priv->yres;
 
-  priv->fbmem  = (FAR uint8_t *)kmm_zalloc(priv->fblen);
+  priv->fbmem  = kmm_zalloc(priv->fblen);
   if (priv->fbmem == NULL)
     {
       lcderr("ERROR: Failed to allocate frame buffer memory\n");

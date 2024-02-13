@@ -207,7 +207,7 @@
 #  define ENET_MMFR_OP_WRNOTMII      (0 << ENET_MMFR_OP_SHIFT) /* Write frame, not MII compliant */
 #  define ENET_MMFR_OP_WRMII         (1 << ENET_MMFR_OP_SHIFT) /* Write frame, MII management frame */
 #  define ENET_MMFR_OP_RDMII         (2 << ENET_MMFR_OP_SHIFT) /* Read frame, MII management frame */
-#  define ENET_MMFR_OP_RdNOTMII      (3 << ENET_MMFR_OP_SHIFT) /* Read frame, not MII compliant */
+#  define ENET_MMFR_OP_RDNOTMII      (3 << ENET_MMFR_OP_SHIFT) /* Read frame, not MII compliant */
 
 #define ENET_MMFR_ST_SHIFT           (30)      /* Bits 30-31: Start of frame delimiter */
 #define ENET_MMFR_ST_MASK            (3 << ENET_MMFR_ST_SHIFT)
@@ -509,13 +509,13 @@
  */
 
 #ifdef IMXRT_ENET_HAS_DBSWAP
-# ifndef CONFIG_ENDIAN_BIG
-#  define IMXRT_USE_DBSWAP
-# endif
+#  ifndef CONFIG_ENDIAN_BIG
+#    define IMXRT_USE_DBSWAP
+#   endif
 #else
-# ifndef CONFIG_ENDIAN_BIG
-#  define IMXRT_BUFFERS_SWAP
-# endif
+#  ifndef CONFIG_ENDIAN_BIG
+#    define IMXRT_BUFFERS_SWAP
+#  endif
 #endif
 
 #ifndef IMXRT_BUFFERS_SWAP
@@ -640,7 +640,7 @@
 
 /* Legacy Buffer Descriptor */
 
-#ifdef CONFIG_ENET_ENHANCEDBD
+#ifdef CONFIG_IMXRT_ENET_ENHANCEDBD
 #ifdef IMXRT_USE_DBSWAP
 /* When DBSWP is used to swap the bytes in hardware, it is done 32-bits
  * at a time.  Therefore, all 16 bit elements need to be swapped to
@@ -675,7 +675,7 @@ struct enet_desc_s
   uint32_t reserved2;   /* unused */
 };
 #endif /* IMXRT_USE_DBSWAP */
-#else /* CONFIG_ENET_ENHANCEDBD */
+#else /* CONFIG_IMXRT_ENET_ENHANCEDBD */
 #ifdef IMXRT_USE_DBSWAP
 struct enet_desc_s
 {
@@ -691,7 +691,7 @@ struct enet_desc_s
   uint8_t  *data;       /* Buffer address */
 };
 #endif /* IMXRT_USE_DBSWAP */
-#endif /* CONFIG_ENET_ENHANCEDBD */
+#endif /* CONFIG_IMXRT_ENET_ENHANCEDBD */
 
 /****************************************************************************
  * Public Data

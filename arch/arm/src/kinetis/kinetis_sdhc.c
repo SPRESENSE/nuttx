@@ -229,8 +229,6 @@ struct kinetis_sdhcregs_s
 
 /* Low-level helpers ********************************************************/
 
-static int  kinetis_takesem(struct kinetis_dev_s *priv);
-#define     kinetis_givesem(priv) (nxsem_post(&priv->waitsem))
 static void kinetis_configwaitints(struct kinetis_dev_s *priv,
               uint32_t waitints, sdio_eventset_t waitevents,
               sdio_eventset_t wkupevents);
@@ -399,6 +397,7 @@ struct kinetis_dev_s g_sdhcdev =
 #endif
 #endif
   },
+  .waitsem = SEM_INITIALIZER(0),
 };
 
 /* Register logging support */
@@ -410,27 +409,6 @@ static struct kinetis_sdhcregs_s g_sampleregs[DEBUG_NSAMPLES];
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
-
-/****************************************************************************
- * Name: kinetis_takesem
- *
- * Description:
- *   Take the wait semaphore (handling false alarm wakeups due to the receipt
- *   of signals).
- *
- * Input Parameters:
- *   dev - Instance of the SDIO device driver state structure.
- *
- * Returned Value:
- *   Normally OK, but may return -ECANCELED in the rare event that the task
- *   has been canceled.
- *
- ****************************************************************************/
-
-static int kinetis_takesem(struct kinetis_dev_s *priv)
-{
-  return nxsem_wait_uninterruptible(&priv->waitsem);
-}
 
 /****************************************************************************
  * Name: kinetis_configwaitints
@@ -985,7 +963,7 @@ static void kinetis_endwait(struct kinetis_dev_s *priv,
 
   /* Wake up the waiting thread */
 
-  kinetis_givesem(priv);
+  nxsem_post(&priv->waitsem);
 }
 
 /****************************************************************************
@@ -1224,7 +1202,11 @@ static int kinetis_lock(struct sdio_dev_s *dev, bool lock)
    * bus is part of board support package.
    */
 
-  kinetis_muxbus_sdio_lock(lock);
+  /* FIXME: Implement the below function to support bus share:
+   *
+   * kinetis_muxbus_sdio_lock(lock);
+   */
+
   return OK;
 }
 #endif
@@ -2534,7 +2516,7 @@ static sdio_eventset_t kinetis_eventwait(struct sdio_dev_s *dev)
        * incremented and there will be no wait.
        */
 
-      ret = kinetis_takesem(priv);
+      ret = nxsem_wait_uninterruptible(&priv->waitsem);
       if (ret < 0)
         {
           /* Task canceled.  Cancel the wdog (assuming it was started) and
@@ -2873,16 +2855,6 @@ struct sdio_dev_s *sdhc_initialize(int slotno)
   DEBUGASSERT(slotno == 0);
 
   /* Initialize the SDHC slot structure data structure */
-
-  /* Initialize semaphores */
-
-  nxsem_init(&priv->waitsem, 0, 0);
-
-  /* The waitsem semaphore is used for signaling and, hence, should not have
-   * priority inheritance enabled.
-   */
-
-  nxsem_set_protocol(&priv->waitsem, SEM_PRIO_NONE);
 
   /* In addition to the system clock, the SDHC module needs a clock for the
    * base for the external card clock.  There are four possible sources for

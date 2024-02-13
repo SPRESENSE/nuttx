@@ -124,15 +124,15 @@ ssize_t ipcc_write(FAR struct file *filep, FAR const char *buffer,
   FAR struct ipcc_driver_s *priv;
   ssize_t nwritten;
   int ret;
+  int flags;
 
   /* Get our private data structure */
 
-  DEBUGASSERT(filep != NULL && filep->f_inode != NULL);
   priv = filep->f_inode->i_private;
 
   /* Get exclusive access to driver */
 
-  if ((ret = nxsem_wait(&priv->exclsem)))
+  if ((ret = nxmutex_lock(&priv->lock)))
     {
       /* nxsem_wait() will return on signal, we did not start
        * any transfer yet, so we can safely return with error
@@ -140,6 +140,8 @@ ssize_t ipcc_write(FAR struct file *filep, FAR const char *buffer,
 
       return ret;
     }
+
+  flags = enter_critical_section();
 
   for (nwritten = 0; ; )
     {
@@ -168,7 +170,8 @@ ssize_t ipcc_write(FAR struct file *filep, FAR const char *buffer,
                * be number of bytes written or negated errno.
                */
 
-              nxsem_post(&priv->exclsem);
+              nxmutex_unlock(&priv->lock);
+              leave_critical_section(flags);
               return nwritten;
             }
         }
@@ -190,14 +193,16 @@ ssize_t ipcc_write(FAR struct file *filep, FAR const char *buffer,
         {
           /* All outstanding data has been copied to txbuffer, we're done */
 
-          nxsem_post(&priv->exclsem);
+          nxmutex_unlock(&priv->lock);
+          leave_critical_section(flags);
           return nwritten;
         }
 
 #else /* CONFIG_IPCC_BUFFERED */
       /* Unbuffered write, write data directly to lower driver */
 
-      nwritten += priv->ipcc->ops.write(&priv->ipcc, buffer, buflen);
+      nwritten += priv->ipcc->ops.write(priv->ipcc, buffer + nwritten,
+                                        buflen - nwritten);
       if (nwritten == (ssize_t)buflen)
         {
           /* We've managed to write whole buffer to IPCC memory,
@@ -209,7 +214,8 @@ ssize_t ipcc_write(FAR struct file *filep, FAR const char *buffer,
            * be number of bytes written or negated errno.
            */
 
-          nxsem_post(&priv->exclsem);
+          nxmutex_unlock(&priv->lock);
+          leave_critical_section(flags);
           return nwritten;
         }
 
@@ -223,7 +229,8 @@ ssize_t ipcc_write(FAR struct file *filep, FAR const char *buffer,
            * -EAGAIN when we did not write anything
            */
 
-          nxsem_post(&priv->exclsem);
+          nxmutex_unlock(&priv->lock);
+          leave_critical_section(flags);
           return nwritten ? nwritten : -EAGAIN;
         }
 
@@ -231,9 +238,12 @@ ssize_t ipcc_write(FAR struct file *filep, FAR const char *buffer,
        * to write data
        */
 
-      nxsem_post(&priv->exclsem);
+      nxmutex_unlock(&priv->lock);
+
       if ((ret = nxsem_wait(&priv->txsem)))
         {
+          leave_critical_section(flags);
+
           /* We were interrupted by signal, return error or number
            * of bytes written
            */
@@ -250,7 +260,8 @@ ssize_t ipcc_write(FAR struct file *filep, FAR const char *buffer,
        * waiting for data, so now let's retake it.
        */
 
-      nxsem_wait(&priv->exclsem);
-      continue;
+      nxmutex_lock(&priv->lock);
     }
+
+  leave_critical_section(flags);
 }

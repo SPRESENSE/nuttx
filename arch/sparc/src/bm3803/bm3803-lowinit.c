@@ -25,7 +25,7 @@
 #include <nuttx/config.h>
 
 #include "bm3803-config.h"
-#include "up_internal.h"
+#include "sparc_internal.h"
 #include "bm3803.h"
 
 /****************************************************************************
@@ -61,7 +61,7 @@
  ****************************************************************************/
 
 #ifdef CONFIG_DEBUG_FEATURES
-#  define showprogress(c) up_lowputc(c)
+#  define showprogress(c) sparc_lowputc(c)
 #else
 #  define showprogress(c)
 #endif
@@ -86,7 +86,7 @@ void up_lowinit(void)
 
   /* Initialize a console (probably a serial console) */
 
-  up_consoleinit();
+  sparc_consoleinit();
 
   showprogress('A');
 
@@ -94,7 +94,7 @@ void up_lowinit(void)
    * certain that there are no issues with the state of global variables.
    */
 
-  for (dest = &_bss_start; dest < &_end; )
+  for (dest = (uint32_t *)_bss_start; dest < (uint32_t *)_end; )
     {
       *dest++ = 0;
     }
@@ -105,7 +105,7 @@ void up_lowinit(void)
    */
 
 #ifdef USE_EARLYSERIALINIT
-  up_earlyserialinit();
+  sparc_earlyserialinit();
 #endif
 
   /* Perform board-level initialization */

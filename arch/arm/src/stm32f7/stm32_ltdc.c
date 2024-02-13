@@ -30,13 +30,14 @@
 
 #include <stdint.h>
 #include <string.h>
+#include <sys/param.h>
 #include <assert.h>
 #include <errno.h>
 #include <debug.h>
 
 #include <nuttx/irq.h>
 #include <nuttx/kmalloc.h>
-#include <nuttx/semaphore.h>
+#include <nuttx/mutex.h>
 #include <nuttx/video/fb.h>
 
 #include <arch/board/board.h>
@@ -574,10 +575,6 @@
 #  endif
 #endif
 
-/* Helper */
-
-#define MIN(x,y)                    ((x) < (y) ? (x) : (y))
-
 /* Color normalization */
 
 #if defined(CONFIG_STM32F7_LTDC_L1_RGB565)
@@ -617,7 +614,7 @@ struct stm32_ltdc_s
   struct stm32_dma2d_overlay_s dma2dinfo;     /* Overlay info for DMA2D */
 #endif
 
-  sem_t *lock;                                /* Layer exclusive access */
+  mutex_t *lock;                                /* Layer exclusive access */
 };
 
 /* This structure provides the overall state of the LTDC layer */
@@ -683,7 +680,7 @@ static int stm32_ltdc_reload(uint8_t value, bool waitvblank);
 static void stm32_ltdc_lpixelformat(struct stm32_ltdc_s *layer);
 static void stm32_ltdc_lframebuffer(struct stm32_ltdc_s *layer);
 static void stm32_ltdc_lenable(struct stm32_ltdc_s *layer, bool enable);
-static void stm32_ltdc_ldefaultcolor(struct stm32_ltdc_s * layer,
+static void stm32_ltdc_ldefaultcolor(struct stm32_ltdc_s *layer,
                                      uint32_t rgb);
 static void stm32_ltdc_ltransp(struct stm32_ltdc_s *layer,
                                uint8_t transp,
@@ -704,9 +701,9 @@ static bool stm32_ltdc_lvalidate(const struct stm32_ltdc_s *layer,
 #endif
 
 #ifdef CONFIG_STM32F7_FB_CMAP
-static void stm32_ltdc_lputclut(struct stm32_ltdc_s * layer,
+static void stm32_ltdc_lputclut(struct stm32_ltdc_s *layer,
                                 const struct fb_cmap_s *cmap);
-static void stm32_ltdc_lgetclut(struct stm32_ltdc_s * layer,
+static void stm32_ltdc_lgetclut(struct stm32_ltdc_s *layer,
                                 struct fb_cmap_s *cmap);
 static void stm32_ltdc_lclutenable(struct stm32_ltdc_s *layer,
                                    bool enable);
@@ -807,13 +804,13 @@ static uint8_t g_transpclut[STM32_LTDC_NCLUT];
 #  endif
 #endif /* CONFIG_STM32F7_FB_CMAP */
 
-/* The LTDC semaphore that enforces mutually exclusive access */
+/* The LTDC mutex that enforces mutually exclusive access */
 
-static sem_t g_lock;
+static mutex_t g_lock = NXMUTEX_INITIALIZER;
 
 /* The semaphore for interrupt handling */
 
-static sem_t g_semirq;
+static sem_t g_semirq = SEM_INITIALIZER(0);
 
 /* This structure provides irq handling */
 
@@ -1342,7 +1339,7 @@ static void stm32_ltdc_periphconfig(void)
  *
  ****************************************************************************/
 
-static void stm32_ltdc_ldefaultcolor(struct stm32_ltdc_s * layer,
+static void stm32_ltdc_ldefaultcolor(struct stm32_ltdc_s *layer,
                                      uint32_t rgb)
 {
   DEBUGASSERT(layer->layerno < LTDC_NLAYERS);
@@ -1611,18 +1608,6 @@ static int stm32_ltdc_reload(uint8_t value, bool waitvblank)
 
 static void stm32_ltdc_irqconfig(void)
 {
-  /* Initialize the LTDC semaphore that enforces mutually exclusive access */
-
-  nxsem_init(&g_lock, 0, 1);
-
-  /* Initialize the semaphore for interrupt handling.  This waitsem
-   * semaphore is used for signaling and, hence, should not have priority
-   * inheritance enabled.
-   */
-
-  nxsem_init(g_interrupt.sem, 0, 0);
-  nxsem_set_protocol(g_interrupt.sem, SEM_PRIO_NONE);
-
   /* Attach LTDC interrupt vector */
 
   irq_attach(g_interrupt.irq, stm32_ltdcirq, NULL);
@@ -2093,8 +2078,8 @@ static void stm32_ltdc_lputclut(struct stm32_ltdc_s *layer,
  *
  ****************************************************************************/
 
-static void stm32_ltdc_lgetclut(struct stm32_ltdc_s * layer,
-                                struct fb_cmap_s * cmap)
+static void stm32_ltdc_lgetclut(struct stm32_ltdc_s *layer,
+                                struct fb_cmap_s *cmap)
 {
   int n;
   struct fb_cmap_s *priv_cmap = &g_vtable.cmap;
@@ -2415,15 +2400,15 @@ static int stm32_getcmap(struct fb_vtable_s *vtable,
        * from the main overlay.
        */
 
-      struct stm32_ltdc_s * layer;
+      struct stm32_ltdc_s *layer;
 #  ifdef CONFIG_STM32F7_LTDC_L2
       layer = &priv->layer[LTDC_LAYER_L2];
 #  else
       layer = &priv->layer[LTDC_LAYER_L1];
 #  endif
-      nxsem_wait(layer->lock);
+      nxmutex_lock(layer->lock);
       stm32_ltdc_lgetclut(layer, cmap);
-      nxsem_post(layer->lock);
+      nxmutex_unlock(layer->lock);
 
       ret = OK;
     }
@@ -2498,11 +2483,11 @@ static int stm32_putcmap(struct fb_vtable_s *vtable,
 
       /* Update the layer clut register */
 
-      nxsem_wait(&g_lock);
+      nxmutex_lock(&g_lock);
 
       for (n = 0; n < LTDC_NLAYERS; n++)
         {
-          struct stm32_ltdc_s * layer = &priv->layer[n];
+          struct stm32_ltdc_s *layer = &priv->layer[n];
           stm32_ltdc_lputclut(layer, priv_cmap);
         }
 
@@ -2511,7 +2496,7 @@ static int stm32_putcmap(struct fb_vtable_s *vtable,
 
       priv->dma2d->setclut(cmap);
 #  endif
-      nxsem_post(&g_lock);
+      nxmutex_unlock(&g_lock);
 
       ret = OK;
     }
@@ -2559,7 +2544,7 @@ static int stm32_getoverlayinfo(struct fb_vtable_s *vtable,
 
   if (overlayno < LTDC_NOVERLAYS)
     {
-      struct stm32_ltdc_s * layer = &priv->layer[overlayno];
+      struct stm32_ltdc_s *layer = &priv->layer[overlayno];
       memcpy(oinfo, &layer->oinfo, sizeof(struct fb_overlayinfo_s));
       return OK;
     }
@@ -2591,9 +2576,9 @@ static int stm32_settransp(struct fb_vtable_s *vtable,
 
   if (oinfo->overlay < LTDC_NOVERLAYS)
     {
-      struct stm32_ltdc_s * layer = &priv->layer[oinfo->overlay];
+      struct stm32_ltdc_s *layer = &priv->layer[oinfo->overlay];
 
-      nxsem_wait(layer->lock);
+      nxmutex_lock(layer->lock);
       layer->oinfo.transp.transp      = oinfo->transp.transp;
       layer->oinfo.transp.transp_mode = oinfo->transp.transp_mode;
 
@@ -2616,7 +2601,7 @@ static int stm32_settransp(struct fb_vtable_s *vtable,
                              layer->oinfo.transp.transp_mode);
         }
 
-      nxsem_post(layer->lock);
+      nxmutex_unlock(layer->lock);
       return OK;
     }
 
@@ -2642,7 +2627,7 @@ static int stm32_setchromakey(struct fb_vtable_s *vtable,
   if (oinfo->overlay < LTDC_NLAYERS)
     {
       int ret;
-      struct stm32_ltdc_s * layer = &priv->layer[oinfo->overlay];
+      struct stm32_ltdc_s *layer = &priv->layer[oinfo->overlay];
 
 #  ifndef CONFIG_STM32F7_LTDC_L1_CHROMAKEY
       if (oinfo->overlay == LTDC_LAYER_L1)
@@ -2658,7 +2643,7 @@ static int stm32_setchromakey(struct fb_vtable_s *vtable,
         }
 #  endif
 
-      nxsem_wait(layer->lock);
+      nxmutex_lock(layer->lock);
 #  ifdef CONFIG_STM32F7_FB_CMAP
       if (oinfo->chromakey >= g_vtable.cmap.len)
         {
@@ -2676,7 +2661,7 @@ static int stm32_setchromakey(struct fb_vtable_s *vtable,
           ret = OK;
         }
 
-      nxsem_post(layer->lock);
+      nxmutex_unlock(layer->lock);
       return ret;
     }
 #  ifdef CONFIG_STM32F7_DMA2D
@@ -2715,16 +2700,16 @@ static int stm32_setcolor(struct fb_vtable_s *vtable,
       int ret;
       struct stm32_ltdcdev_s *priv =
         (struct stm32_ltdcdev_s *)vtable;
-      struct stm32_ltdc_s * layer = &priv->layer[oinfo->overlay];
-      struct fb_overlayinfo_s * poverlay = layer->dma2dinfo.oinfo;
+      struct stm32_ltdc_s *layer = &priv->layer[oinfo->overlay];
+      struct fb_overlayinfo_s *poverlay = layer->dma2dinfo.oinfo;
 
       DEBUGASSERT(&layer->oinfo == poverlay);
 
-      nxsem_wait(layer->lock);
+      nxmutex_lock(layer->lock);
       poverlay->color = oinfo->color;
       ret = priv->dma2d->fillcolor(&layer->dma2dinfo, &poverlay->sarea,
                                    poverlay->color);
-      nxsem_post(layer->lock);
+      nxmutex_unlock(layer->lock);
 
       return ret;
 #  else
@@ -2754,15 +2739,15 @@ static int stm32_setblank(struct fb_vtable_s *vtable,
 
   if (oinfo->overlay < LTDC_NLAYERS)
     {
-      struct stm32_ltdc_s * layer = &priv->layer[oinfo->overlay];
+      struct stm32_ltdc_s *layer = &priv->layer[oinfo->overlay];
 
-      nxsem_wait(layer->lock);
+      nxmutex_lock(layer->lock);
       layer->oinfo.blank = oinfo->blank;
 
       /* Enable or disable layer */
 
       stm32_ltdc_lenable(layer, (layer->oinfo.blank == 0));
-      nxsem_post(layer->lock);
+      nxmutex_unlock(layer->lock);
 
       return OK;
     }
@@ -2805,12 +2790,12 @@ static int stm32_setarea(struct fb_vtable_s *vtable,
     {
       struct stm32_ltdcdev_s *priv =
         (struct stm32_ltdcdev_s *)vtable;
-      struct stm32_ltdc_s * layer =
+      struct stm32_ltdc_s *layer =
         &priv->layer[oinfo->overlay];
 
-      nxsem_wait(layer->lock);
+      nxmutex_lock(layer->lock);
       memcpy(&layer->oinfo.sarea, &oinfo->sarea, sizeof(struct fb_area_s));
-      nxsem_post(layer->lock);
+      nxmutex_unlock(layer->lock);
 
       return OK;
     }
@@ -2865,10 +2850,10 @@ static int stm32_blit(struct fb_vtable_s *vtable,
       sarea.w = MIN(darea->w, sarea.w);
       sarea.h = MIN(darea->h, sarea.h);
 
-      nxsem_wait(dlayer->lock);
+      nxmutex_lock(dlayer->lock);
       ret = priv->dma2d->blit(&dlayer->dma2dinfo, darea->x, darea->y,
                               &slayer->dma2dinfo, &sarea);
-      nxsem_post(dlayer->lock);
+      nxmutex_unlock(dlayer->lock);
 
       return ret;
 #    else
@@ -2934,11 +2919,11 @@ static int stm32_blend(struct fb_vtable_s *vtable,
       barea.w = MIN(farea->w, barea.w);
       barea.h = MIN(farea->h, barea.h);
 
-      nxsem_wait(dlayer->lock);
+      nxmutex_lock(dlayer->lock);
       ret = priv->dma2d->blend(&dlayer->dma2dinfo, darea->x, darea->y,
                                &flayer->dma2dinfo, farea->x, farea->y,
                                &blayer->dma2dinfo, &barea);
-      nxsem_post(dlayer->lock);
+      nxmutex_unlock(dlayer->lock);
 
       return ret;
 #    else
@@ -2982,7 +2967,7 @@ void stm32_ltdcreset(void)
 
 int stm32_ltdcinitialize(void)
 {
-  int   ret = OK;
+  int ret = OK;
 
   lcdinfo("Initialize LTDC driver\n");
 

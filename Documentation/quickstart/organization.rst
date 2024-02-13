@@ -27,7 +27,7 @@ specified by several settings in the NuttX configuration file.
 -  *Processor architecture specific files*. These are the files
    contained in the ``arch/``\ *<arch-name>*\ ``/`` directory and
    are discussed in a paragraph
-   `below <#archdirectorystructure>`__. As an example, all ARM
+   `below <#arch-subdirectory-structure>`__. As an example, all ARM
    processor architectures are provided under the ``arch/arm/``
    directory which is selected with the ``CONFIG_ARCH="arm"``
    configuration option.
@@ -66,7 +66,7 @@ specified by several settings in the NuttX configuration file.
    These board-specific configuration files can be found in the
    ``boards/``\ *<arch-name>*\ ``/``\ *<chip-name>*\ ``/``\ *<board-name>*\ ``/``
    sub-directories and are discussed in a paragraph
-   `below <#boardsdirectorystructure>`__.
+   `below <#boards-subdirectory-structure>`__.
 
    The directory ``boards/arm/stm32/stm32f4disovery/``, as an
    example, holds board-specific logic for the STM32F4 Discovery
@@ -351,7 +351,7 @@ Supported Boards
 
 All of the specific boards supported by NuttX are identified in
 the
-`README.txt <https://github.com/apache/incubator-nuttx/blob/master/boards/README.txt>`__
+`README.txt <https://github.com/apache/nuttx/blob/master/boards/README.txt>`__
 file.
 
 Adding a New Board Configuration

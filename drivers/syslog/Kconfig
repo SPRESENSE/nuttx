@@ -72,7 +72,6 @@ endif
 config SYSLOG_BUFFER
 	bool "Use buffered output"
 	default n
-	select MM_IOB
 	---help---
 		Enables an buffering logic that will be used to serialize debug
 		output from concurrent tasks. This enables allocation of one buffer
@@ -81,6 +80,16 @@ config SYSLOG_BUFFER
 		The use of SYSLOG buffering is optional.  If not enabled, however,
 		then the output from multiple tasks that attempt to generate SYSLOG
 		output may be interleaved and difficult to read.
+
+if SYSLOG_BUFFER
+
+config SYSLOG_BUFSIZE
+	int "Syslog buffer size"
+	default 64
+	---help---
+		The size of the syslog buffer in bytes.
+
+endif
 
 config SYSLOG_INTBUFFER
 	bool "Use interrupt buffer"
@@ -188,8 +197,8 @@ comment "SYSLOG channels"
 
 config SYSLOG_DEVPATH
 	string "System log device"
-	default "/dev/kmsg" if CONFIG_RAMLOG_SYSLOG
-	default "/dev/ttyS1" if !CONFIG_RAMLOG_SYSLOG
+	default "/dev/kmsg" if RAMLOG_SYSLOG
+	default "/dev/ttyS1" if !RAMLOG_SYSLOG
 	---help---
 		The full path to the system logging device.  For the RAMLOG SYSLOG device,
 		this is normally "/dev/kmsg".  For character SYSLOG devices, it should be
@@ -223,12 +232,13 @@ config SYSLOG_RPMSG
 	---help---
 		Use the rpmsg as a SYSLOG output device, send message to remote proc.
 
-config SYSLOG_RTT
-	bool "Log to Segger J-Link RTT"
-	select SEGGER_RTT
+config SYSLOG_STREAM
+	bool "Log to stream"
 	default n
 	---help---
-		Use Segger J-Link RTT as a SYSLOG output device.
+		Enables support to use stream as syslog backend, such as block out stream.
+		It is recommended to implement the backend stream in a way that syslog
+		works in interrupt context.
 
 config SYSLOG_CONSOLE
 	bool "Log to /dev/console"
@@ -250,8 +260,6 @@ if RAMLOG_SYSLOG
 
 config RAMLOG_BUFFER_SECTION
 	string "The section where ramlog buffer is located"
-	default ".bss"
-	depends on !ARCH_SIM
 	---help---
 		The section where ramlog buffer is located.
 		The section shall not be initialized on system boot.
@@ -278,7 +286,7 @@ config SYSLOG_RPMSG_WORK_DELAY
 
 config SYSLOG_RPMSG_CHARDEV
 	bool "SYSLOG rpmsg character device"
-	default !SYSLOG_RPMSG_WORK_DELAY
+	default SYSLOG_RPMSG_WORK_DELAY != 0
 
 endif # SYSLOG_RPMSG
 
@@ -315,9 +323,9 @@ config SYSLOG_FILE_SEPARATE
 	---help---
 		If enabled, every time the file logger is re-attached, a separator
 		will be printed in the file.
-		
+
 		This can be useful to easily distinguish between log entries that
-		belong to different log sessions (e.g. system reboot), and to 
+		belong to different log sessions (e.g. system reboot), and to
 		indicate that between the separated lines there may be more logs
 		that were lost.
 
@@ -329,10 +337,10 @@ config SYSLOG_FILE_ROTATIONS
 		checked before opening. If it is larger than the specified limit
 		it will be "rotated", i.e. the old file will be kept as a backup,
 		and a new empty	file will be created.
-		
+
 		The number of rotations specifies the number of old log files to
 		keep.
-		
+
 		This option is useful to ensure that log files do not get
 		huge after prolonged periods of system operation.
 
@@ -370,5 +378,14 @@ config SYSLOG_CHARDEV
 		NOTE that unlike other syslog output, this data is unformatted raw
 		byte output with no time-stamping or any other SYSLOG features
 		supported.
+
+config SYSLOG_IOCTL
+	bool "SYSLOG IOCTL support"
+	default n
+	---help---
+		Enables support for the SYSLOG IOCTL command.  This command is used
+		to control the behavior of the SYSLOG device. Currently, the supported
+		commands are SYSLOGIOC_SETFILTER/SYSLOGIOC_GETCHANNELS, which can be
+		used to set the enable status of different channels
 
 endmenu # System logging

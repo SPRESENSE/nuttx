@@ -47,13 +47,24 @@
 /* Device naming ************************************************************/
 
 #define ROUND_DOWN(x, y)    (((x) / (y)) * (y))
-#define DEVNAME_FMT         "/dev/sensor/sensor_%s%s%d"
+#define DEVNAME_FMT         "/dev/uorb/sensor_%s%s%d"
 #define DEVNAME_UNCAL       "_uncal"
 #define TIMING_BUF_ESIZE    (sizeof(unsigned long))
 
 /****************************************************************************
  * Private Types
  ****************************************************************************/
+
+struct sensor_axis_map_s
+{
+  int8_t src_x;
+  int8_t src_y;
+  int8_t src_z;
+
+  int8_t sign_x;
+  int8_t sign_y;
+  int8_t sign_z;
+};
 
 /* This structure describes sensor info */
 
@@ -122,6 +133,18 @@ static ssize_t sensor_push_event(FAR void *priv, FAR const void *data,
  * Private Data
  ****************************************************************************/
 
+static const struct sensor_axis_map_s g_remap_tbl[] =
+{
+  { 0, 1, 2,  1,  1,  1 }, /* P0 */
+  { 1, 0, 2,  1, -1,  1 }, /* P1 */
+  { 0, 1, 2, -1, -1,  1 }, /* P2 */
+  { 1, 0, 2, -1,  1,  1 }, /* P3 */
+  { 0, 1, 2, -1,  1, -1 }, /* P4 */
+  { 1, 0, 2, -1, -1, -1 }, /* P5 */
+  { 0, 1, 2,  1, -1, -1 }, /* P6 */
+  { 1, 0, 2,  1,  1, -1 }, /* P7 */
+};
+
 static const struct sensor_info_s g_sensor_info[] =
 {
   {0,                                     NULL},
@@ -157,6 +180,8 @@ static const struct sensor_info_s g_sensor_info[] =
   {sizeof(struct sensor_gps_satellite),   "gps_satellite"},
   {sizeof(struct sensor_wake_gesture),    "wake_gesture"},
   {sizeof(struct sensor_cap),             "cap"},
+  {sizeof(struct sensor_gas),             "gas"},
+  {sizeof(struct sensor_force),           "force"},
 };
 
 static const struct file_operations g_sensor_fops =
@@ -167,10 +192,9 @@ static const struct file_operations g_sensor_fops =
   sensor_write,   /* write */
   NULL,           /* seek  */
   sensor_ioctl,   /* ioctl */
+  NULL,           /* mmap */
+  NULL,           /* truncate */
   sensor_poll     /* poll  */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL          /* unlink */
-#endif
 };
 
 /****************************************************************************
@@ -482,34 +506,26 @@ static ssize_t sensor_do_samples(FAR struct sensor_upperhalf_s *upper,
       generation = next_generation;
     }
 
+  if (pos - 1 == end && sensor_is_updated(upper, user))
+    {
+      generation = upper->state.generation - user->state.generation +
+                   (upper->state.min_interval >> 1);
+      user->state.generation += ROUND_DOWN(generation,
+                                           user->state.interval);
+    }
+
   return ret;
 }
 
 static void sensor_pollnotify_one(FAR struct sensor_user_s *user,
                                   pollevent_t eventset)
 {
-  int semcount;
-
   if (eventset == POLLPRI)
     {
       user->changed = true;
     }
 
-  if (!user->fds)
-    {
-      return;
-    }
-
-  user->fds->revents |= (user->fds->events & eventset);
-  if (user->fds->revents != 0)
-    {
-      sninfo("Report events: %08" PRIx32 "\n", user->fds->revents);
-      nxsem_get_value(user->fds->sem, &semcount);
-      if (semcount < 1)
-        {
-          nxsem_post(user->fds->sem);
-        }
-    }
+  poll_notify(&user->fds, 1, eventset);
 }
 
 static void sensor_pollnotify(FAR struct sensor_upperhalf_s *upper,
@@ -536,7 +552,7 @@ static int sensor_open(FAR struct file *filep)
   if (user == NULL)
     {
       ret = -ENOMEM;
-      goto errout_with_sem;
+      goto errout_with_lock;
     }
 
   if (lower->ops->open)
@@ -585,7 +601,6 @@ static int sensor_open(FAR struct file *filep)
   user->state.interval = ULONG_MAX;
   user->state.esize = upper->state.esize;
   nxsem_init(&user->buffersem, 0, 0);
-  nxsem_set_protocol(&user->buffersem, SEM_PRIO_NONE);
   list_add_tail(&upper->userlist, &user->node);
 
   /* The new user generation, notify to other users */
@@ -593,7 +608,7 @@ static int sensor_open(FAR struct file *filep)
   sensor_pollnotify(upper, POLLPRI);
 
   filep->f_priv = user;
-  goto errout_with_sem;
+  goto errout_with_lock;
 
 errout_with_open:
   if (lower->ops->close)
@@ -603,7 +618,7 @@ errout_with_open:
 
 errout_with_user:
   kmm_free(user);
-errout_with_sem:
+errout_with_lock:
   nxrmutex_unlock(&upper->lock);
   return ret;
 }
@@ -827,6 +842,7 @@ static int sensor_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
               if (arg >= lower->nbuffer)
                 {
                   lower->nbuffer = arg;
+                  upper->state.nbuffer = arg;
                 }
               else
                 {
@@ -899,31 +915,28 @@ static int sensor_poll(FAR struct file *filep,
 
           if (filep->f_oflags & O_NONBLOCK)
             {
-              eventset |= (fds->events & POLLIN);
+              eventset |= POLLIN;
             }
           else
             {
               nxsem_get_value(&user->buffersem, &semcount);
               if (semcount > 0)
                 {
-                  eventset |= (fds->events & POLLIN);
+                  eventset |= POLLIN;
                 }
             }
         }
       else if (sensor_is_updated(upper, user))
         {
-          eventset |= (fds->events & POLLIN);
+          eventset |= POLLIN;
         }
 
       if (user->changed)
         {
-          eventset |= (fds->events & POLLPRI);
+          eventset |= POLLPRI;
         }
 
-      if (eventset)
-        {
-          sensor_pollnotify_one(user, eventset);
-        }
+        sensor_pollnotify_one(user, eventset);
     }
   else
     {
@@ -1021,6 +1034,36 @@ static void sensor_notify_event(FAR void *priv)
  ****************************************************************************/
 
 /****************************************************************************
+ * Name: sensor_remap_vector_raw16
+ *
+ * Description:
+ *   This function remap the sensor data according to the place position on
+ *   board. The value of place is determined base on g_remap_tbl.
+ *
+ * Input Parameters:
+ *   in    - A pointer to input data need remap.
+ *   out   - A pointer to output data.
+ *   place - The place position of sensor on board,
+ *           ex:SENSOR_BODY_COORDINATE_PX
+ *
+ ****************************************************************************/
+
+void sensor_remap_vector_raw16(FAR const int16_t *in, FAR int16_t *out,
+                               int place)
+{
+  FAR const struct sensor_axis_map_s *remap;
+  int16_t tmp[3];
+
+  DEBUGASSERT(place < (sizeof(g_remap_tbl) / sizeof(g_remap_tbl[0])));
+
+  remap = &g_remap_tbl[place];
+  tmp[0] = in[remap->src_x] * remap->sign_x;
+  tmp[1] = in[remap->src_y] * remap->sign_y;
+  tmp[2] = in[remap->src_z] * remap->sign_z;
+  memcpy(out, tmp, sizeof(tmp));
+}
+
+/****************************************************************************
  * Name: sensor_register
  *
  * Description:
@@ -1074,7 +1117,7 @@ int sensor_register(FAR struct sensor_lowerhalf_s *lower, int devno)
  *   dev   - A pointer to an instance of lower half sensor driver. This
  *           instance is bound to the sensor driver and must persists as long
  *           as the driver persists.
- *   path  - The user specifies path of device. ex: /dev/sensor/xxx.
+ *   path  - The user specifies path of device. ex: /dev/uorb/xxx.
  *   esize - The element size of intermediate circular buffer.
  *
  * Returned Value:
@@ -1203,7 +1246,7 @@ void sensor_unregister(FAR struct sensor_lowerhalf_s *lower, int devno)
  *   dev   - A pointer to an instance of lower half sensor driver. This
  *           instance is bound to the sensor driver and must persists as long
  *           as the driver persists.
- *   path  - The user specifies path of device, ex: /dev/sensor/xxx
+ *   path  - The user specifies path of device, ex: /dev/uorb/xxx
  ****************************************************************************/
 
 void sensor_custom_unregister(FAR struct sensor_lowerhalf_s *lower,

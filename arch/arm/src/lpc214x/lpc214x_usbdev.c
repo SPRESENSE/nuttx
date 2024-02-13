@@ -371,8 +371,8 @@ struct lpc214x_usbdev_s
 static uint32_t lpc214x_getreg(uint32_t addr);
 static void lpc214x_putreg(uint32_t val, uint32_t addr);
 #else
-# define lpc214x_getreg(addr)     getreg32(addr)
-# define lpc214x_putreg(val,addr) putreg32(val,addr)
+#  define lpc214x_getreg(addr)     getreg32(addr)
+#  define lpc214x_putreg(val,addr) putreg32(val,addr)
 #endif
 
 /* Command operations *******************************************************/
@@ -1992,8 +1992,6 @@ static inline void lpc214x_ep0dataoutinterrupt(struct lpc214x_usbdev_s *priv)
       ep0 = &priv->eplist[LPC214X_EP0_IN];
       lpc214x_epstall(&ep0->ep, false);
     }
-
-  return;
 }
 
 /****************************************************************************

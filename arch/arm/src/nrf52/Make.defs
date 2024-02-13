@@ -20,17 +20,24 @@
 
 include armv7-m/Make.defs
 
+CHIP_CSRCS += nrf52_start.c nrf52_clockconfig.c nrf52_irq.c nrf52_utils.c
+CHIP_CSRCS += nrf52_allocateheap.c nrf52_lowputc.c nrf52_gpio.c
+CHIP_CSRCS += nrf52_uid.c
+
 ifeq ($(CONFIG_NRF52_SYSTIMER_SYSTICK),y)
 CHIP_CSRCS += nrf52_systick.c
-else
+endif
+
 ifeq ($(CONFIG_NRF52_SYSTIMER_RTC),y)
 CHIP_CSRCS += nrf52_tickless_rtc.c
 endif
-endif
 
-CHIP_CSRCS += nrf52_start.c nrf52_clockconfig.c nrf52_irq.c nrf52_utils.c
-CHIP_CSRCS += nrf52_allocateheap.c nrf52_lowputc.c nrf52_gpio.c nrf52_nvmc.c
-CHIP_CSRCS += nrf52_uid.c
+ifeq ($(CONFIG_ALLOW_BSD_COMPONENTS),y)
+CHIP_CSRCS += nrf52_nvmc.c
+ifeq ($(CONFIG_NRF52_PROGMEM),y)
+CHIP_CSRCS += nrf52_flash.c
+endif
+endif
 
 ifeq ($(CONFIG_ARCH_CHIP_NRF52832),y)
 CHIP_CSRCS += nrf52832_errdata.c
@@ -50,10 +57,6 @@ endif
 
 ifeq ($(CONFIG_NRF52_UART),y)
 CHIP_CSRCS += nrf52_serial.c
-endif
-
-ifeq ($(CONFIG_NRF52_PROGMEM),y)
-CHIP_CSRCS  += nrf52_flash.c
 endif
 
 ifeq ($(CONFIG_NRF52_WDT),y)
@@ -111,17 +114,24 @@ ifeq ($(CONFIG_PM),y)
 CHIP_CSRCS += nrf52_pminitialize.c
 endif
 
+ifeq ($(CONFIG_USBDEV),y)
+CHIP_CSRCS += nrf52_usbd.c
+endif
+
+ifeq ($(CONFIG_NRF52_QSPI),y)
+CHIP_CSRCS += nrf52_qspi.c
+endif
+
 ifeq ($(CONFIG_NRF52_SOFTDEVICE_CONTROLLER),y)
 
 NRFXLIB_UNPACK  := sdk-nrfxlib
-NRFXLIB_VER     := 1.4.2
+NRFXLIB_VER     := 2.3.0
 NRFXLIB_REF     := v$(NRFXLIB_VER)
 NRFXLIB_TGZ     := $(NRFXLIB_REF).tar.gz
 NRFXLIB_URL     := https://github.com/nrfconnect/sdk-nrfxlib/archive
 
 $(NRFXLIB_TGZ):
-	$(Q) echo "Downloading: NRFXLIB"
-	$(Q) curl -L $(NRFXLIB_URL)/$(NRFXLIB_TGZ) -o chip/$(NRFXLIB_TGZ)
+	$(call DOWNLOAD,$(NRFXLIB_URL),$(NRFXLIB_TGZ),chip/$(NRFXLIB_TGZ))
 
 chip/$(NRFXLIB_UNPACK): $(NRFXLIB_TGZ)
 	$(Q) echo "Unpacking: NRXFLIB"
@@ -129,30 +139,24 @@ chip/$(NRFXLIB_UNPACK): $(NRFXLIB_TGZ)
 	$(Q) mv chip/$(NRFXLIB_UNPACK)-$(NRFXLIB_VER)* chip/$(NRFXLIB_UNPACK)
 	$(Q) touch chip/$(NRFXLIB_UNPACK)
 
+ifeq ($(wildcard chip/$(NRFXLIB_UNPACK)/.git),)
 context:: chip/$(NRFXLIB_UNPACK)
 
 distclean::
 	$(call DELFILE, chip/$(NRFXLIB_TGZ))
 	$(call DELDIR, chip/$(NRFXLIB_UNPACK))
+endif
 
 CHIP_CSRCS += nrf52_sdc.c
 
-NRFX_DIR = $(ARCH_SRCDIR)$(DELIM)chip$(DELIM)nrfx
 NRFXLIB_DIR = $(ARCH_SRCDIR)$(DELIM)chip$(DELIM)sdk-nrfxlib
-CMSIS_DIR = $(ARCH_SRCDIR)$(DELIM)chip$(DELIM)CMSIS_5
 
 INCLUDES += \
-	$(shell $(INCDIR) "$(CC)" $(ARCH_SRCDIR)$(DELIM)chip$(DELIM)sdc) \
-	$(shell $(INCDIR) "$(CC)" $(NRFXLIB_DIR)$(DELIM)mpsl$(DELIM)include) \
-	$(shell $(INCDIR) "$(CC)" $(NRFXLIB_DIR)$(DELIM)softdevice_controller$(DELIM)include)
+	${INCDIR_PREFIX}$(ARCH_SRCDIR)$(DELIM)chip$(DELIM)sdc \
+	${INCDIR_PREFIX}$(NRFXLIB_DIR)$(DELIM)mpsl$(DELIM)include \
+	${INCDIR_PREFIX}$(NRFXLIB_DIR)$(DELIM)softdevice_controller$(DELIM)include
 
-ifeq ($(CONFIG_ARCH_CHIP_NRF52832),y)
-	CFLAGS += -DNRF52832_XXAB
-else
-	ifeq ($(CONFIG_ARCH_CHIP_NRF52840),y)
-		CFLAGS += -DNRF52840_XXAB
-	endif
-endif
+CFLAGS += -DNRF52_SERIES
 
 ifeq ($(CONFIG_ARCH_FPU),y)
 	LIB_VARIANT=hard-float
@@ -164,6 +168,13 @@ EXTRA_LIBPATHS += \
 	-L $(NRFXLIB_DIR)$(DELIM)mpsl$(DELIM)lib$(DELIM)cortex-m4$(DELIM)$(LIB_VARIANT) \
 	-L $(NRFXLIB_DIR)$(DELIM)softdevice_controller$(DELIM)lib$(DELIM)cortex-m4$(DELIM)$(LIB_VARIANT)
 
-EXTRA_LIBS += -lmpsl -lsoftdevice_controller_s$(CONFIG_NRF52_SDC_VERSION)
+EXTRA_LIBS += -lmpsl
+ifeq ($(CONFIG_NRF52_SDC_PERIPHERAL),y)
+  EXTRA_LIBS += -lsoftdevice_controller_peripheral
+else ifeq ($(CONFIG_NRF52_SDC_CENTRAL),y)
+  EXTRA_LIBS += -lsoftdevice_controller_central
+else ifeq ($(CONFIG_NRF52_SDC_MULTIROLE),y)
+  EXTRA_LIBS += -lsoftdevice_controller_multirole
+endif
 
 endif

@@ -18,8 +18,8 @@
  *
  ****************************************************************************/
 
-#ifndef __DRIVERS_MODEM_ALT1250_ALT1250_H__
-#define __DRIVERS_MODEM_ALT1250_ALT1250_H__
+#ifndef __DRIVERS_MODEM_ALT1250_ALT1250_H
+#define __DRIVERS_MODEM_ALT1250_ALT1250_H
 
 /****************************************************************************
  * Included Files
@@ -56,4 +56,4 @@
 uint64_t get_event_lapibuffer(FAR struct alt1250_dev_s *dev,
   uint32_t lapicmdid, alt_evtbuf_inst_t **inst);
 
-#endif  /* __DRIVERS_MODEM_ALT1250_ALT1250_H__ */
+#endif  /* __DRIVERS_MODEM_ALT1250_ALT1250_H */

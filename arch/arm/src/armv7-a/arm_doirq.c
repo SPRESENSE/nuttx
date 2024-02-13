@@ -28,13 +28,14 @@
 #include <assert.h>
 #include <debug.h>
 
+#include <nuttx/addrenv.h>
 #include <nuttx/irq.h>
 #include <nuttx/arch.h>
 #include <nuttx/board.h>
 #include <arch/board/board.h>
+#include <sched/sched.h>
 
 #include "arm_internal.h"
-#include "group/group.h"
 #include "gic.h"
 
 /****************************************************************************
@@ -70,30 +71,35 @@ uint32_t *arm_doirq(int irq, uint32_t *regs)
 
   irq_dispatch(irq, regs);
 
-#ifdef CONFIG_ARCH_ADDRENV
-  /* Check for a context switch.  If a context switch occurred, then
-   * CURRENT_REGS will have a different value than it did on entry.  If an
-   * interrupt level context switch has occurred, then establish the correct
-   * address environment before returning from the interrupt.
-   */
+  /* Restore the cpu lock */
 
   if (regs != CURRENT_REGS)
     {
+#ifdef CONFIG_ARCH_ADDRENV
       /* Make sure that the address environment for the previously
        * running task is closed down gracefully (data caches dump,
        * MMU flushed) and set up the address environment for the new
        * thread at the head of the ready-to-run list.
        */
 
-      group_addrenv(NULL);
-    }
+      addrenv_switch(NULL);
 #endif
+
+      /* Record the new "running" task when context switch occurred.
+       * g_running_tasks[] is only used by assertion logic for reporting
+       * crashes.
+       */
+
+      g_running_tasks[this_cpu()] = this_task();
+
+      restore_critical_section();
+      regs = (uint32_t *)CURRENT_REGS;
+    }
 
   /* Set CURRENT_REGS to NULL to indicate that we are no longer in an
    * interrupt handler.
    */
 
-  regs         = (uint32_t *)CURRENT_REGS;
   CURRENT_REGS = NULL;
 #endif
 

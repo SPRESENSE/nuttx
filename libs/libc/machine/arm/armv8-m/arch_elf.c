@@ -29,7 +29,6 @@
 #include <errno.h>
 #include <debug.h>
 
-#include <arch/elf.h>
 #include <nuttx/elf.h>
 
 /****************************************************************************
@@ -159,7 +158,7 @@ int up_relocate(const Elf32_Rel *rel, const Elf32_Sym *sym, uintptr_t addr)
             offset >= (int32_t) 0x02000000)
           {
             berr("ERROR:   ERROR: PC24 [%" PRId32 "] "
-                 "relocation out of range, offset=%08lx\n",
+                 "relocation out of range, offset=%08" PRIx32 "\n",
                  ELF32_R_TYPE(rel->r_info), offset);
 
             return -EINVAL;
@@ -276,7 +275,7 @@ int up_relocate(const Elf32_Rel *rel, const Elf32_Sym *sym, uintptr_t addr)
         /* And perform the relocation */
 
         binfo("  S=%" PRId32 " J1=%" PRId32 " J2=%" PRId32
-              " offset=%08" PRIx32 " branch target=%08lx\n",
+              " offset=%08" PRIx32 " branch target=%08" PRIx32 "\n",
               S, J1, J2, offset, offset + sym->st_value - addr);
 
         offset += sym->st_value - addr;
@@ -288,7 +287,7 @@ int up_relocate(const Elf32_Rel *rel, const Elf32_Sym *sym, uintptr_t addr)
         if (ELF32_ST_TYPE(sym->st_info) == STT_FUNC && (offset & 1) == 0)
           {
             berr("ERROR:   ERROR: JUMP24 [%" PRId32 "] "
-                 "requires odd offset, offset=%08lx\n",
+                 "requires odd offset, offset=%08" PRIx32 "\n",
                  ELF32_R_TYPE(rel->r_info), offset);
 
             return -EINVAL;
@@ -299,7 +298,7 @@ int up_relocate(const Elf32_Rel *rel, const Elf32_Sym *sym, uintptr_t addr)
         if (offset < (int32_t)0xff000000 || offset >= (int32_t)0x01000000)
           {
             berr("ERROR:   ERROR: JUMP24 [%" PRId32 "] "
-                 "relocation out of range, branch target=%08lx\n",
+                 "relocation out of range, branch target=%08" PRIx32 "\n",
                  ELF32_R_TYPE(rel->r_info), offset);
 
             return -EINVAL;
@@ -428,8 +427,8 @@ int up_relocate(const Elf32_Rel *rel, const Elf32_Sym *sym, uintptr_t addr)
 
         /* And perform the relocation */
 
-        binfo("  offset=%08lx branch target=%08lx\n",
-              (long)offset, offset + sym->st_value);
+        binfo("  offset=%08" PRIx32 " branch target=%08" PRIx32 "\n",
+              offset, offset + sym->st_value);
 
         offset += sym->st_value;
 
@@ -469,7 +468,7 @@ int up_relocate(const Elf32_Rel *rel, const Elf32_Sym *sym, uintptr_t addr)
         if (ELF32_ST_TYPE(sym->st_info) == STT_FUNC && (offset & 1) == 0)
           {
             berr("ERROR: JUMP11 [%" PRId32 "] "
-                 "requires odd offset, offset=%08lx\n",
+                 "requires odd offset, offset=%08" PRIx32 "\n",
                  ELF32_R_TYPE(rel->r_info), offset);
 
             return -EINVAL;
@@ -480,7 +479,7 @@ int up_relocate(const Elf32_Rel *rel, const Elf32_Sym *sym, uintptr_t addr)
         if (offset < (int32_t)0xfffff800 || offset >= (int32_t)0x0800)
           {
             berr("ERROR: JUMP11 [%" PRId32 "] "
-                 "relocation out of range, branch target=%08lx\n",
+                 "relocation out of range, branch target=%08" PRIx32 "\n",
                  ELF32_R_TYPE(rel->r_info), offset);
 
             return -EINVAL;

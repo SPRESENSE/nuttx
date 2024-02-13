@@ -36,7 +36,6 @@
 #include <errno.h>
 #include <assert.h>
 #include <debug.h>
-#include <queue.h>
 
 #include <arpa/inet.h>
 
@@ -45,7 +44,7 @@
 #include <nuttx/irq.h>
 #include <nuttx/wqueue.h>
 #include <nuttx/semaphore.h>
-#include <nuttx/net/arp.h>
+#include <nuttx/net/ip.h>
 #include <nuttx/net/netdev.h>
 #include <nuttx/usb/usbdev.h>
 #include <nuttx/usb/cdc.h>
@@ -55,7 +54,7 @@
 #  include <nuttx/net/pkt.h>
 #endif
 
-#ifdef CONFIG_CDCECM_BOARD_SERIALSTR
+#ifdef CONFIG_BOARD_USBDEV_SERIALSTR
 #include <nuttx/board.h>
 #endif
 
@@ -204,11 +203,6 @@ static void cdcecm_disconnect(FAR struct usbdevclass_driver_s *driver,
 
 /* USB Device Class helpers */
 
-static struct usbdev_req_s *cdcecm_allocreq(FAR struct usbdev_ep_s *ep,
-              uint16_t len);
-static void cdcecm_freereq(FAR struct usbdev_ep_s *ep,
-              FAR struct usbdev_req_s *req);
-
 static void cdcecm_ep0incomplete(FAR struct usbdev_ep_s *ep,
               FAR struct usbdev_req_s *req);
 static void cdcecm_rdcomplete(FAR struct usbdev_ep_s *ep,
@@ -341,53 +335,15 @@ static int cdcecm_txpoll(FAR struct net_driver_s *dev)
   FAR struct cdcecm_driver_s *priv =
     (FAR struct cdcecm_driver_s *)dev->d_private;
 
-  /* If the polling resulted in data that should be sent out on the network,
-   * the field d_len is set to a value > 0.
+  /* Send the packet */
+
+  cdcecm_transmit(priv);
+
+  /* Check if there is room in the device to hold another packet. If
+   * not, return a non-zero value to terminate the poll.
    */
 
-  if (priv->dev.d_len > 0)
-    {
-      /* Look up the destination MAC address and add it to the Ethernet
-       * header.
-       */
-
-#ifdef CONFIG_NET_IPv4
-#ifdef CONFIG_NET_IPv6
-      if (IFF_IS_IPv4(priv->dev.d_flags))
-#endif
-        {
-          arp_out(&priv->dev);
-        }
-#endif /* CONFIG_NET_IPv4 */
-
-#ifdef CONFIG_NET_IPv6
-#ifdef CONFIG_NET_IPv4
-      else
-#endif
-        {
-          neighbor_out(&priv->dev);
-        }
-#endif /* CONFIG_NET_IPv6 */
-
-      if (!devif_loopback(&priv->dev))
-        {
-          /* Send the packet */
-
-          cdcecm_transmit(priv);
-
-          /* Check if there is room in the device to hold another packet. If
-           * not, return a non-zero value to terminate the poll.
-           */
-
-          return 1;
-        }
-    }
-
-  /* If zero is returned, the polling will continue until all connections
-   * have been examined.
-   */
-
-  return 0;
+  return 1;
 }
 
 /****************************************************************************
@@ -417,30 +373,6 @@ static void cdcecm_reply(struct cdcecm_driver_s *priv)
 
   if (priv->dev.d_len > 0)
     {
-      /* Update the Ethernet header with the correct MAC address */
-
-#ifdef CONFIG_NET_IPv4
-#ifdef CONFIG_NET_IPv6
-      /* Check for an outgoing IPv4 packet */
-
-      if (IFF_IS_IPv4(priv->dev.d_flags))
-#endif
-        {
-          arp_out(&priv->dev);
-        }
-#endif
-
-#ifdef CONFIG_NET_IPv6
-#ifdef CONFIG_NET_IPv4
-      /* Otherwise, it must be an outgoing IPv6 packet */
-
-      else
-#endif
-        {
-          neighbor_out(&priv->dev);
-        }
-#endif
-
       /* And send the packet */
 
       cdcecm_transmit(priv);
@@ -493,11 +425,8 @@ static void cdcecm_receive(FAR struct cdcecm_driver_s *self)
       ninfo("IPv4 frame\n");
       NETDEV_RXIPV4(&self->dev);
 
-      /* Handle ARP on input, then dispatch IPv4 packet to the network
-       * layer.
-       */
+      /* Receive an IPv4 packet from the network device */
 
-      arp_ipin(&self->dev);
       ipv4_input(&self->dev);
 
       /* Check for a reply to the IPv4 packet */
@@ -527,7 +456,7 @@ static void cdcecm_receive(FAR struct cdcecm_driver_s *self)
     {
       /* Dispatch ARP packet to the network layer */
 
-      arp_arpin(&self->dev);
+      arp_input(&self->dev);
       NETDEV_RXARP(&self->dev);
 
       /* If the above function invocation resulted in data that should be
@@ -657,11 +586,9 @@ static int cdcecm_ifup(FAR struct net_driver_s *dev)
     (FAR struct cdcecm_driver_s *)dev->d_private;
 
 #ifdef CONFIG_NET_IPv4
-  ninfo("Bringing up: %d.%d.%d.%d\n",
-        (int)(dev->d_ipaddr & 0xff),
-        (int)((dev->d_ipaddr >> 8) & 0xff),
-        (int)((dev->d_ipaddr >> 16) & 0xff),
-        (int)(dev->d_ipaddr >> 24));
+  ninfo("Bringing up: %u.%u.%u.%u\n",
+        ip4_addr1(dev->d_ipaddr), ip4_addr2(dev->d_ipaddr),
+        ip4_addr3(dev->d_ipaddr), ip4_addr4(dev->d_ipaddr));
 #endif
 #ifdef CONFIG_NET_IPv6
   ninfo("Bringing up: %04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x\n",
@@ -1066,59 +993,6 @@ static void cdcecm_wrcomplete(FAR struct usbdev_ep_s *ep,
 }
 
 /****************************************************************************
- * Name: cdcecm_allocreq
- *
- * Description:
- *   Allocate a request instance along with its buffer
- *
- ****************************************************************************/
-
-static struct usbdev_req_s *cdcecm_allocreq(FAR struct usbdev_ep_s *ep,
-                                            uint16_t len)
-{
-  FAR struct usbdev_req_s *req;
-
-  req = EP_ALLOCREQ(ep);
-
-  if (req != NULL)
-    {
-      req->len   = len;
-      req->buf   = EP_ALLOCBUFFER(ep, len);
-      req->flags = USBDEV_REQFLAGS_NULLPKT;
-
-      if (req->buf == NULL)
-        {
-          EP_FREEREQ(ep, req);
-          req = NULL;
-        }
-    }
-
-  return req;
-}
-
-/****************************************************************************
- * Name: cdcecm_freereq
- *
- * Description:
- *   Free a request instance along with its buffer
- *
- ****************************************************************************/
-
-static void cdcecm_freereq(FAR struct usbdev_ep_s *ep,
-                           FAR struct usbdev_req_s *req)
-{
-  if (ep != NULL && req != NULL)
-    {
-      if (req->buf != NULL)
-        {
-          EP_FREEBUFFER(ep, req->buf);
-        }
-
-      EP_FREEREQ(ep, req);
-    }
-}
-
-/****************************************************************************
  * Name: cdcecm_resetconfig
  *
  * Description:
@@ -1299,7 +1173,7 @@ static int cdcecm_mkstrdesc(uint8_t id, FAR struct usb_strdesc_s *strdesc)
       break;
 
     case CDCECM_SERIALSTRID:
-#ifdef CONFIG_CDCECM_BOARD_SERIALSTR
+#ifdef CONFIG_BOARD_USBDEV_SERIALSTR
       str = board_usbdev_serialstr();
 #else
       str = "0";
@@ -1420,11 +1294,29 @@ static void cdcecm_mkepdesc(int epidx,
  *
  ****************************************************************************/
 
+#ifdef CONFIG_USBDEV_DUALSPEED
+static int16_t cdcecm_mkcfgdesc(FAR uint8_t *desc,
+                                FAR struct usbdev_devinfo_s *devinfo,
+                                uint8_t speed, uint8_t type)
+#else
 static int16_t cdcecm_mkcfgdesc(FAR uint8_t *desc,
                                 FAR struct usbdev_devinfo_s *devinfo)
+#endif
 {
   FAR struct usb_cfgdesc_s *cfgdesc = NULL;
   int16_t len = 0;
+  bool is_high_speed = false;
+
+#ifdef CONFIG_USBDEV_DUALSPEED
+  is_high_speed = (speed == USB_SPEED_HIGH);
+
+  /* Check for switches between high and full speed */
+
+  if (type == USB_DESC_TYPE_OTHERSPEEDCONFIG)
+    {
+      is_high_speed = !is_high_speed;
+    }
+#endif
 
 #ifndef CONFIG_CDCECM_COMPOSITE
   if (desc)
@@ -1596,12 +1488,6 @@ static int16_t cdcecm_mkcfgdesc(FAR uint8_t *desc,
 
   len += USB_SIZEOF_IFDESC;
 
-  #ifdef CONFIG_USBDEV_DUALSPEED
-  bool is_high_speed = USB_SPEED_HIGH;
-  #else
-  bool is_high_speed = USB_SPEED_LOW;
-  #endif
-
   if (desc)
     {
       FAR struct usb_epdesc_s *epdesc = (FAR struct usb_epdesc_s *)desc;
@@ -1668,9 +1554,17 @@ static int cdcecm_getdescriptor(FAR struct cdcecm_driver_s *self,
       break;
 #endif
 
+#ifdef CONFIG_USBDEV_DUALSPEED
+    case USB_DESC_TYPE_OTHERSPEEDCONFIG:
+#endif /* CONFIG_USBDEV_DUALSPEED */
     case USB_DESC_TYPE_CONFIG:
       {
+#ifdef CONFIG_USBDEV_DUALSPEED
+        return cdcecm_mkcfgdesc((FAR uint8_t *)desc, &self->devinfo,
+                                self->usbdev.speed, type);
+#else
         return cdcecm_mkcfgdesc((FAR uint8_t *)desc, &self->devinfo);
+#endif
       }
       break;
 
@@ -1708,11 +1602,13 @@ static int cdcecm_bind(FAR struct usbdevclass_driver_s *driver,
 
   uinfo("\n");
 
+#ifndef CONFIG_CDCECM_COMPOSITE
   dev->ep0->priv = self;
+#endif
 
   /* Preallocate control request */
 
-  self->ctrlreq = cdcecm_allocreq(dev->ep0, CDCECM_MXDESCLEN);
+  self->ctrlreq = usbdev_allocreq(dev->ep0, CDCECM_MXDESCLEN);
 
   if (self->ctrlreq == NULL)
     {
@@ -1748,7 +1644,7 @@ static int cdcecm_bind(FAR struct usbdevclass_driver_s *driver,
 
   /* Pre-allocate read requests.  The buffer size is one full packet. */
 
-  self->rdreq = cdcecm_allocreq(self->epbulkout,
+  self->rdreq = usbdev_allocreq(self->epbulkout,
                   CONFIG_NET_ETH_PKTSIZE + CONFIG_NET_GUARDSIZE);
   if (self->rdreq == NULL)
     {
@@ -1761,7 +1657,7 @@ static int cdcecm_bind(FAR struct usbdevclass_driver_s *driver,
 
   /* Pre-allocate a single write request.  Buffer size is one full packet. */
 
-  self->wrreq = cdcecm_allocreq(self->epbulkin,
+  self->wrreq = usbdev_allocreq(self->epbulkin,
                   CONFIG_NET_ETH_PKTSIZE + CONFIG_NET_GUARDSIZE);
   if (self->wrreq == NULL)
     {
@@ -1839,7 +1735,7 @@ static void cdcecm_unbind(FAR struct usbdevclass_driver_s *driver,
 
   if (self->ctrlreq != NULL)
     {
-      cdcecm_freereq(dev->ep0, self->ctrlreq);
+      usbdev_freereq(dev->ep0, self->ctrlreq);
       self->ctrlreq = NULL;
     }
 
@@ -1849,7 +1745,7 @@ static void cdcecm_unbind(FAR struct usbdevclass_driver_s *driver,
 
   if (self->rdreq != NULL)
     {
-      cdcecm_freereq(self->epbulkout, self->rdreq);
+      usbdev_freereq(self->epbulkout, self->rdreq);
       self->rdreq = NULL;
     }
 
@@ -1867,7 +1763,7 @@ static void cdcecm_unbind(FAR struct usbdevclass_driver_s *driver,
 
   if (self->wrreq != NULL)
     {
-      cdcecm_freereq(self->epbulkin, self->wrreq);
+      usbdev_freereq(self->epbulkin, self->wrreq);
       self->wrreq = NULL;
     }
 

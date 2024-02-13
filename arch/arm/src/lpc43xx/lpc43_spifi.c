@@ -687,7 +687,7 @@ static int lpc43_erase(struct mtd_dev_s *dev,
                        off_t startblock, size_t nblocks)
 {
 #ifdef CONFIG_SPIFI_READONLY
-  return -EACESS
+  return -EACCES;
 #else
   struct lpc43_dev_s *priv = (struct lpc43_dev_s *)dev;
   size_t blocksleft = nblocks;
@@ -858,6 +858,8 @@ static int lpc43_ioctl(struct mtd_dev_s *dev, int cmd, unsigned long arg)
                              (struct mtd_geometry_s *)((uintptr_t)arg);
           if (geo)
             {
+               memset(geo, 0, sizeof(*geo));
+
               /* Populate the geometry structure with information need to
                * know the capacity and how to access the device.
                *
@@ -1236,7 +1238,7 @@ struct mtd_dev_s *lpc43_spifi_initialize(void)
 
   /* Allocate a buffer for the erase block cache */
 
-  priv->cache = (uint8_t *)kmm_malloc(SPIFI_BLKSIZE);
+  priv->cache = kmm_malloc(SPIFI_BLKSIZE);
   if (!priv->cache)
     {
       /* Allocation failed!

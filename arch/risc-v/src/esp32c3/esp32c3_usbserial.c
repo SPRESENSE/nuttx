@@ -32,6 +32,7 @@
 
 #ifdef CONFIG_SERIAL_TERMIOS
 #  include <termios.h>
+#  include <nuttx/fs/ioctl.h>
 #endif
 
 #include <nuttx/arch.h>
@@ -146,10 +147,11 @@ uart_dev_t g_uart_usbserial =
  * Name: esp32c3_interrupt
  *
  * Description:
- *   This is the common UART interrupt handler.  It will be invoked
- *   when an interrupt received on the device.  It should call
- *   uart_transmitchars or uart_receivechar to perform the appropriate data
- *   transfers.
+ *   This is the common UART interrupt handler.  It will be invoked when an
+ *   interrupt is received on the 'irq'.  It should call uart_xmitchars or
+ *   uart_recvchars to perform the appropriate data transfers.  The
+ *   interrupt handling logic must be able to map the 'arg' to the
+ *   appropriate uart_dev_s structure in order to call these functions.
  *
  ****************************************************************************/
 
@@ -275,9 +277,9 @@ static int esp32c3_attach(struct uart_dev_s *dev)
 
   /* Try to attach the IRQ to a CPU int */
 
-  priv->cpuint = esp32c3_request_irq(priv->periph,
-                                     ESP32C3_INT_PRIO_DEF,
-                                     ESP32C3_INT_LEVEL);
+  priv->cpuint = esp32c3_setup_irq(priv->periph,
+                                   ESP32C3_INT_PRIO_DEF,
+                                   ESP32C3_INT_LEVEL);
   if (priv->cpuint < 0)
     {
       return priv->cpuint;
@@ -288,11 +290,11 @@ static int esp32c3_attach(struct uart_dev_s *dev)
   ret = irq_attach(priv->irq, esp32c3_interrupt, dev);
   if (ret == OK)
     {
-      up_enable_irq(priv->cpuint);
+      up_enable_irq(priv->irq);
     }
   else
     {
-      up_disable_irq(priv->cpuint);
+      up_disable_irq(priv->irq);
     }
 
   return ret;
@@ -314,9 +316,9 @@ static void esp32c3_detach(struct uart_dev_s *dev)
 
   DEBUGASSERT(priv->cpuint != -ENOMEM);
 
-  up_disable_irq(priv->cpuint);
+  up_disable_irq(priv->irq);
   irq_detach(priv->irq);
-  esp32c3_free_cpuint(priv->periph);
+  esp32c3_teardown_irq(priv->periph, priv->cpuint);
 
   priv->cpuint = -ENOMEM;
 }

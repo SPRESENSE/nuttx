@@ -29,6 +29,8 @@
 #include <errno.h>
 #include <debug.h>
 
+#include <sys/param.h>
+
 #include <nuttx/spi/spi.h>
 #include <arch/board/board.h>
 
@@ -45,8 +47,6 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-#define ARRAYSIZE(x) (sizeof((x)) / sizeof((x)[0]))
-
 #if defined(CONFIG_NUCLEO_SPI1_TEST)
 #  if defined(CONFIG_NUCLEO_SPI1_TEST_MODE0)
 #    define CONFIG_NUCLEO_SPI1_TEST_MODE SPIDEV_MODE0
@@ -58,7 +58,7 @@
 #    define CONFIG_NUCLEO_SPI1_TEST_MODE SPIDEV_MODE3
 #  else
 #    error "No CONFIG_NUCLEO_SPI1_TEST_MODEx defined"
-# endif
+#  endif
 #endif
 
 #if defined(CONFIG_NUCLEO_SPI2_TEST)
@@ -72,7 +72,7 @@
 #    define CONFIG_NUCLEO_SPI2_TEST_MODE SPIDEV_MODE3
 #  else
 #    error "No CONFIG_NUCLEO_SPI2_TEST_MODEx defined"
-# endif
+#  endif
 #endif
 
 #if defined(CONFIG_NUCLEO_SPI3_TEST)
@@ -86,7 +86,7 @@
 #    define CONFIG_NUCLEO_SPI3_TEST_MODE SPIDEV_MODE3
 #  else
 #    error "No CONFIG_NUCLEO_SPI3_TEST_MODEx defined"
-# endif
+#  endif
 #endif
 
 /****************************************************************************
@@ -96,78 +96,78 @@
 #if defined(CONFIG_STM32L4_SPI1)
 static const uint32_t g_spi1gpio[] =
 {
-#if defined(GPIO_SPI1_CS0)
+#  if defined(GPIO_SPI1_CS0)
   GPIO_SPI1_CS0,
-#else
+#  else
   0,
-#endif
-#if defined(GPIO_SPI1_CS1)
+#  endif
+#  if defined(GPIO_SPI1_CS1)
   GPIO_SPI1_CS1,
-#else
+#  else
   0,
-#endif
-#if defined(GPIO_SPI1_CS2)
+#  endif
+#  if defined(GPIO_SPI1_CS2)
   GPIO_SPI1_CS2,
-#else
+#  else
   0,
-#endif
-#if defined(GPIO_SPI1_CS3)
+#  endif
+#  if defined(GPIO_SPI1_CS3)
   GPIO_SPI1_CS3
-#else
+#  else
   0
-#endif
+#  endif
 };
 #endif
 
 #if defined(CONFIG_STM32L4_SPI2)
 static const uint32_t g_spi2gpio[] =
 {
-#if defined(GPIO_SPI2_CS0)
+#  if defined(GPIO_SPI2_CS0)
   GPIO_SPI2_CS0,
-#else
+#  else
   0,
-#endif
-#if defined(GPIO_SPI2_CS1)
+#  endif
+#  if defined(GPIO_SPI2_CS1)
   GPIO_SPI2_CS1,
-#else
+#  else
   0,
-#endif
-#if defined(GPIO_SPI2_CS2)
+#  endif
+#  if defined(GPIO_SPI2_CS2)
   GPIO_SPI2_CS2,
-#else
+#  else
   0,
-#endif
-#if defined(GPIO_SPI2_CS3)
+#  endif
+#  if defined(GPIO_SPI2_CS3)
   GPIO_SPI2_CS3
-#else
+#  else
   0
-#endif
+#  endif
 };
 #endif
 
 #if defined(CONFIG_STM32L4_SPI3)
 static const uint32_t g_spi3gpio[] =
 {
-#if defined(GPIO_SPI3_CS0)
+#  if defined(GPIO_SPI3_CS0)
   GPIO_SPI3_CS0,
-#else
+#  else
   0,
-#endif
-#if defined(GPIO_SPI3_CS1)
+#  endif
+#  if defined(GPIO_SPI3_CS1)
   GPIO_SPI3_CS1,
-#else
+#  else
   0,
-#endif
-#if defined(GPIO_SPI3_CS2)
+#  endif
+#  if defined(GPIO_SPI3_CS2)
   GPIO_SPI3_CS2,
-#else
+#  else
   0,
-#endif
-#if defined(GPIO_SPI3_CS3)
+#  endif
+#  if defined(GPIO_SPI3_CS3)
   GPIO_SPI3_CS3
-#else
+#  else
   0
-#endif
+#  endif
 };
 #endif
 
@@ -200,7 +200,7 @@ void weak_function stm32_spidev_initialize(void)
   /* Configure SPI CS GPIO for output */
 
 #if defined(CONFIG_STM32L4_SPI1)
-  for (int i = 0; i < ARRAYSIZE(g_spi1gpio); i++)
+  for (int i = 0; i < nitems(g_spi1gpio); i++)
     {
       if (g_spi1gpio[i] != 0)
         {
@@ -210,7 +210,7 @@ void weak_function stm32_spidev_initialize(void)
 #endif
 
 #if defined(CONFIG_STM32L4_SPI2)
-  for (int i = 0; i < ARRAYSIZE(g_spi2gpio); i++)
+  for (int i = 0; i < nitems(g_spi2gpio); i++)
     {
       if (g_spi2gpio[i] != 0)
         {
@@ -220,7 +220,7 @@ void weak_function stm32_spidev_initialize(void)
 #endif
 
 #if defined(CONFIG_STM32L4_SPI3)
-  for (int i = 0; i < ARRAYSIZE(g_spi3gpio); i++)
+  for (int i = 0; i < nitems(g_spi3gpio); i++)
     {
       if (g_spi3gpio[i] != 0)
         {
@@ -387,7 +387,7 @@ int stm32_spidev_bus_test(void)
   SPI_SETFREQUENCY(spi1, CONFIG_NUCLEO_SPI1_TEST_FREQ);
   SPI_SETBITS(spi1, CONFIG_NUCLEO_SPI1_TEST_BITS);
   SPI_SETMODE(spi1, CONFIG_NUCLEO_SPI1_TEST_MODE);
-  SPI_EXCHANGE(spi1, tx, NULL, ARRAYSIZE(CONFIG_NUCLEO_SPI_TEST_MESSAGE));
+  SPI_EXCHANGE(spi1, tx, NULL, nitems(CONFIG_NUCLEO_SPI_TEST_MESSAGE));
 #endif
 
 #if defined(CONFIG_NUCLEO_SPI2_TEST)
@@ -404,7 +404,7 @@ int stm32_spidev_bus_test(void)
   SPI_SETFREQUENCY(spi2, CONFIG_NUCLEO_SPI2_TEST_FREQ);
   SPI_SETBITS(spi2, CONFIG_NUCLEO_SPI2_TEST_BITS);
   SPI_SETMODE(spi2, CONFIG_NUCLEO_SPI2_TEST_MODE);
-  SPI_EXCHANGE(spi2, tx, NULL, ARRAYSIZE(CONFIG_NUCLEO_SPI_TEST_MESSAGE));
+  SPI_EXCHANGE(spi2, tx, NULL, nitems(CONFIG_NUCLEO_SPI_TEST_MESSAGE));
 #endif
 
 #if defined(CONFIG_NUCLEO_SPI3_TEST)
@@ -421,7 +421,7 @@ int stm32_spidev_bus_test(void)
   SPI_SETFREQUENCY(spi3, CONFIG_NUCLEO_SPI3_TEST_FREQ);
   SPI_SETBITS(spi3, CONFIG_NUCLEO_SPI3_TEST_BITS);
   SPI_SETMODE(spi3, CONFIG_NUCLEO_SPI3_TEST_MODE);
-  SPI_EXCHANGE(spi3, tx, NULL, ARRAYSIZE(CONFIG_NUCLEO_SPI_TEST_MESSAGE));
+  SPI_EXCHANGE(spi3, tx, NULL, nitems(CONFIG_NUCLEO_SPI_TEST_MESSAGE));
 #endif
 
   return OK;

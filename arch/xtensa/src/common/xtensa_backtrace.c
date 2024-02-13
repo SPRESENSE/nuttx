@@ -57,7 +57,7 @@ struct xtensa_windowregs_s
  ****************************************************************************/
 
 static void inline get_window_regs(struct xtensa_windowregs_s *frame)
-inline_function;
+always_inline_function;
 
 /****************************************************************************
  * Private Functions
@@ -105,6 +105,7 @@ static void get_window_regs(struct xtensa_windowregs_s *frame)
  ****************************************************************************/
 
 #ifndef __XTENSA_CALL0_ABI__
+nosanitize_address
 static int backtrace_window(uintptr_t *base, uintptr_t *limit,
                             struct xtensa_windowregs_s *frame,
                             void **buffer, int size, int *skip)
@@ -155,6 +156,7 @@ static int backtrace_window(uintptr_t *base, uintptr_t *limit,
  *
  ****************************************************************************/
 
+nosanitize_address
 static int backtrace_stack(uintptr_t *base, uintptr_t *limit,
                            uintptr_t *sp, uintptr_t *ra,
                            void **buffer, int size, int *skip)
@@ -237,7 +239,7 @@ int up_backtrace(struct tcb_s *tcb, void **buffer, int size, int skip)
 #ifdef CONFIG_SMP
           istackbase = xtensa_intstack_alloc();
 #else
-          istackbase = &g_intstackalloc;
+          istackbase = g_intstackalloc;
 #endif
           xtensa_window_spill();
 

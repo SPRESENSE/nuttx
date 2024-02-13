@@ -24,8 +24,10 @@
 
 #include <nuttx/config.h>
 
+#include <sys/param.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/mount.h>
 #include <stdint.h>
 #include <fcntl.h>
 #include <string.h>
@@ -36,15 +38,12 @@
 #include <nuttx/kmalloc.h>
 #include <nuttx/fs/fs.h>
 #include <nuttx/fs/ioctl.h>
+#include <nuttx/fs/loopmtd.h>
 #include <nuttx/mtd/mtd.h>
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
-
-#ifndef MIN
-#  define MIN(a, b) (((a) < (b)) ? (a) : (b))
-#endif
 
 /* Configuration ************************************************************/
 
@@ -99,27 +98,52 @@ struct file_dev_s
  ****************************************************************************/
 
 static ssize_t filemtd_read(FAR struct file_dev_s *priv,
-                 FAR unsigned char *buffer, size_t offsetbytes,
-                 unsigned int nbytes);
+                            FAR unsigned char *buffer, size_t offsetbytes,
+                            unsigned int nbytes);
 static ssize_t filemtd_write(FAR struct file_dev_s *priv, size_t offset,
-                 FAR const void *src, size_t len);
+                             FAR const void *src, size_t len);
 
 /* MTD driver methods */
 
-static int     filemtd_erase(FAR struct mtd_dev_s *dev, off_t startblock,
-                 size_t nblocks);
+static int filemtd_erase(FAR struct mtd_dev_s *dev, off_t startblock,
+                         size_t nblocks);
 static ssize_t filemtd_bread(FAR struct mtd_dev_s *dev, off_t startblock,
-                 size_t nblocks, FAR uint8_t *buf);
+                             size_t nblocks, FAR uint8_t *buf);
 static ssize_t filemtd_bwrite(FAR struct mtd_dev_s *dev, off_t startblock,
-                 size_t nblocks, FAR const uint8_t *buf);
+                              size_t nblocks, FAR const uint8_t *buf);
 static ssize_t filemtd_byteread(FAR struct mtd_dev_s *dev, off_t offset,
-                 size_t nbytes, FAR uint8_t *buf);
+                                size_t nbytes, FAR uint8_t *buf);
 #ifdef CONFIG_MTD_BYTE_WRITE
 static ssize_t file_bytewrite(FAR struct mtd_dev_s *dev, off_t offset,
-                 size_t nbytes, FAR const uint8_t *buf);
+                              size_t nbytes, FAR const uint8_t *buf);
 #endif
-static int     filemtd_ioctl(FAR struct mtd_dev_s *dev, int cmd,
-                 unsigned long arg);
+static int filemtd_ioctl(FAR struct mtd_dev_s *dev, int cmd,
+                         unsigned long arg);
+
+#ifdef CONFIG_MTD_LOOP
+static ssize_t mtd_loop_read(FAR struct file *filep, FAR char *buffer,
+                             size_t buflen);
+static ssize_t mtd_loop_write(FAR struct file *filep,
+                              FAR const char *buffer, size_t buflen);
+static int     mtd_loop_ioctl(FAR struct file *filep, int cmd,
+                              unsigned long arg);
+#endif /* CONFIG_MTD_LOOP */
+
+/****************************************************************************
+ * Private Data
+ ****************************************************************************/
+
+#ifdef CONFIG_MTD_LOOP
+static const struct file_operations g_fops =
+{
+  NULL,                 /* open */
+  NULL,                 /* close */
+  mtd_loop_read,        /* read */
+  mtd_loop_write,       /* write */
+  NULL,                 /* seek */
+  mtd_loop_ioctl,       /* ioctl */
+};
+#endif /* CONFIG_MTD_LOOP */
 
 /****************************************************************************
  * Private Functions
@@ -443,6 +467,8 @@ static int filemtd_ioctl(FAR struct mtd_dev_s *dev, int cmd,
 
           if (geo)
             {
+              memset(geo, 0, sizeof(*geo));
+
               /* Populate the geometry structure with information need to
                * know the capacity and how to access the device.
                */
@@ -497,33 +523,222 @@ static int filemtd_ioctl(FAR struct mtd_dev_s *dev, int cmd,
 }
 
 /****************************************************************************
+ * Name: mtd_loop_setup
+ *
+ * Description: Dynamically setups up a FILEMTD enabled loop device that
+ *              is backed by a file.  The resulting loop device is a
+ *              MTD type block device vs. a generic block device.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_MTD_LOOP
+static int mtd_loop_setup(FAR const char *devname, FAR const char *filename,
+                          int sectsize, int erasesize, off_t offset)
+{
+  FAR struct mtd_dev_s *mtd;
+  int ret;
+
+  mtd = filemtd_initialize(filename, offset, sectsize, erasesize);
+  if (mtd == NULL)
+    {
+      return -ENOENT;
+    }
+
+  ret = register_mtddriver(devname, mtd, 0755, NULL);
+  if (ret != OK)
+    {
+      filemtd_teardown(mtd);
+    }
+
+  return ret;
+}
+#endif /* CONFIG_MTD_LOOP */
+
+/****************************************************************************
+ * Name: mtd_loop_teardown
+ *
+ * Description:
+ *   Undo the setup performed by loopmtd_setup
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_MTD_LOOP
+static int mtd_loop_teardown(FAR const char *devname)
+{
+  FAR struct file_dev_s *dev;
+  FAR struct inode *inode;
+  int ret;
+
+  /* Find the reference to the inode by devname */
+
+  ret = find_mtddriver(devname, &inode);
+  if (ret < 0)
+    {
+      ferr("ERROR: Failed to find %s: %d\n", devname, -ret);
+      return ret;
+    }
+
+  /* Inode private data is a reference to the loop device structure */
+
+  dev = (FAR struct file_dev_s *)inode->u.i_mtd;
+
+  /* Validate this is a filemtd backended device */
+
+  if (!filemtd_isfilemtd(&dev->mtd))
+    {
+      ferr("ERROR: Device is not a FILEMTD loop: %s\n", devname);
+      close_mtddriver(inode);
+      return -EINVAL;
+    }
+
+  close_mtddriver(inode);
+
+  /* Now teardown the filemtd */
+
+  filemtd_teardown(&dev->mtd);
+  unregister_mtddriver(devname);
+
+  return OK;
+}
+#endif /* CONFIG_MTD_LOOP */
+
+/****************************************************************************
+ * Name: mtd_loop_read
+ ****************************************************************************/
+
+#ifdef CONFIG_MTD_LOOP
+static ssize_t mtd_loop_read(FAR struct file *filep, FAR char *buffer,
+                             size_t len)
+{
+  return 0; /* Return EOF */
+}
+#endif /* CONFIG_MTD_LOOP */
+
+/****************************************************************************
+ * Name: mtd_loop_write
+ ****************************************************************************/
+
+#ifdef CONFIG_MTD_LOOP
+static ssize_t mtd_loop_write(FAR struct file *filep,
+                              FAR const char *buffer, size_t len)
+{
+  return len; /* Say that everything was written */
+}
+#endif /* CONFIG_MTD_LOOP */
+
+/****************************************************************************
+ * Name: mtd_loop_ioctl
+ ****************************************************************************/
+
+#ifdef CONFIG_MTD_LOOP
+static int mtd_loop_ioctl(FAR struct file *filep, int cmd,
+                          unsigned long arg)
+{
+  int ret;
+
+  switch (cmd)
+    {
+    /* Command:      LOOPIOC_SETUP
+     * Description:  Setup the loop device
+     * Argument:     A pointer to a read-only instance of struct losetup_s.
+     * Dependencies: The loop device must be enabled (CONFIG_MTD_LOOP=y)
+     */
+
+    case MTD_LOOPIOC_SETUP:
+      {
+        FAR struct mtd_losetup_s *setup =
+          (FAR struct mtd_losetup_s *)((uintptr_t)arg);
+
+        if (setup == NULL)
+          {
+            ret = -EINVAL;
+          }
+        else
+          {
+            ret = mtd_loop_setup(setup->devname, setup->filename,
+                                 setup->sectsize, setup->erasesize,
+                                 setup->offset);
+          }
+      }
+      break;
+
+    /* Command:      LOOPIOC_TEARDOWN
+     * Description:  Teardown a loop device previously setup via
+     *               LOOPIOC_SETUP
+     * Argument:     A read-able pointer to the path of the device to be
+     *               torn down
+     * Dependencies: The loop device must be enabled (CONFIG_MTD_LOOP=y)
+     */
+
+    case MTD_LOOPIOC_TEARDOWN:
+      {
+        FAR const char *devname = (FAR const char *)((uintptr_t)arg);
+
+        if (devname == NULL)
+          {
+            ret = -EINVAL;
+          }
+        else
+          {
+            ret = mtd_loop_teardown(devname);
+          }
+       }
+       break;
+
+     default:
+       ret = -ENOTTY;
+    }
+
+  return ret;
+}
+#endif /* CONFIG_MTD_LOOP */
+
+/****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: blockmtd_initialize
+ * Name: filemtd_initialize
  *
  * Description:
- *   Create and initialize a BLOCK MTD device instance.
+ *   Create and initialize a FILE MTD device instance.
  *
  * Input Parameters:
- *   path - Path name of the block device backing the MTD device
+ *   path - Path name of the file backing the MTD device
  *
  ****************************************************************************/
 
-FAR struct mtd_dev_s *blockmtd_initialize(FAR const char *path,
-                                          size_t offset, size_t mtdlen,
-                                          int16_t sectsize,
-                                          int32_t erasesize)
+FAR struct mtd_dev_s *filemtd_initialize(FAR const char *path, size_t offset,
+                                         int16_t sectsize, int32_t erasesize)
 {
   FAR struct file_dev_s *priv;
+  struct stat sb;
   size_t nblocks;
+  size_t filelen;
   int mode;
   int ret;
 
+  /* Stat the file */
+
+  ret = nx_stat(path, &sb, 1);
+  if (ret < 0)
+    {
+      ferr("ERROR: Failed to stat %s: %d\n", path, ret);
+      return NULL;
+    }
+
+  filelen = sb.st_size;
+  if (offset > filelen)
+    {
+      ferr("ERROR: Offset beyond end of file\n");
+      return NULL;
+    }
+
+  filelen = filelen - offset;
+
   /* Create an instance of the FILE MTD device state structure */
 
-  priv = (FAR struct file_dev_s *)kmm_zalloc(sizeof(struct file_dev_s));
+  priv = kmm_zalloc(sizeof(struct file_dev_s));
   if (!priv)
     {
       ferr("ERROR: Failed to allocate the FILE MTD state structure\n");
@@ -532,7 +747,7 @@ FAR struct mtd_dev_s *blockmtd_initialize(FAR const char *path,
 
   /* Set the file open mode. */
 
-  mode = O_RDOK | O_WROK;
+  mode = O_RDOK | O_WROK | O_CLOEXEC;
 
   /* Try to open the file.  NOTE that block devices will use a character
    * driver proxy.
@@ -579,7 +794,7 @@ FAR struct mtd_dev_s *blockmtd_initialize(FAR const char *path,
 
   /* Force the size to be an even number of the erase block size */
 
-  nblocks = mtdlen / priv->erasesize;
+  nblocks = filelen / priv->erasesize;
   if (nblocks < 3)
     {
       ferr("ERROR: Need to provide at least three full erase block\n");
@@ -608,17 +823,17 @@ FAR struct mtd_dev_s *blockmtd_initialize(FAR const char *path,
 }
 
 /****************************************************************************
- * Name: blockmtd_teardown
+ * Name: filemtd_teardown
  *
  * Description:
- *   Teardown a previously created blockmtd device.
+ *   Teardown a previously created filemtd device.
  *
  * Input Parameters:
  *   dev - Pointer to the mtd driver instance.
  *
  ****************************************************************************/
 
-void blockmtd_teardown(FAR struct mtd_dev_s *dev)
+void filemtd_teardown(FAR struct mtd_dev_s *dev)
 {
   FAR struct file_dev_s *priv = (FAR struct file_dev_s *)dev;
 
@@ -638,65 +853,10 @@ void blockmtd_teardown(FAR struct mtd_dev_s *dev)
 }
 
 /****************************************************************************
- * Name: filemtd_initialize
- *
- * Description:
- *   Create and initialize a FILE MTD device instance.
- *
- * Input Parameters:
- *   path - Path name of the file backing the MTD device
- *
- ****************************************************************************/
-
-FAR struct mtd_dev_s *filemtd_initialize(FAR const char *path, size_t offset,
-                                         int16_t sectsize, int32_t erasesize)
-{
-  size_t filelen;
-  struct stat sb;
-  int ret;
-
-  /* Stat the file */
-
-  ret = nx_stat(path, &sb, 1);
-  if (ret < 0)
-    {
-      ferr("ERROR: Failed to stat %s: %d\n", path, ret);
-      return NULL;
-    }
-
-  filelen = sb.st_size;
-
-  if (offset > filelen)
-    {
-      ferr("ERROR: Offset beyond end of file\n");
-      return NULL;
-    }
-
-  return blockmtd_initialize(path, offset, filelen - offset, sectsize,
-                             erasesize);
-}
-
-/****************************************************************************
- * Name: filemtd_teardown
- *
- * Description:
- *   Teardown a previously created filemtd device.
- *
- * Input Parameters:
- *   dev - Pointer to the mtd driver instance.
- *
- ****************************************************************************/
-
-void filemtd_teardown(FAR struct mtd_dev_s *dev)
-{
-  blockmtd_teardown(dev);
-}
-
-/****************************************************************************
  * Name: filemtd_isfilemtd
  *
  * Description:
- *   Tests if the provided mtd is a filemtd or blockmtd device.
+ *   Tests if the provided mtd is a filemtd device.
  *
  * Input Parameters:
  *   mtd - Pointer to the mtd.
@@ -709,3 +869,17 @@ bool filemtd_isfilemtd(FAR struct mtd_dev_s *dev)
 
   return (priv->mtd.erase == filemtd_erase);
 }
+
+/****************************************************************************
+ * Name: mtd_loop_register_driver
+ *
+ * Description:
+ *   Registers MTD Loop Driver
+ ****************************************************************************/
+
+#ifdef CONFIG_MTD_LOOP
+int mtd_loop_register(void)
+{
+  return register_driver("/dev/loopmtd", &g_fops, 0666, NULL);
+}
+#endif

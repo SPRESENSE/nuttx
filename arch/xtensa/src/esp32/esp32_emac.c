@@ -37,7 +37,7 @@
 #include <arpa/inet.h>
 #include <net/if.h>
 
-#include <crc8.h>
+#include <nuttx/crc8.h>
 #include <nuttx/wdog.h>
 #include <nuttx/irq.h>
 #include <nuttx/arch.h>
@@ -48,7 +48,6 @@
 #include <nuttx/net/ioctl.h>
 #include <nuttx/net/net.h>
 #include <nuttx/net/mii.h>
-#include <nuttx/net/arp.h>
 #include <nuttx/net/netdev.h>
 
 #ifdef CONFIG_NET_PKT
@@ -147,7 +146,9 @@
 
 /* Reset PHY chip pins */
 
-#define EMAC_PHYRST_PIN         (CONFIG_ESP32_ETH_PHY_RSTPIN)
+#ifdef CONFIG_ESP32_ETH_ENABLE_PHY_RSTPIN
+#  define EMAC_PHYRST_PIN       (CONFIG_ESP32_ETH_PHY_RSTPIN)
+#endif
 
 /* PHY chip address in SMI bus */
 
@@ -166,13 +167,6 @@
 #define ETHWORK                 LPWORK
 
 /* Operation ****************************************************************/
-
-/* Get smaller values */
-
-#ifdef MIN
-#  undef MIN
-#  define MIN(a,b) (((a)<(b))?(a):(b))
-#endif
 
 /* Check if current TX description is busy */
 
@@ -476,6 +470,29 @@ static int emac_read_mac(uint8_t *mac)
       return -EINVAL;
     }
 
+#ifdef CONFIG_ESP_MAC_ADDR_UNIVERSE_ETH
+  mac[5] += 3;
+#else
+  mac[5] += 1;
+  uint8_t tmp = mac[0];
+  for (i = 0; i < 64; i++)
+    {
+      mac[0] = tmp | 0x02;
+      mac[0] ^= i << 2;
+
+      if (mac[0] != tmp)
+        {
+          break;
+        }
+    }
+
+  if (i >= 64)
+    {
+      wlerr("Failed to generate ethernet MAC\n");
+      return -1;
+    }
+#endif
+
   return 0;
 }
 
@@ -512,7 +529,9 @@ static void emac_init_gpio(void)
   esp32_gpio_matrix_out(EMAC_MDIO_PIN, EMAC_MDO_O_IDX, 0, 0);
   esp32_gpio_matrix_in(EMAC_MDIO_PIN, EMAC_MDI_I_IDX, 0);
 
+#ifdef CONFIG_ESP32_ETH_ENABLE_PHY_RSTPIN
   esp32_configgpio(EMAC_PHYRST_PIN, OUTPUT | PULLUP);
+#endif
 }
 
 /****************************************************************************
@@ -539,11 +558,14 @@ static int emac_config(void)
   uint32_t regval;
   uint8_t macaddr[6];
 
+#ifdef CONFIG_ESP32_ETH_ENABLE_PHY_RSTPIN
+
   /* Hardware reset PHY chip */
 
   esp32_gpiowrite(EMAC_PHYRST_PIN, false);
   nxsig_usleep(50);
   esp32_gpiowrite(EMAC_PHYRST_PIN, true);
+#endif
 
   /* Open hardware clock */
 
@@ -1370,11 +1392,8 @@ static void emac_rx_interrupt_work(void *arg)
         {
           ninfo("IPv4 frame\n");
 
-          /* Handle ARP on input then give the IPv4 packet to the network
-           * layer
-           */
+          /* Receive an IPv4 packet from the network device */
 
-          arp_ipin(&priv->dev);
           ipv4_input(&priv->dev);
 
           /* If the above function invocation resulted in data that should be
@@ -1383,21 +1402,6 @@ static void emac_rx_interrupt_work(void *arg)
 
           if (priv->dev.d_len > 0)
             {
-              /* Update the Ethernet header with the correct MAC address */
-
-#ifdef CONFIG_NET_IPv6
-              if (IFF_IS_IPv4(priv->dev.d_flags))
-#endif
-                {
-                  arp_out(&priv->dev);
-                }
-#ifdef CONFIG_NET_IPv6
-              else
-                {
-                  neighbor_out(&priv->dev);
-                }
-#endif
-
               /* And send the packet */
 
               emac_transmit(priv);
@@ -1420,21 +1424,6 @@ static void emac_rx_interrupt_work(void *arg)
 
           if (priv->dev.d_len > 0)
             {
-              /* Update the Ethernet header with the correct MAC address */
-
-#ifdef CONFIG_NET_IPv4
-              if (IFF_IS_IPv4(priv->dev.d_flags))
-                {
-                  arp_out(&priv->dev);
-                }
-              else
-#endif
-#ifdef CONFIG_NET_IPv6
-                {
-                  neighbor_out(&priv->dev);
-                }
-#endif
-
               /* And send the packet */
 
               emac_transmit(priv);
@@ -1449,7 +1438,7 @@ static void emac_rx_interrupt_work(void *arg)
 
           /* Handle ARP packet */
 
-          arp_arpin(&priv->dev);
+          arp_input(&priv->dev);
 
           /* If the above function invocation resulted in data that should be
            * sent out on the network, the field d_len will set to a value > 0
@@ -1583,66 +1572,32 @@ static int emac_txpoll(struct net_driver_s *dev)
 
   DEBUGASSERT(priv->dev.d_buf != NULL);
 
-  /* If the polling resulted in data that should be sent out on the network,
-   * the field d_len is set to a value == 0.
+  /* Send the packet */
+
+  emac_transmit(priv);
+  DEBUGASSERT(dev->d_len == 0 && dev->d_buf == NULL);
+
+  /* Check if the current TX descriptor is owned by the Ethernet DMA
+   * or CPU. We cannot perform the TX poll if we are unable to accept
+   * another packet for transmission.
    */
 
-  if (priv->dev.d_len == 0)
+  if (TX_IS_BUSY(priv))
     {
-      return 0;
-    }
-
-  /* Look up the destination MAC address and add it to the Ethernet
-   * header.
-   */
-
-#ifdef CONFIG_NET_IPv4
-#ifdef CONFIG_NET_IPv6
-  if (IFF_IS_IPv4(priv->dev.d_flags))
-#endif
-    {
-      arp_out(&priv->dev);
-    }
-#endif /* CONFIG_NET_IPv4 */
-
-#ifdef CONFIG_NET_IPv6
-#ifdef CONFIG_NET_IPv4
-  else
-#endif
-    {
-      neighbor_out(&priv->dev);
-    }
-#endif /* CONFIG_NET_IPv6 */
-
-  if (!devif_loopback(&priv->dev))
-    {
-      /* Send the packet */
-
-      emac_transmit(priv);
-      DEBUGASSERT(dev->d_len == 0 && dev->d_buf == NULL);
-
-      /* Check if the current TX descriptor is owned by the Ethernet DMA
-       * or CPU. We cannot perform the TX poll if we are unable to accept
-       * another packet for transmission.
+      /* We have to terminate the poll if we have no more descriptors
+       * available for another transfer.
        */
 
-      if (TX_IS_BUSY(priv))
-        {
-          /* We have to terminate the poll if we have no more descriptors
-           * available for another transfer.
-           */
-
-          return -EBUSY;
-        }
-
-      dev->d_buf = (uint8_t *)emac_alloc_buffer(priv);
-      if (dev->d_buf == NULL)
-        {
-          return -ENOMEM;
-        }
-
-      dev->d_len = EMAC_BUF_LEN;
+      return -EBUSY;
     }
+
+  dev->d_buf = (uint8_t *)emac_alloc_buffer(priv);
+  if (dev->d_buf == NULL)
+    {
+      return -ENOMEM;
+    }
+
+  dev->d_len = EMAC_BUF_LEN;
 
   /* If zero is returned, the polling will continue until all connections
    * have been examined.
@@ -2050,10 +2005,8 @@ static int emac_ioctl(struct net_driver_s *dev, int cmd, unsigned long arg)
     }
 
   return ret;
-#else
-  return -EINVAL;
-#endif /* CONFIG_NETDEV_IOCTL */
 }
+#endif /* CONFIG_NETDEV_IOCTL */
 
 /****************************************************************************
  * Public Functions
@@ -2141,7 +2094,7 @@ error:
 }
 
 /****************************************************************************
- * Function: up_netinitialize
+ * Function: xtensa_netinitialize
  *
  * Description:
  *   This is the "standard" network initialization logic called from the
@@ -2156,7 +2109,7 @@ error:
  ****************************************************************************/
 
 #if !defined(CONFIG_NETDEV_LATEINIT)
-void up_netinitialize(void)
+void xtensa_netinitialize(void)
 {
   esp32_emac_init();
 }

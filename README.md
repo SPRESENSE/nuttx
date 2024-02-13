@@ -1,7 +1,6 @@
-# APACHE NUTTX (INCUBATING)
+# APACHE NUTTX
 
 * Introduction
-  - Incubation Status
 * Community
   - Getting Help
   - Mailing Lists
@@ -47,25 +46,18 @@
 
 # INTRODUCTION
 
-Apache NuttX (Incubating) is a real-time operating system (RTOS) with an
-emphasis on standards compliance and small footprint.  Scalable from 8-bit
-to 32-bit microcontroller environments, the primary governing standards in
-NuttX are POSIX and ANSI standards. Additional standard APIs from Unix and
-other common RTOSs (such as VxWorks) are adopted for functionality not
-available under these standards, or for functionality that is not
-appropriate for deeply-embedded environments (such as fork()).
+Apache NuttX is a real-time operating system (RTOS) with an emphasis on
+standards compliance and small footprint. Scalable from 8-bit to 64-bit
+microcontroller environments, the primary governing standards in NuttX are
+POSIX and ANSI standards. Additional standard APIs from Unix and other
+common RTOSs (such as VxWorks) are adopted for functionality not available
+under these standards, or for functionality that is not appropriate for
+deeply-embedded environments (such as fork()).
 
 Extensive documentation can be found on the project wiki:
   <https://cwiki.apache.org/NUTTX/NuttX>
 
-## Incubation Status
-
-Apache NuttX (Incubating) is an effort undergoing Incubation at The Apache
-Software Foundation (ASF), sponsored by the Incubator.  For more on our
-incubation effort, please see the file DISCLAIMER-WIP, in the same
-directory as this README.
-
-For brevity, the rest of this file will refer to it as Apache NuttX or
+For brevity, many parts of the documentation will refer to Apache NuttX as
 simply NuttX.
 
 # COMMUNITY
@@ -132,26 +124,26 @@ into future releases.
 
 ## Source Code
 
-The project sources are in two Git repositories.  The core OS is in
-incubator-nuttx and the apps repository is in incubator-nuttx-apps.  These
-are housed in GitBox on ASF servers and also mirrored at GitHub.  These
-are kept in sync, so you can use whichever option you prefer.
+The project sources are in two Git repositories.  The core OS is in nuttx
+and the apps repository is in nuttx-apps.  These are housed in GitBox on
+ASF servers and also mirrored at GitHub.  These are kept in sync, so you
+can use whichever option you prefer.
 
   - NuttX core OS repository:
 
     - Primary:
-      <https://gitbox.apache.org/repos/asf?p=incubator-nuttx.git>
+      <https://gitbox.apache.org/repos/asf?p=nuttx.git>
 
     - GitHub Mirror:
-      <https://github.com/apache/incubator-nuttx>
+      <https://github.com/apache/nuttx>
 
   - Apps repository:
 
     - Primary:
-      <https://gitbox.apache.org/repos/asf?p=incubator-nuttx-apps.git>
+      <https://gitbox.apache.org/repos/asf?p=nuttx-apps.git>
 
     - GitHub Mirror:
-      <https://github.com/apache/incubator-nuttx-apps>
+      <https://github.com/apache/nuttx-apps>
 
 ## Website Source Code
 
@@ -159,10 +151,10 @@ The project website sources are accessible via the website source code
   repository which is also mirrored in GitHub:
 
 - Primary:
-  <https://gitbox.apache.org/repos/asf?p=incubator-nuttx-website.git>
+  <https://gitbox.apache.org/repos/asf?p=nuttx-website.git>
 
 - GitHub Mirror:
-  <https://github.com/apache/incubator-nuttx-website>
+  <https://github.com/apache/nuttx-website>
 
 # ENVIRONMENTS
 
@@ -530,8 +522,16 @@ framework like GTK or Qt.  So this might be a trip down the rabbit hole.
 
 ### Using macOS
 
-You need to install at least the following tools specific to macOS
-if you want to build the sim:
+You need to install at least the following tools specific to macOS.
+
+  * flock (used by APPDIR build logic)
+
+A macOS port is available at: <https://github.com/discoteq/flock>
+
+    brew tap discoteq/discoteq
+    brew install flock
+
+  If you want to build the sim:
 
   * Xcode (the native compiler and the rest of the toolchain)
 
@@ -633,19 +633,19 @@ The current NuttX du jour is available in from a GIT repository.  Here are
 instructions for cloning the core NuttX RTOS (corresponding to the nuttx
 tarball discussed above):
 
-    git clone https://gitbox.apache.org/repos/asf/incubator-nuttx.git nuttx
+    git clone https://gitbox.apache.org/repos/asf/nuttx.git nuttx
 
 -or-
 
-    git clone https://github.com/apache/incubator-nuttx.git nuttx
+    git clone https://github.com/apache/nuttx.git nuttx
 
 And the semi-optional apps/ application directory and be cloned like:
 
-    git clone https://gitbox.apache.org/repos/asf/incubator-nuttx-apps.git apps
+    git clone https://gitbox.apache.org/repos/asf/nuttx-apps.git apps
 
 -or-
 
-    git clone https://github.com/apache/incubator-nuttx-apps.git apps
+    git clone https://github.com/apache/nuttx-apps.git apps
 
 That will give you the same directory structure like this:
 
@@ -687,9 +687,9 @@ some scripts like configure.sh. Before cloning, do the following:
 
 These are standalone repositories:
 
-  * <https://gitbox.apache.org/repos/asf/incubator-nuttx-apps>
+  * <https://gitbox.apache.org/repos/asf/nuttx-apps>
     or
-    <https://github.com/apache/incubator-nuttx-apps.git>
+    <https://github.com/apache/nuttx-apps.git>
 
     This directory holds an optional package of applications and libraries
     can be used with the NuttX RTOS.  There is a README.txt file there that
@@ -961,6 +961,24 @@ This make target will bring up NuttX configuration menus.
 not been converted to use the kconfig-frontends tools!  This will
 damage your configuration (see
 <https://cwiki.apache.org/confluence/display/NUTTX/Converting+Legacy+Configurations+to+Use+kconfig-mconf>).
+
+NuttX also supports kconfiglib(https://github.com/ulfalizer/Kconfiglib) by default,
+which is a Kconfig tool implemented in Python 2/3. Compared with kconfig-frontends,
+kconfiglib provides NuttX with the possibility of multi-platform support(configure
+NuttX in Winodws native/Visual Studio), and also kconfiglib has a stronger Kconfig
+syntax check, this will help developers to avoid some Kconfig syntax errors.
+Install kconfiglib via following command:
+
+    pip install kconfiglib
+
+If you are a working on Windows, which also need the support of windows-curses:
+
+    pip install windows-curses
+
+**NOTE**:  It should be noted that kconfiglib does not support **modules** attributes.
+(<https://github.com/ulfalizer/Kconfiglib/blob/master/kconfiglib.py#L3239-L3254>,
+the community seems to have stopped updating), if the features depends on
+`CONFIG_BUILD_LOADABLE`, kconfiglib may not be a good choice.
 
 How do we tell a new configuration from an old one? See "Incompatibilities
 with Older Configurations" below.
@@ -1402,7 +1420,7 @@ damage your configuration (see
   toolchains.  If you are using the older OABI toolchain the prefix for
   the tools will be `arm-nuttx-elf-`; for the EABI toolchain the prefix will
   be `arm-nuttx-eabi-`. If you are using the older OABI toolchain with
-  an ARM Cortex-M3/4, you will need to set CONFIG_ARMV7M_OABI_TOOLCHAIN
+  an ARM Cortex-M3/4, you will need to set CONFIG_ARM_TOOLCHAIN_BUILDROOT_OABI
   in the `.config` file in order to pick the right tool prefix.
 
   If the make system ever picks the wrong prefix for your toolchain, you

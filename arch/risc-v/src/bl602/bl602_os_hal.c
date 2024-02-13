@@ -55,6 +55,7 @@
 #include <nuttx/pthread.h>
 #include <nuttx/wqueue.h>
 #include <nuttx/signal.h>
+#include <nuttx/mutex.h>
 #include <nuttx/semaphore.h>
 
 #include <bl602_netdev.h>
@@ -324,7 +325,7 @@ int bl_os_task_create(const char *name,
                       uint32_t prio,
                       void *task_handle)
 {
-  return nxtask_create(name, prio, stack_depth, entry, (char **)&param);
+  return kthread_create(name, prio, stack_depth, entry, (char **)&param);
 }
 
 /****************************************************************************
@@ -358,7 +359,7 @@ void bl_os_task_delete(void *task_handle)
 
 void *bl_os_task_get_current_task(void)
 {
-  pid_t pid = getpid();
+  pid_t pid = nxsched_getpid();
 
   return (void *)((uintptr_t)pid);
 }
@@ -687,8 +688,7 @@ void *bl_os_mq_creat(uint32_t queue_len, uint32_t item_size)
   struct mq_adpt *mq_adpt;
   int ret;
 
-  mq_adpt = (struct mq_adpt *)kmm_malloc(sizeof(struct mq_adpt));
-
+  mq_adpt = kmm_malloc(sizeof(struct mq_adpt));
   if (!mq_adpt)
     {
       wlerr("ERROR: Failed to kmm_malloc\n");
@@ -930,10 +930,7 @@ static void bl_os_timer_callback(wdparm_t arg)
 
 void *bl_os_timer_create(void *func, void *argv)
 {
-  struct timer_adpt *timer;
-
-  timer = (struct timer_adpt *)kmm_malloc(sizeof(struct timer_adpt));
-
+  struct timer_adpt *timer = kmm_malloc(sizeof(struct timer_adpt));
   if (!timer)
     {
       assert(0);
@@ -1066,9 +1063,7 @@ int bl_os_timer_start_periodic(void *timerid, long t_sec, long t_nsec)
 
 void *bl_os_workqueue_create(void)
 {
-  struct work_s *work = NULL;
-  work = (struct work_s *)kmm_calloc(1, sizeof(struct work_s));
-
+  struct work_s *work = kmm_calloc(1, sizeof(struct work_s));
   if (!work)
     {
       assert(0);
@@ -1214,7 +1209,7 @@ void bl_os_irq_attach(int32_t n, void *f, void *arg)
 
   wlinfo("INFO: n=%ld f=%p arg=%p\n", n, f, arg);
 
-  adapter = (struct irq_adpt *)kmm_malloc(sizeof(struct irq_adpt));
+  adapter = kmm_malloc(sizeof(struct irq_adpt));
 
   if (!adapter)
     {
@@ -1281,26 +1276,26 @@ void bl_os_irq_disable(int32_t n)
 void *bl_os_mutex_create(void)
 {
   int ret;
-  sem_t *sem;
+  mutex_t *mutex;
   int tmp;
 
-  tmp = sizeof(sem_t);
-  sem = (sem_t *)kmm_malloc(tmp);
-  if (!sem)
+  tmp = sizeof(mutex_t);
+  mutex = kmm_malloc(tmp);
+  if (!mutex)
     {
       wlerr("ERROR: Failed to alloc %d memory\n", tmp);
       return NULL;
     }
 
-  ret = nxsem_init(sem, 0, 1);
+  ret = nxmutex_init(mutex);
   if (ret)
     {
-      wlerr("ERROR: Failed to initialize sem error=%d\n", ret);
-      kmm_free(sem);
+      wlerr("ERROR: Failed to initialize mutex error=%d\n", ret);
+      kmm_free(mutex);
       return NULL;
     }
 
-  return sem;
+  return mutex;
 }
 
 /****************************************************************************
@@ -1319,10 +1314,10 @@ void *bl_os_mutex_create(void)
 
 void bl_os_mutex_delete(void *mutex_data)
 {
-  sem_t *sem = (sem_t *)mutex_data;
+  mutex_t *mutex = (mutex_t *)mutex_data;
 
-  nxsem_destroy(sem);
-  kmm_free(sem);
+  nxmutex_destroy(mutex);
+  kmm_free(mutex);
 }
 
 /****************************************************************************
@@ -1342,12 +1337,12 @@ void bl_os_mutex_delete(void *mutex_data)
 int32_t bl_os_mutex_lock(void *mutex_data)
 {
   int ret;
-  sem_t *sem = (sem_t *)mutex_data;
+  mutex_t *mutex = (mutex_t *)mutex_data;
 
-  ret = nxsem_wait(sem);
+  ret = nxmutex_lock(mutex);
   if (ret)
     {
-      wlerr("ERROR: Failed to wait sem\n");
+      wlerr("ERROR: Failed to wait mutex\n");
     }
 
   return bl_os_errno_trans(ret);
@@ -1370,12 +1365,12 @@ int32_t bl_os_mutex_lock(void *mutex_data)
 int32_t bl_os_mutex_unlock(void *mutex_data)
 {
   int ret;
-  sem_t *sem = (sem_t *)mutex_data;
+  mutex_t *mutex = (mutex_t *)mutex_data;
 
-  ret = nxsem_post(sem);
+  ret = nxmutex_unlock(mutex);
   if (ret)
     {
-      wlerr("ERROR: Failed to post sem error=%d\n", ret);
+      wlerr("ERROR: Failed to unlock error=%d\n", ret);
     }
 
   return bl_os_errno_trans(ret);
@@ -1403,7 +1398,7 @@ void *bl_os_sem_create(uint32_t init)
   int tmp;
 
   tmp = sizeof(sem_t);
-  sem = (sem_t *)kmm_malloc(tmp);
+  sem = kmm_malloc(tmp);
   if (!sem)
     {
       wlerr("ERROR: Failed to alloc %d memory\n", tmp);

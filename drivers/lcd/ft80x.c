@@ -134,6 +134,8 @@ static const struct file_operations g_ft80x_fops =
   ft80x_write,   /* write */
   NULL,          /* seek */
   ft80x_ioctl,   /* ioctl */
+  NULL,          /* mmap */
+  NULL,          /* truncate */
   NULL           /* poll */
 #ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
   , ft80x_unlink /* unlink */
@@ -143,35 +145,6 @@ static const struct file_operations g_ft80x_fops =
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
-
-/****************************************************************************
- * Name: ft80x_forcetake
- *
- * Description:
- *   This is a wrapper around but nxsem_wait_uninterruptible().  The wrapper
- *   continues to wait even if the thread is canceled.  This must be done in
- *   certain conditions where were must continue in order to clean-up
- *   resources.
- *
- ****************************************************************************/
-
-static void ft80x_forcetake(FAR sem_t *sem)
-{
-  int ret;
-
-  do
-    {
-      ret = nxsem_wait_uninterruptible(sem);
-
-      /* The only expected error would -ECANCELED meaning that the
-       * parent thread has been canceled.  We have to continue and
-       * terminate the poll in this case.
-       */
-
-      DEBUGASSERT(ret == OK || ret == -ECANCELED);
-    }
-  while (ret < 0);
-}
 
 /****************************************************************************
  * Name: ft80x_fade
@@ -314,7 +287,7 @@ static void ft80x_interrupt_work(FAR void *arg)
 
   /* Get exclusive access to the device structures */
 
-  ft80x_forcetake(&priv->exclsem);
+  nxmutex_lock(&priv->lock);
 
   /* Get the set of pending interrupts.  Note that simply reading this
    * register is sufficient to clear all pending interrupts.
@@ -401,7 +374,7 @@ static void ft80x_interrupt_work(FAR void *arg)
 
   DEBUGASSERT(priv->lower != NULL && priv->lower->enable != NULL);
   priv->lower->enable(priv->lower, true);
-  nxsem_post(&priv->exclsem);
+  nxmutex_unlock(&priv->lock);
 }
 
 /****************************************************************************
@@ -457,7 +430,7 @@ static void ft80x_destroy(FAR struct ft80x_dev_s *priv)
 
   /* Then free our container */
 
-  nxsem_destroy(&priv->exclsem);
+  nxmutex_destroy(&priv->lock);
   kmm_free(priv);
 }
 #endif
@@ -478,16 +451,15 @@ static int ft80x_open(FAR struct file *filep)
   uint8_t tmp;
   int ret;
 
-  DEBUGASSERT(filep != NULL);
   inode = filep->f_inode;
-  DEBUGASSERT(inode != NULL && inode->i_private != NULL);
+  DEBUGASSERT(inode->i_private != NULL);
   priv  = inode->i_private;
 
   lcdinfo("crefs: %d\n", priv->crefs);
 
   /* Get exclusive access to the device structures */
 
-  ret = nxsem_wait(&priv->exclsem);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       goto errout;
@@ -501,7 +473,7 @@ static int ft80x_open(FAR struct file *filep)
       /* More than 255 opens; uint8_t overflows to zero */
 
       ret = -EMFILE;
-      goto errout_with_sem;
+      goto errout_with_lock;
     }
 
   /* Save the new open count */
@@ -509,8 +481,8 @@ static int ft80x_open(FAR struct file *filep)
   priv->crefs = tmp;
   ret = OK;
 
-errout_with_sem:
-  nxsem_post(&priv->exclsem);
+errout_with_lock:
+  nxmutex_unlock(&priv->lock);
 
 errout:
   return ret;
@@ -534,16 +506,15 @@ static int ft80x_close(FAR struct file *filep)
   FAR struct ft80x_dev_s *priv;
   int ret;
 
-  DEBUGASSERT(filep != NULL);
   inode = filep->f_inode;
-  DEBUGASSERT(inode != NULL && inode->i_private != NULL);
+  DEBUGASSERT(inode->i_private != NULL);
   priv  = inode->i_private;
 
   lcdinfo("crefs: %d\n", priv->crefs);
 
   /* Get exclusive access to the device structures */
 
-  ret = nxsem_wait(&priv->exclsem);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       goto errout;
@@ -560,6 +531,7 @@ static int ft80x_close(FAR struct file *filep)
       priv->crefs = 0;
       if (priv->unlinked)
         {
+          nxmutex_unlock(&priv->lock);
           ft80x_destroy(priv);
           return OK;
         }
@@ -572,7 +544,7 @@ static int ft80x_close(FAR struct file *filep)
     }
 
   ret = OK;
-  nxsem_post(&priv->exclsem);
+  nxmutex_unlock(&priv->lock);
 
 errout:
   return ret;
@@ -609,9 +581,8 @@ static ssize_t ft80x_write(FAR struct file *filep, FAR const char *buffer,
   DEBUGASSERT(buffer != NULL && ((uintptr_t)buffer & 3) == 0 &&
               len > 0 && (len & 3) == 0 && len <= FT80X_RAM_DL_SIZE);
 
-  DEBUGASSERT(filep != NULL);
   inode = filep->f_inode;
-  DEBUGASSERT(inode != NULL && inode->i_private != NULL);
+  DEBUGASSERT(inode->i_private != NULL);
   priv  = inode->i_private;
 
   if (buffer == NULL || ((uintptr_t)buffer & 3) != 0 ||
@@ -622,7 +593,7 @@ static ssize_t ft80x_write(FAR struct file *filep, FAR const char *buffer,
 
   /* Get exclusive access to the device structures */
 
-  ret = nxsem_wait(&priv->exclsem);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
@@ -640,7 +611,7 @@ static ssize_t ft80x_write(FAR struct file *filep, FAR const char *buffer,
   ft80x_write_memory(priv, FT80X_RAM_DL + filep->f_pos, buffer, len);
   filep->f_pos += len;
 
-  nxsem_post(&priv->exclsem);
+  nxmutex_unlock(&priv->lock);
   return len;
 }
 
@@ -658,16 +629,15 @@ static int ft80x_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
   FAR struct ft80x_dev_s *priv;
   int ret;
 
-  DEBUGASSERT(filep != NULL);
   inode = filep->f_inode;
-  DEBUGASSERT(inode != NULL && inode->i_private != NULL);
+  DEBUGASSERT(inode->i_private != NULL);
   priv  = inode->i_private;
 
   lcdinfo("cmd: %d arg: %lu\n", cmd, arg);
 
   /* Get exclusive access to the device structures */
 
-  ret = nxsem_wait(&priv->exclsem);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
@@ -1168,7 +1138,7 @@ static int ft80x_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
         break;
     }
 
-  nxsem_post(&priv->exclsem);
+  nxmutex_unlock(&priv->lock);
   return ret;
 }
 
@@ -1185,7 +1155,7 @@ static int ft80x_unlink(FAR struct inode *inode)
    * structure.
    */
 
-  DEBUGASSERT(inode && inode->i_private);
+  DEBUGASSERT(inode->i_private);
   priv = inode->i_private;
 
   /* Indicate that the driver has been unlinked */
@@ -1542,7 +1512,7 @@ int ft80x_register(FAR struct i2c_master_s *i2c,
 
   /* Allocate the driver state structure */
 
-  priv = (FAR struct ft80x_dev_s *)kmm_zalloc(sizeof(struct ft80x_dev_s));
+  priv = kmm_zalloc(sizeof(struct ft80x_dev_s));
   if (priv == NULL)
     {
       lcderr("ERROR: Failed to allocate state structure\n");
@@ -1563,16 +1533,16 @@ int ft80x_register(FAR struct i2c_master_s *i2c,
   priv->i2c = i2c;
 #endif
 
-  /* Initialize the mutual exclusion semaphore */
+  /* Initialize the mutual exclusion mutex */
 
-  nxsem_init(&priv->exclsem, 0, 1);
+  nxmutex_init(&priv->lock);
 
   /* Initialize the FT80x */
 
   ret = ft80x_initialize(priv);
   if (ret < 0)
     {
-      goto errout_with_sem;
+      goto errout_with_lock;
     }
 
   /* Attach our interrupt handler */
@@ -1581,7 +1551,7 @@ int ft80x_register(FAR struct i2c_master_s *i2c,
   ret = lower->attach(lower, ft80x_interrupt, priv);
   if (ret < 0)
     {
-      goto errout_with_sem;
+      goto errout_with_lock;
     }
 
   /* Disable all interrupt sources, but enable interrupts both in the lower
@@ -1607,8 +1577,9 @@ errout_with_interrupts:
   ft80x_write_word(priv, FT80X_REG_INT_EN, FT80X_INT_DISABLE);
   lower->attach(lower, NULL, NULL);
 
-errout_with_sem:
-  nxsem_destroy(&priv->exclsem);
+errout_with_lock:
+  nxmutex_destroy(&priv->lock);
+  kmm_free(priv);
   return ret;
 }
 

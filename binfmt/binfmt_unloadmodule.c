@@ -30,6 +30,7 @@
 #include <debug.h>
 #include <errno.h>
 
+#include <nuttx/addrenv.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/binfmt/binfmt.h>
 
@@ -61,7 +62,6 @@ static inline int exec_dtors(FAR struct binary_s *binp)
 {
   binfmt_dtor_t *dtor = binp->dtors;
 #ifdef CONFIG_ARCH_ADDRENV
-  save_addrenv_t oldenv;
   int ret;
 #endif
   int i;
@@ -69,10 +69,10 @@ static inline int exec_dtors(FAR struct binary_s *binp)
   /* Instantiate the address environment containing the destructors */
 
 #ifdef CONFIG_ARCH_ADDRENV
-  ret = up_addrenv_select(&binp->addrenv, &oldenv);
+  ret = addrenv_select(binp->addrenv, &binp->oldenv);
   if (ret < 0)
     {
-      berr("ERROR: up_addrenv_select() failed: %d\n", ret);
+      berr("ERROR: addrenv_select() failed: %d\n", ret);
       return ret;
     }
 #endif
@@ -81,7 +81,7 @@ static inline int exec_dtors(FAR struct binary_s *binp)
 
   for (i = 0; i < binp->ndtors; i++)
     {
-      binfo("Calling dtor %d at %p\n", i, (FAR void *)dtor);
+      binfo("Calling dtor %d at %p\n", i, dtor);
 
       (*dtor)();
       dtor++;
@@ -90,7 +90,7 @@ static inline int exec_dtors(FAR struct binary_s *binp)
   /* Restore the address environment */
 
 #ifdef CONFIG_ARCH_ADDRENV
-  return up_addrenv_restore(&oldenv);
+  return addrenv_restore(binp->oldenv);
 #else
   return OK;
 #endif
@@ -169,12 +169,12 @@ int unload_module(FAR struct binary_s *binp)
 #if defined(CONFIG_ARCH_USE_TEXT_HEAP)
               if (i == 0)
                 {
-                  up_textheap_free((FAR void *)binp->alloc[i]);
+                  up_textheap_free(binp->alloc[i]);
                 }
               else
 #endif
                 {
-                  kumm_free((FAR void *)binp->alloc[i]);
+                  kumm_free(binp->alloc[i]);
                 }
             }
         }

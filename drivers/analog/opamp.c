@@ -49,7 +49,7 @@ static int opamp_ioctl(FAR struct file *filep, int cmd, unsigned long arg);
  * Private Data
  ****************************************************************************/
 
-static const struct file_operations opamp_fops =
+static const struct file_operations g_opamp_fops =
 {
   opamp_open,                    /* open */
   opamp_close,                   /* close */
@@ -57,10 +57,6 @@ static const struct file_operations opamp_fops =
   NULL,                          /* write */
   NULL,                          /* seek */
   opamp_ioctl,                   /* ioctl */
-  NULL                           /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL                         /* unlink */
-#endif
 };
 
 /****************************************************************************
@@ -86,7 +82,7 @@ static int opamp_open(FAR struct file *filep)
    * finished.
    */
 
-  ret = nxsem_wait(&dev->ad_closesem);
+  ret = nxmutex_lock(&dev->ad_closelock);
   if (ret >= 0)
     {
       /* Increment the count of references to the device.  If this is the
@@ -124,7 +120,7 @@ static int opamp_open(FAR struct file *filep)
             }
         }
 
-      nxsem_post(&dev->ad_closesem);
+      nxmutex_unlock(&dev->ad_closelock);
     }
 
   return ret;
@@ -146,7 +142,7 @@ static int opamp_close(FAR struct file *filep)
   irqstate_t            flags;
   int                   ret;
 
-  ret = nxsem_wait(&dev->ad_closesem);
+  ret = nxmutex_lock(&dev->ad_closelock);
   if (ret >= 0)
     {
       /* Decrement the references to the driver.  If the reference count will
@@ -156,7 +152,7 @@ static int opamp_close(FAR struct file *filep)
       if (dev->ad_ocount > 1)
         {
           dev->ad_ocount--;
-          nxsem_post(&dev->ad_closesem);
+          nxmutex_unlock(&dev->ad_closelock);
         }
       else
         {
@@ -170,7 +166,7 @@ static int opamp_close(FAR struct file *filep)
           dev->ad_ops->ao_shutdown(dev);          /* Disable the OPAMP */
           leave_critical_section(flags);
 
-          nxsem_post(&dev->ad_closesem);
+          nxmutex_unlock(&dev->ad_closelock);
         }
     }
 
@@ -207,16 +203,16 @@ int opamp_register(FAR const char *path, FAR struct opamp_dev_s *dev)
 
   dev->ad_ocount = 0;
 
-  /* Initialize semaphores */
+  /* Initialize mutex */
 
-  nxsem_init(&dev->ad_closesem, 0, 1);
+  nxmutex_init(&dev->ad_closelock);
 
   /* Register the OPAMP character driver */
 
-  ret = register_driver(path, &opamp_fops, 0444, dev);
+  ret = register_driver(path, &g_opamp_fops, 0444, dev);
   if (ret < 0)
     {
-      nxsem_destroy(&dev->ad_closesem);
+      nxmutex_destroy(&dev->ad_closelock);
     }
 
   return ret;

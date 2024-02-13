@@ -26,6 +26,7 @@
 #include <nuttx/kmalloc.h>
 #include <nuttx/semaphore.h>
 
+#include <sys/param.h>
 #include <sys/types.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -36,6 +37,7 @@
 
 #include <nuttx/arch.h>
 #include <nuttx/spinlock.h>
+#include <nuttx/mutex.h>
 
 #include "arm_internal.h"
 #include "lc823450_dma.h"
@@ -74,10 +76,6 @@
 #define DMACCFG_SRCPERI_SHIFT           1
 #define DMACCFG_E                       (1 << 0)
 
-#ifndef MIN
-#  define MIN(a, b) ((a) > (b) ? (b) : (a))
-#endif /* MIN */
-
 #define LC823450_DMA_EN                 (1 << 26)
 
 /****************************************************************************
@@ -106,7 +104,7 @@ struct lc823450_dmach_s
 
 struct lc823450_dma_s
 {
-  sem_t exclsem;           /* For exclusive access to the DMA channel list */
+  mutex_t lock;            /* For exclusive access to the DMA channel list */
 
   /* This is the state of each DMA channel */
 
@@ -121,7 +119,10 @@ static int phydmastart(struct lc823450_phydmach_s *pdmach);
  * Private Data
  ****************************************************************************/
 
-static struct lc823450_dma_s g_dma;
+static struct lc823450_dma_s g_dma =
+{
+  .lock = NXMUTEX_INITIALIZER,
+};
 volatile uint8_t g_dma_inprogress;
 
 /****************************************************************************
@@ -302,7 +303,7 @@ static void dma_done(DMA_HANDLE handle, void *arg, int result)
   test_done = 1;
 }
 
-void lc823450_dma_test()
+void lc823450_dma_test(void)
 {
   int i;
   for (i = 0; i < 256; i++)
@@ -340,8 +341,6 @@ void arm_dma_initialize(void)
       g_dma.phydmach[i].inprogress = 0;
       sq_init(&g_dma.phydmach[i].req_q);
     }
-
-  nxsem_init(&g_dma.exclsem, 0, 1);
 
   if (irq_attach(LC823450_IRQ_DMAC, dma_interrupt, NULL) != 0)
     {
@@ -382,7 +381,6 @@ void arm_dma_initialize(void)
 
 void lc823450_dmaconfigure(uint8_t dmarequest, bool alternate)
 {
-  return;
 }
 
 /****************************************************************************
@@ -457,8 +455,6 @@ void lc823450_dmarequest(DMA_HANDLE handle, uint8_t dmarequest)
 
   putreg32(val, DMACCFG(dmach->chn));
   up_disable_clk(LC823450_CLOCK_DMA);
-
-  return;
 }
 
 /****************************************************************************
@@ -663,5 +659,4 @@ void lc823450_dmastop(DMA_HANDLE handle)
     }
 
   spin_unlock_irqrestore(NULL, flags);
-  return;
 }

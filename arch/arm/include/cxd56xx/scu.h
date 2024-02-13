@@ -534,7 +534,7 @@ void seq_setaddress(struct seq_s *seq, uint32_t slave_addr);
  */
 
 int scu_spitransfer(int slavesel, uint16_t *inst, uint32_t nr_insts,
-                         uint8_t *buffer, int len);
+                    uint8_t *buffer, int len);
 
 /**
  * I2C data transfer via sequencer
@@ -554,7 +554,7 @@ int scu_spitransfer(int slavesel, uint16_t *inst, uint32_t nr_insts,
  */
 
 int scu_i2ctransfer(int port, int slave, uint16_t *inst, uint32_t nr_insts,
-                         uint8_t *buffer, int len);
+                    uint8_t *buffer, int len);
 
 /**
  * Initialize SCU

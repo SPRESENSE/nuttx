@@ -35,7 +35,7 @@
 #include <arch/board/board.h>
 #include <nuttx/irq.h>
 #include <nuttx/arch.h>
-#include <nuttx/semaphore.h>
+#include <nuttx/mutex.h>
 #include <nuttx/spi/spi.h>
 
 #include "arm_internal.h"
@@ -84,7 +84,7 @@
 struct lpc17_40_spidev_s
 {
   struct spi_dev_s spidev;     /* Externally visible part of the SPI interface */
-  sem_t            exclsem;    /* Held while chip is selected for mutual exclusion */
+  mutex_t          lock;       /* Held while chip is selected for mutual exclusion */
   uint32_t         frequency;  /* Requested clock frequency */
   uint32_t         actual;     /* Actual clock frequency */
   uint8_t          nbits;      /* Width of word in bits (8 to 16) */
@@ -139,9 +139,10 @@ static const struct spi_ops_s g_spiops =
 static struct lpc17_40_spidev_s g_spidev =
 {
   .spidev            =
-    {
-      &g_spiops
-    },
+  {
+    .ops             = &g_spiops,
+  },
+  .lock              = NXMUTEX_INITIALIZER,
 };
 
 /****************************************************************************
@@ -180,11 +181,11 @@ static int spi_lock(struct spi_dev_s *dev, bool lock)
 
   if (lock)
     {
-      ret = nxsem_wait_uninterruptible(&priv->exclsem);
+      ret = nxmutex_lock(&priv->lock);
     }
   else
     {
-      ret = nxsem_post(&priv->exclsem);
+      ret = nxmutex_unlock(&priv->lock);
     }
 
   return ret;
@@ -352,7 +353,7 @@ static void spi_setbits(struct spi_dev_s *dev, int nbits)
       regval &= ~SPI_CR_BITS_MASK;
       regval |= (nbits << SPI_CR_BITS_SHIFT) & SPI_CR_BITS_MASK;
       regval |= SPI_CR_BITENABLE;
-      regval = getreg32(LPC17_40_SPI_CR);
+      putreg32(regval, LPC17_40_SPI_CR);
 
       /* Save the selection so that subsequent re-configurations will be
        * faster.
@@ -563,10 +564,6 @@ struct spi_dev_s *lpc17_40_spibus_initialize(int port)
   /* Select a default frequency of approx. 400KHz */
 
   spi_setfrequency((struct spi_dev_s *)priv, 400000);
-
-  /* Initialize the SPI semaphore that enforces mutually exclusive access */
-
-  nxsem_init(&priv->exclsem, 0, 1);
   return &priv->spidev;
 }
 

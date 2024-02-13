@@ -35,10 +35,10 @@
  * Name: lzfoutstream_flush
  ****************************************************************************/
 
-static int lzfoutstream_flush(FAR struct lib_outstream_s *this)
+static int lzfoutstream_flush(FAR struct lib_outstream_s *self)
 {
   FAR struct lib_lzfoutstream_s *stream =
-                                 (FAR struct lib_lzfoutstream_s *)this;
+                                 (FAR struct lib_lzfoutstream_s *)self;
   FAR struct lzf_header_s *header;
   size_t outlen;
 
@@ -49,24 +49,24 @@ static int lzfoutstream_flush(FAR struct lib_outstream_s *this)
                             stream->offset, stream->state, &header);
       if (outlen > 0)
         {
-          stream->backend->puts(stream->backend, header, outlen);
+          lib_stream_puts(stream->backend, header, outlen);
         }
 
       stream->offset = 0;
     }
 
-  return stream->backend->flush(stream->backend);
+  return lib_stream_flush(stream->backend);
 }
 
 /****************************************************************************
  * Name: lzfoutstream_puts
  ****************************************************************************/
 
-static int lzfoutstream_puts(FAR struct lib_outstream_s *this,
+static int lzfoutstream_puts(FAR struct lib_outstream_s *self,
                              FAR const void *buf, int len)
 {
   FAR struct lib_lzfoutstream_s *stream =
-                                 (FAR struct lib_lzfoutstream_s *)this;
+                                 (FAR struct lib_lzfoutstream_s *)self;
   FAR struct lzf_header_s *header;
   FAR const char *ptr = buf;
   size_t total = len;
@@ -83,7 +83,7 @@ static int lzfoutstream_puts(FAR struct lib_outstream_s *this,
 
       ptr            += copyin;
       stream->offset += copyin;
-      this->nput     += copyin;
+      self->nput     += copyin;
       total          -= copyin;
 
       if (stream->offset == LZF_STREAM_BLOCKSIZE)
@@ -94,7 +94,7 @@ static int lzfoutstream_puts(FAR struct lib_outstream_s *this,
                                 &header);
           if (outlen > 0)
             {
-              ret = stream->backend->puts(stream->backend, header, outlen);
+              ret = lib_stream_puts(stream->backend, header, outlen);
               if (ret < 0)
                 {
                   return ret;
@@ -137,7 +137,7 @@ void lib_lzfoutstream(FAR struct lib_lzfoutstream_s *stream,
     }
 
   memset(stream, 0, sizeof(*stream));
-  stream->public.puts  = lzfoutstream_puts;
-  stream->public.flush = lzfoutstream_flush;
+  stream->common.puts  = lzfoutstream_puts;
+  stream->common.flush = lzfoutstream_flush;
   stream->backend      = backend;
 }

@@ -195,11 +195,15 @@
 
 /** Length of character string for BB product */
 
-#define LTE_VER_BB_PRODUCT_LEN (5)
+#define LTE_VER_BB_PRODUCT_LEN (32)
 
 /** Length of character string for NP package */
 
 #define LTE_VER_NP_PACKAGE_LEN (32)
+
+/** Length of character string for firmware version */
+
+#define LTE_VER_FIRMWARE_LEN (32)
 
 /** PIN status: Not pending for any password */
 
@@ -654,6 +658,10 @@ typedef struct lte_version
   /** NP package version. It is terminated with '\0'. */
 
   char np_package[LTE_VER_NP_PACKAGE_LEN];
+
+  /* Firmware version */
+
+  char fw_version[LTE_VER_FIRMWARE_LEN];
 } lte_version_t;
 
 /**

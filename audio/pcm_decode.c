@@ -24,6 +24,7 @@
 
 #include <nuttx/config.h>
 
+#include <sys/param.h>
 #include <sys/types.h>
 #include <inttypes.h>
 #include <stdint.h>
@@ -39,24 +40,6 @@
 #include <nuttx/audio/pcm.h>
 
 #if defined(CONFIG_AUDIO) && defined(CONFIG_AUDIO_FORMAT_PCM)
-
-/****************************************************************************
- * Pre-processor Definitions
- ****************************************************************************/
-
-/* Configuration ************************************************************/
-
-#define CONFIG_PCM_DEBUG 1 /* For now */
-
-/* Often defined and re-defined macros */
-
-#ifndef MIN
-#  define MIN(a,b) (((a) < (b)) ? (a) : (b))
-#endif
-
-#ifndef MAX
-#  define MAX(a,b) (((a) > (b)) ? (a) : (b))
-#endif
 
 /****************************************************************************
  * Private Types
@@ -118,7 +101,7 @@ struct pcm_decode_s
 
 /* Helper functions *********************************************************/
 
-#ifdef CONFIG_PCM_DEBUG
+#ifdef CONFIG_DEBUG_AUDIO_INFO
 static void pcm_dump(FAR const struct wav_header_s *wav);
 #else
 #  define pcm_dump(w)
@@ -139,6 +122,8 @@ static void pcm_subsample(FAR struct pcm_decode_s *priv,
 
 /* struct audio_lowerhalf_s methods *****************************************/
 
+static int  pcm_setup(FAR struct audio_lowerhalf_s *dev, int opencnt);
+
 static int  pcm_getcaps(FAR struct audio_lowerhalf_s *dev, int type,
               FAR struct audio_caps_s *caps);
 
@@ -150,7 +135,7 @@ static int  pcm_configure(FAR struct audio_lowerhalf_s *dev,
               FAR const struct audio_caps_s *caps);
 #endif
 
-static int  pcm_shutdown(FAR struct audio_lowerhalf_s *dev);
+static int  pcm_shutdown(FAR struct audio_lowerhalf_s *dev, int cnt);
 
 #ifdef CONFIG_AUDIO_MULTI_SESSION
 static int  pcm_start(FAR struct audio_lowerhalf_s *dev, FAR void *session);
@@ -236,7 +221,7 @@ static void pcm_callback(FAR void *arg, uint16_t reason,
  *
  ****************************************************************************/
 
-#ifdef CONFIG_PCM_DEBUG
+#ifdef CONFIG_DEBUG_AUDIO_INFO
 static void pcm_dump(FAR const struct wav_header_s *wav)
 {
   _info("Wave file header\n");
@@ -268,6 +253,7 @@ static void pcm_dump(FAR const struct wav_header_s *wav)
  *
  ****************************************************************************/
 
+#ifndef CONFIG_AUDIO_FORMAT_RAW
 static uint16_t pcm_leuint16(FAR const uint16_t *ptr)
 {
   FAR const uint8_t *p = (FAR const uint8_t *)ptr;
@@ -302,7 +288,7 @@ static uint32_t pcm_leuint32(FAR const uint32_t *ptr)
  *   Return true if this is a valid WAV file header
  *
  ****************************************************************************/
-#ifndef CONFIG_AUDIO_FORMAT_RAW
+
 static inline bool pcm_validwav(FAR const struct wav_header_s *wav)
 {
   return (wav->hdr.chunkid  == WAV_HDR_CHUNKID  &&
@@ -682,6 +668,34 @@ static void pcm_subsample(FAR struct pcm_decode_s *priv,
 #endif
 
 /****************************************************************************
+ * Name: pcm_setup
+ *
+ * Description:
+ *   This method is called when the related device file is opened.
+ *   And then next lower's setup is called in this method.
+ *
+ ****************************************************************************/
+
+static int  pcm_setup(FAR struct audio_lowerhalf_s *dev, int opencnt)
+{
+  FAR struct pcm_decode_s *priv = (FAR struct pcm_decode_s *)dev;
+  FAR struct audio_lowerhalf_s *lower;
+
+  DEBUGASSERT(priv);
+
+  lower = priv->lower;
+
+  DEBUGASSERT(lower);
+
+  if (lower->ops && lower->ops->setup)
+    {
+      return lower->ops->setup(lower, opencnt);
+    }
+
+  return OK;
+}
+
+/****************************************************************************
  * Name: pcm_getcaps
  *
  * Description:
@@ -804,7 +818,7 @@ static int pcm_configure(FAR struct audio_lowerhalf_s *dev,
  *
  ****************************************************************************/
 
-static int pcm_shutdown(FAR struct audio_lowerhalf_s *dev)
+static int pcm_shutdown(FAR struct audio_lowerhalf_s *dev, int cnt)
 {
   FAR struct pcm_decode_s *priv = (FAR struct pcm_decode_s *)dev;
   FAR struct audio_lowerhalf_s *lower;
@@ -821,7 +835,7 @@ static int pcm_shutdown(FAR struct audio_lowerhalf_s *dev)
   DEBUGASSERT(lower && lower->ops->start);
 
   audinfo("Defer to lower shutdown\n");
-  return lower->ops->shutdown(lower);
+  return lower->ops->shutdown(lower, cnt);
 }
 
 /****************************************************************************
@@ -1048,7 +1062,6 @@ static int pcm_enqueuebuffer(FAR struct audio_lowerhalf_s *dev,
   FAR struct pcm_decode_s *priv = (FAR struct pcm_decode_s *)dev;
   FAR struct audio_lowerhalf_s *lower;
   apb_samp_t bytesleft;
-  ssize_t headersize;
   int ret;
 
   DEBUGASSERT(priv);
@@ -1102,7 +1115,8 @@ static int pcm_enqueuebuffer(FAR struct audio_lowerhalf_s *dev,
   /* Parse and verify the candidate PCM WAV file header */
 
 #ifndef CONFIG_AUDIO_FORMAT_RAW
-  headersize = pcm_parsewav(priv, &apb->samp[apb->curbyte], bytesleft);
+  ssize_t headersize = pcm_parsewav(priv, &apb->samp[apb->curbyte],
+                                    bytesleft);
   if (headersize > 0)
     {
       struct audio_caps_s caps;
@@ -1404,7 +1418,7 @@ FAR struct audio_lowerhalf_s *
 
   /* Allocate an instance of our private data structure */
 
-  priv = (FAR struct pcm_decode_s *)kmm_zalloc(sizeof(struct pcm_decode_s));
+  priv = kmm_zalloc(sizeof(struct pcm_decode_s));
   if (!priv)
     {
       auderr("ERROR: Failed to allocate driver structure\n");
@@ -1419,6 +1433,7 @@ FAR struct audio_lowerhalf_s *
   /* Setup our operations */
 
   ops                  = &priv->ops;
+  ops->setup           = pcm_setup;
   ops->getcaps         = pcm_getcaps;
   ops->configure       = pcm_configure;
   ops->shutdown        = pcm_shutdown;

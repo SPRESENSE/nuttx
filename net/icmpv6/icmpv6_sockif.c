@@ -37,6 +37,7 @@
 #include <socket/socket.h>
 
 #include "icmpv6/icmpv6.h"
+#include "inet/inet.h"
 
 #ifdef CONFIG_NET_ICMPv6_SOCKET
 
@@ -44,24 +45,20 @@
  * Private Function Prototypes
  ****************************************************************************/
 
-static int        icmpv6_setup(FAR struct socket *psock, int protocol);
+static int        icmpv6_setup(FAR struct socket *psock);
 static sockcaps_t icmpv6_sockcaps(FAR struct socket *psock);
 static void       icmpv6_addref(FAR struct socket *psock);
-static int        icmpv6_bind(FAR struct socket *psock,
-                    FAR const struct sockaddr *addr, socklen_t addrlen);
-static int        icmpv6_getsockname(FAR struct socket *psock,
-                    FAR struct sockaddr *addr, FAR socklen_t *addrlen);
-static int        icmpv6_getpeername(FAR struct socket *psock,
-                    FAR struct sockaddr *addr, FAR socklen_t *addrlen);
-static int        icmpv6_listen(FAR struct socket *psock, int backlog);
-static int        icmpv6_connect(FAR struct socket *psock,
-                    FAR const struct sockaddr *addr, socklen_t addrlen);
-static int        icmpv6_accept(FAR struct socket *psock,
-                    FAR struct sockaddr *addr, FAR socklen_t *addrlen,
-                    FAR struct socket *newsock);
 static int        icmpv6_netpoll(FAR struct socket *psock,
-                    FAR struct pollfd *fds, bool setup);
+                                 FAR struct pollfd *fds, bool setup);
 static int        icmpv6_close(FAR struct socket *psock);
+#ifdef CONFIG_NET_SOCKOPTS
+static int        icmpv6_getsockopt(FAR struct socket *psock, int level,
+                                    int option, FAR void *value,
+                                    FAR socklen_t *value_len);
+static int        icmpv6_setsockopt(FAR struct socket *psock, int level,
+                                    int option, FAR const void *value,
+                                    socklen_t value_len);
+#endif
 
 /****************************************************************************
  * Public Data
@@ -72,17 +69,23 @@ const struct sock_intf_s g_icmpv6_sockif =
   icmpv6_setup,       /* si_setup */
   icmpv6_sockcaps,    /* si_sockcaps */
   icmpv6_addref,      /* si_addref */
-  icmpv6_bind,        /* si_bind */
-  icmpv6_getsockname, /* si_getsockname */
-  icmpv6_getpeername, /* si_getpeername */
-  icmpv6_listen,      /* si_listen */
-  icmpv6_connect,     /* si_connect */
-  icmpv6_accept,      /* si_accept */
+  NULL,               /* si_bind */
+  NULL,               /* si_getsockname */
+  NULL,               /* si_getpeername */
+  NULL,               /* si_listen */
+  NULL,               /* si_connect */
+  NULL,               /* si_accept */
   icmpv6_netpoll,     /* si_poll */
   icmpv6_sendmsg,     /* si_sendmsg */
   icmpv6_recvmsg,     /* si_recvmsg */
   icmpv6_close,       /* si_close */
-  icmpv6_ioctl        /* si_ioctl */
+  icmpv6_ioctl,       /* si_ioctl */
+  NULL,               /* si_socketpair */
+  NULL                /* si_shutdown */
+#ifdef CONFIG_NET_SOCKOPTS
+  , icmpv6_getsockopt /* si_getsockopt */
+  , icmpv6_setsockopt /* si_setsockopt */
+#endif
 };
 
 /****************************************************************************
@@ -100,7 +103,6 @@ const struct sock_intf_s g_icmpv6_sockif =
  * Input Parameters:
  *   psock    A pointer to a user allocated socket structure to be
  *            initialized.
- *   protocol (see sys/socket.h)
  *
  * Returned Value:
  *   Zero (OK) is returned on success.  Otherwise, a negated errno value is
@@ -108,12 +110,12 @@ const struct sock_intf_s g_icmpv6_sockif =
  *
  ****************************************************************************/
 
-static int icmpv6_setup(FAR struct socket *psock, int protocol)
+static int icmpv6_setup(FAR struct socket *psock)
 {
   /* SOCK_DGRAM or SOCK_CTRL and IPPROTO_ICMP6 are supported */
 
-  if ((psock->s_type == SOCK_DGRAM || psock->s_type == SOCK_CTRL) &&
-      protocol == IPPROTO_ICMP6)
+  if ((psock->s_type == SOCK_DGRAM || psock->s_type == SOCK_CTRL ||
+      psock->s_type == SOCK_RAW) && psock->s_proto == IPPROTO_ICMP6)
     {
       /* Allocate the IPPROTO_ICMP6 socket connection structure and save in
        * the new socket instance.
@@ -134,6 +136,10 @@ static int icmpv6_setup(FAR struct socket *psock, int protocol)
 
       DEBUGASSERT(conn->crefs == 0);
       conn->crefs = 1;
+      if (psock->s_type != SOCK_RAW)
+        {
+          memset(&conn->filter, 0xff, sizeof(conn->filter));
+        }
 
       /* Save the pre-allocated connection in the socket structure */
 
@@ -185,226 +191,9 @@ static void icmpv6_addref(FAR struct socket *psock)
 {
   FAR struct icmpv6_conn_s *conn;
 
-  DEBUGASSERT(psock != NULL && psock->s_conn != NULL);
-
   conn = psock->s_conn;
   DEBUGASSERT(conn->crefs > 0 && conn->crefs < 255);
   conn->crefs++;
-}
-
-/****************************************************************************
- * Name: icmpv6_connect
- *
- * Description:
- *   icmpv6_connect() connects the local socket referred to by the structure
- *   'psock' to the address specified by 'addr'. The addrlen argument
- *   specifies the size of 'addr'.  The format of the address in 'addr' is
- *   determined by the address space of the socket 'psock'.
- *
- *   If the socket 'psock' is of type SOCK_DGRAM then 'addr' is the address
- *   to which datagrams are sent by default, and the only address from which
- *   datagrams are received. If the socket is of type SOCK_STREAM or
- *   SOCK_SEQPACKET, this call attempts to make a connection to the socket
- *   that is bound to the address specified by 'addr'.
- *
- *   Generally, connection-based protocol sockets may successfully
- *   icmpv6_connect() only once; connectionless protocol sockets may use
- *   icmpv6_connect() multiple times to change their association.
- *   Connectionless sockets may dissolve the association by connecting to
- *   an address with the sa_family member of sockaddr set to AF_UNSPEC.
- *
- * Input Parameters:
- *   psock     Pointer to a socket structure initialized by psock_socket()
- *   addr      Server address (form depends on type of socket)
- *   addrlen   Length of actual 'addr'
- *
- * Returned Value:
- *   0 on success; a negated errno value on failure.  See connect() for the
- *   list of appropriate errno values to be returned.
- *
- ****************************************************************************/
-
-static int icmpv6_connect(FAR struct socket *psock,
-                       FAR const struct sockaddr *addr, socklen_t addrlen)
-{
-  return -EAFNOSUPPORT;
-}
-
-/****************************************************************************
- * Name: icmpv6_accept
- *
- * Description:
- *   The icmpv6_accept function is used with connection-based socket types
- *   (SOCK_STREAM, SOCK_SEQPACKET and SOCK_RDM). It extracts the first
- *   connection request on the queue of pending connections, creates a new
- *   connected socket with mostly the same properties as 'sockfd', and
- *   allocates a new socket descriptor for the socket, which is returned. The
- *   newly created socket is no longer in the listening state. The original
- *   socket 'sockfd' is unaffected by this call.  Per file descriptor flags
- *   are not inherited across an icmpv6_accept.
- *
- *   The 'sockfd' argument is a socket descriptor that has been created with
- *   socket(), bound to a local address with bind(), and is listening for
- *   connections after a call to listen().
- *
- *   On return, the 'addr' structure is filled in with the address of the
- *   connecting entity. The 'addrlen' argument initially contains the size
- *   of the structure pointed to by 'addr'; on return it will contain the
- *   actual length of the address returned.
- *
- *   If no pending connections are present on the queue, and the socket is
- *   not marked as non-blocking, icmpv6_accept blocks the caller until a
- *   connection is present. If the socket is marked non-blocking and no
- *   pending connections are present on the queue, icmpv6_accept returns
- *   EAGAIN.
- *
- * Input Parameters:
- *   psock    Reference to the listening socket structure
- *   addr     Receives the address of the connecting client
- *   addrlen  Input: allocated size of 'addr',
- *            Return: returned size of 'addr'
- *   newsock  Location to return the accepted socket information.
- *
- * Returned Value:
- *   Returns 0 (OK) on success.  On failure, it returns a negated errno
- *   value.  See accept() for a description of the appropriate error value.
- *
- * Assumptions:
- *   The network is locked.
- *
- ****************************************************************************/
-
-static int icmpv6_accept(FAR struct socket *psock, FAR struct sockaddr *addr,
-                      FAR socklen_t *addrlen, FAR struct socket *newsock)
-{
-  return -EAFNOSUPPORT;
-}
-
-/****************************************************************************
- * Name: icmpv6_bind
- *
- * Description:
- *   icmpv6_bind() gives the socket 'psock' the local address 'addr'.  'addr'
- *   is 'addrlen' bytes long.  Traditionally, this is called "assigning a
- *   name to a socket."  When a socket is created with socket(), it exists
- *   in a name space (address family) but has no name assigned.
- *
- * Input Parameters:
- *   psock    Socket structure of the socket to bind
- *   addr     Socket local address
- *   addrlen  Length of 'addr'
- *
- * Returned Value:
- *   0 on success;  A negated errno value is returned on failure.  See
- *   bind() for a list a appropriate error values.
- *
- ****************************************************************************/
-
-static int icmpv6_bind(FAR struct socket *psock,
-                       FAR const struct sockaddr *addr,
-                       socklen_t addrlen)
-{
-  /* An ICMPv6 socket cannot be bound to a local address */
-
-  return -EBADF;
-}
-
-/****************************************************************************
- * Name: icmpv6_getsockname
- *
- * Description:
- *   The icmpv6_getsockname() function retrieves the locally-bound name of
- *   the specified packet socket, stores this address in the sockaddr
- *   structure pointed to by the 'addr' argument, and stores the length of
- *   this address in the object pointed to by the 'addrlen' argument.
- *
- *   If the actual length of the address is greater than the length of the
- *   supplied sockaddr structure, the stored address will be truncated.
- *
- *   If the socket has not been bound to a local name, the value stored in
- *   the object pointed to by address is unspecified.
- *
- * Input Parameters:
- *   psock    Socket structure of the socket to be queried
- *   addr     sockaddr structure to receive data [out]
- *   addrlen  Length of sockaddr structure [in/out]
- *
- * Returned Value:
- *   On success, 0 is returned, the 'addr' argument points to the address
- *   of the socket, and the 'addrlen' argument points to the length of the
- *   address.  Otherwise, a negated errno value is returned.  See
- *   getsockname() for the list of appropriate error numbers.
- *
- ****************************************************************************/
-
-static int icmpv6_getsockname(FAR struct socket *psock,
-                           FAR struct sockaddr *addr, FAR socklen_t *addrlen)
-{
-  return -EAFNOSUPPORT;
-}
-
-/****************************************************************************
- * Name: icmpv6_getpeername
- *
- * Description:
- *   The icmpv6_getpeername() function retrieves the remote-connected name of
- *   the specified packet socket, stores this address in the sockaddr
- *   structure pointed to by the 'addr' argument, and stores the length of
- *   this address in the object pointed to by the 'addrlen' argument.
- *
- *   If the actual length of the address is greater than the length of the
- *   supplied sockaddr structure, the stored address will be truncated.
- *
- *   If the socket has not been bound to a local name, the value stored in
- *   the object pointed to by address is unspecified.
- *
- * Parameters:
- *   psock    Socket structure of the socket to be queried
- *   addr     sockaddr structure to receive data [out]
- *   addrlen  Length of sockaddr structure [in/out]
- *
- * Returned Value:
- *   On success, 0 is returned, the 'addr' argument points to the address
- *   of the socket, and the 'addrlen' argument points to the length of the
- *   address.  Otherwise, a negated errno value is returned.  See
- *   getpeername() for the list of appropriate error numbers.
- *
- ****************************************************************************/
-
-static int icmpv6_getpeername(FAR struct socket *psock,
-                           FAR struct sockaddr *addr, FAR socklen_t *addrlen)
-{
-  return -EAFNOSUPPORT;
-}
-
-/****************************************************************************
- * Name: icmpv6_listen
- *
- * Description:
- *   To accept connections, a socket is first created with psock_socket(), a
- *   willingness to accept incoming connections and a queue limit for
- *   incoming connections are specified with psock_listen(), and then the
- *   connections are accepted with psock_accept().  For the case of raw
- *   packet sockets, psock_listen() calls this function.  The psock_listen()
- *   call applies only to sockets of type SOCK_STREAM or SOCK_SEQPACKET.
- *
- * Input Parameters:
- *   psock    Reference to an internal, boound socket structure.
- *   backlog  The maximum length the queue of pending connections may grow.
- *            If a connection request arrives with the queue full, the client
- *            may receive an error with an indication of ECONNREFUSED or,
- *            if the underlying protocol supports retransmission, the request
- *            may be ignored so that retries succeed.
- *
- * Returned Value:
- *   On success, zero is returned. On error, a negated errno value is
- *   returned.  See listen() for the set of appropriate error values.
- *
- ****************************************************************************/
-
-int icmpv6_listen(FAR struct socket *psock, int backlog)
-{
-  return -EOPNOTSUPP;
 }
 
 /****************************************************************************
@@ -426,7 +215,7 @@ int icmpv6_listen(FAR struct socket *psock, int backlog)
  ****************************************************************************/
 
 static int icmpv6_netpoll(FAR struct socket *psock, FAR struct pollfd *fds,
-                        bool setup)
+                          bool setup)
 {
   /* Check if we are setting up or tearing down the poll */
 
@@ -464,7 +253,6 @@ static int icmpv6_close(FAR struct socket *psock)
 {
   FAR struct icmpv6_conn_s *conn;
 
-  DEBUGASSERT(psock != NULL && psock->s_conn != NULL);
   conn = psock->s_conn;
 
   /* Is this the last reference to the connection structure (there could be\
@@ -477,7 +265,7 @@ static int icmpv6_close(FAR struct socket *psock)
     {
       /* Yes... free any read-ahead data */
 
-      iob_free_queue(&conn->readahead, IOBUSER_NET_SOCK_ICMPv6);
+      iob_free_queue(&conn->readahead);
 
       /* Then free the connection structure */
 
@@ -493,6 +281,219 @@ static int icmpv6_close(FAR struct socket *psock)
 
   return OK;
 }
+
+#ifdef CONFIG_NET_SOCKOPTS
+
+/****************************************************************************
+ * Name: icmpv6_getsockopt_internal
+ *
+ * Description:
+ *   icmpv6_getsockopt_internal() sets the ICMPV6-protocol socket option
+ *   specified by the 'option' argument to the value pointed to by the
+ *   'value' argument for the socket specified by the 'psock' argument.
+ *
+ *   See <netinet/in.h> for the a complete list of values of ICMPV6 protocol
+ *   socket options.
+ *
+ * Input Parameters:
+ *   psock     Socket structure of socket to operate on
+ *   option    identifies the option to set
+ *   value     Points to the argument value
+ *   value_len The length of the argument value
+ *
+ * Returned Value:
+ *   Returns zero (OK) on success.  On failure, it returns a negated errno
+ *   value to indicate the nature of the error.
+ *
+ ****************************************************************************/
+
+static int icmpv6_getsockopt_internal(FAR struct socket *psock, int option,
+                                      FAR void *value,
+                                      FAR socklen_t *value_len)
+{
+  int ret;
+
+  ninfo("option: %d\n", option);
+
+  if (psock->s_type != SOCK_RAW)
+    {
+      return ENOPROTOOPT;
+    }
+
+  net_lock();
+  switch (option)
+    {
+      case ICMP6_FILTER:
+        {
+          FAR struct icmpv6_conn_s *conn = psock->s_conn;
+
+          if (*value_len > sizeof(struct icmp6_filter))
+            {
+              *value_len = sizeof(struct icmp6_filter);
+            }
+
+          memcpy(value, &conn->filter, *value_len);
+          ret = OK;
+        }
+        break;
+
+      default:
+        nerr("ERROR: Unrecognized ICMPV6 option: %d\n", option);
+        ret = -ENOPROTOOPT;
+        break;
+    }
+
+  net_unlock();
+  return ret;
+}
+
+/****************************************************************************
+ * Name: icmpv6_getsockopt
+ *
+ * Description:
+ *   icmpv6_getsockopt() retrieve the value for the option specified by the
+ *   'option' argument at the protocol level specified by the 'level'
+ *   argument. If the size of the option value is greater than 'value_len',
+ *   the value stored in the object pointed to by the 'value' argument will
+ *   be silently truncated. Otherwise, the length pointed to by the
+ *   'value_len' argument will be modified to indicate the actual length
+ *   of the 'value'.
+ *
+ *   The 'level' argument specifies the protocol level of the option. To
+ *   retrieve options at the socket level, specify the level argument as
+ *   SOL_SOCKET.
+ *
+ *   See <sys/socket.h> a complete list of values for the 'option' argument.
+ *
+ * Input Parameters:
+ *   psock     Socket structure of the socket to query
+ *   level     Protocol level to set the option
+ *   option    identifies the option to get
+ *   value     Points to the argument value
+ *   value_len The length of the argument value
+ *
+ ****************************************************************************/
+
+static int icmpv6_getsockopt(FAR struct socket *psock, int level, int option,
+                             FAR void *value, FAR socklen_t *value_len)
+{
+  switch (level)
+    {
+      case IPPROTO_IPV6:
+        return ipv6_getsockopt(psock, option, value, value_len);
+
+      case IPPROTO_ICMPV6:
+        return icmpv6_getsockopt_internal(psock, option, value, value_len);
+
+      default:
+        nerr("ERROR: Unrecognized ICMPV6 option: %d\n", option);
+        return -ENOPROTOOPT;
+    }
+}
+
+/****************************************************************************
+ * Name: icmpv6_setsockopt_internal
+ *
+ * Description:
+ *   icmpv6_setsockopt_internal() sets the ICMPV6-protocol socket option
+ *   specified by the 'option' argument to the value pointed to by the
+ *   'value' argument for the socket specified by the 'psock' argument.
+ *
+ *   See <netinet/in.h> for the a complete list of values of ICMPV6 protocol
+ *   socket options.
+ *
+ * Input Parameters:
+ *   psock     Socket structure of socket to operate on
+ *   option    identifies the option to set
+ *   value     Points to the argument value
+ *   value_len The length of the argument value
+ *
+ * Returned Value:
+ *   Returns zero (OK) on success.  On failure, it returns a negated errno
+ *   value to indicate the nature of the error.  See psock_setcockopt() for
+ *   the list of possible error values.
+ *
+ ****************************************************************************/
+
+static int icmpv6_setsockopt_internal(FAR struct socket *psock, int option,
+                                      FAR const void *value,
+                                      socklen_t value_len)
+{
+  int ret;
+
+  ninfo("option: %d\n", option);
+
+  if (psock->s_type != SOCK_RAW)
+    {
+      return ENOPROTOOPT;
+    }
+
+  net_lock();
+  switch (option)
+    {
+      case ICMP6_FILTER:
+        {
+          FAR struct icmpv6_conn_s *conn = psock->s_conn;
+
+          if (value_len > sizeof(struct icmp6_filter))
+            {
+              value_len = sizeof(struct icmp6_filter);
+            }
+
+          memcpy(&conn->filter, value, value_len);
+          ret = OK;
+        }
+        break;
+
+      default:
+        nerr("ERROR: Unrecognized ICMP6 option: %d\n", option);
+        ret = -ENOPROTOOPT;
+        break;
+    }
+
+  net_unlock();
+  return ret;
+}
+
+/****************************************************************************
+ * Name: icmpv6_setsockopt
+ *
+ * Description:
+ *   icmpv6_setsockopt() sets the option specified by the 'option' argument,
+ *   at the protocol level specified by the 'level' argument, to the value
+ *   pointed to by the 'value' argument for the connection.
+ *
+ *   The 'level' argument specifies the protocol level of the option. To set
+ *   options at the socket level, specify the level argument as SOL_SOCKET.
+ *
+ *   See <sys/socket.h> a complete list of values for the 'option' argument.
+ *
+ * Input Parameters:
+ *   psock     Socket structure of the socket to query
+ *   level     Protocol level to set the option
+ *   option    identifies the option to set
+ *   value     Points to the argument value
+ *   value_len The length of the argument value
+ *
+ ****************************************************************************/
+
+static int icmpv6_setsockopt(FAR struct socket *psock, int level, int option,
+                             FAR const void *value, socklen_t value_len)
+{
+  switch (level)
+    {
+      case IPPROTO_IPV6:
+        return ipv6_setsockopt(psock, option, value, value_len);
+
+      case IPPROTO_ICMPV6:
+        return icmpv6_setsockopt_internal(psock, option, value, value_len);
+
+      default:
+        nerr("ERROR: Unrecognized ICMPV6 option: %d\n", option);
+        return -ENOPROTOOPT;
+    }
+}
+#endif
 
 /****************************************************************************
  * Public Functions

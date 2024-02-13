@@ -37,7 +37,7 @@
 #include <arch/chip/pm.h>
 #include <nuttx/irq.h>
 #include <nuttx/arch.h>
-#include <nuttx/semaphore.h>
+#include <nuttx/mutex.h>
 #include <nuttx/spi/spi.h>
 
 #include "arm_internal.h"
@@ -69,7 +69,7 @@ struct cxd56_spidev_s
 #ifdef CONFIG_CXD56_SPI_INTERRUPTS
   uint8_t          spiirq;      /* SPI IRQ number */
 #endif
-  sem_t            exclsem;     /* Held while chip is selected for mutual exclusion */
+  mutex_t          lock;        /* Held while chip is selected for mutual exclusion */
   uint32_t         frequency;   /* Requested clock frequency */
   uint32_t         actual;      /* Actual clock frequency */
   uint8_t          nbits;       /* Width of word in bits (4 to 16) */
@@ -179,15 +179,19 @@ static const struct spi_ops_s g_spi4ops =
 static struct cxd56_spidev_s g_spi4dev =
 {
   .spidev            =
-                        {
-                         &g_spi4ops
-                        },
+  {
+    .ops             = &g_spi4ops,
+  },
   .spibase           = CXD56_IMG_SPI_BASE,
   .spibasefreq       = 0,
   .port              = 4,
   .initialized       = 0,
 #ifdef CONFIG_CXD56_SPI_INTERRUPTS
   .spiirq            = CXD56_IRQ_IMG_SPI,
+#endif
+  .lock              = NXMUTEX_INITIALIZER,
+#ifdef CONFIG_CXD56_DMAC
+  .dmasem            = SEM_INITIALIZER(0),
 #endif
 };
 
@@ -222,15 +226,19 @@ static const struct spi_ops_s g_spi5ops =
 static struct cxd56_spidev_s g_spi5dev =
 {
   .spidev            =
-                        {
-                         &g_spi5ops
-                        },
+  {
+    .ops             = &g_spi5ops,
+  },
   .spibase           = CXD56_IMG_WSPI_BASE,
   .spibasefreq       = 0,
   .port              = 5,
   .initialized       = 0,
 #ifdef CONFIG_CXD56_SPI_INTERRUPTS
   .spiirq            = CXD56_IRQ_IMG_WSPI,
+#endif
+  .lock              = NXMUTEX_INITIALIZER,
+#ifdef CONFIG_CXD56_DMAC
+  .dmasem            = SEM_INITIALIZER(0),
 #endif
 };
 #endif
@@ -264,15 +272,19 @@ static const struct spi_ops_s g_spi0ops =
 static struct cxd56_spidev_s g_spi0dev =
 {
   .spidev            =
-                        {
-                         &g_spi0ops
-                        },
+  {
+    .ops             = &g_spi0ops,
+  },
   .spibase           = CXD56_SPIM_BASE,
   .spibasefreq       = 0,
   .port              = 0,
   .initialized       = 0,
 #ifdef CONFIG_CXD56_SPI_INTERRUPTS
   .spiirq            = CXD56_IRQ_SPIM,
+#endif
+  .lock              = NXMUTEX_INITIALIZER,
+#ifdef CONFIG_CXD56_DMAC
+  .dmasem            = SEM_INITIALIZER(0),
 #endif
 };
 #endif
@@ -306,15 +318,19 @@ static const struct spi_ops_s g_spi3ops =
 static struct cxd56_spidev_s g_spi3dev =
 {
   .spidev            =
-                        {
-                         &g_spi3ops
-                        },
+  {
+    .ops             = &g_spi3ops,
+  },
   .spibase           = CXD56_SCU_SPI_BASE,
   .spibasefreq       = 0,
   .port              = 3,
   .initialized       = 0,
 #ifdef CONFIG_CXD56_SPI_INTERRUPTS
   .spiirq            = CXD56_IRQ_SCU_SPI,
+#endif
+  .lock              = NXMUTEX_INITIALIZER,
+#ifdef CONFIG_CXD56_DMAC
+  .dmasem            = SEM_INITIALIZER(0),
 #endif
 };
 #endif
@@ -402,13 +418,13 @@ static int spi_lock(struct spi_dev_s *dev, bool lock)
 
   if (lock)
     {
-      /* Take the semaphore (perhaps waiting) */
+      /* Take the mutex (perhaps waiting) */
 
-      return nxsem_wait_uninterruptible(&priv->exclsem);
+      return nxmutex_lock(&priv->lock);
     }
   else
     {
-      return nxsem_post(&priv->exclsem);
+      return nxmutex_unlock(&priv->lock);
     }
 }
 
@@ -1244,10 +1260,6 @@ struct spi_dev_s *cxd56_spibus_initialize(int port)
 
   spi_setfrequency((struct spi_dev_s *)priv, 400000);
 
-  /* Initialize the SPI semaphore that enforces mutually exclusive access */
-
-  nxsem_init(&priv->exclsem, 0, 1);
-
 #ifdef CONFIG_CXD56_SPI3_SCUSEQ
   /* Enable the SPI, but not enable port 3 when SCU support enabled.
    * Because this enabler will be controlled by SCU.
@@ -1326,29 +1338,17 @@ void cxd56_spi_dmaconfig(int port, int chtype, DMA_HANDLE handle,
         {
           /* TX DMA setting */
 
+          priv->dmaenable = true;
           priv->txdmach = handle;
           memcpy(&priv->txconfig, conf, sizeof(dma_config_t));
-
-          if (!priv->dmaenable)
-            {
-              nxsem_init(&priv->dmasem, 0, 0);
-              nxsem_set_protocol(&priv->dmasem, SEM_PRIO_NONE);
-              priv->dmaenable = true;
-            }
         }
       else if ((chtype == CXD56_SPI_DMAC_CHTYPE_RX) && (!priv->rxdmach))
         {
           /* RX DMA setting */
 
+          priv->dmaenable = true;
           priv->rxdmach = handle;
           memcpy(&priv->rxconfig, conf, sizeof(dma_config_t));
-
-          if (!priv->dmaenable)
-            {
-              nxsem_init(&priv->dmasem, 0, 0);
-              nxsem_set_protocol(&priv->dmasem, SEM_PRIO_NONE);
-              priv->dmaenable = true;
-            }
         }
     }
 }

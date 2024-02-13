@@ -27,7 +27,6 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include <queue.h>
 #include <assert.h>
 #include <errno.h>
 
@@ -52,6 +51,7 @@
 #include <netinet/in.h>
 
 #include <nuttx/kmalloc.h>
+#include <nuttx/queue.h>
 #include <nuttx/net/net.h>
 
 #include "vnc_server.h"
@@ -125,6 +125,10 @@ static void vnc_reset_session(FAR struct vnc_session_s *session,
   session->nwhupd  = 0;
   session->change  = true;
 
+#ifdef CONFIG_VNCSERVER_TOUCH
+  session->touch.maxpoint = 1;
+#endif
+
   /* Careful not to disturb the keyboard/mouse callouts set by
    * vnc_fbinitialize().  Client related data left in garbage state.
    */
@@ -185,7 +189,7 @@ static int vnc_connect(FAR struct vnc_session_s *session, int port)
 
   ginfo("Accepting connection for Display %d\n", session->display);
 
-  ret = psock_accept(&session->listen, NULL, NULL, &session->connect);
+  ret = psock_accept(&session->listen, NULL, NULL, &session->connect, 0);
   if (ret < 0)
     {
       goto errout_with_listener;
@@ -256,7 +260,7 @@ int vnc_server(int argc, FAR char *argv[])
    * the KMM allocator will align memory to 32-bits or better.
    */
 
-  fb = (FAR uint8_t *)kmm_zalloc(RFB_SIZE);
+  fb = kmm_zalloc(RFB_SIZE);
   if (fb == NULL)
     {
       gerr("ERROR: Failed to allocate framebuffer memory: %lu KB\n",
@@ -281,7 +285,6 @@ int vnc_server(int argc, FAR char *argv[])
 
 #ifdef CONFIG_FB_SYNC
   nxsem_init(&session->vsyncsem, 0, 0);
-  nxsem_set_protocol(&session->vsyncsem, SEM_PRIO_NONE);
 #endif
 
   /* Inform any waiter that we have started */

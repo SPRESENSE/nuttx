@@ -43,7 +43,7 @@
 #define NRF52_SAADC_EVENTS_DONE_OFFSET        0x0108                 /* A conversion task has been completed */
 #define NRF52_SAADC_EVENTS_RESDONE_OFFSET     0x010c                 /* Result ready for transfer to RAM */
 #define NRF52_SAADC_EVENTS_CALDONE_OFFSET     0x0110                 /* Calibration is complete */
-#define NRF52_SAADC_EVENTS_STOPPED_OFFSET     0x0110                 /* The SAADC has stopped */
+#define NRF52_SAADC_EVENTS_STOPPED_OFFSET     0x0114                 /* The SAADC has stopped */
 #define NRF52_SAADC_EVENTS_CHLIMH_OFFSET(x)   (0x118 + ((x) * 0x8))  /* Limit high event for channel x */
 #define NRF52_SAADC_EVENTS_CHLIML_OFFSET(x)   (0x11c + ((x) * 0x8))  /* Limit low event for channel x */
 #define NRF52_SAADC_INTEN_OFFSET              0x0300                 /* Enable or disable interrupt */

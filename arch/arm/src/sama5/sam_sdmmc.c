@@ -245,8 +245,6 @@ struct sam_sdmmcregs_s
 
 /* Low-level helpers ********************************************************/
 
-static void sam_takesem(struct sam_dev_s *priv);
-#define     sam_givesem(priv) (nxsem_post(&priv->waitsem))
 static void sam_configwaitints(struct sam_dev_s *priv, uint32_t waitints,
               sdio_eventset_t waitevents, sdio_eventset_t wkupevents);
 static void sam_configxfrints(struct sam_dev_s *priv, uint32_t xfrints);
@@ -380,7 +378,7 @@ struct sam_dev_s g_sdmmcdev[SAM_MAX_SDMMC_DEV_SLOTS] =
     .sw_cd_gpio         = PIN_SDMMC0_CD_GPIO,
 #endif
 #if defined(CONFIG_SAMA5_SDMMC0_INVERT_CD)
-    .cd_invert         = true,
+    .cd_invert          = true,
 #endif
     .dev                =
     {
@@ -427,7 +425,8 @@ struct sam_dev_s g_sdmmcdev[SAM_MAX_SDMMC_DEV_SLOTS] =
       .dmasendsetup     = sam_sendsetup,
 #endif
 #endif
-    }
+    },
+    .waitsem            = SEM_INITIALIZER(0),
   },
 #endif
 
@@ -438,7 +437,7 @@ struct sam_dev_s g_sdmmcdev[SAM_MAX_SDMMC_DEV_SLOTS] =
     .sw_cd_gpio         = PIN_SDMMC1_CD_GPIO,
 #endif
 #if defined(CONFIG_SAMA5_SDMMC1_INVERT_CD)
-    .cd_invert         = true,
+    .cd_invert          = true,
 #endif
     .dev                =
     {
@@ -484,7 +483,8 @@ struct sam_dev_s g_sdmmcdev[SAM_MAX_SDMMC_DEV_SLOTS] =
       .dmarecvsetup     = sam_recvsetup,
       .dmasendsetup     = sam_sendsetup,
 #endif
-    }
+    },
+    .waitsem            = SEM_INITIALIZER(0),
   }
 #endif
 #endif
@@ -726,26 +726,6 @@ static inline void sam_putreg(struct sam_dev_s *priv, uint32_t value,
                               unsigned int offset)
 {
   return sam_putreg32(priv, value, offset);
-}
-
-/****************************************************************************
- * Name: sam_takesem
- *
- * Description:
- *   Take the wait semaphore (handling false alarm wakeups due to the receipt
- *   of signals).
- *
- * Input Parameters:
- *   dev - Instance of the SDIO device driver state structure.
- *
- * Returned Value:
- *   None
- *
- ****************************************************************************/
-
-static void sam_takesem(struct sam_dev_s *priv)
-{
-  nxsem_wait_uninterruptible(&priv->waitsem);
 }
 
 /****************************************************************************
@@ -1131,7 +1111,7 @@ static void sam_receive(struct sam_dev_s *priv)
         {
           /* Transfer any trailing fractional word */
 
-          uint8_t *ptr = (uint8_t *) priv->buffer;
+          uint8_t *ptr = (uint8_t *)priv->buffer;
           int i;
 
           for (i = 0; i < priv->remaining; i++)
@@ -1221,7 +1201,7 @@ static void sam_endwait(struct sam_dev_s *priv, sdio_eventset_t wkupevent)
 
   /* Wake up the waiting thread */
 
-  sam_givesem(priv);
+  nxsem_post(&priv->waitsem);
 }
 
 /****************************************************************************
@@ -1493,8 +1473,12 @@ static int sam_lock(struct sdio_dev_s *dev, bool lock)
 {
   /* The multiplex bus is part of board support package. */
 
-  sam_muxbus_sdio_lock((dev - g_sdmmcdev) /
-                         sizeof(struct sam_dev_s), lock);
+  /* FIXME: Implement the below function to support bus share:
+   *
+   * sam_muxbus_sdio_lock((dev - g_sdmmcdev) /
+   *                        sizeof(struct sam_dev_s), lock);
+   */
+
   return OK;
 }
 #endif
@@ -1893,7 +1877,7 @@ static void sam_frequency(struct sdio_dev_s *dev, uint32_t frequency)
 
 static void sam_clock(struct sdio_dev_s *dev, enum sdio_clock_e rate)
 {
-  struct sam_dev_s *priv = (struct sam_dev_s *) dev;
+  struct sam_dev_s *priv = (struct sam_dev_s *)dev;
   uint32_t regval;
   int wait_microseconds = 0;
 
@@ -2017,7 +2001,7 @@ static int sam_attach(struct sdio_dev_s *dev)
         }
       else
         {
-          ASSERT(false);
+          PANIC();
         }
     }
 
@@ -2374,7 +2358,7 @@ static int sam_recvsetup(struct sdio_dev_s *dev, uint8_t *buffer,
    * handler and DMA memory invalidation.
    */
 
-  priv->buffer = (uint32_t *) buffer;
+  priv->buffer = (uint32_t *)buffer;
   priv->remaining = nbytes;
 
   /* Then set up the SDIO data path */
@@ -2428,7 +2412,8 @@ static int sam_sendsetup(struct sdio_dev_s *dev,
 
   /* Save the source buffer information for use by the interrupt handler */
 
-  priv->buffer = (uint32_t *) buffer; priv->remaining = nbytes;
+  priv->buffer = (uint32_t *)buffer;
+  priv->remaining = nbytes;
 
   /* Then set up the SDIO data path */
 
@@ -2939,7 +2924,7 @@ static sdio_eventset_t sam_eventwait(struct sdio_dev_s *dev)
        * incremented and there will be no wait.
        */
 
-      sam_takesem(priv);
+      nxsem_wait_uninterruptible(&priv->waitsem);
       wkupevent = priv->wkupevent;
 
       /* Check if the event has occurred.  When the event has occurred, then
@@ -3072,7 +3057,7 @@ static int sam_dmarecvsetup(struct sdio_dev_s *dev,
    * handler
    */
 
-  priv->buffer = (uint32_t *) buffer;
+  priv->buffer = (uint32_t *)buffer;
   priv->remaining = buflen;
   priv->bufferend = (uint32_t *)(buffer + buflen);
 
@@ -3142,7 +3127,7 @@ static int sam_dmasendsetup(struct sdio_dev_s *dev,
 
   /* Save the source buffer information for use by the interrupt handler */
 
-  priv->buffer    = (uint32_t *) buffer;
+  priv->buffer    = (uint32_t *)buffer;
   priv->remaining = buflen;
   priv->bufferend = (uint32_t *)(buffer + buflen);
 
@@ -3610,17 +3595,7 @@ struct sdio_dev_s *sam_sdmmc_sdio_initialize(int slotno)
 
   struct sam_dev_s *priv = &g_sdmmcdev[slotno];
 
-  /* Initialize the SDMMC slot structure data structure
-   * Initialize semaphores
-   */
-
-  nxsem_init(&priv->waitsem, 0, 0);
-
-  /* The waitsem semaphore is used for signaling and, hence, should not
-   * have priority inheritance enabled.
-   */
-
-  nxsem_set_protocol(&priv->waitsem, SEM_PRIO_NONE);
+  /* Initialize the SDMMC slot structure data structure */
 
   switch (priv->addr)
     {
@@ -3640,8 +3615,8 @@ struct sdio_dev_s *sam_sdmmc_sdio_initialize(int slotno)
       sam_configpio(PIO_SDMMC0_CK);
       sam_configpio(PIO_SDMMC0_CMD);
 
-#    if ( defined(CONFIG_SAMA5_SDMMC0_WIDTH_D1_D4) || \
-        defined(CONFIG_SAMA5_SDMMC0_WIDTH_D1_D8) )
+#    if (defined(CONFIG_SAMA5_SDMMC0_WIDTH_D1_D4) || \
+        defined(CONFIG_SAMA5_SDMMC0_WIDTH_D1_D8))
       sam_configpio(PIO_SDMMC0_DAT1);
       sam_configpio(PIO_SDMMC0_DAT2);
       sam_configpio(PIO_SDMMC0_DAT3);

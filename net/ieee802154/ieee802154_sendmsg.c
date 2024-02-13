@@ -176,9 +176,7 @@ static void ieee802154_meta_data(FAR struct radio_driver_s *radio,
               meta != NULL);
 
   psock    = pstate->is_sock;
-  DEBUGASSERT(psock->s_conn != NULL);
-
-  conn     = (FAR struct ieee802154_conn_s *)psock->s_conn;
+  conn     = psock->s_conn;
   srcaddr  = &conn->laddr;
   destaddr = &pstate->is_destaddr;
 
@@ -271,7 +269,6 @@ static void ieee802154_meta_data(FAR struct radio_driver_s *radio,
  ****************************************************************************/
 
 static uint16_t ieee802154_sendto_eventhandler(FAR struct net_driver_s *dev,
-                                               FAR void *pvconn,
                                                FAR void *pvpriv,
                                                uint16_t flags)
 {
@@ -293,9 +290,9 @@ static uint16_t ieee802154_sendto_eventhandler(FAR struct net_driver_s *dev,
 
   /* Make sure that this is the driver to which the socket is connected. */
 
-#warning Missing logic
+  /* #warning Missing logic */
 
-  pstate = (FAR struct ieee802154_sendto_s *)pvpriv;
+  pstate = pvpriv;
   radio  = (FAR struct radio_driver_s *)dev;
 
   ninfo("flags: %04x sent: %zd\n", flags, pstate->is_sent);
@@ -332,7 +329,7 @@ static uint16_t ieee802154_sendto_eventhandler(FAR struct net_driver_s *dev,
 
       /* Allocate an IOB to hold the frame data */
 
-      iob = net_ioballoc(false, IOBUSER_NET_SOCK_IEEE802154);
+      iob = net_ioballoc(false);
       if (iob == NULL)
         {
           nwarn("WARNING: Failed to allocate IOB\n");
@@ -444,7 +441,7 @@ static ssize_t ieee802154_sendto(FAR struct socket *psock,
       return -EDESTADDRREQ;
     }
 
-  conn = (FAR struct ieee802154_conn_s *)psock->s_conn;
+  conn = psock->s_conn;
 
   /* Verify that the address is large enough to be a valid PF_IEEE802154
    * address.
@@ -472,13 +469,7 @@ static ssize_t ieee802154_sendto(FAR struct socket *psock,
 
   net_lock();
   memset(&state, 0, sizeof(struct ieee802154_sendto_s));
-
-  /* This semaphore is used for signaling and, hence, should not have
-   * priority inheritance enabled.
-   */
-
   nxsem_init(&state.is_sem, 0, 0); /* Doesn't really fail */
-  nxsem_set_protocol(&state.is_sem, SEM_PRIO_NONE);
 
   state.is_sock   = psock;          /* Socket descriptor to use */
   state.is_buflen = len;            /* Number of bytes to send */
@@ -508,10 +499,10 @@ static ssize_t ieee802154_sendto(FAR struct socket *psock,
           netdev_txnotify_dev(&radio->r_dev);
 
           /* Wait for the send to complete or an error to occur.
-           * net_lockedwait will also terminate if a signal is received.
+           * net_sem_wait will also terminate if a signal is received.
            */
 
-          ret = net_lockedwait(&state.is_sem);
+          ret = net_sem_wait(&state.is_sem);
 
           /* Make sure that no further events are processed */
 
@@ -531,8 +522,8 @@ static ssize_t ieee802154_sendto(FAR struct socket *psock,
       return state.is_sent;
     }
 
-  /* If net_lockedwait failed, then we were probably reawakened by a signal.
-   * In this case, net_lockedwait will have returned negated errno
+  /* If net_sem_wait failed, then we were probably reawakened by a signal.
+   * In this case, net_sem_wait will have returned negated errno
    * appropriately.
    */
 
@@ -572,9 +563,7 @@ static ssize_t ieee802154_send(FAR struct socket *psock, FAR const void *buf,
   FAR struct ieee802154_conn_s *conn;
   ssize_t ret;
 
-  DEBUGASSERT(psock != NULL || buf != NULL);
-  conn = (FAR struct ieee802154_conn_s *)psock->s_conn;
-  DEBUGASSERT(conn != NULL);
+  conn = psock->s_conn;
 
   /* Only SOCK_DGRAM is supported (because the MAC header is stripped) */
 

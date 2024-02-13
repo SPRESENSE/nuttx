@@ -34,9 +34,11 @@
 #include <arch/irq.h>
 
 #include <nuttx/kmalloc.h>
+#include <nuttx/mutex.h>
 #include <nuttx/semaphore.h>
 #include <nuttx/net/netconfig.h>
 #include <nuttx/net/net.h>
+#include <nuttx/net/usrsock.h>
 
 #include "usrsock/usrsock.h"
 
@@ -46,40 +48,19 @@
 
 /* The array containing all usrsock connections. */
 
-#ifndef CONFIG_NET_ALLOC_CONNS
-static struct usrsock_conn_s g_usrsock_connections[CONFIG_NET_USRSOCK_CONNS];
+#if CONFIG_NET_USRSOCK_PREALLOC_CONNS > 0
+static struct usrsock_conn_s
+              g_usrsock_connections[CONFIG_NET_USRSOCK_PREALLOC_CONNS];
 #endif
 
 /* A list of all free usrsock connections */
 
 static dq_queue_t g_free_usrsock_connections;
-static sem_t g_free_sem = SEM_INITIALIZER(1);
+static mutex_t g_free_lock = NXMUTEX_INITIALIZER;
 
 /* A list of all allocated usrsock connections */
 
 static dq_queue_t g_active_usrsock_connections;
-
-/****************************************************************************
- * Private Functions
- ****************************************************************************/
-
-/****************************************************************************
- * Name: _usrsock_semtake() and _usrsock_semgive()
- *
- * Description:
- *   Take/give semaphore
- *
- ****************************************************************************/
-
-static void _usrsock_semtake(FAR sem_t *sem)
-{
-  net_lockedwait_uninterruptible(sem);
-}
-
-static void _usrsock_semgive(FAR sem_t *sem)
-{
-  nxsem_post(sem);
-}
 
 /****************************************************************************
  * Public Functions
@@ -97,20 +78,29 @@ static void _usrsock_semgive(FAR sem_t *sem)
 FAR struct usrsock_conn_s *usrsock_alloc(void)
 {
   FAR struct usrsock_conn_s *conn;
-#ifdef CONFIG_NET_ALLOC_CONNS
+#if CONFIG_NET_USRSOCK_ALLOC_CONNS > 0
   int i;
 #endif
 
-  /* The free list is protected by a semaphore (that behaves like a mutex). */
+  /* The free list is protected by a a mutex. */
 
-  _usrsock_semtake(&g_free_sem);
-#ifdef CONFIG_NET_ALLOC_CONNS
+  nxmutex_lock(&g_free_lock);
+#if CONFIG_NET_USRSOCK_ALLOC_CONNS > 0
   if (dq_peek(&g_free_usrsock_connections) == NULL)
     {
-      conn = kmm_zalloc(sizeof(*conn) * CONFIG_NET_USRSOCK_CONNS);
+#if CONFIG_NET_USRSOCK_MAX_CONNS > 0
+      if (dq_count(&g_active_usrsock_connections) +
+          CONFIG_NET_USRSOCK_ALLOC_CONNS >= CONFIG_NET_USRSOCK_MAX_CONNS)
+        {
+          nxmutex_unlock(&g_free_lock);
+          return NULL;
+        }
+#endif
+
+      conn = kmm_zalloc(sizeof(*conn) * CONFIG_NET_USRSOCK_ALLOC_CONNS);
       if (conn != NULL)
         {
-          for (i = 0; i < CONFIG_NET_USRSOCK_CONNS; i++)
+          for (i = 0; i < CONFIG_NET_USRSOCK_ALLOC_CONNS; i++)
             {
               dq_addlast(&conn[i].sconn.node, &g_free_usrsock_connections);
             }
@@ -133,7 +123,7 @@ FAR struct usrsock_conn_s *usrsock_alloc(void)
       dq_addlast(&conn->sconn.node, &g_active_usrsock_connections);
     }
 
-  _usrsock_semgive(&g_free_sem);
+  nxmutex_unlock(&g_free_lock);
   return conn;
 }
 
@@ -148,11 +138,11 @@ FAR struct usrsock_conn_s *usrsock_alloc(void)
 
 void usrsock_free(FAR struct usrsock_conn_s *conn)
 {
-  /* The free list is protected by a semaphore (that behaves like a mutex). */
+  /* The free list is protected by a mutex. */
 
   DEBUGASSERT(conn->crefs == 0);
 
-  _usrsock_semtake(&g_free_sem);
+  nxmutex_lock(&g_free_lock);
 
   /* Remove the connection from the active list */
 
@@ -161,12 +151,25 @@ void usrsock_free(FAR struct usrsock_conn_s *conn)
   /* Reset structure */
 
   nxsem_destroy(&conn->resp.sem);
-  memset(conn, 0, sizeof(*conn));
 
-  /* Free the connection */
+  /* If this is a preallocated or a batch allocated connection store it in
+   * the free connections list. Else free it.
+   */
 
-  dq_addlast(&conn->sconn.node, &g_free_usrsock_connections);
-  _usrsock_semgive(&g_free_sem);
+#if CONFIG_NET_USRSOCK_ALLOC_CONNS == 1
+  if (conn < g_usrsock_connections || conn >= (g_usrsock_connections +
+      CONFIG_NET_USRSOCK_PREALLOC_CONNS))
+    {
+      kmm_free(conn);
+    }
+  else
+#endif
+    {
+      memset(conn, 0, sizeof(*conn));
+      dq_addlast(&conn->sconn.node, &g_free_usrsock_connections);
+    }
+
+  nxmutex_unlock(&g_free_lock);
 }
 
 /****************************************************************************
@@ -228,7 +231,6 @@ int usrsock_setup_request_callback(FAR struct usrsock_conn_s *conn,
   int ret = -EBUSY;
 
   nxsem_init(&pstate->recvsem, 0, 0);
-  nxsem_set_protocol(&pstate->recvsem, SEM_PRIO_NONE);
 
   pstate->conn      = conn;
   pstate->result    = -EAGAIN;
@@ -245,7 +247,7 @@ int usrsock_setup_request_callback(FAR struct usrsock_conn_s *conn,
 
       if ((flags & USRSOCK_EVENT_REQ_COMPLETE) != 0)
         {
-          _usrsock_semtake(&conn->resp.sem);
+          net_sem_wait_uninterruptible(&conn->resp.sem);
           pstate->unlock = true;
         }
 
@@ -287,7 +289,7 @@ void usrsock_teardown_request_callback(FAR struct usrsock_reqstate_s *pstate)
 
   if (pstate->unlock)
     {
-      _usrsock_semgive(&conn->resp.sem);
+      nxsem_post(&conn->resp.sem);
     }
 
   /* Make sure that no further events are processed */
@@ -330,11 +332,11 @@ void usrsock_setup_datain(FAR struct usrsock_conn_s *conn,
 
 void usrsock_initialize(void)
 {
-#ifndef CONFIG_NET_ALLOC_CONNS
+#if CONFIG_NET_USRSOCK_PREALLOC_CONNS > 0
   FAR struct usrsock_conn_s *conn;
   int i;
 
-  for (i = 0; i < CONFIG_NET_USRSOCK_CONNS; i++)
+  for (i = 0; i < CONFIG_NET_USRSOCK_PREALLOC_CONNS; i++)
     {
       conn = &g_usrsock_connections[i];
 
@@ -348,7 +350,7 @@ void usrsock_initialize(void)
 
   /* Register /dev/usrsock character device. */
 
-  usrsockdev_register();
+  usrsock_register();
 }
 
 #endif /* CONFIG_NET && CONFIG_NET_USRSOCK */

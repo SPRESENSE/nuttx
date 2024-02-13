@@ -78,8 +78,6 @@ struct sph_dev_s
 
 static int sph_open(struct file *filep);
 static int sph_ioctl(struct file *filep, int cmd, unsigned long arg);
-static int sph_semtake(sem_t *id);
-static void sph_semgive(sem_t *id);
 static int sph_lock(struct sph_dev_s *priv);
 static int sph_trylock(struct sph_dev_s *priv);
 static inline int sph_unlock(struct sph_dev_s *priv);
@@ -89,7 +87,7 @@ static int cxd56_sphirqhandler(int irq, void *context, void *arg);
  * Private Data
  ****************************************************************************/
 
-static const struct file_operations sph_fops =
+static const struct file_operations g_sph_fops =
 {
   .open  = sph_open,
   .ioctl = sph_ioctl
@@ -117,7 +115,7 @@ static int sph_open(struct file *filep)
 static int sph_ioctl(struct file *filep, int cmd, unsigned long arg)
 {
   struct sph_dev_s *priv =
-    (struct sph_dev_s *)filep->f_inode->i_private;
+    filep->f_inode->i_private;
   int ret = -ENOTTY;
 
   hsinfo("cmd = %x\n", cmd);
@@ -148,16 +146,6 @@ static int sph_ioctl(struct file *filep, int cmd, unsigned long arg)
   return ret;
 }
 
-static int sph_semtake(sem_t *id)
-{
-  return nxsem_wait_uninterruptible(id);
-}
-
-static void sph_semgive(sem_t *id)
-{
-  nxsem_post(id);
-}
-
 static int sph_lock(struct sph_dev_s *priv)
 {
   uint32_t sts;
@@ -182,7 +170,7 @@ static int sph_lock(struct sph_dev_s *priv)
           sts = getreg32(CXD56_SPH_STS(priv->id));
           if (sph_state_busy(sts))
             {
-              sph_semtake(&priv->wait);
+              nxsem_wait_uninterruptible(&priv->wait);
             }
 
           /* Get latest status for determining locked owner. */
@@ -236,14 +224,13 @@ static inline int cxd56_sphdevinit(const char *devname, int num)
 
   snprintf(fullpath, sizeof(fullpath), "/dev/%s%d", devname, num);
 
-  ret = register_driver(fullpath, &sph_fops, 0666, (void *)priv);
+  ret = register_driver(fullpath, &g_sph_fops, 0666, (void *)priv);
   if (ret != 0)
     {
       return ERROR;
     }
 
   nxsem_init(&priv->wait, 0, 0);
-  nxsem_set_protocol(&priv->wait, SEM_PRIO_NONE);
   priv->id = num;
 
   irq_attach(CXD56_IRQ_SPH0 + num, cxd56_sphirqhandler, NULL);
@@ -268,8 +255,7 @@ static int cxd56_sphirqhandler(int irq, void *context, void *arg)
 
   /* Give semaphore for hardware semaphore is locked */
 
-  sph_semgive(&g_sphdev[id].wait);
-
+  nxsem_post(&g_sphdev[id].wait);
   return OK;
 }
 

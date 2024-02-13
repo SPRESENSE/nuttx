@@ -27,6 +27,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/param.h>
 #include <debug.h>
 #include <errno.h>
 
@@ -61,9 +62,9 @@
 #  if defined(CONFIG_PWM_NCHANNELS) && CONFIG_PWM_NCHANNELS > 1
 #    define LEDC_TIM0_CHANS       CONFIG_ESP32C3_LEDC_TIM0_CHANNELS
 #  else
-#    define LEDC_TIM0_CHANS       (1) 
+#    define LEDC_TIM0_CHANS       (1)
 #  endif
-#    define LEDC_TIM0_CHANS_OFF   (0) 
+#    define LEDC_TIM0_CHANS_OFF   (0)
 #endif
 
 /* LEDC timer1 channels and offset */
@@ -74,7 +75,7 @@
 #  else
 #    define LEDC_TIM1_CHANS       (1)
 #  endif
-#  define LEDC_TIM1_CHANS_OFF     (LEDC_TIM0_CHANS_OFF + LEDC_TIM0_CHANS)  
+#  define LEDC_TIM1_CHANS_OFF     (LEDC_TIM0_CHANS_OFF + LEDC_TIM0_CHANS)
 #endif
 
 /* LEDC timer2 channels and offset */
@@ -99,7 +100,7 @@
 
 /* LEDC timer max clock divider parameter */
 
-#define LEDC_CLKDIV_MAX           (1024)      /* 2^10 */  
+#define LEDC_CLKDIV_MAX           (1024)      /* 2^10 */
 
 /* LEDC timer registers mapping */
 
@@ -116,10 +117,6 @@
 
 #define SET_CHAN_BITS(c, r, b)    setbits(b, LEDC_CHAN_REG(r, (c)->num));
 #define SET_CHAN_REG(c, r, v)     putreg32(v, LEDC_CHAN_REG(r, (c)->num));
-
-#ifndef MIN
-#  define MIN(a, b) (((a) < (b)) ? (a) : (b))
-#endif
 
 /****************************************************************************
  * Private Types

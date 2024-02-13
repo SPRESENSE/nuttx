@@ -410,16 +410,10 @@ int sixlowpan_queue_frames(FAR struct radio_driver_s *radio,
    * necessary.
    */
 
-  iob = net_ioballoc(false, IOBUSER_NET_6LOWPAN);
+  iob = net_ioballoc(false);
   DEBUGASSERT(iob != NULL);
 
-  /* Initialize the IOB */
-
-  iob->io_flink  = NULL;
-  iob->io_len    = 0;
-  iob->io_offset = 0;
-  iob->io_pktlen = 0;
-  fptr           = iob->io_data;
+  fptr = iob->io_data;
 
   ninfo("Sending packet length %zd\n", buflen);
 
@@ -568,7 +562,7 @@ int sixlowpan_queue_frames(FAR struct radio_driver_s *radio,
        *   1. Datagram size describes the total (un-fragmented) payload.
        *   2. Datagram tag identifies the set of fragments and is used to
        *      match fragments of the same payload.
-       *   3. Datagram offset identifies the fragment’s offset within the
+       *   3. Datagram offset identifies the fragment's offset within the
        *      unfragmented payload.
        *
        * The fragment header length is 4 bytes for the first header and 5
@@ -634,15 +628,12 @@ int sixlowpan_queue_frames(FAR struct radio_driver_s *radio,
            * necessary.
            */
 
-          iob = net_ioballoc(false, IOBUSER_NET_6LOWPAN);
+          iob = net_ioballoc(false);
           DEBUGASSERT(iob != NULL);
 
           /* Initialize the IOB */
 
-          iob->io_flink  = NULL;
-          iob->io_len    = 0;
           iob->io_offset = framer_hdrlen;
-          iob->io_pktlen = 0;
           fptr           = iob->io_data;
 
           /* Copy the HC1/HC06/IPv6 header the frame header from first

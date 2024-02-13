@@ -61,7 +61,6 @@ SECTIONS
         *libarch.a:arm_doirq.o(.text .text.*)
         *libarch.a:arm_unblocktask.o(.text .text.*)
         *libarch.a:arm_blocktask.o(.text .text.*)
-        *libarch.a:arm_releasepending.o(.text .text.*)
 
         *libsched.a:nx_start.o(.rodata .rodata.g_tasklisttable)
         *libsched.a:sem_post.o(.text .text.*)
@@ -181,6 +180,9 @@ SECTIONS
         PROVIDE(_start_data_ = . );
         *(.data);
         *(.data.*);
+        . = ALIGN(4);
+        KEEP(*(.info));
+        KEEP(*(.info.*));
         . = ALIGN(4);
         PROVIDE(_end_data_ = . );
     }

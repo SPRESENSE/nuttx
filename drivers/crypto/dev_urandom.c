@@ -29,6 +29,7 @@
 #include <nuttx/config.h>
 
 #include <sys/types.h>
+#include <sys/param.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
@@ -79,8 +80,6 @@ union xorshift128_state_u
  * Private Function Prototypes
  ****************************************************************************/
 
-#define min(a, b)   (((a) < (b)) ? (a) : (b))
-
 static ssize_t devurand_read(FAR struct file *filep, FAR char *buffer,
                              size_t buflen);
 static ssize_t devurand_write(FAR struct file *filep, FAR const char *buffer,
@@ -100,10 +99,9 @@ static const struct file_operations g_urand_fops =
   devurand_write,               /* write */
   NULL,                         /* seek */
   NULL,                         /* ioctl */
+  NULL,                         /* mmap */
+  NULL,                         /* truncate */
   devurand_poll                 /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL                        /* unlink */
-#endif
 };
 
 #ifdef CONFIG_DEV_URANDOM_XORSHIFT128
@@ -221,7 +219,7 @@ static ssize_t devurand_write(FAR struct file *filep, FAR const char *buffer,
 #ifdef CONFIG_DEV_URANDOM_CONGRUENTIAL
   unsigned int seed = 0;
 
-  len = min(len, sizeof(unsigned int));
+  len = MIN(len, sizeof(unsigned int));
   memcpy(&seed, buffer, len);
   srand(seed);
   return len;
@@ -243,7 +241,7 @@ static ssize_t devurand_write(FAR struct file *filep, FAR const char *buffer,
     {
       /* Make unaligned input aligned. */
 
-      currlen = min(sizeof(uint32_t) - ((uintptr_t)buffer & alignmask), len);
+      currlen = MIN(sizeof(uint32_t) - ((uintptr_t)buffer & alignmask), len);
       memcpy(&tmp, buffer, currlen);
       up_rngaddint(RND_SRC_SW, tmp);
 
@@ -277,7 +275,7 @@ static ssize_t devurand_write(FAR struct file *filep, FAR const char *buffer,
 
   return initlen;
 #else
-  len = min(len, sizeof(g_prng.u));
+  len = MIN(len, sizeof(g_prng.u));
   memcpy(&g_prng.u, buffer, len);
   return len;
 #endif
@@ -292,11 +290,7 @@ static int devurand_poll(FAR struct file *filep, FAR struct pollfd *fds,
 {
   if (setup)
     {
-      fds->revents |= (fds->events & (POLLIN | POLLOUT));
-      if (fds->revents != 0)
-        {
-          nxsem_post(fds->sem);
-        }
+      poll_notify(&fds, 1, POLLIN | POLLOUT);
     }
 
   return OK;

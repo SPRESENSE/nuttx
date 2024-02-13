@@ -41,8 +41,7 @@
  * Private Function Prototypes
  ****************************************************************************/
 
-static int        usrsock_sockif_setup(FAR struct socket *psock,
-                                       int protocol);
+static int        usrsock_sockif_setup(FAR struct socket *psock);
 static sockcaps_t usrsock_sockif_sockcaps(FAR struct socket *psock);
 static void       usrsock_sockif_addref(FAR struct socket *psock);
 static int        usrsock_sockif_close(FAR struct socket *psock);
@@ -66,7 +65,13 @@ const struct sock_intf_s g_usrsock_sockif =
   usrsock_sendmsg,            /* si_sendmsg */
   usrsock_recvmsg,            /* si_recvmsg */
   usrsock_sockif_close,       /* si_close */
-  usrsock_ioctl               /* si_ioctl */
+  usrsock_ioctl,              /* si_ioctl */
+  NULL,                       /* si_socketpair */
+  usrsock_shutdown            /* si_shutdown */
+#ifdef CONFIG_NET_SOCKOPTS
+  , usrsock_getsockopt        /* si_getsockopt */
+  , usrsock_setsockopt        /* si_setsockopt */
+#endif
 };
 
 /****************************************************************************
@@ -84,7 +89,6 @@ const struct sock_intf_s g_usrsock_sockif =
  * Input Parameters:
  *   psock    - A pointer to a user allocated socket structure to be
  *              initialized.
- *   protocol - (see sys/socket.h)
  *
  * Returned Value:
  *   Zero (OK) is returned on success.  Otherwise, a negated errno value is
@@ -92,51 +96,9 @@ const struct sock_intf_s g_usrsock_sockif =
  *
  ****************************************************************************/
 
-static int usrsock_sockif_setup(FAR struct socket *psock, int protocol)
+static int usrsock_sockif_setup(FAR struct socket *psock)
 {
-  int domain = psock->s_domain;
-  int type = psock->s_type;
   int ret;
-
-#ifdef CONFIG_NET_USRSOCK_NO_INET
-  if (domain == PF_INET)
-    {
-      return -ENETDOWN;
-    }
-#endif
-
-#ifdef CONFIG_NET_USRSOCK_NO_INET6
-  if (domain == PF_INET6)
-    {
-      return -ENETDOWN;
-    }
-#endif
-
-  if (domain == PF_INET || domain == PF_INET6)
-    {
-#ifndef CONFIG_NET_USRSOCK_UDP
-      if (type == SOCK_DGRAM)
-        {
-          return -ENETDOWN;
-        }
-#endif
-
-#ifndef CONFIG_NET_USRSOCK_TCP
-      if (type == SOCK_STREAM)
-        {
-          return -ENETDOWN;
-        }
-#endif
-    }
-  else
-    {
-#ifndef CONFIG_NET_USRSOCK_OTHER
-      return -ENETDOWN;
-#endif
-    }
-
-  psock->s_type = PF_UNSPEC;
-  psock->s_conn = NULL;
 
   /* Let the user socket logic handle the setup...
    *
@@ -147,7 +109,8 @@ static int usrsock_sockif_setup(FAR struct socket *psock, int protocol)
    * to open socket with kernel networking stack in this case.
    */
 
-  ret = usrsock_socket(domain, type, protocol, psock);
+  ret = usrsock_socket(psock->s_domain, psock->s_type, psock->s_proto,
+                       psock);
   if (ret == -ENETDOWN)
     {
       nwarn("WARNING: usrsock daemon is not running\n");
@@ -194,8 +157,6 @@ static sockcaps_t usrsock_sockif_sockcaps(FAR struct socket *psock)
 static void usrsock_sockif_addref(FAR struct socket *psock)
 {
   FAR struct usrsock_conn_s *conn;
-
-  DEBUGASSERT(psock != NULL && psock->s_conn != NULL);
 
   conn = psock->s_conn;
   DEBUGASSERT(conn->crefs > 0 && conn->crefs < 255);

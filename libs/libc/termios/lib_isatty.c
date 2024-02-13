@@ -27,6 +27,7 @@
  * Included Files
  ****************************************************************************/
 
+#include <unistd.h>
 #include <termios.h>
 
 /****************************************************************************
@@ -45,8 +46,6 @@
  *   returns true if the file descriptor is associated with a driver that
  *   responds wo tcgetattr() without an error -- that it, the driver supports
  *   the NuttX TCGETS ioctl command.
- *
- *   Of course, that can only be true if CONFIG_SERIAL_TERMIOS=y.
  *
  ****************************************************************************/
 

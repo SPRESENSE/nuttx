@@ -5,23 +5,72 @@
 
 if ARCH_ARMV8M
 
-config ARMV8M_LIBM
-	bool "Architecture specific optimizations"
+config ARMV8M_STRING_FUNCTION
+	bool "Enable optimized ARMv8M specific string function"
 	default n
-	select LIBM_ARCH_CEIL if ARCH_DPFPU
-	select LIBM_ARCH_FLOOR if ARCH_DPFPU
-	select LIBM_ARCH_NEARBYINT if ARCH_DPFPU
-	select LIBM_ARCH_RINT if ARCH_DPFPU
-	select LIBM_ARCH_ROUND if ARCH_DPFPU
-	select LIBM_ARCH_TRUNC if ARCH_DPFPU
-	select LIBM_ARCH_CEILF if ARCH_FPU
-	select LIBM_ARCH_FLOORF if ARCH_FPU
-	select LIBM_ARCH_NEARBYINTF if ARCH_FPU
-	select LIBM_ARCH_RINTF if ARCH_FPU
-	select LIBM_ARCH_ROUNDF if ARCH_FPU
-	select LIBM_ARCH_TRUNCF if ARCH_FPU
-	depends on LIBM
+	depends on ARCH_TOOLCHAIN_GNU
+	select ARMV8M_MEMCHR
+	select ARMV8M_MEMCPY
+	select ARMV8M_MEMSET
+	select ARMV8M_MEMMOVE
+	select ARMV8M_STRCMP
+	select ARMV8M_STRCPY
+	select ARMV8M_STRLEN
+
+config ARMV8M_MEMCHR
+	bool "Enable optimized memchr() for ARMv8-M"
+	default n
+	select LIBC_ARCH_MEMCHR
+	depends on ARCH_TOOLCHAIN_GNU
 	---help---
-		Enable ARMv8 specific floating point optimizations.
+		Enable optimized ARMv8-M specific memchr() library function
+
+config ARMV8M_MEMCPY
+	bool "Enable optimized memcpy() for ARMv8-M"
+	default n
+	select LIBC_ARCH_MEMCPY
+	depends on ARCH_TOOLCHAIN_GNU
+	---help---
+		Enable optimized ARMv8-M specific memcpy() library function
+
+config ARMV8M_MEMSET
+	bool "Enable optimized memset() for ARMv8-M"
+	default n
+	select LIBC_ARCH_MEMSET
+	depends on ARCH_TOOLCHAIN_GNU
+	---help---
+		Enable optimized ARMv8-M specific memset() library function
+
+config ARMV8M_MEMMOVE
+	bool "Enable optimized memmove() for ARMv8-M"
+	default n
+	select LIBC_ARCH_MEMMOVE
+	depends on ARCH_TOOLCHAIN_GNU
+	---help---
+		Enable optimized ARMv8-M specific memmove() library function
+
+config ARMV8M_STRCMP
+	bool "Enable optimized strcmp() for ARMv8-M"
+	default n
+	select LIBC_ARCH_STRCMP
+	depends on ARCH_TOOLCHAIN_GNU
+	---help---
+		Enable optimized ARMv8-M specific strcmp() library function
+
+config ARMV8M_STRCPY
+	bool "Enable optimized strcpy() for ARMv8-M"
+	default n
+	select LIBC_ARCH_STRCPY
+	depends on ARCH_TOOLCHAIN_GNU
+	---help---
+		Enable optimized ARMv8-M specific strcpy() library function
+
+config ARMV8M_STRLEN
+	bool "Enable optimized strlen() for ARMv8-M"
+	default n
+	select LIBC_ARCH_STRLEN
+	depends on ARCH_TOOLCHAIN_GNU
+	---help---
+		Enable optimized ARMv8-M specific strlen() library function
 
 endif

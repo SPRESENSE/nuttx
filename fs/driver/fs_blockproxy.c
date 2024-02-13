@@ -36,10 +36,12 @@
 #include <assert.h>
 #include <debug.h>
 
-#include <nuttx/kmalloc.h>
+#include <nuttx/lib/lib.h>
 #include <nuttx/drivers/drivers.h>
 #include <nuttx/fs/fs.h>
-#include <nuttx/semaphore.h>
+#include <nuttx/mutex.h>
+
+#include "driver.h"
 
 #if !defined(CONFIG_DISABLE_MOUNTPOINT) && \
     !defined(CONFIG_DISABLE_PSEUDOFS_OPERATIONS)
@@ -49,7 +51,7 @@
  ****************************************************************************/
 
 static uint32_t g_devno;
-static sem_t g_devno_sem = SEM_INITIALIZER(1);
+static mutex_t g_devno_lock = NXMUTEX_INITIALIZER;
 
 /****************************************************************************
  * Private Functions
@@ -84,19 +86,19 @@ static FAR char *unique_chardev(void)
 
   for (; ; )
     {
-      /* Get the semaphore protecting the path number */
+      /* Get the mutex protecting the path number */
 
-      ret = nxsem_wait_uninterruptible(&g_devno_sem);
+      ret = nxmutex_lock(&g_devno_lock);
       if (ret < 0)
         {
-          ferr("ERROR: nxsem_wait_uninterruptible failed: %d\n", ret);
+          ferr("ERROR: nxmutex_lock failed: %d\n", ret);
           return NULL;
         }
 
       /* Get the next device number and release the semaphore */
 
       devno = ++g_devno;
-      nxsem_post(&g_devno_sem);
+      nxmutex_unlock(&g_devno_lock);
 
       /* Construct the full device number */
 
@@ -195,14 +197,14 @@ int block_proxy(FAR struct file *filep, FAR const char *blkdev, int oflags)
 
   /* Free the allocated character driver name. */
 
-  kmm_free(chardev);
+  lib_free(chardev);
   return OK;
 
 errout_with_bchdev:
   nx_unlink(chardev);
 
 errout_with_chardev:
-  kmm_free(chardev);
+  lib_free(chardev);
   return ret;
 }
 

@@ -29,10 +29,11 @@
 #include <debug.h>
 #include <syscall.h>
 
+#include <nuttx/addrenv.h>
 #include <nuttx/arch.h>
 
 #include "arm_internal.h"
-#include "group/group.h"
+#include "sched/sched.h"
 
 /****************************************************************************
  * Public Functions
@@ -145,15 +146,28 @@ uint32_t *arm_syscall(uint32_t *regs)
        * thread at the head of the ready-to-run list.
        */
 
-      group_addrenv(NULL);
+      addrenv_switch(NULL);
     }
 #endif
+
+  /* Restore the cpu lock */
+
+  if (regs != CURRENT_REGS)
+    {
+      /* Record the new "running" task.  g_running_tasks[] is only used by
+       * assertion logic for reporting crashes.
+       */
+
+      g_running_tasks[this_cpu()] = this_task();
+
+      restore_critical_section();
+      regs = (uint32_t *)CURRENT_REGS;
+    }
 
   /* Set CURRENT_REGS to NULL to indicate that we are no longer in an
    * interrupt handler.
    */
 
-  regs = (uint32_t *)CURRENT_REGS;
   CURRENT_REGS = NULL;
 
   /* Return the last value of curent_regs.  This supports context switches

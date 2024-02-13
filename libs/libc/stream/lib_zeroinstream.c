@@ -30,10 +30,18 @@
  * Private Functions
  ****************************************************************************/
 
-static int zeroinstream_getc(FAR struct lib_instream_s *this)
+static int zeroinstream_getc(FAR struct lib_instream_s *self)
 {
-  this->nget++;
+  self->nget++;
   return 0;
+}
+
+static int zeroinstream_gets(FAR struct lib_instream_s *self,
+                             FAR void *buffer, int len)
+{
+  self->nget += len;
+  memset(buffer, 0, len);
+  return len;
 }
 
 /****************************************************************************
@@ -48,16 +56,17 @@ static int zeroinstream_getc(FAR struct lib_instream_s *this)
  *   infinitely long stream of zeroes.
  *
  * Input Parameters:
- *   zeroinstream  - User allocated, uninitialized instance of struct
- *                   lib_instream_s to be initialized.
+ *   stream  - User allocated, uninitialized instance of struct
+ *             lib_instream_s to be initialized.
  *
  * Returned Value:
  *   None (User allocated instance initialized).
  *
  ****************************************************************************/
 
-void lib_zeroinstream(FAR struct lib_instream_s *zeroinstream)
+void lib_zeroinstream(FAR struct lib_instream_s *stream)
 {
-  zeroinstream->get  = zeroinstream_getc;
-  zeroinstream->nget = 0;
+  stream->getc = zeroinstream_getc;
+  stream->gets = zeroinstream_gets;
+  stream->nget = 0;
 }

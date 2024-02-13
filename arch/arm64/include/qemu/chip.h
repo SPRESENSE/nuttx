@@ -27,16 +27,33 @@
 
 #include <nuttx/config.h>
 
+/****************************************************************************
+ * Pre-processor Definitions
+ ****************************************************************************/
+
 /* Number of bytes in @p x kibibytes/mebibytes/gibibytes */
 
 #define KB(x)           ((x) << 10)
 #define MB(x)           (KB(x) << 10)
 #define GB(x)           (MB(UINT64_C(x)) << 10)
 
-#if defined(CONFIG_ARCH_CHIP_QEMU_A53)
+#if defined(CONFIG_ARCH_CHIP_QEMU)
+
+#if CONFIG_ARM_GIC_VERSION == 2
+
+#define CONFIG_GICD_BASE          0x8000000
+#define CONFIG_GICR_BASE          0x8010000
+
+#elif CONFIG_ARM_GIC_VERSION == 3 || CONFIG_ARM_GIC_VERSION == 4
 
 #define CONFIG_GICD_BASE          0x8000000
 #define CONFIG_GICR_BASE          0x80a0000
+#define CONFIG_GICR_OFFSET        0x20000
+#else
+
+#error CONFIG_ARM_GIC_VERSION should be 2, 3 or 4
+
+#endif /* CONFIG_ARM_GIC_VERSION */
 
 #define CONFIG_RAMBANK1_ADDR      0x40000000
 #define CONFIG_RAMBANK1_SIZE      MB(128)
@@ -46,6 +63,21 @@
 
 #define CONFIG_LOAD_BASE          0x40280000
 
+#define MPID_TO_CLUSTER_ID(mpid)  ((mpid) & ~0xff)
+
 #endif
+
+/****************************************************************************
+ * Assembly Macros
+ ****************************************************************************/
+
+#ifdef __ASSEMBLY__
+
+.macro  get_cpu_id xreg0
+  mrs    \xreg0, mpidr_el1
+  ubfx   \xreg0, \xreg0, #0, #8
+.endm
+
+#endif /* __ASSEMBLY__ */
 
 #endif /* __ARCH_ARM64_INCLUDE_QEMU_CHIP_H */

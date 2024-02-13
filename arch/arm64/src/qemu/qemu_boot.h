@@ -31,8 +31,10 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <arch/chip/chip.h>
-#include "arm64_internal.h"
-#include "arm64_arch.h"
+
+/****************************************************************************
+ * Pre-processor Definitions
+ ****************************************************************************/
 
 /****************************************************************************
  * Public Function Prototypes
@@ -67,9 +69,6 @@ extern "C"
  ****************************************************************************/
 
 void qemu_board_initialize(void);
-
-void up_lowputc(char c);
-void up_low_flush(void);
 
 #undef EXTERN
 #if defined(__cplusplus)

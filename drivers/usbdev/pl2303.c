@@ -35,18 +35,20 @@
 #include <string.h>
 #include <assert.h>
 #include <errno.h>
-#include <queue.h>
 #include <debug.h>
+
+#include <sys/param.h>
 
 #include <nuttx/irq.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/arch.h>
+#include <nuttx/queue.h>
 #include <nuttx/serial/serial.h>
 #include <nuttx/usb/usb.h>
 #include <nuttx/usb/usbdev.h>
 #include <nuttx/usb/usbdev_trace.h>
 
-#ifdef CONFIG_PL2303_BOARD_SERIALSTR
+#ifdef CONFIG_BOARD_USBDEV_SERIALSTR
 #include <nuttx/board.h>
 #endif
 
@@ -199,18 +201,6 @@
 #define PL2303_RWREQUEST_TYPE      (0x40)
 #define PL2303_RWREQUEST           (0x01) /* IN/OUT, Recipient device */
 
-/* Misc Macros **************************************************************/
-
-/* min/max macros */
-
-#ifndef min
-#  define min(a,b) ((a)<(b)?(a):(b))
-#endif
-
-#ifndef max
-#  define max(a,b) ((a)>(b)?(a):(b))
-#endif
-
 /* Trace values *************************************************************/
 
 #define PL2303_CLASSAPI_SETUP       TRACE_EVENT(TRACE_CLASSAPI_ID, USBSER_TRACECLASSAPI_SETUP)
@@ -299,13 +289,6 @@ static uint16_t usbclass_fillrequest(FAR struct pl2303_dev_s *priv,
 static int     usbclass_sndpacket(FAR struct pl2303_dev_s *priv);
 static inline int usbclass_recvpacket(FAR struct pl2303_dev_s *priv,
                  uint8_t *reqbuf, uint16_t reqlen);
-
-/* Request helpers **********************************************************/
-
-static struct  usbdev_req_s *usbclass_allocreq(FAR struct usbdev_ep_s *ep,
-                 uint16_t len);
-static void    usbclass_freereq(FAR struct usbdev_ep_s *ep,
-                 FAR struct usbdev_req_s *req);
 
 /* Configuration ************************************************************/
 
@@ -617,7 +600,7 @@ static int usbclass_sndpacket(FAR struct pl2303_dev_s *priv)
 
   /* Get the maximum number of bytes that will fit into one bulk IN request */
 
-  reqlen = max(CONFIG_PL2303_BULKIN_REQLEN, ep->maxpacket);
+  reqlen = MAX(CONFIG_PL2303_BULKIN_REQLEN, ep->maxpacket);
 
   while (!sq_empty(&priv->reqlist))
     {
@@ -771,56 +754,6 @@ static inline int usbclass_recvpacket(FAR struct pl2303_dev_s *priv,
 }
 
 /****************************************************************************
- * Name: usbclass_allocreq
- *
- * Description:
- *   Allocate a request instance along with its buffer
- *
- ****************************************************************************/
-
-static struct usbdev_req_s *usbclass_allocreq(FAR struct usbdev_ep_s *ep,
-                                              uint16_t len)
-{
-  FAR struct usbdev_req_s *req;
-
-  req = EP_ALLOCREQ(ep);
-  if (req != NULL)
-    {
-      req->len = len;
-      req->buf = EP_ALLOCBUFFER(ep, len);
-      if (!req->buf)
-        {
-          EP_FREEREQ(ep, req);
-          req = NULL;
-        }
-    }
-
-  return req;
-}
-
-/****************************************************************************
- * Name: usbclass_freereq
- *
- * Description:
- *   Free a request instance along with its buffer
- *
- ****************************************************************************/
-
-static void usbclass_freereq(FAR struct usbdev_ep_s *ep,
-                             FAR struct usbdev_req_s *req)
-{
-  if (ep != NULL && req != NULL)
-    {
-      if (req->buf != NULL)
-        {
-          EP_FREEBUFFER(ep, req->buf);
-        }
-
-      EP_FREEREQ(ep, req);
-    }
-}
-
-/****************************************************************************
  * Name: usbclass_mkstrdesc
  *
  * Description:
@@ -858,7 +791,7 @@ static int usbclass_mkstrdesc(uint8_t id, FAR struct usb_strdesc_s *strdesc)
       break;
 
     case PL2303_SERIALSTRID:
-#ifdef CONFIG_PL2303_BOARD_SERIALSTR
+#ifdef CONFIG_BOARD_USBDEV_SERIALSTR
       str = board_usbdev_serialstr();
 #else
       str = CONFIG_PL2303_SERIALSTR;
@@ -1360,7 +1293,7 @@ static int usbclass_bind(FAR struct usbdevclass_driver_s *driver,
 
   /* Preallocate control request */
 
-  priv->ctrlreq = usbclass_allocreq(dev->ep0, PL2303_MXDESCLEN);
+  priv->ctrlreq = usbdev_allocreq(dev->ep0, PL2303_MXDESCLEN);
   if (priv->ctrlreq == NULL)
     {
       usbtrace(TRACE_CLSERROR(USBSER_TRACEERR_ALLOCCTRLREQ), 0);
@@ -1427,7 +1360,7 @@ static int usbclass_bind(FAR struct usbdevclass_driver_s *driver,
   for (i = 0; i < CONFIG_PL2303_NRDREQS; i++)
     {
       reqcontainer      = &priv->rdreqs[i];
-      reqcontainer->req = usbclass_allocreq(priv->epbulkout, reqlen);
+      reqcontainer->req = usbdev_allocreq(priv->epbulkout, reqlen);
       if (reqcontainer->req == NULL)
         {
           usbtrace(TRACE_CLSERROR(USBSER_TRACEERR_RDALLOCREQ), -ENOMEM);
@@ -1461,7 +1394,7 @@ static int usbclass_bind(FAR struct usbdevclass_driver_s *driver,
   for (i = 0; i < CONFIG_PL2303_NWRREQS; i++)
     {
       reqcontainer      = &priv->wrreqs[i];
-      reqcontainer->req = usbclass_allocreq(priv->epbulkin, reqlen);
+      reqcontainer->req = usbdev_allocreq(priv->epbulkin, reqlen);
       if (reqcontainer->req == NULL)
         {
           usbtrace(TRACE_CLSERROR(USBSER_TRACEERR_WRALLOCREQ), -ENOMEM);
@@ -1546,27 +1479,11 @@ static void usbclass_unbind(FAR struct usbdevclass_driver_s *driver,
       usbclass_resetconfig(priv);
       up_mdelay(50);
 
-      /* Free the interrupt IN endpoint */
-
-      if (priv->epintin)
-        {
-          DEV_FREEEP(dev, priv->epintin);
-          priv->epintin = NULL;
-        }
-
-      /* Free the bulk IN endpoint */
-
-      if (priv->epbulkin)
-        {
-          DEV_FREEEP(dev, priv->epbulkin);
-          priv->epbulkin = NULL;
-        }
-
       /* Free the pre-allocated control request */
 
       if (priv->ctrlreq != NULL)
         {
-          usbclass_freereq(dev->ep0, priv->ctrlreq);
+          usbdev_freereq(dev->ep0, priv->ctrlreq);
           priv->ctrlreq = NULL;
         }
 
@@ -1580,7 +1497,7 @@ static void usbclass_unbind(FAR struct usbdevclass_driver_s *driver,
           reqcontainer = &priv->rdreqs[i];
           if (reqcontainer->req)
             {
-              usbclass_freereq(priv->epbulkout, reqcontainer->req);
+              usbdev_freereq(priv->epbulkout, reqcontainer->req);
               reqcontainer->req = NULL;
             }
         }
@@ -1604,13 +1521,29 @@ static void usbclass_unbind(FAR struct usbdevclass_driver_s *driver,
           reqcontainer = (struct pl2303_req_s *)sq_remfirst(&priv->reqlist);
           if (reqcontainer->req != NULL)
             {
-              usbclass_freereq(priv->epbulkin, reqcontainer->req);
+              usbdev_freereq(priv->epbulkin, reqcontainer->req);
               priv->nwrq--;     /* Number of write requests queued */
             }
         }
 
       DEBUGASSERT(priv->nwrq == 0);
       leave_critical_section(flags);
+
+      /* Free the interrupt IN endpoint */
+
+      if (priv->epintin)
+        {
+          DEV_FREEEP(dev, priv->epintin);
+          priv->epintin = NULL;
+        }
+
+      /* Free the bulk IN endpoint */
+
+      if (priv->epbulkin)
+        {
+          DEV_FREEEP(dev, priv->epbulkin);
+          priv->epbulkin = NULL;
+        }
     }
 
   /* Clear out all data in the circular buffer */
@@ -1809,7 +1742,7 @@ static int usbclass_setup(FAR struct usbdevclass_driver_s *driver,
               {
               case PL2303_SETLINEREQUEST:
                 {
-                   memcpy(priv->linest, ctrlreq->buf, min(len, 7));
+                   memcpy(priv->linest, ctrlreq->buf, MIN(len, 7));
                    ret = 0;
                 }
                 break;
@@ -1897,7 +1830,7 @@ static int usbclass_setup(FAR struct usbdevclass_driver_s *driver,
 
   if (ret >= 0)
     {
-      ctrlreq->len   = min(len, ret);
+      ctrlreq->len   = MIN(len, ret);
       ctrlreq->flags = USBDEV_REQFLAGS_NULLPKT;
       ret            = EP_SUBMIT(dev->ep0, ctrlreq);
       if (ret < 0)
@@ -2418,7 +2351,7 @@ int usbdev_serialinitialize(int minor)
 
   /* Register the single port supported by this implementation */
 
-  sprintf(devname, "/dev/ttyUSB%d", minor);
+  snprintf(devname, sizeof(devname), "/dev/ttyUSB%d", minor);
   ret = uart_register(devname, &priv->serdev);
   if (ret)
     {

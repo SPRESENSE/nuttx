@@ -28,19 +28,15 @@
 #include <nuttx/config.h>
 
 #ifndef __ASSEMBLY__
-# include <stdint.h>
+#  include <stdint.h>
 #endif
-
-#include "stm32_rcc.h"
-#include "stm32_sdio.h"
-#include "stm32.h"
 
 /* Clocking *****************************************************************/
 
 #if defined(CONFIG_ARCH_CHIP_STM32F107VC)
-# include <arch/board/board-stm32f107vct6.h>
+#  include <arch/board/board-stm32f107vct6.h>
 #elif defined(CONFIG_ARCH_CHIP_STM32F103VC)
-# include <arch/board/board-stm32f103vct6.h>
+#  include <arch/board/board-stm32f103vct6.h>
 #else
 #  error Unrecognized STM32 chip
 #endif

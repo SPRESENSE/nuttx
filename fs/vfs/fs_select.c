@@ -40,6 +40,16 @@
 #include "inode/inode.h"
 
 /****************************************************************************
+ * Pre-processor Definitions
+ ****************************************************************************/
+
+#ifdef CONFIG_FDCHECK
+#  undef FD_ISSET
+#  define FD_ISSET(fd,set) \
+ (((((fd_set*)(set))->arr)[_FD_NDX(fd)] & (UINT32_C(1) << _FD_BIT(fd))) != 0)
+#endif
+
+/****************************************************************************
  * Public Functions
  ****************************************************************************/
 
@@ -79,22 +89,21 @@ int select(int nfds, FAR fd_set *readfds, FAR fd_set *writefds,
            FAR fd_set *exceptfds, FAR struct timeval *timeout)
 {
   struct pollfd *pollset = NULL;
-  int errcode = OK;
   int fd;
   int npfds;
   int msec;
   int ndx;
   int ret;
 
-  /* select() is cancellation point */
-
-  enter_cancellation_point();
-
   if (nfds < 0)
     {
-      errcode = EINVAL;
-      goto errout;
+      set_errno(EINVAL);
+      return ERROR;
     }
+
+#ifdef CONFIG_FDCHECK
+  nfds = fdcheck_restore(nfds - 1) + 1;
+#endif
 
   /* How many pollfd structures do we need to allocate? */
 
@@ -123,8 +132,8 @@ int select(int nfds, FAR fd_set *readfds, FAR fd_set *writefds,
 
       if (pollset == NULL)
         {
-          errcode = ENOMEM;
-          goto errout;
+          set_errno(ENOMEM);
+          return ERROR;
         }
     }
 
@@ -143,7 +152,11 @@ int select(int nfds, FAR fd_set *readfds, FAR fd_set *writefds,
 
       if (readfds && FD_ISSET(fd, readfds))
         {
+#ifdef CONFIG_FDCHECK
+          pollset[ndx].fd      = fdcheck_protect(fd);
+#else
           pollset[ndx].fd      = fd;
+#endif
           pollset[ndx].events |= POLLIN;
           incr                 = 1;
         }
@@ -154,7 +167,11 @@ int select(int nfds, FAR fd_set *readfds, FAR fd_set *writefds,
 
       if (writefds && FD_ISSET(fd, writefds))
         {
+#ifdef CONFIG_FDCHECK
+          pollset[ndx].fd      = fdcheck_protect(fd);
+#else
           pollset[ndx].fd      = fd;
+#endif
           pollset[ndx].events |= POLLOUT;
           incr                 = 1;
         }
@@ -165,7 +182,11 @@ int select(int nfds, FAR fd_set *readfds, FAR fd_set *writefds,
 
       if (exceptfds && FD_ISSET(fd, exceptfds))
         {
+#ifdef CONFIG_FDCHECK
+          pollset[ndx].fd      = fdcheck_protect(fd);
+#else
           pollset[ndx].fd      = fd;
+#endif
           incr                  = 1;
         }
 
@@ -191,13 +212,7 @@ int select(int nfds, FAR fd_set *readfds, FAR fd_set *writefds,
 
   /* Then let poll do all of the real work. */
 
-  ret = nx_poll(pollset, npfds, msec);
-  if (ret < 0)
-    {
-      /* poll() failed! Save the errno value */
-
-      errcode = -ret;
-    }
+  ret = poll(pollset, npfds, msec);
 
   /* Now set up the return values */
 
@@ -263,17 +278,5 @@ int select(int nfds, FAR fd_set *readfds, FAR fd_set *writefds,
     }
 
   kmm_free(pollset);
-
-  /* Did poll() fail above? */
-
-  if (ret >= 0)
-    {
-      leave_cancellation_point();
-      return ret;
-    }
-
-errout:
-  set_errno(errcode);
-  leave_cancellation_point();
-  return ERROR;
+  return ret;
 }

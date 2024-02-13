@@ -28,6 +28,10 @@ ifeq ($(CONFIG_INPUT_TOUCHSCREEN),y)
 CSRCS += touchscreen_upper.c
 endif
 
+ifeq ($(CONFIG_INPUT_MOUSE),y)
+  CSRCS += mouse_upper.c
+endif
+
 ifeq ($(CONFIG_INPUT_TSC2007),y)
   CSRCS += tsc2007.c
 endif
@@ -72,6 +76,10 @@ ifeq ($(CONFIG_INPUT_CYPRESS_MBR3108),y)
   CSRCS += cypress_mbr3108.c
 endif
 
+ifeq ($(CONFIG_INPUT_GT9XX),y)
+  CSRCS += gt9xx.c
+endif
+
 ifeq ($(CONFIG_INPUT_BUTTONS),y)
   CSRCS += button_upper.c
 ifeq ($(CONFIG_INPUT_BUTTONS_LOWER),y)
@@ -104,5 +112,5 @@ endif
 
 DEPPATH += --dep-path input
 VPATH += :input
-CFLAGS += ${shell $(INCDIR) "$(CC)" $(TOPDIR)$(DELIM)drivers$(DELIM)input}
+CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)drivers$(DELIM)input
 endif

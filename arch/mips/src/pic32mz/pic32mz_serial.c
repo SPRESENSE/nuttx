@@ -39,6 +39,7 @@
 
 #include <nuttx/irq.h>
 #include <nuttx/arch.h>
+#include <nuttx/fs/ioctl.h>
 #include <nuttx/serial/serial.h>
 
 #include <arch/board/board.h>
@@ -47,6 +48,11 @@
 #include "pic32mz_config.h"
 #include "hardware/pic32mz_uart.h"
 #include "pic32mz_lowconsole.h"
+
+#ifdef CONFIG_PIC32MZ_SERIALBRK_BSDCOMPAT
+#  include "pic32mz_gpio.h"
+#  include "hardware/pic32mz_pps.h"
+#endif
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -205,7 +211,7 @@
 
 /* Common initialization logic will not not know that the all of the UARTs
  * have been disabled.  So, as a result, we may still have to provide
- * stub implementations of up_earlyserialinit(), up_serialinit(), and
+ * stub implementations of mips_earlyserialinit(), mips_serialinit(), and
  * up_putc().
  */
 
@@ -231,15 +237,24 @@
 
 struct up_dev_s
 {
-  uintptr_t uartbase;  /* Base address of UART registers */
-  uint32_t  baud;      /* Configured baud */
-  uint8_t   irqe;      /* Error IRQ associated with this UART (for enable) */
-  uint8_t   irqrx;     /* RX IRQ associated with this UART (for enable) */
-  uint8_t   irqtx;     /* TX IRQ associated with this UART (for enable) */
-  uint8_t   im;        /* Interrupt mask state */
-  uint8_t   parity;    /* 0=none, 1=odd, 2=even */
-  uint8_t   bits;      /* Number of bits (5, 6, 7 or 8) */
-  bool      stopbits2; /* true: Configure with 2 stop bits instead of 1 */
+  uintptr_t       uartbase;    /* Base address of UART registers */
+  uint32_t        baud;        /* Configured baud */
+  uint8_t         irqe;        /* Error IRQ associated with this UART (for enable) */
+  uint8_t         irqrx;       /* RX IRQ associated with this UART (for enable) */
+  uint8_t         irqtx;       /* TX IRQ associated with this UART (for enable) */
+  uint8_t         im;          /* Interrupt mask state */
+  uint8_t         parity;      /* 0=none, 1=odd, 2=even */
+  uint8_t         bits;        /* Number of bits (5, 6, 7 or 8) */
+  bool            stopbits2;   /* true: Configure with 2 stop bits instead of 1 */
+
+#ifdef CONFIG_PIC32MZ_UART_BREAKS
+  bool            brk;         /* true: Line break in progress */
+#  ifdef CONFIG_PIC32MZ_SERIALBRK_BSDCOMPAT
+  const uint32_t  tx_gpio;     /* GPIO config to put TX pin in GPIO mode */
+  const uintptr_t tx_pps_reg;  /* PPS register to toggle UART/GPIO modes */
+  const uint8_t   tx_pps_val;  /* PPS value to restore pin to UART mode */
+#  endif
+#endif
 };
 
 /****************************************************************************
@@ -333,6 +348,16 @@ static struct up_dev_s g_uart1priv =
   .parity    = CONFIG_UART1_PARITY,
   .bits      = CONFIG_UART1_BITS,
   .stopbits2 = CONFIG_UART1_2STOP,
+
+#ifdef CONFIG_PIC32MZ_UART_BREAKS
+  .brk        = false,
+#  ifdef CONFIG_PIC32MZ_SERIALBRK_BSDCOMPAT
+  .tx_gpio    = PPS_OUTPUT_REGADDR_TO_GPIO(BOARD_U1TX_PPS)
+                  | GPIO_OUTPUT | GPIO_VALUE_ZERO,
+  .tx_pps_reg = PPS_OUTPUT_REGADDR(BOARD_U1TX_PPS),
+  .tx_pps_val = PPS_OUTPUT_REGVAL(BOARD_U1TX_PPS),
+#  endif
+#endif
 };
 
 static uart_dev_t g_uart1port =
@@ -365,6 +390,16 @@ static struct up_dev_s g_uart2priv =
   .parity    = CONFIG_UART2_PARITY,
   .bits      = CONFIG_UART2_BITS,
   .stopbits2 = CONFIG_UART2_2STOP,
+
+#ifdef CONFIG_PIC32MZ_UART_BREAKS
+  .brk        = false,
+#  ifdef CONFIG_PIC32MZ_SERIALBRK_BSDCOMPAT
+  .tx_gpio    = PPS_OUTPUT_REGADDR_TO_GPIO(BOARD_U2TX_PPS)
+                  | GPIO_OUTPUT | GPIO_VALUE_ZERO,
+  .tx_pps_reg = PPS_OUTPUT_REGADDR(BOARD_U2TX_PPS),
+  .tx_pps_val = PPS_OUTPUT_REGVAL(BOARD_U2TX_PPS),
+#  endif
+#endif
 };
 
 static uart_dev_t g_uart2port =
@@ -397,6 +432,16 @@ static struct up_dev_s g_uart3priv =
   .parity    = CONFIG_UART3_PARITY,
   .bits      = CONFIG_UART3_BITS,
   .stopbits2 = CONFIG_UART3_2STOP,
+
+#ifdef CONFIG_PIC32MZ_UART_BREAKS
+  .brk        = false,
+#  ifdef CONFIG_PIC32MZ_SERIALBRK_BSDCOMPAT
+  .tx_gpio    = PPS_OUTPUT_REGADDR_TO_GPIO(BOARD_U3TX_PPS)
+                  | GPIO_OUTPUT | GPIO_VALUE_ZERO,
+  .tx_pps_reg = PPS_OUTPUT_REGADDR(BOARD_U3TX_PPS),
+  .tx_pps_val = PPS_OUTPUT_REGVAL(BOARD_U3TX_PPS),
+#  endif
+#endif
 };
 
 static uart_dev_t g_uart3port =
@@ -429,6 +474,16 @@ static struct up_dev_s g_uart4priv =
   .parity    = CONFIG_UART4_PARITY,
   .bits      = CONFIG_UART4_BITS,
   .stopbits2 = CONFIG_UART4_2STOP,
+
+#ifdef CONFIG_PIC32MZ_UART_BREAKS
+  .brk        = false,
+#  ifdef CONFIG_PIC32MZ_SERIALBRK_BSDCOMPAT
+  .tx_gpio    = PPS_OUTPUT_REGADDR_TO_GPIO(BOARD_U4TX_PPS)
+                  | GPIO_OUTPUT | GPIO_VALUE_ZERO,
+  .tx_pps_reg = PPS_OUTPUT_REGADDR(BOARD_U4TX_PPS),
+  .tx_pps_val = PPS_OUTPUT_REGVAL(BOARD_U4TX_PPS),
+#  endif
+#endif
 };
 
 static uart_dev_t g_uart4port =
@@ -461,6 +516,16 @@ static struct up_dev_s g_uart5priv =
   .parity    = CONFIG_UART5_PARITY,
   .bits      = CONFIG_UART5_BITS,
   .stopbits2 = CONFIG_UART5_2STOP,
+
+#ifdef CONFIG_PIC32MZ_UART_BREAKS
+  .brk        = false,
+#  ifdef CONFIG_PIC32MZ_SERIALBRK_BSDCOMPAT
+  .tx_gpio    = PPS_OUTPUT_REGADDR_TO_GPIO(BOARD_U5TX_PPS)
+                  | GPIO_OUTPUT | GPIO_VALUE_ZERO,
+  .tx_pps_reg = PPS_OUTPUT_REGADDR(BOARD_U5TX_PPS),
+  .tx_pps_val = PPS_OUTPUT_REGVAL(BOARD_U5TX_PPS),
+#  endif
+#endif
 };
 
 static uart_dev_t g_uart5port =
@@ -493,6 +558,16 @@ static struct up_dev_s g_uart6priv =
   .parity    = CONFIG_UART6_PARITY,
   .bits      = CONFIG_UART6_BITS,
   .stopbits2 = CONFIG_UART6_2STOP,
+
+#ifdef CONFIG_PIC32MZ_UART_BREAKS
+  .brk        = false,
+#  ifdef CONFIG_PIC32MZ_SERIALBRK_BSDCOMPAT
+  .tx_gpio    = PPS_OUTPUT_REGADDR_TO_GPIO(BOARD_U6TX_PPS)
+                  | GPIO_OUTPUT | GPIO_VALUE_ZERO,
+  .tx_pps_reg = PPS_OUTPUT_REGADDR(BOARD_U6TX_PPS),
+  .tx_pps_val = PPS_OUTPUT_REGVAL(BOARD_U6TX_PPS),
+#  endif
+#endif
 };
 
 static uart_dev_t g_uart6port =
@@ -685,10 +760,11 @@ static void up_detach(struct uart_dev_s *dev)
  * Name: up_interrupt
  *
  * Description:
- *   This is the common UART interrupt handler.  It will be invoked when an
- *   interrupt received on a specific UART.  It should call
- *   uart_transmitchars or uart_receivechar to perform the appropriate data
- *   transfers.
+ *   This is the UART interrupt handler.  It will be invoked when an
+ *   interrupt is received on the 'irq'.  It should call uart_xmitchars or
+ *   uart_recvchars to perform the appropriate data transfers.  The
+ *   interrupt handling logic must be able to map the 'arg' to the
+ *   appropriate uart_dev_s structure in order to call these functions.
  *
  ****************************************************************************/
 
@@ -720,11 +796,11 @@ static int up_interrupt(int irq, void *context, void *arg)
        */
 
 #ifdef CONFIG_DEBUG_ERROR
-      if (up_pending_irq(priv->irqe))
+      if (mips_pending_irq(priv->irqe))
         {
           /* Clear the pending error interrupt */
 
-          up_clrpend_irq(priv->irqe);
+          mips_clrpend_irq(priv->irqe);
           _err("ERROR: interrupt STA: %08x\n",
           up_serialin(priv, PIC32MZ_UART_STA_OFFSET));
           handled = true;
@@ -736,7 +812,7 @@ static int up_interrupt(int irq, void *context, void *arg)
        * FIFOs or 3 of 4 for 4-deep FIFOS.
        */
 
-      if (up_pending_irq(priv->irqrx))
+      if (mips_pending_irq(priv->irqrx))
         {
           /* Process incoming bytes */
 
@@ -754,7 +830,7 @@ static int up_interrupt(int irq, void *context, void *arg)
           if ((up_serialin(priv, PIC32MZ_UART_STA_OFFSET) &
                UART_STA_URXDA) == 0)
             {
-              up_clrpend_irq(priv->irqrx);
+              mips_clrpend_irq(priv->irqrx);
             }
         }
 
@@ -773,7 +849,7 @@ static int up_interrupt(int irq, void *context, void *arg)
        * full condition.
        */
 
-      if (up_pending_irq(priv->irqtx))
+      if (mips_pending_irq(priv->irqtx))
         {
           /* Process outgoing bytes */
 
@@ -791,7 +867,7 @@ static int up_interrupt(int irq, void *context, void *arg)
           if ((up_serialin(priv, PIC32MZ_UART_STA_OFFSET) &
                UART_STA_UTRMT) != 0)
             {
-              up_clrpend_irq(priv->irqtx);
+              mips_clrpend_irq(priv->irqtx);
             }
         }
     }
@@ -809,27 +885,39 @@ static int up_interrupt(int irq, void *context, void *arg)
 
 static int up_ioctl(struct file *filep, int cmd, unsigned long arg)
 {
-#ifdef CONFIG_SERIAL_TERMIOS
-  struct inode      *inode;
-  struct uart_dev_s *dev;
-  struct up_dev_s   *priv;
-  int                ret = OK;
-
-  DEBUGASSERT(filep, filep->f_inode);
-  inode = filep->f_inode;
-  dev   = inode->i_private;
-
-  DEBUGASSERT(dev, dev->priv);
-  priv = (struct up_dev_s *)dev->priv;
+#if defined(CONFIG_SERIAL_TERMIOS) || defined(CONFIG_SERIAL_TIOCSERGSTRUCT) \
+    || defined(CONFIG_PIC32MZ_UART_BREAKS)
+  struct inode      *inode = filep->f_inode;
+  struct uart_dev_s *dev   = inode->i_private;
+#endif
+#if defined(CONFIG_SERIAL_TERMIOS) || defined(CONFIG_PIC32MZ_UART_BREAKS)
+  struct up_dev_s   *priv  = (struct up_dev_s *)dev->priv;
+#endif
+  int                ret   = OK;
 
   switch (cmd)
     {
-    case xxx: /* Add commands here */
-      break;
+#ifdef CONFIG_SERIAL_TIOCSERGSTRUCT
+    case TIOCSERGSTRUCT:
+      {
+         struct up_dev_s *user = (struct up_dev_s *)arg;
+         if (!user)
+           {
+             ret = -EINVAL;
+           }
+         else
+           {
+             memcpy(user, dev, sizeof(struct up_dev_s));
+           }
+       }
+       break;
+#endif
 
+#ifdef CONFIG_SERIAL_TERMIOS
     case TCGETS:
       {
         struct termios *termiosp = (struct termios *)arg;
+        tcflag_t ccflag = 0;
 
         if (!termiosp)
           {
@@ -837,10 +925,35 @@ static int up_ioctl(struct file *filep, int cmd, unsigned long arg)
             break;
           }
 
-        /* TODO:  Other termios fields are not yet returned.
-         * Note that only cfsetospeed is not necessary because we have
+        if (priv->bits >= 5 && priv->bits <= 8)
+          {
+            ccflag |= (CS5 + (priv->bits - 5));
+          }
+
+        if (priv->stopbits2)
+          {
+            ccflag |= CSTOPB;
+          }
+
+        if (priv->parity == 1)
+          {
+            ccflag |= PARENB;
+          }
+        else if (priv->parity == 2)
+          {
+            ccflag |= PARENB | PARODD;
+          }
+
+        /* TODO: Other termios fields are not yet returned.
+         *
+         * TODO: append support for CCTS_OFLOW, CRTS_IFLOW, HUPCL, and
+         *       CLOCAL as well as os-compliant break sequence.
+         *
+         * Note that cfsetospeed is not necessary because we have
          * knowledge that only one speed is supported.
          */
+
+        termiosp->c_cflag = ccflag;
 
         cfsetispeed(termiosp, priv->baud);
       }
@@ -849,6 +962,7 @@ static int up_ioctl(struct file *filep, int cmd, unsigned long arg)
     case TCSETS:
       {
         struct termios *termiosp = (struct termios *)arg;
+        unsigned int nbits;
 
         if (!termiosp)
           {
@@ -856,8 +970,46 @@ static int up_ioctl(struct file *filep, int cmd, unsigned long arg)
             break;
           }
 
+        /* Perform some sanity checks before accepting any changes */
+
+        if (termiosp->c_cflag & CRTSCTS)
+          {
+            /* We don't support flow control right now, so we report an
+             * error
+             */
+
+            ret = -EINVAL;
+            break;
+          }
+
+        nbits = (termiosp->c_cflag & CSIZE) + 5;
+        if ((nbits < 8) || (nbits > 9))
+          {
+            /* We only support 8 or 9 data bits on this arch, so we
+             * report an error
+             */
+
+            ret = -EINVAL;
+            break;
+          }
+
+        /* Sanity checks passed; apply settings. */
+
+        priv->bits = nbits;
+
+        if (termiosp->c_cflag & PARENB)
+          {
+            priv->parity = (termiosp->c_cflag & PARODD) ? 1 : 2;
+          }
+        else
+          {
+            priv->parity = 0;
+          }
+
+        priv->stopbits2 = (termiosp->c_cflag & CSTOPB) != 0;
+
         /* TODO:  Handle other termios settings.
-         * Note that only cfgetispeed is used besued we have knowledge
+         * Note that only cfgetispeed is used because we have knowledge
          * that only one speed is supported.
          */
 
@@ -866,6 +1018,102 @@ static int up_ioctl(struct file *filep, int cmd, unsigned long arg)
                               priv->bits, priv->stopbits2);
       }
       break;
+#endif /* CONFIG_SERIAL_TERMIOS */
+
+#ifdef CONFIG_PIC32MZ_UART_BREAKS
+#  ifdef CONFIG_PIC32MZ_SERIALBRK_BSDCOMPAT
+    case TIOCSBRK:  /* BSD compatibility: Turn break on, unconditionally */
+      {
+        irqstate_t flags;
+
+        flags = enter_critical_section();
+
+        /* Disable any further TX activity */
+
+        priv->brk = true;
+        up_txint(dev, false);
+
+        /* Configure TX as a GPIO output pin driven low to send break */
+
+        pic32mz_configgpio(priv->tx_gpio);
+        putreg32(0, priv->tx_pps_reg);
+
+        leave_critical_section(flags);
+      }
+      break;
+
+    case TIOCCBRK:  /* BSD compatibility: Turn break off, unconditionally */
+      {
+        irqstate_t flags;
+
+        flags = enter_critical_section();
+
+        /* Configure TX back to UART */
+
+        putreg32(priv->tx_pps_val, priv->tx_pps_reg);
+
+        /* Enable further tx activity */
+
+        priv->brk = false;
+        up_txint(dev, true);
+
+        leave_critical_section(flags);
+      }
+      break;
+#  else
+    case TIOCSBRK:  /* No BSD compatibility: Turn break on for 12 bit times */
+      {
+        uint32_t regval;
+        irqstate_t flags;
+
+        flags = enter_critical_section();
+
+        /* Disable any further TX activity */
+
+        priv->brk = true;
+        up_txint(dev, false);
+
+        /* Enable break transmission */
+
+        regval = up_serialin(priv, PIC32MZ_UART_STA_OFFSET);
+        regval |= UART_STA_UTXBRK;
+        up_serialout(priv, PIC32MZ_UART_STA_OFFSET, regval);
+
+        /* A dummy write to TXREG is needed to start sending the break. The
+         * caller should ensure that there are no pending transmit data in
+         * the UART FIFO before executing this IOCTL or the break will
+         * consume a byte of that data instead of the dummy write.
+         */
+
+        up_send(dev, 0);
+
+        leave_critical_section(flags);
+      }
+      break;
+
+    case TIOCCBRK:  /* No BSD compatibility: May turn off break too soon */
+      {
+        irqstate_t flags;
+
+        flags = enter_critical_section();
+
+        /* Enable further tx activity. We do not clear the UTXBRK bit
+         * because hardware does it automatically after transmitting the
+         * break. In fact, the PIC32MZ manual, rev G, section 21.5.4, says:
+         * "If the user application clears the UTXBRK bit prior to sequence
+         * completion, unexpected module behavior can result." It should be
+         * safe to re-enable transmit here because the hardware specifically
+         * allows to queue up the next character to follow the break.
+         */
+
+        priv->brk = false;
+        up_txint(dev, true);
+
+        leave_critical_section(flags);
+      }
+      break;
+#  endif
+#endif
 
     default:
       ret = -ENOTTY;
@@ -873,9 +1121,6 @@ static int up_ioctl(struct file *filep, int cmd, unsigned long arg)
     }
 
   return ret;
-#else
-  return -ENOTTY;
-#endif
 }
 
 /****************************************************************************
@@ -1000,6 +1245,16 @@ static void up_txint(struct uart_dev_s *dev, bool enable)
       /* Enable the TX interrupt */
 
 #ifndef CONFIG_SUPPRESS_SERIAL_INTS
+#  ifdef CONFIG_PIC32MZ_UART_BREAKS
+      /* Do not enable TX interrupt if line break in progress */
+
+      if (priv->brk)
+        {
+          leave_critical_section(flags);
+          return;
+        }
+#  endif
+
       up_enable_irq(priv->irqtx);
       ENABLE_TX(im);
 
@@ -1063,18 +1318,18 @@ static bool up_txempty(struct uart_dev_s *dev)
 #ifdef USE_EARLYSERIALINIT
 
 /****************************************************************************
- * Name: up_earlyserialinit
+ * Name: mips_earlyserialinit
  *
  * Description:
  *   Performs the low level UART initialization early in debug so that the
  *   serial console will be available during bootup.  This must be called
- *   before up_serialinit.  NOTE:  This function depends on GPIO pin
+ *   before mips_serialinit.  NOTE:  This function depends on GPIO pin
  *   configuration performed in up_consoleinit() and main clock
  *   initialization performed in up_clkinitialize().
  *
  ****************************************************************************/
 
-void up_earlyserialinit(void)
+void mips_earlyserialinit(void)
 {
   /* Disable interrupts from all UARTS.  The console is enabled in
    * pic32mz_consoleinit().
@@ -1110,15 +1365,15 @@ void up_earlyserialinit(void)
 #endif
 
 /****************************************************************************
- * Name: up_serialinit
+ * Name: mips_serialinit
  *
  * Description:
  *   Register serial console and serial ports.  This assumes
- *   that up_earlyserialinit was called previously.
+ *   that mips_earlyserialinit was called previously.
  *
  ****************************************************************************/
 
-void up_serialinit(void)
+void mips_serialinit(void)
 {
   /* Register the console */
 
@@ -1171,31 +1426,31 @@ int up_putc(int ch)
     {
       /* Add CR */
 
-      up_lowputc('\r');
+      mips_lowputc('\r');
     }
 
-  up_lowputc(ch);
+  mips_lowputc(ch);
   up_restoreuartint(dev, imr);
 #endif
   return ch;
 }
 
 /****************************************************************************
- * Name: up_earlyserialinit, up_serialinit, and up_putc
+ * Name: mips_earlyserialinit, mips_serialinit, and up_putc
  *
  * Description:
  *   stubs that may be needed.  These stubs would be used if all UARTs are
- *   disabled.  In that case, the logic in common/up_initialize() is not
+ *   disabled.  In that case, the logic in common/mips_initialize() is not
  *   smart enough to know that there are not UARTs and will still expect
  *   these interfaces to be provided.
  *
  ****************************************************************************/
 #else /* HAVE_UART_DEVICE */
-void up_earlyserialinit(void)
+void mips_earlyserialinit(void)
 {
 }
 
-void up_serialinit(void)
+void mips_serialinit(void)
 {
 }
 
@@ -1224,10 +1479,10 @@ int up_putc(int ch)
     {
       /* Add CR */
 
-      up_lowputc('\r');
+      mips_lowputc('\r');
     }
 
-  up_lowputc(ch);
+  mips_lowputc(ch);
 #endif
   return ch;
 }

@@ -80,7 +80,8 @@ SECTIONS
   .init_section :
   {
     _sinit = ABSOLUTE(.);
-    KEEP(*(.init_array .init_array.*))
+    KEEP(*(SORT_BY_INIT_PRIORITY(.init_array.*) SORT_BY_INIT_PRIORITY(.ctors.*)))
+    KEEP(*(.init_array .ctors))
     _einit = ABSOLUTE(.);
   } > flash
 
@@ -152,8 +153,11 @@ SECTIONS
   SRAM_END_ADDR          = ORIGIN(sram) + LENGTH(sram);
   SRAM_STDBY_BASE_ADDR   = ORIGIN(sram0_stdby);
   SRAM_STDBY_END_ADDR    = ORIGIN(sram0_stdby) + LENGTH(sram0_stdby);
+  SRAM_INIT_END_ADDR     = ORIGIN(sram) + 320K;
   ITCM_BASE_ADDR         = ORIGIN(itcm);
   ITCM_END_ADDR          = ORIGIN(itcm) + LENGTH(itcm);
   DTCM_BASE_ADDR         = ORIGIN(dtcm);
   DTCM_END_ADDR          = ORIGIN(dtcm) + LENGTH(dtcm);
+  FLASH_BASE_ADDR        = ORIGIN(BOOT_HEADER);
+  FLASH_END_ADDR         = ORIGIN(flash) + LENGTH(flash);
 }

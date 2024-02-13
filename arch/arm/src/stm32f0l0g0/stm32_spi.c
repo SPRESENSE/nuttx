@@ -66,7 +66,7 @@
 
 #include <nuttx/irq.h>
 #include <nuttx/arch.h>
-#include <nuttx/semaphore.h>
+#include <nuttx/mutex.h>
 #include <nuttx/spi/spi.h>
 #include <nuttx/power/pm.h>
 
@@ -176,7 +176,7 @@ struct stm32_spidev_s
   uint32_t         rxccr;        /* DMA control register for RX transfers */
 #endif
   bool             initialized;  /* Has SPI interface been initialized */
-  sem_t            exclsem;      /* Held while chip is selected for mutual exclusion */
+  mutex_t          lock;         /* Held while chip is selected for mutual exclusion */
   uint32_t         frequency;    /* Requested clock frequency */
   uint32_t         actual;       /* Actual clock frequency */
   uint8_t          nbits;        /* Width of word in bits (4 through 16) */
@@ -312,9 +312,9 @@ static const struct spi_ops_s g_spi1ops =
 static struct stm32_spidev_s g_spi1dev =
 {
   .spidev   =
-    {
-      &g_spi1ops
-    },
+  {
+    .ops    = &g_spi1ops,
+  },
   .spibase  = STM32_SPI1_BASE,
   .spiclock = SPI1_PCLK_FREQUENCY,
 #ifdef CONFIG_STM32F0L0G0_SPI_INTERRUPTS
@@ -325,7 +325,10 @@ static struct stm32_spidev_s g_spi1dev =
 
   .rxch     = DMACHAN_SPI1_RX,
   .txch     = DMACHAN_SPI1_TX,
+  .rxsem    = SEM_INITIALIZER(0),
+  .txsem    = SEM_INITIALIZER(0),
 #endif
+  .lock     = NXMUTEX_INITIALIZER,
 #ifdef CONFIG_PM
   .pm_cb.prepare = spi_pm_prepare,
 #endif
@@ -368,9 +371,9 @@ static const struct spi_ops_s g_spi2ops =
 static struct stm32_spidev_s g_spi2dev =
 {
   .spidev   =
-    {
-      &g_spi2ops
-    },
+  {
+    .ops    = &g_spi2ops,
+  },
   .spibase  = STM32_SPI2_BASE,
   .spiclock = SPI1_PCLK_FREQUENCY,
 #ifdef CONFIG_STM32F0L0G0_SPI_INTERRUPTS
@@ -379,7 +382,10 @@ static struct stm32_spidev_s g_spi2dev =
 #ifdef CONFIG_STM32F0L0G0_SPI2_DMA
   .rxch     = DMACHAN_SPI2_RX,
   .txch     = DMACHAN_SPI2_TX,
+  .rxsem    = SEM_INITIALIZER(0),
+  .txsem    = SEM_INITIALIZER(0),
 #endif
+  .lock     = NXMUTEX_INITIALIZER,
 #ifdef CONFIG_PM
   .pm_cb.prepare = spi_pm_prepare,
 #endif
@@ -422,9 +428,9 @@ static const struct spi_ops_s g_spi3ops =
 static struct stm32_spidev_s g_spi3dev =
 {
   .spidev   =
-    {
-      &g_spi3ops
-    },
+  {
+    .ops    = &g_spi3ops,
+  },
   .spibase  = STM32_SPI3_BASE,
   .spiclock = SPI1_PCLK_FREQUENCY,
 #ifdef CONFIG_STM32F0L0G0_SPI_INTERRUPTS
@@ -433,7 +439,10 @@ static struct stm32_spidev_s g_spi3dev =
 #ifdef CONFIG_STM32F0L0G0_SPI3_DMA
   .rxch     = DMACHAN_SPI3_RX,
   .txch     = DMACHAN_SPI3_TX,
+  .rxsem    = SEM_INITIALIZER(0),
+  .txsem    = SEM_INITIALIZER(0),
 #endif
+  .lock     = NXMUTEX_INITIALIZER,
 #ifdef CONFIG_PM
   .pm_cb.prepare = spi_pm_prepare,
 #endif
@@ -545,27 +554,6 @@ static inline void spi_rx_mode(struct stm32_spidev_s *priv, bool enable)
 }
 
 /****************************************************************************
- * Name: spi_getreg8
- *
- * Description:
- *   Get the contents of the SPI register at offset
- *
- * Input Parameters:
- *   priv   - private SPI device structure
- *   offset - offset to the register of interest
- *
- * Returned Value:
- *   The contents of the 8-bit register
- *
- ****************************************************************************/
-
-static inline uint8_t spi_getreg8(struct stm32_spidev_s *priv,
-                                  uint8_t offset)
-{
-  return getreg8(priv->spibase + offset);
-}
-
-/****************************************************************************
  * Name: spi_putreg8
  *
  * Description:
@@ -578,11 +566,13 @@ static inline uint8_t spi_getreg8(struct stm32_spidev_s *priv,
  *
  ****************************************************************************/
 
+#ifdef HAVE_IP_SPI_V2
 static inline void spi_putreg8(struct stm32_spidev_s *priv,
                                uint8_t offset, uint8_t value)
 {
   putreg8(value, priv->spibase + offset);
 }
+#endif
 
 /****************************************************************************
  * Name: spi_readword
@@ -1048,11 +1038,11 @@ static int spi_lock(struct spi_dev_s *dev, bool lock)
 
   if (lock)
     {
-      ret = nxsem_wait_uninterruptible(&priv->exclsem);
+      ret = nxmutex_lock(&priv->lock);
     }
   else
     {
-      ret = nxsem_post(&priv->exclsem);
+      ret = nxmutex_unlock(&priv->lock);
     }
 
   return ret;
@@ -1794,7 +1784,6 @@ static int spi_pm_prepare(struct pm_callback_s *cb, int domain,
   struct stm32_spidev_s *priv =
       (struct stm32_spidev_s *)((char *)cb -
                                     offsetof(struct stm32_spidev_s, pm_cb));
-  int sval;
 
   /* Logic to prepare for a reduced power state goes here. */
 
@@ -1807,15 +1796,7 @@ static int spi_pm_prepare(struct pm_callback_s *cb, int domain,
     case PM_STANDBY:
     case PM_SLEEP:
 
-      /* Check if exclusive lock for SPI bus is held. */
-
-      if (nxsem_get_value(&priv->exclsem, &sval) < 0)
-        {
-          DEBUGPANIC();
-          return -EINVAL;
-        }
-
-      if (sval <= 0)
+      if (nxmutex_is_locked(&priv->lock))
         {
           /* Exclusive lock is held, do not allow entry to deeper PM
            * states.
@@ -1955,27 +1936,9 @@ static void spi_bus_initialize(struct stm32_spidev_s *priv)
 
   spi_putreg(priv, STM32_SPI_CRCPR_OFFSET, 7);
 
-  /* Initialize the SPI semaphore that enforces mutually exclusive access */
-
-  nxsem_init(&priv->exclsem, 0, 1);
-
 #ifdef CONFIG_STM32F0L0G0_SPI_DMA
   if (priv->rxch && priv->txch)
     {
-      /* Initialize the SPI semaphores that is used to wait for DMA
-       * completion
-       */
-
-      nxsem_init(&priv->rxsem, 0, 0);
-      nxsem_init(&priv->txsem, 0, 0);
-
-      /* These semaphores are used for signaling and, hence, should not have
-       * priority inheritance enabled.
-       */
-
-      nxsem_set_protocol(&priv->rxsem, SEM_PRIO_NONE);
-      nxsem_set_protocol(&priv->txsem, SEM_PRIO_NONE);
-
       /* Get DMA channels.  NOTE: stm32_dmachannel() will always assign the
        * DMA channel. If the channel is not available, then
        * stm32_dmachannel() will block and wait until the channel becomes

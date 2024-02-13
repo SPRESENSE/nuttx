@@ -49,8 +49,8 @@
 #include "s32k3xx_serial.h"
 #include "s32k3xx_swt.h"
 #include "s32k3xx_start.h"
-#if defined(CONFIG_ARCH_USE_MPU) && defined(CONFIG_S32K3XX_ENET)
-#include "hardware/s32k3xx_mpu.h"
+#if defined(CONFIG_ARCH_USE_MPU)
+#include "s32k3xx_mpuinit.h"
 #endif
 
 #ifdef CONFIG_S32K3XX_PROGMEM
@@ -112,41 +112,14 @@
  * Private Types
  ****************************************************************************/
 
-extern const uint32_t SRAM_BASE_ADDR;
-extern const uint32_t SRAM_END_ADDR;
-extern const uint32_t ITCM_BASE_ADDR;
-extern const uint32_t ITCM_END_ADDR;
-extern const uint32_t DTCM_BASE_ADDR;
-extern const uint32_t DTCM_END_ADDR;
-
-/****************************************************************************
- * Private Functions
- ****************************************************************************/
-
-/****************************************************************************
- * Name: s32k3xx_mpu_config
- *
- * Description:
- *   Enable all bus masters.
- *
- ****************************************************************************/
-
-#if defined(CONFIG_ARCH_USE_MPU) && defined(CONFIG_S32K3XX_ENET)
-static inline void s32k3xx_mpu_config(void)
-{
-  uint32_t regval;
-
-  /* Bus masters 0-2 are already enabled r/w/x in supervisor and user modes
-   * after reset.  Enable also bus master 3 (ENET) in S/U modes in default
-   * region 0:  User=r+w+x, Supervisor=same as used.
-   */
-
-  regval = (MPU_RGDAAC_M3UM_XACCESS | MPU_RGDAAC_M3UM_WACCESS |
-            MPU_RGDAAC_M3UM_RACCESS | MPU_RGDAAC_M3SM_M3UM);
-
-  putreg32(regval, S32K3XX_MPU_RGDAAC(0));
-}
-#endif
+extern uint8_t SRAM_BASE_ADDR[];
+extern uint8_t SRAM_INIT_END_ADDR[];
+extern uint8_t ITCM_BASE_ADDR[];
+extern uint8_t ITCM_END_ADDR[];
+extern uint8_t DTCM_BASE_ADDR[];
+extern uint8_t DTCM_END_ADDR[];
+extern uint8_t FLASH_BASE_ADDR[];
+extern uint8_t FLASH_END_ADDR[];
 
 /****************************************************************************
  * Public Functions
@@ -160,9 +133,6 @@ static inline void s32k3xx_mpu_config(void)
  *
  ****************************************************************************/
 
-#define STR(x) #x
-#define XSTR(s) STR(s)
-
 void s32k3xx_start(void)
 {
   register uint64_t *src;
@@ -173,24 +143,24 @@ void s32k3xx_start(void)
    * then on a cold boot we go into a bootloop somehow
    */
 
-  dest = (uint64_t *)&SRAM_BASE_ADDR;
-  while (dest < (uint64_t *)&SRAM_END_ADDR)
+  dest = (uint64_t *)SRAM_BASE_ADDR;
+  while (dest < (uint64_t *)SRAM_INIT_END_ADDR)
     {
       *dest++ = STARTUP_ECC_INITVALUE;
     }
 
   /* ITCM */
 
-  dest = (uint64_t *)&ITCM_BASE_ADDR;
-  while (dest < (uint64_t *)&ITCM_END_ADDR)
+  dest = (uint64_t *)ITCM_BASE_ADDR;
+  while (dest < (uint64_t *)ITCM_END_ADDR)
     {
       *dest++ = STARTUP_ECC_INITVALUE;
     }
 
   /* DTCM */
 
-  dest = (uint64_t *)&DTCM_BASE_ADDR;
-  while (dest < (uint64_t *)&DTCM_END_ADDR)
+  dest = (uint64_t *)DTCM_BASE_ADDR;
+  while (dest < (uint64_t *)DTCM_END_ADDR)
     {
       *dest++ = STARTUP_ECC_INITVALUE;
     }
@@ -199,7 +169,7 @@ void s32k3xx_start(void)
    * certain that there are no issues with the state of global variables.
    */
 
-  for (dest = (uint64_t *)&_sbss; dest < (uint64_t *)&_ebss; )
+  for (dest = (uint64_t *)_sbss; dest < (uint64_t *)_ebss; )
     {
       *dest++ = 0;
     }
@@ -211,8 +181,8 @@ void s32k3xx_start(void)
    * end of all of the other read-only data (.text, .rodata) at _eronly.
    */
 
-  for (src = (uint64_t *)&_eronly, dest = (uint64_t *)&_sdata;
-     dest < (uint64_t *)&_edata;
+  for (src = (uint64_t *)_eronly, dest = (uint64_t *)_sdata;
+     dest < (uint64_t *)_edata;
       )
     {
       *dest++ = *src++;
@@ -227,8 +197,8 @@ void s32k3xx_start(void)
    */
 
 #ifdef CONFIG_ARCH_RAMFUNCS
-  for (src = (uint64_t *)&_framfuncs, dest = (uint64_t *)&_sramfuncs;
-     dest < (uint64_t *)&_eramfuncs;
+  for (src = (uint64_t *)_framfuncs, dest = (uint64_t *)_sramfuncs;
+     dest < (uint64_t *)_eramfuncs;
       )
     {
       *dest++ = *src++;
@@ -248,20 +218,32 @@ void s32k3xx_start(void)
 
   arm_fpuconfig();
 
+#ifdef CONFIG_ARM_MPU
+#ifdef CONFIG_BUILD_PROTECTED
+  /* For the case of the separate user-/kernel-space build, perform whatever
+   * platform specific initialization of the user memory is required.
+   * Normally this just means initializing the user space .data and .bss
+   * segments.
+   */
+
+  s32k3xx_userspace();
+#endif
+
+  /* Configure the MPU to permit user-space access to its FLASH and RAM (for
+   * CONFIG_BUILD_PROTECTED) or to manage cache properties in external
+   * memory regions.
+   */
+
+  s32k3xx_mpuinitialize();
+  showprogress('D');
+#endif
+
   /* Enable I- and D-Caches */
 
   up_enable_icache();
   up_enable_dcache();
 
   showprogress('C');
-
-#if defined(CONFIG_ARCH_USE_MPU) && defined(CONFIG_S32K3XX_ENET)
-
-  /* Enable all MPU bus masters */
-
-  s32k3xx_mpu_config();
-  showprogress('D');
-#endif
 
   /* Perform early serial initialization */
 
@@ -276,17 +258,6 @@ void s32k3xx_start(void)
 
 #ifdef CONFIG_S32K3XX_EEEPROM
   s32k3xx_eeeprom_init();
-#endif
-
-  /* For the case of the separate user-/kernel-space build, perform whatever
-   * platform specific initialization of the user memory is required.
-   * Normally this just means initializing the user space .data and .bss
-   * segments.
-   */
-
-#ifdef CONFIG_BUILD_PROTECTED
-  s32k3xx_userspace();
-  showprogress('F');
 #endif
 
   /* Initialize on-board resources */

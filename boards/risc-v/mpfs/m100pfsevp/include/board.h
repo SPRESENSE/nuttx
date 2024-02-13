@@ -28,14 +28,20 @@
 #include <nuttx/config.h>
 
 #ifndef __ASSEMBLY__
-# include <stdint.h>
+#  include <stdint.h>
 #endif
-
-#include "mpfs_gpio.h"
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
+
+#ifdef CONFIG_MMCSD_MMCSUPPORT
+#  define MPFS_EMMC_CLK_MODE MPFS_EMMCSD_MODE_SDR
+#endif
+
+#ifdef CONFIG_MMCSD_SDIO
+#  define MPFS_SD_CLOCK_4BIT MPFS_MMC_CLOCK_25MHZ
+#endif
 
 #ifdef CONFIG_MPFS_EMMCSD_MUX_GPIO
 /* eMMC / SD-card GPIO selection signal */
@@ -50,6 +56,7 @@
 #define MPFS_MSS_RTC_TOGGLE_CLK      (1000000UL)
 #define MPFS_MSS_AXI_CLK           (300000000UL)
 #define MPFS_MSS_APB_AHB_CLK       (150000000UL)
+#define MPFS_FPGA_PERIPHERAL_CLK    (62500000UL)
 #define MPFS_FPGA_BCLK               (3000000UL)
 
 /* LED definitions **********************************************************/

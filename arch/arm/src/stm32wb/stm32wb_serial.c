@@ -334,17 +334,17 @@ static const struct uart_ops_s g_uart_dma_ops =
 #ifdef CONFIG_STM32WB_LPUART1_SERIALDRIVER
 static char g_lpuart1rxbuffer[CONFIG_LPUART1_RXBUFSIZE];
 static char g_lpuart1txbuffer[CONFIG_LPUART1_TXBUFSIZE];
-# ifdef CONFIG_LPUART1_RXDMA
+#  ifdef CONFIG_LPUART1_RXDMA
 static char g_lpuart1rxfifo[RXDMA_BUFFER_SIZE];
-# endif
+#  endif
 #endif
 
 #ifdef CONFIG_STM32WB_USART1_SERIALDRIVER
 static char g_usart1rxbuffer[CONFIG_USART1_RXBUFSIZE];
 static char g_usart1txbuffer[CONFIG_USART1_TXBUFSIZE];
-# ifdef CONFIG_USART1_RXDMA
+#  ifdef CONFIG_USART1_RXDMA
 static char g_usart1rxfifo[RXDMA_BUFFER_SIZE];
-# endif
+#  endif
 #endif
 
 /* This describes the state of the STM32WB LPUART1 port. */
@@ -1426,9 +1426,9 @@ static void stm32wb_serial_detach(struct uart_dev_s *dev)
  *
  * Description:
  *   This is the USART interrupt handler.  It will be invoked when an
- *   interrupt received on the 'irq'  It should call uart_transmitchars or
- *   uart_receivechar to perform the appropriate data transfers.  The
- *   interrupt handling logic must be able to map the 'irq' number into the
+ *   interrupt is received on the 'irq'.  It should call uart_xmitchars or
+ *   uart_recvchars to perform the appropriate data transfers.  The
+ *   interrupt handling logic must be able to map the 'arg' to the
  *   appropriate uart_dev_s structure in order to call these functions.
  *
  ****************************************************************************/
@@ -1773,7 +1773,7 @@ static int stm32wb_serial_ioctl(struct file *filep, int cmd,
 
         cfsetispeed(termiosp, priv->baud);
 
-        /* TODO: CCTS_IFLOW, CCTS_OFLOW */
+        /* TODO: CRTS_IFLOW, CCTS_OFLOW */
       }
       break;
 
@@ -2754,7 +2754,7 @@ void arm_serialinit(void)
 
   /* Register all remaining USARTs */
 
-  strcpy(devname, "/dev/ttySx");
+  strlcpy(devname, "/dev/ttySx", sizeof(devname));
 
   for (i = 0; i < STM32WB_NLPUART + STM32WB_NUSART; i++)
     {

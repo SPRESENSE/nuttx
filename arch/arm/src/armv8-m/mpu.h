@@ -59,9 +59,9 @@
 #define MPU_RBAR_A3_OFFSET      0x0024
 #define MPU_RLAR_A3_OFFSET      0x0028
 
-#define MPU_MAIR_OFFSET(n)      (0x0040 + 4 * ((n) >> 2))
-#define MPU_MAIR0_OFFSET        0x0040 /* MPU Memory Attribute Indirection Register 0 */
-#define MPU_MAIR1_OFFSET        0x0044 /* MPU Memory Attribute Indirection Register 1 */
+#define MPU_MAIR_OFFSET(n)      (0x0030 + 4 * ((n) >> 2))
+#define MPU_MAIR0_OFFSET        0x0030 /* MPU Memory Attribute Indirection Register 0 */
+#define MPU_MAIR1_OFFSET        0x0034 /* MPU Memory Attribute Indirection Register 1 */
 
 /* MPU Register Addresses */
 
@@ -349,6 +349,25 @@ void mpu_configure_region(uintptr_t base, size_t size,
                            MPU_RBAR_AP_RWNO, \
                            MPU_RLAR_NONCACHEABLE | \
                            MPU_RLAR_PXN); \
+    } while (0)
+
+/****************************************************************************
+ * Name: mpu_priv_shmem
+ *
+ * Description:
+ *   Configure a region as privileged shared memory
+ *
+ ****************************************************************************/
+
+#define mpu_priv_shmem(base, size)                  \
+  do                                                \
+    {                                               \
+      /* The configure the region */                \
+      mpu_configure_region(base, size,              \
+                           MPU_RBAR_AP_RWNO,        \
+                           MPU_RLAR_NONCACHEABLE |  \
+                           MPU_RBAR_SH_INNER |      \
+                           MPU_RLAR_PXN);           \
     } while (0)
 
 /****************************************************************************

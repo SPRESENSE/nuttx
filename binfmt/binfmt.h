@@ -95,7 +95,11 @@ int binfmt_dumpmodule(FAR const struct binary_s *bin);
  *
  ****************************************************************************/
 
-FAR char * const *binfmt_copyargv(FAR char * const *argv);
+#if defined(CONFIG_ARCH_ADDRENV) && defined(CONFIG_BUILD_KERNEL)
+int binfmt_copyargv(FAR char * const **copy, FAR char * const *argv);
+#else
+#  define binfmt_copyargv(copy, argv) (*(copy) = (argv), 0)
+#endif
 
 /****************************************************************************
  * Name: binfmt_freeargv
@@ -136,9 +140,9 @@ void binfmt_freeargv(FAR char * const *argv);
  ****************************************************************************/
 
 #ifndef CONFIG_DISABLE_ENVIRON
-#  define binfmt_copyenv(envp) binfmt_copyargv(envp)
+#  define binfmt_copyenv(copy, envp) binfmt_copyargv(copy, envp)
 #else
-#  define binfmt_copyenv(envp) (envp)
+#  define binfmt_copyenv(copy, envp) (*(copy) = (envp), 0)
 #endif
 
 /****************************************************************************
@@ -161,6 +165,7 @@ void binfmt_freeargv(FAR char * const *argv);
 #  define binfmt_freeenv(envp)
 #endif
 
+#ifdef CONFIG_BUILTIN
 /****************************************************************************
  * Name: builtin_initialize
  *
@@ -175,9 +180,7 @@ void binfmt_freeargv(FAR char * const *argv);
  *
  ****************************************************************************/
 
-#ifdef CONFIG_BUILTIN
 int builtin_initialize(void);
-#endif
 
 /****************************************************************************
  * Name: builtin_uninitialize
@@ -190,8 +193,70 @@ int builtin_initialize(void);
  *
  ****************************************************************************/
 
-#ifdef CONFIG_BUILTIN
 void builtin_uninitialize(void);
+#endif
+
+#ifdef CONFIG_ELF
+/****************************************************************************
+ * Name: elf_initialize
+ *
+ * Description:
+ *   In order to use the ELF binary format, this function must be called
+ *   during system initialization to register the ELF binary format.
+ *
+ * Returned Value:
+ *   This is a NuttX internal function so it follows the convention that
+ *   0 (OK) is returned on success and a negated errno is returned on
+ *   failure.
+ *
+ ****************************************************************************/
+
+int elf_initialize(void);
+
+/****************************************************************************
+ * Name: elf_uninitialize
+ *
+ * Description:
+ *   Unregister the ELF binary loader
+ *
+ * Returned Value:
+ *   None
+ *
+ ****************************************************************************/
+
+void elf_uninitialize(void);
+#endif
+
+#ifdef CONFIG_NXFLAT
+/****************************************************************************
+ * Name: nxflat_initialize
+ *
+ * Description:
+ *   In order to use the NxFLAT binary format, this function must be called
+ *   during system initialization to register the NXFLAT binary
+ *   format.
+ *
+ * Returned Value:
+ *   This is a NuttX internal function so it follows the convention that
+ *   0 (OK) is returned on success and a negated errno is returned on
+ *   failure.
+ *
+ ****************************************************************************/
+
+int nxflat_initialize(void);
+
+/****************************************************************************
+ * Name: nxflat_uninitialize
+ *
+ * Description:
+ *   Unregister the NXFLAT binary loader
+ *
+ * Returned Value:
+ *   None
+ *
+ ****************************************************************************/
+
+void nxflat_uninitialize(void);
 #endif
 
 #undef EXTERN

@@ -44,6 +44,7 @@
 #include <nuttx/fs/ioctl.h>
 #include <nuttx/analog/adc.h>
 #include <nuttx/analog/ioctl.h>
+#include <nuttx/mutex.h>
 #include <nuttx/semaphore.h>
 
 #include "arm_internal.h"
@@ -80,7 +81,7 @@ struct lc823450_adc_inst_s
   const struct adc_callback_s *cb;
   struct adc_dev_s dev;
 
-  sem_t sem_excl;           /* Mutual exclusion semaphore */
+  mutex_t lock;             /* Mutual exclusion mutex */
 #ifndef CONFIG_ADC_POLLED
   sem_t sem_isr;            /* Interrupt wait semaphore */
 #endif
@@ -93,10 +94,6 @@ struct lc823450_adc_inst_s
  ****************************************************************************/
 
 static inline void lc823450_adc_clearirq(void);
-static inline int  lc823450_adc_sem_wait(
-    struct lc823450_adc_inst_s *inst);
-static inline void lc823450_adc_sem_post(
-    struct lc823450_adc_inst_s *inst);
 
 static int  lc823450_adc_bind(struct adc_dev_s *dev,
                               const struct adc_callback_s *callback);
@@ -257,33 +254,6 @@ static void lc823450_adc_start(struct lc823450_adc_inst_s *inst)
 }
 
 /****************************************************************************
- * Name: lc823450_adc_sem_wait
- *
- * Description:
- *   Take the exclusive access, waiting as necessary
- *
- ****************************************************************************/
-
-static inline int lc823450_adc_sem_wait(struct lc823450_adc_inst_s *inst)
-{
-  return nxsem_wait_uninterruptible(&inst->sem_excl);
-}
-
-/****************************************************************************
- * Name: lc823450_adc_sem_post
- *
- * Description:
- *   Release the mutual exclusion semaphore
- *
- ****************************************************************************/
-
-static inline void lc823450_adc_sem_post(
-    struct lc823450_adc_inst_s *inst)
-{
-  nxsem_post(&inst->sem_excl);
-}
-
-/****************************************************************************
  * Name: lc823450_adc_isr
  *
  * Description:
@@ -399,7 +369,7 @@ static void lc823450_adc_rxint(struct adc_dev_s *dev, bool enable)
 
   ainfo("enable: %d\n", enable);
 
-  ret = lc823450_adc_sem_wait(inst);
+  ret = nxmutex_lock(&inst->lock);
   if (ret < 0)
     {
       return;
@@ -416,7 +386,7 @@ static void lc823450_adc_rxint(struct adc_dev_s *dev, bool enable)
     }
 #endif
 
-  lc823450_adc_sem_post(inst);
+  nxmutex_unlock(&inst->lock);
 }
 
 /****************************************************************************
@@ -442,7 +412,7 @@ static int lc823450_adc_ioctl(struct adc_dev_s *dev, int cmd,
 
   ainfo("cmd=%xh\n", cmd);
 
-  ret = lc823450_adc_sem_wait(priv);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
@@ -493,8 +463,7 @@ static int lc823450_adc_ioctl(struct adc_dev_s *dev, int cmd,
         break;
     }
 
-  lc823450_adc_sem_post(priv);
-
+  nxmutex_unlock(&priv->lock);
   return ret;
 }
 
@@ -524,12 +493,10 @@ struct adc_dev_s *lc823450_adcinitialize(void)
     {
       ainfo("Initializing ADC driver\n");
 
-      if ((inst = kmm_malloc(sizeof(struct lc823450_adc_inst_s))) == NULL)
+      if ((inst = kmm_zalloc(sizeof(struct lc823450_adc_inst_s))) == NULL)
         {
           return NULL;
         }
-
-      memset(inst, 0, sizeof(struct lc823450_adc_inst_s));
 
       /* Initialize driver instance */
 
@@ -538,16 +505,18 @@ struct adc_dev_s *lc823450_adcinitialize(void)
       inst->nchannels = CONFIG_LC823450_ADC_NCHANNELS;
       inst->chanlist = lc823450_chanlist;
 
-      nxsem_init(&inst->sem_excl, 0, 1);
+      nxmutex_init(&inst->lock);
 #ifndef CONFIG_ADC_POLLED
       nxsem_init(&inst->sem_isr, 0, 0);
 #endif
 
-      ret = lc823450_adc_sem_wait(inst);
+      ret = nxmutex_lock(&inst->lock);
       if (ret < 0)
         {
           aerr("adc_register failed: %d\n", ret);
-          kmm_free(g_inst);
+          nxmutex_destroy(&inst->lock);
+          nxsem_destroy(&inst->sem_isr);
+          kmm_free(inst);
           return NULL;
         }
 
@@ -574,12 +543,13 @@ struct adc_dev_s *lc823450_adcinitialize(void)
       /* Register the ADC driver at "/dev/adc0" */
 
       ret = adc_register("/dev/adc0", &inst->dev);
-
       if (ret < 0)
         {
           aerr("adc_register failed: %d\n", ret);
-          lc823450_adc_sem_post(inst);
-          kmm_free(g_inst);
+          nxmutex_unlock(&inst->lock);
+          nxmutex_destroy(&inst->lock);
+          nxsem_destroy(&inst->sem_isr);
+          kmm_free(inst);
           return NULL;
         }
 
@@ -590,8 +560,7 @@ struct adc_dev_s *lc823450_adcinitialize(void)
       /* Now we are initialized */
 
       g_inst = inst;
-
-      lc823450_adc_sem_post(inst);
+      nxmutex_unlock(&inst->lock);
     }
 
   return &g_inst->dev;
@@ -619,7 +588,7 @@ int lc823450_adc_receive(struct adc_dev_s *dev,
       return -EINVAL;
     }
 
-  ret = lc823450_adc_sem_wait(inst);
+  ret = nxmutex_lock(&inst->lock);
   if (ret < 0)
     {
       return ret;
@@ -635,7 +604,7 @@ int lc823450_adc_receive(struct adc_dev_s *dev,
     }
 
   lc823450_adc_standby(1);
-  lc823450_adc_sem_post(inst);
+  nxmutex_unlock(&inst->lock);
 
   return OK;
 }

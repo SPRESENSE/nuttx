@@ -31,8 +31,8 @@
  * Public Functions
  ****************************************************************************/
 
-void _assert(FAR const char *filename, int linenum)
+void __assert(FAR const char *filename, int linenum, FAR const char *msg)
 {
-  up_assert(filename, linenum);
-  exit(EXIT_FAILURE);
+  _assert(filename, linenum, msg, NULL);
+  abort();
 }

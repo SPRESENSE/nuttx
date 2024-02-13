@@ -15,7 +15,7 @@ config ARMV8M_HAVE_DCACHE
 
 config ARMV8M_USEBASEPRI
 	bool "Use BASEPRI Register"
-	default y if ARCH_HIPRI_INTERRUPT
+	default ARCH_HIPRI_INTERRUPT
 	---help---
 		Use the BASEPRI register to enable and disable interrupts. By
 		default, the PRIMASK register is used for this purpose. This
@@ -67,40 +67,9 @@ config ARMV8M_DTCM
 	default n
 	depends on ARMV8M_HAVE_DTCM
 
-choice
-	prompt "Toolchain Selection"
-	default ARMV8M_TOOLCHAIN_GNU_EABI
-
-config ARMV8M_TOOLCHAIN_BUILDROOT
-	bool "Buildroot (Cygwin or Linux)"
-	depends on !WINDOWS_NATIVE
-	select ARCH_TOOLCHAIN_GNU
-
-config ARMV8M_TOOLCHAIN_GNU_EABI
-	bool "Generic GNU EABI toolchain"
-	select ARCH_TOOLCHAIN_GNU
-	---help---
-		This option should work for any modern GNU toolchain (GCC 4.5 or newer)
-		configured for arm-none-eabi.
-
-config ARMV8M_TOOLCHAIN_CLANG
-	bool "Generic Clang toolchain"
-	select ARCH_TOOLCHAIN_CLANG
-
-endchoice
-
-config ARMV8M_OABI_TOOLCHAIN
-	bool "OABI (vs EABI)"
-	default n
-	depends on ARMV8M_TOOLCHAIN_BUILDROOT
-	---help---
-		Most of the older buildroot toolchains are OABI and are named
-		arm-nuttx-elf- vs. arm-nuttx-eabi-
-
 config ARMV8M_TARGET2_PREL
 	bool "R_ARM_TARGET2 is PC relative"
-	default n if !CXX_EXCEPTION
-	default y if CXX_EXCEPTION
+	default CXX_EXCEPTION
 	depends on LIBC_ARCH_ELF
 	---help---
 		Perform a PC relative relocation for relocation type R_ARM_TARGET2
@@ -145,11 +114,20 @@ config ARMV8M_STACKCHECK_HARDWARE
 
 endchoice
 
+config ARMV8M_STACKCHECK_BREAKPOINT
+	bool "Breakpoint on stack overflow"
+	default n
+	depends on ARMV8M_STACKCHECK
+	---help---
+		If enabled, a hard-coded breakpoint will be inserted to the stack
+		overflow trap. This is useful to stop the execution of the program
+		and diagnose the issue before the hardfault handler is called (and
+		context information is lost).
+
 config ARMV8M_ITMSYSLOG
 	bool "ITM SYSLOG support"
 	default n
 	select ARCH_SYSLOG
-	select SYSLOG
 	---help---
 		Enable hooks to support ITM syslog output.  This requires additional
 		MCU support in order to be used.  See arch/arm/src/armv8-m/itm_syslog.h
@@ -174,3 +152,24 @@ config ARMV8M_SYSTICK
 	depends on TIMER
 	---help---
 		Enable SysTick timer driver.
+
+config ARMV8M_TRUSTZONE_HYBRID
+	bool "Hybrid with secure and non-secure."
+	default n
+	depends on SMP
+	---help---
+		Enable the hybrid with secure and non-secure domain.
+		In SMP mode, you can enable this configuration when one
+		core supports secure and the other does not.
+
+config ARMV8M_TRUSTZONE_CPU_BITMASK
+	hex "Security support bitmap for multicore."
+	depends on ARMV8M_TRUSTZONE_HYBRID
+	default 0
+	---help---
+		Set Security bitmap for multicore, bit 0 means core 0.
+
+config ARMV8M_CMSE
+	bool "ARMv8-M Security Extensions"
+	---help---
+		Enable ARMv8-M Security Extensions.

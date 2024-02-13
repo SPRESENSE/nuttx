@@ -28,12 +28,12 @@
 #include <string.h>
 #include <fcntl.h>
 #include <time.h>
-#include <crc32.h>
 #include <assert.h>
 #include <errno.h>
 #include <debug.h>
 
-#include <nuttx/kmalloc.h>
+#include <nuttx/crc32.h>
+#include <nuttx/lib/lib.h>
 #include <nuttx/fs/fs.h>
 #include <nuttx/mtd/mtd.h>
 
@@ -382,15 +382,15 @@ static inline int nxffs_wropen(FAR struct nxffs_volume_s *volume,
       goto errout;
     }
 
-  /* Get exclusive access to the volume.  Note that the volume exclsem
-   * protects the open file list.  Note that exclsem is ALWAYS taken
+  /* Get exclusive access to the volume.  Note that the volume lock
+   * protects the open file list.  Note that lock is ALWAYS taken
    * after wrsem to avoid deadlocks.
    */
 
-  ret = nxsem_wait(&volume->exclsem);
+  ret = nxmutex_lock(&volume->lock);
   if (ret < 0)
     {
-      ferr("ERROR: nxsem_wait failed: %d\n", ret);
+      ferr("ERROR: nxmutex_lock failed: %d\n", ret);
       goto errout_with_wrsem;
     }
 
@@ -416,7 +416,7 @@ static inline int nxffs_wropen(FAR struct nxffs_volume_s *volume,
 
           ferr("ERROR: File is open for reading\n");
           ret = -ENOSYS;
-          goto errout_with_exclsem;
+          goto errout_with_lock;
         }
 
       /* It would be an error if we are asked to create the file
@@ -427,7 +427,7 @@ static inline int nxffs_wropen(FAR struct nxffs_volume_s *volume,
         {
           ferr("ERROR: File exists, can't create O_EXCL\n");
           ret = -EEXIST;
-          goto errout_with_exclsem;
+          goto errout_with_lock;
         }
 
       /* Were we asked to truncate the file?  NOTE: Don't truncate the
@@ -455,7 +455,7 @@ static inline int nxffs_wropen(FAR struct nxffs_volume_s *volume,
           ferr("ERROR: File %s exists and we were not asked to "
                "truncate it\n", name);
           ret = -ENOSYS;
-          goto errout_with_exclsem;
+          goto errout_with_lock;
         }
     }
 
@@ -467,7 +467,7 @@ static inline int nxffs_wropen(FAR struct nxffs_volume_s *volume,
     {
       ferr("ERROR: Not asked to create the file\n");
       ret = -ENOENT;
-      goto errout_with_exclsem;
+      goto errout_with_lock;
     }
 
   /* Make sure that the length of the file name will fit in a uint8_t */
@@ -477,7 +477,7 @@ static inline int nxffs_wropen(FAR struct nxffs_volume_s *volume,
     {
       ferr("ERROR: Name is too long: %d\n", namlen);
       ret = -EINVAL;
-      goto errout_with_exclsem;
+      goto errout_with_lock;
     }
 
   /* Yes.. Create a new structure that will describe the state of this open
@@ -494,7 +494,7 @@ static inline int nxffs_wropen(FAR struct nxffs_volume_s *volume,
   if (!wrfile)
     {
       ret = -ENOMEM;
-      goto errout_with_exclsem;
+      goto errout_with_lock;
     }
 #endif
 
@@ -644,24 +644,24 @@ static inline int nxffs_wropen(FAR struct nxffs_volume_s *volume,
   volume->ofiles      = &wrfile->ofile;
 
   /* Indicate that the volume is open for writing and return the open file
-   * instance.  Releasing exclsem allows other readers while the write is
+   * instance.  Releasing lock allows other readers while the write is
    * in progress.  But wrsem is still held for this open file, preventing
    * any further writers until this inode is closed.s
    */
 
   *ppofile = &wrfile->ofile;
-  nxsem_post(&volume->exclsem);
+  nxmutex_unlock(&volume->lock);
   return OK;
 
 errout_with_name:
-  kmm_free(wrfile->ofile.entry.name);
+  lib_free(wrfile->ofile.entry.name);
 errout_with_ofile:
 #ifndef CONFIG_NXFFS_PREALLOCATED
   kmm_free(wrfile);
 #endif
 
-errout_with_exclsem:
-  nxsem_post(&volume->exclsem);
+errout_with_lock:
+  nxmutex_unlock(&volume->lock);
 errout_with_wrsem:
   nxsem_post(&volume->wrsem);
 errout:
@@ -683,14 +683,14 @@ static inline int nxffs_rdopen(FAR struct nxffs_volume_s *volume,
   FAR struct nxffs_ofile_s *ofile;
   int ret;
 
-  /* Get exclusive access to the volume.  Note that the volume exclsem
+  /* Get exclusive access to the volume.  Note that the volume lock
    * protects the open file list.
    */
 
-  ret = nxsem_wait(&volume->exclsem);
+  ret = nxmutex_lock(&volume->lock);
   if (ret != OK)
     {
-      ferr("ERROR: nxsem_wait failed: %d\n", ret);
+      ferr("ERROR: nxmutex_lock failed: %d\n", ret);
       goto errout;
     }
 
@@ -707,7 +707,7 @@ static inline int nxffs_rdopen(FAR struct nxffs_volume_s *volume,
         {
           ferr("ERROR: File is open for writing\n");
           ret = -ENOSYS;
-          goto errout_with_exclsem;
+          goto errout_with_lock;
         }
 
       /* Just increment the reference count on the ofile */
@@ -731,7 +731,7 @@ static inline int nxffs_rdopen(FAR struct nxffs_volume_s *volume,
         {
           ferr("ERROR: ofile allocation failed\n");
           ret = -ENOMEM;
-          goto errout_with_exclsem;
+          goto errout_with_lock;
         }
 
       /* Initialize the open file state structure */
@@ -757,13 +757,13 @@ static inline int nxffs_rdopen(FAR struct nxffs_volume_s *volume,
   /* Return the open file state structure */
 
   *ppofile = ofile;
-  nxsem_post(&volume->exclsem);
+  nxmutex_unlock(&volume->lock);
   return OK;
 
 errout_with_ofile:
   kmm_free(ofile);
-errout_with_exclsem:
-  nxsem_post(&volume->exclsem);
+errout_with_lock:
+  nxmutex_unlock(&volume->lock);
 errout:
   return ret;
 }
@@ -928,7 +928,7 @@ FAR struct nxffs_ofile_s *nxffs_findofile(FAR struct nxffs_volume_s *volume,
 {
   FAR struct nxffs_ofile_s *ofile;
 
-  /* Check every open file.  Note that the volume exclsem protects the
+  /* Check every open file.  Note that the volume lock protects the
    * list of open files.
    */
 
@@ -994,13 +994,13 @@ int nxffs_open(FAR struct file *filep, FAR const char *relpath,
 
   /* Sanity checks */
 
-  DEBUGASSERT(filep->f_priv == NULL && filep->f_inode != NULL);
+  DEBUGASSERT(filep->f_priv == NULL);
 
   /* Get the mountpoint private data from the NuttX inode reference in the
    * file structure
    */
 
-  volume = (FAR struct nxffs_volume_s *)filep->f_inode->i_private;
+  volume = filep->f_inode->i_private;
   DEBUGASSERT(volume != NULL);
 
   /* Limitation:  A file must be opened for reading or writing, but not both.
@@ -1066,7 +1066,7 @@ int nxffs_dup(FAR const struct file *oldp, FAR struct file *newp)
    * file structure
    */
 
-  volume = (FAR struct nxffs_volume_s *)oldp->f_inode->i_private;
+  volume = oldp->f_inode->i_private;
   DEBUGASSERT(volume != NULL);
 #endif
 
@@ -1075,7 +1075,7 @@ int nxffs_dup(FAR const struct file *oldp, FAR struct file *newp)
   ofile = (FAR struct nxffs_ofile_s *)oldp->f_priv;
 
   /* I do not think we need exclusive access to the volume to do this.
-   * The volume exclsem protects the open file list and, hence, would
+   * The volume lock protects the open file list and, hence, would
    * assure that the ofile is stable.  However, it is assumed that the
    * caller holds a value file descriptor associated with this ofile,
    * so it should be stable throughout the life of this function.
@@ -1094,7 +1094,7 @@ int nxffs_dup(FAR const struct file *oldp, FAR struct file *newp)
   /* Just increment the reference count on the ofile */
 
   ofile->crefs++;
-  newp->f_priv = (FAR void *)ofile;
+  newp->f_priv = ofile;
   return OK;
 }
 
@@ -1116,7 +1116,7 @@ int nxffs_close(FAR struct file *filep)
 
   /* Sanity checks */
 
-  DEBUGASSERT(filep->f_priv != NULL && filep->f_inode != NULL);
+  DEBUGASSERT(filep->f_priv != NULL);
 
   /* Recover the open file state from the struct file instance */
 
@@ -1124,17 +1124,17 @@ int nxffs_close(FAR struct file *filep)
 
   /* Recover the volume state from the open file */
 
-  volume = (FAR struct nxffs_volume_s *)filep->f_inode->i_private;
+  volume = filep->f_inode->i_private;
   DEBUGASSERT(volume != NULL);
 
-  /* Get exclusive access to the volume.  Note that the volume exclsem
+  /* Get exclusive access to the volume.  Note that the volume lock
    * protects the open file list.
    */
 
-  ret = nxsem_wait(&volume->exclsem);
+  ret = nxmutex_lock(&volume->lock);
   if (ret != OK)
     {
-      ferr("ERROR: nxsem_wait failed: %d\n", ret);
+      ferr("ERROR: nxmutex_lock failed: %d\n", ret);
       goto errout;
     }
 
@@ -1170,7 +1170,7 @@ int nxffs_close(FAR struct file *filep)
     }
 
   filep->f_priv = NULL;
-  nxsem_post(&volume->exclsem);
+  nxmutex_unlock(&volume->lock);
 
 errout:
   return ret;

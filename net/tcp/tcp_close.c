@@ -53,10 +53,14 @@ static void tcp_close_work(FAR void *param)
 
   net_lock();
 
-  /* Stop the network monitor for all sockets */
+  conn->flags &= ~TCP_CLOSE_ARRANGED;
+  if (conn->crefs == 0)
+    {
+      /* Stop the network monitor for all sockets */
 
-  tcp_stop_monitor(conn, TCP_CLOSE);
-  tcp_free(conn);
+      tcp_stop_monitor(conn, TCP_CLOSE);
+      tcp_free(conn);
+    }
 
   net_unlock();
 }
@@ -66,11 +70,9 @@ static void tcp_close_work(FAR void *param)
  ****************************************************************************/
 
 static uint16_t tcp_close_eventhandler(FAR struct net_driver_s *dev,
-                                       FAR void *pvconn, FAR void *pvpriv,
-                                       uint16_t flags)
+                                       FAR void *pvpriv, uint16_t flags)
 {
-  FAR struct tcp_conn_s *conn = pvconn;
-  FAR struct devif_callback_s *cb = pvpriv;
+  FAR struct tcp_conn_s *conn = pvpriv;
 
   ninfo("flags: %04x\n", flags);
 
@@ -177,60 +179,18 @@ static uint16_t tcp_close_eventhandler(FAR struct net_driver_s *dev,
   return flags;
 
 end_wait:
-  tcp_callback_free(conn, cb);
+  if (conn->clscb != NULL)
+    {
+      tcp_callback_free(conn, conn->clscb);
+      conn->clscb = NULL;
+    }
 
   /* Free network resources */
 
-  work_queue(LPWORK, &conn->work, tcp_close_work, conn, 0);
+  conn->flags |= TCP_CLOSE_ARRANGED;
+  work_queue(LPWORK, &conn->clswork, tcp_close_work, conn, 0);
 
   return flags;
-}
-
-/****************************************************************************
- * Name: tcp_close_txnotify
- *
- * Description:
- *   Notify the appropriate device driver that we have data ready to
- *   be sent (TCP)
- *
- * Input Parameters:
- *   psock - Socket state structure
- *   conn  - The TCP connection structure
- *
- * Returned Value:
- *   None
- *
- ****************************************************************************/
-
-static inline void tcp_close_txnotify(FAR struct socket *psock,
-                                      FAR struct tcp_conn_s *conn)
-{
-#ifdef CONFIG_NET_IPv4
-#ifdef CONFIG_NET_IPv6
-  /* If both IPv4 and IPv6 support are enabled, then we will need to select
-   * the device driver using the appropriate IP domain.
-   */
-
-  if (psock->s_domain == PF_INET)
-#endif
-    {
-      /* Notify the device driver that send data is available */
-
-      netdev_ipv4_txnotify(conn->u.ipv4.laddr, conn->u.ipv4.raddr);
-    }
-#endif /* CONFIG_NET_IPv4 */
-
-#ifdef CONFIG_NET_IPv6
-#ifdef CONFIG_NET_IPv4
-  else /* if (psock->s_domain == PF_INET6) */
-#endif /* CONFIG_NET_IPv4 */
-    {
-      /* Notify the device driver that send data is available */
-
-      DEBUGASSERT(psock->s_domain == PF_INET6);
-      netdev_ipv6_txnotify(conn->u.ipv6.laddr, conn->u.ipv6.raddr);
-    }
-#endif /* CONFIG_NET_IPv6 */
 }
 
 /****************************************************************************
@@ -253,44 +213,13 @@ static inline void tcp_close_txnotify(FAR struct socket *psock,
 static inline int tcp_close_disconnect(FAR struct socket *psock)
 {
   FAR struct tcp_conn_s *conn;
-  FAR struct devif_callback_s *cb;
   int ret = OK;
 
   /* Interrupts are disabled here to avoid race conditions */
 
   net_lock();
 
-  conn = (FAR struct tcp_conn_s *)psock->s_conn;
-  DEBUGASSERT(conn != NULL);
-
-#ifdef CONFIG_NET_SOLINGER
-  /* SO_LINGER
-   *   Lingers on a close() if data is present. This option controls the
-   *   action taken when unsent messages queue on a socket and close() is
-   *   performed. If SO_LINGER is set, the system shall block the calling
-   *   thread during close() until it can transmit the data or until the
-   *   time expires. If SO_LINGER is not specified, and close() is issued,
-   *   the system handles the call in a way that allows the calling thread
-   *   to continue as quickly as possible. This option takes a linger
-   *   structure, as defined in the <sys/socket.h> header, to specify the
-   *   state of the option and linger interval.
-   */
-
-  if (_SO_GETOPT(conn->sconn.s_options, SO_LINGER))
-    {
-      /* Wait until for the buffered TX data to be sent. */
-
-      ret = tcp_txdrain(psock, _SO_TIMEOUT(conn->sconn.s_linger));
-      if (ret < 0)
-        {
-          /* tcp_txdrain may fail, but that won't stop us from closing
-           * the socket.
-           */
-
-          nerr("ERROR: tcp_txdrain() failed: %d\n", ret);
-        }
-    }
-#endif
+  conn = psock->s_conn;
 
   /* Discard our reference to the connection */
 
@@ -306,17 +235,46 @@ static inline int tcp_close_disconnect(FAR struct socket *psock)
 
   if ((conn->tcpstateflags == TCP_ESTABLISHED ||
        conn->tcpstateflags == TCP_LAST_ACK) &&
-      (cb = tcp_callback_alloc(conn)) != NULL)
+      (conn->clscb = tcp_callback_alloc(conn)) != NULL)
     {
+      /* Free rx buffers of the connection immediately */
+
+      tcp_free_rx_buffers(conn);
+
       /* Set up to receive TCP data event callbacks */
 
-      cb->flags = (TCP_NEWDATA | TCP_POLL | TCP_DISCONN_EVENTS);
-      cb->event = tcp_close_eventhandler;
-      cb->priv  = cb; /* reference for event handler to free cb */
+      conn->clscb->flags = TCP_NEWDATA | TCP_ACKDATA |
+                           TCP_POLL | TCP_DISCONN_EVENTS;
+      conn->clscb->event = tcp_close_eventhandler;
+      conn->clscb->priv  = conn; /* reference for event handler to free cb */
+
+#ifdef CONFIG_NET_SOLINGER
+      /* SO_LINGER
+       *   Lingers on a close() if data is present. This option controls the
+       *   action taken when unsent messages queue on a socket and close() is
+       *   performed. If SO_LINGER is set, the system shall block the calling
+       *   thread during close() until it can transmit the data or until the
+       *   time expires. If SO_LINGER is not specified, and close() is
+       *   issued, the system handles the call in a way that allows the
+       *   calling thread to continue as quickly as possible. This option
+       *   takes a linger structure, as defined in the <sys/socket.h> header,
+       *   to specify the state of the option and linger interval.
+       */
+
+      if (_SO_GETOPT(conn->sconn.s_options, SO_LINGER))
+        {
+          conn->ltimeout = clock_systime_ticks() +
+                           DSEC2TICK(conn->sconn.s_linger);
+
+          /* Update RTO timeout if the work exceeds expire */
+
+          tcp_update_timer(conn);
+        }
+#endif
 
       /* Notify the device driver of the availability of TX data */
 
-      tcp_close_txnotify(psock, conn);
+      tcp_send_txnotify(psock, conn);
     }
   else
     {

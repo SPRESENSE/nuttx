@@ -144,4 +144,39 @@ void litex_automount_event(int slotno, bool inserted);
 bool litex_cardinserted(int slotno);
 #endif
 
+/****************************************************************************
+ * Name: litex_pwm_setup
+ *
+ * Description:
+ *   Initialise all PWM channels enabled in gateware and map them to
+ *   /dev/pwmX. Where X is the PMW channel number. From 0 ... LITEX_PWM_MAX.
+ *
+ * Returned Value:
+ *   OK is returned on success.
+ *   -ENODEV is return on the first PWM device initialise failure.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_LITEX_PWM
+int litex_pwm_setup(void);
+#endif
+
+/****************************************************************************
+ * Name: litex_mount_ramdisk
+ *
+ * Description:
+ *  Mount a ramdisk defined in the ld-kernel.script to /dev/ramX.
+ *  The ramdisk is intended to contain a romfs with applications which can
+ *  be spawned at runtime.
+ *
+ * Returned Value:
+ *   OK is returned on success.
+ *   -ERRORNO is returned on failure.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_LITEX_APPLICATION_RAMDISK
+int litex_mount_ramdisk(void);
+#endif
+
 #endif /* __BOARDS_RISCV_LITEX_ARTY_A7_SRC_ARTY_A7_H */

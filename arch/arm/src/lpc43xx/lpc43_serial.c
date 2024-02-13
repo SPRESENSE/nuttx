@@ -341,7 +341,7 @@ static uart_dev_t g_usart3port =
 #    define CONSOLE_DEV     g_usart3port    /* USART3=console */
 #    define TTYS0_DEV       g_usart3port    /* USART3=ttyS0 */
 #    define USART3_ASSIGNED 1
-# endif
+#  endif
 #else
 /* No console, assign only ttyS0 */
 
@@ -357,7 +357,7 @@ static uart_dev_t g_usart3port =
 #  else /* elif defined(CONFIG_LPC43_USART3) */
 #    define TTYS0_DEV       g_usart3port    /* USART3=ttyS0 */
 #    define USART3_ASSIGNED 1
-# endif
+#  endif
 #endif
 
 /* Assign ttyS1 */
@@ -443,11 +443,13 @@ static inline void up_disableuartint(struct up_dev_s *priv, uint32_t *ier)
  * Name: up_restoreuartint
  ****************************************************************************/
 
+#ifdef HAVE_SERIAL_CONSOLE
 static inline void up_restoreuartint(struct up_dev_s *priv, uint32_t ier)
 {
   priv->ier |= ier & UART_IER_ALLIE;
   up_serialout(priv, LPC43_UART_IER_OFFSET, priv->ier);
 }
+#endif
 
 /****************************************************************************
  * Name: up_enablebreaks
@@ -685,9 +687,9 @@ static void up_detach(struct uart_dev_s *dev)
  *
  * Description:
  *   This is the UART interrupt handler.  It will be invoked when an
- *   interrupt received on the 'irq'  It should call uart_transmitchars or
- *   uart_receivechar to perform the appropriate data transfers.  The
- *   interrupt handling logic must be able to map the 'irq' number into the
+ *   interrupt is received on the 'irq'.  It should call uart_xmitchars or
+ *   uart_recvchars to perform the appropriate data transfers.  The
+ *   interrupt handling logic must be able to map the 'arg' to the
  *   appropriate uart_dev_s structure in order to call these functions.
  *
  ****************************************************************************/
@@ -1063,7 +1065,7 @@ static int up_ioctl(struct file *filep, int cmd, unsigned long arg)
           }
 
         /* TODO:  Handle other termios settings.
-         * Note that only cfgetispeed is used besued we have knowledge
+         * Note that only cfgetispeed is used because we have knowledge
          * that only one speed is supported.
          */
 

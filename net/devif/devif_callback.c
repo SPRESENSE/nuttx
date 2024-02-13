@@ -43,8 +43,9 @@
  * Private Data
  ****************************************************************************/
 
-#ifndef CONFIG_NET_ALLOC_CONNS
-static struct devif_callback_s g_cbprealloc[CONFIG_NET_NACTIVESOCKETS];
+#if CONFIG_NET_PREALLOC_DEVIF_CALLBACKS > 0
+static struct devif_callback_s
+  g_cbprealloc[CONFIG_NET_PREALLOC_DEVIF_CALLBACKS];
 #endif
 static FAR struct devif_callback_s *g_cbfreelist = NULL;
 
@@ -164,11 +165,24 @@ static void devif_callback_free(FAR struct net_driver_s *dev,
             }
         }
 
-      /* Put the structure into the free list */
+      /* If this is a preallocated or a batch allocated callback store it in
+       * the free callbacks list. Else free it.
+       */
 
-      cb->nxtconn  = g_cbfreelist;
-      cb->nxtdev   = NULL;
-      g_cbfreelist = cb;
+#if CONFIG_NET_ALLOC_DEVIF_CALLBACKS == 1
+      if (cb < g_cbprealloc || cb >= (g_cbprealloc +
+          CONFIG_NET_PREALLOC_DEVIF_CALLBACKS))
+        {
+          kmm_free(cb);
+        }
+      else
+#endif
+        {
+          cb->nxtconn  = g_cbfreelist;
+          cb->nxtdev   = NULL;
+          g_cbfreelist = cb;
+        }
+
       net_unlock();
     }
 }
@@ -230,10 +244,10 @@ static bool devif_event_trigger(uint16_t events, uint16_t triggers)
 
 void devif_callback_init(void)
 {
-#ifndef CONFIG_NET_ALLOC_CONNS
+#if CONFIG_NET_PREALLOC_DEVIF_CALLBACKS > 0
   int i;
 
-  for (i = 0; i < CONFIG_NET_NACTIVESOCKETS; i++)
+  for (i = 0; i < CONFIG_NET_PREALLOC_DEVIF_CALLBACKS; i++)
     {
       g_cbprealloc[i].nxtconn = g_cbfreelist;
       g_cbfreelist = &g_cbprealloc[i];
@@ -263,7 +277,7 @@ FAR struct devif_callback_s *
                        FAR struct devif_callback_s **list_tail)
 {
   FAR struct devif_callback_s *ret;
-#ifdef CONFIG_NET_ALLOC_CONNS
+#if CONFIG_NET_ALLOC_DEVIF_CALLBACKS > 0
   int i;
 #endif
 
@@ -282,7 +296,7 @@ FAR struct devif_callback_s *
    * to de-allocate connection callbacks reliably on NETDEV_DOWN event.
    */
 
-  if (dev && !netdev_verify(dev) && (dev->d_flags & IFF_UP) != 0)
+  if (dev && !(netdev_verify(dev) && (dev->d_flags & IFF_UP) != 0))
     {
       net_unlock();
       return NULL;
@@ -290,14 +304,14 @@ FAR struct devif_callback_s *
 
   /* Allocate the callback entry from heap */
 
-#ifdef CONFIG_NET_ALLOC_CONNS
+#if CONFIG_NET_ALLOC_DEVIF_CALLBACKS > 0
   if (g_cbfreelist == NULL)
     {
       ret = kmm_zalloc(sizeof(struct devif_callback_s) *
-                       CONFIG_NET_NACTIVESOCKETS);
+                       CONFIG_NET_ALLOC_DEVIF_CALLBACKS);
       if (ret != NULL)
         {
-          for (i = 0; i < CONFIG_NET_NACTIVESOCKETS; i++)
+          for (i = 0; i < CONFIG_NET_ALLOC_DEVIF_CALLBACKS; i++)
             {
               ret[i].nxtconn = g_cbfreelist;
               g_cbfreelist = &ret[i];
@@ -465,9 +479,6 @@ void devif_dev_callback_free(FAR struct net_driver_s *dev,
  * Input Parameters:
  *   dev - The network device state structure associated with the network
  *     device that initiated the callback event.
- *   pvconn - Holds a reference to the TCP connection structure or the UDP
- *     port structure. It can be NULL if the event is not related to a TCP
- *     connection or UDP port.
  *   flags - The bit set of events to be notified.
  *   list - The list to traverse in performing the notifications
  *
@@ -479,8 +490,8 @@ void devif_dev_callback_free(FAR struct net_driver_s *dev,
  *
  ****************************************************************************/
 
-uint16_t devif_conn_event(FAR struct net_driver_s *dev, void *pvconn,
-                          uint16_t flags, FAR struct devif_callback_s *list)
+uint16_t devif_conn_event(FAR struct net_driver_s *dev, uint16_t flags,
+                          FAR struct devif_callback_s *list)
 {
   FAR struct devif_callback_s *next;
 
@@ -507,7 +518,7 @@ uint16_t devif_conn_event(FAR struct net_driver_s *dev, void *pvconn,
            * beginning of the list (which will be ignored on this pass)
            */
 
-          flags = list->event(dev, pvconn, list->priv, flags);
+          flags = list->event(dev, list->priv, flags);
         }
 
       /* Set up for the next time through the loop */
@@ -528,9 +539,6 @@ uint16_t devif_conn_event(FAR struct net_driver_s *dev, void *pvconn,
  * Input Parameters:
  *   dev - The network device state structure associated with the network
  *     device that initiated the callback event.
- *   pvconn - Holds a reference to the TCP connection structure or the UDP
- *     port structure. It can be NULL if the event is not related to a TCP
- *     connection or UDP port.
  *   flags - The bit set of events to be notified.
  *
  * Returned Value:
@@ -541,8 +549,7 @@ uint16_t devif_conn_event(FAR struct net_driver_s *dev, void *pvconn,
  *
  ****************************************************************************/
 
-uint16_t devif_dev_event(FAR struct net_driver_s *dev, void *pvconn,
-                         uint16_t flags)
+uint16_t devif_dev_event(FAR struct net_driver_s *dev, uint16_t flags)
 {
   FAR struct devif_callback_s *cb;
   FAR struct devif_callback_s *next;
@@ -570,7 +577,7 @@ uint16_t devif_dev_event(FAR struct net_driver_s *dev, void *pvconn,
            * beginning of the list (which will be ignored on this pass)
            */
 
-          flags = cb->event(dev, pvconn, cb->priv, flags);
+          flags = cb->event(dev, cb->priv, flags);
         }
     }
 

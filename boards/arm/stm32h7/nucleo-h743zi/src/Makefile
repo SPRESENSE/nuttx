@@ -76,6 +76,10 @@ ifeq ($(CONFIG_BOARDCTL),y)
 CSRCS += stm32_appinitialize.c
 endif
 
+ifeq ($(CONFIG_STM32H7_PROGMEM),y)
+CSRCS += stm32_progmem.c
+endif
+
 ifeq ($(CONFIG_WL_NRF24L01),y)
 CSRCS += stm32_nrf24l01.c
 endif
@@ -90,6 +94,22 @@ endif
 
 ifeq ($(CONFIG_BOARDCTL_RESET),y)
 CSRCS += stm32_reset.c
+endif
+
+ifeq ($(CONFIG_BOARDCTL_BOOT_IMAGE),y)
+CSRCS += stm32_boot_image.c
+endif
+
+ifeq ($(CONFIG_USBMSC),y)
+CSRCS += stm32_usbmsc.c
+endif
+
+ifeq ($(CONFIG_USBDEV_COMPOSITE),y)
+CSRCS += stm32_composite.c
+endif
+
+ifeq ($(CONFIG_MMCSD),y)
+CSRCS += stm32_mmcsd.c
 endif
 
 include $(TOPDIR)/boards/Board.mk

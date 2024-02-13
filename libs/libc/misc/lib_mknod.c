@@ -27,6 +27,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "libc.h"
+
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
@@ -96,4 +98,49 @@ int mknod(FAR const char *path, mode_t mode, dev_t dev)
     }
 
   return ret;
+}
+
+/****************************************************************************
+ * Name: mknodat
+ *
+ * Description:
+ *   The mknodat() system call operates in exactly the same way as mknod(),
+ *   except for  the  differences described here.
+ *
+ *   If the pathname given in pathname is relative, then it is interpreted
+ *   relative to the directory referred to by the file descriptor dirfd
+ *   (rather than relative to the current working directory of the calling
+ *    process)
+ *
+ *   If pathname is relative and dirfd is the special value AT_FDCWD, then
+ *   pathname is interpreted relative to the current working directory of
+ *   the calling process (like mknod()).
+ *
+ *   If pathname is absolute, then dirfd is ignored.
+ *
+ * Input Parameters:
+ *   dirfd - The file descriptor of directory.
+ *   path  - a pointer to the path.
+ *   mode  - the access mode.
+ *   dev   - Ignored.
+ *
+ * Returned Value:
+ *   Return zero on success, or -1 if an error occurred (in which case,
+ *   errno is set appropriately).
+ *
+ ****************************************************************************/
+
+int mknodat(int dirfd, FAR const char *path, mode_t mode, dev_t dev)
+{
+  char fullpath[PATH_MAX];
+  int ret;
+
+  ret = lib_getfullpath(dirfd, path, fullpath, sizeof(fullpath));
+  if (ret < 0)
+    {
+      set_errno(-ret);
+      return ERROR;
+    }
+
+  return mknod(fullpath, mode, dev);
 }

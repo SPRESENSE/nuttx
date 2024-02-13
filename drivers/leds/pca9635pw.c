@@ -72,10 +72,6 @@ static const struct file_operations g_pca9635pw_fileops =
   NULL,                         /* write */
   NULL,                         /* seek */
   pca9635pw_ioctl,              /* ioctl */
-  NULL                          /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL                        /* unlink */
-#endif
 };
 
 /****************************************************************************
@@ -345,7 +341,7 @@ int pca9635pw_register(FAR const char *devpath, FAR struct i2c_master_s *i2c,
   /* Initialize the PCA9635PW device structure */
 
   FAR struct pca9635pw_dev_s *priv =
-    (FAR struct pca9635pw_dev_s *)kmm_malloc(sizeof(struct pca9635pw_dev_s));
+    kmm_malloc(sizeof(struct pca9635pw_dev_s));
 
   if (priv == NULL)
     {

@@ -31,6 +31,9 @@
  ****************************************************************************/
 
 #include <nuttx/config.h>
+
+#include <sys/param.h>
+
 #include <nuttx/compiler.h>
 
 #include <pthread.h>
@@ -291,16 +294,6 @@
 #define CS43L22_FRAMELEN8             14        /* Bits per frame for 8-bit data */
 #define CS43L22_FRAMELEN16            32        /* Bits per frame for 16-bit data */
 
-/* Commonly defined and redefined macros */
-
-#ifndef MIN
-#  define MIN(a,b)                    (((a) < (b)) ? (a) : (b))
-#endif
-
-#ifndef MAX
-#  define MAX(a,b)                    (((a) > (b)) ? (a) : (b))
-#endif
-
 /****************************************************************************
  * Public Types
  ****************************************************************************/
@@ -330,7 +323,7 @@ struct cs43l22_dev_s
   char                    mqname[16];       /* Our message queue name */
   pthread_t               threadid;         /* ID of our thread */
   uint32_t                bitrate;          /* Actual programmed bit rate */
-  sem_t                   pendsem;          /* Protect pendq */
+  mutex_t                 pendlock;         /* Protect pendq */
 #ifdef CS43L22_USE_FFLOCK_INT
   struct work_s           work;             /* Interrupt work */
 #endif

@@ -34,6 +34,7 @@
 #include "netdev/netdev.h"
 #include "inet/inet.h"
 #include "tcp/tcp.h"
+#include "utils/utils.h"
 
 /****************************************************************************
  * Private Functions
@@ -74,7 +75,19 @@ static int tcp_find_ipv4_device(FAR struct tcp_conn_s *conn,
 
   if (net_ipv4addr_cmp(addr, INADDR_ANY))
     {
-      return local ? OK : -EINVAL;
+      if (local)
+        {
+#ifdef CONFIG_NET_BINDTODEVICE
+          if (conn->sconn.s_boundto != 0)
+            {
+              conn->dev = netdev_findbyindex(conn->sconn.s_boundto);
+            }
+#endif
+
+          return OK;
+        }
+
+      return -ECONNREFUSED;
     }
 
   /* We need to select the device that is going to route the TCP packet
@@ -124,7 +137,19 @@ static int tcp_find_ipv6_device(FAR struct tcp_conn_s *conn,
 
   if (net_ipv6addr_cmp(addr, g_ipv6_unspecaddr))
     {
-      return local ? OK : -EINVAL;
+      if (local)
+        {
+#ifdef CONFIG_NET_BINDTODEVICE
+          if (conn->sconn.s_boundto != 0)
+            {
+              conn->dev = netdev_findbyindex(conn->sconn.s_boundto);
+            }
+#endif
+
+          return OK;
+        }
+
+      return -ECONNREFUSED;
     }
 
   /* We need to select the device that is going to route the TCP packet

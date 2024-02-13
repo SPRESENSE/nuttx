@@ -27,8 +27,7 @@
 
 #include <nuttx/config.h>
 
-#include <queue.h>
-
+#include <nuttx/queue.h>
 #include <nuttx/mutex.h>
 #include <nuttx/clock.h>
 #include <nuttx/power/pm.h>
@@ -88,11 +87,11 @@ struct pm_domain_s
 
 struct pm_global_s
 {
-  /* This semaphore manages mutually exclusive access to the power management
+  /* This rmutex manages mutually exclusive access to the power management
    * registry.  It must be initialized to the value 1.
    */
 
-  sem_t regsem;
+  rmutex_t reglock;
 
   /* registry is a doubly-linked list of registered power management
    * callback structures.  To ensure mutually exclusive access, this list
@@ -134,11 +133,14 @@ EXTERN struct pm_global_s g_pmglobals;
  *   Lock the power management operation.
  *
  * Input Parameters:
- *   domain - The PM domain to lock
+ *   lock - The lock subjuct
+ *
+ * Returned Value:
+ *   Return current state
  *
  ****************************************************************************/
 
-irqstate_t pm_lock(int domain);
+irqstate_t pm_lock(FAR rmutex_t *lock);
 
 /****************************************************************************
  * Name: pm_unlock
@@ -147,11 +149,46 @@ irqstate_t pm_lock(int domain);
  *   Unlock the power management operation.
  *
  * Input Parameters:
- *   domain - The PM domain to unlock
+ *   lock - The lock subjuct
+ *
+ * Returned Value:
+ *   None
  *
  ****************************************************************************/
 
-void pm_unlock(int domain, irqstate_t flags);
+void pm_unlock(FAR rmutex_t *lock, irqstate_t flags);
+
+/****************************************************************************
+ * Name: pm_domain_lock
+ *
+ * Description:
+ *   Lock the power management operation.
+ *
+ * Input Parameters:
+ *   domain - The PM domain to lock
+ *
+ * Returned Value:
+ *   Return current state
+ *
+ ****************************************************************************/
+
+irqstate_t pm_domain_lock(int domain);
+
+/****************************************************************************
+ * Name: pm_domain_unlock
+ *
+ * Description:
+ *   Unlock the power management operation.
+ *
+ * Input Parameters:
+ *   domain - The PM domain to unlock
+ *
+ * Returned Value:
+ *   None
+ *
+ ****************************************************************************/
+
+void pm_domain_unlock(int domain, irqstate_t flags);
 
 /****************************************************************************
  * Name: pm_wakelock_global_init

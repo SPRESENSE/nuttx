@@ -49,14 +49,15 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
-#include <queue.h>
 #include <assert.h>
 #include <debug.h>
 #include <errno.h>
 
 #include <nuttx/irq.h>
 #include <nuttx/arch.h>
+#include <nuttx/queue.h>
 #include <nuttx/spinlock.h>
+#include <nuttx/mutex.h>
 #include <nuttx/semaphore.h>
 
 #include "arm_internal.h"
@@ -136,9 +137,9 @@ struct imxrt_dmach_s
 
 struct imxrt_edma_s
 {
-  /* These semaphores protect the DMA channel and descriptor tables */
+  /* These mutex protect the DMA channel and descriptor tables */
 
-  sem_t chsem;                    /* Protects channel table */
+  mutex_t chlock;                 /* Protects channel table */
 #if CONFIG_IMXRT_EDMA_NTCD > 0
   sem_t dsem;                     /* Supports wait for free descriptors */
 #endif
@@ -154,7 +155,13 @@ struct imxrt_edma_s
 
 /* The state of the eDMA */
 
-static struct imxrt_edma_s g_edma;
+static struct imxrt_edma_s g_edma =
+{
+  .chlock = NXMUTEX_INITIALIZER,
+#if CONFIG_IMXRT_EDMA_NTCD > 0
+  .dsem = SEM_INITIALIZER(CONFIG_IMXRT_EDMA_NTCD),
+#endif
+};
 
 #if CONFIG_IMXRT_EDMA_NTCD > 0
 /* This is a singly-linked list of free TCDs */
@@ -170,45 +177,6 @@ static struct imxrt_edmatcd_s g_tcd_pool[CONFIG_IMXRT_EDMA_NTCD]
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
-
-/****************************************************************************
- * Name: imxrt_takechsem() and imxrt_givechsem()
- *
- * Description:
- *   Used to get exclusive access to the DMA channel table for channel
- *   allocation.
- *
- ****************************************************************************/
-
-static int imxrt_takechsem(void)
-{
-  return nxsem_wait_uninterruptible(&g_edma.chsem);
-}
-
-static inline void imxrt_givechsem(void)
-{
-  nxsem_post(&g_edma.chsem);
-}
-
-/****************************************************************************
- * Name: imxrt_takedsem() and imxrt_givedsem()
- *
- * Description:
- *   Used to wait for availability of descriptors in the descriptor table.
- *
- ****************************************************************************/
-
-#if CONFIG_IMXRT_EDMA_NTCD > 0
-static void imxrt_takedsem(void)
-{
-  nxsem_wait_uninterruptible(&g_edma.dsem);
-}
-
-static inline void imxrt_givedsem(void)
-{
-  nxsem_post(&g_edma.dsem);
-}
-#endif
 
 /****************************************************************************
  * Name: imxrt_tcd_alloc
@@ -233,7 +201,7 @@ static struct imxrt_edmatcd_s *imxrt_tcd_alloc(void)
    */
 
   flags = enter_critical_section();
-  imxrt_takedsem();
+  nxsem_wait_uninterruptible(&g_edma.dsem);
 
   /* Now there should be a TCD in the free list reserved just for us */
 
@@ -265,7 +233,7 @@ static void imxrt_tcd_free(struct imxrt_edmatcd_s *tcd)
 
   flags = spin_lock_irqsave(NULL);
   sq_addlast((sq_entry_t *)tcd, &g_tcd_free);
-  imxrt_givedsem();
+  nxsem_post(&g_edma.dsem);
   spin_unlock_irqrestore(NULL, flags);
 }
 #endif
@@ -394,7 +362,8 @@ static inline void imxrt_tcd_configure(struct imxrt_edmatcd_s *tcd,
   tcd->attr     = EDMA_TCD_ATTR_SSIZE(config->ssize) |  /* Transfer Attributes */
                   EDMA_TCD_ATTR_DSIZE(config->dsize);
   tcd->nbytes   = config->nbytes;
-  tcd->slast    = config->flags & EDMA_CONFIG_LOOPSRC ? -config->iter : 0;
+  tcd->slast    = config->flags & EDMA_CONFIG_LOOPSRC ?
+                                  -(config->iter * config->nbytes) : 0;
   tcd->daddr    = config->daddr;
   tcd->doff     = config->doff;
   tcd->citer    = config->iter & EDMA_TCD_CITER_CITER_MASK;
@@ -403,7 +372,8 @@ static inline void imxrt_tcd_configure(struct imxrt_edmatcd_s *tcd,
                                   0 : EDMA_TCD_CSR_DREQ;
   tcd->csr     |= config->flags & EDMA_CONFIG_INTHALF ?
                                   EDMA_TCD_CSR_INTHALF : 0;
-  tcd->dlastsga = config->flags & EDMA_CONFIG_LOOPDEST ? -config->iter : 0;
+  tcd->dlastsga = config->flags & EDMA_CONFIG_LOOPDEST ?
+                                  -(config->iter * config->nbytes) : 0;
 
   /* And special case flags */
 
@@ -758,24 +728,12 @@ void weak_function arm_dma_initialize(void)
 
   /* Initialize data structures */
 
-  memset(&g_edma, 0, sizeof(struct imxrt_edma_s));
   for (i = 0; i < IMXRT_EDMA_NCHANNELS; i++)
     {
       g_edma.dmach[i].chan = i;
     }
 
-  /* Initialize semaphores */
-
-  nxsem_init(&g_edma.chsem, 0, 1);
 #if CONFIG_IMXRT_EDMA_NTCD > 0
-  nxsem_init(&g_edma.dsem, 0, CONFIG_IMXRT_EDMA_NTCD);
-
-  /* The 'dsem' is used for signaling rather than mutual exclusion and,
-   * hence, should not have priority inheritance enabled.
-   */
-
-  nxsem_set_protocol(&g_edma.dsem, SEM_PRIO_NONE);
-
   /* Initialize the list of free TCDs from the pool of pre-allocated TCDs. */
 
   imxrt_tcd_initialize();
@@ -880,7 +838,7 @@ DMACH_HANDLE imxrt_dmach_alloc(uint32_t dmamux, uint8_t dchpri)
   /* Search for an available DMA channel */
 
   dmach = NULL;
-  ret = imxrt_takechsem();
+  ret = nxmutex_lock(&g_edma.chlock);
   if (ret < 0)
     {
       return NULL;
@@ -917,7 +875,7 @@ DMACH_HANDLE imxrt_dmach_alloc(uint32_t dmamux, uint8_t dchpri)
         }
     }
 
-  imxrt_givechsem();
+  nxmutex_unlock(&g_edma.chlock);
 
   /* Show the result of the allocation */
 

@@ -3,20 +3,42 @@
 # see the file kconfig-language.txt in the NuttX tools repository.
 #
 
-menuconfig DRIVER_NOTE
+config DRIVERS_NOTE
 	bool "Note Driver Support"
 	depends on SCHED_INSTRUMENTATION
 	default n
 
-if DRIVER_NOTE
+if DRIVERS_NOTE
 
-choice
-	prompt "Note driver selection"
-	default DRIVER_NOTERAM
+config DRIVERS_NOTE_MAX
+	int "Maximum number of sched_note drivers"
+	default 1
+	---help---
+		sched_note supports the maximum number of drivers
 
-config DRIVER_NOTERAM
+config DRIVERS_NOTE_TASKNAME_BUFSIZE
+	int "Note task name buffer size"
+	default 256 if TASK_NAME_SIZE > 0
+	default 0 if TASK_NAME_SIZE = 0
+	---help---
+		The size of the in-memory task name buffer (in bytes).
+		The buffer is used to hold the name of the task during instrumentation.
+		Trace dump can find and show a task name corresponding to given pid in
+		the instrumentation data by using this buffer.
+		If 0 is specified, this feature is disabled and trace dump shows only
+		the name of the newly created task.
+
+config DRIVERS_NOTECTL
+	bool "Scheduler instrumentation filter control driver"
+	default n
+	depends on SCHED_INSTRUMENTATION_FILTER
+	---help---
+		If this option is selected, the instrumentation filter control device
+		/dev/notectl is provided.
+
+config DRIVERS_NOTERAM
 	bool "Note RAM driver"
-	depends on !SCHED_INSTRUMENTATION_CSECTION && (!SCHED_INSTRUMENTATION_SPINLOCK || !SMP)
+	default y
 	---help---
 		If this option is selected, then in-memory buffering logic is
 		enabled to capture scheduler instrumentation data.  This has
@@ -41,66 +63,47 @@ config DRIVER_NOTERAM
 		sched_note_get() causes several additional entries to be added from
 		the note buffer in order to remove one entry.
 
-config DRIVER_NOTEARCH
-	bool "Note Arch driver"
-	---help---
-		The note driver is provided by arch specific code.
+if DRIVERS_NOTERAM
 
-config DRIVER_NOTELOG
-	bool "Note syslog driver"
-	select SCHED_INSTRUMENTATION_EXTERNAL
-	---help---
-		The note driver output to syslog.
-
-config SEGGER_SYSVIEW
-	bool "Note SEGGER SystemView driver"
-	select SEGGER_RTT
-	select SCHED_INSTRUMENTATION_EXTERNAL
-	---help---
-		SystemView is a real-time recording and visualization tool for embedded
-		systems that reveals the true runtime behavior of an application,
-		going far deeper than the system insights provided by debuggers. This is
-		particularly effective when developing and working with complex embedded
-		systems comprising multiple threads and interrupts. SystemView can ensure
-		unintended interactions and resource conflicts.
-
-endchoice
-
-config DRIVER_NOTERAM_BUFSIZE
+config DRIVERS_NOTERAM_BUFSIZE
 	int "Note RAM buffer size"
-	depends on DRIVER_NOTERAM
 	default 2048
 	---help---
 		The size of the in-memory, circular instrumentation buffer (in bytes).
 
-config DRIVER_NOTERAM_TASKNAME_BUFSIZE
-	int "Note RAM task name buffer size"
-	depends on DRIVER_NOTERAM
-	default 256 if TASK_NAME_SIZE > 0
-	default 0 if TASK_NAME_SIZE = 0
-	---help---
-		The size of the in-memory task name buffer (in bytes).
-		The buffer is used to hold the name of the task during instrumentation.
-		Trace dump can find and show a task name corresponding to given pid in
-		the instrumentation data by using this buffer.
-		If 0 is specified, this feature is disabled and trace dump shows only
-		the name of the newly created task.
-
-config DRIVER_NOTERAM_DEFAULT_NOOVERWRITE
+config DRIVERS_NOTERAM_DEFAULT_NOOVERWRITE
 	bool "Disable overwrite by default"
-	depends on DRIVER_NOTERAM
 	default n
 	---help---
 		Disables overwriting old notes in the circular buffer when the buffer
 		is full by default. This is useful to keep instrumentation data of the
 		beginning of a system boot.
 
-config DRIVER_NOTECTL
-	bool "Scheduler instrumentation filter control driver"
+config DRIVERS_NOTERAM_CRASH_DUMP
+	bool "Dump noteram buffer on panic"
 	default n
-	depends on SCHED_INSTRUMENTATION_FILTER
 	---help---
-		If this option is selected, the instrumentation filter control device
-		/dev/notectl is provided.
+		If this option is enabled, dump all contents when a crash occurs.
 
+endif # DRIVERS_NOTERAM
+
+config DRIVERS_NOTELOG
+	bool "Note syslog driver"
+	---help---
+		The note driver output to syslog.
+
+config DRIVERS_NOTESNAP
+	bool "Last scheduling information"
+	default n
+	---help---
+		Record the last scheduling information.
+
+if DRIVERS_NOTESNAP
+config DRIVERS_NOTESNAP_NBUFFERS
+	int "Number of last scheduling information buffers"
+	default 128
+	---help---
+		Number of last scheduling information buffers.
 endif
+
+endif # DRIVERS_NOTE

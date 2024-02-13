@@ -42,12 +42,28 @@
 #  include "esp32s3_board_tim.h"
 #endif
 
+#ifdef CONFIG_ESP32S3_WIFI
+#  include "esp32s3_board_wlan.h"
+#endif
+
+#ifdef CONFIG_ESP32S3_BLE
+#  include "esp32s3_ble.h"
+#endif
+
+#ifdef CONFIG_ESP32S3_WIFI_BT_COEXIST
+#  include "esp32s3_wifi_adapter.h"
+#endif
+
 #ifdef CONFIG_ESP32S3_RT_TIMER
 #  include "esp32s3_rt_timer.h"
 #endif
 
 #ifdef CONFIG_ESP32S3_I2C
 #  include "esp32s3_i2c.h"
+#endif
+
+#ifdef CONFIG_ESP32S3_I2S
+#  include "esp32s3_i2s.h"
 #endif
 
 #ifdef CONFIG_WATCHDOG
@@ -58,8 +74,20 @@
 #  include <nuttx/input/buttons.h>
 #endif
 
+#ifdef CONFIG_RTC_DRIVER
+#  include "esp32s3_rtc_lowerhalf.h"
+#endif
+
 #ifdef CONFIG_VIDEO_FB
 #include <nuttx/video/fb.h>
+#endif
+
+#ifdef CONFIG_ESP32S3_EFUSE
+#  include "esp32s3_efuse.h"
+#endif
+
+#ifdef CONFIG_ESP32S3_LEDC
+#  include "esp32s3_ledc.h"
 #endif
 
 #include "esp32s3-devkit.h"
@@ -85,6 +113,19 @@
 int esp32s3_bringup(void)
 {
   int ret;
+#if (defined(CONFIG_ESP32S3_I2S0) && !defined(CONFIG_AUDIO_CS4344)) || \
+    defined(CONFIG_ESP32S3_I2S1)
+  bool i2s_enable_tx;
+  bool i2s_enable_rx;
+#endif
+
+#if defined(CONFIG_ESP32S3_EFUSE)
+  ret = esp32s3_efuse_initialize("/dev/efuse");
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: Failed to init EFUSE: %d\n", ret);
+    }
+#endif
 
 #ifdef CONFIG_FS_PROCFS
   /* Mount the procfs file system */
@@ -107,6 +148,14 @@ int esp32s3_bringup(void)
     }
 #endif
 
+#ifdef CONFIG_ESP32S3_LEDC
+  ret = esp32s3_pwm_setup();
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: esp32s3_pwm_setup() failed: %d\n", ret);
+    }
+#endif /* CONFIG_ESP32S3_LEDC */
+
 #ifdef CONFIG_ESP32S3_TIMER
   /* Configure general purpose timers */
 
@@ -122,6 +171,17 @@ int esp32s3_bringup(void)
   if (ret < 0)
     {
       syslog(LOG_ERR, "Failed to initialize RT timer: %d\n", ret);
+    }
+#endif
+
+#ifdef CONFIG_RTC_DRIVER
+  /* Instantiate the ESP32-S3 RTC driver */
+
+  ret = esp32s3_rtc_driverinit();
+  if (ret < 0)
+    {
+      syslog(LOG_ERR,
+             "ERROR: Failed to Instantiate the RTC driver: %d\n", ret);
     }
 #endif
 
@@ -145,6 +205,17 @@ int esp32s3_bringup(void)
     }
 #endif
 
+#ifdef CONFIG_ESP32S3_TWAI
+
+  /* Initialize TWAI and register the TWAI driver. */
+
+  ret = esp32s3_twai_setup();
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: esp32s3_twai_setup failed: %d\n", ret);
+    }
+#endif
+
 #ifdef CONFIG_SENSORS_BMP180
   /* Try to register BMP180 device in I2C0 */
 
@@ -155,6 +226,67 @@ int esp32s3_bringup(void)
              "Failed to initialize BMP180 driver for I2C0: %d\n", ret);
     }
 #endif
+
+#ifdef CONFIG_ESP32S3_I2S
+
+#ifdef CONFIG_AUDIO_CS4344
+
+  /* Configure CS4344 audio on I2S0 */
+
+  ret = esp32s3_cs4344_initialize(ESP32S3_I2S0);
+  if (ret != OK)
+    {
+      syslog(LOG_ERR, "Failed to initialize CS4344 audio: %d\n", ret);
+    }
+#else
+
+#ifdef CONFIG_ESP32S3_I2S0_TX
+  i2s_enable_tx = true;
+#else
+  i2s_enable_tx = false;
+#endif /* CONFIG_ESP32S3_I2S0_TX */
+
+#ifdef CONFIG_ESP32S3_I2S0_RX
+  i2s_enable_rx = true;
+#else
+  i2s_enable_rx = false;
+#endif /* CONFIG_ESP32S3_I2S0_RX */
+
+  /* Configure I2S generic audio on I2S0 */
+
+  ret = board_i2sdev_initialize(ESP32S3_I2S0, i2s_enable_tx, i2s_enable_rx);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "Failed to initialize I2S0 driver: %d\n", ret);
+    }
+#endif /* CONFIG_AUDIO_CS4344 */
+
+#ifdef CONFIG_ESP32S3_I2S1
+
+#ifdef CONFIG_ESP32S3_I2S1_TX
+  i2s_enable_tx = true;
+#else
+  i2s_enable_tx = false;
+#endif /* CONFIG_ESP32S3_I2S1_TX */
+
+#ifdef CONFIG_ESP32S3_I2S1_RX
+  i2s_enable_rx = true;
+#else
+  i2s_enable_rx = false;
+#endif /* CONFIG_ESP32S3_I2S1_RX */
+
+  /* Configure I2S generic audio on I2S1 */
+
+  ret = board_i2sdev_initialize(ESP32S3_I2S1, i2s_enable_tx, i2s_enable_rx);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "Failed to initialize I2S%d driver: %d\n",
+             CONFIG_ESP32S3_I2S1, ret);
+    }
+
+#endif  /* CONFIG_ESP32S3_I2S1 */
+
+#endif /* CONFIG_ESP32S3_I2S */
 
 #ifdef CONFIG_INPUT_BUTTONS
   /* Register the BUTTON driver */
@@ -179,6 +311,43 @@ int esp32s3_bringup(void)
   if (ret)
     {
       syslog(LOG_ERR, "ERROR: Failed to initialize SPI Flash\n");
+    }
+#endif
+
+#ifdef CONFIG_ESP32S3_WIRELESS
+
+#ifdef CONFIG_ESP32S3_WIFI_BT_COEXIST
+  ret = esp32s3_wifi_bt_coexist_init();
+  if (ret)
+    {
+      syslog(LOG_ERR, "ERROR: Failed to initialize Wi-Fi and BT coexist\n");
+    }
+#endif
+
+#ifdef CONFIG_ESP32S3_BLE
+  ret = esp32s3_ble_initialize();
+  if (ret)
+    {
+      syslog(LOG_ERR, "ERROR: Failed to initialize BLE\n");
+    }
+#endif
+
+#ifdef CONFIG_ESP32S3_WIFI
+  ret = board_wlan_init();
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: Failed to initialize wireless subsystem=%d\n",
+             ret);
+    }
+#endif
+
+#endif
+
+#ifdef CONFIG_DEV_GPIO
+  ret = esp32s3_gpio_init();
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "Failed to initialize GPIO Driver: %d\n", ret);
     }
 #endif
 

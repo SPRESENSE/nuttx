@@ -165,7 +165,7 @@ static void aio_read_worker(FAR void *arg)
  *   The aio_read() function will return the value zero if the I/O operation
  *   is successfully queued; otherwise, the function will return the value
  *   -1 and set errno to indicate the error.  The aio_read() function will
- *   ail if:
+ *   fail if:
  *
  *   EAGAIN - The requested asynchronous I/O operation was not queued due to
  *     system resource limitations.
@@ -218,6 +218,34 @@ int aio_read(FAR struct aiocb *aiocbp)
   int ret;
 
   DEBUGASSERT(aiocbp);
+
+  if (aiocbp->aio_reqprio < 0)
+    {
+      set_errno(EINVAL);
+      return ERROR;
+    }
+
+  if (aiocbp->aio_fildes < 0)
+    {
+      /* the EBADF should be collected by aio_error(), we need return OK at
+       * here
+       */
+
+      aiocbp->aio_result = -EBADF;
+      return OK;
+    }
+
+  /* for aio_read, the aio_offset should be large or equal than 0 */
+
+  if (aiocbp->aio_offset < 0)
+    {
+      /* the EINVAL should be collected by aio_error(), we need to return OK
+       * here
+       */
+
+      aiocbp->aio_result = -EINVAL;
+      return OK;
+    }
 
   /* The result -EINPROGRESS means that the transfer has not yet completed */
 

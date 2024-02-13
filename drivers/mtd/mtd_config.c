@@ -37,11 +37,13 @@
 #include <stdbool.h>
 #include <string.h>
 #include <poll.h>
+#include <fcntl.h>
 #include <assert.h>
 #include <errno.h>
 #include <debug.h>
 #include <nuttx/fs/fs.h>
 
+#include <nuttx/mutex.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/fs/ioctl.h>
 #include <nuttx/mtd/mtd.h>
@@ -57,15 +59,13 @@
 
 #ifdef CONFIG_MTD_CONFIG_NAMED
 #  define CONFIGDATA_FORMAT_VERSION     1
+#  define MTD_ERASED_ID(dev)            ((dev)->erasestate)
 #else
 #  define CONFIGDATA_FORMAT_VERSION     2
+#  define MTD_ERASED_ID(dev)            (((dev)->erasestate << 8) | (dev)->erasestate)
 #endif
 #define CONFIGDATA_BLOCK_HDR_SIZE       3
-
-#define MTD_ERASED_ID     ((CONFIG_MTD_CONFIG_ERASEDVALUE << 8) | \
-                            CONFIG_MTD_CONFIG_ERASEDVALUE)
-
-#define MTD_ERASED_FLAGS  CONFIG_MTD_CONFIG_ERASEDVALUE
+#define MTD_ERASED_FLAGS(dev)           ((dev)->erasestate)
 
 /****************************************************************************
  * Private Types
@@ -74,11 +74,12 @@
 struct mtdconfig_struct_s
 {
   FAR struct mtd_dev_s *mtd;  /* Contained MTD interface */
-  sem_t        exclsem;       /* Supports mutual exclusion */
+  mutex_t      lock;          /* Supports mutual exclusion */
   uint32_t     blocksize;     /* Size of blocks in contained MTD */
   uint32_t     erasesize;     /* Size of erase block  in contained MTD */
   size_t       nblocks;       /* Number of blocks available */
   size_t       neraseblocks;  /* Number of erase blocks available */
+  uint8_t      erasestate;    /* Erased value */
   off_t        readoff;       /* Read offset (for hexdump) */
   FAR uint8_t *buffer;        /* Temp block read buffer */
 };
@@ -112,7 +113,7 @@ static int     mtdconfig_poll(FAR struct file *filep, FAR struct pollfd *fds,
  * Private Data
  ****************************************************************************/
 
-static const struct file_operations mtdconfig_fops =
+static const struct file_operations g_mtdconfig_fops =
 {
   mtdconfig_open,  /* open */
   mtdconfig_close, /* close */
@@ -120,10 +121,9 @@ static const struct file_operations mtdconfig_fops =
   NULL,            /* write */
   NULL,            /* seek */
   mtdconfig_ioctl, /* ioctl */
+  NULL,            /* mmap */
+  NULL,            /* truncate */
   mtdconfig_poll   /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL            /* unlink */
-#endif
 };
 
 /****************************************************************************
@@ -375,7 +375,7 @@ static int  mtdconfig_findfirstentry(FAR struct mtdconfig_struct_s *dev,
 
       /* Test if this header has been released */
 
-      if (phdr->flags != MTD_ERASED_FLAGS)
+      if (phdr->flags != MTD_ERASED_FLAGS(dev))
         {
           /* This entry has been released.  Advance to next entry */
 
@@ -488,12 +488,12 @@ read_next:
 
       /* Test if this header has is still active */
 
-      if (phdr->flags == MTD_ERASED_FLAGS)
+      if (phdr->flags == MTD_ERASED_FLAGS(dev))
         {
 #ifdef CONFIG_MTD_CONFIG_NAMED
-          if (phdr->name[0] == CONFIG_MTD_CONFIG_ERASEDVALUE)
+          if (phdr->name[0] == MTD_ERASED_ID(dev))
 #else
-          if (phdr->id == MTD_ERASED_ID)
+          if (phdr->id == MTD_ERASED_ID(dev))
 #endif
             {
               /* If we are searching for free space, then check
@@ -573,7 +573,7 @@ static off_t mtdconfig_ramconsolidate(FAR struct mtdconfig_struct_s *dev)
 
   /* Allocate a consolidation buffer */
 
-  pbuf = (FAR uint8_t *)kmm_malloc(dev->erasesize);
+  pbuf = kmm_malloc(dev->erasesize);
   if (pbuf == NULL)
     {
       /* Unable to allocate buffer, can't consolidate! */
@@ -630,9 +630,9 @@ static off_t mtdconfig_ramconsolidate(FAR struct mtdconfig_struct_s *dev)
         {
           phdr = (FAR struct mtdconfig_header_s *) &pbuf[src_offset];
 #ifdef CONFIG_MTD_CONFIG_NAMED
-          if (phdr->name[0] == CONFIG_MTD_CONFIG_ERASEDVALUE)
+          if (phdr->name[0] == MTD_ERASED_ID(dev))
 #else
-          if (phdr->id == MTD_ERASED_ID)
+          if (phdr->id == MTD_ERASED_ID(dev))
 #endif
             {
               /* No more data in this erase block. */
@@ -641,7 +641,7 @@ static off_t mtdconfig_ramconsolidate(FAR struct mtdconfig_struct_s *dev)
               continue;
             }
 
-          if (phdr->flags == MTD_ERASED_FLAGS)
+          if (phdr->flags == MTD_ERASED_FLAGS(dev))
             {
               /* This is an active entry.  Copy it.  Check if it
                * fits in the current destination block.
@@ -773,7 +773,7 @@ static off_t  mtdconfig_consolidate(FAR struct mtdconfig_struct_s *dev)
 
   /* Allocate a small buffer for moving data */
 
-  pbuf = (FAR uint8_t *)kmm_malloc(dev->blocksize);
+  pbuf = kmm_malloc(dev->blocksize);
   if (pbuf == NULL)
     {
       return 0;
@@ -838,16 +838,16 @@ retry_relocate:
           goto errout;
         }
 
-      if (hdr.flags == MTD_ERASED_FLAGS)
+      if (hdr.flags == MTD_ERASED_FLAGS(dev))
         {
           /* Test if the source entry is active or if we are at the end
            * of data for this erase block.
            */
 
 #ifdef CONFIG_MTD_CONFIG_NAMED
-          if (hdr.name[0] == CONFIG_MTD_CONFIG_ERASEDVALUE)
+          if (hdr.name[0] == MTD_ERASED_ID(dev))
 #else
-          if (hdr.id == MTD_ERASED_ID)
+          if (hdr.id == MTD_ERASED_ID(dev))
 #endif
             {
               /* No more data in this erase block.  Advance to the
@@ -1006,7 +1006,7 @@ errout:
  * Name: mtdconfig_open
  ****************************************************************************/
 
-static int  mtdconfig_open(FAR struct file *filep)
+static int mtdconfig_open(FAR struct file *filep)
 {
   FAR struct inode *inode = filep->f_inode;
   FAR struct mtdconfig_struct_s *dev = inode->i_private;
@@ -1014,7 +1014,7 @@ static int  mtdconfig_open(FAR struct file *filep)
 
   /* Get exclusive access to the device */
 
-  ret = nxsem_wait(&dev->exclsem);
+  ret = nxmutex_lock(&dev->lock);
   if (ret < 0)
     {
       ferr("ERROR: nxsem_wait failed: %d\n", ret);
@@ -1038,7 +1038,7 @@ static int  mtdconfig_close(FAR struct file *filep)
 
   /* Release exclusive access to the device */
 
-  nxsem_post(&dev->exclsem);
+  nxmutex_unlock(&dev->lock);
   return OK;
 }
 
@@ -1103,9 +1103,9 @@ static int mtdconfig_findentry(FAR struct mtdconfig_struct_s *dev,
 #endif
     {
 #ifdef CONFIG_MTD_CONFIG_NAMED
-      if (phdr->name[0] == CONFIG_MTD_CONFIG_ERASEDVALUE)
+      if (phdr->name[0] == MTD_ERASED_ID(dev))
 #else
-      if (phdr->id == MTD_ERASED_ID)
+      if (phdr->id == MTD_ERASED_ID(dev))
 #endif
         {
           /* Advance to the next block and continue the search */
@@ -1132,7 +1132,7 @@ static int mtdconfig_findentry(FAR struct mtdconfig_struct_s *dev,
               break;
             }
 
-          if (phdr->flags == MTD_ERASED_FLAGS)
+          if (phdr->flags == MTD_ERASED_FLAGS(dev))
             {
               continue;
             }
@@ -1165,7 +1165,7 @@ static int mtdconfig_setconfig(FAR struct mtdconfig_struct_s *dev,
 
   /* Allocate a temp block buffer */
 
-  dev->buffer = (FAR uint8_t *)kmm_malloc(dev->blocksize);
+  dev->buffer = kmm_malloc(dev->blocksize);
   if (dev->buffer == NULL)
     {
       return -ENOMEM;
@@ -1232,7 +1232,7 @@ retry:
     {
       /* Mark this entry as released */
 
-      hdr.flags = (uint8_t)~MTD_ERASED_FLAGS;
+      hdr.flags = (uint8_t)~MTD_ERASED_FLAGS(dev);
       mtdconfig_writebytes(dev, offset, &hdr.flags, sizeof(hdr.flags));
     }
 
@@ -1254,9 +1254,9 @@ retry_find:
   offset = mtdconfig_findfirstentry(dev, &hdr);
 
 #ifdef CONFIG_MTD_CONFIG_NAMED
-  if (offset > 0 && hdr.name[0] == CONFIG_MTD_CONFIG_ERASEDVALUE)
+  if (offset > 0 && hdr.name[0] == MTD_ERASED_ID(dev))
 #else
-  if (offset > 0 && hdr.id == MTD_ERASED_ID)
+  if (offset > 0 && hdr.id == MTD_ERASED_ID(dev))
 #endif
     {
       block = offset / dev->erasesize;
@@ -1276,9 +1276,9 @@ retry_find:
     }
 
 #ifdef CONFIG_MTD_CONFIG_NAMED
-  if (hdr.name[0] != CONFIG_MTD_CONFIG_ERASEDVALUE)
+  if (hdr.name[0] != MTD_ERASED_ID(dev))
 #else
-  if (hdr.id != MTD_ERASED_ID)
+  if (hdr.id != MTD_ERASED_ID(dev))
 #endif
     {
       /* Read the next entry */
@@ -1337,13 +1337,13 @@ retry_find:
       /* Save the data at this entry */
 
 #ifdef CONFIG_MTD_CONFIG_NAMED
-      strcpy(hdr.name, pdata->name);
+      strlcpy(hdr.name, pdata->name, sizeof(hdr.name));
 #else
       hdr.id = pdata->id;
       hdr.instance = pdata->instance;
 #endif
       hdr.len = pdata->len;
-      hdr.flags = MTD_ERASED_FLAGS;
+      hdr.flags = MTD_ERASED_FLAGS(dev);
 
       ret = mtdconfig_writebytes(dev, offset,
                                  (FAR uint8_t *)&hdr, sizeof(hdr));
@@ -1361,7 +1361,7 @@ retry_find:
         {
           /* Error writing data! */
 
-          hdr.flags = MTD_ERASED_FLAGS;
+          hdr.flags = MTD_ERASED_FLAGS(dev);
           mtdconfig_writebytes(dev, offset, (FAR uint8_t *)&hdr,
                                sizeof(hdr.flags));
           ret = -EIO;
@@ -1393,7 +1393,7 @@ static int mtdconfig_getconfig(FAR struct mtdconfig_struct_s *dev,
 
   /* Allocate a temp block buffer */
 
-  dev->buffer = (FAR uint8_t *)kmm_malloc(dev->blocksize);
+  dev->buffer = kmm_malloc(dev->blocksize);
   if (dev->buffer == NULL)
     {
       return -ENOMEM;
@@ -1424,14 +1424,17 @@ static int mtdconfig_getconfig(FAR struct mtdconfig_struct_s *dev,
 
       /* Perform the read */
 
-      ret = mtdconfig_readbytes(dev, offset + sizeof(hdr), pdata->configdata,
-                                bytes_to_read);
-      if (ret != OK)
+      if (pdata->configdata && bytes_to_read)
         {
-          /* Error reading the data */
+          ret = mtdconfig_readbytes(dev, offset + sizeof(hdr),
+                                    pdata->configdata, bytes_to_read);
+          if (ret != OK)
+            {
+              /* Error reading the data */
 
-          ret = -EIO;
-          goto errout;
+              ret = -EIO;
+              goto errout;
+            }
         }
 
       /* Set return data length to match the config item length */
@@ -1461,7 +1464,7 @@ static int mtdconfig_deleteconfig(FAR struct mtdconfig_struct_s *dev,
 
   /* Allocate a temp block buffer */
 
-  dev->buffer = (FAR uint8_t *)kmm_malloc(dev->blocksize);
+  dev->buffer = kmm_malloc(dev->blocksize);
   if (dev->buffer == NULL)
     {
       return -ENOMEM;
@@ -1484,7 +1487,7 @@ static int mtdconfig_deleteconfig(FAR struct mtdconfig_struct_s *dev,
     {
       /* Entry found.  Mark this entry as released */
 
-      hdr.flags = (uint8_t)~MTD_ERASED_FLAGS;
+      hdr.flags = (uint8_t)~MTD_ERASED_FLAGS(dev);
       mtdconfig_writebytes(dev, offset, &hdr.flags, sizeof(hdr.flags));
 
       ret = OK;
@@ -1509,7 +1512,7 @@ static int mtdconfig_firstconfig(FAR struct mtdconfig_struct_s *dev,
 
   /* Allocate a temp block buffer */
 
-  dev->buffer = (FAR uint8_t *)kmm_malloc(dev->blocksize);
+  dev->buffer = kmm_malloc(dev->blocksize);
   if (dev->buffer == NULL)
     {
       return -ENOMEM;
@@ -1521,9 +1524,9 @@ static int mtdconfig_firstconfig(FAR struct mtdconfig_struct_s *dev,
 
 #ifdef CONFIG_MTD_CONFIG_NAMED
   if (dev->readoff != 0 &&
-      hdr.name[0] != CONFIG_MTD_CONFIG_ERASEDVALUE)
+      hdr.name[0] != MTD_ERASED_ID(dev))
 #else
-  if (dev->readoff != 0 && hdr.id != MTD_ERASED_ID)
+  if (dev->readoff != 0 && hdr.id != MTD_ERASED_ID(dev))
 #endif
     {
       /* Perform the read */
@@ -1544,7 +1547,7 @@ static int mtdconfig_firstconfig(FAR struct mtdconfig_struct_s *dev,
       /* Set other return data items */
 
 #ifdef CONFIG_MTD_CONFIG_NAMED
-      strcpy(pdata->name, hdr.name);
+      strlcpy(pdata->name, hdr.name, sizeof(pdata->name));
 #else
       pdata->id = hdr.id;
       pdata->instance = hdr.instance;
@@ -1577,7 +1580,7 @@ static int mtdconfig_nextconfig(FAR struct mtdconfig_struct_s *dev,
 
   /* Allocate a temp block buffer */
 
-  dev->buffer = (FAR uint8_t *)kmm_malloc(dev->blocksize);
+  dev->buffer = kmm_malloc(dev->blocksize);
   if (dev->buffer == NULL)
     {
       return -ENOMEM;
@@ -1596,9 +1599,9 @@ static int mtdconfig_nextconfig(FAR struct mtdconfig_struct_s *dev,
 
 #ifdef CONFIG_MTD_CONFIG_NAMED
   if (dev->readoff != 0 &&
-      hdr.name[0] != CONFIG_MTD_CONFIG_ERASEDVALUE)
+      hdr.name[0] != MTD_ERASED_ID(dev))
 #else
-  if (dev->readoff != 0 && hdr.id != MTD_ERASED_ID)
+  if (dev->readoff != 0 && hdr.id != MTD_ERASED_ID(dev))
 #endif
     {
       /* Test if this is an empty slot */
@@ -1619,7 +1622,7 @@ static int mtdconfig_nextconfig(FAR struct mtdconfig_struct_s *dev,
         }
 
 #ifdef CONFIG_MTD_CONFIG_NAMED
-      strcpy(pdata->name, hdr.name);
+      strlcpy(pdata->name, hdr.name, sizeof(pdata->name));
 #else
       pdata->id = hdr.id;
       pdata->instance = hdr.instance;
@@ -1714,11 +1717,7 @@ static int mtdconfig_poll(FAR struct file *filep, FAR struct pollfd *fds,
 {
   if (setup)
     {
-      fds->revents |= (fds->events & (POLLIN | POLLOUT));
-      if (fds->revents != 0)
-        {
-          nxsem_post(fds->sem);
-        }
+      poll_notify(&fds, 1, POLLIN | POLLOUT);
     }
 
   return OK;
@@ -1749,7 +1748,6 @@ int mtdconfig_register(FAR struct mtd_dev_s *mtd)
       /* Initialize the mtdconfig device structure */
 
       dev->mtd = mtd;
-      nxsem_init(&dev->exclsem, 0, 1);
 
       /* Get the device geometry. (casting to uintptr_t first eliminates
        * complaints on some architectures where the sizeof long is different
@@ -1770,10 +1768,57 @@ int mtdconfig_register(FAR struct mtd_dev_s *mtd)
       dev->erasesize = geo.erasesize;
       dev->nblocks = geo.neraseblocks * geo.erasesize / geo.blocksize;
 
-      register_driver("/dev/config", &mtdconfig_fops, 0666, dev);
+      /* And query the erase state */
+
+      ret = MTD_IOCTL(mtd, MTDIOC_ERASESTATE,
+                      (unsigned long)((uintptr_t)&dev->erasestate));
+      if (ret < 0)
+        {
+          ferr("ERROR: MTD ioctl(MTDIOC_ERASESTATE) failed: %d\n", ret);
+          kmm_free(dev);
+          goto errout;
+        }
+
+      nxmutex_init(&dev->lock);
+      register_driver("/dev/config", &g_mtdconfig_fops, 0666, dev);
     }
 
 errout:
   return ret;
 }
+
+/****************************************************************************
+ * Name: mtdconfig_unregister
+ *
+ * Description:
+ *   Unregister a /dev/config device backed by a MTD.
+ *
+ ****************************************************************************/
+
+int mtdconfig_unregister(void)
+{
+  int ret;
+  struct file file;
+  FAR struct inode *inode;
+  FAR struct mtdconfig_struct_s *dev;
+
+  ret = file_open(&file, "/dev/config", O_CLOEXEC);
+  if (ret < 0)
+    {
+      ferr("ERROR: open /dev/config failed: %d\n", ret);
+      return ret;
+    }
+
+  inode = file.f_inode;
+  dev = inode->i_private;
+  nxmutex_destroy(&dev->lock);
+  kmm_free(dev);
+
+  file_close(&file);
+
+  unregister_driver("/dev/config");
+
+  return OK;
+}
+
 #endif /* CONFIG_MTD_CONFIG */

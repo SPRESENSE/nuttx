@@ -39,6 +39,7 @@
 #include <nuttx/wdog.h>
 #include <nuttx/signal.h>
 #include <nuttx/cancelpt.h>
+#include <nuttx/queue.h>
 
 #include "sched/sched.h"
 #include "signal/signal.h"
@@ -78,7 +79,7 @@ static void nxsig_timeout(wdparm_t arg)
 #ifdef CONFIG_SMP
   irqstate_t flags;
 
-  /* We must be in a critical section in order to call up_unblock_task()
+  /* We must be in a critical section in order to call up_switch_context()
    * below.  If we are running on a single CPU architecture, then we know
    * interrupts a disabled an there is no need to explicitly call
    * enter_critical_section().  However, in the SMP case,
@@ -96,6 +97,8 @@ static void nxsig_timeout(wdparm_t arg)
 
   if (wtcb->task_state == TSTATE_WAIT_SIG)
     {
+      FAR struct tcb_s *rtcb = this_task();
+
       wtcb->sigunbinfo.si_signo           = SIG_WAIT_TIMEOUT;
       wtcb->sigunbinfo.si_code            = SI_TIMER;
       wtcb->sigunbinfo.si_errno           = ETIMEDOUT;
@@ -104,7 +107,19 @@ static void nxsig_timeout(wdparm_t arg)
       wtcb->sigunbinfo.si_pid             = 0;  /* Not applicable */
       wtcb->sigunbinfo.si_status          = OK;
 #endif
-      up_unblock_task(wtcb);
+
+      /* Remove the task from waitting list */
+
+      dq_rem((FAR dq_entry_t *)wtcb, &g_waitingforsignal);
+
+      /* Add the task to ready-to-run task list, and
+       * perform the context switch if one is needed
+       */
+
+      if (nxsched_add_readytorun(wtcb))
+        {
+          up_switch_context(wtcb, rtcb);
+        }
     }
 
 #ifdef CONFIG_SMP
@@ -131,7 +146,7 @@ void nxsig_wait_irq(FAR struct tcb_s *wtcb, int errcode)
 #ifdef CONFIG_SMP
   irqstate_t flags;
 
-  /* We must be in a critical section in order to call up_unblock_task()
+  /* We must be in a critical section in order to call up_switch_context()
    * below.  If we are running on a single CPU architecture, then we know
    * interrupts a disabled an there is no need to explicitly call
    * enter_critical_section().  However, in the SMP case,
@@ -149,6 +164,8 @@ void nxsig_wait_irq(FAR struct tcb_s *wtcb, int errcode)
 
   if (wtcb->task_state == TSTATE_WAIT_SIG)
     {
+      FAR struct tcb_s *rtcb = this_task();
+
       wtcb->sigunbinfo.si_signo           = SIG_CANCEL_TIMEOUT;
       wtcb->sigunbinfo.si_code            = SI_USER;
       wtcb->sigunbinfo.si_errno           = errcode;
@@ -157,7 +174,19 @@ void nxsig_wait_irq(FAR struct tcb_s *wtcb, int errcode)
       wtcb->sigunbinfo.si_pid             = 0;  /* Not applicable */
       wtcb->sigunbinfo.si_status          = OK;
 #endif
-      up_unblock_task(wtcb);
+
+      /* Remove the task from waitting list */
+
+      dq_rem((FAR dq_entry_t *)wtcb, &g_waitingforsignal);
+
+      /* Add the task to ready-to-run task list, and
+       * perform the context switch if one is needed
+       */
+
+      if (nxsched_add_readytorun(wtcb))
+        {
+          up_switch_context(wtcb, rtcb);
+        }
     }
 
 #ifdef CONFIG_SMP
@@ -213,7 +242,8 @@ int nxsig_timedwait(FAR const sigset_t *set, FAR struct siginfo *info,
   sigset_t intersection;
   FAR sigpendq_t *sigpend;
   irqstate_t flags;
-  int32_t waitticks;
+  sclock_t waitticks;
+  bool switch_needed;
   int ret;
 
   DEBUGASSERT(set != NULL);
@@ -230,8 +260,9 @@ int nxsig_timedwait(FAR const sigset_t *set, FAR struct siginfo *info,
    * signals in the pending signal set argument.
    */
 
-  intersection = *set & nxsig_pendingset(rtcb);
-  if (intersection != NULL_SIGNAL_SET)
+  intersection = nxsig_pendingset(rtcb);
+  sigandset(&intersection, &intersection, set);
+  if (!sigisemptyset(&intersection))
     {
       /* One or more of the signals in intersections is sufficient to cause
        * us to not wait.  Pick the lowest numbered signal and mark it not
@@ -280,10 +311,6 @@ int nxsig_timedwait(FAR const sigset_t *set, FAR struct siginfo *info,
         }
 #endif
 
-      /* Save the set of pending signals to wait for */
-
-      rtcb->sigwaitmask = *set;
-
       /* Check if we should wait for the timeout */
 
       if (timeout != NULL)
@@ -293,13 +320,10 @@ int nxsig_timedwait(FAR const sigset_t *set, FAR struct siginfo *info,
            * time in nanoseconds.
            */
 
-#ifdef CONFIG_HAVE_LONG_LONG
-          uint64_t waitticks64 = ((uint64_t)timeout->tv_sec * NSEC_PER_SEC +
-                                  (uint64_t)timeout->tv_nsec +
-                                  NSEC_PER_TICK - 1) /
-                                 NSEC_PER_TICK;
-          DEBUGASSERT(waitticks64 <= UINT32_MAX);
-          waitticks = (uint32_t)waitticks64;
+#ifdef CONFIG_SYSTEM_TIME64
+          waitticks = ((uint64_t)timeout->tv_sec * NSEC_PER_SEC +
+                      (uint64_t)timeout->tv_nsec + NSEC_PER_TICK - 1) /
+                      NSEC_PER_TICK;
 #else
           uint32_t waitmsec;
 
@@ -309,40 +333,86 @@ int nxsig_timedwait(FAR const sigset_t *set, FAR struct siginfo *info,
           waitticks = MSEC2TICK(waitmsec);
 #endif
 
-          /* Start the watchdog */
+          if (waitticks > 0)
+            {
+              /* Save the set of pending signals to wait for */
 
-          wd_start(&rtcb->waitdog, waitticks,
-                   nxsig_timeout, (uintptr_t)rtcb);
+              rtcb->sigwaitmask = *set;
 
-          /* Now wait for either the signal or the watchdog, but
-           * first, make sure this is not the idle task,
-           * descheduling that isn't going to end well.
-           */
+              /* Start the watchdog */
 
-          DEBUGASSERT(NULL != rtcb->flink);
-          up_block_task(rtcb, TSTATE_WAIT_SIG);
+              wd_start(&rtcb->waitdog, waitticks,
+                       nxsig_timeout, (uintptr_t)rtcb);
 
-          /* We no longer need the watchdog */
+              /* Now wait for either the signal or the watchdog, but
+               * first, make sure this is not the idle task,
+               * descheduling that isn't going to end well.
+               */
 
-          wd_cancel(&rtcb->waitdog);
+              DEBUGASSERT(!is_idle_task(rtcb));
+
+              /* Remove the tcb task from the ready-to-run list. */
+
+              switch_needed = nxsched_remove_readytorun(rtcb, true);
+
+              /* Add the task to the specified blocked task list */
+
+              rtcb->task_state = TSTATE_WAIT_SIG;
+              dq_addlast((FAR dq_entry_t *)rtcb, &g_waitingforsignal);
+
+              /* Now, perform the context switch if one is needed */
+
+              if (switch_needed)
+                {
+                  up_switch_context(this_task(), rtcb);
+                }
+
+              /* We no longer need the watchdog */
+
+              wd_cancel(&rtcb->waitdog);
+            }
+          else
+            {
+              leave_critical_section(flags);
+              return -EAGAIN;
+            }
         }
 
       /* No timeout, just wait */
 
       else
         {
+          /* Save the set of pending signals to wait for */
+
+          rtcb->sigwaitmask = *set;
+
           /* And wait until one of the unblocked signals is posted,
            * but first make sure this is not the idle task,
            * descheduling that isn't going to end well.
            */
 
-          DEBUGASSERT(NULL != rtcb->flink);
-          up_block_task(rtcb, TSTATE_WAIT_SIG);
+          DEBUGASSERT(!is_idle_task(rtcb));
+
+          /* Remove the tcb task from the ready-to-run list. */
+
+          switch_needed = nxsched_remove_readytorun(rtcb, true);
+
+          /* Add the task to the specified blocked task list */
+
+          rtcb->task_state = TSTATE_WAIT_SIG;
+          dq_addlast((FAR dq_entry_t *)rtcb, &g_waitingforsignal);
+
+          /* Now, perform the context switch if one is needed */
+
+          if (switch_needed)
+            {
+              up_switch_context(this_task(), rtcb);
+            }
         }
 
       /* We are running again, clear the sigwaitmask */
 
-      rtcb->sigwaitmask = NULL_SIGNAL_SET;
+      sigemptyset(&rtcb->sigwaitmask);
 
       /* When we awaken, the cause will be in the TCB.  Get the signal number
        * or timeout) that awakened us.
@@ -356,6 +426,13 @@ int nxsig_timedwait(FAR const sigset_t *set, FAR struct siginfo *info,
 
           if (nxsig_ismember(set, rtcb->sigunbinfo.si_signo))
             {
+              /* Return the signal info to the caller if so requested */
+
+              if (info != NULL)
+                {
+                  memcpy(info, &rtcb->sigunbinfo, sizeof(struct siginfo));
+                }
+
               /* Yes.. the return value is the number of the signal that
                * awakened us.
                */
@@ -393,13 +470,6 @@ int nxsig_timedwait(FAR const sigset_t *set, FAR struct siginfo *info,
               DEBUGASSERT(rtcb->sigunbinfo.si_signo == SIG_WAIT_TIMEOUT);
               ret = -EAGAIN;
             }
-        }
-
-      /* Return the signal info to the caller if so requested */
-
-      if (info)
-        {
-          memcpy(info, &rtcb->sigunbinfo, sizeof(struct siginfo));
         }
 
       leave_critical_section(flags);

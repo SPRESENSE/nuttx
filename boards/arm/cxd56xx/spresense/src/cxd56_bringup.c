@@ -168,8 +168,6 @@ static void timer_initialize(void)
       snprintf(devname, sizeof(devname), "/dev/timer%d", i);
       cxd56_timer_initialize(devname, i);
     }
-
-  return;
 }
 #endif
 
@@ -371,7 +369,7 @@ int cxd56_bringup(void)
 #endif
 
 #ifdef CONFIG_AUDIO_CXD56
-  ret = board_audio_initialize_driver(1);
+  ret = board_audio_initialize_driver();
   if (ret < 0)
     {
       _err("ERROR: Failed to initialize audio. %d\n", ret);
@@ -436,6 +434,12 @@ int cxd56_bringup(void)
     }
 #endif
 
+#ifdef CONFIG_CXD56_SDCARD_AUTOMOUNT
+  /* Initialize the auto-mounter */
+
+  board_automount_initialize();
+#endif
+
 #if defined(CONFIG_CXD56_EMMC) && !defined(CONFIG_CXD56_EMMC_LATE_INITIALIZE)
   /* Mount the eMMC block driver */
 
@@ -454,7 +458,7 @@ int cxd56_bringup(void)
 
   up_pm_release_wakelock(&wlock);
 
-#if defined(CONFIG_RNDIS)
+#if defined(CONFIG_RNDIS) && !defined(CONFIG_RNDIS_COMPOSITE)
   uint8_t mac[6];
   mac[0] = 0xa0; /* TODO */
   mac[1] = (CONFIG_NETINIT_MACADDR_2 >> (8 * 0)) & 0xff;

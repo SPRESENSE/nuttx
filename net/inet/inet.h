@@ -67,16 +67,11 @@ extern "C"
 #define EXTERN extern
 #endif
 
-#ifdef CONFIG_NET_IPv4
-/* Increasing number used for the IP ID field. */
-
-EXTERN uint16_t g_ipid;
-#endif /* CONFIG_NET_IPv4 */
-
 /* Well-known IPv6 addresses */
 
 #ifdef CONFIG_NET_IPv6
 EXTERN const net_ipv6addr_t g_ipv6_unspecaddr;       /* An address of all zeroes */
+EXTERN const net_ipv6addr_t g_ipv6_loopback;         /* An address of loopback */
 EXTERN const net_ipv6addr_t g_ipv6_allnodes;         /* All link local nodes */
 
 #if defined(CONFIG_NET_ICMPv6_AUTOCONF) || defined(CONFIG_NET_ICMPv6_ROUTER) || \
@@ -109,9 +104,6 @@ EXTERN const struct ether_addr g_ipv6_ethallrouters;  /* All link local routers 
  * Public Function Prototypes
  ****************************************************************************/
 
-#if defined(CONFIG_NET_TCP) && !defined(CONFIG_NET_TCP_NO_STACK)
-struct tcp_conn_s; /* Forward reference */
-#endif
 struct socket; /* Forward reference */
 
 /****************************************************************************
@@ -165,6 +157,42 @@ int ipv4_setsockopt(FAR struct socket *psock, int option,
 #ifdef CONFIG_NET_IPv6
 int ipv6_setsockopt(FAR struct socket *psock, int option,
                     FAR const void *value, socklen_t value_len);
+#endif
+
+/****************************************************************************
+ * Name: ipv4_getsockopt
+ *
+ * Description:
+ *   ipv4_getsockopt() retrieve the value for the option specified by the
+ *   'option' argument for the socket specified by the 'psock' argument.  If
+ *   the size of the option value is greater than 'value_len', the value
+ *   stored in the object pointed to by the 'value' argument will be silently
+ *   truncated. Otherwise, the length pointed to by the 'value_len' argument
+ *   will be modified to indicate the actual length of the 'value'.
+ *
+ *   See <netinet/in.h> for the a complete list of values of IPv4 protocol
+ *   socket options.
+ *
+ * Input Parameters:
+ *   psock     Socket structure of the socket to query
+ *   option    identifies the option to get
+ *   value     Points to the argument value
+ *   value_len The length of the argument value
+ *
+ * Returned Value:
+ *   Returns zero (OK) on success.  On failure, it returns a negated errno
+ *   value to indicate the nature of the error.  See psock_getsockopt() for
+ *   the list of possible error values.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_NET_IPv4
+int ipv4_getsockopt(FAR struct socket *psock, int option,
+                    FAR void *value, FAR socklen_t *value_len);
+#endif
+#ifdef CONFIG_NET_IPv6
+int ipv6_getsockopt(FAR struct socket *psock, int option,
+                    FAR void *value, FAR socklen_t *value_len);
 #endif
 
 /****************************************************************************
@@ -260,6 +288,61 @@ int inet_close(FAR struct socket *psock);
  ****************************************************************************/
 
 int inet_txdrain(FAR struct socket *psock, unsigned int timeout);
+
+/****************************************************************************
+ * Name: ipv4_build_header
+ *
+ * Description:
+ *   build IPv4 header
+ *
+ * Input Parameters:
+ *   ipv4       Pointer to IPv4 header's buffer
+ *   total_len  total length of the IPv4 packet
+ *   prot       the next level protocol used in IPv4 packet
+ *   src_ip     Source IPv4 address
+ *   dst_ip     Destination IPv4 address
+ *   ttl        Time to live(IPv4)
+ *   tos        Type of Service(IPv4)
+ *   opt        IPv4 options
+ *
+ * Returned Value:
+ *   length of IPv4 header
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_NET_IPv4
+uint16_t ipv4_build_header(FAR struct ipv4_hdr_s *ipv4, uint16_t total_len,
+                           uint16_t prot, FAR const in_addr_t *src_ip,
+                           FAR const in_addr_t *dst_ip, uint8_t ttl,
+                           uint8_t tos, FAR struct ipv4_opt_s *opt);
+#endif
+
+/****************************************************************************
+ * Name: ipv6_build_header
+ *
+ * Description:
+ *   build IPv6 header
+ *
+ * Input Parameters:
+ *   ipv6         Pointer to IPv6 header's buffer
+ *   payload_len  Length of the IPv6 payload(without IPv6 header length)
+ *   prot         Type of header immediately following the IPv6 header
+ *   src_ip       Source IPv6 address
+ *   dst_ip       Destination IPv6 address
+ *   ttl          hop limit(IPv6)
+ *   tclass       traffic class(IPv6)
+ *
+ * Returned Value:
+ *   length of IPv6 header
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_NET_IPv6
+uint16_t ipv6_build_header(FAR struct ipv6_hdr_s *ipv6, uint16_t payload_len,
+                           uint16_t prot, const net_ipv6addr_t src_ip,
+                           const net_ipv6addr_t dst_ip, uint8_t ttl,
+                           uint8_t tclass);
+#endif
 
 #undef EXTERN
 #if defined(__cplusplus)

@@ -34,7 +34,6 @@
 #include <string.h>
 #include <assert.h>
 #include <errno.h>
-#include <queue.h>
 #include <debug.h>
 
 #include <nuttx/kmalloc.h>
@@ -132,6 +131,7 @@ static int   null_sleep(FAR struct audio_lowerhalf_s *dev,
 
 static const struct audio_ops_s g_audioops =
 {
+  NULL,               /* setup          */
   null_getcaps,       /* getcaps        */
   null_configure,     /* configure      */
   null_shutdown,      /* shutdown       */
@@ -451,7 +451,7 @@ static int null_configure(FAR struct audio_lowerhalf_s *dev,
  *
  ****************************************************************************/
 
-static int null_shutdown(FAR struct audio_lowerhalf_s *dev)
+static int null_shutdown(FAR struct audio_lowerhalf_s *dev, int cnt)
 {
   audinfo("Return OK\n");
   return OK;
@@ -866,7 +866,7 @@ FAR struct audio_lowerhalf_s *audio_null_initialize(void)
 
   /* Allocate the null audio device structure */
 
-  priv = (FAR struct null_dev_s *)kmm_zalloc(sizeof(struct null_dev_s));
+  priv = kmm_zalloc(sizeof(struct null_dev_s));
   if (priv)
     {
       /* Initialize the null audio device structure.

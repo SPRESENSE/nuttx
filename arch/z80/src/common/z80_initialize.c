@@ -30,6 +30,16 @@
 #include "z80_internal.h"
 
 /****************************************************************************
+ * Public Data
+ ****************************************************************************/
+
+/* This holds a references to the current interrupt level register storage
+ * structure.  If is non-NULL only during interrupt processing.
+ */
+
+volatile FAR chipreg_t *g_current_regs;
+
+/****************************************************************************
  * Public Functions
  ****************************************************************************/
 
@@ -59,7 +69,7 @@ void up_initialize(void)
 #if CONFIG_MM_REGIONS > 1
   /* Add any extra memory fragments to the memory manager */
 
-  up_addregion();
+  z80_addregion();
 #endif
 
 #ifdef CONFIG_PM
@@ -88,7 +98,7 @@ void up_initialize(void)
 
   /* Initialize the network */
 
-  up_netinitialize();
+  z80_netinitialize();
 
   board_autoled_on(LED_IRQSENABLED);
 }

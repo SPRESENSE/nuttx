@@ -18,8 +18,8 @@
  *
  ****************************************************************************/
 
-#ifndef __DRIVERS_MODEM_ALT1250_ALTCOM_CMD_LOG_H__
-#define __DRIVERS_MODEM_ALT1250_ALTCOM_CMD_LOG_H__
+#ifndef __DRIVERS_MODEM_ALT1250_ALTCOM_CMD_LOG_H
+#define __DRIVERS_MODEM_ALT1250_ALTCOM_CMD_LOG_H
 
 /****************************************************************************
  * Included Files
@@ -120,4 +120,4 @@ begin_packed_struct struct apicmd_loglseek_s
   int32_t whence;
 } end_packed_struct;
 
-#endif  /* __DRIVERS_MODEM_ALT1250_ALTCOM_CMD_LOG_H__ */
+#endif  /* __DRIVERS_MODEM_ALT1250_ALTCOM_CMD_LOG_H */

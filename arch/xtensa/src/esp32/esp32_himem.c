@@ -110,13 +110,6 @@ static ssize_t himem_write(struct file *filep, const char *buffer,
 static int     himem_ioctl(struct file *filep, int cmd,
                            unsigned long arg);
 
-/* This structure is used only for access control */
-
-struct himem_access_s
-{
-  sem_t        exclsem;  /* Supports mutual exclusion */
-};
-
 /* Metadata for a block of physical RAM */
 
 typedef struct
@@ -155,10 +148,6 @@ static const struct file_operations g_himemfops =
   himem_write,      /* write */
   NULL,             /* seek */
   himem_ioctl,      /* ioctl */
-  NULL              /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL            /* unlink */
-#endif
 };
 
 /****************************************************************************
@@ -223,7 +212,6 @@ size_t esp_himem_reserved_area_size(void)
 
 int esp_himem_init(void)
 {
-  struct himem_access_s *priv;
   int paddr_start = (4096 * 1024) - (CACHE_BLOCKSIZE *
                      SPIRAM_BANKSWITCH_RESERVE);
   int paddr_end;
@@ -235,31 +223,20 @@ int esp_himem_init(void)
       return -ENODEV;
     }
 
-  /* Allocate a new himem access instance */
-
-  priv = (struct himem_access_s *)
-    kmm_zalloc(sizeof(struct himem_access_s));
-
-  if (!priv)
-    {
-      merr("ERROR: Failed to allocate device structure\n");
-      return -ENOMEM;
-    }
-
   maxram = esp_spiram_get_size();
 
   /* Catch double init */
 
   /* Looks weird; last arg is empty so it expands to 'return ;' */
 
-  HIMEM_CHECK(g_ram_descriptor != NULL, "already initialized", (int) NULL);
+  HIMEM_CHECK(g_ram_descriptor != NULL, "already initialized", 0);
 
-  HIMEM_CHECK(g_range_descriptor != NULL, "already initialized", (int) NULL);
+  HIMEM_CHECK(g_range_descriptor != NULL, "already initialized", 0);
 
   /* need to have some reserved banks */
 
   HIMEM_CHECK(SPIRAM_BANKSWITCH_RESERVE == 0, "No banks reserved for \
-              himem", (int) NULL);
+              himem", 0);
 
   /* Start and end of physical reserved memory. Note it starts slightly under
    * the 4MiB mark as the reserved banks can't have an unity mapping to be
@@ -278,18 +255,17 @@ int esp_himem_init(void)
   if (g_ram_descriptor == NULL || g_range_descriptor == NULL)
     {
       merr("Cannot allocate memory for meta info. Not initializing!");
-      free(g_ram_descriptor);
-      free(g_range_descriptor);
+      kmm_free(g_ram_descriptor);
+      kmm_free(g_range_descriptor);
       return -ENOMEM;
     }
 
   /* Register the character driver */
 
-  ret = register_driver("/dev/himem", &g_himemfops, 0666, priv);
+  ret = register_driver("/dev/himem", &g_himemfops, 0666, NULL);
   if (ret < 0)
     {
       merr("ERROR: Failed to register driver: %d\n", ret);
-      kmm_free(priv);
     }
 
   minfo("Initialized. Using last %d 32KB address blocks for bank \
@@ -382,8 +358,8 @@ int esp_himem_alloc(size_t size, esp_himem_handle_t *handle_out)
 nomem:
   if (r)
     {
-      free(r->block);
-      free(r);
+      kmm_free(r->block);
+      kmm_free(r);
     }
 
   return -ENOMEM;
@@ -414,8 +390,8 @@ int esp_himem_free(esp_himem_handle_t handle)
 
   /* Free handle */
 
-  free(handle->block);
-  free(handle);
+  kmm_free(handle->block);
+  kmm_free(handle);
   return OK;
 }
 
@@ -472,7 +448,7 @@ int esp_himem_alloc_map_range(size_t size,
     {
       /* Couldn't find enough free blocks */
 
-      free(r);
+      kmm_free(r);
       spin_unlock_irqrestore(NULL, spinlock_flags);
       return -ENOMEM;
     }
@@ -521,7 +497,7 @@ int esp_himem_free_map_range(esp_himem_rangehandle_t handle)
     }
 
   spin_unlock_irqrestore(NULL, spinlock_flags);
-  free(handle);
+  kmm_free(handle);
   return OK;
 }
 

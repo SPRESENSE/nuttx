@@ -34,7 +34,7 @@
 
 #include <nuttx/kmalloc.h>
 #include <nuttx/fs/fs.h>
-#include <nuttx/semaphore.h>
+#include <nuttx/mutex.h>
 #include <nuttx/sensors/lsm330.h>
 
 /****************************************************************************
@@ -62,10 +62,8 @@ struct lsm330_dev_s
   FAR struct spi_dev_s *spi;          /* Pointer to the SPI instance */
   FAR struct lsm330_config_s *config; /* Pointer to the configuration of the
                                        * LSM330 sensor */
-  sem_t devicesem;                    /* Manages exclusive access to this
+  mutex_t devicelock;                 /* Manages exclusive access to this
                                        * device */
-  sem_t datasem;                      /* Manages exclusive access to this
-                                       * structure */
   struct sensor_data_s data;          /* The data as measured by the sensor */
   uint8_t seek_address;               /* Current device address. */
   uint8_t readonly;                   /* 0 = writing to the device in enabled */
@@ -150,10 +148,6 @@ static const struct file_operations g_lsm330a_fops =
   lsm330acl_write,     /* write */
   lsm330acl_seek,      /* seek */
   lsm330_ioctl,        /* ioctl */
-  NULL                 /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL               /* unlink */
-#endif
 };
 
 static const struct file_operations g_lsm330g_fops =
@@ -164,10 +158,6 @@ static const struct file_operations g_lsm330g_fops =
   lsm330gyro_write,    /* write */
   lsm330gyro_seek,     /* seek */
   lsm330_ioctl,        /* ioctl */
-  NULL                 /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL               /* unlink */
-#endif
 };
 
 static const struct lsm330spi_dvr_entry_vector_s g_lsm330acl_dops =
@@ -675,7 +665,7 @@ static int lsm330acl_dvr_open(FAR void *instance_handle, int32_t arg)
   DEBUGASSERT(priv != NULL);
   UNUSED(arg);
 
-  ret = nxsem_trywait(&priv->devicesem);
+  ret = nxmutex_trylock(&priv->devicelock);
   if (ret < 0)
     {
       sninfo("INFO: LSM330 Accelerometer is already open.\n");
@@ -768,7 +758,7 @@ static int lsm330gyro_dvr_open(FAR void *instance_handle, int32_t arg)
   DEBUGASSERT(priv != NULL);
   UNUSED(arg);
 
-  ret = nxsem_trywait(&priv->devicesem);
+  ret = nxmutex_trylock(&priv->devicelock);
   if (ret < 0)
     {
       sninfo("INFO: LSM330 Gyroscope is already open.\n");
@@ -860,7 +850,7 @@ static int lsm330acl_dvr_close(FAR void *instance_handle, int32_t arg)
 
   /* Release the sensor */
 
-  nxsem_post(&priv->devicesem);
+  nxmutex_unlock(&priv->devicelock);
   return OK;
 }
 
@@ -883,7 +873,7 @@ static int lsm330gyro_dvr_close(FAR void *instance_handle, int32_t arg)
 
   /* Release the sensor */
 
-  nxsem_post(&priv->devicesem);
+  nxmutex_unlock(&priv->devicelock);
   return OK;
 }
 
@@ -898,8 +888,8 @@ static ssize_t lsm330acl_dvr_read(FAR void *instance_handle,
 
   DEBUGASSERT(priv != NULL);
 
-  lsm330_read_acl_registerblk(priv, priv->seek_address, (uint8_t *)buffer,
-                              buflen);
+  lsm330_read_acl_registerblk(priv, priv->seek_address,
+                              (FAR uint8_t *)buffer, buflen);
   return buflen;
 }
 
@@ -914,8 +904,8 @@ static ssize_t lsm330gyro_dvr_read(FAR void *instance_handle,
 
   DEBUGASSERT(priv != NULL);
 
-  lsm330_read_gyro_registerblk(priv, priv->seek_address, (uint8_t *)buffer,
-                               buflen);
+  lsm330_read_gyro_registerblk(priv, priv->seek_address,
+                               (FAR uint8_t *)buffer, buflen);
   return buflen;
 }
 
@@ -935,8 +925,8 @@ static ssize_t lsm330acl_dvr_write(FAR void *instance_handle,
       return -EROFS;
     }
 
-  lsm330_write_acl_registerblk(priv, priv->seek_address, (uint8_t *)buffer,
-                               buflen);
+  lsm330_write_acl_registerblk(priv, priv->seek_address,
+                               (FAR uint8_t *)buffer, buflen);
   return buflen;
 }
 
@@ -1141,7 +1131,7 @@ static int lsm330acl_open(FAR struct file *filep)
   FAR struct lsm330_dev_s *priv = inode->i_private;
   int ret;
 
-  ret = lsm330acl_dvr_open((FAR void *)priv, 0);
+  ret = lsm330acl_dvr_open(priv, 0);
   return ret;
 }
 
@@ -1155,7 +1145,7 @@ static int lsm330gyro_open(FAR struct file *filep)
   FAR struct lsm330_dev_s *priv = inode->i_private;
   int ret;
 
-  ret = lsm330gyro_dvr_open((FAR void *)priv, 0);
+  ret = lsm330gyro_dvr_open(priv, 0);
   return ret;
 }
 
@@ -1169,7 +1159,7 @@ static int lsm330acl_close(FAR struct file *filep)
   FAR struct lsm330_dev_s *priv = inode->i_private;
   int ret;
 
-  ret = lsm330acl_dvr_close((FAR void *)priv, 0);
+  ret = lsm330acl_dvr_close(priv, 0);
   return ret;
 }
 
@@ -1183,7 +1173,7 @@ static int lsm330gyro_close(FAR struct file *filep)
   FAR struct lsm330_dev_s *priv = inode->i_private;
   int ret;
 
-  ret = lsm330gyro_dvr_close((FAR void *)priv, 0);
+  ret = lsm330gyro_dvr_close(priv, 0);
   return ret;
 }
 
@@ -1330,20 +1320,19 @@ int lsm330_register(FAR const char *devpath_acl,
 
   /* Initialize the LSM330 accelerometer device structure. */
 
-  priv = (FAR struct lsm330_dev_s *)kmm_malloc(sizeof(struct lsm330_dev_s));
+  priv = kmm_malloc(sizeof(struct lsm330_dev_s));
   if (priv == NULL)
     {
       snerr("ERROR: Failed to allocate accelerometer instance\n");
       return -ENOMEM;
     }
 
-  priv->spi         = spi;
-  priv->config      = config_acl;
+  priv->spi    = spi;
+  priv->config = config_acl;
 
-  /* Initialize sensor and sensor data access semaphore */
+  /* Initialize sensor and sensor data access mutex */
 
-  nxsem_init(&priv->devicesem, 0, 1);
-  nxsem_init(&priv->datasem, 0, 1);
+  nxmutex_init(&priv->devicelock);
 
   /* Setup SPI frequency and mode */
 
@@ -1357,7 +1346,7 @@ int lsm330_register(FAR const char *devpath_acl,
     {
       snerr("ERROR: Failed to register accelerometer driver: %d\n", ret);
 
-      nxsem_destroy(&priv->datasem);
+      nxmutex_destroy(&priv->devicelock);
       kmm_free(priv);
       return ret;
     }
@@ -1370,11 +1359,11 @@ int lsm330_register(FAR const char *devpath_acl,
   priv->flink = g_lsm330a_list;
   g_lsm330a_list = priv;
   priva = priv;
-  config_acl->leaf_handle = (void *) priv;
+  config_acl->leaf_handle = priv;
 
   /* Initialize the LSM330 gyroscope device structure. */
 
-  priv = (FAR struct lsm330_dev_s *)kmm_malloc(sizeof(struct lsm330_dev_s));
+  priv = kmm_malloc(sizeof(struct lsm330_dev_s));
   if (priv == NULL)
     {
       snerr("ERROR: Failed to allocate gyroscope instance\n");
@@ -1385,10 +1374,9 @@ int lsm330_register(FAR const char *devpath_acl,
   priv->spi    = spi;
   priv->config = config_gyro;
 
-  /* Initialize sensor and sensor data access semaphore */
+  /* Initialize sensor and sensor data access mutex */
 
-  nxsem_init(&priv->devicesem, 0, 1);
-  nxsem_init(&priv->datasem, 0, 1);
+  nxmutex_init(&priv->devicelock);
 
   /* Register the character driver */
 
@@ -1397,7 +1385,7 @@ int lsm330_register(FAR const char *devpath_acl,
     {
       snerr("ERROR: Failed to register gyroscope driver: %d\n", ret);
 
-      nxsem_destroy(&priv->datasem);
+      nxmutex_destroy(&priv->devicelock);
       kmm_free(priv);
       goto err_exit;
     }
@@ -1409,7 +1397,7 @@ int lsm330_register(FAR const char *devpath_acl,
 
   priv->flink = g_lsm330g_list;
   g_lsm330g_list = priv;
-  config_gyro->leaf_handle = (void *) priv;
+  config_gyro->leaf_handle = priv;
 
   config_acl->sc_ops  = &g_lsm330acl_dops;
   config_gyro->sc_ops = &g_lsm330gyro_dops;
@@ -1425,7 +1413,7 @@ err_exit:
    * accelerometer instance.
    */
 
-  nxsem_destroy(&priva->datasem);
+  nxmutex_destroy(&priva->devicelock);
   kmm_free(priva);
   return ret;
 }

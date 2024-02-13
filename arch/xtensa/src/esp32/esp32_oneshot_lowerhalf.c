@@ -211,7 +211,6 @@ static int esp32_lh_start(struct oneshot_lowerhalf_s *lower,
 
   DEBUGASSERT(priv != NULL);
   DEBUGASSERT(callback != NULL);
-  DEBUGASSERT(arg != NULL);
   DEBUGASSERT(ts != NULL);
 
   /* Save the callback information and start the timer */
@@ -349,9 +348,7 @@ struct oneshot_lowerhalf_s *oneshot_initialize(int chan,
 
   /* Allocate an instance of the lower half driver */
 
-  priv = (struct esp32_oneshot_lowerhalf_s *)kmm_zalloc(
-          sizeof(struct esp32_oneshot_lowerhalf_s));
-
+  priv = kmm_zalloc(sizeof(struct esp32_oneshot_lowerhalf_s));
   if (priv == NULL)
     {
       tmrerr("ERROR: Failed to initialize oneshot state structure\n");

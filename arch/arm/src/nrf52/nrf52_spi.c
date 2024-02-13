@@ -31,7 +31,7 @@
 
 #include <nuttx/irq.h>
 #include <nuttx/arch.h>
-#include <nuttx/semaphore.h>
+#include <nuttx/mutex.h>
 #include <arch/board/board.h>
 #include <nuttx/power/pm.h>
 
@@ -42,6 +42,7 @@
 #include "nrf52_spi.h"
 
 #include "hardware/nrf52_spi.h"
+#include "hardware/nrf52_utils.h"
 
 #ifdef CONFIG_NRF52_SPI_MASTER_WORKAROUND_1BYTE_TRANSFER
 #  include "hardware/nrf52_gpiote.h"
@@ -83,7 +84,7 @@ struct nrf52_spidev_s
   uint32_t         frequency;  /* Requested clock frequency */
   uint8_t          mode;       /* Mode 0,1,2,3 */
 
-  sem_t            exclsem;    /* Held while chip is selected for mutual
+  mutex_t          lock;       /* Held while chip is selected for mutual
                                 * exclusion
                                 */
 #ifdef CONFIG_NRF52_SPI_MASTER_INTERRUPTS
@@ -198,11 +199,13 @@ static struct nrf52_spidev_s g_spi0dev =
 {
   .spidev    =
   {
-    &g_spi0ops
+    .ops     = &g_spi0ops,
   },
 
   .base      = NRF52_SPIM0_BASE,
+  .lock      = NXMUTEX_INITIALIZER,
 #ifdef CONFIG_NRF52_SPI_MASTER_INTERRUPTS
+  .sem_isr   = SEM_INITIALIZER(0),
   .irq       = NRF52_IRQ_SPI_TWI_0,
 #endif
   .sck_pin   = BOARD_SPI0_SCK_PIN,
@@ -249,11 +252,13 @@ static struct nrf52_spidev_s g_spi1dev =
 {
   .spidev    =
   {
-    &g_spi1ops
+    .ops     = &g_spi1ops,
   },
 
   .base      = NRF52_SPIM1_BASE,
+  .lock      = NXMUTEX_INITIALIZER,
 #ifdef CONFIG_NRF52_SPI_MASTER_INTERRUPTS
+  .sem_isr   = SEM_INITIALIZER(0),
   .irq       = NRF52_IRQ_SPI_TWI_1,
 #endif
   .sck_pin   = BOARD_SPI1_SCK_PIN,
@@ -300,11 +305,13 @@ static struct nrf52_spidev_s g_spi2dev =
 {
   .spidev    =
   {
-    &g_spi2ops
+    .ops     = &g_spi2ops,
   },
 
   .base      = NRF52_SPIM2_BASE,
+  .lock      = NXMUTEX_INITIALIZER,
 #ifdef CONFIG_NRF52_SPI_MASTER_INTERRUPTS
+  .sem_isr   = SEM_INITIALIZER(0),
   .irq       = NRF52_IRQ_SPI2,
 #endif
   .sck_pin   = BOARD_SPI2_SCK_PIN,
@@ -351,11 +358,13 @@ static struct nrf52_spidev_s g_spi3dev =
 {
   .spidev    =
   {
-    &g_spi3ops
+    .ops     = &g_spi3ops,
   },
 
   .base      = NRF52_SPIM3_BASE,
+  .lock      = NXMUTEX_INITIALIZER,
 #ifdef CONFIG_NRF52_SPI_MASTER_INTERRUPTS
+  .sem_isr   = SEM_INITIALIZER(0),
   .irq       = NRF52_IRQ_SPI3,
 #endif
   .sck_pin   = BOARD_SPI3_SCK_PIN,
@@ -687,11 +696,11 @@ static int nrf52_spi_lock(struct spi_dev_s *dev, bool lock)
 
   if (lock)
     {
-      ret = nxsem_wait_uninterruptible(&priv->exclsem);
+      ret = nxmutex_lock(&priv->lock);
     }
   else
     {
-      ret = nxsem_post(&priv->exclsem);
+      ret = nxmutex_unlock(&priv->lock);
     }
 
   return ret;
@@ -895,8 +904,6 @@ static void nrf52_spi_setbits(struct spi_dev_s *dev, int nbits)
     {
       spierr("ERROR: nbits not supported: %d\n", nbits);
     }
-
-  return;
 }
 
 /****************************************************************************
@@ -1083,6 +1090,7 @@ static void nrf52_spi_exchange(struct spi_dev_s *dev,
       /* Write RXD data pointer */
 
       regval = (uint32_t)rxbuffer;
+      DEBUGASSERT(nrf52_easydma_valid(regval));
       nrf52_spi_putreg(priv, NRF52_SPIM_RXDPTR_OFFSET, regval);
     }
   else
@@ -1095,6 +1103,7 @@ static void nrf52_spi_exchange(struct spi_dev_s *dev,
       /* Write TXD data pointer */
 
       regval = (uint32_t)txbuffer;
+      DEBUGASSERT(nrf52_easydma_valid(regval));
       nrf52_spi_putreg(priv, NRF52_SPIM_TXDPTR_OFFSET, regval);
     }
   else
@@ -1470,18 +1479,7 @@ struct spi_dev_s *nrf52_spibus_initialize(int port)
 
   priv->initialized = true;
 
-  /* Initialize the SPI semaphore */
-
-  nxsem_init(&priv->exclsem, 0, 1);
-
 #ifdef CONFIG_NRF52_SPI_MASTER_INTERRUPTS
-  /* This semaphore is used for signaling and, hence, should not have
-   * priority inheritance enabled.
-   */
-
-  nxsem_init(&priv->sem_isr, 0, 0);
-  nxsem_set_protocol(&priv->sem_isr, SEM_PRIO_NONE);
-
   /* Attach SPI interrupt */
 
   irq_attach(priv->irq, nrf52_spi_isr, priv);

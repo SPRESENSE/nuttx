@@ -24,6 +24,7 @@
 
 #include <nuttx/config.h>
 
+#include <sys/param.h>
 #include <sys/types.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -258,16 +259,6 @@
 #define efm32_rqempty(ep)            ((ep)->head == NULL)
 #define efm32_rqpeek(ep)             ((ep)->head)
 
-/* Standard stuff ***********************************************************/
-
-#ifndef MIN
-#  define MIN(a,b) ((a) < (b) ? (a) : (b))
-#endif
-
-#ifndef MAX
-#  define MAX(a,b) ((a) > (b) ? (a) : (b))
-#endif
-
 /****************************************************************************
  * Private Types
  ****************************************************************************/
@@ -474,8 +465,8 @@ struct efm32_usbdev_s
 static uint32_t    efm32_getreg(uint32_t addr);
 static void        efm32_putreg(uint32_t val, uint32_t addr);
 #else
-# define efm32_getreg(addr)     getreg32(addr)
-# define efm32_putreg(val,addr) putreg32(val,addr)
+#  define efm32_getreg(addr)     getreg32(addr)
+#  define efm32_putreg(val,addr) putreg32(val,addr)
 #endif
 
 /* Request queue operations *************************************************/
@@ -1345,6 +1336,19 @@ static void efm32_epin_request(struct efm32_usbdev_s *priv,
           empmsk |= USB_DIEPEMPMSK(privep->epphy);
           efm32_putreg(empmsk, EFM32_USB_DIEPEMPMSK);
 
+#ifdef CONFIG_DEBUG_FEATURES
+          /* Check if the configured TXFIFO size is sufficient for a given
+           * request. If not, raise an assertion here.
+           */
+
+          regval = efm32_getreg(EFM32_USB_DIEPTXF(privep->epphy));
+          regval &= _USB_DIEPTXF1_INEPNTXFDEP_MASK;
+          regval >>= _USB_DIEPTXF1_INEPNTXFDEP_SHIFT;
+          uerr("EP%" PRId8 " TXLEN=%" PRId32 " nwords=%d\n",
+               privep->epphy, regval, nwords);
+          DEBUGASSERT(regval >= nwords);
+#endif
+
           /* Terminate the transfer.  We will try again when the TxFIFO empty
            * interrupt is received.
            */
@@ -1535,8 +1539,8 @@ static inline void efm32_ep0out_receive(struct efm32_ep_s *privep,
 
   /* Sanity Checking */
 
-  DEBUGASSERT(privep && privep->ep.priv);
-  priv = (struct efm32_usbdev_s *)privep->ep.priv;
+  DEBUGASSERT(privep && privep->dev);
+  priv = (struct efm32_usbdev_s *)privep->dev;
 
   uinfo("EP0: bcnt=%d\n", bcnt);
   usbtrace(TRACE_READ(EP0), bcnt);
@@ -4324,7 +4328,7 @@ static struct usbdev_req_s *efm32_ep_allocreq(struct usbdev_ep_s *ep)
 
   usbtrace(TRACE_EPALLOCREQ, ((struct efm32_ep_s *)ep)->epphy);
 
-  privreq = (struct efm32_req_s *)kmm_malloc(sizeof(struct efm32_req_s));
+  privreq = kmm_malloc(sizeof(struct efm32_req_s));
   if (!privreq)
     {
       usbtrace(TRACE_DEVERROR(EFM32_TRACEERR_ALLOCFAIL), 0);
@@ -5157,9 +5161,6 @@ static void efm32_swinitialize(struct efm32_usbdev_s *priv)
 
   priv->epavail[0] = EFM32_EP_AVAILABLE;
   priv->epavail[1] = EFM32_EP_AVAILABLE;
-
-  priv->epin[EP0].ep.priv  = priv;
-  priv->epout[EP0].ep.priv = priv;
 
   /* Initialize the endpoint lists */
 

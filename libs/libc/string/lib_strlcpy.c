@@ -27,6 +27,8 @@
 #include <sys/types.h>
 #include <string.h>
 
+#include "libc.h"
+
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
@@ -43,7 +45,8 @@
  *
  ****************************************************************************/
 
-#ifndef CONFIG_LIBC_ARCH_STRLCPY
+#if !defined(CONFIG_LIBC_ARCH_STRLCPY) && defined(LIBC_BUILD_STRLCPY)
+#undef strlcpy /* See mm/README.txt */
 size_t strlcpy(FAR char *dst, FAR const char *src, size_t dsize)
 {
   FAR const char *osrc = src;
@@ -67,9 +70,9 @@ size_t strlcpy(FAR char *dst, FAR const char *src, size_t dsize)
           *dst = '\0';
         }
 
-      while (*src++);
+      while (*src++ != '\0');
     }
 
-  return (src - osrc - 1);
+  return src - osrc - 1;
 }
 #endif

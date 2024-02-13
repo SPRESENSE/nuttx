@@ -9,6 +9,14 @@ config ARCH_HAVE_PWM_PULSECOUNT
 	bool
 	default n
 
+config ARCH_HAVE_PWM_OVERWRITE
+	bool
+	default n
+
+config ARCH_HAVE_PWM_DEADTIME
+	bool
+	default n
+
 config ARCH_HAVE_PWM_MULTICHAN
 	bool
 	default n
@@ -31,6 +39,30 @@ config PWM_PULSECOUNT
 		This might be used, for example to support a stepper motor.  If the
 		hardware will support a fixed pulse count, then this configuration
 		should be set to enable the capability.
+
+config PWM_OVERWRITE
+	bool "PWM Overwrite Support"
+	default n
+	depends on ARCH_HAVE_PWM_OVERWRITE
+	---help---
+		Some hardware will support generation of a pin overwrite with 0 or
+		1 without the need to wait for an end of cycle. The overwrite is
+		controlled from an application level the same way duty cycle or
+		frequency is modified.
+
+config PWM_DEADTIME
+	bool "PWM Deadtime Support"
+	default n
+	depends on ARCH_HAVE_PWM_DEADTIME
+	---help---
+		Some hardware will support deadtime generators that automatically
+		insert output activation delay for complementary PWM outputs. This
+		is usefull for H-bridge motor control for example. The deadtime
+		values are set from application level via the same IOCTL that sets
+		up duty cycle and frequency.
+
+		For detailed description about deadtime functionality please refer
+		to architecture manuals and datasheets.
 
 config PWM_MULTICHAN
 	bool "PWM Multiple Output Channel Support"
@@ -75,6 +107,7 @@ config TIMER_ARCH
 	select ARCH_HAVE_TICKLESS
 	select ARCH_HAVE_TIMEKEEPING
 	select SCHED_TICKLESS_LIMIT_MAX_SLEEP if SCHED_TICKLESS
+	select SCHED_TICKLESS_TICK_ARGUMENT if SCHED_TICKLESS
 	---help---
 		Implement timer arch API on top of timer driver interface.
 
@@ -96,6 +129,7 @@ config ALARM_ARCH
 	select ARCH_HAVE_TIMEKEEPING
 	select SCHED_TICKLESS_ALARM if SCHED_TICKLESS
 	select SCHED_TICKLESS_LIMIT_MAX_SLEEP if SCHED_TICKLESS
+	select SCHED_TICKLESS_TICK_ARGUMENT if SCHED_TICKLESS
 	---help---
 		Implement alarm arch API on top of oneshot driver interface.
 
@@ -280,6 +314,10 @@ config PCF85263_I2C_FREQUENCY
 
 endif # RTC_PCF85263
 
+config RTC_PL031
+	bool "PL031 RTC Support"
+	default n
+
 config RTC_MCP794XX
 	bool "MCP794XX RTC Driver"
 	default n
@@ -352,6 +390,19 @@ config WATCHDOG_DEVPATH
 		Please, check how your specific chip or board uses this symbol.
 		FYI: It's NOT used by the Auto-monitor feature.
 
+config WATCHDOG_MAGIC_V
+	bool "Watchdog Device Magic num"
+	default y
+	---help---
+		The watchdog can be stopped by writing 'V' to the watchdog's device node
+
+config WATCHDOG_PANIC_NOTIFIER
+	bool "Enable watchdog panic notifier"
+	default n
+	---help---
+		When system PANIC, wdog_notifier() will be callled to disable the watchdog,
+		this is an useful option for debug if you want to keep crash scene.
+
 menuconfig WATCHDOG_AUTOMONITOR
 	bool "Auto-monitor"
 	---help---
@@ -366,21 +417,41 @@ if WATCHDOG_AUTOMONITOR
 
 choice
 	prompt "Auto-monitor keepalive by"
-	default WATCHDOG_AUTOMONITOR_BY_TIMER
+	default WATCHDOG_AUTOMONITOR_BY_WDOG
 
 config WATCHDOG_AUTOMONITOR_BY_CAPTURE
 	bool "Capture callback"
+	---help---
+		Feed watchdog through watchdog_ops_s::capture callback periodically
+
+config WATCHDOG_AUTOMONITOR_BY_ONESHOT
+	bool "Oneshot callback"
+	depends on ONESHOT
+	---help---
+		Feed watchdog through oneshot_lowerhalf_s functions periodically
 
 config WATCHDOG_AUTOMONITOR_BY_TIMER
 	bool "Timer callback"
+	depends on TIMER
+	---help---
+		Feed watchdog through timer_lowerhalf_s functions periodically
+
+config WATCHDOG_AUTOMONITOR_BY_WDOG
+	bool "Wdog callback"
+	---help---
+		Feed watchdog through wdog functions periodically
 
 config WATCHDOG_AUTOMONITOR_BY_WORKER
 	bool "Worker callback"
 	depends on SCHED_WORKQUEUE
+	---help---
+		Feed watchdog through wqueue functions periodically
 
 config WATCHDOG_AUTOMONITOR_BY_IDLE
 	bool "Idle callback"
 	depends on PM
+	---help---
+		Feed watchdog before idle through pm_callback_s::notify callback
 
 endchoice
 
@@ -388,19 +459,18 @@ config WATCHDOG_AUTOMONITOR_TIMEOUT
 	int "Auto-monitor reset timeout(second)"
 	default 60
 
-if WATCHDOG_AUTOMONITOR_BY_TIMER || WATCHDOG_AUTOMONITOR_BY_WORKER
+if !WATCHDOG_AUTOMONITOR_BY_CAPTURE && !WATCHDOG_AUTOMONITOR_BY_IDLE
 
 config WATCHDOG_AUTOMONITOR_PING_INTERVAL
 	int "Auto-monitor keep a live interval"
-	default WATCHDOG_AUTOMONITOR_TIMEOUT
-	range 1 WATCHDOG_AUTOMONITOR_TIMEOUT
+	range 0 WATCHDOG_AUTOMONITOR_TIMEOUT
+	default 0
 	---help---
-		If the interval is same as WATCHDOG_AUTOMONITOR_TIMEOUT
-		the default value will change to (WATCHDOG_AUTOMONITOR_TIMEOUT / 2).
-		This interval will only be used by auto-monitor by Worker callback
-		or by Timer callback.
+		If the interval is 0, it will change to (WATCHDOG_AUTOMONITOR_TIMEOUT / 2).
+		This interval will only be used by auto-monitor in oneshot, timer, wdog or
+		worker case.
 
-endif # WATCHDOG_AUTOMONITOR_BY_TIMER || WATCHDOG_AUTOMONITOR_BY_WORKER
+endif # !WATCHDOG_AUTOMONITOR_BY_CAPTURE && !WATCHDOG_AUTOMONITOR_BY_IDLE
 
 endif # WATCHDOG_AUTOMONITOR
 
@@ -421,4 +491,4 @@ config CS2100CP_REGDEBUG
 	depends on DEBUG_FEATURES
 
 endif # TIMERS_CS2100CP
-endmenu  # Timer Driver Support
+endmenu # Timer Driver Support

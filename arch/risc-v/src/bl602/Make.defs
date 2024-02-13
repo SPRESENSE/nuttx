@@ -58,6 +58,10 @@ ifeq ($(CONFIG_RTC_DRIVER),y)
 CHIP_CSRCS += bl602_rtc.c bl602_rtc_lowerhalf.c
 endif
 
+ifeq ($(CONFIG_BL602_DMA),y)
+CHIP_CSRCS += bl602_dma.c
+endif
+
 CHIP_CSRCS += bl602_glb.c bl602_gpio.c bl602_hbn.c bl602_systemreset.c
 
 ifeq ($(CONFIG_BL602_WIRELESS),y)
@@ -67,8 +71,7 @@ WIRELESS_DRV_ZIP     = v$(WIRELESS_DRV_VERSION).zip
 WIRELESS_DRV_URL     = https://github.com/bouffalolab/bl_blob/archive/refs/heads
 
 $(WIRELESS_DRV_ZIP):
-	$(Q) echo "Downloading: BL602 Wireless Drivers"
-	$(Q) curl -L $(WIRELESS_DRV_URL)/$(WIRELESS_DRV_ZIP) -o chip/$(WIRELESS_DRV_ZIP)
+	$(call DOWNLOAD,$(WIRELESS_DRV_URL),$(WIRELESS_DRV_ZIP),chip/$(WIRELESS_DRV_ZIP))
 
 chip/$(WIRELESS_DRV_UNPACK): $(WIRELESS_DRV_ZIP)
 	$(Q) echo "Unpacking: BL602 Wireless Drivers"
@@ -77,13 +80,15 @@ chip/$(WIRELESS_DRV_UNPACK): $(WIRELESS_DRV_ZIP)
 	$(Q) mv chip/$(WIRELESS_DRV_UNPACK)-$(WIRELESS_DRV_VERSION)/* chip/$(WIRELESS_DRV_UNPACK)
 	$(Q) touch chip/$(WIRELESS_DRV_UNPACK)
 
+ifeq ($(wildcard chip/$(WIRELESS_DRV_UNPACK)/.git),)
 context:: chip/$(WIRELESS_DRV_UNPACK)
 
 distclean::
 	$(call DELFILE, chip/$(WIRELESS_DRV_ZIP))
 	$(call DELDIR, chip/$(WIRELESS_DRV_UNPACK))
+endif
 
-INCLUDES += $(shell $(INCDIR) "$(CC)" $(ARCH_SRCDIR)$(DELIM)chip$(DELIM)$(WIRELESS_DRV_UNPACK)$(DELIM)includes$(DELIM)BL602$(DELIM)nuttx)
+INCLUDES += ${INCDIR_PREFIX}$(ARCH_SRCDIR)$(DELIM)chip$(DELIM)$(WIRELESS_DRV_UNPACK)$(DELIM)includes$(DELIM)BL602$(DELIM)nuttx
 CHIP_CSRCS += bl602_netdev.c
 
 EXTRA_LIBPATHS += -L $(ARCH_SRCDIR)$(DELIM)chip$(DELIM)$(WIRELESS_DRV_UNPACK)$(DELIM)libs$(DELIM)BL602$(DELIM)nuttx

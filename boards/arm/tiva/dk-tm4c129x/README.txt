@@ -437,7 +437,6 @@ Networking Support
       CONFIG_NSH_NETINIT_THREAD             : Enable the network initialization thread
       CONFIG_NSH_NETINIT_MONITOR=y          : Enable the network monitor
       CONFIG_NSH_NETINIT_RETRYMSEC=2000     : Configure the network monitor as you like
-      CONFIG_NSH_NETINIT_SIGNO=18
 
 Timers
 ======
@@ -673,7 +672,7 @@ Where <subdir> is one of the following:
 
        CONFIG_HOST_WINDOWS=y                   : Windows
        :CONFIG_WINDOWS_CYGWIN=y                : Cygwin under Windows
-       CONFIG_ARMV7M_TOOLCHAIN_GNU_EABI=y      : GNU EABI toolchain for Windows
+       CONFIG_ARM_TOOLCHAIN_GNU_EABI=y      : GNU EABI toolchain for Windows
        CONFIG_RAW_BINARY=y                     : Output formats: ELF and raw binary
 
     3. Default stack sizes are large and should really be tuned to reduce
@@ -683,10 +682,9 @@ Where <subdir> is one of the following:
          CONFIG_IDLETHREAD_STACKSIZE=1024
          CONFIG_INIT_STACKSIZE=2048
          CONFIG_PTHREAD_STACK_DEFAULT=2048
-         CONFIG_POSIX_SPAWN_PROXY_STACKSIZE=1024
-         CONFIG_TASK_SPAWN_DEFAULT_STACKSIZE=2048
-         CONFIG_NSH_TELNETD_DAEMONSTACKSIZE=2048
-         CONFIG_NSH_TELNETD_CLIENTSTACKSIZE=2048
+         CONFIG_POSIX_SPAWN_DEFAULT_STACKSIZE=2048
+         CONFIG_SYSTEM_TELNETD_STACKSIZE=2048
+         CONFIG_SYSTEM_TELNETD_SESSION_STACKSIZE=2048
 
     4. This configuration has the network enabled by default.  See the
        paragraph "Using the network with NSH" above).

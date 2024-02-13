@@ -87,10 +87,6 @@ static const struct file_operations g_mcp9844_fops =
   mcp9844_write,   /* write */
   NULL,            /* seek */
   mcp9844_ioctl,   /* ioctl */
-  NULL             /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL           /* unlink */
-#endif
 };
 
 /****************************************************************************
@@ -359,15 +355,15 @@ static int mcp9844_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 int mcp9844_register(FAR const char *devpath, FAR struct i2c_master_s *i2c,
                      uint8_t addr)
 {
+  FAR struct mcp9844_dev_s *priv;
+
   /* Sanity check */
 
   DEBUGASSERT(i2c != NULL);
 
   /* Initialize the MCP9844 device structure */
 
-  FAR struct mcp9844_dev_s *priv =
-    (FAR struct mcp9844_dev_s *)kmm_malloc(sizeof(struct mcp9844_dev_s));
-
+  priv = kmm_malloc(sizeof(struct mcp9844_dev_s));
   if (priv == NULL)
     {
       snerr("ERROR: Failed to allocate instance\n");

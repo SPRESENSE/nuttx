@@ -137,6 +137,7 @@ config ARCH_CHIP_SAME70Q
 	bool
 	default n
 	select ARCH_CHIP_SAME70
+	select SAMV7_QSPI_IS_SPI
 	select SAMV7_HAVE_MCAN1
 	select SAMV7_HAVE_DAC1 if !SAMV7_EMAC0
 	select SAMV7_HAVE_EBI
@@ -154,6 +155,7 @@ config ARCH_CHIP_SAME70N
 	bool
 	default n
 	select ARCH_CHIP_SAME70
+	select SAMV7_QSPI_IS_SPI
 	select SAMV7_HAVE_MCAN1
 	select SAMV7_HAVE_DAC1 if !SAMV7_EMAC0
 	select SAMV7_HAVE_HSMCI0
@@ -187,6 +189,7 @@ config ARCH_CHIP_SAMV71Q
 	bool
 	default n
 	select ARCH_CHIP_SAMV71
+	select SAMV7_QSPI_IS_SPI
 	select SAMV7_HAVE_MCAN1
 	select SAMV7_HAVE_DAC1 if !SAMV7_EMAC0
 	select SAMV7_HAVE_EBI
@@ -204,6 +207,7 @@ config ARCH_CHIP_SAMV71N
 	bool
 	default n
 	select ARCH_CHIP_SAMV71
+	select SAMV7_QSPI_IS_SPI
 	select SAMV7_HAVE_MCAN1
 	select SAMV7_HAVE_DAC1 if !SAMV7_EMAC0
 	select SAMV7_HAVE_HSMCI0
@@ -313,6 +317,8 @@ config SAMV7_PWM
 	bool
 	default n
 	select ARCH_HAVE_PWM_MULTICHAN
+	select ARCH_HAVE_PWM_OVERWRITE
+	select ARCH_HAVE_PWM_DEADTIME
 
 config SAMV7_HAVE_SDRAMC
 	bool
@@ -347,6 +353,10 @@ config SAMV7_HAVE_USBFS
 	default n
 
 config SAMV7_HAVE_USBHS
+	bool
+	default n
+
+config SAMV7_1WIREDRIVER
 	bool
 	default n
 
@@ -386,7 +396,15 @@ config SAMV7_ADC
 	bool "12-bit ADC Controller (ADC)"
 	default n
 
+config SAMV7_AFEC_SWTRIG
+	bool
+	default n
+
 config SAMV7_AFEC_TIOATRIG
+	bool
+	default n
+
+config SAMV7_AFEC_PWMTRIG
 	bool
 	default n
 
@@ -436,8 +454,15 @@ config SAMV7_AFEC0_TIOATRIG
 	---help---
 		Use output of Timer/Counter as a trigger.
 
+config SAMV7_AFEC0_PWMTRIG
+	bool "PWM trigger"
+	select SAMV7_AFEC_PWMTRIG
+	---help---
+		Use output of PWM as a trigger.
+
 config SAMV7_AFEC0_SWTRIG
 	bool "Software trigger"
+	select SAMV7_AFEC_SWTRIG
 	---help---
 		Use software trigger.
 
@@ -460,6 +485,17 @@ config SAMV7_AFEC0_TIOACHAN
 		Number of TC channel to trigger the AFEC conversion.
 
 endif #SAMV7_AFEC0_TIOATRIG
+
+if SAMV7_AFEC0_PWMTRIG
+
+config SAMV7_AFEC0_PWMEVENT
+	int "PWM Event Line"
+	default 0
+	range 0 1
+	---help---
+		PWM event line used for AFEC triggering. Can be either 0 or 1.
+
+endif # SAMV7_AFEC0_PWM_TRIG
 
 endif # SAMV7_AFEC0
 
@@ -509,8 +545,15 @@ config SAMV7_AFEC1_TIOATRIG
 	---help---
 		Use output of Timer/Counter as a trigger.
 
+config SAMV7_AFEC1_PWMTRIG
+	bool "PWM trigger"
+	select SAMV7_AFEC_PWMTRIG
+	---help---
+		Use output of PWM as a trigger.
+
 config SAMV7_AFEC1_SWTRIG
 	bool "Software trigger"
+	select SAMV7_AFEC_SWTRIG
 	---help---
 		Use software trigger.
 
@@ -533,6 +576,17 @@ config SAMV7_AFEC1_TIOACHAN
 		Number of TC channel to trigger the AFEC conversion.
 
 endif #SAMV7_AFEC1_TIOATRIG
+
+if SAMV7_AFEC1_PWMTRIG
+
+config SAMV7_AFEC1_PWMEVENT
+	int "PWM Event Line"
+	default 0
+	range 0 1
+	---help---
+		PWM event line used for AFEC triggering. Can be either 0 or 1.
+
+endif # SAMV7_AFEC1_PWM_TRIG
 
 endif # SAMV7_AFEC1
 
@@ -611,17 +665,206 @@ config SAMV7_PWM0_CH0
 	bool "PWM0 Channel 0"
 	default n
 
+if SAMV7_PWM0_CH0
+
+config SAMV7_PWM0_CH0_COMP
+	bool "Use complementary output"
+	default n
+
+endif
+
 config SAMV7_PWM0_CH1
 	bool "PWM0 Channel 1"
 	default n
+
+if SAMV7_PWM0_CH1
+
+config SAMV7_PWM0_CH1_COMP
+	bool "Use complementary output"
+	default n
+
+endif
 
 config SAMV7_PWM0_CH2
 	bool "PWM0 Channel 2"
 	default n
 
+if SAMV7_PWM0_CH2
+
+config SAMV7_PWM0_CH2_COMP
+	bool "Use complementary output"
+	default n
+
+endif
+
 config SAMV7_PWM0_CH3
 	bool "PWM0 Channel 3"
 	default n
+
+if SAMV7_PWM0_CH3
+
+config SAMV7_PWM0_CH3_COMP
+	bool "Use complementary output"
+	default n
+
+endif
+
+menu "PWM Comparison units"
+
+config SAMV7_PWM0_TRIG0
+	int "PWM0 Comparison Unit 0 value"
+	range 0 100
+	default 0
+	---help---
+		Timer value on which the comparison unit generates
+		an event. Value is in percentages.
+
+config SAMV7_PWM0_TRIG1
+	int "PWM0 Comparison Unit 1 value"
+	range 0 100
+	default 0
+	---help---
+		Timer value on which the comparison unit generates
+		an event. Value is in percentages.
+
+config SAMV7_PWM0_TRIG2
+	int "PWM0 Comparison Unit 2 value"
+	range 0 100
+	default 0
+	---help---
+		Timer value on which the comparison unit generates
+		an event. Value is in percentages.
+
+config SAMV7_PWM0_TRIG3
+	int "PWM0 Comparison Unit 3 value"
+	range 0 100
+	default 0
+	---help---
+		Timer value on which the comparison unit generates
+		an event. Value is in percentages.
+
+config SAMV7_PWM0_TRIG4
+	int "PWM0 Comparison Unit 4 value"
+	range 0 100
+	default 0
+	---help---
+		Timer value on which the comparison unit generates
+		an event. Value is in percentages.
+
+config SAMV7_PWM0_TRIG5
+	int "PWM0 Comparison Unit 5 value"
+	range 0 100
+	default 0
+	---help---
+		Timer value on which the comparison unit generates
+		an event. Value is in percentages.
+
+config SAMV7_PWM0_TRIG6
+	int "PWM0 Comparison Unit 6 value"
+	range 0 100
+	default 0
+	---help---
+		Timer value on which the comparison unit generates
+		an event. Value is in percentages.
+
+config SAMV7_PWM0_TRIG7
+	int "PWM0 Comparison Unit 7 value"
+	range 0 100
+	default 0
+	---help---
+		Timer value on which the comparison unit generates
+		an event. Value is in percentages.
+
+config SAMV7_PWM
+
+endmenu
+
+menu "PWM Fault inputs"
+
+config SAMV7_PWM0_PA9
+	bool "External fault input from PA9"
+	default n
+
+if SAMV7_PWM1_PA9
+
+config SAMV7_PWM1_PA9_POL
+	bool "Inverted polarity"
+	default n
+	---help---
+		Fault input is by default active on high level. This config
+		inverts the logic and makes fault active on low level.
+
+endif
+
+config SAMV7_PWM0_PD8
+	bool "External fault input from PD8"
+	default n
+
+if SAMV7_PWM1_PD8
+
+config SAMV7_PWM1_PD8_POL
+	bool "Inverted polarity"
+	default n
+	---help---
+		Fault input is by default active on high level. This config
+		inverts the logic and makes fault active on low level.
+
+endif
+
+config SAMV7_PWM0_PD9
+	bool "External fault input from PD9"
+	default n
+
+if SAMV7_PWM1_PD9
+
+config SAMV7_PWM1_PD9_POL
+	bool "Inverted polarity"
+	default n
+	---help---
+		Fault input is by default active on high level. This config
+		inverts the logic and makes fault active on low level.
+
+endif
+
+config SAMV7_PWM0_PMC
+	bool "External fault input from PMC"
+	default n
+
+config SAMV7_PWM0_AFEC0
+	bool "External fault input from AFEC0"
+	default n
+
+config SAMV7_PWM0_AFEC1
+	bool "External fault input from AFEC1"
+	default n
+
+config SAMV7_PWM0_ACC
+	bool "External fault input from ACC"
+	default n
+
+config SAMV7_PWM0_TIM0
+	bool "External fault input from Timer 0"
+	default n
+
+endmenu
+
+config SAMV7_PWM0_EVENT0
+	bool "Generate trigger on Event Line 0"
+	default n
+	---help---
+		PWM allows trigger generation on event lines. This can be
+		used for ADC conversion triggering for example. It is
+		necessary to set a comparison unit in order to generate an
+		event.
+
+config SAMV7_PWM0_EVENT1
+	bool "Generate trigger on Event Line 1"
+	default n
+	---help---
+		PWM allows trigger generation on event lines. This can be
+		used for ADC conversion triggering for example. It is
+		necessary to set a comparison unit in order to generate an
+		event.
 
 endif
 
@@ -638,17 +881,205 @@ config SAMV7_PWM1_CH0
 	bool "PWM1 Channel 0"
 	default n
 
+if SAMV7_PWM1_CH0
+
+config SAMV7_PWM1_CH0_COMP
+	bool "Use complementary output"
+	default n
+
+endif
+
 config SAMV7_PWM1_CH1
 	bool "PWM1 Channel 1"
 	default n
+
+if SAMV7_PWM1_CH1
+
+config SAMV7_PWM1_CH1_COMP
+	bool "Use complementary output"
+	default n
+
+endif
 
 config SAMV7_PWM1_CH2
 	bool "PWM1 Channel 2"
 	default n
 
+if SAMV7_PWM1_CH2
+
+config SAMV7_PWM1_CH2_COMP
+	bool "Use complementary output"
+	default n
+
+endif
+
 config SAMV7_PWM1_CH3
 	bool "PWM1 Channel 3"
 	default n
+
+if SAMV7_PWM1_CH3
+
+config SAMV7_PWM1_CH3_COMP
+	bool "Use complementary output"
+	default n
+
+endif
+
+menu "PWM Comparison units"
+
+config SAMV7_PWM1_TRIG0
+	int "PWM1 Comparison Unit 0 value"
+	range 0 100
+	default 0
+	---help---
+		Timer value on which the comparison unit generates
+		an event. Value is in percentages.
+
+config SAMV7_PWM1_TRIG1
+	int "PWM1 Comparison Unit 1 value"
+	range 0 100
+	default 0
+	---help---
+		Timer value on which the comparison unit generates
+		an event. Value is in percentages.
+
+config SAMV7_PWM1_TRIG2
+	int "PWM1 Comparison Unit 2 value"
+	range 0 100
+	default 0
+	---help---
+		Timer value on which the comparison unit generates
+		an event. Value is in percentages.
+
+config SAMV7_PWM1_TRIG3
+	int "PWM1 Comparison Unit 3 value"
+	range 0 100
+	default 0
+	---help---
+		Timer value on which the comparison unit generates
+		an event. Value is in percentages.
+
+config SAMV7_PWM1_TRIG4
+	int "PWM1 Comparison Unit 4 value"
+	range 0 100
+	default 0
+	---help---
+		Timer value on which the comparison unit generates
+		an event. Value is in percentages.
+
+config SAMV7_PWM1_TRIG5
+	int "PWM1 Comparison Unit 5 value"
+	range 0 100
+	default 0
+	---help---
+		Timer value on which the comparison unit generates
+		an event. Value is in percentages.
+
+config SAMV7_PWM1_TRIG6
+	int "PWM1 Comparison Unit 6 value"
+	range 0 100
+	default 0
+	---help---
+		Timer value on which the comparison unit generates
+		an event. Value is in percentages.
+
+config SAMV7_PWM1_TRIG7
+	int "PWM1 Comparison Unit 7 value"
+	range 0 100
+	default 0
+	---help---
+		Timer value on which the comparison unit generates
+		an event. Value is in percentages.
+
+endmenu
+
+menu "PWM Fault inputs"
+
+config SAMV7_PWM1_PA21
+	bool "External fault input from PA21"
+	default n
+
+if SAMV7_PWM1_PA21
+
+config SAMV7_PWM1_PA21_POL
+	bool "Inverted polarity"
+	default n
+	---help---
+		Fault input is by default active on high level. This config
+		inverts the logic and makes fault active on low level.
+
+endif
+
+config SAMV7_PWM1_PA26
+	bool "External fault input from PA26"
+	default n
+
+if SAMV7_PWM1_PA26
+
+config SAMV7_PWM1_PA26_POL
+	bool "Inverted polarity"
+	default n
+	---help---
+		Fault input is by default active on high level. This config
+		inverts the logic and makes fault active on low level.
+
+endif
+
+config SAMV7_PWM1_PA28
+	bool "External fault input from PA28"
+	default n
+
+if SAMV7_PWM1_PA28
+
+config SAMV7_PWM1_PA28_POL
+	bool "Inverted polarity"
+	default n
+	---help---
+		Fault input is by default active on high level. This config
+		inverts the logic and makes fault active on low level.
+
+endif
+
+config SAMV7_PWM1_PMC
+	bool "External fault input from PMC"
+	default n
+
+config SAMV7_PWM1_AFEC0
+	bool "External fault input from AFEC0"
+	default n
+
+config SAMV7_PWM1_AFEC1
+	bool "External fault input from AFEC1"
+	default n
+
+config SAMV7_PWM1_ACC
+	bool "External fault input from ACC"
+	default n
+
+config SAMV7_PWM1_TIM0
+	bool "External fault input from Timer 0"
+	default n
+
+endmenu
+
+
+config SAMV7_PWM1_EVENT0
+	bool "Generate trigger on Event Line 0"
+	default n
+	---help---
+		PWM allows trigger generation on event lines. This can be
+		used for ADC conversion triggering for example. It is
+		necessary to set a comparison unit in order to generate an
+		event.
+
+config SAMV7_PWM1_EVENT1
+	bool "Generate trigger on Event Line 1"
+	default n
+	---help---
+		PWM allows trigger generation on event lines. This can be
+		used for ADC conversion triggering for example. It is
+		necessary to set a comparison unit in order to generate an
+		event.
 
 endif
 
@@ -743,35 +1174,125 @@ config SAMV7_TWIHS2
 	default n
 	depends on SAMV7_HAVE_TWIHS2
 
-config SAMV7_UART0
+menuconfig SAMV7_UART0
 	bool "UART 0"
 	default y
+
+if SAMV7_UART0
+
+choice
+	prompt "UART0 Driver Configuration"
+	default SAMV7_UART0_SERIALDRIVER
+	depends on SAMV7_UART0
+
+config SAMV7_UART0_SERIALDRIVER
+	bool "Standard serial driver"
 	select UART0_SERIALDRIVER
 	select ARCH_HAVE_SERIAL_TERMIOS
 
-config SAMV7_UART1
+config SAMV7_UART0_1WIREDRIVER
+	bool "1-Wire driver"
+	select SAMV7_1WIREDRIVER
+
+endchoice # "UART0 Driver Configuration"
+
+endif # SAMV7_UART0
+
+menuconfig SAMV7_UART1
 	bool "UART 1"
 	default n
+
+if SAMV7_UART1
+
+choice
+	prompt "UART1 Driver Configuration"
+	default SAMV7_UART1_SERIALDRIVER
+	depends on SAMV7_UART1
+
+config SAMV7_UART1_SERIALDRIVER
+	bool "Standard serial driver"
 	select UART1_SERIALDRIVER
 	select ARCH_HAVE_SERIAL_TERMIOS
 
-config SAMV7_UART2
+config SAMV7_UART1_1WIREDRIVER
+	bool "1-Wire driver"
+	select SAMV7_1WIREDRIVER
+
+endchoice # "UART1 Driver Configuration"
+
+endif # SAMV7_UART1
+
+menuconfig SAMV7_UART2
 	bool "UART 2"
 	default y
+
+if SAMV7_UART2
+
+choice
+	prompt "UART2 Driver Configuration"
+	default SAMV7_UART2_SERIALDRIVER
+	depends on SAMV7_UART2
+
+config SAMV7_UART2_SERIALDRIVER
+	bool "Standard serial driver"
 	select UART2_SERIALDRIVER
 	select ARCH_HAVE_SERIAL_TERMIOS
 
-config SAMV7_UART3
+config SAMV7_UART2_1WIREDRIVER
+	bool "1-Wire driver"
+	select SAMV7_1WIREDRIVER
+
+endchoice # "UART2 Driver Configuration"
+
+endif # SAMV7_UART2
+
+menuconfig SAMV7_UART3
 	bool "UART 3"
 	default n
+
+if SAMV7_UART3
+
+choice
+	prompt "UART3 Driver Configuration"
+	default SAMV7_UART3_SERIALDRIVER
+	depends on SAMV7_UART3
+
+config SAMV7_UART3_SERIALDRIVER
+	bool "Standard serial driver"
 	select UART3_SERIALDRIVER
 	select ARCH_HAVE_SERIAL_TERMIOS
 
-config SAMV7_UART4
+config SAMV7_UART3_1WIREDRIVER
+	bool "1-Wire driver"
+	select SAMV7_1WIREDRIVER
+
+endchoice # "UART3 Driver Configuration"
+
+endif # SAMV7_UART3
+
+menuconfig SAMV7_UART4
 	bool "UART 4"
 	default y
+
+if SAMV7_UART4
+
+choice
+	prompt "UART4 Driver Configuration"
+	default SAMV7_UART4_SERIALDRIVER
+	depends on SAMV7_UART4
+
+config SAMV7_UART4_SERIALDRIVER
+	bool "Standard serial driver"
 	select UART4_SERIALDRIVER
 	select ARCH_HAVE_SERIAL_TERMIOS
+
+config SAMV7_UART4_1WIREDRIVER
+	bool "1-Wire driver"
+	select SAMV7_1WIREDRIVER
+
+endchoice # "UART4 Driver Configuration"
+
+endif # SAMV7_UART4
 
 config SAMV7_USBDEVFS
 	bool "USB Device Full Speed (USBFS)"
@@ -801,10 +1322,26 @@ menuconfig SAMV7_USART0
 	bool "USART 0"
 	default n
 	depends on SAMV7_HAVE_USART0
+
+if SAMV7_USART0
+
+choice
+	prompt "USART0 Driver Configuration"
+	default SAMV7_USART0_SERIALDRIVER
+	depends on SAMV7_USART0
+
+config SAMV7_USART0_SERIALDRIVER
+	bool "Standard serial driver"
 	select USART0_SERIALDRIVER
 	select ARCH_HAVE_SERIAL_TERMIOS
 
-if SAMV7_USART0
+config SAMV7_USART0_1WIREDRIVER
+	bool "1-Wire driver"
+	select SAMV7_1WIREDRIVER
+
+endchoice # "USART0 Driver Configuration"
+
+if SAMV7_USART0_SERIALDRIVER
 
 config SAMV7_USART0_RS485MODE
 	bool "RS-485 on USART0"
@@ -815,16 +1352,33 @@ config SAMV7_USART0_RS485MODE
 		logic is required to set the pin to logical 0 before the driver is
 		opened for the first time.
 
-endif
+endif # SAMV7_USART0_SERIALDRIVER
+endif # SAMV7_USART0
 
 menuconfig SAMV7_USART1
 	bool "USART 1"
 	default n
 	depends on SAMV7_HAVE_USART1
+
+if SAMV7_USART1
+
+choice
+	prompt "USART1 Driver Configuration"
+	default SAMV7_USART1_SERIALDRIVER
+	depends on SAMV7_USART1
+
+config SAMV7_USART1_SERIALDRIVER
+	bool "Standard serial driver"
 	select USART1_SERIALDRIVER
 	select ARCH_HAVE_SERIAL_TERMIOS
 
-if SAMV7_USART1
+config SAMV7_USART1_1WIREDRIVER
+	bool "1-Wire driver"
+	select SAMV7_1WIREDRIVER
+
+endchoice # "USART1 Driver Configuration"
+
+if SAMV7_USART1_SERIALDRIVER
 
 config SAMV7_USART1_RS485MODE
 	bool "RS-485 on USART1"
@@ -835,16 +1389,33 @@ config SAMV7_USART1_RS485MODE
 		logic is required to set the pin to logical 0 before the driver is
 		opened for the first time.
 
-endif
+endif # SAMV7_USART1_SERIALDRIVER
+endif # SAMV7_USART1
 
 menuconfig SAMV7_USART2
 	bool "USART 2"
 	default n
 	depends on SAMV7_HAVE_USART2
+
+if SAMV7_USART2
+
+choice
+	prompt "USART2 Driver Configuration"
+	default SAMV7_USART2_SERIALDRIVER
+	depends on SAMV7_USART2
+
+config SAMV7_USART2_SERIALDRIVER
+	bool "Standard serial driver"
 	select USART2_SERIALDRIVER
 	select ARCH_HAVE_SERIAL_TERMIOS
 
-if SAMV7_USART2
+config SAMV7_USART2_1WIREDRIVER
+	bool "1-Wire driver"
+	select SAMV7_1WIREDRIVER
+
+endchoice # "USART2 Driver Configuration"
+
+if SAMV7_USART2_SERIALDRIVER
 
 config SAMV7_USART2_RS485MODE
 	bool "RS-485 on USART2"
@@ -855,7 +1426,8 @@ config SAMV7_USART2_RS485MODE
 		logic is required to set the pin to logical 0 before the driver is
 		opened for the first time.
 
-endif
+endif # SAMV7_USART2_SERIALDRIVER
+endif # SAMV7_USART2
 
 config SAMV7_WDT
 	bool "Watchdog Timer (WDT)"
@@ -1007,8 +1579,7 @@ config SAMV7_WDT_INTERRUPT
 
 config SAMV7_WDT_DEBUGHALT
 	bool "Halt on DEBUG"
-	default y if DEBUG_FEATURES
-	default n if !DEBUG_FEATURES
+	default DEBUG_FEATURES
 	---help---
 		Halt the watchdog timer in the debug state
 
@@ -1041,8 +1612,7 @@ config SAMV7_RSWDT_INTERRUPT
 
 config SAMV7_RSWDT_DEBUGHALT
 	bool "Halt on DEBUG"
-	default y if DEBUG_FEATURES
-	default n if !DEBUG_FEATURES
+	default DEBUG_FEATURES
 	---help---
 		Halt the watchdog timer in the debug state
 
@@ -1951,16 +2521,14 @@ endif # SAMV7_TC3
 
 config SAMV7_ONESHOT
 	bool "TC one-shot wrapper"
-	default n if !SCHED_TICKLESS
-	default y if SCHED_TICKLESS
+	default SCHED_TICKLESS
 	---help---
 		Enable a wrapper around the low level timer/counter functions to
 		support one-shot timer.
 
 config SAMV7_FREERUN
 	bool "TC free-running wrapper"
-	default n if !SCHED_TICKLESS
-	default y if SCHED_TICKLESS
+	default SCHED_TICKLESS
 	---help---
 		Enable a wrapper around the low level timer/counter functions to
 		support a free-running timer.
@@ -2066,6 +2634,21 @@ endmenu # DAC device driver configuration
 
 menu "HSMCI device driver options"
 	depends on SAMV7_HSMCI
+
+config SAMV7_HSMCI_SW_CARDDETECT
+	bool "MMC/SD card detect is SW on CD/DAT3"
+	depends on MMCSD_HAVE_CARDDETECT
+	default n
+	---help---
+		Some SD card connectors do not have separate card detection pin. In that
+		case card detection has to be done on CD/DAT3 data line. This means software
+		(i.e. architecture level driver) has to take care of pin configuration switching
+		(pin has to be set as data pin in case of transfer and as interrupt card detection
+		pin when there is no action on data line). SAMv7 HSMCI driver offers this method
+		of SD card detection. Following macros have to be defined in include/board.h:
+
+			GPIO_HSMCI0_CD - detection pin (same as CD/DAT3 but with IRQ)
+			IRQ_HSMCI0_CD  - IRQ number for the pin
 
 config SAMV7_HSMCI_DMA
 	bool "Support DMA data transfers"

@@ -68,14 +68,14 @@ struct alt1250_res_s
 static int alt1250_open(FAR struct file *filep);
 static int alt1250_close(FAR struct file *filep);
 static ssize_t alt1250_read(FAR struct file *filep, FAR char *buffer,
-  size_t len);
+                            size_t len);
 static int alt1250_ioctl(FAR struct file *filep, int cmd, unsigned long arg);
-static int alt1250_poll(FAR struct file *filep, struct pollfd *fds,
-  bool setup);
+static int alt1250_poll(FAR struct file *filep, FAR struct pollfd *fds,
+                        bool setup);
 
 parse_handler_t alt1250_additional_parsehdlr(uint16_t, uint8_t);
 compose_handler_t alt1250_additional_composehdlr(uint32_t,
-    FAR uint8_t *, size_t);
+                                                 FAR uint8_t *, size_t);
 
 #ifdef CONFIG_PM
 static int alt1250_pm_prepare(struct pm_callback_s *cb, int domain,
@@ -95,9 +95,11 @@ static const struct file_operations g_alt1250fops =
   alt1250_open,  /* open */
   alt1250_close, /* close */
   alt1250_read,  /* read */
-  0,             /* write */
-  0,             /* seek */
+  NULL,          /* write */
+  NULL,          /* seek */
   alt1250_ioctl, /* ioctl */
+  NULL,          /* mmap */
+  NULL,          /* truncate */
   alt1250_poll,  /* poll */
 };
 static uint8_t g_recvbuff[ALTCOM_RX_PKT_SIZE_MAX];
@@ -124,11 +126,11 @@ static struct alt1250_res_s g_alt1250_res_s;
  ****************************************************************************/
 
 static void add_list(FAR struct alt_queue_s *head,
-  FAR struct alt_container_s *list)
+                     FAR struct alt_container_s *list)
 {
   FAR struct alt_container_s *next;
 
-  nxsem_wait_uninterruptible(&head->lock);
+  nxmutex_lock(&head->lock);
 
   while (list != NULL)
     {
@@ -140,7 +142,7 @@ static void add_list(FAR struct alt_queue_s *head,
       list = next;
     }
 
-  nxsem_post(&head->lock);
+  nxmutex_unlock(&head->lock);
 }
 
 /****************************************************************************
@@ -152,12 +154,12 @@ static FAR struct alt_container_s *remove_list_all(
 {
   FAR struct alt_container_s *list;
 
-  nxsem_wait_uninterruptible(&head->lock);
+  nxmutex_lock(&head->lock);
 
   list = (FAR struct alt_container_s *)sq_peek(&head->queue);
   sq_init(&head->queue);
 
-  nxsem_post(&head->lock);
+  nxmutex_unlock(&head->lock);
 
   return list;
 }
@@ -167,11 +169,11 @@ static FAR struct alt_container_s *remove_list_all(
  ****************************************************************************/
 
 static FAR struct alt_container_s *remove_list(FAR struct alt_queue_s *head,
-  uint16_t cmdid, uint16_t transid)
+                                            uint16_t cmdid, uint16_t transid)
 {
   FAR struct alt_container_s *list;
 
-  nxsem_wait_uninterruptible(&head->lock);
+  nxmutex_lock(&head->lock);
 
   list = (FAR struct alt_container_s *)sq_peek(&head->queue);
   while (list != NULL)
@@ -186,7 +188,7 @@ static FAR struct alt_container_s *remove_list(FAR struct alt_queue_s *head,
       list = (FAR struct alt_container_s *)sq_next(&list->node);
     }
 
-  nxsem_post(&head->lock);
+  nxmutex_unlock(&head->lock);
 
   return list;
 }
@@ -197,11 +199,11 @@ static FAR struct alt_container_s *remove_list(FAR struct alt_queue_s *head,
 
 static void set_senddisable(FAR struct alt1250_dev_s *dev, bool disable)
 {
-  nxsem_wait_uninterruptible(&dev->senddisablelock);
+  nxmutex_lock(&dev->senddisablelock);
 
   dev->senddisable = disable;
 
-  nxsem_post(&dev->senddisablelock);
+  nxmutex_unlock(&dev->senddisablelock);
 }
 
 /****************************************************************************
@@ -212,11 +214,11 @@ static bool is_senddisable(FAR struct alt1250_dev_s *dev)
 {
   bool disable;
 
-  nxsem_wait_uninterruptible(&dev->senddisablelock);
+  nxmutex_lock(&dev->senddisablelock);
 
   disable = dev->senddisable;
 
-  nxsem_post(&dev->senddisablelock);
+  nxmutex_unlock(&dev->senddisablelock);
 
   return disable;
 }
@@ -226,27 +228,27 @@ static bool is_senddisable(FAR struct alt1250_dev_s *dev)
  ****************************************************************************/
 
 static ssize_t read_data(FAR struct alt1250_dev_s *dev,
-  FAR struct alt_readdata_s *rdata)
+                         FAR struct alt_readdata_s *rdata)
 {
   int idx;
 
-  nxsem_wait_uninterruptible(&dev->evtmaplock);
+  nxmutex_lock(&dev->evtmaplock);
 
   /* change status to NOT WRITABLE */
 
   for (idx = 0; idx < (sizeof(uint64_t) * 8); idx++)
     {
-      if (dev->evtbitmap & (1ULL << idx))
+      if ((dev->evtbitmap & (1ULL << idx)) != 0)
         {
           if (dev->evtbuff->ninst >= idx)
             {
               FAR alt_evtbuf_inst_t *inst = &dev->evtbuff->inst[idx];
 
-              nxsem_wait_uninterruptible(&inst->stat_lock);
+              nxmutex_lock(&inst->stat_lock);
 
               inst->stat = ALTEVTBUF_ST_NOTWRITABLE;
 
-              nxsem_post(&inst->stat_lock);
+              nxmutex_unlock(&inst->stat_lock);
             }
         }
     }
@@ -265,7 +267,7 @@ static ssize_t read_data(FAR struct alt1250_dev_s *dev,
 
   dev->evtbitmap = 0ULL;
 
-  nxsem_post(&dev->evtmaplock);
+  nxmutex_unlock(&dev->evtmaplock);
 
   return sizeof(struct alt_readdata_s);
 }
@@ -275,13 +277,14 @@ static ssize_t read_data(FAR struct alt1250_dev_s *dev,
  ****************************************************************************/
 
 static void write_evtbitmap(FAR struct alt1250_dev_s *dev,
-  uint64_t bitmap, FAR struct alt_container_s *container)
+                            uint64_t bitmap,
+                            FAR struct alt_container_s *container)
 {
-  nxsem_wait_uninterruptible(&dev->evtmaplock);
+  nxmutex_lock(&dev->evtmaplock);
 
   dev->evtbitmap |= bitmap;
 
-  if (dev->evtbitmap & ALT1250_EVTBIT_RESET)
+  if ((dev->evtbitmap & ALT1250_EVTBIT_RESET) != 0)
     {
       dev->evtbitmap = ALT1250_EVTBIT_RESET;
     }
@@ -293,24 +296,24 @@ static void write_evtbitmap(FAR struct alt1250_dev_s *dev,
 
   m_info("write bitmap: 0x%llx\n", bitmap);
 
-  nxsem_post(&dev->evtmaplock);
+  nxmutex_unlock(&dev->evtmaplock);
 }
 
 /****************************************************************************
  * Name: is_evtbitmap_avail
  ****************************************************************************/
 
-static int is_evtbitmap_avail(FAR struct alt1250_dev_s *dev)
+static bool is_evtbitmap_avail(FAR struct alt1250_dev_s *dev)
 {
-  int ret;
+  bool ret;
 
-  nxsem_wait_uninterruptible(&dev->evtmaplock);
+  nxmutex_lock(&dev->evtmaplock);
 
   /* 0 means it is not available, otherwise it is available. */
 
   ret = (0ULL != dev->evtbitmap);
 
-  nxsem_post(&dev->evtmaplock);
+  nxmutex_unlock(&dev->evtmaplock);
 
   return ret;
 }
@@ -320,7 +323,7 @@ static int is_evtbitmap_avail(FAR struct alt1250_dev_s *dev)
  ****************************************************************************/
 
 static void add_evtbuff(FAR struct alt1250_dev_s *dev,
-  FAR struct alt_evtbuffer_s *buff)
+                        FAR struct alt_evtbuffer_s *buff)
 {
   dev->evtbuff = buff;
 }
@@ -330,12 +333,12 @@ static void add_evtbuff(FAR struct alt1250_dev_s *dev,
  ****************************************************************************/
 
 static int write_evtbuff_byidx(FAR struct alt1250_dev_s *dev,
-  uint64_t idx, void(*write_func)(FAR void *outp[], FAR void *inp),
+  uint64_t idx, CODE void(*write_func)(FAR void *outp[], FAR void *inp),
   FAR void *inp)
 {
   int ret = WRITE_NG;
 
-  nxsem_wait_uninterruptible(&dev->evtmaplock);
+  nxmutex_lock(&dev->evtmaplock);
 
   if (dev->evtbuff)
     {
@@ -343,7 +346,7 @@ static int write_evtbuff_byidx(FAR struct alt1250_dev_s *dev,
         {
           FAR alt_evtbuf_inst_t *inst = &dev->evtbuff->inst[idx];
 
-          nxsem_wait_uninterruptible(&inst->stat_lock);
+          nxmutex_lock(&inst->stat_lock);
           if (inst->stat == ALTEVTBUF_ST_WRITABLE)
             {
               write_func(inst->outparam, inp);
@@ -351,11 +354,11 @@ static int write_evtbuff_byidx(FAR struct alt1250_dev_s *dev,
               ret = WRITE_OK;
             }
 
-          nxsem_post(&inst->stat_lock);
+          nxmutex_unlock(&inst->stat_lock);
         }
     }
 
-  nxsem_post(&dev->evtmaplock);
+  nxmutex_unlock(&dev->evtmaplock);
 
   return ret;
 }
@@ -365,10 +368,10 @@ static int write_evtbuff_byidx(FAR struct alt1250_dev_s *dev,
  ****************************************************************************/
 
 static void lock_evtbuffinst(FAR alt_evtbuf_inst_t *inst,
-  FAR struct alt1250_dev_s *dev)
+                             FAR struct alt1250_dev_s *dev)
 {
-  nxsem_wait_uninterruptible(&dev->evtmaplock);
-  nxsem_wait_uninterruptible(&inst->stat_lock);
+  nxmutex_lock(&dev->evtmaplock);
+  nxmutex_lock(&inst->stat_lock);
 }
 
 /****************************************************************************
@@ -376,10 +379,10 @@ static void lock_evtbuffinst(FAR alt_evtbuf_inst_t *inst,
  ****************************************************************************/
 
 static void unlock_evtbufinst(FAR alt_evtbuf_inst_t *inst,
-  FAR struct alt1250_dev_s *dev)
+                              FAR struct alt1250_dev_s *dev)
 {
-  nxsem_post(&inst->stat_lock);
-  nxsem_post(&dev->evtmaplock);
+  nxmutex_unlock(&inst->stat_lock);
+  nxmutex_unlock(&dev->evtmaplock);
 }
 
 /****************************************************************************
@@ -419,7 +422,6 @@ static uint16_t cid_to_searchable(uint16_t cid, uint8_t altver)
   cid &= ~ALTCOM_CMDID_REPLY_BIT;
   if (altver == ALTCOM_VER4)
     {
-
       /* Change the command ID to Version 1
        * Even if it cannot be converted, try to search the table
        * using the original command ID.
@@ -440,7 +442,7 @@ static uint16_t cid_to_searchable(uint16_t cid, uint8_t altver)
  ****************************************************************************/
 
 static uint64_t get_bitmap(FAR struct alt1250_dev_s *dev, uint16_t cid,
-  uint8_t altver)
+                           uint8_t altver)
 {
   uint64_t bitmap = 0ULL;
 
@@ -517,17 +519,16 @@ static void pollnotify(FAR struct alt1250_dev_s *dev, uint64_t bitmap,
 {
   write_evtbitmap(dev, bitmap, container);
 
-  nxsem_wait_uninterruptible(&dev->pfdlock);
+  nxmutex_lock(&dev->pfdlock);
 
-  if (dev->pfd)
+  if (dev->pfd != NULL)
     {
       /* If poll() waits, notify  */
 
-      dev->pfd->revents |= POLLIN;
-      nxsem_post(dev->pfd->sem);
+      poll_notify(&dev->pfd, 1, POLLIN);
     }
 
-  nxsem_post(&dev->pfdlock);
+  nxmutex_unlock(&dev->pfdlock);
 }
 
 /****************************************************************************
@@ -535,9 +536,9 @@ static void pollnotify(FAR struct alt1250_dev_s *dev, uint64_t bitmap,
  ****************************************************************************/
 
 compose_handler_t get_composehdlr(uint32_t cmdid, FAR uint8_t *payload,
-  size_t size)
+                                  size_t size)
 {
-  compose_handler_t ret = NULL;
+  compose_handler_t ret;
 
   ret = alt1250_composehdlr(cmdid);
 
@@ -557,7 +558,7 @@ compose_handler_t get_composehdlr(uint32_t cmdid, FAR uint8_t *payload,
 
 parse_handler_t get_parsehdlr(uint16_t altcid, uint8_t altver)
 {
-  parse_handler_t ret = NULL;
+  parse_handler_t ret;
 
   ret = alt1250_parsehdlr(altcid, altver);
 
@@ -610,7 +611,7 @@ static void alt1250_receive_daemon_response(FAR struct alt_power_s *req)
  ****************************************************************************/
 
 static int alt1250_power_control(FAR struct alt1250_dev_s *dev,
-  FAR struct alt_power_s *req)
+                                 FAR struct alt_power_s *req)
 {
   int ret = OK;
 
@@ -638,6 +639,7 @@ static int alt1250_power_control(FAR struct alt1250_dev_s *dev,
 
 #ifdef CONFIG_PM
       case LTE_CMDID_STOPAPI:
+      case LTE_CMDID_RESTARTAPI:
       case LTE_CMDID_SUSPEND:
         alt1250_receive_daemon_response(req);
         break;
@@ -664,7 +666,7 @@ static int alt1250_power_control(FAR struct alt1250_dev_s *dev,
  ****************************************************************************/
 
 static int make_altcomcmd_and_send(FAR struct alt1250_dev_s *dev,
-  FAR alt_container_t *req)
+                                   FAR alt_container_t *req)
 {
   int ret = OK;
   compose_handler_t handler;
@@ -680,7 +682,7 @@ static int make_altcomcmd_and_send(FAR struct alt1250_dev_s *dev,
   payload = get_payload((FAR struct altcom_cmdhdr_s *)g_sendbuff);
 
   handler = get_composehdlr(req->cmdid & ~LTE_CMDOPT_ASYNC_BIT, payload,
-    ALTCOM_PAYLOAD_SIZE_MAX);
+                            ALTCOM_PAYLOAD_SIZE_MAX);
   if (handler)
     {
       altver = altmdm_get_protoversion();
@@ -691,7 +693,7 @@ static int make_altcomcmd_and_send(FAR struct alt1250_dev_s *dev,
       else
         {
           ret = handler(req->inparam, req->inparamlen, altver, payload,
-            ALTCOM_PAYLOAD_SIZE_MAX, &cid);
+                        ALTCOM_PAYLOAD_SIZE_MAX, &cid);
 
           ret = (ret > ALTCOM_PAYLOAD_SIZE_MAX) ? -ENOSPC : ret;
 
@@ -752,9 +754,8 @@ static int make_altcomcmd_and_send(FAR struct alt1250_dev_s *dev,
                    * the container has been processed.
                    */
 
-                  if ((req->outparam != NULL) &&
-                    (remove_list(&dev->waitlist, req->altcid, req->alttid)
-                      == NULL))
+                  if ((req->outparam != NULL) && (remove_list(&dev->waitlist,
+                       req->altcid, req->alttid) == NULL))
                     {
                       ret = -ENETRESET;
                     }
@@ -762,7 +763,7 @@ static int make_altcomcmd_and_send(FAR struct alt1250_dev_s *dev,
               else
                 {
                   m_info("write success: size=%d, cid=0x%04x tid=0x%04x\n",
-                    ret, cid, tid);
+                         ret, cid, tid);
                   ret = OK;
                 }
             }
@@ -785,7 +786,7 @@ static int make_altcomcmd_and_send(FAR struct alt1250_dev_s *dev,
  ****************************************************************************/
 
 static int exchange_selectcontainer(FAR struct alt1250_dev_s *dev,
-  FAR alt_container_t **container)
+                                    FAR alt_container_t **container)
 {
   FAR alt_container_t *newcontainer;
 
@@ -794,13 +795,13 @@ static int exchange_selectcontainer(FAR struct alt1250_dev_s *dev,
       return -EINVAL;
     }
 
-  nxsem_wait_uninterruptible(&dev->select_inst.stat_lock);
+  nxmutex_lock(&dev->select_inst.stat_lock);
 
   newcontainer = *container;
   *container = dev->select_container;
   dev->select_container = newcontainer;
 
-  nxsem_post(&dev->select_inst.stat_lock);
+  nxmutex_unlock(&dev->select_inst.stat_lock);
 
   return OK;
 }
@@ -1082,12 +1083,12 @@ static int alt1250_start_rxthread(FAR struct alt1250_dev_s *dev,
 {
   int ret = OK;
 
-  nxsem_init(&dev->waitlist.lock, 0, 1);
-  nxsem_init(&dev->replylist.lock, 0, 1);
-  nxsem_init(&dev->evtmaplock, 0, 1);
-  nxsem_init(&dev->pfdlock, 0, 1);
-  nxsem_init(&dev->senddisablelock, 0, 1);
-  nxsem_init(&dev->select_inst.stat_lock, 0, 1);
+  nxmutex_init(&dev->waitlist.lock);
+  nxmutex_init(&dev->replylist.lock);
+  nxmutex_init(&dev->evtmaplock);
+  nxmutex_init(&dev->pfdlock);
+  nxmutex_init(&dev->senddisablelock);
+  nxmutex_init(&dev->select_inst.stat_lock);
 
   sq_init(&dev->waitlist.queue);
   sq_init(&dev->replylist.queue);
@@ -1098,18 +1099,18 @@ static int alt1250_start_rxthread(FAR struct alt1250_dev_s *dev,
                        SCHED_PRIORITY_DEFAULT,
                        CONFIG_DEFAULT_TASK_STACKSIZE,
                        altcom_recvthread,
-                       (FAR char * const *)NULL);
+                       NULL);
 
   if (ret < 0)
     {
       m_err("kthread create failed: %d\n", errno);
 
-      nxsem_destroy(&dev->waitlist.lock);
-      nxsem_destroy(&dev->replylist.lock);
-      nxsem_destroy(&dev->evtmaplock);
-      nxsem_destroy(&dev->pfdlock);
-      nxsem_destroy(&dev->senddisablelock);
-      nxsem_destroy(&dev->select_inst.stat_lock);
+      nxmutex_destroy(&dev->waitlist.lock);
+      nxmutex_destroy(&dev->replylist.lock);
+      nxmutex_destroy(&dev->evtmaplock);
+      nxmutex_destroy(&dev->pfdlock);
+      nxmutex_destroy(&dev->senddisablelock);
+      nxmutex_destroy(&dev->select_inst.stat_lock);
     }
 
   return ret;
@@ -1127,17 +1128,16 @@ static int alt1250_open(FAR struct file *filep)
 
   /* Get our private data structure */
 
-  DEBUGASSERT(filep != NULL && filep->f_inode != NULL);
   inode = filep->f_inode;
 
-  dev = (FAR struct alt1250_dev_s *)inode->i_private;
+  dev = inode->i_private;
   DEBUGASSERT(dev);
 
-  nxsem_wait_uninterruptible(&dev->refslock);
+  nxmutex_lock(&dev->refslock);
 
   if (dev->crefs > 0)
     {
-      nxsem_post(&dev->refslock);
+      nxmutex_unlock(&dev->refslock);
       return -EPERM;
     }
 
@@ -1145,7 +1145,7 @@ static int alt1250_open(FAR struct file *filep)
 
   dev->crefs++;
 
-  nxsem_post(&dev->refslock);
+  nxmutex_unlock(&dev->refslock);
 
   if (dev->rxthread_pid < 0)
     {
@@ -1155,9 +1155,9 @@ static int alt1250_open(FAR struct file *filep)
   if (dev->rxthread_pid < 0)
     {
       ret = dev->rxthread_pid;
-      nxsem_wait_uninterruptible(&dev->refslock);
+      nxmutex_lock(&dev->refslock);
       dev->crefs--;
-      nxsem_post(&dev->refslock);
+      nxmutex_unlock(&dev->refslock);
     }
 
   return ret;
@@ -1174,17 +1174,16 @@ static int alt1250_close(FAR struct file *filep)
 
   /* Get our private data structure */
 
-  DEBUGASSERT(filep != NULL && filep->f_inode != NULL);
   inode = filep->f_inode;
 
-  dev = (FAR struct alt1250_dev_s *)inode->i_private;
+  dev = inode->i_private;
   DEBUGASSERT(dev);
 
-  nxsem_wait_uninterruptible(&dev->refslock);
+  nxmutex_lock(&dev->refslock);
 
   if (dev->crefs == 0)
     {
-      nxsem_post(&dev->refslock);
+      nxmutex_unlock(&dev->refslock);
       return -EPERM;
     }
 
@@ -1192,14 +1191,14 @@ static int alt1250_close(FAR struct file *filep)
 
   dev->crefs--;
 
-  nxsem_post(&dev->refslock);
+  nxmutex_unlock(&dev->refslock);
 
-  nxsem_destroy(&dev->waitlist.lock);
-  nxsem_destroy(&dev->replylist.lock);
-  nxsem_destroy(&dev->evtmaplock);
-  nxsem_destroy(&dev->pfdlock);
-  nxsem_destroy(&dev->senddisablelock);
-  nxsem_destroy(&dev->select_inst.stat_lock);
+  nxmutex_destroy(&dev->waitlist.lock);
+  nxmutex_destroy(&dev->replylist.lock);
+  nxmutex_destroy(&dev->evtmaplock);
+  nxmutex_destroy(&dev->pfdlock);
+  nxmutex_destroy(&dev->senddisablelock);
+  nxmutex_destroy(&dev->select_inst.stat_lock);
 
   altmdm_fin();
   dev->rxthread_pid = -1;
@@ -1213,17 +1212,16 @@ static int alt1250_close(FAR struct file *filep)
  ****************************************************************************/
 
 static ssize_t alt1250_read(FAR struct file *filep, FAR char *buffer,
-  size_t len)
+                            size_t len)
 {
   FAR struct inode *inode;
   FAR struct alt1250_dev_s *dev;
 
   /* Get our private data structure */
 
-  DEBUGASSERT(filep != NULL && filep->f_inode != NULL);
   inode = filep->f_inode;
 
-  dev = (FAR struct alt1250_dev_s *)inode->i_private;
+  dev = inode->i_private;
   DEBUGASSERT(dev);
 
   if (len != sizeof(struct alt_readdata_s))
@@ -1246,10 +1244,9 @@ static int alt1250_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 
   /* Get our private data structure */
 
-  DEBUGASSERT(filep != NULL && filep->f_inode != NULL);
   inode = filep->f_inode;
 
-  dev = (FAR struct alt1250_dev_s *)inode->i_private;
+  dev = inode->i_private;
   DEBUGASSERT(dev);
 
   switch (cmd)
@@ -1303,7 +1300,7 @@ static int alt1250_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
  ****************************************************************************/
 
 static int alt1250_poll(FAR struct file *filep, FAR struct pollfd *fds,
-  bool setup)
+                        bool setup)
 {
   FAR struct inode *inode;
   FAR struct alt1250_dev_s *dev;
@@ -1311,10 +1308,9 @@ static int alt1250_poll(FAR struct file *filep, FAR struct pollfd *fds,
 
   /* Get our private data structure */
 
-  DEBUGASSERT(filep != NULL && filep->f_inode != NULL);
   inode = filep->f_inode;
 
-  dev = (FAR struct alt1250_dev_s *)inode->i_private;
+  dev = inode->i_private;
   DEBUGASSERT(dev);
 
   /* Are we setting up the poll?  Or tearing it down? */
@@ -1329,25 +1325,24 @@ static int alt1250_poll(FAR struct file *filep, FAR struct pollfd *fds,
           goto errout;
         }
 
-      nxsem_wait_uninterruptible(&dev->pfdlock);
+      nxmutex_lock(&dev->pfdlock);
 
       if (is_evtbitmap_avail(dev))
         {
-          fds->revents |= POLLIN;
-          nxsem_post(fds->sem);
+          poll_notify(&fds, 1, POLLIN);
         }
       else
         {
           dev->pfd = fds;
         }
 
-      nxsem_post(&dev->pfdlock);
+      nxmutex_unlock(&dev->pfdlock);
     }
   else
     {
-      nxsem_wait_uninterruptible(&dev->pfdlock);
+      nxmutex_lock(&dev->pfdlock);
       dev->pfd = NULL;
-      nxsem_post(&dev->pfdlock);
+      nxmutex_unlock(&dev->pfdlock);
     }
 
 errout:
@@ -1384,6 +1379,19 @@ static int alt1250_pm_prepare(struct pm_callback_s *cb, int domain,
         }
 
       ret = alt1250_send_daemon_request(ALT1250_EVTBIT_STOPAPI);
+
+      if (ret)
+        {
+          return ERROR;
+        }
+      else
+        {
+          return OK;
+        }
+    }
+  else if (pmstate == PM_NORMAL)
+    {
+      ret = alt1250_send_daemon_request(ALT1250_EVTBIT_RESTARTAPI);
 
       if (ret)
         {
@@ -1444,7 +1452,8 @@ static void alt1250_pm_notify(struct pm_callback_s *cb, int domain,
  ****************************************************************************/
 
 FAR void *alt1250_register(FAR const char *devpath,
-  FAR struct spi_dev_s *dev, FAR const struct alt1250_lower_s *lower)
+                           FAR struct spi_dev_s *dev,
+                           FAR const struct alt1250_lower_s *lower)
 {
   FAR struct alt1250_dev_s *priv;
   int ret;
@@ -1462,7 +1471,7 @@ FAR void *alt1250_register(FAR const char *devpath,
   priv->spi = dev;
   priv->lower = lower;
 
-  nxsem_init(&priv->refslock, 0, 1);
+  nxmutex_init(&priv->refslock);
 
   nxsem_init(&priv->rxthread_sem, 0, 0);
 
@@ -1502,7 +1511,8 @@ FAR void *alt1250_register(FAR const char *devpath,
 }
 
 uint64_t get_event_lapibuffer(FAR struct alt1250_dev_s *dev,
-  uint32_t lapicmdid, alt_evtbuf_inst_t **inst)
+                              uint32_t lapicmdid,
+                              alt_evtbuf_inst_t **inst)
 {
   FAR alt_evtbuf_inst_t *evtinst = NULL;
   unsigned int i;
@@ -1514,7 +1524,7 @@ uint64_t get_event_lapibuffer(FAR struct alt1250_dev_s *dev,
 
       if (evtinst->cmdid == lapicmdid)
         {
-          nxsem_wait_uninterruptible(&evtinst->stat_lock);
+          nxmutex_lock(&evtinst->stat_lock);
 
           if (evtinst->stat == ALTEVTBUF_ST_WRITABLE)
             {
@@ -1522,7 +1532,7 @@ uint64_t get_event_lapibuffer(FAR struct alt1250_dev_s *dev,
               ret = 1ULL << i;
             }
 
-          nxsem_post(&evtinst->stat_lock);
+          nxmutex_unlock(&evtinst->stat_lock);
           break;
         }
     }

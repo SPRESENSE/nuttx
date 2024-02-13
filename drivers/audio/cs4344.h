@@ -31,7 +31,10 @@
 #include <pthread.h>
 #include <mqueue.h>
 
+#include <sys/param.h>
+
 #include <nuttx/wqueue.h>
+#include <nuttx/mutex.h>
 #include <nuttx/fs/ioctl.h>
 
 #ifdef CONFIG_AUDIO
@@ -40,7 +43,7 @@
  * Pre-Processor Definitions
  ****************************************************************************/
 
-#define CS4344_DEFAULT_SAMPRATE      11025     /* Initial sample rate */
+#define CS4344_DEFAULT_SAMPRATE      16000     /* Initial sample rate */
 #define CS4344_DEFAULT_NCHANNELS     1         /* Initial number of channels */
 #define CS4344_DEFAULT_BPSAMP        16        /* Initial bits per sample */
 
@@ -71,10 +74,11 @@ struct cs4344_dev_s
   char                    mqname[16];       /* Our message queue name */
   pthread_t               threadid;         /* ID of our thread */
   uint32_t                bitrate;          /* Actual programmed bit rate */
-  sem_t                   pendsem;          /* Protect pendq */
+  mutex_t                 pendlock;         /* Protect pendq */
   uint16_t                samprate;         /* Configured samprate (samples/sec) */
   uint8_t                 nchannels;        /* Number of channels (1 or 2) */
   uint8_t                 bpsamp;           /* Bits per sample (8 or 16) */
+  uint32_t                mclk_freq;        /* Master clock frequency */
   volatile uint8_t        inflight;         /* Number of audio buffers in-flight */
   bool                    running;          /* True: Worker thread is running */
   bool                    paused;           /* True: Playing is paused */

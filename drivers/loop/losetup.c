@@ -44,13 +44,12 @@
 #include <nuttx/kmalloc.h>
 #include <nuttx/fs/fs.h>
 #include <nuttx/fs/loop.h>
-#include <nuttx/semaphore.h>
+#include <nuttx/mutex.h>
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
-#define loop_semgive(d) nxsem_post(&(d)->sem)  /* To match loop_semtake */
 #define MAX_OPENCNT     (255)                  /* Limit of uint8_t */
 
 /****************************************************************************
@@ -59,7 +58,7 @@
 
 struct loop_struct_s
 {
-  sem_t        sem;          /* For safe read-modify-write operations */
+  mutex_t      lock;         /* For safe read-modify-write operations */
   uint32_t     nsectors;     /* Number of sectors on device */
   off_t        offset;       /* Offset (in bytes) to the first sector */
   uint16_t     sectsize;     /* The size of one sector */
@@ -72,7 +71,6 @@ struct loop_struct_s
  * Private Function Prototypes
  ****************************************************************************/
 
-static int     loop_semtake(FAR struct loop_struct_s *dev);
 static int     loop_open(FAR struct inode *inode);
 static int     loop_close(FAR struct inode *inode);
 static ssize_t loop_read(FAR struct inode *inode, FAR unsigned char *buffer,
@@ -94,24 +92,11 @@ static const struct block_operations g_bops =
   loop_read,     /* read */
   loop_write,    /* write */
   loop_geometry, /* geometry */
-  NULL           /* ioctl */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL         /* unlink */
-#endif
 };
 
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
-
-/****************************************************************************
- * Name: loop_semtake
- ****************************************************************************/
-
-static int loop_semtake(FAR struct loop_struct_s *dev)
-{
-  return nxsem_wait(&dev->sem);
-}
 
 /****************************************************************************
  * Name: loop_open
@@ -125,12 +110,12 @@ static int loop_open(FAR struct inode *inode)
   FAR struct loop_struct_s *dev;
   int ret;
 
-  DEBUGASSERT(inode && inode->i_private);
-  dev = (FAR struct loop_struct_s *)inode->i_private;
+  DEBUGASSERT(inode->i_private);
+  dev = inode->i_private;
 
   /* Make sure we have exclusive access to the state structure */
 
-  ret = loop_semtake(dev);
+  ret = nxmutex_lock(&dev->lock);
   if (ret == OK)
     {
       if (dev->opencnt == MAX_OPENCNT)
@@ -144,7 +129,7 @@ static int loop_open(FAR struct inode *inode)
           dev->opencnt++;
         }
 
-      loop_semgive(dev);
+      nxmutex_unlock(&dev->lock);
     }
 
   return ret;
@@ -162,12 +147,12 @@ static int loop_close(FAR struct inode *inode)
   FAR struct loop_struct_s *dev;
   int ret;
 
-  DEBUGASSERT(inode && inode->i_private);
-  dev = (FAR struct loop_struct_s *)inode->i_private;
+  DEBUGASSERT(inode->i_private);
+  dev = inode->i_private;
 
   /* Make sure we have exclusive access to the state structure */
 
-  ret = loop_semtake(dev);
+  ret = nxmutex_lock(&dev->lock);
   if (ret == OK)
     {
       if (dev->opencnt == 0)
@@ -181,7 +166,7 @@ static int loop_close(FAR struct inode *inode)
           dev->opencnt--;
         }
 
-      loop_semgive(dev);
+      nxmutex_unlock(&dev->lock);
     }
 
   return ret;
@@ -202,8 +187,8 @@ static ssize_t loop_read(FAR struct inode *inode, FAR unsigned char *buffer,
   off_t offset;
   off_t ret;
 
-  DEBUGASSERT(inode && inode->i_private);
-  dev = (FAR struct loop_struct_s *)inode->i_private;
+  DEBUGASSERT(inode->i_private);
+  dev = inode->i_private;
 
   if (start_sector + nsectors > dev->nsectors)
     {
@@ -256,8 +241,8 @@ static ssize_t loop_write(FAR struct inode *inode,
   off_t offset;
   off_t ret;
 
-  DEBUGASSERT(inode && inode->i_private);
-  dev = (FAR struct loop_struct_s *)inode->i_private;
+  DEBUGASSERT(inode->i_private);
+  dev = inode->i_private;
 
   /* Calculate the offset to write the sectors and seek to the position */
 
@@ -299,10 +284,12 @@ static int loop_geometry(FAR struct inode *inode,
 {
   FAR struct loop_struct_s *dev;
 
-  DEBUGASSERT(inode);
   if (geometry)
     {
-      dev = (FAR struct loop_struct_s *)inode->i_private;
+      dev = inode->i_private;
+
+      memset(geometry, 0, sizeof(*geometry));
+
       geometry->geo_available     = true;
       geometry->geo_mediachanged  = false;
       geometry->geo_writeenabled  = dev->writeenabled;
@@ -371,7 +358,7 @@ int losetup(FAR const char *devname, FAR const char *filename,
 
   /* Initialize the loop device structure. */
 
-  nxsem_init(&dev->sem, 0, 1);
+  nxmutex_init(&dev->lock);
   dev->nsectors  = (sb.st_size - offset) / sectsize;
   dev->sectsize  = sectsize;
   dev->offset    = offset;
@@ -385,7 +372,7 @@ int losetup(FAR const char *devname, FAR const char *filename,
   ret = -ENOSYS;
   if (!readonly)
     {
-      ret = file_open(&dev->devfile, filename, O_RDWR);
+      ret = file_open(&dev->devfile, filename, O_RDWR | O_CLOEXEC);
     }
 
   if (ret >= 0)
@@ -396,7 +383,7 @@ int losetup(FAR const char *devname, FAR const char *filename,
     {
       /* If that fails, then try to open the device read-only */
 
-      ret = file_open(&dev->devfile, filename, O_RDONLY);
+      ret = file_open(&dev->devfile, filename, O_RDONLY | O_CLOEXEC);
       if (ret < 0)
         {
           ferr("ERROR: Failed to open %s: %d\n", filename, ret);
@@ -419,6 +406,7 @@ errout_with_file:
   file_close(&dev->devfile);
 
 errout_with_dev:
+  nxmutex_destroy(&dev->lock);
   kmm_free(dev);
   return ret;
 }
@@ -459,7 +447,7 @@ int loteardown(FAR const char *devname)
 
   /* Inode private data is a reference to the loop device structure */
 
-  dev = (FAR struct loop_struct_s *)inode->i_private;
+  dev = inode->i_private;
   close_blockdriver(inode);
 
   DEBUGASSERT(dev != NULL);
@@ -482,6 +470,7 @@ int loteardown(FAR const char *devname)
       file_close(&dev->devfile);
     }
 
+  nxmutex_destroy(&dev->lock);
   kmm_free(dev);
   return ret;
 }

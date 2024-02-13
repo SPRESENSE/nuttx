@@ -559,7 +559,7 @@ void bt_conn_set_state(FAR struct bt_conn_s *conn,
         {
           int ret;
 
-          ret = bt_queue_open(BT_CONN_TX, O_RDWR | O_CREAT,
+          ret = bt_queue_open(BT_CONN_TX, O_RDWR | O_CREAT | O_CLOEXEC,
                               CONFIG_BLUETOOTH_TXCONN_NMSGS,
                               &conn->tx_queue);
           DEBUGASSERT(ret >= 0);
@@ -1077,4 +1077,23 @@ int bt_conn_le_conn_update(FAR struct bt_conn_s *conn, uint16_t min,
   conn_update->supervision_timeout = BT_HOST2LE16(timeout);
 
   return bt_hci_cmd_send(BT_HCI_OP_LE_CONN_UPDATE, buf);
+}
+
+/****************************************************************************
+ * Name: bt_conn_initialize
+ *
+ * Description:
+ *   Initialize this module's private data.
+ *
+ * Input Parameters:
+ *   None
+ *
+ * Returned Value:
+ *   None
+ *
+ ****************************************************************************/
+
+void bt_conn_initialize(void)
+{
+  memset(g_conns, 0, sizeof(g_conns));
 }

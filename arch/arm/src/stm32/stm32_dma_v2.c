@@ -92,48 +92,56 @@ static struct stm32_dma_s g_dma[DMA_NSTREAMS] =
     .stream   = 0,
     .irq      = STM32_IRQ_DMA1S0,
     .shift    = DMA_INT_STREAM0_SHIFT,
+    .sem      = SEM_INITIALIZER(1),
     .base     = STM32_DMA1_BASE + STM32_DMA_OFFSET(0),
   },
   {
     .stream   = 1,
     .irq      = STM32_IRQ_DMA1S1,
     .shift    = DMA_INT_STREAM1_SHIFT,
+    .sem      = SEM_INITIALIZER(1),
     .base     = STM32_DMA1_BASE + STM32_DMA_OFFSET(1),
   },
   {
     .stream   = 2,
     .irq      = STM32_IRQ_DMA1S2,
     .shift    = DMA_INT_STREAM2_SHIFT,
+    .sem      = SEM_INITIALIZER(1),
     .base     = STM32_DMA1_BASE + STM32_DMA_OFFSET(2),
   },
   {
     .stream   = 3,
     .irq      = STM32_IRQ_DMA1S3,
     .shift    = DMA_INT_STREAM3_SHIFT,
+    .sem      = SEM_INITIALIZER(1),
     .base     = STM32_DMA1_BASE + STM32_DMA_OFFSET(3),
   },
   {
     .stream   = 4,
     .irq      = STM32_IRQ_DMA1S4,
     .shift    = DMA_INT_STREAM4_SHIFT,
+    .sem      = SEM_INITIALIZER(1),
     .base     = STM32_DMA1_BASE + STM32_DMA_OFFSET(4),
   },
   {
     .stream   = 5,
     .irq      = STM32_IRQ_DMA1S5,
     .shift    = DMA_INT_STREAM5_SHIFT,
+    .sem      = SEM_INITIALIZER(1),
     .base     = STM32_DMA1_BASE + STM32_DMA_OFFSET(5),
   },
   {
     .stream   = 6,
     .irq      = STM32_IRQ_DMA1S6,
     .shift    = DMA_INT_STREAM6_SHIFT,
+    .sem      = SEM_INITIALIZER(1),
     .base     = STM32_DMA1_BASE + STM32_DMA_OFFSET(6),
   },
   {
     .stream   = 7,
     .irq      = STM32_IRQ_DMA1S7,
     .shift    = DMA_INT_STREAM7_SHIFT,
+    .sem      = SEM_INITIALIZER(1),
     .base     = STM32_DMA1_BASE + STM32_DMA_OFFSET(7),
   },
 #if STM32_NDMA > 1
@@ -141,47 +149,55 @@ static struct stm32_dma_s g_dma[DMA_NSTREAMS] =
     .stream   = 0,
     .irq      = STM32_IRQ_DMA2S0,
     .shift    = DMA_INT_STREAM0_SHIFT,
+    .sem      = SEM_INITIALIZER(1),
     .base     = STM32_DMA2_BASE + STM32_DMA_OFFSET(0),
   },
   {
     .stream   = 1,
     .irq      = STM32_IRQ_DMA2S1,
     .shift    = DMA_INT_STREAM1_SHIFT,
+    .sem      = SEM_INITIALIZER(1),
     .base     = STM32_DMA2_BASE + STM32_DMA_OFFSET(1),
   },
   {
     .stream   = 2,
     .irq      = STM32_IRQ_DMA2S2,
     .shift    = DMA_INT_STREAM2_SHIFT,
+    .sem      = SEM_INITIALIZER(1),
     .base     = STM32_DMA2_BASE + STM32_DMA_OFFSET(2),
   },
   {
     .stream   = 3,
     .irq      = STM32_IRQ_DMA2S3,
     .shift    = DMA_INT_STREAM3_SHIFT,
+    .sem      = SEM_INITIALIZER(1),
     .base     = STM32_DMA2_BASE + STM32_DMA_OFFSET(3),
   },
   {
     .stream   = 4,
     .irq      = STM32_IRQ_DMA2S4,
+    .sem      = SEM_INITIALIZER(1),
     .base     = STM32_DMA2_BASE + STM32_DMA_OFFSET(4),
   },
   {
     .stream   = 5,
     .irq      = STM32_IRQ_DMA2S5,
     .shift    = DMA_INT_STREAM5_SHIFT,
+    .sem      = SEM_INITIALIZER(1),
     .base     = STM32_DMA2_BASE + STM32_DMA_OFFSET(5),
   },
   {
     .stream   = 6,
     .irq      = STM32_IRQ_DMA2S6,
     .shift    = DMA_INT_STREAM6_SHIFT,
+    .sem      = SEM_INITIALIZER(1),
     .base     = STM32_DMA2_BASE + STM32_DMA_OFFSET(6),
   },
   {
     .stream   = 7,
     .irq      = STM32_IRQ_DMA2S7,
     .shift    = DMA_INT_STREAM7_SHIFT,
+    .sem      = SEM_INITIALIZER(1),
     .base     = STM32_DMA2_BASE + STM32_DMA_OFFSET(7),
   },
 #endif
@@ -227,22 +243,11 @@ static inline void dmast_putreg(struct stm32_dma_s *dmast, uint32_t offset,
   putreg32(value, dmast->base + offset);
 }
 
-/****************************************************************************
- * Name: stm32_dmatake() and stm32_dmagive()
- *
- * Description:
- *   Used to get exclusive access to a DMA channel.
- *
- ****************************************************************************/
-
-static int stm32_dmatake(struct stm32_dma_s *dmast)
+static inline void dmast_modifyreg32(struct stm32_dma_s *dmast,
+                                     uint32_t offset, uint32_t clrbits,
+                                     uint32_t setbits)
 {
-  return nxsem_wait_uninterruptible(&dmast->sem);
-}
-
-static inline void stm32_dmagive(struct stm32_dma_s *dmast)
-{
-  nxsem_post(&dmast->sem);
+  modifyreg32(dmast->base + offset, clrbits, setbits);
 }
 
 /****************************************************************************
@@ -456,7 +461,6 @@ void weak_function arm_dma_initialize(void)
   for (stream = 0; stream < DMA_NSTREAMS; stream++)
     {
       dmast = &g_dma[stream];
-      nxsem_init(&dmast->sem, 0, 1);
 
       /* Attach DMA interrupt vectors */
 
@@ -523,7 +527,7 @@ DMA_HANDLE stm32_dmachannel(unsigned int dmamap)
    * is available if it is currently being used by another driver
    */
 
-  ret = stm32_dmatake(dmast);
+  ret = nxsem_wait_uninterruptible(&dmast->sem);
   if (ret < 0)
     {
       return NULL;
@@ -565,7 +569,7 @@ void stm32_dmafree(DMA_HANDLE handle)
 
   /* Release the channel */
 
-  stm32_dmagive(dmast);
+  nxsem_post(&dmast->sem);
 }
 
 /****************************************************************************
@@ -582,6 +586,7 @@ void stm32_dmasetup(DMA_HANDLE handle, uint32_t paddr, uint32_t maddr,
   struct stm32_dma_s *dmast = (struct stm32_dma_s *)handle;
   uint32_t regoffset;
   uint32_t regval;
+  uint32_t timeout;
 
   dmainfo("paddr: %08" PRIx32 " maddr: %08" PRIx32
           " ntransfers: %zu scr: %08" PRIx32 "\n",
@@ -601,7 +606,36 @@ void stm32_dmasetup(DMA_HANDLE handle, uint32_t paddr, uint32_t maddr,
    * configuration. ..."
    */
 
-  while ((dmast_getreg(dmast, STM32_DMA_SCR_OFFSET) & DMA_SCR_EN) != 0);
+  /* Drivers using DMA should manage the streams. If a DMA request
+   * is not made on an error or an abort occurs. The driver should
+   * stop the DMA. If it fails to do so we can not just hang waiting
+   * on the HW that will not change state.
+   *
+   * If at the end of waiting the HW is still not ready there is a HW problem
+   * or a SW usage problem.
+   *
+   * Enable DEBUGASSERT to detect this.
+   */
+
+  if ((dmast_getreg(dmast, STM32_DMA_SCR_OFFSET) & DMA_SCR_EN) != 0)
+    {
+      /* Attempt to disable the DMA stream and wait up to a 100 us for it
+       * to stop.
+       */
+
+      dmast_modifyreg32(dmast, STM32_DMA_SCR_OFFSET, DMA_SCR_EN, 0);
+      timeout = 100;
+      while (timeout != 0 &&
+             (dmast_getreg(dmast, STM32_DMA_SCR_OFFSET) & DMA_SCR_EN) != 0)
+        {
+          up_udelay(1);
+          timeout--;
+        }
+
+        DEBUGASSERT(timeout != 0 &&
+                    (dmast_getreg(dmast, STM32_DMA_SCR_OFFSET) &
+                     DMA_SCR_EN) == 0);
+    }
 
   /* "... All the stream dedicated bits set in the status register (DMA_LISR
    * and DMA_HISR) from the previous data block DMA transfer should be

@@ -190,6 +190,8 @@ static int cxd56_ioctl(struct mtd_dev_s *dev, int cmd, unsigned long arg)
           finfo("cmd: GEOM\n");
           if (geo)
             {
+              memset(geo, 0, sizeof(*geo));
+
               /* Populate the geometry structure with information need to
                * know the capacity and how to access the device.
                *
@@ -272,7 +274,7 @@ struct mtd_dev_s *cxd56_sfc_initialize(void)
 
   /* Allocate a buffer for the erase block cache */
 
-  priv->cache = (uint8_t *)kmm_malloc(SPIFI_BLKSIZE);
+  priv->cache = kmm_malloc(SPIFI_BLKSIZE);
   if (!priv->cache)
     {
       /* Allocation failed! */

@@ -33,6 +33,12 @@
 #include "inode/inode.h"
 
 /****************************************************************************
+ * Private Data
+ ****************************************************************************/
+
+static ino_t g_ino;
+
+/****************************************************************************
  * Private Functions
  ****************************************************************************/
 
@@ -75,9 +81,10 @@ static FAR struct inode *inode_alloc(FAR const char *name, mode_t mode)
   int namelen;
 
   namelen = inode_namelen(name);
-  node    = (FAR struct inode *)kmm_zalloc(FSNODE_SIZE(namelen));
+  node    = kmm_zalloc(FSNODE_SIZE(namelen));
   if (node)
     {
+      node->i_ino   = g_ino++;
 #ifdef CONFIG_PSEUDOFS_ATTRIBUTES
       node->i_mode  = mode;
       clock_gettime(CLOCK_REALTIME, &node->i_atime);

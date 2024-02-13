@@ -23,6 +23,7 @@
  ****************************************************************************/
 
 #include <fixedmath.h>
+#include <sys/param.h>
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -37,16 +38,8 @@
 #define B16_HALFPI 0x00019220 /* 1.570796327 */
 #define B16_PI     0x00032440 /* 3.141592654 */
 
-#ifndef MAX
-#  define MAX(a,b) (a > b ? a : b)
-#endif
-
-#ifndef MIN
-#  define MIN(a,b) (a < b ? a : b)
-#endif
-
 #ifndef ABS
-#  define ABS(a)   (a < 0 ? -a : a)
+#  define ABS(a)   ((a) < 0 ? -(a) : (a))
 #endif
 
 /****************************************************************************

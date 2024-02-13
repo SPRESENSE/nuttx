@@ -39,13 +39,13 @@ used.
 Note that enabling all these will produce an incredible amount of logging output. Enable the level you want and
 the area you're interested in, and leave the rest disabled, save the config, and then recompile. You can see the full
 list of debug feature logging functions in the file
-`debug.h <https://github.com/apache/incubator-nuttx/blob/master/include/debug.h>`__.
+`debug.h <https://github.com/apache/nuttx/blob/master/include/debug.h>`__.
 
 Syslog timestamps can be enabled in the configuration in :menuselection:`Device Drivers --> System Logging --> Prepend
 timestamp to syslog message` (``CONFIG_SYSLOG_TIMESTAMP``).
 
 You may need to do a little bit of experimenting to find the combination of logging settings that work for the problem
-you're trying to solve. See the file `debug.h <https://github.com/apache/incubator-nuttx/blob/master/include/debug.h>`_
+you're trying to solve. See the file `debug.h <https://github.com/apache/nuttx/blob/master/include/debug.h>`_
 for available debug settings that are available.
 
 There are also subsystems that enable USB trace debugging, and you can log to memory too, if you need the logging to be
@@ -242,27 +242,29 @@ With gdb
 You can also do NuttX aware debugging using ``gdb`` scripting support.
 The benefit is that it works also for the sim build where ``openocd`` is
 not applicable. For this to work, you will need to enable PROC filesystem support
-which will expose required task information (``CONFIG_FS_PROCFS=y``). 
+which will expose required task information (``CONFIG_FS_PROCFS=y``).
 
-To use this approach, you can load the ``nuttx/tools/nuttx-gdbinit`` file. An
-easy way to do this is to create a symbolic link:
+To use this approach, you can load the ``nuttx/tools/gdb/__init__.py`` file. An
+easy way to do this is to add an extra command:
 
 .. code-block:: console
 
-  $ cd $HOME
-  $ ln -s nuttx/tools/nuttx-gdbinit .gdbinit
-  
-This way whenever gdb is started it will run the appropriate commands. To inspect
-the threads you can now use the following ``gdb`` command:
+  $ gdb nuttx -ix=tools/gdb/__init__.py
+
+gdb can need to set the current elf support architecture, for example,
+the prefix is arm-ebai-none-.
 
 .. code-block::
 
-  (gdb) info_nxthreads
-  target examined 
-  _target_arch.name=armv7e-m
-  $_target_has_fpu : 0 
-  $_target_has_smp : 0 
-  saved current_tcb (pid=0) 
-  * 0 Thread 0x20000308  (Name: Idle Task, State: Running, Priority: 0) 0xdc in __start()
-    1 Thread 0x20001480  (Name: init, State: Waiting,Semaphore, Priority: 100) 0x7e08 in arm_switchcontext()
+  (gdb) info threads
+  Id   Thread                Info                                                                             Frame
+  *0   Thread 0x20000398     (Name: Idle Task, State: Running, Priority: 0, Stack: 1000)                      0x80001ac __start() at chip/stm32_start.c:111
+  1    Thread 0x10000188     (Name: nsh_main, State: Waiting,Semaphore, Priority: 100, Stack: 2000)           0x800aa06 sys_call2() at /home/ajh/work/vela_all/nuttx/include/arch/syscall.h:187
 
+The python script has extended many commands like ``thread <id>`` ,
+``thread apply <all|id list> cmd``, ``nxsetargs`` etc.
+You can use ``help <command>`` to get help.
+
+Note that if you need to continue debugging after using the thread command,
+please use ``c`` instead of ``continue``, because thread will force the register to be set,
+and the `c` command will restore the register before conitune.

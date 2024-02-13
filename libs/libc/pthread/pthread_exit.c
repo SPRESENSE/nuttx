@@ -58,15 +58,13 @@ void pthread_exit(FAR void *exit_value)
    * kicked off by actions taken during pthread_exit processing.
    */
 
-#ifdef CONFIG_CANCELLATION_POINTS
   task_setcancelstate(TASK_CANCEL_DISABLE, NULL);
-#endif
 
-#ifdef CONFIG_PTHREAD_CLEANUP
+#if defined(CONFIG_PTHREAD_CLEANUP_STACKSIZE) && CONFIG_PTHREAD_CLEANUP_STACKSIZE > 0
   pthread_cleanup_popall(tls_get_info());
 #endif
 
-#if CONFIG_TLS_NELEM > 0
+#if defined(CONFIG_TLS_NELEM) && CONFIG_TLS_NELEM > 0
   tls_destruct();
 #endif
 

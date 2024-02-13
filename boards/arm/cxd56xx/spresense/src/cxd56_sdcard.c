@@ -69,8 +69,9 @@ struct cxd56_sdhci_state_s
 {
   struct sdio_dev_s *sdhci;   /* R/W device handle */
   bool initialized;           /* TRUE: SDHCI block driver is initialized */
+#ifdef CONFIG_MMCSD_HAVE_CARDDETECT
   bool inserted;              /* TRUE: card is inserted */
-  void (*cb)(bool);           /* Callback function pointer to application */
+#endif
 };
 
 /****************************************************************************
@@ -117,7 +118,7 @@ static void board_sdcard_enable(void *arg)
       finfo("Initializing SDHC slot 0\n");
 
       g_sdhci.sdhci = cxd56_sdhci_initialize(0);
-      if (!g_sdhci.sdhci)
+      if (g_sdhci.sdhci == NULL)
         {
           _err("ERROR: Failed to initialize SDHC slot 0\n");
           goto release_frequency_lock;
@@ -125,7 +126,7 @@ static void board_sdcard_enable(void *arg)
 
       /* If not initialize SD slot */
 
-      if (!nx_stat("/dev/mmcsd0", &stat_sdio, 1) == 0)
+      if (nx_stat("/dev/mmcsd0", &stat_sdio, 1) != 0)
         {
           /* Now bind the SDHC interface to the MMC/SD driver */
 
@@ -135,7 +136,7 @@ static void board_sdcard_enable(void *arg)
           if (ret != OK)
             {
               _err("ERROR: Failed to bind SDHC to the MMC/SD driver: %d\n",
-                                                                      ret);
+                   ret);
               goto release_frequency_lock;
             }
 
@@ -146,33 +147,13 @@ static void board_sdcard_enable(void *arg)
 
       cxd56_sdhci_mediachange(g_sdhci.sdhci);
 
-      if (nx_stat("/dev/mmcsd0", &stat_sdio, 1) == 0)
-        {
-          if (S_ISBLK(stat_sdio.st_mode))
-            {
-              ret = nx_mount("/dev/mmcsd0", "/mnt/sd0", "vfat", 0, NULL);
-              if (ret == 0)
-                {
-                  finfo(
-                     "Successfully mount a SDCARD via the MMC/SD driver\n");
-                }
-              else
-                {
-                  _err("ERROR: Failed to mount the SDCARD. %d\n", ret);
-                  cxd56_sdio_resetstatus(g_sdhci.sdhci);
-                  goto release_frequency_lock;
-                }
-            }
-        }
+#ifdef CONFIG_CXD56_SDCARD_AUTOMOUNT
+      /* Let the automounter know about the insertion event */
+
+      board_automount_event(0, board_sdcard_inserted(0));
+#endif /* CONFIG_CXD56_SDCARD_AUTOMOUNT */
 
       g_sdhci.initialized = true;
-
-      /* Callback to application to notice card is inserted */
-
-      if (g_sdhci.cb != NULL)
-        {
-          g_sdhci.cb(true);
-        }
     }
 
 release_frequency_lock:
@@ -192,64 +173,30 @@ release_frequency_lock:
 
 static void board_sdcard_disable(void *arg)
 {
-  int ret;
-
   if (g_sdhci.initialized)
     {
-      /* un-mount */
-
-      ret = nx_umount2("/mnt/sd0", 0);
-      if (ret < 0)
-        {
-          ferr("ERROR: Failed to unmount the SD Card: %d\n", ret);
-        }
-
       /* Report the new state to the SDIO driver */
 
       cxd56_sdhci_mediachange(g_sdhci.sdhci);
 
       cxd56_sdhci_finalize(0);
 
+#ifdef CONFIG_CXD56_SDCARD_AUTOMOUNT
+      /* Let the automounter know about the removal event */
+
+      board_automount_event(0, board_sdcard_inserted(0));
+#endif /* CONFIG_CXD56_SDCARD_AUTOMOUNT */
+
       g_sdhci.initialized = false;
-
-      /* Callback to application to notice card is ejected */
-
-      if (g_sdhci.cb != NULL)
-        {
-          g_sdhci.cb(false);
-        }
     }
 }
 
 #ifdef CONFIG_MMCSD_HAVE_CARDDETECT
 /****************************************************************************
- * Name: board_sdcard_inserted
- *
- * Description:
- *   Check if a card is inserted into the selected SDHCI slot
- *
- ****************************************************************************/
-
-static bool board_sdcard_inserted(int slotno)
-{
-  bool removed;
-
-  /* Get the state of the GPIO pin */
-
-  removed = cxd56_gpio_read(PIN_SDIO_CD);
-  finfo("Slot %d inserted: %s\n", slotno, removed ? "NO" : "YES");
-
-  return !removed;
-}
-
-/****************************************************************************
  * Name: board_sdcard_detect_int
  *
  * Description:
  *   Card detect interrupt handler
- *
- * TODO: Any way to automatically moun/unmount filesystem based on card
- * detect status?  Yes... send a message or signal to an application.
  *
  ****************************************************************************/
 
@@ -309,15 +256,6 @@ static int board_sdcard_detect_int(int irq, void *context, void *arg)
               board_sdcard_disable(NULL);
             }
         }
-
-      /* Re-configure Interrupt pin */
-
-      cxd56_gpioint_config(PIN_SDIO_CD,
-                           inserted ?
-                           GPIOINT_PSEUDO_EDGE_RISE :
-                           GPIOINT_PSEUDO_EDGE_FALL,
-                           board_sdcard_detect_int,
-                           NULL);
     }
 
   return OK;
@@ -358,23 +296,17 @@ int board_sdcard_initialize(void)
   /* Configure Interrupt pin with internal pull-up */
 
   cxd56_pin_config(PINCONF_SDIO_CD_GPIO);
-  ret = cxd56_gpioint_config(PIN_SDIO_CD,
-                             GPIOINT_PSEUDO_EDGE_FALL,
-                             board_sdcard_detect_int,
-                             NULL);
-  if (ret < 0)
-    {
-      _err("ERROR: Failed to configure GPIO int.\n");
-    }
+  cxd56_gpioint_config(PIN_SDIO_CD, GPIOINT_PSEUDO_EDGE_BOTH,
+                       board_sdcard_detect_int, NULL);
+
+  /* Handle the case when SD card is already inserted */
+
+  board_sdcard_detect_int(PIN_SDIO_CD, NULL, NULL);
 
   /* Enabling Interrupt */
 
   cxd56_gpioint_enable(PIN_SDIO_CD);
 #else
-  /* Initialize Card insert status */
-
-  g_sdhci.inserted = true;
-
   /* Enable SDC */
 
   board_sdcard_enable(NULL);
@@ -397,18 +329,15 @@ int board_sdcard_finalize(void)
 
   /* At first, Disable interrupt of the card detection */
 
-  if (g_sdhci.inserted)
-    {
-      board_sdcard_disable(NULL);
-    }
-
-  g_sdhci.inserted = false;
-
 #ifdef CONFIG_MMCSD_HAVE_CARDDETECT
   /* Disabling Interrupt */
 
   cxd56_gpioint_disable(PIN_SDIO_CD);
+
+  g_sdhci.inserted = false;
 #endif
+
+  board_sdcard_disable(NULL);
 
   /* Disable SDIO pin configuration */
 
@@ -531,23 +460,24 @@ void board_sdcard_set_low_voltage(void)
 {
 }
 
+#ifdef CONFIG_MMCSD_HAVE_CARDDETECT
 /****************************************************************************
- * Name: board_sdcard_set_state_cb
+ * Name: board_sdcard_inserted
  *
  * Description:
- *   Register callback function to notify state change of card slot.
- *   This function is called by board_ioctl()
- *    as BOARDIOC_SDCARD_SETNOTIFYCB command.
+ *   Check if a card is inserted into the selected SDHCI slot
  *
  ****************************************************************************/
 
-int board_sdcard_set_state_cb(uintptr_t cb)
+bool board_sdcard_inserted(int slotno)
 {
-  if (g_sdhci.cb != NULL && cb != 0)
-    {
-      return -EBUSY;
-    }
+  bool removed;
 
-  g_sdhci.cb = (void (*)(bool))cb;
-  return OK;
+  /* Get the state of the GPIO pin */
+
+  removed = cxd56_gpio_read(PIN_SDIO_CD);
+  finfo("Slot %d inserted: %s\n", slotno, removed ? "NO" : "YES");
+
+  return !removed;
 }
+#endif

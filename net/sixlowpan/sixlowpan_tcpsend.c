@@ -76,7 +76,7 @@
 
 struct sixlowpan_send_s
 {
-  FAR struct socket           *s_sock;          /* Internal socket reference */
+  FAR struct tcp_conn_s       *s_conn;          /* Internal connect reference */
   FAR struct devif_callback_s *s_cb;            /* Reference to callback
                                                  * instance */
   sem_t                        s_waitsem;       /* Supports waiting for
@@ -288,7 +288,6 @@ static int sixlowpan_tcp_header(FAR struct tcp_conn_s *conn,
  *
  * Input Parameters:
  *   dev    - The structure of the network driver that generated the event.
- *   pvconn - The connection structure associated with the socket
  *   pvpriv - The event handler's private data argument
  *   flags  - Set of events describing why the callback was invoked
  *
@@ -301,11 +300,10 @@ static int sixlowpan_tcp_header(FAR struct tcp_conn_s *conn,
  ****************************************************************************/
 
 static uint16_t tcp_send_eventhandler(FAR struct net_driver_s *dev,
-                                      FAR void *pvconn,
                                       FAR void *pvpriv, uint16_t flags)
 {
-  FAR struct sixlowpan_send_s *sinfo = (FAR struct sixlowpan_send_s *)pvpriv;
-  FAR struct tcp_conn_s *conn = (FAR struct tcp_conn_s *)pvconn;
+  FAR struct sixlowpan_send_s *sinfo = pvpriv;
+  FAR struct tcp_conn_s *conn = sinfo->s_conn;
   struct ipv6tcp_hdr_s ipv6tcp;
   int ret;
 
@@ -391,8 +389,6 @@ static uint16_t tcp_send_eventhandler(FAR struct net_driver_s *dev,
 
   else if ((flags & TCP_DISCONN_EVENTS) != 0)
     {
-      FAR struct socket *psock = sinfo->s_sock;
-
       nwarn("WARNING: Lost connection\n");
 
       /* We could get here recursively through the callback actions of
@@ -400,7 +396,6 @@ static uint16_t tcp_send_eventhandler(FAR struct net_driver_s *dev,
        * already been disconnected.
        */
 
-      DEBUGASSERT(psock != NULL);
       if (_SS_ISCONNECTED(conn->sconn.s_flags))
         {
           /* Report the disconnection event to all socket clones */
@@ -596,8 +591,6 @@ static int sixlowpan_send_packet(FAR struct socket *psock,
   struct sixlowpan_send_s sinfo;
 
   ninfo("len=%lu timeout=%u\n", (unsigned long)len, timeout);
-  DEBUGASSERT(psock != NULL && dev != NULL && conn != NULL && buf != NULL &&
-              destmac != NULL);
 
   memset(&sinfo, 0, sizeof(struct sixlowpan_send_s));
 
@@ -618,9 +611,8 @@ static int sixlowpan_send_packet(FAR struct socket *psock,
           /* Initialize the send state structure */
 
           nxsem_init(&sinfo.s_waitsem, 0, 0);
-          nxsem_set_protocol(&sinfo.s_waitsem, SEM_PRIO_NONE);
 
-          sinfo.s_sock      = psock;
+          sinfo.s_conn      = conn;
           sinfo.s_result    = -EBUSY;
           sinfo.s_destmac   = destmac;
           sinfo.s_buf       = buf;
@@ -648,7 +640,7 @@ static int sixlowpan_send_packet(FAR struct socket *psock,
           netdev_txnotify_dev(dev);
 
           /* Wait for the send to complete or an error to occur.
-           * net_timedwait will also terminate if a signal is received.
+           * net_sem_timedwait will also terminate if a signal is received.
            */
 
           ninfo("Wait for send complete\n");
@@ -657,7 +649,7 @@ static int sixlowpan_send_packet(FAR struct socket *psock,
             {
               uint32_t acked = sinfo.s_acked;
 
-              ret = net_timedwait(&sinfo.s_waitsem, timeout);
+              ret = net_sem_timedwait(&sinfo.s_waitsem, timeout);
               if (ret != -ETIMEDOUT || acked == sinfo.s_acked)
                 {
                   if (ret == -ETIMEDOUT)
@@ -724,7 +716,6 @@ ssize_t psock_6lowpan_tcp_send(FAR struct socket *psock, FAR const void *buf,
   ninfo("buflen %lu\n", (unsigned long)buflen);
   sixlowpan_dumpbuffer("Outgoing TCP payload", buf, buflen);
 
-  DEBUGASSERT(psock != NULL && psock->s_conn != NULL);
   DEBUGASSERT(psock->s_type == SOCK_STREAM);
 
   /* Make sure that this is a valid socket */
@@ -737,7 +728,7 @@ ssize_t psock_6lowpan_tcp_send(FAR struct socket *psock, FAR const void *buf,
 
   /* Get the underlying TCP connection structure */
 
-  conn = (FAR struct tcp_conn_s *)psock->s_conn;
+  conn = psock->s_conn;
 
   /* Make sure that this is a connected TCP socket */
 
@@ -780,7 +771,7 @@ ssize_t psock_6lowpan_tcp_send(FAR struct socket *psock, FAR const void *buf,
 #ifdef CONFIG_NET_ICMPv6_NEIGHBOR
   /* Make sure that the IP address mapping is in the Neighbor Table */
 
-  ret = icmpv6_neighbor(conn->u.ipv6.raddr);
+  ret = icmpv6_neighbor(dev, conn->u.ipv6.raddr);
   if (ret < 0)
     {
       nerr("ERROR: Not reachable\n");
@@ -913,7 +904,7 @@ void sixlowpan_tcp_send(FAR struct net_driver_s *dev,
           if (hdrlen > dev->d_len)
             {
               nwarn("WARNING:  Dropping small TCP packet: %u < %u\n",
-                    buflen, hdrlen);
+                    dev->d_len, hdrlen);
             }
           else
             {

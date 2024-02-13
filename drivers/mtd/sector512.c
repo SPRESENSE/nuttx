@@ -247,7 +247,7 @@ static int s512_erase(FAR struct mtd_dev_s *dev,
                       size_t nsectors)
 {
 #ifdef CONFIG_MTD_SECT512_READONLY
-  return -EACESS
+  return -EACCES;
 #else
   FAR struct s512_dev_s *priv = (FAR struct s512_dev_s *)dev;
   FAR uint8_t *dest;
@@ -370,7 +370,7 @@ static ssize_t s512_bwrite(FAR struct mtd_dev_s *dev, off_t sector512,
                            FAR const uint8_t *buffer)
 {
 #ifdef CONFIG_MTD_SECT512_READONLY
-  return -EACCESS;
+  return -EACCES;
 #else
   FAR struct s512_dev_s *priv = (FAR struct s512_dev_s *)dev;
   ssize_t remaining;
@@ -521,6 +521,8 @@ static int s512_ioctl(FAR struct mtd_dev_s *dev, int cmd, unsigned long arg)
                                            ((uintptr_t)arg);
           if (geo)
             {
+              memset(geo, 0, sizeof(*geo));
+
               /* Populate the geometry structure with information need to
                * know the capacity and how to access the device.
                *
@@ -640,7 +642,7 @@ FAR struct mtd_dev_s *s512_initialize(FAR struct mtd_dev_s *mtd)
    * have to be extended to handle multiple FLASH parts on the same SPI bus.
    */
 
-  priv = (FAR struct s512_dev_s *)kmm_zalloc(sizeof(struct s512_dev_s));
+  priv = kmm_zalloc(sizeof(struct s512_dev_s));
   if (priv)
     {
       /* Initialize the allocated structure. (unsupported methods/fields
@@ -662,7 +664,7 @@ FAR struct mtd_dev_s *s512_initialize(FAR struct mtd_dev_s *mtd)
 
       /* Allocate a buffer for the erase block cache */
 
-      priv->eblock = (FAR uint8_t *)kmm_malloc(priv->eblocksize);
+      priv->eblock = kmm_malloc(priv->eblocksize);
       if (!priv->eblock)
         {
           /* Allocation failed! Discard all of that work we just did and

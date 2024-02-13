@@ -24,6 +24,7 @@
 
 #include <nuttx/config.h>
 
+#include <stdbool.h>
 #include <sys/types.h>
 #include <fcntl.h>
 #include <string.h>
@@ -61,7 +62,7 @@
  *   On success, zero (OK) is returned.  A negated errno value is returned
  *   on any failure:
  *
- *   EPERM    Message queue opened not opened for reading.
+ *   EBADF    Message queue opened not opened for reading.
  *   EMSGSIZE 'msglen' was less than the maxmsgsize attribute of the message
  *            queue.
  *   EINVAL   Invalid 'msg' or 'msgq'
@@ -90,7 +91,7 @@ int nxmq_verify_receive(FAR struct file *mq, FAR char *msg, size_t msglen)
 
   if ((mq->f_oflags & O_RDOK) == 0)
     {
-      return -EPERM;
+      return -EBADF;
     }
 
   if (msglen < (size_t)msgq->maxmsgsize)
@@ -135,6 +136,7 @@ int nxmq_wait_receive(FAR struct mqueue_inode_s *msgq,
 {
   FAR struct mqueue_msg_s *newmsg;
   FAR struct tcb_s *rtcb;
+  bool switch_needed;
 
   DEBUGASSERT(rcvmsg != NULL);
 
@@ -166,9 +168,9 @@ int nxmq_wait_receive(FAR struct mqueue_inode_s *msgq,
         {
           /* Yes.. Block and try again */
 
-          rtcb           = this_task();
-          rtcb->msgwaitq = msgq;
-          msgq->nwaitnotempty++;
+          rtcb          = this_task();
+          rtcb->waitobj = msgq;
+          msgq->cmn.nwaitnotempty++;
 
           /* Initialize the 'errcode" used to communication wake-up error
            * conditions.
@@ -180,8 +182,23 @@ int nxmq_wait_receive(FAR struct mqueue_inode_s *msgq,
            * isn't going to end well.
            */
 
-          DEBUGASSERT(NULL != rtcb->flink);
-          up_block_task(rtcb, TSTATE_WAIT_MQNOTEMPTY);
+          DEBUGASSERT(!is_idle_task(rtcb));
+
+          /* Remove the tcb task from the ready-to-run list. */
+
+          switch_needed = nxsched_remove_readytorun(rtcb, true);
+
+          /* Add the task to the specified blocked task list */
+
+          rtcb->task_state = TSTATE_WAIT_MQNOTEMPTY;
+          nxsched_add_prioritized(rtcb, MQ_WNELIST(msgq->cmn));
+
+          /* Now, perform the context switch if one is needed */
+
+          if (switch_needed)
+            {
+              up_switch_context(this_task(), rtcb);
+            }
 
           /* When we resume at this point, either (1) the message queue
            * is no longer empty, or (2) the wait has been interrupted by
@@ -251,7 +268,7 @@ int nxmq_wait_receive(FAR struct mqueue_inode_s *msgq,
 
 ssize_t nxmq_do_receive(FAR struct mqueue_inode_s *msgq,
                         FAR struct mqueue_msg_s *mqmsg,
-                        FAR char *ubuffer, unsigned int *prio)
+                        FAR char *ubuffer, FAR unsigned int *prio)
 {
   FAR struct tcb_s *btcb;
   ssize_t rcvmsglen;
@@ -277,19 +294,17 @@ ssize_t nxmq_do_receive(FAR struct mqueue_inode_s *msgq,
 
   /* Check if any tasks are waiting for the MQ not full event. */
 
-  if (msgq->nwaitnotfull > 0)
+  if (msgq->cmn.nwaitnotfull > 0)
     {
+      FAR struct tcb_s *rtcb = this_task();
+
       /* Find the highest priority task that is waiting for
-       * this queue to be not-full in g_waitingformqnotfull list.
+       * this queue to be not-full in waitfornotfull list.
        * This must be performed in a critical section because
        * messages can be sent from interrupt handlers.
        */
 
-      for (btcb = (FAR struct tcb_s *)g_waitingformqnotfull.head;
-           btcb && btcb->msgwaitq != msgq;
-           btcb = btcb->flink)
-        {
-        }
+      btcb = (FAR struct tcb_s *)dq_remfirst(MQ_WNFLIST(msgq->cmn));
 
       /* If one was found, unblock it.  NOTE:  There is a race
        * condition here:  the queue might be full again by the
@@ -298,9 +313,25 @@ ssize_t nxmq_do_receive(FAR struct mqueue_inode_s *msgq,
 
       DEBUGASSERT(btcb != NULL);
 
-      btcb->msgwaitq = NULL;
-      msgq->nwaitnotfull--;
-      up_unblock_task(btcb);
+      if (WDOG_ISACTIVE(&btcb->waitdog))
+        {
+          wd_cancel(&btcb->waitdog);
+        }
+
+      msgq->cmn.nwaitnotfull--;
+
+      /* Indicate that the wait is over. */
+
+      btcb->waitobj = NULL;
+
+      /* Add the task to ready-to-run task list and
+       * perform the context switch if one is needed
+       */
+
+      if (nxsched_add_readytorun(btcb))
+        {
+          up_switch_context(btcb, rtcb);
+        }
     }
 
   /* Return the length of the message transferred to the user buffer */

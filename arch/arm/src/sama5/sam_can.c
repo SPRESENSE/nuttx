@@ -51,6 +51,7 @@
 #include <nuttx/config.h>
 
 #include <stdio.h>
+#include <sys/param.h>
 #include <sys/types.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -62,7 +63,7 @@
 #include <arch/board/board.h>
 #include <nuttx/arch.h>
 #include <nuttx/can/can.h>
-#include <nuttx/semaphore.h>
+#include <nuttx/mutex.h>
 
 #include "arm_internal.h"
 #include "hardware/sam_pinmap.h"
@@ -76,16 +77,6 @@
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
-
-/* Common definitions *******************************************************/
-
-#ifndef MIN
-#  define MIN(a,b) ((a < b) ? a : b)
-#endif
-
-#ifndef MAX
-#  define MAX(a,b) ((a > b) ? a : b)
-#endif
 
 /* Mailboxes ****************************************************************/
 
@@ -177,7 +168,7 @@ struct sam_can_s
   uint8_t rxmbset;          /* The set of mailboxes configured for receive */
   volatile uint8_t txmbset; /* The set of mailboxes actively transmitting */
   bool  txdisabled;         /* TRUE:  Keep TX interrupts disabled */
-  sem_t exclsem;            /* Enforces mutually exclusive access */
+  mutex_t lock;             /* Enforces mutually exclusive access */
   uint32_t frequency;       /* CAN clock frequency */
 
 #ifdef CONFIG_SAMA5_CAN_REGDEBUG
@@ -204,12 +195,6 @@ static void can_dumpmbregs(struct sam_can_s *priv, const char *msg);
 #  define can_dumpctrlregs(priv,msg)
 #  define can_dumpmbregs(priv,msg)
 #endif
-
-/* Semaphore helpers */
-
-static int  can_semtake(struct sam_can_s *priv);
-static int  can_semtake_noncancelable(struct sam_can_s *priv);
-#define can_semgive(priv) nxsem_post(&priv->exclsem)
 
 /* Mailboxes */
 
@@ -293,8 +278,17 @@ static const struct sam_config_s g_can0const =
   },
 };
 
-static struct sam_can_s g_can0priv;
-static struct can_dev_s g_can0dev;
+static struct sam_can_s g_can0priv =
+{
+  .config           = &g_can0const,
+  .freemb           = CAN_ALL_MAILBOXES,
+  .lock             = NXMUTEX_INITIALIZER,
+};
+static struct can_dev_s g_can0dev =
+{
+  .cd_ops           = &g_canops,
+  .cd_priv          = &g_can0priv,
+};
 #endif
 
 #ifdef CONFIG_SAMA5_CAN1
@@ -328,8 +322,17 @@ static const struct sam_config_s g_can1const =
   },
 };
 
-static struct sam_can_s g_can1priv;
-static struct can_dev_s g_can1dev;
+static struct sam_can_s g_can1priv =
+{
+  .config           = &g_can1const,
+  .freemb           = CAN_ALL_MAILBOXES,
+  .lock             = NXMUTEX_INITIALIZER,
+};
+static struct can_dev_s g_can1dev =
+{
+  .cd_ops           = &g_canops,
+  .cd_priv          = &g_can1priv,
+};
 #endif
 
 /****************************************************************************
@@ -555,60 +558,6 @@ static void can_dumpmbregs(struct sam_can_s *priv, const char *msg)
 #endif
 
 /****************************************************************************
- * Name: can_semtake
- *
- * Description:
- *   Take a semaphore handling any exceptional conditions
- *
- * Input Parameters:
- *   priv - A reference to the CAN peripheral state
- *
- * Returned Value:
- *  Normally success (OK) is returned, but the error -ECANCELED may be
- *  return in the event that task has been canceled.
- *
- ****************************************************************************/
-
-static int can_semtake(struct sam_can_s *priv)
-{
-  return nxsem_wait_uninterruptible(&priv->exclsem);
-}
-
-/****************************************************************************
- * Name: can_semtake_noncancelable
- *
- * Description:
- *   This is just a wrapper to handle the annoying behavior of semaphore
- *   waits that return due to the receipt of a signal.  This version also
- *   ignores attempts to cancel the thread.
- *
- ****************************************************************************/
-
-static int can_semtake_noncancelable(struct sam_can_s *priv)
-{
-  int result;
-  int ret = OK;
-
-  do
-    {
-      result = nxsem_wait_uninterruptible(&priv->exclsem);
-
-      /* The only expected error is ECANCELED which would occur if the
-       * calling thread were canceled.
-       */
-
-      DEBUGASSERT(result == OK || result == -ECANCELED);
-      if (ret == OK && result < 0)
-        {
-          ret = result;
-        }
-    }
-  while (result < 0);
-
-  return ret;
-}
-
-/****************************************************************************
  * Name: can_mballoc
  *
  * Description:
@@ -815,7 +764,7 @@ static void can_reset(struct can_dev_s *dev)
 
   /* Get exclusive access to the CAN peripheral */
 
-  can_semtake_noncancelable();
+  nxmutex_lock(&priv->lock);
 
   /* Disable all interrupts */
 
@@ -835,7 +784,7 @@ static void can_reset(struct can_dev_s *dev)
   /* Disable the CAN controller */
 
   can_putreg(priv, SAM_CAN_MR_OFFSET, 0);
-  can_semgive(priv);
+  nxmutex_unlock(&priv->lock);
 }
 
 /****************************************************************************
@@ -871,7 +820,7 @@ static int can_setup(struct can_dev_s *dev)
 
   /* Get exclusive access to the CAN peripheral */
 
-  ret = can_semtake(priv);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
@@ -922,7 +871,7 @@ static int can_setup(struct can_dev_s *dev)
   /* Enable the interrupts at the AIC. */
 
   up_enable_irq(config->pid);
-  can_semgive(priv);
+  nxmutex_unlock(&priv->lock);
   return OK;
 }
 
@@ -956,7 +905,7 @@ static void can_shutdown(struct can_dev_s *dev)
 
   /* Get exclusive access to the CAN peripheral */
 
-  can_semtake_noncancelable(priv);
+  nxmutex_lock(&priv->lock);
 
   /* Disable the CAN interrupts */
 
@@ -969,7 +918,7 @@ static void can_shutdown(struct can_dev_s *dev)
   /* And reset the hardware */
 
   can_reset(dev);
-  can_semgive(priv);
+  nxmutex_unlock(&priv->lock);
 }
 
 /****************************************************************************
@@ -1028,7 +977,7 @@ static void can_txint(struct can_dev_s *dev, bool enable)
 
   /* Get exclusive access to the CAN peripheral */
 
-  can_semtake_noncancelable(priv);
+  nxmutex_lock(&priv->lock);
 
   /* Support disabling interrupts on any mailboxes that are actively
    * transmitting (txmbset); also suppress enabling new TX mailbox until
@@ -1046,7 +995,7 @@ static void can_txint(struct can_dev_s *dev, bool enable)
       priv->txdisabled = true;
     }
 
-  can_semgive(priv);
+  nxmutex_unlock(&priv->lock);
 }
 
 /****************************************************************************
@@ -1131,7 +1080,7 @@ static int can_send(struct can_dev_s *dev, struct can_msg_s *msg)
 
   /* Get exclusive access to the CAN peripheral */
 
-  ret = can_semtake(priv);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
@@ -1228,7 +1177,7 @@ static int can_send(struct can_dev_s *dev, struct can_msg_s *msg)
     }
 
   can_dumpmbregs(priv, "After send");
-  can_semgive(priv);
+  nxmutex_unlock(&priv->lock);
   return OK;
 }
 
@@ -1253,7 +1202,7 @@ static bool can_txready(struct can_dev_s *dev)
 
   /* Get exclusive access to the CAN peripheral */
 
-  ret = can_semtake(priv);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return false;
@@ -1263,7 +1212,7 @@ static bool can_txready(struct can_dev_s *dev)
 
   txready = ((priv->rxmbset | priv->txmbset) != CAN_ALL_MAILBOXES);
 
-  can_semgive(priv);
+  nxmutex_unlock(&priv->lock);
   return txready;
 }
 
@@ -1603,7 +1552,7 @@ static void can_interrupt(int irq, void *context, void *arg)
  *      (1 x tCAN).
  *   2. Propagation segment (PROP_SEG):  This part of the bit time is used
  *      to compensate for the physical delay times within the network. It is
- *      twice the sum of the signal�s propagation time on the bus line, the
+ *      twice the sum of the signals propagation time on the bus line, the
  *      input comparator delay, and the output driver delay. It is
  *      programmable to be 1 to 8 Tq long.  This parameter is defined in the
  *      PROPAG field of the CAN Baudrate Register.
@@ -1690,7 +1639,7 @@ static int can_bittiming(struct sam_can_s *priv)
    * selected Tq value, the desired BAUD and the CAN peripheral clock
    * frequency.
    *
-   *   Tq   = (BRP + 1) / CAN_FRQUENCY
+   *   Tq   = (BRP + 1) / CAN_FREQUENCY
    *   Tbit = Nquanta * (BRP + 1) / Fcan
    *   baud = Fcan / (Nquanta * (brp + 1))
    *   brp  = Fcan / (baud * nquanta) - 1
@@ -1962,7 +1911,6 @@ struct can_dev_s *sam_caninitialize(int port)
 {
   struct can_dev_s *dev;
   struct sam_can_s *priv;
-  const struct sam_config_s *config;
 
   caninfo("CAN%d\n", port);
 
@@ -1975,9 +1923,8 @@ struct can_dev_s *sam_caninitialize(int port)
     {
       /* Select the CAN0 device structure */
 
-      dev    = &g_can0dev;
-      priv   = &g_can0priv;
-      config = &g_can0const;
+      dev  = &g_can0dev;
+      priv = &g_can0priv;
     }
   else
 #endif
@@ -1986,9 +1933,8 @@ struct can_dev_s *sam_caninitialize(int port)
     {
       /* Select the CAN1 device structure */
 
-      dev    = &g_can1dev;
-      priv   = &g_can1priv;
-      config = &g_can1const;
+      dev  = &g_can1dev;
+      priv = &g_can1priv;
     }
   else
 #endif
@@ -2003,15 +1949,7 @@ struct can_dev_s *sam_caninitialize(int port)
     {
       /* Yes, then perform one time data initialization */
 
-      memset(priv, 0, sizeof(struct sam_can_s));
-      priv->config      = config;
-      priv->freemb      = CAN_ALL_MAILBOXES;
       priv->initialized = true;
-
-      nxsem_init(&priv->exclsem, 0, 1);
-
-      dev->cd_ops       = &g_canops;
-      dev->cd_priv      = (void *)priv;
 
       /* And put the hardware in the initial state */
 

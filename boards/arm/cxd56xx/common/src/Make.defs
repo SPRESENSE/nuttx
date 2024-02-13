@@ -24,9 +24,7 @@ CSRCS += cxd56_boot.c
 
 ifeq ($(CONFIG_AUDIO_CXD56),y)
 CSRCS += cxd56_audio.c
-endif
-
-ifeq ($(CONFIG_CXD56_AUDIO),y)
+else ifeq ($(CONFIG_CXD56_AUDIO),y)
 CSRCS += cxd56_audio.c
 endif
 
@@ -88,6 +86,10 @@ endif
 
 ifeq ($(CONFIG_SENSORS_BMI160_SPI),y)
 CSRCS += cxd56_bmi160_spi.c
+endif
+
+ifeq ($(CONFIG_SENSORS_BMI270_I2C),y)
+CSRCS += cxd56_bmi270_i2c.c
 endif
 
 ifeq ($(CONFIG_SENSORS_BMP280),y)
@@ -190,8 +192,12 @@ ifeq ($(CONFIG_CXD56_GNSS_ADDON),y)
   CSRCS += cxd56_gnss_addon.c
 endif
 
+ifeq ($(CONFIG_SENSORS_CXD5602PWBIMU),y)
+  CSRCS += cxd56_cxd5602pwbimu_spi.c
+endif
+
 DEPPATH += --dep-path src
 VPATH += :src
-CFLAGS += $(shell $(INCDIR) "$(CC)" $(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)board$(DELIM)src)
+CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)board$(DELIM)src
 
 endif

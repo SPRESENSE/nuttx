@@ -33,6 +33,10 @@
 #include "litex.h"
 #include "chip.h"
 
+#ifdef CONFIG_BUILD_KERNEL
+#  include "litex_mm_init.h"
+#endif
+
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
@@ -41,6 +45,10 @@
 #  define showprogress(c) riscv_lowputc(c)
 #else
 #  define showprogress(c)
+#endif
+
+#if defined (CONFIG_BUILD_KERNEL) && !defined (CONFIG_ARCH_USE_S_MODE)
+#  error "Target requires kernel in S-mode, enable CONFIG_ARCH_USE_S_MODE"
 #endif
 
 /****************************************************************************
@@ -76,7 +84,7 @@ void __litex_start(void)
    * certain that there are no issues with the state of global variables.
    */
 
-  for (dest = &_sbss; dest < &_ebss; )
+  for (dest = (uint32_t *)_sbss; dest < (uint32_t *)_ebss; )
     {
       *dest++ = 0;
     }
@@ -89,10 +97,16 @@ void __litex_start(void)
 
   /* for vexriscv the full image is loaded in ddr ram */
 
-  for (src = &_eronly, dest = &_sdata; dest < &_edata; )
+  for (src = (const uint32_t *)_eronly,
+       dest = (uint32_t *)_sdata; dest < (uint32_t *)_edata;
+      )
     {
       *dest++ = *src++;
     }
+
+#ifdef CONFIG_LITEX_CORE_VEXRISCV_SMP
+  riscv_percpu_add_hart(0);
+#endif
 
   /* Setup PLL */
 
@@ -112,7 +126,11 @@ void __litex_start(void)
 
   /* Do board initialization */
 
-  litex_boardinitialize();
+#ifdef CONFIG_BUILD_KERNEL
+  /* Setup page tables for kernel and enable MMU */
+
+  litex_mm_init();
+#endif
 
   showprogress('C');
 

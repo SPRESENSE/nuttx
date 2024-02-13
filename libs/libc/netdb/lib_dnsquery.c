@@ -57,7 +57,9 @@
 
 #include <arpa/inet.h>
 
+#include <nuttx/lib/lib.h>
 #include <nuttx/net/net.h>
+#include <nuttx/net/ip.h>
 #include <nuttx/net/dns.h>
 
 #include "netdb/lib_dns.h"
@@ -77,8 +79,9 @@
  *                    NUL-terminator (1 byte)
  */
 
-#define SEND_BUFFER_SIZE (16 + CONFIG_NETDB_DNSCLIENT_NAMESIZE + 2)
-#define RECV_BUFFER_SIZE CONFIG_NETDB_DNSCLIENT_MAXRESPONSE
+#define SEND_BUFFER_SIZE  (16 + CONFIG_NETDB_DNSCLIENT_NAMESIZE + 2)
+#define RECV_BUFFER_SIZE  CONFIG_NETDB_DNSCLIENT_MAXRESPONSE
+#define QUERY_BUFFER_SIZE MAX(SEND_BUFFER_SIZE, RECV_BUFFER_SIZE)
 
 /****************************************************************************
  * Private Types
@@ -90,6 +93,7 @@ struct dns_query_s
   FAR const char *hostname;       /* Hostname to lookup */
   FAR union dns_addr_u *addr;     /* Location to return host address */
   FAR int *naddr;                 /* Number of returned addresses */
+  uint32_t ttl;                   /* Time to Live, unit:s */
 };
 
 /* Query info to check response against. */
@@ -101,6 +105,13 @@ struct dns_query_info_s
   uint16_t qnamelen;                               /* Queried hostname length */
   char qname[CONFIG_NETDB_DNSCLIENT_NAMESIZE + 2]; /* Queried hostname in
                                                     * encoded format + NUL */
+};
+
+struct dns_query_data_s
+{
+  struct dns_query_s query;
+  struct dns_query_info_s qinfo;
+  uint8_t buffer[QUERY_BUFFER_SIZE]; /* Buffer to hold request & response */
 };
 
 /****************************************************************************
@@ -196,7 +207,8 @@ static inline uint16_t dns_alloc_id(void)
 
 static int dns_send_query(int sd, FAR const char *name,
                           FAR union dns_addr_u *uaddr, uint16_t rectype,
-                          FAR struct dns_query_info_s *qinfo)
+                          FAR struct dns_query_info_s *qinfo,
+                          FAR uint8_t *buffer)
 {
   FAR struct dns_header_s *hdr;
   FAR uint8_t *dest;
@@ -204,7 +216,6 @@ static int dns_send_query(int sd, FAR const char *name,
   FAR char *qname;
   FAR char *qptr;
   FAR const char *src;
-  uint8_t buffer[SEND_BUFFER_SIZE];
   uint16_t id;
   socklen_t addrlen;
   int ret;
@@ -325,16 +336,15 @@ static int dns_send_query(int sd, FAR const char *name,
  ****************************************************************************/
 
 static int dns_recv_response(int sd, FAR union dns_addr_u *addr, int naddr,
-                             FAR struct dns_query_info_s *qinfo)
+                             FAR struct dns_query_info_s *qinfo,
+                             FAR uint32_t *ttl, FAR uint8_t *buffer)
 {
   FAR uint8_t *nameptr;
   FAR uint8_t *namestart;
   FAR uint8_t *endofbuffer;
-  char buffer[RECV_BUFFER_SIZE];
   FAR struct dns_answer_s *ans;
   FAR struct dns_header_s *hdr;
   FAR struct dns_question_s *que;
-  struct dns_question_s bak;
   uint16_t nquestions;
   uint16_t nanswers;
   uint16_t temp;
@@ -365,7 +375,7 @@ static int dns_recv_response(int sd, FAR union dns_addr_u *addr, int naddr,
     }
 
   hdr         = (FAR struct dns_header_s *)buffer;
-  endofbuffer = (FAR uint8_t *)buffer + ret;
+  endofbuffer = buffer + ret;
 
   ninfo("ID %d\n", NTOHS(hdr->id));
   ninfo("Query %d\n", hdr->flags1 & DNS_FLAG1_RESPONSE);
@@ -410,7 +420,7 @@ static int dns_recv_response(int sd, FAR union dns_addr_u *addr, int naddr,
    * matches against the name in the question.
    */
 
-  namestart = (uint8_t *)buffer + sizeof(*hdr);
+  namestart = buffer + sizeof(*hdr);
   nameptr   = dns_parse_name(namestart, endofbuffer);
   if (nameptr == endofbuffer)
     {
@@ -438,13 +448,12 @@ static int dns_recv_response(int sd, FAR union dns_addr_u *addr, int naddr,
   /* Validate query type and class */
 
   que = (FAR struct dns_question_s *)nameptr;
-  memcpy(&bak, que, sizeof(struct dns_question_s));
 
   /* N.B. Unaligned access may occur here */
 
   temp = HTONS(DNS_CLASS_IN);
-  if (memcmp(&bak.type, &qinfo->rectype, sizeof(uint16_t)) != 0 ||
-      memcmp(&bak.class, &temp, sizeof(uint16_t)) != 0)
+  if (memcmp(&que->type, &qinfo->rectype, sizeof(uint16_t)) != 0 ||
+      memcmp(&que->class, &temp, sizeof(uint16_t)) != 0)
     {
       nerr("ERROR: DNS response with wrong question\n");
       return -EBADMSG;
@@ -475,6 +484,10 @@ static int dns_recv_response(int sd, FAR union dns_addr_u *addr, int naddr,
             NTOHS(ans->type), NTOHS(ans->class),
             (NTOHS(ans->ttl[0]) << 16) | NTOHS(ans->ttl[1]),
             NTOHS(ans->len));
+      if (ttl)
+        {
+          *ttl = (NTOHS(ans->ttl[0]) << 16) | NTOHS(ans->ttl[1]);
+        }
 
       /* Check for IPv4/6 address type and Internet class. Others are
        * discarded.
@@ -490,11 +503,11 @@ static int dns_recv_response(int sd, FAR union dns_addr_u *addr, int naddr,
 
           nameptr += 10 + 4;
 
-          ninfo("IPv4 address: %d.%d.%d.%d\n",
-                (int)((ans->u.ipv4.s_addr) & 0xff),
-                (int)((ans->u.ipv4.s_addr >> 8) & 0xff),
-                (int)((ans->u.ipv4.s_addr >> 16) & 0xff),
-                (int)((ans->u.ipv4.s_addr >> 24) & 0xff));
+          ninfo("IPv4 address: %u.%u.%u.%u\n",
+                ip4_addr1(ans->u.ipv4.s_addr),
+                ip4_addr2(ans->u.ipv4.s_addr),
+                ip4_addr3(ans->u.ipv4.s_addr),
+                ip4_addr4(ans->u.ipv4.s_addr));
 
           inaddr                  = &addr[naddr_read].ipv4;
           inaddr->sin_family      = AF_INET;
@@ -556,6 +569,45 @@ static int dns_recv_response(int sd, FAR union dns_addr_u *addr, int naddr,
 }
 
 /****************************************************************************
+ * Name: dns_query_error
+ *
+ * Description:
+ *   Displays information about dns query errors
+ *
+ * Input Parameters:
+ *   prompt  - Error description.
+ *   ret     - Error code.
+ *   uaddr   - DNS name server address.
+ *
+ ****************************************************************************/
+
+static void dns_query_error(FAR const char *prompt, int ret,
+                            FAR union dns_addr_u *uaddr)
+{
+  char addrstr[INET6_ADDRSTRLEN];
+
+#ifdef CONFIG_NET_IPv4
+  if (uaddr->addr.sa_family == AF_INET)
+    {
+      inet_ntop(AF_INET, &uaddr->ipv4.sin_addr, addrstr, INET6_ADDRSTRLEN);
+    }
+  else
+#endif
+#ifdef CONFIG_NET_IPv6
+  if (uaddr->addr.sa_family == AF_INET6)
+    {
+      inet_ntop(AF_INET6, &uaddr->ipv6.sin6_addr, addrstr, INET6_ADDRSTRLEN);
+    }
+  else
+#endif
+    {
+      strlcpy(addrstr, "Unknown address", sizeof(addrstr));
+    }
+
+  nerr("%s: %d, server address: %s\n", prompt, ret, addrstr);
+}
+
+/****************************************************************************
  * Name: dns_query_callback
  *
  * Description:
@@ -577,18 +629,12 @@ static int dns_recv_response(int sd, FAR union dns_addr_u *addr, int naddr,
 static int dns_query_callback(FAR void *arg, FAR struct sockaddr *addr,
                               FAR socklen_t addrlen)
 {
-  FAR struct dns_query_s *query = (FAR struct dns_query_s *)arg;
-  FAR struct dns_query_info_s qinfo;
+  FAR struct dns_query_data_s *qdata = arg;
+  FAR struct dns_query_s      *query = &qdata->query;
   int next = 0;
   int retries;
   int ret;
-
-  int sd = dns_bind(addr->sa_family);
-  if (sd < 0)
-    {
-      query->result = sd;
-      return 0;
-    }
+  int sd;
 
   /* Loop while receive timeout errors occur and there are remaining
    * retries.
@@ -597,60 +643,98 @@ static int dns_query_callback(FAR void *arg, FAR struct sockaddr *addr,
   for (retries = 0; retries < CONFIG_NETDB_DNSCLIENT_RETRIES; retries++)
     {
 #ifdef CONFIG_NET_IPv6
-      /* Send the IPv6 query */
-
-      ret = dns_send_query(sd, query->hostname,
-                          (FAR union dns_addr_u *)addr,
-                           DNS_RECTYPE_AAAA, &qinfo);
-      if (ret < 0)
+      if (dns_is_queryfamily(AF_INET6))
         {
-          nerr("ERROR: IPv6 dns_send_query failed: %d\n", ret);
-          query->result = ret;
-        }
-      else
-        {
-          /* Obtain the IPv6 response */
+          /* Send the IPv6 query */
 
-          ret = dns_recv_response(sd, &query->addr[next],
-                                  CONFIG_NETDB_MAX_IPv6ADDR, &qinfo);
-          if (ret >= 0)
+          sd = dns_bind(addr->sa_family);
+          if (sd < 0)
             {
-              next += ret;
+              query->result = sd;
+              return 0;
+            }
+
+          ret = dns_send_query(sd, query->hostname,
+                               (FAR union dns_addr_u *)addr,
+                               DNS_RECTYPE_AAAA, &qdata->qinfo,
+                               qdata->buffer);
+          if (ret < 0)
+            {
+              dns_query_error("ERROR: IPv6 dns_send_query failed",
+                              ret, (FAR union dns_addr_u *)addr);
+              query->result = ret;
             }
           else
             {
-              nerr("ERROR: IPv6 dns_recv_response failed: %d\n", ret);
-              query->result = ret;
+              /* Obtain the IPv6 response */
+
+              ret = dns_recv_response(sd, &query->addr[next],
+                                      CONFIG_NETDB_MAX_IPv6ADDR,
+                                      &qdata->qinfo,
+                                      &query->ttl, qdata->buffer);
+              if (ret >= 0)
+                {
+                  next += ret;
+                }
+              else
+                {
+                  dns_query_error("ERROR: IPv6 dns_recv_response failed",
+                                  ret, (FAR union dns_addr_u *)addr);
+                  query->result = ret;
+                }
             }
+
+          close(sd);
         }
 #endif
 
 #ifdef CONFIG_NET_IPv4
-      /* Send the IPv4 query */
-
-      ret = dns_send_query(sd, query->hostname,
-                           (FAR union dns_addr_u *)addr,
-                           DNS_RECTYPE_A, &qinfo);
-      if (ret < 0)
+      if (dns_is_queryfamily(AF_INET))
         {
-          nerr("ERROR: IPv4 dns_send_query failed: %d\n", ret);
-          query->result = ret;
-        }
-      else
-        {
-          /* Obtain the IPv4 response */
+          /* Send the IPv4 query */
 
-          ret = dns_recv_response(sd, &query->addr[next],
-                                  CONFIG_NETDB_MAX_IPv4ADDR, &qinfo);
-          if (ret >= 0)
+          sd = dns_bind(addr->sa_family);
+          if (sd < 0)
             {
-              next += ret;
+              query->result = sd;
+              return 0;
+            }
+
+          ret = dns_send_query(sd, query->hostname,
+                               (FAR union dns_addr_u *)addr,
+                               DNS_RECTYPE_A, &qdata->qinfo, qdata->buffer);
+          if (ret < 0)
+            {
+              dns_query_error("ERROR: IPv4 dns_send_query failed",
+                              ret, (FAR union dns_addr_u *)addr);
+              query->result = ret;
             }
           else
             {
-              nerr("ERROR: IPv4 dns_recv_response failed: %d\n", ret);
-              query->result = ret;
+              /* Obtain the IPv4 response */
+
+              if (next >= *query->naddr)
+                {
+                  next = *query->naddr / 2;
+                }
+
+              ret = dns_recv_response(sd, &query->addr[next],
+                                      CONFIG_NETDB_MAX_IPv4ADDR,
+                                      &qdata->qinfo,
+                                      &query->ttl, qdata->buffer);
+              if (ret >= 0)
+                {
+                  next += ret;
+                }
+              else
+                {
+                  dns_query_error("ERROR: IPv4 dns_recv_response failed",
+                                  ret, (FAR union dns_addr_u *)addr);
+                  query->result = ret;
+                }
             }
+
+          close(sd);
         }
 #endif /* CONFIG_NET_IPv4 */
 
@@ -659,14 +743,13 @@ static int dns_query_callback(FAR void *arg, FAR struct sockaddr *addr,
 #if CONFIG_NETDB_DNSCLIENT_ENTRIES > 0
           /* Save the answer in the DNS cache */
 
-          dns_save_answer(query->hostname, query->addr, next);
+          dns_save_answer(query->hostname, query->addr, next, query->ttl);
 #endif
           /* Return 1 to indicate to (1) stop the traversal, and (2)
            * indicate that the address was found.
            */
 
           *query->naddr = next;
-          close(sd);
           return 1;
         }
       else if (query->result != -EAGAIN)
@@ -675,7 +758,6 @@ static int dns_query_callback(FAR void *arg, FAR struct sockaddr *addr,
         }
     }
 
-  close(sd);
   return 0;
 }
 
@@ -706,15 +788,20 @@ static int dns_query_callback(FAR void *arg, FAR struct sockaddr *addr,
 int dns_query(FAR const char *hostname, FAR union dns_addr_u *addr,
               FAR int *naddr)
 {
-  FAR struct dns_query_s query;
+  FAR struct dns_query_data_s *qdata = lib_malloc(sizeof(*qdata));
   int ret;
+
+  if (qdata == NULL)
+    {
+      return -ENOMEM;
+    }
 
   /* Set up the query info structure */
 
-  query.result   = -EADDRNOTAVAIL;
-  query.hostname = hostname;
-  query.addr     = addr;
-  query.naddr    = naddr;
+  qdata->query.result   = -EADDRNOTAVAIL;
+  qdata->query.hostname = hostname;
+  qdata->query.addr     = addr;
+  qdata->query.naddr    = naddr;
 
   /* Perform the query. dns_foreach_nameserver() will return:
    *
@@ -723,7 +810,7 @@ int dns_query(FAR const char *hostname, FAR union dns_addr_u *addr,
    * <0 - Some other failure (?, shouldn't happen)
    */
 
-  ret = dns_foreach_nameserver(dns_query_callback, &query);
+  ret = dns_foreach_nameserver(dns_query_callback, qdata);
   if (ret > 0)
     {
       /* The lookup was successful */
@@ -732,8 +819,12 @@ int dns_query(FAR const char *hostname, FAR union dns_addr_u *addr,
     }
   else if (ret == 0)
     {
-      ret = query.result;
+      ret = qdata->query.result;
     }
+
+  /* Free the query data */
+
+  lib_free(qdata);
 
   return ret;
 }

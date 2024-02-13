@@ -52,6 +52,11 @@
 
 int sched_get_priority_max(int policy)
 {
-  DEBUGASSERT(policy >= SCHED_FIFO && policy <= SCHED_OTHER);
+  if (policy < SCHED_OTHER || policy > SCHED_SPORADIC)
+    {
+      set_errno(EINVAL);
+      return ERROR;
+    }
+
   return SCHED_PRIORITY_MAX;
 }

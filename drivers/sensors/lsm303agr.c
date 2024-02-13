@@ -130,10 +130,6 @@ static const struct file_operations g_fops =
   lsm303agr_write,    /* write */
   NULL,               /* seek */
   lsm303agr_ioctl,    /* ioctl */
-  NULL                /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL              /* unlink */
-#endif
 };
 
 static const struct lsm303agr_ops_s g_lsm303agrsensor_ops =
@@ -958,11 +954,9 @@ static ssize_t lsm303agr_read(FAR struct file *filep,
 
   /* Sanity check */
 
-  DEBUGASSERT(filep != NULL);
   inode = filep->f_inode;
 
-  DEBUGASSERT(inode != NULL);
-  priv = (FAR struct lsm303agr_dev_s *)inode->i_private;
+  priv = inode->i_private;
 
   DEBUGASSERT(priv != NULL);
   DEBUGASSERT(priv->datareg == LSM303AGR_OUTX_L_A_SHIFT ||
@@ -1081,11 +1075,9 @@ static int lsm303agr_ioctl(FAR struct file *filep, int cmd,
 
   /* Sanity check */
 
-  DEBUGASSERT(filep != NULL);
   inode = filep->f_inode;
 
-  DEBUGASSERT(inode != NULL);
-  priv = (FAR struct lsm303agr_dev_s *)inode->i_private;
+  priv = inode->i_private;
 
   DEBUGASSERT(priv != NULL);
 
@@ -1176,7 +1168,7 @@ static int lsm303agr_register(FAR const char *devpath,
 
   /* Initialize the device's structure */
 
-  priv = (FAR struct lsm303agr_dev_s *)kmm_malloc(sizeof(*priv));
+  priv = kmm_malloc(sizeof(*priv));
   if (priv == NULL)
     {
       snerr("ERROR: Failed to allocate instance\n");

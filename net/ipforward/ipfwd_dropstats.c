@@ -167,7 +167,7 @@ void ipfwd_dropstats(FAR struct forward_s *fwd)
   if (fwd->f_domain == PF_INET)
 #endif
     {
-      ipv4_dropstats((FAR struct ipv4_hdr_s *)fwd->f_iob->io_data);
+      ipv4_dropstats((FAR struct ipv4_hdr_s *)IOB_DATA(fwd->f_iob));
     }
 #endif
 #ifdef CONFIG_NET_IPv6
@@ -175,7 +175,7 @@ void ipfwd_dropstats(FAR struct forward_s *fwd)
   else
 #endif
     {
-      ipv6_dropstats((FAR struct ipv6_hdr_s *)fwd->f_iob->io_data);
+      ipv6_dropstats((FAR struct ipv6_hdr_s *)IOB_DATA(fwd->f_iob));
     }
 #endif
 }

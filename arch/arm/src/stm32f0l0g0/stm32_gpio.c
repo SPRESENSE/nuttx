@@ -43,6 +43,10 @@
 #  include "hardware/stm32_exti.h"
 #endif
 
+#if defined(CONFIG_STM32F0G0L0_USE_LEGACY_PINMAP)
+#  pragma message "CONFIG_STM32F0G0L0_USE_LEGACY_PINMAP will be deprecated migrate board.h see tools/stm32_pinmap_tool.py"
+#endif
+
 /****************************************************************************
  * Public Data
  ****************************************************************************/
@@ -303,7 +307,7 @@ int stm32_configgpio(uint32_t cfgset)
    * Should it configured as an EXTI interrupt?
    */
 
-  if ((cfgset & GPIO_EXTI) != 0)
+  if ((pinmode != GPIO_MODER_OUTPUT) && ((cfgset & GPIO_EXTI) != 0))
     {
       uint32_t regaddr;
       int shift;

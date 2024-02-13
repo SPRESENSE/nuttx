@@ -18,8 +18,8 @@
  *
  ****************************************************************************/
 
-#ifndef __DRIVERS_MODEM_ALT1250_ALTCOM_CMD_H__
-#define __DRIVERS_MODEM_ALT1250_ALTCOM_CMD_H__
+#ifndef __DRIVERS_MODEM_ALT1250_ALTCOM_CMD_H
+#define __DRIVERS_MODEM_ALT1250_ALTCOM_CMD_H
 
 /****************************************************************************
  * Included Files
@@ -57,14 +57,14 @@
 
 #define APICMD_ENTERPIN_NEWPINCODE_UNUSE         (0)
 #define APICMD_ENTERPIN_NEWPINCODE_USE           (1)
-#define APICMD_ENTERPIN_PINCODE_LEN              9
+#define APICMD_ENTERPIN_PINCODE_LEN               9
 
-#define APICMD_ERRINFO_ERRSTR_MAX_LEN                (64)
+#define APICMD_ERRINFO_ERRSTR_MAX_LEN            (64)
 
-#define APICMD_IMSCAP_ENABLE         (0)
-#define APICMD_IMSCAP_DISABLE        (1)
+#define APICMD_IMSCAP_ENABLE                     (0)
+#define APICMD_IMSCAP_DISABLE                    (1)
 
-#define APICMD_NETINFO_PDNCOUNT_MAX           (5)
+#define APICMD_NETINFO_PDNCOUNT_MAX              (5)
 
 #define APICMD_OPERATOR_LEN_V4  33
 
@@ -110,27 +110,29 @@
 #define APICMD_REPORT_EVT_SIMSTATE_PERSONALIZATION_FAILED   (2)
 #define APICMD_REPORT_EVT_SIMSTATE_ACTIVATION_COMPLETED     (3)
 
-#define APICMD_REPNETINFO_RES_OK                 (0)
-#define APICMD_REPNETINFO_RES_ERR                (1)
+#define APICMD_REPNETINFO_RES_OK                            (0)
+#define APICMD_REPNETINFO_RES_ERR                           (1)
 
-#define APICMD_REPNETINFO_REPORT_ENABLE          (0)
-#define APICMD_REPNETINFO_REPORT_DISABLE         (1)
+#define APICMD_REPNETINFO_REPORT_ENABLE                     (0)
+#define APICMD_REPNETINFO_REPORT_DISABLE                    (1)
 
-#define APICMD_SET_REPQUALITY_DISABLE      (0)
-#define APICMD_SET_REPQUALITY_ENABLE       (1)
+#define APICMD_SET_REPQUALITY_DISABLE                       (0)
+#define APICMD_SET_REPQUALITY_ENABLE                        (1)
 
-#define APICMD_SETPINCODE_PINCODE_LEN  9
+#define APICMD_SETPINCODE_PINCODE_LEN                        9
 
-#define APICMD_SETPINCODE_CHGTYPE_PIN  (1)
-#define APICMD_SETPINCODE_CHGTYPE_PIN2 (2)
+#define APICMD_SETPINCODE_CHGTYPE_PIN                       (1)
+#define APICMD_SETPINCODE_CHGTYPE_PIN2                      (2)
 
-#define APICMD_SETPINLOCK_PINCODE_LEN    9
+#define APICMD_SETPINLOCK_PINCODE_LEN                        9
 
-#define APICMD_FW_INJECTDATA_MAXLEN    (4096)
-#define APICMD_FW_INJECTDATA_MAXLEN_V4 (3000)
+#define APICMD_FW_INJECTDATA_MAXLEN                         (4096)
+#define APICMD_FW_INJECTDATA_MAXLEN_V4                      (3000)
+#define APICMD_FW_VER_BB_PRODUCT_LEN                        (5)
+#define APICMD_FW_VER_NP_PACKAGE_LEN                        (32)
 
-#define APICMD_IPV4_LEN (4)
-#define APICMD_IPV6_LEN (16)
+#define APICMD_IPV4_LEN                                     (4)
+#define APICMD_IPV6_LEN                                     (16)
 
 /****************************************************************************
  * Public Types
@@ -811,8 +813,8 @@ begin_packed_struct struct apicmd_cmddat_setpsmres_s
 begin_packed_struct struct apicmd_cmddat_getverres_s
 {
   uint8_t result;
-  uint8_t bb_product[LTE_VER_BB_PRODUCT_LEN];
-  uint8_t np_package[LTE_VER_NP_PACKAGE_LEN];
+  uint8_t bb_product[APICMD_FW_VER_BB_PRODUCT_LEN];
+  uint8_t np_package[APICMD_FW_VER_NP_PACKAGE_LEN];
 } end_packed_struct;
 
 /* structure for APICMDID_FW_INJECTDELTAIMG */
@@ -845,4 +847,4 @@ begin_packed_struct struct apicmd_cmddat_fw_deltaupcommres_s
   uint16_t ltefw_result;
 } end_packed_struct;
 
-#endif  /* __DRIVERS_MODEM_ALT1250_ALTCOM_CMD_H__ */
+#endif  /* __DRIVERS_MODEM_ALT1250_ALTCOM_CMD_H */

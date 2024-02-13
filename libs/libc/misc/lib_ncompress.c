@@ -87,9 +87,6 @@
 
 #define MARK(a) { asm(" .globl M.a"); asm("M.a:"); }
 
-#undef min
-#define min(a,b) ((a>b) ? b : a)
-
 #ifndef IBUFSIZ
 #  define IBUFSIZ BUFSIZ        /* Defailt input buffer size */
 #endif
@@ -712,8 +709,6 @@ void compress(int fdin, int fdout)
     write_error();
 
   bytes_out += (outbits + 7) >> 3;
-
-  return;
 }
 
 /* Decompress stdin to stdout.  This routine adapts to the codes in the

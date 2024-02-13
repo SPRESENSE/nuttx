@@ -98,15 +98,14 @@ static void copy_reverse(stack_word_t *dest, stack_word_t *src, int size)
  * Name: board_crashdump
  ****************************************************************************/
 
-void board_crashdump(uintptr_t currentsp, void *tcb,
-                     const char *filename, int lineno)
+void board_crashdump(uintptr_t sp, struct tcb_s *tcb,
+                     const char *filename, int lineno,
+                     const char *msg, void *regs)
 {
-  struct tcb_s *rtcb;
   fullcontext_t *pdump;
 
   enter_critical_section();
 
-  rtcb = (struct tcb_s *)tcb;
 #ifdef CONFIG_CXD56_BACKUPLOG
   pdump = up_backuplog_alloc("crash", sizeof(fullcontext_t));
 #else
@@ -136,7 +135,7 @@ void board_crashdump(uintptr_t currentsp, void *tcb,
           offset = len - sizeof(pdump->info.filename);
         }
 
-      strncpy(pdump->info.filename, (char *)&filename[offset],
+      strlcpy(pdump->info.filename, (char *)&filename[offset],
               sizeof(pdump->info.filename));
     }
 
@@ -151,10 +150,10 @@ void board_crashdump(uintptr_t currentsp, void *tcb,
   /* Save Context */
 
 #if CONFIG_TASK_NAME_SIZE > 0
-  strncpy(pdump->info.name, rtcb->name, CONFIG_TASK_NAME_SIZE);
+  strlcpy(pdump->info.name, tcb->name, sizeof(pdump->info.name));
 #endif
 
-  pdump->info.pid = rtcb->pid;
+  pdump->info.pid = tcb->pid;
 
   /* If  current_regs is not NULL then we are in an interrupt context
    * and the user context is in current_regs else we are running in
@@ -164,7 +163,7 @@ void board_crashdump(uintptr_t currentsp, void *tcb,
   if (CURRENT_REGS)
     {
 #if CONFIG_ARCH_INTERRUPTSTACK > 3
-      pdump->info.stacks.interrupt.sp = currentsp;
+      pdump->info.stacks.interrupt.sp = sp;
 #endif
       pdump->info.flags |= (REGS_PRESENT | USERSTACK_PRESENT | \
                             INTSTACK_PRESENT);
@@ -177,12 +176,12 @@ void board_crashdump(uintptr_t currentsp, void *tcb,
       /* users context */
 
       pdump->info.flags |= USERSTACK_PRESENT;
-      pdump->info.stacks.user.sp = currentsp;
+      pdump->info.stacks.user.sp = sp;
     }
 
-  pdump->info.stacks.user.top = (uint32_t)rtcb->stack_base_ptr +
-                                          rtcb->adj_stack_size;
-  pdump->info.stacks.user.size = (uint32_t)rtcb->adj_stack_size;
+  pdump->info.stacks.user.top = (uint32_t)tcb->stack_base_ptr +
+                                          tcb->adj_stack_size;
+  pdump->info.stacks.user.size = (uint32_t)tcb->adj_stack_size;
 
 #if CONFIG_ARCH_INTERRUPTSTACK > 3
   /* Get the limits on the interrupt stack memory */
@@ -190,7 +189,7 @@ void board_crashdump(uintptr_t currentsp, void *tcb,
 #ifdef CONFIG_SMP
   pdump->info.stacks.interrupt.top = (uint32_t)arm_intstack_top();
 #else
-  pdump->info.stacks.interrupt.top = (uint32_t)&g_intstacktop;
+  pdump->info.stacks.interrupt.top = (uint32_t)g_intstacktop;
 #endif
   pdump->info.stacks.interrupt.size = (CONFIG_ARCH_INTERRUPTSTACK & ~3);
 
@@ -201,8 +200,8 @@ void board_crashdump(uintptr_t currentsp, void *tcb,
   if ((pdump->info.flags & INTSTACK_PRESENT) != 0)
     {
       stack_word_t *ps = (stack_word_t *) pdump->info.stacks.interrupt.sp;
-      copy_reverse(pdump->istack, &ps[ARRAYSIZE(pdump->istack) / 2],
-                   ARRAYSIZE(pdump->istack));
+      copy_reverse(pdump->istack, &ps[nitems(pdump->istack) / 2],
+                   nitems(pdump->istack));
     }
 
   /* Is it Invalid? */
@@ -222,8 +221,8 @@ void board_crashdump(uintptr_t currentsp, void *tcb,
   if ((pdump->info.flags & USERSTACK_PRESENT) != 0)
     {
       stack_word_t *ps = (stack_word_t *) pdump->info.stacks.user.sp;
-      copy_reverse(pdump->ustack, &ps[ARRAYSIZE(pdump->ustack) / 2],
-                   ARRAYSIZE(pdump->ustack));
+      copy_reverse(pdump->ustack, &ps[nitems(pdump->ustack) / 2],
+                   nitems(pdump->ustack));
     }
 
   /* Is it Invalid? */
@@ -238,6 +237,7 @@ void board_crashdump(uintptr_t currentsp, void *tcb,
 exit:
 #if defined(CONFIG_CXD56_RESET_ON_CRASH)
   board_reset_on_crash();
-#endif
+#else
   return;
+#endif
 }

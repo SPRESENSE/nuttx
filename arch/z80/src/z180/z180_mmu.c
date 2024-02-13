@@ -162,7 +162,7 @@ int z80_mmu_initialize(void)
  * Address Environment Interfaces
  *
  * Low-level interfaces used in binfmt/ to instantiate tasks with address
- * environments.  These interfaces all operate on type group_addrenv_t which
+ * environments.  These interfaces all operate on type arch_addrenv_t which
  * is an abstract representation of a task group's address environment and
  * must be defined in arch/arch.h if CONFIG_ARCH_ADDRENV is defined.
  *
@@ -174,7 +174,6 @@ int z80_mmu_initialize(void)
  *                         address environment
  *   up_addrenv_heapsize - Returns the size of the initial heap allocation.
  *   up_addrenv_select   - Instantiate an address environment
- *   up_addrenv_restore  - Restore an address environment
  *   up_addrenv_clone    - Copy an address environment from one location to
  *                        another.
  *
@@ -219,7 +218,7 @@ int z80_mmu_initialize(void)
  ****************************************************************************/
 
 int up_addrenv_create(size_t textsize, size_t datasize, size_t heapsize,
-                      FAR group_addrenv_t *addrenv)
+                      FAR arch_addrenv_t *addrenv)
 {
   FAR struct z180_cbr_s *cbr;
   irqstate_t flags;
@@ -279,7 +278,7 @@ int up_addrenv_create(size_t textsize, size_t datasize, size_t heapsize,
 
   cbr->cbr     = (uint8_t)alloc;
   cbr->pages   = (uint8_t)npages;
-  *addrenv     = (group_addrenv_t)cbr;
+  *addrenv     = (arch_addrenv_t)cbr;
 
   leave_critical_section(flags);
   return OK;
@@ -308,7 +307,7 @@ errout_with_irq:
  *
  ****************************************************************************/
 
-int up_addrenv_destroy(FAR group_addrenv_t *addrenv)
+int up_addrenv_destroy(FAR arch_addrenv_t *addrenv)
 {
   FAR struct z180_cbr_s *cbr = (FAR struct z180_cbr_s *)*addrenv;
 
@@ -342,7 +341,7 @@ int up_addrenv_destroy(FAR group_addrenv_t *addrenv)
  *
  ****************************************************************************/
 
-int up_addrenv_vtext(FAR group_addrenv_t *addrenv, FAR void **vtext)
+int up_addrenv_vtext(FAR arch_addrenv_t *addrenv, FAR void **vtext)
 {
   return CONFIG_Z180_COMMON1AREA_VIRTBASE;
 }
@@ -369,7 +368,7 @@ int up_addrenv_vtext(FAR group_addrenv_t *addrenv, FAR void **vtext)
  *
  ****************************************************************************/
 
-int up_addrenv_vdata(FAR group_addrenv_t *addrenv, uintptr_t textsize,
+int up_addrenv_vdata(FAR arch_addrenv_t *addrenv, uintptr_t textsize,
                      FAR void **vdata)
 {
   return CONFIG_Z180_COMMON1AREA_VIRTBASE + textsize;
@@ -394,7 +393,7 @@ int up_addrenv_vdata(FAR group_addrenv_t *addrenv, uintptr_t textsize,
  ****************************************************************************/
 
 #ifdef CONFIG_BUILD_KERNEL
-int up_addrenv_vheap(FAR const group_addrenv_t *addrenv, FAR void **vheap)
+int up_addrenv_vheap(FAR const arch_addrenv_t *addrenv, FAR void **vheap)
 {
   /* Not implemented */
 
@@ -422,7 +421,7 @@ int up_addrenv_vheap(FAR const group_addrenv_t *addrenv, FAR void **vheap)
  ****************************************************************************/
 
 #ifdef CONFIG_BUILD_KERNEL
-ssize_t up_addrenv_heapsize(FAR const group_addrenv_t *addrenv)
+ssize_t up_addrenv_heapsize(FAR const arch_addrenv_t *addrenv)
 {
   /* Not implemented */
 
@@ -443,58 +442,25 @@ ssize_t up_addrenv_heapsize(FAR const group_addrenv_t *addrenv)
  * Input Parameters:
  *   addrenv - The representation of the task address environment previously
  *     returned by up_addrenv_create.
- *   oldenv
- *     The address environment that was in place before up_addrenv_select().
- *     This may be used with up_addrenv_restore() to restore the original
- *     address environment that was in place before up_addrenv_select() was
- *     called.  Note that this may be a task agnostic, hardware
- *     representation that is different from group_addrenv_t.
  *
  * Returned Value:
  *   Zero (OK) on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
-int up_addrenv_select(FAR const group_addrenv_t *addrenv,
-                      FAR save_addrenv_t *oldenv)
+int up_addrenv_select(FAR const arch_addrenv_t *addrenv)
 {
   FAR struct z180_cbr_s *cbr = (FAR struct z180_cbr_s *)addrenv;
   irqstate_t flags;
 
-  DEBUGASSERT(cbr && oldenv);
-
-  /* Return the current CBR value from the CBR register */
+  DEBUGASSERT(cbr);
 
   flags = enter_critical_section();
-  *oldenv = (save_addrenv_t)inp(Z180_MMU_CBR);
 
   /* Write the new CBR value into CBR register */
 
   outp(Z180_MMU_CBR, cbr->cbr);
   leave_critical_section(flags);
-  return OK;
-}
-
-/****************************************************************************
- * Name: up_addrenv_restore
- *
- * Description:
- *   After an address environment has been temporarily instantiated by
- *   up_addrenv_select, this function may be called to restore the
- *   original address environment.
- *
- * Input Parameters:
- *   oldenv - The hardware representation of the address environment
- *     previously returned by up_addrenv_select.
- *
- * Returned Value:
- *   Zero (OK) on success; a negated errno value on failure.
- *
- ****************************************************************************/
-
-int up_addrenv_restore(FAR const save_addrenv_t *oldenv)
-{
-  outp(Z180_MMU_CBR, (uint8_t)*oldenv);
   return OK;
 }
 
@@ -514,7 +480,7 @@ int up_addrenv_restore(FAR const save_addrenv_t *oldenv)
  *
  ****************************************************************************/
 
-int up_addrenv_coherent(FAR const group_addrenv_t *addrenv)
+int up_addrenv_coherent(FAR const arch_addrenv_t *addrenv)
 {
   /* There are no caches */
 
@@ -538,8 +504,8 @@ int up_addrenv_coherent(FAR const group_addrenv_t *addrenv)
  *
  ****************************************************************************/
 
-int up_addrenv_clone(FAR const group_addrenv_t *src,
-                     FAR group_addrenv_t *dest)
+int up_addrenv_clone(FAR const arch_addrenv_t *src,
+                     FAR arch_addrenv_t *dest)
 {
   DEBUGASSERT(src && dest);
 
@@ -560,7 +526,7 @@ int up_addrenv_clone(FAR const group_addrenv_t *src,
  *   group.
  *
  * Input Parameters:
- *   group - The task group to which the new thread belongs.
+ *   ptcb  - The tcb of the parent task.
  *   tcb   - The tcb of the thread needing the address environment.
  *
  * Returned Value:
@@ -568,7 +534,7 @@ int up_addrenv_clone(FAR const group_addrenv_t *src,
  *
  ****************************************************************************/
 
-int up_addrenv_attach(FAR struct task_group_s *group, FAR struct tcb_s *tcb)
+int up_addrenv_attach(FAR struct tcb_s *ptcb, FAR struct tcb_s *tcb)
 {
   /* There is nothing that needs to be done */
 
@@ -590,7 +556,6 @@ int up_addrenv_attach(FAR struct task_group_s *group, FAR struct tcb_s *tcb)
  *   may be sufficient.
  *
  * Input Parameters:
- *   group - The group to which the thread belonged.
  *   tcb - The TCB of the task or thread whose the address environment will
  *     be released.
  *
@@ -599,7 +564,7 @@ int up_addrenv_attach(FAR struct task_group_s *group, FAR struct tcb_s *tcb)
  *
  ****************************************************************************/
 
-int up_addrenv_detach(FAR struct task_group_s *group, FAR struct tcb_s *tcb)
+int up_addrenv_detach(FAR struct tcb_s *tcb)
 {
   /* There is nothing that needs to be done */
 

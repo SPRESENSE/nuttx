@@ -55,7 +55,7 @@ struct inode_path_s
 {
   foreach_inode_t handler;
   FAR void       *arg;
-  char            path[CONFIG_PATH_MAX];
+  char            path[PATH_MAX];
 };
 
 /****************************************************************************
@@ -110,7 +110,7 @@ static int foreach_inodelevel(FAR struct inode *node,
 
           /* Make sure that this would not exceed the maximum path length */
 
-          if (pathlen + namlen > PATH_MAX)
+          if (pathlen + namlen >= PATH_MAX)
             {
               ret = -ENAMETOOLONG;
               break;
@@ -118,7 +118,8 @@ static int foreach_inodelevel(FAR struct inode *node,
 
           /* Append the path segment to this inode and recurse */
 
-          sprintf(&info->path[pathlen], "/%s", node->i_name);
+          snprintf(&info->path[pathlen], sizeof(info->path) - pathlen,
+                   "/%s", node->i_name);
           ret = foreach_inodelevel(node->i_child, info);
 
           /* Truncate the path name back to the correct length */
@@ -169,7 +170,7 @@ int foreach_inode(foreach_inode_t handler, FAR void *arg)
 
   /* Allocate the mountpoint info structure */
 
-  info = (FAR struct inode_path_s *)kmm_malloc(sizeof(struct inode_path_s));
+  info = kmm_malloc(sizeof(struct inode_path_s));
   if (!info)
     {
       return -ENOMEM;
@@ -183,11 +184,11 @@ int foreach_inode(foreach_inode_t handler, FAR void *arg)
 
   /* Start the recursion at the root inode */
 
-  ret = inode_semtake();
+  ret = inode_lock();
   if (ret >= 0)
     {
       ret = foreach_inodelevel(g_root_inode->i_child, info);
-      inode_semgive();
+      inode_unlock();
     }
 
   /* Free the info structure and return the result */
@@ -207,11 +208,11 @@ int foreach_inode(foreach_inode_t handler, FAR void *arg)
 
   /* Start the recursion at the root inode */
 
-  ret = inode_semtake();
+  ret = inode_lock();
   if (ret >= 0)
     {
       ret = foreach_inodelevel(g_root_inode->i_child, &info);
-      inode_semgive();
+      inode_unlock();
     }
 
   return ret;

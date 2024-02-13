@@ -24,6 +24,7 @@
 
 #include <nuttx/config.h>
 
+#include <ctype.h>
 #include <sys/types.h>
 #include <sys/ioctl.h>
 #include <stdbool.h>
@@ -33,10 +34,13 @@
 #include <stdio.h>
 #include <string.h>
 #include <poll.h>
+#include <fcntl.h>
 #include <assert.h>
 #include <errno.h>
 
+#include <nuttx/ascii.h>
 #include <nuttx/kmalloc.h>
+#include <nuttx/mutex.h>
 #include <nuttx/semaphore.h>
 #include <nuttx/fs/fs.h>
 #include <nuttx/serial/pty.h>
@@ -72,9 +76,9 @@ struct pty_dev_s
   struct file pd_src;           /* Provides data to read() method (pipe output) */
   struct file pd_sink;          /* Accepts data from write() method (pipe input) */
   bool pd_master;               /* True: this is the master */
-#ifdef CONFIG_SERIAL_TERMIOS
+  uint8_t pd_escape;            /* Number of the character to be escaped */
   tcflag_t pd_iflag;            /* Terminal input modes */
-#endif
+  tcflag_t pd_lflag;            /* Terminal local modes */
   tcflag_t pd_oflag;            /* Terminal output modes */
   struct pty_poll_s pd_poll[CONFIG_DEV_PTY_NPOLLWAITERS];
 };
@@ -92,14 +96,13 @@ struct pty_devpair_s
   uint8_t pp_minor;             /* Minor device number */
   uint16_t pp_nopen;            /* Open file count */
   sem_t pp_slavesem;            /* Slave lock semaphore */
-  sem_t pp_exclsem;             /* Mutual exclusion */
+  mutex_t pp_lock;              /* Mutual exclusion */
 };
 
 /****************************************************************************
  * Private Function Prototypes
  ****************************************************************************/
 
-static int     pty_semtake(FAR struct pty_devpair_s *devpair);
 static void    pty_destroy(FAR struct pty_devpair_s *devpair);
 static int     pty_pipe(FAR struct pty_devpair_s *devpair);
 static int     pty_open(FAR struct file *filep);
@@ -127,6 +130,8 @@ static const struct file_operations g_pty_fops =
   pty_write,     /* write */
   NULL,          /* seek */
   pty_ioctl,     /* ioctl */
+  NULL,          /* mmap */
+  NULL,          /* truncate */
   pty_poll       /* poll */
 #ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
   , pty_unlink   /* unlink */
@@ -136,21 +141,6 @@ static const struct file_operations g_pty_fops =
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
-
-/****************************************************************************
- * Name: pty_semtake
- ****************************************************************************/
-
-static int pty_semtake(FAR struct pty_devpair_s *devpair)
-{
-  return nxsem_wait_uninterruptible(&devpair->pp_exclsem);
-}
-
-/****************************************************************************
- * Name: pty_semgive
- ****************************************************************************/
-
-#define pty_semgive(c) nxsem_post(&(c)->pp_exclsem)
 
 /****************************************************************************
  * Name: pty_destroy
@@ -188,7 +178,7 @@ static void pty_destroy(FAR struct pty_devpair_s *devpair)
 
   /* And free the device structure */
 
-  nxsem_destroy(&devpair->pp_exclsem);
+  nxmutex_destroy(&devpair->pp_lock);
   nxsem_destroy(&devpair->pp_slavesem);
   kmm_free(devpair);
 }
@@ -212,7 +202,7 @@ static int pty_pipe(FAR struct pty_devpair_s *devpair)
   pipe_a[0] = &devpair->pp_master.pd_src;
   pipe_a[1] = &devpair->pp_slave.pd_sink;
 
-  ret = file_pipe(pipe_a, CONFIG_PSEUDOTERM_TXBUFSIZE, 0);
+  ret = file_pipe(pipe_a, CONFIG_PSEUDOTERM_TXBUFSIZE, O_CLOEXEC);
   if (ret < 0)
     {
       return ret;
@@ -221,7 +211,7 @@ static int pty_pipe(FAR struct pty_devpair_s *devpair)
   pipe_b[0] = &devpair->pp_slave.pd_src;
   pipe_b[1] = &devpair->pp_master.pd_sink;
 
-  ret = file_pipe(pipe_b, CONFIG_PSEUDOTERM_RXBUFSIZE, 0);
+  ret = file_pipe(pipe_b, CONFIG_PSEUDOTERM_RXBUFSIZE, O_CLOEXEC);
   if (ret < 0)
     {
       file_close(pipe_a[0]);
@@ -242,7 +232,6 @@ static int pty_open(FAR struct file *filep)
   FAR struct pty_devpair_s *devpair;
   int ret = OK;
 
-  DEBUGASSERT(filep != NULL && filep->f_inode != NULL);
   inode   = filep->f_inode;
   dev     = inode->i_private;
   DEBUGASSERT(dev != NULL && dev->pd_devpair != NULL);
@@ -250,7 +239,7 @@ static int pty_open(FAR struct file *filep)
 
   /* Get exclusive access to the device structure */
 
-  ret = pty_semtake(devpair);
+  ret = nxmutex_lock(&devpair->pp_lock);
   if (ret < 0)
     {
       return ret;
@@ -268,7 +257,7 @@ static int pty_open(FAR struct file *filep)
         {
           /* Release the exclusive access before wait */
 
-          pty_semgive(devpair);
+          nxmutex_unlock(&devpair->pp_lock);
 
           /* Wait until unlocked.
            * We will also most certainly suspend here.
@@ -288,7 +277,7 @@ static int pty_open(FAR struct file *filep)
            * cause suspension.
            */
 
-          ret = pty_semtake(devpair);
+          ret = nxmutex_lock(&devpair->pp_lock);
           if (ret < 0)
             {
               return ret;
@@ -324,7 +313,7 @@ static int pty_open(FAR struct file *filep)
         }
     }
 
-  pty_semgive(devpair);
+  nxmutex_unlock(&devpair->pp_lock);
   return ret;
 }
 
@@ -339,7 +328,6 @@ static int pty_close(FAR struct file *filep)
   FAR struct pty_devpair_s *devpair;
   int ret;
 
-  DEBUGASSERT(filep != NULL && filep->f_inode != NULL);
   inode   = filep->f_inode;
   dev     = inode->i_private;
   DEBUGASSERT(dev != NULL && dev->pd_devpair != NULL);
@@ -347,7 +335,7 @@ static int pty_close(FAR struct file *filep)
 
   /* Get exclusive access */
 
-  ret = pty_semtake(devpair);
+  ret = nxmutex_lock(&devpair->pp_lock);
   if (ret < 0)
     {
       return ret;
@@ -394,7 +382,7 @@ static int pty_close(FAR struct file *filep)
       devpair->pp_nopen--;
     }
 
-  pty_semgive(devpair);
+  nxmutex_unlock(&devpair->pp_lock);
   return OK;
 }
 
@@ -407,18 +395,14 @@ static ssize_t pty_read(FAR struct file *filep, FAR char *buffer, size_t len)
   FAR struct inode *inode;
   FAR struct pty_dev_s *dev;
   ssize_t ntotal;
-#ifdef CONFIG_SERIAL_TERMIOS
   ssize_t i;
   ssize_t j;
   char ch;
-#endif
 
-  DEBUGASSERT(filep != NULL && filep->f_inode != NULL);
   inode = filep->f_inode;
   dev   = inode->i_private;
   DEBUGASSERT(dev != NULL);
 
-#ifdef CONFIG_SERIAL_TERMIOS
   /* Do input processing if any is enabled
    *
    * Specifically not handled:
@@ -473,7 +457,6 @@ static ssize_t pty_read(FAR struct file *filep, FAR char *buffer, size_t len)
         }
     }
   else
-#endif
     {
       /* NOTE: the source pipe will block if no data is available in
        * the pipe.   Otherwise, it will return data from the pipe.  If
@@ -487,6 +470,70 @@ static ssize_t pty_read(FAR struct file *filep, FAR char *buffer, size_t len)
        */
 
       ntotal = file_read(&dev->pd_src, buffer, len);
+    }
+
+  if ((dev->pd_lflag & ECHO) && (ntotal > 0))
+    {
+      size_t n = 0;
+
+      for (i = j = 0; i < ntotal; i++)
+        {
+          ch = buffer[i];
+
+          /* Check for the beginning of a VT100 escape sequence, 3 byte */
+
+          if (ch == ASCII_ESC)
+            {
+              /* Mark that we should skip 2 more bytes */
+
+              dev->pd_escape = 2;
+              continue;
+            }
+          else if (dev->pd_escape == 2 && ch != ASCII_LBRACKET)
+            {
+              /* It's not an <esc>[x 3 byte sequence, show it */
+
+              dev->pd_escape = 0;
+            }
+          else if (dev->pd_escape > 0)
+            {
+              /* Skipping character count down */
+
+              if (--dev->pd_escape > 0)
+                {
+                  continue;
+                }
+            }
+
+          /* Echo if the character in batch */
+
+          if (ch == '\n' || (n != 0 && j + n != i))
+            {
+              if (n != 0)
+                {
+                  pty_write(filep, buffer + j, n);
+                  n = 0;
+                }
+
+              if (ch == '\n')
+                {
+                  pty_write(filep, "\r\n", 2);
+                  continue;
+                }
+            }
+
+          /* Record the character can be echo */
+
+          if (!iscntrl(ch & 0xff) && n++ == 0)
+            {
+              j = i;
+            }
+        }
+
+      if (n != 0)
+        {
+          pty_write(filep, buffer + j, n);
+        }
     }
 
   return ntotal;
@@ -506,7 +553,6 @@ static ssize_t pty_write(FAR struct file *filep,
   size_t i;
   char ch;
 
-  DEBUGASSERT(filep != NULL && filep->f_inode != NULL);
   inode = filep->f_inode;
   dev   = inode->i_private;
   DEBUGASSERT(dev != NULL);
@@ -616,7 +662,6 @@ static int pty_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
   FAR struct pty_devpair_s *devpair;
   int ret;
 
-  DEBUGASSERT(filep != NULL && filep->f_inode != NULL);
   inode   = filep->f_inode;
   dev     = inode->i_private;
   DEBUGASSERT(dev != NULL && dev->pd_devpair != NULL);
@@ -624,7 +669,7 @@ static int pty_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 
   /* Get exclusive access */
 
-  ret = pty_semtake(devpair);
+  ret = nxmutex_lock(&devpair->pp_lock);
   if (ret < 0)
     {
       return ret;
@@ -694,7 +739,6 @@ static int pty_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
         }
         break;
 
-#ifdef CONFIG_SERIAL_TERMIOS
       case TCGETS:
         {
           FAR struct termios *termiosp = (FAR struct termios *)arg;
@@ -709,7 +753,7 @@ static int pty_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 
           termiosp->c_iflag = dev->pd_iflag;
           termiosp->c_oflag = dev->pd_oflag;
-          termiosp->c_lflag = 0;
+          termiosp->c_lflag = dev->pd_lflag;
           ret = OK;
         }
         break;
@@ -728,10 +772,10 @@ static int pty_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 
           dev->pd_iflag = termiosp->c_iflag;
           dev->pd_oflag = termiosp->c_oflag;
+          dev->pd_lflag = termiosp->c_lflag;
           ret = OK;
         }
         break;
-#endif
 
       /* Get the number of bytes that are immediately available for reading
        * from the source pipe.
@@ -757,16 +801,9 @@ static int pty_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
       case FIONBIO:
         {
           ret = file_ioctl(&dev->pd_src, cmd, arg);
-          if (ret >= 0 || ret == -ENOTTY)
-            {
-              ret = file_ioctl(&dev->pd_sink, cmd, arg);
-            }
-
-          /* Let the default handler set O_NONBLOCK flags for us. */
-
           if (ret >= 0)
             {
-              ret = -ENOTTY;
+              ret = file_ioctl(&dev->pd_sink, cmd, arg);
             }
         }
         break;
@@ -795,7 +832,7 @@ static int pty_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
         break;
     }
 
-  pty_semgive(devpair);
+  nxmutex_unlock(&devpair->pp_lock);
   return ret;
 }
 
@@ -813,12 +850,11 @@ static int pty_poll(FAR struct file *filep, FAR struct pollfd *fds,
   int ret;
   int i;
 
-  DEBUGASSERT(filep != NULL && filep->f_inode != NULL);
   inode   = filep->f_inode;
   dev     = inode->i_private;
   devpair = dev->pd_devpair;
 
-  ret = pty_semtake(devpair);
+  ret = nxmutex_lock(&devpair->pp_lock);
   if (ret < 0)
     {
       return ret;
@@ -887,7 +923,7 @@ static int pty_poll(FAR struct file *filep, FAR struct pollfd *fds,
     }
 
 errout:
-  pty_semgive(devpair);
+  nxmutex_unlock(&devpair->pp_lock);
   return ret;
 }
 
@@ -902,14 +938,14 @@ static int pty_unlink(FAR struct inode *inode)
   FAR struct pty_devpair_s *devpair;
   int ret;
 
-  DEBUGASSERT(inode != NULL && inode->i_private != NULL);
+  DEBUGASSERT(inode->i_private != NULL);
   dev     = inode->i_private;
   devpair = dev->pd_devpair;
   DEBUGASSERT(dev->pd_devpair != NULL);
 
   /* Get exclusive access */
 
-  ret = pty_semtake(devpair);
+  ret = nxmutex_lock(&devpair->pp_lock);
   if (ret < 0)
     {
       return ret;
@@ -929,7 +965,7 @@ static int pty_unlink(FAR struct inode *inode)
       return OK;
     }
 
-  pty_semgive(devpair);
+  nxmutex_unlock(&devpair->pp_lock);
   return OK;
 }
 #endif
@@ -970,24 +1006,26 @@ int pty_register2(int minor, bool susv1)
       return -ENOMEM;
     }
 
-  /* Initialize semaphores */
+  /* Initialize semaphores & mutex */
 
   nxsem_init(&devpair->pp_slavesem, 0, 0);
-  nxsem_init(&devpair->pp_exclsem, 0, 1);
+  nxmutex_init(&devpair->pp_lock);
 
-  /* The pp_slavesem semaphore is used for signaling and, hence, should not
-   * have priority inheritance enabled.
+  /* Map CR -> NL from terminal input (master)
+   * For some usage like adb shell:
+   *   adb shell write \r -> nsh read \n and echo input
+   *   nsh write \n -> adb shell read \r\n
    */
-
-  nxsem_set_protocol(&devpair->pp_slavesem, SEM_PRIO_NONE);
 
   devpair->pp_susv1             = susv1;
   devpair->pp_minor             = minor;
   devpair->pp_locked            = true;
   devpair->pp_master.pd_devpair = devpair;
   devpair->pp_master.pd_master  = true;
+  devpair->pp_master.pd_oflag   = OPOST | OCRNL;
   devpair->pp_slave.pd_devpair  = devpair;
   devpair->pp_slave.pd_oflag    = OPOST | ONLCR;
+  devpair->pp_slave.pd_lflag    = ECHO;
 
   /* Register the master device
    *
@@ -1035,7 +1073,7 @@ errout_with_master:
   unregister_driver(devname);
 
 errout_with_devpair:
-  nxsem_destroy(&devpair->pp_exclsem);
+  nxmutex_destroy(&devpair->pp_lock);
   nxsem_destroy(&devpair->pp_slavesem);
   kmm_free(devpair);
   return ret;

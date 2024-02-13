@@ -111,7 +111,7 @@ g_intstacktop:
  *
  * Exit Conditions:
  *   This macro will use registers a2, a3 and a4.
- *   a2 - Points to the, possbily, new register save area.
+ *   a2 - Points to the, possibly, new register save area.
  *
  ****************************************************************************/
 
@@ -157,13 +157,20 @@ g_intstacktop:
 
 	mov		a2, RETVAL
 
-#if CONFIG_ARCH_INTERRUPTSTACK < 15
-	addi	sp, sp, XCPTCONTEXT_SIZE
-#endif
+	j		2f
 
 	/* Done */
 
 1:
+	/* No pending interrupts, simply copy the register save area pointer to
+	 * fulfill the macro exit condition.
+	 */
+
+	mov 	a2, a12
+2:
+#if CONFIG_ARCH_INTERRUPTSTACK < 15
+	addi	sp, sp, XCPTCONTEXT_SIZE
+#endif
 	.endm
 
 /****************************************************************************

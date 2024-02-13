@@ -62,13 +62,6 @@ static const struct file_operations g_xen1210fops =
   NULL,            /* open */
   NULL,            /* close */
   xen1210_read,    /* read */
-  NULL,            /* write */
-  NULL,            /* seek */
-  NULL,            /* ioctl */
-  NULL             /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL           /* unlink */
-#endif
 };
 
 /****************************************************************************
@@ -108,11 +101,10 @@ static ssize_t xen1210_read(FAR struct file *filep, FAR char *buffer,
   int                       ret;
 
   sninfo("len=%d\n", len);
-  DEBUGASSERT(filep);
   inode = filep->f_inode;
 
-  DEBUGASSERT(inode && inode->i_private);
-  priv  = (FAR struct xen1210_dev_s *)inode->i_private;
+  DEBUGASSERT(inode->i_private);
+  priv  = inode->i_private;
 
   /* Verify that the caller has provided a buffer large enough to receive
    * the magnetometer data.
@@ -130,7 +122,7 @@ static ssize_t xen1210_read(FAR struct file *filep, FAR char *buffer,
 
   /* Get exclusive access to the driver data structure */
 
-  ret = nxsem_wait(&priv->exclsem);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       /* This should only happen if the wait was canceled by an signal */
@@ -147,7 +139,7 @@ static ssize_t xen1210_read(FAR struct file *filep, FAR char *buffer,
 
   buffer = (FAR char *) &priv->sample;
 
-  nxsem_post(&priv->exclsem);
+  nxmutex_unlock(&priv->lock);
   return sizeof(struct xen1210_sample_s);
 }
 
@@ -258,7 +250,7 @@ XEN1210_HANDLE xen1210_instantiate(FAR struct spi_dev_s *dev,
 
   /* Initialize the device state structure */
 
-  nxsem_init(&priv->exclsem, 0, 1);
+  nxmutex_init(&priv->lock);
   priv->config = config;
 
   priv->spi = dev;
@@ -332,7 +324,7 @@ int xen1210_register(XEN1210_HANDLE handle, int minor)
 
   /* Get exclusive access to the device structure */
 
-  ret = nxsem_wait(&priv->exclsem);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       snerr("ERROR: nxsem_wait failed: %d\n", ret);
@@ -346,14 +338,14 @@ int xen1210_register(XEN1210_HANDLE handle, int minor)
   if (ret < 0)
     {
       snerr("ERROR: Failed to register driver %s: %d\n", devname, ret);
-      nxsem_post(&priv->exclsem);
+      nxmutex_unlock(&priv->lock);
       return ret;
     }
 
   /* Indicate that the accelerometer was successfully initialized */
 
   priv->status |= XEN1210_STAT_INITIALIZED;  /* Accelerometer is initialized */
-  nxsem_post(&priv->exclsem);
+  nxmutex_unlock(&priv->lock);
   return ret;
 }
 

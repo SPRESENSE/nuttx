@@ -100,9 +100,22 @@ FAR FILE *freopen(FAR const char *path, FAR const char *mode,
           return NULL;
         }
 
-      /* Flush the stream and duplicate the new fd to it */
+      /* Make sure that we have exclusive access to the stream */
 
-      fflush(stream);
+      flockfile(stream);
+
+      /* Flush the stream and invalidate the read buffer. */
+
+      lib_fflush_unlocked(stream, true);
+
+#ifndef CONFIG_STDIO_DISABLE_BUFFERING
+      lib_rdflush_unlocked(stream);
+#endif
+
+      funlockfile(stream);
+
+      /* Duplicate the new fd to the stream. */
+
       ret = dup2(fd, fileno(stream));
       close(fd);
       if (ret < 0)

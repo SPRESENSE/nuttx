@@ -28,6 +28,7 @@
 
 #include <assert.h>
 #include <debug.h>
+#include <sys/param.h>
 #include <sys/types.h>
 #include <inttypes.h>
 #include <stdint.h>
@@ -106,10 +107,6 @@
 /* SPI Slave maximum buffer size in bytes */
 
 #define SPI_SLAVE_HW_BUF_SIZE   (64)
-
-#ifndef MIN
-#  define MIN(a, b) (((a) < (b)) ? (a) : (b))
-#endif
 
 #define WORDS2BYTES(_priv, _wn)   ((_wn) * ((_priv)->nbits / 8))
 #define BYTES2WORDS(_priv, _bn)   ((_bn) / ((_priv)->nbits / 8))
@@ -1148,7 +1145,7 @@ static void spislave_bind(struct spi_slave_ctrlr_s *ctrlr,
 
   /* Enable the CPU interrupt that is linked to the SPI Slave controller */
 
-  up_enable_irq(priv->cpuint);
+  up_enable_irq(priv->config->irq);
 
   leave_critical_section(flags);
 }
@@ -1181,7 +1178,7 @@ static void spislave_unbind(struct spi_slave_ctrlr_s *ctrlr)
 
   flags = enter_critical_section();
 
-  up_disable_irq(priv->cpuint);
+  up_disable_irq(priv->config->irq);
 
   esp32c3_gpioirqdisable(ESP32C3_PIN2IRQ(priv->config->cs_pin));
 
@@ -1437,12 +1434,12 @@ struct spi_slave_ctrlr_s *esp32c3_spislave_ctrlr_initialize(int port)
     {
       /* Disable the provided CPU Interrupt to configure it. */
 
-      up_disable_irq(priv->cpuint);
+      up_disable_irq(priv->config->irq);
     }
 
-  priv->cpuint = esp32c3_request_irq(priv->config->periph,
-                                     ESP32C3_INT_PRIO_DEF,
-                                     ESP32C3_INT_LEVEL);
+  priv->cpuint = esp32c3_setup_irq(priv->config->periph,
+                                   ESP32C3_INT_PRIO_DEF,
+                                   ESP32C3_INT_LEVEL);
   if (priv->cpuint < 0)
     {
       /* Failed to allocate a CPU interrupt of this type. */
@@ -1456,7 +1453,7 @@ struct spi_slave_ctrlr_s *esp32c3_spislave_ctrlr_initialize(int port)
     {
       /* Failed to attach IRQ, so CPU interrupt must be freed. */
 
-      esp32c3_free_cpuint(priv->config->periph);
+      esp32c3_teardown_irq(priv->config->periph, priv->cpuint);
       priv->cpuint = -ENOMEM;
       leave_critical_section(flags);
 
@@ -1504,8 +1501,8 @@ int esp32c3_spislave_ctrlr_uninitialize(struct spi_slave_ctrlr_s *ctrlr)
       return OK;
     }
 
-  up_disable_irq(priv->cpuint);
-  esp32c3_free_cpuint(priv->config->periph);
+  up_disable_irq(priv->config->irq);
+  esp32c3_teardown_irq(priv->config->periph, priv->cpuint);
   priv->cpuint = -ENOMEM;
 
   spislave_deinitialize(ctrlr);

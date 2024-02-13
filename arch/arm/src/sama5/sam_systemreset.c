@@ -57,6 +57,10 @@ void up_systemreset(void)
 
   rstcr  = (RSTC_CR_PROCRST | RSTC_CR_KEY);
 
+#if defined(CONFIG_ARCH_CHIP_SAMA5D3)
+  rstcr  |= RSTC_CR_PERRST;
+#endif
+
 #if defined(CONFIG_SAMA5_EXTRESET_ERST) && CONFIG_SAMA5_EXTRESET_ERST != 0
   rstcr |= RSTC_CR_EXTRST;
 

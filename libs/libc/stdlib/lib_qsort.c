@@ -47,13 +47,12 @@
 #include <nuttx/config.h>
 
 #include <sys/types.h>
+#include <sys/param.h>
 #include <stdlib.h>
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
-
-#define min(a, b)  (a) < (b) ? a : b
 
 #define swapcode(TYPE, parmi, parmj, n) \
   { \
@@ -68,8 +67,8 @@
   }
 
 #define SWAPINIT(a, width) \
-  swaptype = ((FAR char *)a - (FAR char *)0) % sizeof(long) || \
-  width % sizeof(long) ? 2 : width == sizeof(long)? 0 : 1;
+  swaptype = (uintptr_t)a % sizeof(long) || \
+  width % sizeof(long) ? 2 : width == sizeof(long) ? 0 : 1;
 
 #define swap(a, b) \
   if (swaptype == 0) \
@@ -275,10 +274,10 @@ loop:
     }
 
   pn = (FAR char *)base + nel * width;
-  r  = min(pa - (FAR char *)base, pb - pa);
+  r  = MIN(pa - (FAR char *)base, pb - pa);
   vecswap(base, pb - r, r);
 
-  r  = min(pd - pc, pn - pd - width);
+  r  = MIN(pd - pc, pn - pd - width);
   vecswap(pb, pn - r, r);
 
   if ((r = pb - pa) > width)

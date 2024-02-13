@@ -31,6 +31,7 @@
 #include <time.h>
 
 #include <nuttx/kmalloc.h>
+#include <nuttx/mutex.h>
 #include <nuttx/fs/fs.h>
 #include <nuttx/i2c/i2c_master.h>
 #include <nuttx/sensors/sht21.h>
@@ -78,7 +79,7 @@ struct sht21_dev_s
 #ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
   int16_t crefs;                /* Number of open references */
 #endif
-  sem_t devsem;
+  mutex_t devlock;
 };
 
 /****************************************************************************
@@ -130,6 +131,8 @@ static const struct file_operations g_sht21fops =
   sht21_write,    /* write */
   NULL,           /* seek */
   sht21_ioctl,    /* ioctl */
+  NULL,           /* mmap */
+  NULL,           /* truncate */
   NULL            /* poll */
 #ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
   , sht21_unlink /* unlink */
@@ -371,7 +374,7 @@ static int sht21_open(FAR struct file *filep)
 
   /* Get exclusive access */
 
-  ret = nxsem_wait_uninterruptible(&priv->devsem);
+  ret = nxmutex_lock(&priv->devlock);
   if (ret < 0)
     {
       return ret;
@@ -382,7 +385,7 @@ static int sht21_open(FAR struct file *filep)
   priv->crefs++;
   DEBUGASSERT(priv->crefs > 0);
 
-  nxsem_post(&priv->devsem);
+  nxmutex_unlock(&priv->devlock);
   return OK;
 }
 #endif
@@ -404,7 +407,7 @@ static int sht21_close(FAR struct file *filep)
 
   /* Get exclusive access */
 
-  ret = nxsem_wait_uninterruptible(&priv->devsem);
+  ret = nxmutex_lock(&priv->devlock);
   if (ret < 0)
     {
       return ret;
@@ -421,12 +424,12 @@ static int sht21_close(FAR struct file *filep)
 
   if (priv->crefs <= 0 && priv->unlinked)
     {
-      nxsem_destroy(&priv->devsem);
+      nxmutex_destroy(&priv->devlock);
       kmm_free(priv);
       return OK;
     }
 
-  nxsem_post(&priv->devsem);
+  nxmutex_unlock(&priv->devlock);
   return OK;
 }
 #endif
@@ -447,7 +450,7 @@ static ssize_t sht21_read(FAR struct file *filep, FAR char *buffer,
 
   /* Get exclusive access */
 
-  ret = nxsem_wait_uninterruptible(&priv->devsem);
+  ret = nxmutex_lock(&priv->devlock);
   if (ret < 0)
     {
       return (ssize_t)ret;
@@ -460,7 +463,7 @@ static ssize_t sht21_read(FAR struct file *filep, FAR char *buffer,
        * sensor use on hot swappable I2C bus.
        */
 
-      nxsem_post(&priv->devsem);
+      nxmutex_unlock(&priv->devlock);
       return -ENODEV;
     }
 #endif
@@ -481,7 +484,7 @@ static ssize_t sht21_read(FAR struct file *filep, FAR char *buffer,
         }
     }
 
-  nxsem_post(&priv->devsem);
+  nxmutex_unlock(&priv->devlock);
   return length;
 }
 
@@ -507,7 +510,7 @@ static int sht21_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 
   /* Get exclusive access */
 
-  ret = nxsem_wait_uninterruptible(&priv->devsem);
+  ret = nxmutex_lock(&priv->devlock);
   if (ret < 0)
     {
       return ret;
@@ -520,7 +523,7 @@ static int sht21_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
        * sensor use on hot swappable I2C bus.
        */
 
-      nxsem_post(&priv->devsem);
+      nxmutex_unlock(&priv->devlock);
       return -ENODEV;
     }
 #endif
@@ -574,7 +577,7 @@ static int sht21_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
         break;
     }
 
-  nxsem_post(&priv->devsem);
+  nxmutex_unlock(&priv->devlock);
   return ret;
 }
 
@@ -588,12 +591,12 @@ static int sht21_unlink(FAR struct inode *inode)
   FAR struct sht21_dev_s *priv;
   int ret;
 
-  DEBUGASSERT(inode != NULL && inode->i_private != NULL);
-  priv = (FAR struct sht21_dev_s *)inode->i_private;
+  DEBUGASSERT(inode->i_private != NULL);
+  priv = inode->i_private;
 
   /* Get exclusive access */
 
-  ret = nxsem_wait_uninterruptible(&priv->devsem);
+  ret = nxmutex_lock(&priv->devlock);
   if (ret < 0)
     {
       return ret;
@@ -603,7 +606,7 @@ static int sht21_unlink(FAR struct inode *inode)
 
   if (priv->crefs <= 0)
     {
-      nxsem_destroy(&priv->devsem);
+      nxmutex_destroy(&priv->devlock);
       kmm_free(priv);
       return OK;
     }
@@ -613,7 +616,7 @@ static int sht21_unlink(FAR struct inode *inode)
    */
 
   priv->unlinked = true;
-  nxsem_post(&priv->devsem);
+  nxmutex_unlock(&priv->devlock);
   return OK;
 }
 #endif
@@ -651,7 +654,7 @@ int sht21_register(FAR const char *devpath, FAR struct i2c_master_s *i2c,
 
   /* Initialize the device structure */
 
-  priv = (FAR struct sht21_dev_s *)kmm_zalloc(sizeof(struct sht21_dev_s));
+  priv = kmm_zalloc(sizeof(struct sht21_dev_s));
   if (priv == NULL)
     {
       snerr("ERROR: Failed to allocate instance\n");
@@ -661,7 +664,7 @@ int sht21_register(FAR const char *devpath, FAR struct i2c_master_s *i2c,
   priv->i2c  = i2c;
   priv->addr = addr;
 
-  nxsem_init(&priv->devsem, 0, 1);
+  nxmutex_init(&priv->devlock);
 
   /* Register the character driver */
 
@@ -669,6 +672,7 @@ int sht21_register(FAR const char *devpath, FAR struct i2c_master_s *i2c,
   if (ret < 0)
     {
       snerr("ERROR: Failed to register driver: %d\n", ret);
+      nxmutex_destroy(&priv->devlock);
       kmm_free(priv);
     }
 

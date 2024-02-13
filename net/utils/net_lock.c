@@ -50,27 +50,11 @@
  * Private Data
  ****************************************************************************/
 
-static sem_t        g_netlock = SEM_INITIALIZER(1);
-static pid_t        g_holder  = NO_HOLDER;
-static unsigned int g_count;
+static rmutex_t g_netlock = NXRMUTEX_INITIALIZER;
 
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
-
-/****************************************************************************
- * Name: _net_takesem
- *
- * Description:
- *   Take the semaphore, waiting indefinitely.
- *   REVISIT: Should this return if -EINTR?
- *
- ****************************************************************************/
-
-static int _net_takesem(void)
-{
-  return nxsem_wait_uninterruptible(&g_netlock);
-}
 
 /****************************************************************************
  * Name: _net_timedwait
@@ -80,12 +64,8 @@ static int
 _net_timedwait(sem_t *sem, bool interruptible, unsigned int timeout)
 {
   unsigned int count;
-  irqstate_t   flags;
   int          blresult;
   int          ret;
-
-  flags = enter_critical_section(); /* No interrupts */
-  sched_lock();                     /* No context switches */
 
   /* Release the network lock, remembering my count.  net_breaklock will
    * return a negated value if the caller does not hold the network lock.
@@ -129,8 +109,6 @@ _net_timedwait(sem_t *sem, bool interruptible, unsigned int timeout)
       net_restorelock(count);
     }
 
-  sched_unlock();
-  leave_critical_section(flags);
   return ret;
 }
 
@@ -155,32 +133,7 @@ _net_timedwait(sem_t *sem, bool interruptible, unsigned int timeout)
 
 int net_lock(void)
 {
-  pid_t me = getpid();
-  int ret = OK;
-
-  /* Does this thread already hold the semaphore? */
-
-  if (g_holder == me)
-    {
-      /* Yes.. just increment the reference count */
-
-      g_count++;
-    }
-  else
-    {
-      /* No.. take the semaphore (perhaps waiting) */
-
-      ret = _net_takesem();
-      if (ret >= 0)
-        {
-          /* Now this thread holds the semaphore */
-
-          g_holder = me;
-          g_count  = 1;
-        }
-    }
-
-  return ret;
+  return nxrmutex_lock(&g_netlock);
 }
 
 /****************************************************************************
@@ -202,30 +155,7 @@ int net_lock(void)
 
 int net_trylock(void)
 {
-  pid_t me = getpid();
-  int ret = OK;
-
-  /* Does this thread already hold the semaphore? */
-
-  if (g_holder == me)
-    {
-      /* Yes.. just increment the reference count */
-
-      g_count++;
-    }
-  else
-    {
-      ret = nxsem_trywait(&g_netlock);
-      if (ret >= 0)
-        {
-          /* Now this thread holds the semaphore */
-
-          g_holder = me;
-          g_count  = 1;
-        }
-    }
-
-  return ret;
+  return nxrmutex_trylock(&g_netlock);
 }
 
 /****************************************************************************
@@ -244,24 +174,7 @@ int net_trylock(void)
 
 void net_unlock(void)
 {
-  DEBUGASSERT(g_holder == getpid() && g_count > 0);
-
-  /* If the count would go to zero, then release the semaphore */
-
-  if (g_count == 1)
-    {
-      /* We no longer hold the semaphore */
-
-      g_holder = NO_HOLDER;
-      g_count  = 0;
-      nxsem_post(&g_netlock);
-    }
-  else
-    {
-      /* We still hold the semaphore. Just decrement the count */
-
-      g_count--;
-    }
+  nxrmutex_unlock(&g_netlock);
 }
 
 /****************************************************************************
@@ -275,30 +188,8 @@ void net_unlock(void)
 
 int net_breaklock(FAR unsigned int *count)
 {
-  irqstate_t flags;
-  pid_t me = getpid();
-  int ret = -EPERM;
-
   DEBUGASSERT(count != NULL);
-
-  flags = enter_critical_section(); /* No interrupts */
-  if (g_holder == me)
-    {
-      /* Return the lock setting */
-
-      *count   = g_count;
-
-      /* Release the network lock  */
-
-      g_holder = NO_HOLDER;
-      g_count  = 0;
-
-      nxsem_post(&g_netlock);
-      ret      = OK;
-    }
-
-  leave_critical_section(flags);
-  return ret;
+  return nxrmutex_breaklock(&g_netlock, count);
 }
 
 /****************************************************************************
@@ -315,25 +206,11 @@ int net_breaklock(FAR unsigned int *count)
 
 int net_restorelock(unsigned int count)
 {
-  pid_t me = getpid();
-  int ret;
-
-  DEBUGASSERT(g_holder != me);
-
-  /* Recover the network lock at the proper count */
-
-  ret = _net_takesem();
-  if (ret >= 0)
-    {
-      g_holder = me;
-      g_count  = count;
-    }
-
-  return ret;
+  return nxrmutex_restorelock(&g_netlock, count);
 }
 
 /****************************************************************************
- * Name: net_timedwait
+ * Name: net_sem_timedwait
  *
  * Description:
  *   Atomically wait for sem (or a timeout) while temporarily releasing
@@ -354,13 +231,70 @@ int net_restorelock(unsigned int count)
  *
  ****************************************************************************/
 
-int net_timedwait(sem_t *sem, unsigned int timeout)
+int net_sem_timedwait(sem_t *sem, unsigned int timeout)
 {
   return _net_timedwait(sem, true, timeout);
 }
 
 /****************************************************************************
- * Name: net_lockedwait
+ * Name: net_mutex_timedlock
+ *
+ * Description:
+ *   Atomically wait for mutex (or a timeout) while temporarily releasing
+ *   the lock on the network.
+ *
+ *   Caution should be utilized.  Because the network lock is relinquished
+ *   during the wait, there could be changes in the network state that occur
+ *   before the lock is recovered.  Your design should account for this
+ *   possibility.
+ *
+ * Input Parameters:
+ *   mutex   - A reference to the mutex to be taken.
+ *   timeout - The relative time to wait until a timeout is declared.
+ *
+ * Returned Value:
+ *   Zero (OK) is returned on success; a negated errno value is returned on
+ *   any failure.
+ *
+ ****************************************************************************/
+
+int net_mutex_timedlock(mutex_t *mutex, unsigned int timeout)
+{
+  unsigned int count;
+  int          blresult;
+  int          ret;
+
+  /* Release the network lock, remembering my count.  net_breaklock will
+   * return a negated value if the caller does not hold the network lock.
+   */
+
+  blresult = net_breaklock(&count);
+
+  /* Now take the mutex, waiting if so requested. */
+
+  if (timeout != UINT_MAX)
+    {
+      ret = nxmutex_timedlock(mutex, timeout);
+    }
+  else
+    {
+      /* Wait as long as necessary to get the lock */
+
+      ret = nxmutex_lock(mutex);
+    }
+
+  /* Recover the network lock at the proper count (if we held it before) */
+
+  if (blresult >= 0)
+    {
+      net_restorelock(count);
+    }
+
+  return ret;
+}
+
+/****************************************************************************
+ * Name: net_sem_wait
  *
  * Description:
  *   Atomically wait for sem while temporarily releasing the network lock.
@@ -379,16 +313,41 @@ int net_timedwait(sem_t *sem, unsigned int timeout)
  *
  ****************************************************************************/
 
-int net_lockedwait(sem_t *sem)
+int net_sem_wait(sem_t *sem)
 {
-  return net_timedwait(sem, UINT_MAX);
+  return net_sem_timedwait(sem, UINT_MAX);
 }
 
 /****************************************************************************
- * Name: net_timedwait_uninterruptible
+ * Name: net_mutex_lock
  *
  * Description:
- *   This function is wrapped version of net_timedwait(), which is
+ *   Atomically wait for mutex while temporarily releasing the network lock.
+ *
+ *   Caution should be utilized.  Because the network lock is relinquished
+ *   during the wait, there could be changes in the network state that occur
+ *   before the lock is recovered.  Your design should account for this
+ *   possibility.
+ *
+ * Input Parameters:
+ *   mutex - A reference to the mutex to be taken.
+ *
+ * Returned Value:
+ *   Zero (OK) is returned on success; a negated errno value is returned on
+ *   any failure.
+ *
+ ****************************************************************************/
+
+int net_mutex_lock(mutex_t *mutex)
+{
+  return net_mutex_timedlock(mutex, UINT_MAX);
+}
+
+/****************************************************************************
+ * Name: net_sem_timedwait_uninterruptible
+ *
+ * Description:
+ *   This function is wrapped version of net_sem_timedwait(), which is
  *   uninterruptible and convenient for use.
  *
  * Input Parameters:
@@ -401,16 +360,16 @@ int net_lockedwait(sem_t *sem)
  *
  ****************************************************************************/
 
-int net_timedwait_uninterruptible(sem_t *sem, unsigned int timeout)
+int net_sem_timedwait_uninterruptible(sem_t *sem, unsigned int timeout)
 {
   return _net_timedwait(sem, false, timeout);
 }
 
 /****************************************************************************
- * Name: net_lockedwait_uninterruptible
+ * Name: net_sem_wait_uninterruptible
  *
  * Description:
- *   This function is wrapped version of net_lockedwait(), which is
+ *   This function is wrapped version of net_sem_wait(), which is
  *   uninterruptible and convenient for use.
  *
  * Input Parameters:
@@ -422,9 +381,9 @@ int net_timedwait_uninterruptible(sem_t *sem, unsigned int timeout)
  *
  ****************************************************************************/
 
-int net_lockedwait_uninterruptible(sem_t *sem)
+int net_sem_wait_uninterruptible(sem_t *sem)
 {
-  return net_timedwait_uninterruptible(sem, UINT_MAX);
+  return net_sem_timedwait_uninterruptible(sem, UINT_MAX);
 }
 
 #ifdef CONFIG_MM_IOB
@@ -446,7 +405,6 @@ int net_lockedwait_uninterruptible(sem_t *sem)
  * Input Parameters:
  *   throttled  - An indication of the IOB allocation is "throttled"
  *   timeout    - The relative time to wait until a timeout is declared.
- *   consumerid - id representing who is consuming the IOB
  *
  * Returned Value:
  *   A pointer to the newly allocated IOB is returned on success.  NULL is
@@ -454,12 +412,11 @@ int net_lockedwait_uninterruptible(sem_t *sem)
  *
  ****************************************************************************/
 
-FAR struct iob_s *net_iobtimedalloc(bool throttled, unsigned int timeout,
-                                    enum iob_user_e consumerid)
+FAR struct iob_s *net_iobtimedalloc(bool throttled, unsigned int timeout)
 {
   FAR struct iob_s *iob;
 
-  iob = iob_tryalloc(throttled, consumerid);
+  iob = iob_tryalloc(throttled);
   if (iob == NULL && timeout != 0)
     {
       unsigned int count;
@@ -470,7 +427,7 @@ FAR struct iob_s *net_iobtimedalloc(bool throttled, unsigned int timeout,
        */
 
       blresult = net_breaklock(&count);
-      iob      = iob_timedalloc(throttled, timeout, consumerid);
+      iob      = iob_timedalloc(throttled, timeout);
       if (blresult >= 0)
         {
           net_restorelock(count);
@@ -494,7 +451,6 @@ FAR struct iob_s *net_iobtimedalloc(bool throttled, unsigned int timeout,
  *
  * Input Parameters:
  *   throttled  - An indication of the IOB allocation is "throttled"
- *   consumerid - id representing who is consuming the IOB
  *
  * Returned Value:
  *   A pointer to the newly allocated IOB is returned on success.  NULL is
@@ -502,8 +458,8 @@ FAR struct iob_s *net_iobtimedalloc(bool throttled, unsigned int timeout,
  *
  ****************************************************************************/
 
-FAR struct iob_s *net_ioballoc(bool throttled, enum iob_user_e consumerid)
+FAR struct iob_s *net_ioballoc(bool throttled)
 {
-  return net_iobtimedalloc(throttled, UINT_MAX, consumerid);
+  return net_iobtimedalloc(throttled, UINT_MAX);
 }
 #endif

@@ -43,7 +43,7 @@
 #include "stm32_otg.h"
 #include "nucleo-144.h"
 
-#ifdef CONFIG_STM32F4_OTGFS
+#ifdef CONFIG_STM32_OTGFS
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -136,7 +136,7 @@ void stm32_usbinitialize(void)
    * Power On, and Overcurrent GPIOs
    */
 
-#ifdef CONFIG_STM32F4_OTGFS
+#ifdef CONFIG_STM32_OTGFS
   stm32_configgpio(GPIO_OTGFS_VBUS);
   stm32_configgpio(GPIO_OTGFS_PWRON);
   stm32_configgpio(GPIO_OTGFS_OVER);
@@ -226,7 +226,7 @@ int stm32_usbhost_initialize(void)
 
       ret = kthread_create("usbhost", CONFIG_STM32F4DISCO_USBHOST_PRIO,
                            CONFIG_STM32F4DISCO_USBHOST_STACKSIZE,
-                           (main_t)usbhost_waiter, (char * const *)NULL);
+                           usbhost_waiter, NULL);
       return ret < 0 ? -ENOEXEC : OK;
     }
 

@@ -73,10 +73,6 @@ static const struct file_operations g_ncp5623c_fileops =
   ncp5623c_write,              /* write */
   NULL,                        /* seek */
   ncp5623c_ioctl,              /* ioctl */
-  NULL                         /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL                      /* unlink */
-#endif
 };
 
 /****************************************************************************
@@ -266,15 +262,15 @@ static int ncp5623c_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 int ncp5623c_register(FAR const char *devpath, FAR struct i2c_master_s *i2c,
                       uint8_t const ncp5623c_i2c_addr)
 {
+  FAR struct ncp5623c_dev_s *priv;
+
   /* Sanity check */
 
   DEBUGASSERT(i2c != NULL);
 
   /* Initialize the NCP5623C device structure */
 
-  FAR struct ncp5623c_dev_s *priv =
-    (FAR struct ncp5623c_dev_s *)kmm_malloc(sizeof(struct ncp5623c_dev_s));
-
+  priv = kmm_malloc(sizeof(struct ncp5623c_dev_s));
   if (priv == NULL)
     {
       lcderr("ERROR: Failed to allocate instance of ncp5623c_dev_s\n");

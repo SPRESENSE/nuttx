@@ -180,10 +180,6 @@ static const struct file_operations g_ak09912fops =
   ak09912_write,                 /* write */
   NULL,                          /* seek */
   ak09912_ioctl,                 /* ioctl */
-  NULL                           /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL                         /* unlink */
-#endif
 };
 
 /****************************************************************************
@@ -194,7 +190,7 @@ static const struct file_operations g_ak09912fops =
  * Name: ak09912_getreg8
  *
  * Description:
- *   Read from an 8-bit BMP280 register
+ *   Read from an 8-bit ak09912 register
  *
  ****************************************************************************/
 
@@ -231,7 +227,7 @@ static uint8_t ak09912_getreg8(FAR struct ak09912_dev_s *priv,
  * Name: ak09912_putreg8
  *
  * Description:
- *   Write to an 8-bit BMP280 register
+ *   Write to an 8-bit ak09912 register
  *
  ****************************************************************************/
 

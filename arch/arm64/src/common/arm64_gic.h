@@ -99,6 +99,7 @@
  * [3:0] - IMPLEMENTATION DEFINED.
  */
 #define GICD_PIDR2_ARCH_MASK        0xf0
+#define GICD_PIDR2_ARCH_GICV2       0x20
 #define GICD_PIDR2_ARCH_GICV3       0x30
 #define GICD_PIDR2_ARCH_GICV4       0x40
 
@@ -109,7 +110,7 @@
 #define GICD_TYPER_RSS              BIT(26)
 #define GICD_TYPER_LPIS             BIT(17)
 #define GICD_TYPER_MBIS             BIT(16)
-#define GICD_TYPER_ESPI             BIT(8) 
+#define GICD_TYPER_ESPI             BIT(8)
 #define GICD_TYPER_ID_BITS(typer)   ((((typer) >> 19) & 0x1f) + 1)
 #define GICD_TYPER_NUM_LPIS(typer)  ((((typer) >> 11) & 0x1f) + 1)
 #define GICD_TYPER_SPIS(typer)      ((((typer) & 0x1f) + 1) * 32)
@@ -144,15 +145,38 @@
 
 #define GIC_INT_DEF_PRI_X4          0xa0a0a0a0
 
-/* Register bit definitions */
+/* GICD_CTLR : Distributor Control Register
+ *
+ * [31](RO)  RWP Register Write Pending:
+ *            -- 0 No register write in progress
+ *            -- 1 Register write in progress
+ * [30:8]    - Reserved -
+ * [7](RW)   E1NWF Enable 1 of N Wakeup Functionality  0
+ * [6](RO)   DS Disable Security status:
+ *            -- 0 The gicd_ctlr_ds signal was LOW when the GIC
+ *                 exited reset. Therefore, the Distributor supports
+ *                 two Security states and Non-secure accesses cannot
+ *                 access and modify registers that control Group 0
+ *                 interrupts.
+ *            -- 1 The gicd_ctlr_ds signal was HIGH when the GIC
+ *                 exited reset. Therefore, the Distributor only supports
+ *                 a single Security state and Non-secure accesses
+ *                 can access and modify registers that control
+ *                 Group 0 interrupts.
+ * [5](RO)   ARE_NS Affinity Routing Enable, Non-secure state
+ * [4](RO)   ARE_S Affinity Routing Enable, Secure state
+ * [3]       - Reserved -
+ * [2](RW)   EnableGrp1S Enable Secure Group 1 interrupts
+ * [1](RW)   EnableGrp1NS Enable Non-secure Group 1 interrupts
+ * [0](RW)   EnableGrp0 Enable Group 0 interrupts
+ */
 
-/* GICD_CTLR Interrupt group definitions */
 #define GICD_CTLR_ENABLE_G0         0
 #define GICD_CTLR_ENABLE_G1NS       1
 #define GICD_CTLR_ENABLE_G1S        2
 #define GICD_CTRL_ARE_S             4
 #define GICD_CTRL_ARE_NS            5
-#define GICD_CTRL_NS                6
+#define GICD_CTRL_DS                6
 #define GICD_CGRL_E1NWF             7
 
 /* GICD_CTLR Register write progress bit */
@@ -171,6 +195,7 @@
 #define GICR_TYPER                  0x0008
 #define GICR_STATUSR                0x0010
 #define GICR_WAKER                  0x0014
+#define GICR_PWRR                   0x0024
 #define GICR_SETLPIR                0x0040
 #define GICR_CLRLPIR                0x0048
 #define GICR_PROPBASER              0x0070
@@ -263,6 +288,7 @@ bool arm64_gic_irq_is_enabled(unsigned int intid);
 int  arm64_gic_initialize(void);
 void arm64_gic_irq_set_priority(unsigned int intid, unsigned int prio,
                                 uint32_t flags);
+int arm64_gic_irq_trigger(unsigned int intid, uint32_t flags);
 
 /****************************************************************************
  * Name: arm64_decodeirq
@@ -281,12 +307,9 @@ void arm64_gic_irq_set_priority(unsigned int intid, unsigned int prio,
 
 uint64_t * arm64_decodeirq(uint64_t *regs);
 
-int arm64_gic_raise_sgi(unsigned int sgi_id, uint64_t target_aff,
-                        uint16_t target_list);
+int arm64_gic_raise_sgi(unsigned int sgi_id, uint16_t target_list);
 
 #ifdef CONFIG_SMP
-
-#define SGI_CPU_PAUSE             GIC_IRQ_SGI0
 
 /****************************************************************************
  * Name: arm64_pause_handler
@@ -311,8 +334,6 @@ int arm64_gic_raise_sgi(unsigned int sgi_id, uint64_t target_aff,
 int arm64_pause_handler(int irq, void *context, void *arg);
 
 void arm64_gic_secondary_init(void);
-
-int arm64_smp_sgi_init(void);
 
 #endif
 

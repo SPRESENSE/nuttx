@@ -34,7 +34,7 @@
 #include <nuttx/signal.h>
 #include <nuttx/fs/fs.h>
 #include <nuttx/i2c/i2c_master.h>
-#include <nuttx/semaphore.h>
+#include <nuttx/mutex.h>
 #include <nuttx/sensors/kxtj9.h>
 #include <nuttx/random.h>
 
@@ -114,7 +114,7 @@
 struct kxtj9_dev_s
 {
   FAR struct i2c_master_s *i2c;
-  sem_t exclsem;
+  mutex_t lock;
   bool enable;
   bool power_enabled;
   uint8_t address;
@@ -165,10 +165,6 @@ static const struct file_operations g_fops =
   kxtj9_write,     /* write */
   NULL,            /* seek */
   kxtj9_ioctl,     /* ioctl */
-  NULL             /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL           /* unlink */
-#endif
 };
 
 /****************************************************************************
@@ -325,7 +321,7 @@ static int kxtj9_configure(FAR struct kxtj9_dev_s *priv, uint8_t odr)
   uint8_t wbuf[0];
   int ret;
 
-  ret = nxsem_wait_uninterruptible(&priv->exclsem);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
@@ -360,7 +356,7 @@ static int kxtj9_configure(FAR struct kxtj9_dev_s *priv, uint8_t odr)
   priv->int_ctrl = KXTJ9_IEN | KXTJ9_IEA | KXTJ9_IEL;
   kxtj9_reg_write(priv, INT_CTRL1, priv->int_ctrl);
 
-  nxsem_post(&priv->exclsem);
+  nxmutex_unlock(&priv->lock);
   return 0;
 }
 
@@ -378,7 +374,7 @@ static int kxtj9_enable(FAR struct kxtj9_dev_s *priv, bool on)
   uint8_t wbuf[1];
   int ret;
 
-  ret = nxsem_wait_uninterruptible(&priv->exclsem);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
@@ -406,7 +402,7 @@ static int kxtj9_enable(FAR struct kxtj9_dev_s *priv, bool on)
       sninfo("KXTJ9 in operating mode\n");
     }
 
-  nxsem_post(&priv->exclsem);
+  nxmutex_unlock(&priv->lock);
   return OK;
 }
 
@@ -425,7 +421,7 @@ static int kxtj9_read_sensor_data(FAR struct kxtj9_dev_s *priv,
   uint8_t data;
   int ret;
 
-  ret = nxsem_wait_uninterruptible(&priv->exclsem);
+  ret = nxmutex_lock(&priv->lock);
   if (ret < 0)
     {
       return ret;
@@ -442,7 +438,7 @@ static int kxtj9_read_sensor_data(FAR struct kxtj9_dev_s *priv,
   /* Read INT_REL to clear interrupt status */
 
   kxtj9_reg_read(priv, INT_REL, &data, 1);
-  nxsem_post(&priv->exclsem);
+  nxmutex_unlock(&priv->lock);
 
   /* Feed sensor data to entropy pool */
 
@@ -484,10 +480,10 @@ static ssize_t kxtj9_read(FAR struct file *filep, FAR char *buffer,
       return (ssize_t)-EINVAL;
     }
 
-  DEBUGASSERT(filep != NULL && filep->f_inode != NULL && buffer != NULL);
+  DEBUGASSERT(buffer != NULL);
   inode = filep->f_inode;
 
-  priv = (FAR struct kxtj9_dev_s *)inode->i_private;
+  priv = inode->i_private;
   DEBUGASSERT(priv != NULL  && priv->i2c != NULL);
 
   /* Return all of the samples that will fit in the user-provided buffer */
@@ -542,10 +538,9 @@ static int kxtj9_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 
   /* Sanity check */
 
-  DEBUGASSERT(filep != NULL && filep->f_inode != NULL);
   inode = filep->f_inode;
 
-  priv = (FAR struct kxtj9_dev_s *)inode->i_private;
+  priv = inode->i_private;
   DEBUGASSERT(priv != NULL && priv->i2c != NULL);
 
   /* Handle ioctl commands */
@@ -619,7 +614,7 @@ int kxtj9_register(FAR const char *devpath, FAR struct i2c_master_s *i2c,
 
   /* Initialize the device's structure */
 
-  priv = (FAR struct kxtj9_dev_s *)kmm_zalloc(sizeof(struct kxtj9_dev_s));
+  priv = kmm_zalloc(sizeof(struct kxtj9_dev_s));
   if (priv == NULL)
     {
       snerr("ERROR: Failed to allocate driver instance\n");
@@ -628,7 +623,7 @@ int kxtj9_register(FAR const char *devpath, FAR struct i2c_master_s *i2c,
 
   priv->i2c     = i2c;
   priv->address = address;
-  nxsem_init(&priv->exclsem, 0, 1);
+  nxmutex_init(&priv->lock);
 
   /* Register the character driver */
 
@@ -636,6 +631,7 @@ int kxtj9_register(FAR const char *devpath, FAR struct i2c_master_s *i2c,
   if (ret < 0)
     {
       snerr("ERROR: Failed to register driver: %d\n", ret);
+      nxmutex_destroy(&priv->lock);
       kmm_free(priv);
       return ret;
     }

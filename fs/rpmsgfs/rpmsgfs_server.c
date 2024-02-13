@@ -32,8 +32,8 @@
 #include <errno.h>
 
 #include <nuttx/kmalloc.h>
+#include <nuttx/mutex.h>
 #include <nuttx/fs/fs.h>
-#include <nuttx/fs/rpmsgfs.h>
 #include <nuttx/rptun/openamp.h>
 
 #include "rpmsgfs.h"
@@ -49,7 +49,7 @@ struct rpmsgfs_server_s
   FAR void            **dirs;
   int                   file_rows;
   int                   dir_nums;
-  sem_t                 sem;
+  mutex_t               lock;
 };
 
 /****************************************************************************
@@ -176,7 +176,7 @@ static int rpmsgfs_attach_file(FAR struct rpmsgfs_server_s *priv,
   int i;
   int j;
 
-  nxsem_wait(&priv->sem);
+  nxmutex_lock(&priv->lock);
 
   for (i = 0; i < priv->file_rows; i++)
     {
@@ -216,7 +216,7 @@ static int rpmsgfs_attach_file(FAR struct rpmsgfs_server_s *priv,
   ret = i * CONFIG_NFILE_DESCRIPTORS_PER_BLOCK;
 
 out:
-  nxsem_post(&priv->sem);
+  nxmutex_unlock(&priv->lock);
   return ret;
 }
 
@@ -230,12 +230,12 @@ static int rpmsgfs_detach_file(FAR struct rpmsgfs_server_s *priv,
       return -EBADF;
     }
 
-  nxsem_wait(&priv->sem);
+  nxmutex_lock(&priv->lock);
   tfilep = &priv->files[fd / CONFIG_NFILE_DESCRIPTORS_PER_BLOCK]
                        [fd % CONFIG_NFILE_DESCRIPTORS_PER_BLOCK];
   memcpy(filep, tfilep, sizeof(*filep));
   memset(tfilep, 0, sizeof(*tfilep));
-  nxsem_post(&priv->sem);
+  nxmutex_unlock(&priv->lock);
 
   return 0;
 }
@@ -251,10 +251,10 @@ static FAR struct file *rpmsgfs_get_file(
       return NULL;
     }
 
-  nxsem_wait(&priv->sem);
+  nxmutex_lock(&priv->lock);
   filep = &priv->files[fd / CONFIG_NFILE_DESCRIPTORS_PER_BLOCK]
                       [fd % CONFIG_NFILE_DESCRIPTORS_PER_BLOCK];
-  nxsem_post(&priv->sem);
+  nxmutex_unlock(&priv->lock);
 
   return filep;
 }
@@ -265,13 +265,13 @@ static int rpmsgfs_attach_dir(FAR struct rpmsgfs_server_s *priv,
   FAR void **tmp;
   int i;
 
-  nxsem_wait(&priv->sem);
+  nxmutex_lock(&priv->lock);
   for (i = 1; i < priv->dir_nums; i++)
     {
       if (priv->dirs[i] == NULL)
         {
           priv->dirs[i] = dir;
-          nxsem_post(&priv->sem);
+          nxmutex_unlock(&priv->lock);
           return i;
         }
     }
@@ -281,15 +281,18 @@ static int rpmsgfs_attach_dir(FAR struct rpmsgfs_server_s *priv,
   DEBUGASSERT(tmp);
   if (tmp == NULL)
     {
-      nxsem_post(&priv->sem);
+      nxmutex_unlock(&priv->lock);
       return -ENOMEM;
     }
+
+  memset(&tmp[priv->dir_nums], 0, sizeof(FAR void *) *
+         CONFIG_NFILE_DESCRIPTORS_PER_BLOCK);
 
   priv->dirs = tmp;
   priv->dir_nums += CONFIG_NFILE_DESCRIPTORS_PER_BLOCK;
 
   priv->dirs[i] = dir;
-  nxsem_post(&priv->sem);
+  nxmutex_unlock(&priv->lock);
   return i;
 }
 
@@ -300,10 +303,10 @@ static void *rpmsgfs_detach_dir(FAR struct rpmsgfs_server_s *priv,
 
   if (fd >= 1 && fd < priv->dir_nums)
     {
-      nxsem_wait(&priv->sem);
+      nxmutex_lock(&priv->lock);
       dir = priv->dirs[fd];
       priv->dirs[fd] = NULL;
-      nxsem_post(&priv->sem);
+      nxmutex_unlock(&priv->lock);
     }
 
   return dir;
@@ -317,9 +320,9 @@ static FAR void *rpmsgfs_get_dir(
 
   if (fd >= 1 && fd < priv->dir_nums)
     {
-      nxsem_wait(&priv->sem);
+      nxmutex_lock(&priv->lock);
       dir = priv->dirs[fd];
-      nxsem_post(&priv->sem);
+      nxmutex_unlock(&priv->lock);
     }
 
   return dir;
@@ -481,7 +484,7 @@ static int rpmsgfs_ioctl_handler(FAR struct rpmsg_endpoint *ept,
     }
 
   msg->header.result = ret;
-  return rpmsg_send(ept, msg, sizeof(*msg));
+  return rpmsg_send(ept, msg, len);
 }
 
 static int rpmsgfs_sync_handler(FAR struct rpmsg_endpoint *ept,
@@ -600,6 +603,7 @@ static int rpmsgfs_readdir_handler(FAR struct rpmsg_endpoint *ept,
   FAR struct dirent *entry;
   int ret = -ENOENT;
   FAR void *dir;
+  size_t size;
 
   dir = rpmsgfs_get_dir(priv, msg->fd);
   if (dir)
@@ -607,9 +611,12 @@ static int rpmsgfs_readdir_handler(FAR struct rpmsg_endpoint *ept,
       entry = readdir(dir);
       if (entry)
         {
+          size = MIN(rpmsg_virtio_get_buffer_size(ept->rdev),
+                     rpmsg_virtio_get_rx_buffer_size(ept->rdev));
+          size = MIN(size - len, strlen(entry->d_name) + 1);
           msg->type = entry->d_type;
-          strcpy(msg->name, entry->d_name);
-          len += strlen(entry->d_name) + 1;
+          strlcpy(msg->name, entry->d_name, size);
+          len += size;
           ret = 0;
         }
     }
@@ -850,14 +857,14 @@ static void rpmsgfs_ns_bind(FAR struct rpmsg_device *rdev,
     }
 
   priv->ept.priv = priv;
-  nxsem_init(&priv->sem, 0, 1);
+  nxmutex_init(&priv->lock);
 
   ret = rpmsg_create_ept(&priv->ept, rdev, name,
                          RPMSG_ADDR_ANY, dest,
                          rpmsgfs_ept_cb, rpmsgfs_ns_unbind);
   if (ret)
     {
-      nxsem_destroy(&priv->sem);
+      nxmutex_destroy(&priv->lock);
       kmm_free(priv);
     }
 }
@@ -890,7 +897,7 @@ static void rpmsgfs_ns_unbind(FAR struct rpmsg_endpoint *ept)
     }
 
   rpmsg_destroy_ept(&priv->ept);
-  nxsem_destroy(&priv->sem);
+  nxmutex_destroy(&priv->lock);
 
   kmm_free(priv->files);
   kmm_free(priv->dirs);
@@ -904,7 +911,7 @@ static int rpmsgfs_ept_cb(FAR struct rpmsg_endpoint *ept,
   struct rpmsgfs_header_s *header = data;
   uint32_t command = header->command;
 
-  if (command < ARRAY_SIZE(g_rpmsgfs_handler))
+  if (command < nitems(g_rpmsgfs_handler))
     {
       return g_rpmsgfs_handler[command](ept, data, len, src, priv);
     }

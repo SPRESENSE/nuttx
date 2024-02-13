@@ -44,7 +44,7 @@
 #include <nuttx/signal.h>
 #include <nuttx/net/mii.h>
 #include <nuttx/net/netconfig.h>
-#include <nuttx/net/arp.h>
+#include <nuttx/net/ip.h>
 #include <nuttx/net/netdev.h>
 
 #ifdef CONFIG_NET_PKT
@@ -341,8 +341,8 @@ static void lpc17_40_checkreg(uint32_t addr, uint32_t val, bool iswrite);
 static uint32_t lpc17_40_getreg(uint32_t addr);
 static void lpc17_40_putreg(uint32_t val, uint32_t addr);
 #else
-# define lpc17_40_getreg(addr)     getreg32(addr)
-# define lpc17_40_putreg(val,addr) putreg32(val,addr)
+#  define lpc17_40_getreg(addr)     getreg32(addr)
+#  define lpc17_40_putreg(val,addr) putreg32(val,addr)
 #endif
 
 /* Common TX logic */
@@ -712,57 +712,18 @@ static int lpc17_40_txpoll(struct net_driver_s *dev)
 {
   struct lpc17_40_driver_s *priv =
     (struct lpc17_40_driver_s *)dev->d_private;
-  int ret = OK;
 
-  /* If the polling resulted in data that should be sent out on the network,
-   * the field d_len is set to a value > 0.
+  /* Send this packet.  In this context, we know that there is space
+   * for at least one more packet in the descriptor list.
    */
 
-  if (priv->lp_dev.d_len > 0)
-    {
-      /* Look up the destination MAC address and add it to the Ethernet
-       * header.
-       */
+  lpc17_40_transmit(priv);
 
-#ifdef CONFIG_NET_IPv4
-#ifdef CONFIG_NET_IPv6
-      if (IFF_IS_IPv4(priv->lp_dev.d_flags))
-#endif
-        {
-          arp_out(&priv->lp_dev);
-        }
-#endif /* CONFIG_NET_IPv4 */
-
-#ifdef CONFIG_NET_IPv6
-#ifdef CONFIG_NET_IPv4
-      else
-#endif
-        {
-          neighbor_out(&priv->lp_dev);
-        }
-#endif /* CONFIG_NET_IPv6 */
-
-      if (!devif_loopback(&priv->lp_dev))
-        {
-          /* Send this packet.  In this context, we know that there is space
-           * for at least one more packet in the descriptor list.
-           */
-
-          lpc17_40_transmit(priv);
-
-          /* Check if there is room in the device to hold another packet. If
-           * not, return any non-zero value to terminate the poll.
-           */
-
-          ret = lpc17_40_txdesc(priv);
-        }
-    }
-
-  /* If zero is returned, the polling will continue until all connections
-   * have been examined.
+  /* Check if there is room in the device to hold another packet. If
+   * not, return any non-zero value to terminate the poll.
    */
 
-  return ret;
+  return lpc17_40_txdesc(priv);
 }
 
 /****************************************************************************
@@ -955,11 +916,8 @@ static void lpc17_40_rxdone_work(void *arg)
               ninfo("IPv4 frame\n");
               NETDEV_RXIPV4(&priv->lp_dev);
 
-              /* Handle ARP on input then give the IPv4 packet to the
-               * network layer
-               */
+              /* Receive an IPv4 packet from the network device */
 
-              arp_ipin(&priv->lp_dev);
               ipv4_input(&priv->lp_dev);
 
               /* If the above function invocation resulted in data that
@@ -969,21 +927,6 @@ static void lpc17_40_rxdone_work(void *arg)
 
               if (priv->lp_dev.d_len > 0)
                 {
-                  /* Update Ethernet header with the correct MAC address */
-
-#ifdef CONFIG_NET_IPv6
-                  if (IFF_IS_IPv4(priv->lp_dev.d_flags))
-#endif
-                    {
-                      arp_out(&priv->lp_dev);
-                    }
-#ifdef CONFIG_NET_IPv6
-                  else
-                    {
-                      neighbor_out(&priv->lp_dev);
-                    }
-#endif
-
                   /* And send the packet */
 
                   lpc17_40_response(priv);
@@ -1008,21 +951,6 @@ static void lpc17_40_rxdone_work(void *arg)
 
               if (priv->lp_dev.d_len > 0)
                 {
-                  /* Update Ethernet header with the correct MAC address */
-
-#ifdef CONFIG_NET_IPv4
-                  if (IFF_IS_IPv4(priv->lp_dev.d_flags))
-                    {
-                      arp_out(&priv->lp_dev);
-                    }
-                  else
-#endif
-#ifdef CONFIG_NET_IPv6
-                    {
-                      neighbor_out(&priv->lp_dev);
-                    }
-#endif
-
                   /* And send the packet */
 
                   lpc17_40_response(priv);
@@ -1034,7 +962,7 @@ static void lpc17_40_rxdone_work(void *arg)
           if (BUF->type == HTONS(ETHTYPE_ARP))
             {
               NETDEV_RXARP(&priv->lp_dev);
-              arp_arpin(&priv->lp_dev);
+              arp_input(&priv->lp_dev);
 
               /* If the above function invocation resulted in data that
                * should be sent out on the network, the field  d_len will
@@ -1337,11 +1265,11 @@ static int lpc17_40_interrupt(int irq, void *context, void *arg)
   /* Clear the pending interrupt */
 
 #if 0 /* Apparently not necessary */
-# if CONFIG_LPC17_40_NINTERFACES > 1
+#  if CONFIG_LPC17_40_NINTERFACES > 1
   lpc17_40_clrpend(priv->irq);
-# else
+#  else
   lpc17_40_clrpend(LPC17_40_IRQ_ETH);
-# endif
+#  endif
 #endif
 
   return OK;
@@ -1527,11 +1455,9 @@ static int lpc17_40_ifup(struct net_driver_s *dev)
   uint32_t regval;
   int ret;
 
-  ninfo("Bringing up: %d.%d.%d.%d\n",
-        (int)(dev->d_ipaddr & 0xff),
-        (int)((dev->d_ipaddr >> 8) & 0xff),
-        (int)((dev->d_ipaddr >> 16) & 0xff),
-        (int)(dev->d_ipaddr >> 24));
+  ninfo("Bringing up: %u.%u.%u.%u\n",
+        ip4_addr1(dev->d_ipaddr), ip4_addr2(dev->d_ipaddr),
+        ip4_addr3(dev->d_ipaddr), ip4_addr4(dev->d_ipaddr));
 
   /* Reset the Ethernet controller (again) */
 
@@ -1936,9 +1862,9 @@ static int lpc17_40_addmac(struct net_driver_s *dev, const uint8_t *mac)
 
   /* Enabled multicast address filtering in the RxFilterControl register:
    *
-   *   AcceptUnicastHashEn: When set to ’1’, unicast frames that pass the
+   *   AcceptUnicastHashEn: When set to '1', unicast frames that pass the
    *     imperfect hash filter are accepted.
-   *   AcceptMulticastHashEn When set to ’1’, multicast frames that pass
+   *   AcceptMulticastHashEn When set to '1', multicast frames that pass
    *     the imperfect hash filter are accepted.
    */
 
@@ -2018,9 +1944,9 @@ static int lpc17_40_rmmac(struct net_driver_s *dev, const uint8_t *mac)
 
   if (regval == 0 && lpc17_40_getreg(regaddr2) == 0)
     {
-      /*   AcceptUnicastHashEn: When set to ’1’, unicast frames that pass
+      /*   AcceptUnicastHashEn: When set to '1', unicast frames that pass
        *     the imperfect hash filter are accepted.
-       *   AcceptMulticastHashEn When set to ’1’, multicast frames that
+       *   AcceptMulticastHashEn When set to '1', multicast frames that
        *     pass the imperfect hash filter are accepted.
        */
 

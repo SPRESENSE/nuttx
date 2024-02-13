@@ -33,8 +33,10 @@
 #include <assert.h>
 #include <debug.h>
 #include <poll.h>
+#include <spawn.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/signal.h>
+#include <nuttx/mutex.h>
 #include <nuttx/sensors/cxd5610_gnss.h>
 #include <arch/chip/gnss.h>
 
@@ -107,6 +109,7 @@
 #define OPC_RECEIVER_VEL_NOTIFY           (0x82)
 #define OPC_SAT_INFO_NOTIFY               (0x83)
 #define OPC_ACCURACY_IDX_NOTIFY           (0x89)
+#define OPC_DISASTER_CRISIS_NOTIFY        (0x8b)
 
 /* Command packet definitions */
 
@@ -157,8 +160,8 @@ struct cxd5610_gnss_dev_s
 
   pid_t         pid;
   uint8_t       cref;
-  sem_t         dev_lock;
-  sem_t         buf_lock;
+  mutex_t       dev_lock;
+  mutex_t       buf_lock;
   sem_t         cmd_sync;
   sem_t         boot_sync;
 #if CONFIG_SENSORS_CXD5610_GNSS_NPOLLWAITERS != 0
@@ -175,6 +178,7 @@ struct cxd5610_gnss_dev_s
   uint8_t       *rcvbuf;
   uint8_t       *notifybuf;
   struct cxd56_gnss_positiondata2_s *posdat2;
+  struct cxd56_gnss_dcreport_data_s *dcrdat;
 };
 
 /* Command packets */
@@ -225,6 +229,7 @@ begin_packed_struct struct cmd_notify_pos_s
   int32_t  lat32;
   int32_t  lon32;
   int32_t  alt32;
+  int16_t  geo16;
 } end_packed_struct;
 
 begin_packed_struct struct cmd_notify_vel_s
@@ -266,6 +271,18 @@ begin_packed_struct struct cmd_notify_acc_s
   uint16_t semimajor16;
   uint16_t semiminor16;
   uint8_t  orientation;
+} end_packed_struct;
+
+begin_packed_struct struct cmd_notify_dcreport_s
+{
+  uint8_t  ver8;
+  uint8_t  nr;
+  struct mt43_data_s
+  {
+    uint8_t svid;
+    uint8_t data[32];
+  }
+  msg[3];
 } end_packed_struct;
 
 /****************************************************************************
@@ -322,16 +339,15 @@ static void cxd5610_gnss_pollnotify(struct cxd5610_gnss_dev_s *dev);
 
 static const struct file_operations g_cxd5610fops =
 {
-  cxd5610_gnss_open,           /* open */
-  cxd5610_gnss_close,          /* close */
-  cxd5610_gnss_read,           /* read */
-  cxd5610_gnss_write,          /* write */
-  NULL,                        /* seek */
-  cxd5610_gnss_ioctl,          /* ioctl */
-  cxd5610_gnss_poll            /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL                       /* unlink */
-#endif
+  cxd5610_gnss_open,  /* open */
+  cxd5610_gnss_close, /* close */
+  cxd5610_gnss_read,  /* read */
+  cxd5610_gnss_write, /* write */
+  NULL,               /* seek */
+  cxd5610_gnss_ioctl, /* ioctl */
+  NULL,               /* mmap */
+  NULL,               /* truncate */
+  cxd5610_gnss_poll   /* poll */
 };
 
 /* Semaphore for interrupt */
@@ -479,6 +495,7 @@ static int cxd5610_gnss_notify_pos(struct cxd5610_gnss_dev_s *priv, int len)
   int32_t lat32;
   int32_t lon32;
   int32_t alt32;
+  int16_t geo16 = 0;
 
   /* If the packet is invalid, do not update received data */
 
@@ -496,10 +513,15 @@ static int cxd5610_gnss_notify_pos(struct cxd5610_gnss_dev_s *priv, int len)
   cxd5610_store32(&lat32, &param->lat32);
   cxd5610_store32(&lon32, &param->lon32);
   cxd5610_store32(&alt32, &param->alt32);
+  if (GET_PACKET_VERSION(param->ver8) > 0)
+    {
+      cxd5610_store16(&geo16, &param->geo16);
+    }
+
   receiver->latitude  = (double)lat32 / 10000000.0;
   receiver->longitude = (double)lon32 / 10000000.0;
   receiver->altitude  = (double)alt32 / 100.0;
-  receiver->geoid = 0.0;
+  receiver->geoid = (double)geo16 / 100.0;
   receiver->svtype = (param->mode >> 4);
   receiver->fix_indicator = (param->mode & 0xf);
 
@@ -508,10 +530,12 @@ static int cxd5610_gnss_notify_pos(struct cxd5610_gnss_dev_s *priv, int len)
       receiver->pos_dataexist = 1;
     }
 
-  sninfo("lat=%.7lf[deg] lon=%.7lf[deg] alt=%.2lf[m] svtype=%d fix=%d\n",
+  sninfo("lat=%.7lf[deg] lon=%.7lf[deg] alt=%.2lf[m] "
+         "geo=%.2lf[m] svtype=%d fix=%d\n",
          receiver->latitude,
          receiver->longitude,
          receiver->altitude,
+         receiver->geoid,
          receiver->svtype,
          receiver->fix_indicator);
 
@@ -732,6 +756,54 @@ static int cxd5610_gnss_notify_acc(struct cxd5610_gnss_dev_s *priv, int len)
 }
 
 /****************************************************************************
+ * Name: cxd5610_gnss_notify_dcreport
+ ****************************************************************************/
+
+static int
+cxd5610_gnss_notify_dcreport(struct cxd5610_gnss_dev_s *priv, int len)
+{
+  struct cmd_notify_dcreport_s *param =
+                             (struct cmd_notify_dcreport_s *)priv->notifybuf;
+  struct cxd56_gnss_dcreport_data_s *dcrdat = priv->dcrdat;
+  int i;
+
+  /* If the packet is invalid, do not update received data */
+
+  if (IS_NOTIFY_INVALID(param->ver8))
+    {
+      return OK;
+    }
+
+  if (param->nr == 0)
+    {
+      return -ENOENT;
+    }
+
+  /* Only one message is received due to duplicate messages */
+
+  param->nr = 1;
+
+  /* Get exclusive control for buffer access */
+
+  cxd5610_gnss_buffer_lock(priv);
+
+  /* Receive disaster and crisis report information */
+
+  for (i = 0; i < param->nr; i++)
+    {
+      sninfo("svid=%d\n", param->msg[i].svid);
+      dcrdat->svid = param->msg[i].svid;
+      memcpy(dcrdat->sf, param->msg[i].data, sizeof(dcrdat->sf));
+    }
+
+  /* Release exclusive control for buffer access */
+
+  cxd5610_gnss_buffer_unlock(priv);
+
+  return OK;
+}
+
+/****************************************************************************
  * Name: cxd5610_gnss_notify
  ****************************************************************************/
 
@@ -753,6 +825,15 @@ cxd5610_gnss_notify(struct cxd5610_gnss_dev_s *priv, uint8_t opc, int len)
         break;
       case OPC_SAT_INFO_NOTIFY:
         ret = cxd5610_gnss_notify_sat(priv, len);
+        break;
+      case OPC_DISASTER_CRISIS_NOTIFY:
+        ret = cxd5610_gnss_notify_dcreport(priv, len);
+#if CONFIG_SENSORS_CXD5610_GNSS_NSIGNALRECEIVERS != 0
+        if (ret >= 0)
+          {
+            cxd5610_gnss_signalhandler(priv, CXD56_GNSS_SIG_DCREPORT);
+          }
+#endif
         break;
       case OPC_ACCURACY_IDX_NOTIFY:
         ret = cxd5610_gnss_notify_acc(priv, len);
@@ -1317,7 +1398,8 @@ static int cxd5610_gnss_set_notify(struct cxd5610_gnss_dev_s *priv)
     OPC_RECEIVER_POS_NOTIFY,
     OPC_RECEIVER_VEL_NOTIFY,
     OPC_SAT_INFO_NOTIFY,
-    OPC_ACCURACY_IDX_NOTIFY
+    OPC_ACCURACY_IDX_NOTIFY,
+    OPC_DISASTER_CRISIS_NOTIFY
   };
 
   ret = cxd5610_gnss_sendcmd(priv, OPC_BINARY_OUTPUT_SET,
@@ -1460,16 +1542,23 @@ static int cxd5610_gnss_initialize(struct cxd5610_gnss_dev_s *priv)
   int ret = OK;
   char *argv[2];
   char arg1[32];
+  posix_spawnattr_t attr;
 
   /* Create thread for receiving from CXD5610 device */
 
   snprintf(arg1, 16, "0x%" PRIxPTR, (uintptr_t)priv);
   argv[0] = arg1;
   argv[1] = NULL;
-  priv->pid = nxtask_create("cxd5610_gnss_thread",
-                            CONFIG_SENSORS_CXD5610_GNSS_RX_THREAD_PRIORITY,
-                            CONFIG_SENSORS_CXD5610_GNSS_RX_THREAD_STACKSIZE,
-                            cxd5610_gnss_thread, argv);
+
+  posix_spawnattr_init(&attr);
+  attr.priority  = CONFIG_SENSORS_CXD5610_GNSS_RX_THREAD_PRIORITY;
+  attr.stacksize = CONFIG_SENSORS_CXD5610_GNSS_RX_THREAD_STACKSIZE;
+
+  priv->pid = task_spawn("cxd5610_gnss_thread",
+                         cxd5610_gnss_thread,
+                         NULL, &attr, argv, NULL);
+
+  posix_spawnattr_destroy(&attr);
 
   /* Allocate various buffers */
 
@@ -1505,12 +1594,22 @@ static int cxd5610_gnss_initialize(struct cxd5610_gnss_dev_s *priv)
       goto errout4;
     }
 
+  priv->dcrdat = kmm_zalloc(sizeof(struct cxd56_gnss_dcreport_data_s));
+  if (priv->dcrdat == NULL)
+    {
+      snerr("ERROR: Failed to allocate dcreport data\n");
+      ret = -ENOMEM;
+      goto errout5;
+    }
+
   /* Initialize CXD5610 device */
 
   cxd5610_gnss_core_initialize(priv);
 
   return OK;
 
+errout5:
+  kmm_free(priv->posdat2);
 errout4:
   kmm_free(priv->notifybuf);
 errout3:
@@ -1544,6 +1643,7 @@ static int cxd5610_gnss_finalize(struct cxd5610_gnss_dev_s *priv)
   kmm_free(priv->rcvbuf);
   kmm_free(priv->notifybuf);
   kmm_free(priv->posdat2);
+  kmm_free(priv->dcrdat);
 
   return ret;
 }
@@ -1795,6 +1895,11 @@ static ssize_t cxd5610_gnss_read(struct file *filep, char *buffer,
           memcpy(buffer, priv->posdat2, len);
         }
     }
+  else if (type == CXD56_READ_DATA_TYPE_DCREPORT)
+    {
+      len = MIN(sizeof(struct cxd56_gnss_dcreport_data_s), len);
+      memcpy(buffer, priv->dcrdat, len);
+    }
 
   /* Release exclusive control for buffer access */
 
@@ -1994,20 +2099,7 @@ static void cxd5610_gnss_signalhandler(struct cxd5610_gnss_dev_s *priv,
 #if CONFIG_SENSORS_CXD5610_GNSS_NPOLLWAITERS != 0
 static void cxd5610_gnss_pollnotify(struct cxd5610_gnss_dev_s *dev)
 {
-  struct pollfd *fds;
-  int i;
-
-  for (i = 0; i < CONFIG_SENSORS_CXD5610_GNSS_NPOLLWAITERS; i++)
-    {
-      fds = dev->fds[i];
-      if (fds)
-        {
-          fds->revents |= POLLIN;
-          sninfo("Report events: %08" PRIx32 "\n", fds->revents);
-          nxsem_post(fds->sem);
-        }
-    }
-
+  poll_notify(dev->fds, CONFIG_SENSORS_CXD5610_GNSS_NPOLLWAITERS, POLLIN);
   dev->has_event = true;
 }
 #endif
@@ -2018,17 +2110,17 @@ static void cxd5610_gnss_pollnotify(struct cxd5610_gnss_dev_s *dev)
 
 static int cxd5610_gnss_device_init(struct cxd5610_gnss_dev_s *priv)
 {
-  return nxsem_init(&priv->dev_lock, 0, 1);
+  return nxmutex_init(&priv->dev_lock);
 }
 
 static int cxd5610_gnss_device_lock(struct cxd5610_gnss_dev_s *priv)
 {
-  return nxsem_wait_uninterruptible(&priv->dev_lock);
+  return nxmutex_lock(&priv->dev_lock);
 }
 
 static int cxd5610_gnss_device_unlock(struct cxd5610_gnss_dev_s *priv)
 {
-  return nxsem_post(&priv->dev_lock);
+  return nxmutex_unlock(&priv->dev_lock);
 }
 
 /****************************************************************************
@@ -2037,17 +2129,17 @@ static int cxd5610_gnss_device_unlock(struct cxd5610_gnss_dev_s *priv)
 
 static int cxd5610_gnss_buffer_init(struct cxd5610_gnss_dev_s *priv)
 {
-  return nxsem_init(&priv->buf_lock, 0, 1);
+  return nxmutex_init(&priv->buf_lock);
 }
 
 static int cxd5610_gnss_buffer_lock(struct cxd5610_gnss_dev_s *priv)
 {
-  return nxsem_wait_uninterruptible(&priv->buf_lock);
+  return nxmutex_lock(&priv->buf_lock);
 }
 
 static int cxd5610_gnss_buffer_unlock(struct cxd5610_gnss_dev_s *priv)
 {
-  return nxsem_post(&priv->buf_lock);
+  return nxmutex_unlock(&priv->buf_lock);
 }
 
 /****************************************************************************

@@ -38,7 +38,6 @@
 #include <string.h>
 #include <assert.h>
 #include <debug.h>
-#include <queue.h>
 #include <errno.h>
 
 #include <arpa/inet.h>
@@ -49,7 +48,7 @@
 #include <nuttx/kmalloc.h>
 #include <nuttx/wqueue.h>
 #include <nuttx/net/mii.h>
-#include <nuttx/net/arp.h>
+#include <nuttx/net/ip.h>
 #include <nuttx/net/netdev.h>
 #include <nuttx/net/phy.h>
 
@@ -1142,7 +1141,7 @@ static int sam_buffer_allocate(struct sam_emac_s *priv)
   priv->xfrq[0].nrxbuffers = priv->attr->nrxbuffers;
 
   allocsize = priv->attr->ntxbuffers * EMAC_TX_UNITSIZE;
-  priv->xfrq[0].txbuffer = (uint8_t *)kmm_memalign(EMAC_ALIGN, allocsize);
+  priv->xfrq[0].txbuffer = kmm_memalign(EMAC_ALIGN, allocsize);
   if (!priv->xfrq[0].txbuffer)
     {
       nerr("ERROR: Failed to allocate TX buffer\n");
@@ -1153,7 +1152,7 @@ static int sam_buffer_allocate(struct sam_emac_s *priv)
   priv->xfrq[0].txbufsize = EMAC_TX_UNITSIZE;
 
   allocsize = priv->attr->nrxbuffers * EMAC_RX_UNITSIZE;
-  priv->xfrq[0].rxbuffer = (uint8_t *)kmm_memalign(EMAC_ALIGN, allocsize);
+  priv->xfrq[0].rxbuffer = kmm_memalign(EMAC_ALIGN, allocsize);
   if (!priv->xfrq[0].rxbuffer)
     {
       nerr("ERROR: Failed to allocate RX buffer\n");
@@ -1189,7 +1188,7 @@ static int sam_buffer_allocate(struct sam_emac_s *priv)
   priv->xfrq[1].nrxbuffers = DUMMY_NBUFFERS;
 
   allocsize = DUMMY_NBUFFERS * DUMMY_BUFSIZE;
-  priv->xfrq[1].txbuffer = (uint8_t *)kmm_memalign(EMAC_ALIGN, allocsize);
+  priv->xfrq[1].txbuffer = kmm_memalign(EMAC_ALIGN, allocsize);
   if (!priv->xfrq[1].txbuffer)
     {
       nerr("ERROR: Failed to allocate TX buffer\n");
@@ -1200,7 +1199,7 @@ static int sam_buffer_allocate(struct sam_emac_s *priv)
   priv->xfrq[1].txbufsize = DUMMY_BUFSIZE;
 
   allocsize = DUMMY_NBUFFERS * DUMMY_BUFSIZE;
-  priv->xfrq[1].rxbuffer = (uint8_t *)kmm_memalign(EMAC_ALIGN, allocsize);
+  priv->xfrq[1].rxbuffer = kmm_memalign(EMAC_ALIGN, allocsize);
   if (!priv->xfrq[1].rxbuffer)
     {
       nerr("ERROR: Failed to allocate RX buffer\n");
@@ -1408,13 +1407,6 @@ static int sam_transmit(struct sam_emac_s *priv, int qid)
   regval |= EMAC_NCR_TSTART;
   sam_putreg(priv, SAM_EMAC_NCR_OFFSET, regval);
 
-  /* REVISIT: Sometimes TSTART is missed?  In this case, the symptom is
-   * that the packet is not sent until the next transfer when TXSTART
-   * is set again.
-   */
-
-  sam_putreg(priv, SAM_EMAC_NCR_OFFSET, regval);
-
   /* Setup the TX timeout watchdog (perhaps restarting the timer) */
 
   wd_start(&priv->txtimeout, SAM_TXTIMEOUT,
@@ -1471,53 +1463,21 @@ static int sam_txpoll(struct net_driver_s *dev)
 {
   struct sam_emac_s *priv = (struct sam_emac_s *)dev->d_private;
 
-  /* If the polling resulted in data that should be sent out on the network,
-   * the field d_len is set to a value > 0.
+  /* Send the packet */
+
+  sam_transmit(priv, EMAC_QUEUE_0);
+
+  /* Check if there are any free TX descriptors.  We cannot perform
+   * the TX poll if we do not have buffering for another packet.
    */
 
-  if (priv->dev.d_len > 0)
+  if (sam_txfree(priv, EMAC_QUEUE_0) == 0)
     {
-      /* Look up the destination MAC address and add it to the Ethernet
-       * header.
+      /* We have to terminate the poll if we have no more descriptors
+       * available for another transfer.
        */
 
-#ifdef CONFIG_NET_IPv4
-#ifdef CONFIG_NET_IPv6
-      if (IFF_IS_IPv4(priv->dev.d_flags))
-#endif
-        {
-          arp_out(&priv->dev);
-        }
-#endif /* CONFIG_NET_IPv4 */
-
-#ifdef CONFIG_NET_IPv6
-#ifdef CONFIG_NET_IPv4
-      else
-#endif
-        {
-          neighbor_out(&priv->dev);
-        }
-#endif /* CONFIG_NET_IPv6 */
-
-      if (!devif_loopback(&priv->dev))
-        {
-          /* Send the packet */
-
-          sam_transmit(priv, EMAC_QUEUE_0);
-
-          /* Check if there are any free TX descriptors.  We cannot perform
-           * the TX poll if we do not have buffering for another packet.
-           */
-
-          if (sam_txfree(priv, EMAC_QUEUE_0) == 0)
-            {
-              /* We have to terminate the poll if we have no more descriptors
-               * available for another transfer.
-               */
-
-              return -EBUSY;
-            }
-        }
+      return -EBUSY;
     }
 
   /* If zero is returned, the polling will continue until all connections
@@ -1910,11 +1870,8 @@ static void sam_receive(struct sam_emac_s *priv, int qid)
           ninfo("IPv4 frame\n");
           NETDEV_RXIPV4(&priv->dev);
 
-          /* Handle ARP on input then give the IPv4 packet to the network
-           * layer
-           */
+          /* Receive an IPv4 packet from the network device */
 
-          arp_ipin(&priv->dev);
           ipv4_input(&priv->dev);
 
           /* If the above function invocation resulted in data that should be
@@ -1923,21 +1880,6 @@ static void sam_receive(struct sam_emac_s *priv, int qid)
 
           if (priv->dev.d_len > 0)
             {
-              /* Update the Ethernet header with the correct MAC address */
-
-#ifdef CONFIG_NET_IPv6
-              if (IFF_IS_IPv4(priv->dev.d_flags))
-#endif
-                {
-                  arp_out(&priv->dev);
-                }
-#ifdef CONFIG_NET_IPv6
-              else
-                {
-                  neighbor_out(&priv->dev);
-                }
-#endif
-
               /* And send the packet */
 
               sam_transmit(priv, qid);
@@ -1961,21 +1903,6 @@ static void sam_receive(struct sam_emac_s *priv, int qid)
 
           if (priv->dev.d_len > 0)
             {
-              /* Update the Ethernet header with the correct MAC address */
-
-#ifdef CONFIG_NET_IPv4
-              if (IFF_IS_IPv4(priv->dev.d_flags))
-                {
-                  arp_out(&priv->dev);
-                }
-              else
-#endif
-#ifdef CONFIG_NET_IPv6
-                {
-                  neighbor_out(&priv->dev);
-                }
-#endif
-
               /* And send the packet */
 
               sam_transmit(priv, qid);
@@ -1991,7 +1918,7 @@ static void sam_receive(struct sam_emac_s *priv, int qid)
 
           /* Handle ARP packet */
 
-          arp_arpin(&priv->dev);
+          arp_input(&priv->dev);
 
           /* If the above function invocation resulted in data that should be
            * sent out on the network, d_len field will set to a value > 0.
@@ -2590,11 +2517,9 @@ static int sam_ifup(struct net_driver_s *dev)
   int ret;
 
 #ifdef CONFIG_NET_IPv4
-  ninfo("Bringing up: %d.%d.%d.%d\n",
-        (int)(dev->d_ipaddr & 0xff),
-        (int)((dev->d_ipaddr >> 8) & 0xff),
-        (int)((dev->d_ipaddr >> 16) & 0xff),
-        (int)(dev->d_ipaddr >> 24));
+  ninfo("Bringing up: %u.%u.%u.%u\n",
+        ip4_addr1(dev->d_ipaddr), ip4_addr2(dev->d_ipaddr),
+        ip4_addr3(dev->d_ipaddr), ip4_addr4(dev->d_ipaddr));
 #endif
 #ifdef CONFIG_NET_IPv6
   ninfo("Bringing up: %04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x\n",
@@ -3111,10 +3036,10 @@ static int sam_ioctl(struct net_driver_s *dev, int cmd, unsigned long arg)
     {
 #ifdef CONFIG_NETDEV_PHY_IOCTL
 #ifdef CONFIG_ARCH_PHY_INTERRUPT
-  case SIOCMIINOTIFY: /* Set up for PHY event notifications */
-    {
+      case SIOCMIINOTIFY: /* Set up for PHY event notifications */
+        {
           struct mii_ioctl_notify_s *req =
-        (struct mii_ioctl_notify_s *)((uintptr_t)arg);
+            (struct mii_ioctl_notify_s *)((uintptr_t)arg);
 
           ret = phy_notify_subscribe(dev->d_ifname, req->pid, &req->event);
           if (ret == OK)
@@ -3130,7 +3055,7 @@ static int sam_ioctl(struct net_driver_s *dev, int cmd, unsigned long arg)
       case SIOCGMIIPHY: /* Get MII PHY address */
         {
           struct mii_ioctl_data_s *req =
-        (struct mii_ioctl_data_s *)((uintptr_t)arg);
+            (struct mii_ioctl_data_s *)((uintptr_t)arg);
           req->phy_id = priv->phyaddr;
           ret = OK;
         }
@@ -3139,7 +3064,7 @@ static int sam_ioctl(struct net_driver_s *dev, int cmd, unsigned long arg)
       case SIOCGMIIREG: /* Get register from MII PHY */
         {
           struct mii_ioctl_data_s *req =
-        (struct mii_ioctl_data_s *)((uintptr_t)arg);
+            (struct mii_ioctl_data_s *)((uintptr_t)arg);
           uint32_t regval;
 
           /* Enable management port */
@@ -3160,7 +3085,7 @@ static int sam_ioctl(struct net_driver_s *dev, int cmd, unsigned long arg)
       case SIOCSMIIREG: /* Set register in MII PHY */
         {
           struct mii_ioctl_data_s *req =
-        (struct mii_ioctl_data_s *)((uintptr_t)arg);
+            (struct mii_ioctl_data_s *)((uintptr_t)arg);
           uint32_t regval;
 
           /* Enable management port */
@@ -4096,6 +4021,30 @@ static int sam_phyinit(struct sam_emac_s *priv)
     {
       regval |= EMAC_NCFGR_CLK_DIV8;  /* MCK divided by 8 (MCK up to 20 MHz) */
     }
+
+#ifdef CONFIG_SAMV7_EMAC0_PHYINIT
+  if (priv->attr->emac == EMAC0_INTF)
+    {
+      ret = sam_phy_boardinitialize(0);
+      if (ret < 0)
+        {
+          nerr("ERROR: Failed to initialize the PHY: %d\n", ret);
+          return ret;
+        }
+    }
+#endif
+
+#ifdef CONFIG_SAMV7_EMAC1_PHYINIT
+  if (priv->attr->emac == EMAC1_INTF)
+    {
+      ret = sam_phy_boardinitialize(1);
+      if (ret < 0)
+        {
+          nerr("ERROR: Failed to initialize the PHY: %d\n", ret);
+          return ret;
+        }
+    }
+#endif
 
   sam_putreg(priv, SAM_EMAC_NCFGR_OFFSET, regval);
 

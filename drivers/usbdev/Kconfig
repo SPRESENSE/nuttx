@@ -39,7 +39,7 @@ config USBDEV_BUSPOWERED
 	---help---
 		Will cause USB features to indicate that the device is not self-powered
 
-endchoice
+endchoice # Select USB device powered
 
 config USBDEV_MAXPOWER
 	int "Maximum power consumption in mA"
@@ -227,17 +227,10 @@ config COMPOSITE_PRODUCTSTR
 	---help---
 		The product ID code/string
 
-config COMPOSITE_BOARD_SERIALSTR
-	bool "Enable board unique ID to composite serial string"
-	default n
-	select BOARD_USBDEV_SERIALSTR
-	---help---
-		Use board unique serial number to iSerialNumber in the device descriptor.
-
 config COMPOSITE_SERIALSTR
 	string "Composite serial string"
 	default "001"
-	depends on !COMPOSITE_BOARD_SERIALSTR
+	depends on !BOARD_USBDEV_SERIALSTR
 	---help---
 		Device serial number string
 
@@ -265,7 +258,13 @@ config COMPOSITE_MSFT_OS_DESCRIPTORS
 		Enabling this feature in composite driver will pass these requests
 		onwards to the interface drivers.
 
-endif
+config COMPOSITE_DEVICES
+	int "Max class object for composite device"
+	default 8
+	---help---
+		Composite device class object number.
+
+endif # USBDEV_COMPOSITE
 
 config PL2303
 	bool "Prolific PL2303 serial/USB converter emulation"
@@ -360,17 +359,11 @@ config PL2303_VENDORSTR
 	string "Vendor string"
 	default "NuttX"
 
-config PL2303_BOARD_SERIALSTR
-	bool "Enable board unique ID to PL2303 serial string"
-	default n
-	select BOARD_USBDEV_SERIALSTR
-	---help---
-		Use board unique serial number to iSerialNumber in the device descriptor.
-
 config PL2303_PRODUCTSTR
 	string "Product string"
 	default "PL2303 Emulation"
-endif
+
+endif # PL2303
 
 menuconfig CDCACM
 	bool "USB Modem (CDC/ACM) support"
@@ -429,7 +422,7 @@ config CDCACM_EPINTIN
 		The logical 7-bit address of a hardware endpoint that supports
 		interrupt IN operation.  Default 1.
 
-endif
+endif # !CDCACM_COMPOSITE
 
 config CDCACM_EPINTIN_FSSIZE
 	int "Interrupt IN full speed MAXPACKET size"
@@ -438,12 +431,16 @@ config CDCACM_EPINTIN_FSSIZE
 		Max package size for the interrupt IN endpoint if full speed mode.
 		Default 64.
 
+if USBDEV_DUALSPEED
+
 config CDCACM_EPINTIN_HSSIZE
 	int "Interrupt IN high speed MAXPACKET size"
 	default 64
 	---help---
 		Max package size for the interrupt IN endpoint if high speed mode.
 		Default 64.
+
+endif # USBDEV_DUALSPEED
 
 if !CDCACM_COMPOSITE
 
@@ -457,21 +454,25 @@ config CDCACM_EPBULKOUT
 		The logical 7-bit address of a hardware endpoint that supports
 		bulk OUT operation.  Default: 3
 
-endif
+endif # !CDCACM_COMPOSITE
 
 config CDCACM_EPBULKOUT_FSSIZE
-	int "Bulk OUT full speed  MAXPACKET size"
+	int "Bulk OUT full speed MAXPACKET size"
 	default 64
 	---help---
 		Max package size for the bulk OUT endpoint if full speed mode.
 		Default 64.
 
+if USBDEV_DUALSPEED
+
 config CDCACM_EPBULKOUT_HSSIZE
-	int "Bulk OUT out high speed  MAXPACKET size"
+	int "Bulk OUT out high speed MAXPACKET size"
 	default 512
 	---help---
 		Max package size for the bulk OUT endpoint if high speed mode.
 		Default 512.
+
+endif # USBDEV_DUALSPEED
 
 if !CDCACM_COMPOSITE
 
@@ -488,18 +489,22 @@ config CDCACM_EPBULKIN
 endif
 
 config CDCACM_EPBULKIN_FSSIZE
-	int "Bulk IN full speed  MAXPACKET size"
+	int "Bulk IN full speed MAXPACKET size"
 	default 64
 	---help---
 		Max package size for the bulk IN endpoint if full speed mode.
 		Default 64.
 
+if USBDEV_DUALSPEED
+
 config CDCACM_EPBULKIN_HSSIZE
-	int "Bulk IN high speed  MAXPACKET size"
+	int "Bulk IN high speed MAXPACKET size"
 	default 512
 	---help---
 		Max package size for the bulk IN endpoint if high speed mode.
 		Default 512.
+
+endif # USBDEV_DUALSPEED
 
 config CDCACM_NRDREQS
 	int "Number of read requests that can be in flight"
@@ -580,23 +585,23 @@ config CDCACM_PRODUCTSTR
 	string "Product string"
 	default "CDC/ACM Serial"
 
-config CDCACM_BOARD_SERIALSTR
-	bool "Enable board unique ID to CDC/ACM serial string"
-	default n
-	select BOARD_USBDEV_SERIALSTR
-	---help---
-		Use board unique serial number to iSerialNumber in the device descriptor.
-
 endif # !CDCACM_COMPOSITE
 endif # CDCACM
 
 menuconfig USBADB
 	bool "USB Android Debug Bridge (ADB) support"
 	default n
+	select USBDEV_FS
 	---help---
 		Enables USB Android Debug Bridge (ADB) support
 
 if USBADB
+
+config USBFASTBOOT
+	bool "USB Android Debug Bridge (FASTBOOT) support"
+	default n
+	---help---
+		Enables USB Android Debug Bridge (FASTBOOT) support
 
 menuconfig USBADB_COMPOSITE
 	bool "USBADB composite support"
@@ -636,32 +641,40 @@ config USBADB_EPBULKIN
 endif
 
 config USBADB_EPBULKOUT_FSSIZE
-	int "Bulk OUT full speed  MAXPACKET size"
+	int "Bulk OUT full speed MAXPACKET size"
 	default 64
 	---help---
 		Max package size for the bulk OUT endpoint if full speed mode.
 		Default 64.
 
+if USBDEV_DUALSPEED
+
 config USBADB_EPBULKOUT_HSSIZE
-	int "Bulk OUT out high speed  MAXPACKET size"
+	int "Bulk OUT out high speed MAXPACKET size"
 	default 512
 	---help---
 		Max package size for the bulk OUT endpoint if high speed mode.
 		Default 512.
 
+endif # USBDEV_DUALSPEED
+
 config USBADB_EPBULKIN_FSSIZE
-	int "Bulk IN full speed  MAXPACKET size"
+	int "Bulk IN full speed MAXPACKET size"
 	default 64
 	---help---
 		Max package size for the bulk IN endpoint if full speed mode.
 		Default 64.
 
+if USBDEV_DUALSPEED
+
 config USBADB_EPBULKIN_HSSIZE
-	int "Bulk IN high speed  MAXPACKET size"
+	int "Bulk IN high speed MAXPACKET size"
 	default 512
 	---help---
 		Max package size for the bulk IN endpoint if high speed mode.
 		Default 512.
+
+endif # USBDEV_DUALSPEED
 
 config USBADB_NRDREQS
 	int "Number of read requests that can be in flight"
@@ -697,17 +710,10 @@ config USBADB_PRODUCTSTR
 	string "Product string"
 	default "Debug Bridge"
 
-config USBADB_BOARD_SERIALSTR
-	bool "Enable board unique ID to USBADB serial string"
-	default n
-        select BOARD_USBDEV_SERIALSTR
-	---help---
-		Use board unique serial number to iSerialNumber in the device descriptor.
-
 config USBADB_SERIALSTR
 	string "Serial string"
 	default "1234"
-	depends on !USBADB_BOARD_SERIALSTR
+	depends on !BOARD_USBDEV_SERIALSTR
 
 endif # !USBADB_COMPOSITE
 
@@ -718,12 +724,6 @@ config USBADB_CONFIGSTR
 config USBADB_INTERFACESTR
 	string "Interface descriptor string"
 	default "ADB Interface"
-
-config USBADB_NPOLLWAITERS
-	int "Number of ADB poll waiters"
-	default 1
-	---help---
-		Maximum number of threads that can be waiting on poll().
 
 endif # USBADB
 
@@ -760,16 +760,16 @@ config USBMSC_COMPOSITE
 		Configure the mass storage driver as part of a composite driver
 		(only if USBDEV_COMPOSITE is also defined)
 
+if !USBMSC_COMPOSITE
+
+# In a composite device the EP-Number and STR-Number is configured
+# dynamically via composite_initialize
+
 config USBMSC_EP0MAXPACKET
 	int "Max packet size for endpoint 0"
 	default 64
 	---help---
 		Max packet size for endpoint 0
-
-if !USBMSC_COMPOSITE
-
-# In a composite device the EP-Number and STR-Number is configured
-# dynamically via composite_initialize
 
 config USBMSC_EPBULKOUT
 	int "Bulk OUT endpoint number"
@@ -882,13 +882,6 @@ config USBMSC_PRODUCTSTR
 	string "Mass storage product string"
 	default "Mass Storage"
 
-config USBMSC_BOARD_SERIALSTR
-	bool "Enable board unique ID to mass storage serial string"
-	default n
-        select BOARD_USBDEV_SERIALSTR
-	---help---
-		Use board unique serial number to iSerialNumber in the device descriptor.
-
 endif # !USBMSC_COMPOSITE
 
 config USBMSC_VERSIONNO
@@ -937,10 +930,10 @@ menuconfig RNDIS
 		- "Remote NDIS To USB Mapping"
 
 		This option may required CONFIG_NETDEV_LATEINIT=y otherwise, the
-		power-up initialization may call the non-existent up_netinitialize().
+		power-up initialization may call the non-existent xxx_netinitialize().
 		This option is not automatically selected because it may be that
 		you have an additional network device that requires the early
-		up_netinitialize() call.
+		xxx_netinitialize() call.
 
 if RNDIS
 
@@ -986,23 +979,29 @@ config RNDIS_PRODUCTSTR
 	string "RNDIS product string"
 	default "RNDIS gadget"
 
-config RNDIS_BOARD_SERIALSTR
-	bool "Enable board unique ID to RNDIS serial string"
-	default n
-	select BOARD_USBDEV_SERIALSTR
-	---help---
-		Use board unique serial number to iSerialNumber in the device descriptor.
-
 config RNDIS_SERIALSTR
 	string "RNDIS serial string"
 	default "1234"
-	depends on !RNDIS_BOARD_SERIALSTR
+	depends on !BOARD_USBDEV_SERIALSTR
 
 config RNDIS_VERSIONNO
 	hex "RNDIS Version Number"
 	default 0x0001
 
+config RNDIS_EPBULKIN
+	int "RNDIS bulk in endpoint number"
+	default 1
+
+config RNDIS_EPBULKOUT
+	int "RNDIS bulk out endpoint number"
+	default 2
+
+config RNDIS_EPINTIN
+	int "RNDIS interrupt in endpoint number"
+	default 3
+
 endif # !RNDIS_COMPOSITE
+
 endif # RNDIS
 
 menuconfig DFU
@@ -1063,10 +1062,10 @@ menuconfig NET_CDCECM
 		   Revision 1.2, February 9, 2007"
 
 		This option may require CONFIG_NETDEV_LATEINIT=y, otherwise the
-		power-up initialization may call the non-existent up_netinitialize().
+		power-up initialization may call the non-existent xxx_netinitialize().
 		This option is not automatically selected because it may be that
 		you have an additional network device that requires the early
-		up_netinitialize() call.
+		xxx_netinitialize() call.
 
 if NET_CDCECM
 
@@ -1131,7 +1130,7 @@ config CDCECM_EPBULKOUT
 endif # !CDCECM_COMPOSITE
 
 config CDCECM_EPBULKOUT_FSSIZE
-	int "Bulk OUT full speed  MAXPACKET size"
+	int "Bulk OUT full speed MAXPACKET size"
 	default 64
 	---help---
 		Max package size for the bulk OUT endpoint if full speed mode.
@@ -1140,7 +1139,7 @@ config CDCECM_EPBULKOUT_FSSIZE
 if USBDEV_DUALSPEED
 
 config CDCECM_EPBULKOUT_HSSIZE
-	int "Bulk OUT out high speed  MAXPACKET size"
+	int "Bulk OUT out high speed MAXPACKET size"
 	default 512
 	---help---
 		Max package size for the bulk OUT endpoint if high speed mode.
@@ -1163,7 +1162,7 @@ config CDCECM_EPBULKIN
 endif # !CDCECM_COMPOSITE
 
 config CDCECM_EPBULKIN_FSSIZE
-	int "Bulk IN full speed  MAXPACKET size"
+	int "Bulk IN full speed MAXPACKET size"
 	default 64
 	---help---
 		Max package size for the bulk IN endpoint if full speed mode.
@@ -1172,7 +1171,7 @@ config CDCECM_EPBULKIN_FSSIZE
 if USBDEV_DUALSPEED
 
 config CDCECM_EPBULKIN_HSSIZE
-	int "Bulk IN high speed  MAXPACKET size"
+	int "Bulk IN high speed MAXPACKET size"
 	default 512
 	---help---
 		Max package size for the bulk IN endpoint if high speed mode.
@@ -1210,14 +1209,182 @@ config CDCECM_PRODUCTSTR
 	string "Product string"
 	default "CDC/ECM Ethernet"
 
-config CDCECM_BOARD_SERIALSTR
-	bool "Enable board unique ID to CDC/ECM serial string"
-	default n
-	select BOARD_USBDEV_SERIALSTR
-	---help---
-		Use board unique serial number to iSerialNumber in the device descriptor.
-
 endif # !CDCECM_COMPOSITE
 endif # CDCECM
+
+config USBDEV_FS
+	bool
+	default n
+	---help---
+		Enables USBDEV FS support, userspace can use fs to control USB device.
+
+if USBDEV_FS
+
+config USBDEV_FS_EPNUM
+	int "Number of EP for USBDEV FS"
+	default 4
+	---help---
+		Maximum number of eps for USBDEV FS.
+
+config USBDEV_FS_NPOLLWAITERS
+	int "Number of poll waiters for USBDEV FS"
+	default 2
+	---help---
+		Maximum number of threads that can be waiting on poll().
+
+endif #USBDEV_FS
+
+menuconfig USBMTP
+	bool "USB Media Transfer Protocol (MTP) support"
+	default n
+	select USBDEV_FS
+	---help---
+		Enables USB Media Transfer Protocol (MTP) support
+
+if USBMTP
+
+menuconfig USBMTP_COMPOSITE
+	bool "USBMTP composite support"
+	default n
+	depends on USBDEV_COMPOSITE
+	---help---
+		Configure the MTP driver as part of a composite driver
+		(only if USBDEV_COMPOSITE is also defined)
+
+if !USBMTP_COMPOSITE
+
+# In a composite device the EP0 config comes from the composite device
+# and the EP-Number is configured dynamically via composite_initialize
+
+config USBMTP_EP0MAXPACKET
+	int "Endpoint 0 max packet size"
+	default 64
+	---help---
+		Endpoint 0 max packet size. Default 64.
+
+# In a composite device the EP-Numbers are configured dynamically via
+# composite_initialize
+
+config USBMTP_EPBULKIN
+	int "Bulk IN endpoint number"
+	default 1
+	---help---
+		The logical 7-bit address of a hardware endpoint that supports
+		bulk IN operation.  Default: 1
+
+config USBMTP_EPBULKOUT
+	int "Bulk OUT endpoint number"
+	default 2
+	---help---
+		The logical 7-bit address of a hardware endpoint that supports
+		bulk OUT operation.  Default: 2
+
+config USBMTP_EPINTIN
+	int "Interrupt IN endpoint number"
+	default 5
+	---help---
+		The logical 7-bit address of a hardware endpoint that supports
+		interrupt IN operation.  Default: 5
+
+endif
+
+config USBMTP_EPBULKOUT_FSSIZE
+	int "Bulk OUT Full Speed MAXPACKET size"
+	default 64
+	---help---
+		Max package size for the bulk OUT endpoint if Full Speed mode.
+		Default 64.
+
+if USBDEV_DUALSPEED
+
+config USBMTP_EPBULKOUT_HSSIZE
+	int "Bulk OUT High Speed MAXPACKET size"
+	default 512
+	---help---
+		Max package size for the bulk OUT endpoint if High Speed mode.
+		Default 512.
+
+endif # USBDEV_DUALSPEED
+
+config USBMTP_EPBULKIN_FSSIZE
+	int "Bulk IN Full Speed MAXPACKET size"
+	default 64
+	---help---
+		Max package size for the bulk IN endpoint if Full Speed mode.
+		Default 64.
+
+if USBDEV_DUALSPEED
+
+config USBMTP_EPBULKIN_HSSIZE
+	int "Bulk IN High Speed MAXPACKET size"
+	default 512
+	---help---
+		Max package size for the bulk IN endpoint if High Speed mode.
+		Default 512.
+
+endif # USBDEV_DUALSPEED
+
+config USBMTP_EPINTIN_SIZE
+	int "Interrupt IN MAXPACKET size"
+	default 28
+	---help---
+		Max package size for the Interrupt IN endpoint, Default 28.
+
+config USBMTP_EPINTIN_INTERVAL
+	int "Interrupt IN poll interval"
+	default 10
+	---help---
+		The poll interval for the Interrupt IN endpoint, Default 10.
+
+config USBMTP_NRDREQS
+	int "Number of read requests that can be in flight"
+	default 4
+	---help---
+		The number of read requests that can be in flight
+
+config USBMTP_NWRREQS
+	int "Number of write requests that can be in flight"
+	default 4
+	---help---
+		The number of write/read requests that can be in flight
+
+if !USBMTP_COMPOSITE
+
+config USBMTP_VENDORID
+	hex "Vendor ID"
+	default 0x18d1
+	---help---
+		The vendor ID code/string. Default is Google Inc.
+
+config USBMTP_PRODUCTID
+	hex "Product ID"
+	default 0x4e11
+	---help---
+		The product ID code/string. Default is Nexus One.
+
+config USBMTP_VENDORSTR
+	string "Vendor string"
+	default "NuttX"
+
+config USBMTP_PRODUCTSTR
+	string "Product string"
+	default "Nuttx MTP"
+
+config USBMTP_SERIALSTR
+	string "Serial string"
+	default "1234"
+	depends on !USBMTP_BOARD_SERIALSTR
+
+endif # !USBMTP_COMPOSITE
+
+config USBMTP_CONFIGSTR
+	string "Configuration descriptor string"
+	default "MTP Config"
+
+config USBMTP_INTERFACESTR
+	string "Interface descriptor string"
+	default "MTP Interface"
+
+endif # USBMTP
 
 endif # USBDEV

@@ -26,8 +26,9 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include <queue.h>
 #include <assert.h>
+
+#include <nuttx/queue.h>
 
 #include "sched/sched.h"
 
@@ -85,12 +86,12 @@ bool nxsched_add_prioritized(FAR struct tcb_s *tcb, DSEG dq_queue_t *list)
    * is the g_pendingtasks list!
    */
 
-  if (!next)
+  if (next == NULL)
     {
       /* The tcb goes at the end of the list. */
 
       prev = (FAR struct tcb_s *)list->tail;
-      if (!prev)
+      if (prev == NULL)
         {
           /* Special case:  The list is empty */
 
@@ -114,8 +115,8 @@ bool nxsched_add_prioritized(FAR struct tcb_s *tcb, DSEG dq_queue_t *list)
     {
       /* The tcb goes just before next */
 
-      prev = (FAR struct tcb_s *)next->blink;
-      if (!prev)
+      prev = next->blink;
+      if (prev == NULL)
         {
           /* Special case:  Insert at the head of the list */
 

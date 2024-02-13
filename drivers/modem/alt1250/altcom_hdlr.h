@@ -18,8 +18,8 @@
  *
  ****************************************************************************/
 
-#ifndef __DRIVERS_MODEM_ALT1250_ALTCOM_HDLR_H__
-#define __DRIVERS_MODEM_ALT1250_ALTCOM_HDLR_H__
+#ifndef __DRIVERS_MODEM_ALT1250_ALTCOM_HDLR_H
+#define __DRIVERS_MODEM_ALT1250_ALTCOM_HDLR_H
 
 /****************************************************************************
  * Included Files
@@ -69,4 +69,4 @@ compose_handler_t alt1250_composehdlr(uint32_t cmdid);
 
 parse_handler_t alt1250_parsehdlr(uint16_t altcid, uint8_t altver);
 
-#endif  /* __DRIVERS_MODEM_ALT1250_ALTCOM_HDLR_H__ */
+#endif  /* __DRIVERS_MODEM_ALT1250_ALTCOM_HDLR_H */

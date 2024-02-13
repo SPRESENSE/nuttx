@@ -235,10 +235,31 @@ Show or set the date and time (date)
 
 **Synopsis**. Show or set the current date and time.
 
-Only one format is used both on display and when setting the
-date/time: ``MMM DD HH:MM:SS YYYY``. For example,
+To show the current system time and date, type in the ``date`` command.
+The output displays the day of the week, day of the month, month, year,
+current time. 24-hour time is used.
+Only one format is used, both on display and when setting the date/time.
+To change the system clock manually, type ``date -s MMM DD HH:MM:SS YYYY``. 
 
-24-hour time is used.
+  -  ``MMM``  Short month name (e.g., Sep).
+  -           Space separator.
+  -  ``DD``   Day of month (e.g., 01).
+  -           Space separator.
+  -  ``HH``   Hour (00-23).
+  -  ``:``    Colon separator.
+  -  ``MM``   Minute (00-59).
+  -  ``:``    Colon separator.
+  -  ``SS``   Second (00-60).
+  -           Space separator
+  -  ``YYYY`` Year (e.g., 2023).
+
+**Example**::
+
+  nsh> date
+  Thu, Jan 01 00:00:17 1970
+  nsh> date -s "Sep 15 11:30:00 2023"
+  nsh> date
+  Fri, Sep 15 11:30:03 2023
 
 .. _cmddd:
 
@@ -702,6 +723,41 @@ attached interrupts.
     3 00001b3d 00000000        156   19.122
    15 0000800d 00000000        817  100.000
    30 00000fd5 20000018         20    2.490
+
+.. _cmdcritmon:
+
+Show Critical Monitor Status (critmon)
+**************************************
+
+**Command Syntax**::
+
+  critmon
+
+**Synopsis**. Show the preemption time, critical section time,
+longest single run time, total run time, process ID (PID),
+and thread description of each thread in the system.
+
+**Example**::
+
+  nsh> critmon
+  PRE-EMPTION   CSECTION      RUN         TIME         PID   DESCRIPTION
+  0.010265000   0.000037000   ----------- ------------ ----  CPU 0
+  0.000000000   0.000000000   0.001237000 28.421047000 0     Idle Task
+  0.000011000   0.000037000   0.000046000 0.034211000  1     loop_task
+  0.000000000   0.000028000   0.000067000 0.236657000  2     hpwork
+
+In this example, the output shows the preemption time, critical section time,
+longest single run time, total run time, and thread description for each
+thread in the system.
+
+The output of the ``critmon`` command displays the following columns:
+
+- PRE-EMPTION: Preemption time
+- CSECTION: Critical section time
+- RUN: Longest single run time of the thread
+- TIME: Total run time of the thread
+- PID: Process ID of the thread
+- DESCRIPTION: Thread description (name)
 
 .. _cmdkill:
 
@@ -1547,8 +1603,8 @@ The Telnet daemon may be started either programmatically by calling
 ``nsh_telnetstart()`` or it may be started from the NSH command line
 using this ``telnetd`` command.
 
-Normally this command would be suppressed with
-``CONFIG_NSH_DISABLE_TELNETD`` because the Telnet daemon is
+Normally this command would be suppressed without
+``CONFIG_SYSTEM_TELNETD`` because the Telnet daemon is
 automatically started in ``nsh_main.c``. The exception is when
 ``CONFIG_NSH_NETLOCAL`` is selected. In that case, the network is not
 enabled at initialization but rather must be enabled from the NSH

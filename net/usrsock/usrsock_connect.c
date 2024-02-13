@@ -43,44 +43,40 @@
  * Private Functions
  ****************************************************************************/
 
-static uint16_t connect_event(FAR struct net_driver_s *dev, FAR void *pvconn,
+static uint16_t connect_event(FAR struct net_driver_s *dev,
                               FAR void *pvpriv, uint16_t flags)
 {
   FAR struct usrsock_reqstate_s *pstate = pvpriv;
-  FAR struct usrsock_conn_s *conn = pvconn;
+  FAR struct usrsock_conn_s *conn = pstate->conn;
 
   if (flags & USRSOCK_EVENT_ABORT)
     {
       ninfo("socket aborted.\n");
 
       pstate->result = -ECONNABORTED;
-
-      /* Stop further callbacks */
-
-      pstate->cb->flags   = 0;
-      pstate->cb->priv    = NULL;
-      pstate->cb->event   = NULL;
-
-      /* Wake up the waiting thread */
-
-      nxsem_post(&pstate->recvsem);
     }
-  else if (flags & USRSOCK_EVENT_REQ_COMPLETE)
+  else if (flags & USRSOCK_EVENT_REMOTE_CLOSED)
+    {
+      ninfo("remote closed.\n");
+
+      pstate->result = -ECONNREFUSED;
+    }
+  else
     {
       ninfo("request completed.\n");
 
       pstate->result = conn->resp.result;
-
-      /* Stop further callbacks */
-
-      pstate->cb->flags   = 0;
-      pstate->cb->priv    = NULL;
-      pstate->cb->event   = NULL;
-
-      /* Wake up the waiting thread */
-
-      nxsem_post(&pstate->recvsem);
     }
+
+  /* Stop further callbacks */
+
+  pstate->cb->flags = 0;
+  pstate->cb->priv  = NULL;
+  pstate->cb->event = NULL;
+
+  /* Wake up the waiting thread */
+
+  nxsem_post(&pstate->recvsem);
 
   return flags;
 }
@@ -98,6 +94,7 @@ static int do_connect_request(FAR struct usrsock_conn_s *conn,
   };
 
   struct iovec bufs[2];
+  int ret;
 
   if (addrlen > UINT16_MAX)
     {
@@ -115,7 +112,13 @@ static int do_connect_request(FAR struct usrsock_conn_s *conn,
   bufs[1].iov_base = (FAR void *)addr;
   bufs[1].iov_len = addrlen;
 
-  return usrsockdev_do_request(conn, bufs, ARRAY_SIZE(bufs));
+  ret = usrsock_do_request(conn, bufs, nitems(bufs));
+  if (ret == -ENETDOWN)
+    {
+      ret = -ECONNABORTED;
+    }
+
+  return ret;
 }
 
 /****************************************************************************
@@ -151,8 +154,6 @@ int usrsock_connect(FAR struct socket *psock,
 
   int ret;
 
-  DEBUGASSERT(conn);
-
   net_lock();
 
   if (conn->state == USRSOCK_CONN_STATE_UNINITIALIZED ||
@@ -169,7 +170,7 @@ int usrsock_connect(FAR struct socket *psock,
     }
 
   if (conn->connected &&
-      (conn->type == SOCK_STREAM || conn->type == SOCK_SEQPACKET))
+      (psock->s_type == SOCK_STREAM || psock->s_type == SOCK_SEQPACKET))
     {
       /* Already connected. */
 
@@ -192,7 +193,9 @@ int usrsock_connect(FAR struct socket *psock,
 
   ret = usrsock_setup_request_callback(conn, &state, connect_event,
                                        USRSOCK_EVENT_ABORT |
-                                       USRSOCK_EVENT_REQ_COMPLETE);
+                                       USRSOCK_EVENT_REMOTE_CLOSED |
+                                       USRSOCK_EVENT_REQ_COMPLETE |
+                                       USRSOCK_EVENT_SENDTO_READY);
   if (ret < 0)
     {
       nwarn("usrsock_setup_request_callback failed: %d\n", ret);
@@ -218,7 +221,7 @@ int usrsock_connect(FAR struct socket *psock,
     {
       /* Wait for completion of request (or signal). */
 
-      ret = net_lockedwait(&state.recvsem);
+      ret = net_sem_wait(&state.recvsem);
       if (ret < 0)
         {
           /* Wait interrupted, exit early. */

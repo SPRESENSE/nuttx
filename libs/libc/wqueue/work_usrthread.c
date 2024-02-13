@@ -30,10 +30,9 @@
 #include <sched.h>
 #include <errno.h>
 #include <assert.h>
-#include <queue.h>
 
-#include <nuttx/semaphore.h>
 #include <nuttx/clock.h>
+#include <nuttx/queue.h>
 #include <nuttx/wqueue.h>
 
 #include "wqueue/wqueue.h"
@@ -60,7 +59,12 @@
 
 /* The state of the user mode work queue. */
 
-struct usr_wqueue_s g_usrwork;
+struct usr_wqueue_s g_usrwork =
+{
+  {NULL, NULL},
+  NXMUTEX_INITIALIZER,
+  SEM_INITIALIZER(0),
+};
 
 /****************************************************************************
  * Private Functions
@@ -97,7 +101,7 @@ static void work_process(FAR struct usr_wqueue_s *wqueue)
    */
 
   next = WORK_DELAY_MAX;
-  ret = _SEM_WAIT(&wqueue->lock);
+  ret = nxmutex_lock(&wqueue->lock);
   if (ret < 0)
     {
       /* Break out earlier if we were awakened by a signal */
@@ -127,7 +131,7 @@ static void work_process(FAR struct usr_wqueue_s *wqueue)
         {
           /* Remove the ready-to-execute work from the list */
 
-          sq_remfirst(&wqueue->q);
+          dq_remfirst(&wqueue->q);
 
           /* Extract the work description from the entry (in case the work
            * instance by the re-used after it has been de-queued).
@@ -153,7 +157,7 @@ static void work_process(FAR struct usr_wqueue_s *wqueue)
                * performed... we don't have any idea how long this will take!
                */
 
-              _SEM_POST(&wqueue->lock);
+              nxmutex_unlock(&wqueue->lock);
               worker(arg);
 
               /* Now, unfortunately, since we unlocked the work queue we
@@ -161,7 +165,7 @@ static void work_process(FAR struct usr_wqueue_s *wqueue)
                * start back at the head of the list.
                */
 
-              ret = _SEM_WAIT(&wqueue->lock);
+              ret = nxmutex_lock(&wqueue->lock);
               if (ret < 0)
                 {
                   /* Break out earlier if we were awakened by a signal */
@@ -181,7 +185,7 @@ static void work_process(FAR struct usr_wqueue_s *wqueue)
 
   /* Unlock the work queue before waiting. */
 
-  _SEM_POST(&wqueue->lock);
+  nxmutex_unlock(&wqueue->lock);
 
   if (next == WORK_DELAY_MAX)
     {
@@ -279,16 +283,9 @@ int work_usrstart(void)
   struct sched_param param;
 #endif
 
-  /* Set up the work queue lock */
-
-  _SEM_INIT(&g_usrwork.lock, 0, 1);
-
-  _SEM_INIT(&g_usrwork.wake, 0, 0);
-  _SEM_SETPROTOCOL(&g_usrwork.wake, SEM_PRIO_NONE);
-
   /* Initialize the work queue */
 
-  sq_init(&g_usrwork.q);
+  dq_init(&g_usrwork.q);
 
 #ifdef CONFIG_BUILD_PROTECTED
 
@@ -297,8 +294,7 @@ int work_usrstart(void)
   ret = task_create("uwork",
                     CONFIG_LIBC_USRWORKPRIORITY,
                     CONFIG_LIBC_USRWORKSTACKSIZE,
-                    (main_t)work_usrthread,
-                    ((FAR char * const *)NULL));
+                    work_usrthread, NULL);
   if (ret < 0)
     {
       int errcode = get_errno();

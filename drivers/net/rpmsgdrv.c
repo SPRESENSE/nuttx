@@ -34,8 +34,8 @@
 #include <nuttx/semaphore.h>
 #include <nuttx/wqueue.h>
 
-#include <nuttx/net/arp.h>
 #include <nuttx/net/dns.h>
+#include <nuttx/net/ip.h>
 #include <nuttx/net/netdev.h>
 #include <nuttx/net/pkt.h>
 #include <nuttx/net/rpmsg.h>
@@ -161,7 +161,7 @@ static const rpmsg_ept_cb g_net_rpmsg_drv_handler[] =
 
 static void net_rpmsg_drv_wait(FAR sem_t *sem)
 {
-  net_lockedwait_uninterruptible(sem);
+  net_sem_wait_uninterruptible(sem);
 }
 
 /****************************************************************************
@@ -255,56 +255,22 @@ static int net_rpmsg_drv_txpoll(FAR struct net_driver_s *dev)
   FAR struct net_rpmsg_drv_s *priv = dev->d_private;
   uint32_t size;
 
-  /* If the polling resulted in data that should be sent out on the network,
-   * the field d_len is set to a value > 0.
+  /* Send the packet */
+
+  net_rpmsg_drv_transmit(dev, true);
+
+  /* Check if there is room in the device to hold another packet. If
+   * not, return a non-zero value to terminate the poll.
    */
 
-  if (dev->d_len > 0)
+  dev->d_buf = rpmsg_get_tx_payload_buffer(&priv->ept, &size, false);
+  if (dev->d_buf)
     {
-      /* Look up the destination MAC address and add it to the Ethernet
-       * header.
-       */
-
-#ifdef CONFIG_NET_IPv4
-      if (IFF_IS_IPv4(dev->d_flags))
-        {
-          arp_out(dev);
-        }
-#endif /* CONFIG_NET_IPv4 */
-
-#ifdef CONFIG_NET_IPv6
-      if (IFF_IS_IPv6(dev->d_flags))
-        {
-          neighbor_out(dev);
-        }
-#endif /* CONFIG_NET_IPv6 */
-
-      if (!devif_loopback(dev))
-        {
-          /* Send the packet */
-
-          net_rpmsg_drv_transmit(dev, true);
-
-          /* Check if there is room in the device to hold another packet. If
-           * not, return a non-zero value to terminate the poll.
-           */
-
-          dev->d_buf = rpmsg_get_tx_payload_buffer(&priv->ept, &size, false);
-          if (dev->d_buf)
-            {
-              dev->d_buf += sizeof(struct net_rpmsg_transfer_s);
-              dev->d_pktsize = size - sizeof(struct net_rpmsg_transfer_s);
-            }
-
-          return dev->d_buf == NULL;
-        }
+      dev->d_buf += sizeof(struct net_rpmsg_transfer_s);
+      dev->d_pktsize = size - sizeof(struct net_rpmsg_transfer_s);
     }
 
-  /* If zero is returned, the polling will continue until all connections
-   * have been examined.
-   */
-
-  return 0;
+  return dev->d_buf == NULL;
 }
 
 /****************************************************************************
@@ -334,22 +300,6 @@ static void net_rpmsg_drv_reply(FAR struct net_driver_s *dev)
 
   if (dev->d_len > 0)
     {
-      /* Update the Ethernet header with the correct MAC address */
-
-#ifdef CONFIG_NET_IPv4
-      if (IFF_IS_IPv4(dev->d_flags))
-        {
-          arp_out(dev);
-        }
-#endif
-
-#ifdef CONFIG_NET_IPv6
-      if (IFF_IS_IPv6(dev->d_flags))
-        {
-          neighbor_out(dev);
-        }
-#endif
-
       /* And send the packet */
 
       net_rpmsg_drv_transmit(dev, false);
@@ -424,8 +374,8 @@ static int net_rpmsg_drv_sockioctl_handler(FAR struct rpmsg_endpoint *ept,
 
   /* Save pointers into argv */
 
-  sprintf(arg1, "%p", ept);
-  sprintf(arg2, "%p", data);
+  snprintf(arg1, sizeof(arg1), "%p", ept);
+  snprintf(arg2, sizeof(arg2), "%p", data);
 
   argv[0] = arg1;
   argv[1] = arg2;
@@ -554,11 +504,8 @@ static int net_rpmsg_drv_transfer_handler(FAR struct rpmsg_endpoint *ept,
       ninfo("IPv4 frame\n");
       NETDEV_RXIPV4(dev);
 
-      /* Handle ARP on input, then dispatch IPv4 packet to the network
-       * layer.
-       */
+      /* Receive an IPv4 packet from the network device */
 
-      arp_ipin(dev);
       ipv4_input(dev);
 
       /* Check for a reply to the IPv4 packet */
@@ -591,7 +538,7 @@ static int net_rpmsg_drv_transfer_handler(FAR struct rpmsg_endpoint *ept,
 
       /* Dispatch ARP packet to the network layer */
 
-      arp_arpin(dev);
+      arp_input(dev);
 
       /* Check for a reply to the ARP packet */
 
@@ -619,7 +566,8 @@ static void net_rpmsg_drv_device_created(FAR struct rpmsg_device *rdev,
   if (!strcmp(priv->cpuname, rpmsg_get_cpuname(rdev)))
     {
       priv->ept.priv = dev;
-      sprintf(eptname, NET_RPMSG_EPT_NAME, priv->devname);
+      snprintf(eptname, sizeof(eptname),
+               NET_RPMSG_EPT_NAME, priv->devname);
 
       rpmsg_create_ept(&priv->ept, rdev, eptname,
                        RPMSG_ADDR_ANY, RPMSG_ADDR_ANY,
@@ -665,7 +613,6 @@ static int net_rpmsg_drv_send_recv(FAR struct net_driver_s *dev,
   int ret;
 
   nxsem_init(&cookie.sem, 0, 0);
-  nxsem_set_protocol(&cookie.sem, SEM_PRIO_NONE);
 
   cookie.header   = header;
   header->command = command;
@@ -713,9 +660,9 @@ static int net_rpmsg_drv_ifup(FAR struct net_driver_s *dev)
   int ret;
 
 #ifdef CONFIG_NET_IPv4
-  ninfo("Bringing up: %d.%d.%d.%d\n",
-        dev->d_ipaddr & 0xff, (dev->d_ipaddr >> 8) & 0xff,
-        (dev->d_ipaddr >> 16) & 0xff, dev->d_ipaddr >> 24);
+  ninfo("Bringing up: %u.%u.%u.%u\n",
+        ip4_addr1(dev->d_ipaddr), ip4_addr2(dev->d_ipaddr),
+        ip4_addr3(dev->d_ipaddr), ip4_addr4(dev->d_ipaddr));
 #endif
 #ifdef CONFIG_NET_IPv6
   ninfo("Bringing up: %04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x\n",
@@ -1166,6 +1113,7 @@ int net_rpmsg_drv_init(FAR const char *cpuname,
 {
   FAR struct net_rpmsg_drv_s *priv;
   FAR struct net_driver_s *dev;
+  int ret;
 
   /* Allocate the interface structure */
 
@@ -1182,7 +1130,7 @@ int net_rpmsg_drv_init(FAR const char *cpuname,
 
   /* Initialize the driver structure */
 
-  strcpy(dev->d_ifname, devname);
+  strlcpy(dev->d_ifname, devname, sizeof(dev->d_ifname));
   dev->d_ifup    = net_rpmsg_drv_ifup;    /* I/F up (new IP address) callback */
   dev->d_ifdown  = net_rpmsg_drv_ifdown;  /* I/F down callback */
   dev->d_txavail = net_rpmsg_drv_txavail; /* New TX data callback */
@@ -1197,14 +1145,30 @@ int net_rpmsg_drv_init(FAR const char *cpuname,
 
   /* Register the device with the openamp */
 
-  rpmsg_register_callback(dev,
+  ret = rpmsg_register_callback(dev,
                           net_rpmsg_drv_device_created,
                           net_rpmsg_drv_device_destroy,
                           NULL,
                           NULL);
 
+  if (ret < 0)
+    {
+      kmm_free(priv);
+      return ret;
+    }
+
   /* Register the device with the OS so that socket IOCTLs can be performed */
 
-  netdev_register(dev, lltype);
-  return OK;
+  ret = netdev_register(dev, lltype);
+  if (ret < 0)
+    {
+      rpmsg_unregister_callback(dev,
+                          net_rpmsg_drv_device_created,
+                          net_rpmsg_drv_device_destroy,
+                          NULL,
+                          NULL);
+      kmm_free(priv);
+    }
+
+  return ret;
 }

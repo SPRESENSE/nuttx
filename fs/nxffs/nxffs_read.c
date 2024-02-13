@@ -27,11 +27,11 @@
 #include <stdint.h>
 #include <string.h>
 #include <fcntl.h>
-#include <crc32.h>
 #include <assert.h>
 #include <errno.h>
 #include <debug.h>
 
+#include <nuttx/crc32.h>
 #include <nuttx/fs/fs.h>
 #include <nuttx/mtd/mtd.h>
 
@@ -142,7 +142,7 @@ ssize_t nxffs_read(FAR struct file *filep, FAR char *buffer, size_t buflen)
 
   /* Sanity checks */
 
-  DEBUGASSERT(filep->f_priv != NULL && filep->f_inode != NULL);
+  DEBUGASSERT(filep->f_priv != NULL);
 
   /* Recover the open file state from the struct file instance */
 
@@ -150,17 +150,17 @@ ssize_t nxffs_read(FAR struct file *filep, FAR char *buffer, size_t buflen)
 
   /* Recover the volume state from the open file */
 
-  volume = (FAR struct nxffs_volume_s *)filep->f_inode->i_private;
+  volume = filep->f_inode->i_private;
   DEBUGASSERT(volume != NULL);
 
-  /* Get exclusive access to the volume.  Note that the volume exclsem
+  /* Get exclusive access to the volume.  Note that the volume lock
    * protects the open file list.
    */
 
-  ret = nxsem_wait(&volume->exclsem);
+  ret = nxmutex_lock(&volume->lock);
   if (ret < 0)
     {
-      ferr("ERROR: nxsem_wait failed: %d\n", ret);
+      ferr("ERROR: nxmutex_lock failed: %d\n", ret);
       goto errout;
     }
 
@@ -170,7 +170,7 @@ ssize_t nxffs_read(FAR struct file *filep, FAR char *buffer, size_t buflen)
     {
       ferr("ERROR: File not open for read access\n");
       ret = -EACCES;
-      goto errout_with_semaphore;
+      goto errout_with_lock;
     }
 
   /* Loop until all bytes have been read */
@@ -194,7 +194,7 @@ ssize_t nxffs_read(FAR struct file *filep, FAR char *buffer, size_t buflen)
         {
           ferr("ERROR: nxffs_rdseek failed: %d\n", -ret);
           ret = -EACCES;
-          goto errout_with_semaphore;
+          goto errout_with_lock;
         }
 
       /* How many bytes are available at this offset */
@@ -219,11 +219,11 @@ ssize_t nxffs_read(FAR struct file *filep, FAR char *buffer, size_t buflen)
       total        += readsize;
     }
 
-  nxsem_post(&volume->exclsem);
+  nxmutex_unlock(&volume->lock);
   return total;
 
-errout_with_semaphore:
-  nxsem_post(&volume->exclsem);
+errout_with_lock:
+  nxmutex_unlock(&volume->lock);
 errout:
   return (ssize_t)ret;
 }

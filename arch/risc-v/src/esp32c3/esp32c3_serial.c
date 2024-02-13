@@ -80,7 +80,7 @@
 #    define CONSOLE_DEV     g_uart0_dev     /* UART0 is console */
 #    define TTYS0_DEV       g_uart0_dev     /* UART0 is ttyS0 */
 #    define UART0_ASSIGNED      1
-# elif defined(CONFIG_UART1_SERIAL_CONSOLE)
+#  elif defined(CONFIG_UART1_SERIAL_CONSOLE)
 #    define CONSOLE_DEV         g_uart1_dev  /* UART1 is console */
 #    define TTYS0_DEV           g_uart1_dev  /* UART1 is ttyS0 */
 #    define UART1_ASSIGNED      1
@@ -245,7 +245,7 @@ static uart_dev_t g_uart1_dev =
  *
  * Description:
  *   This is the UART interrupt handler.  It will be invoked when an
- *   interrupt is received on the 'irq'  It should call uart_xmitchars or
+ *   interrupt is received on the 'irq'.  It should call uart_xmitchars or
  *   uart_recvchars to perform the appropriate data transfers.  The
  *   interrupt handling logic must be able to map the 'irq' number into the
  *   appropriate uart_dev_s structure in order to call these functions.
@@ -464,10 +464,10 @@ static int esp32c3_attach(struct uart_dev_s *dev)
 
   DEBUGASSERT(priv->cpuint == -ENOMEM);
 
-  /* Try to attach the IRQ to a CPU int */
+  /* Set up to receive peripheral interrupts */
 
-  priv->cpuint = esp32c3_request_irq(priv->periph, priv->int_pri,
-                                     ESP32C3_INT_LEVEL);
+  priv->cpuint = esp32c3_setup_irq(priv->periph, priv->int_pri,
+                                   ESP32C3_INT_LEVEL);
   if (priv->cpuint < 0)
     {
       return priv->cpuint;
@@ -478,11 +478,11 @@ static int esp32c3_attach(struct uart_dev_s *dev)
   ret = irq_attach(priv->irq, uart_handler, dev);
   if (ret == OK)
     {
-      up_enable_irq(priv->cpuint);
+      up_enable_irq(priv->irq);
     }
   else
     {
-      up_disable_irq(priv->cpuint);
+      up_disable_irq(priv->irq);
     }
 
   return ret;
@@ -507,9 +507,14 @@ static void esp32c3_detach(struct uart_dev_s *dev)
 
   DEBUGASSERT(priv->cpuint != -ENOMEM);
 
-  up_disable_irq(priv->cpuint);
+  /* Disable and detach the CPU interrupt */
+
+  up_disable_irq(priv->irq);
   irq_detach(priv->irq);
-  esp32c3_free_cpuint(priv->periph);
+
+  /* Disassociate the peripheral interrupt from the CPU interrupt */
+
+  esp32c3_teardown_irq(priv->periph, priv->cpuint);
   priv->cpuint = -ENOMEM;
 }
 
@@ -658,9 +663,9 @@ static bool esp32c3_txempty(struct uart_dev_s *dev)
   struct esp32c3_uart_s *priv = dev->priv;
 
   reg = getreg32(UART_INT_RAW_REG(priv->id));
-  reg = reg & UART_TXFIFO_EMPTY_INT_RAW_M;
+  reg = REG_MASK(reg, UART_TX_DONE_INT_RAW);
 
-  return (reg > 0) ? true : false;
+  return reg > 0;
 }
 
 /****************************************************************************

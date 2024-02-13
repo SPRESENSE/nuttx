@@ -26,7 +26,6 @@
 
 #include <sys/types.h>
 #include <stdio.h>
-#include <queue.h>
 #include <assert.h>
 #include <debug.h>
 
@@ -111,6 +110,10 @@ int nx_smp_start(void)
 {
   int ret;
   int cpu;
+
+  /* Flush dcache before start other CPUs. */
+
+  up_flush_dcache_all();
 
   /* Start all of the other CPUs.  CPU0 is already running. */
 

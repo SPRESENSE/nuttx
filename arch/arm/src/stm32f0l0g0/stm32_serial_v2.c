@@ -497,18 +497,6 @@ static inline void up_serialout(struct up_dev_s *priv,
 }
 
 /****************************************************************************
- * Name: up_serialmod
- ****************************************************************************/
-
-static inline void up_serialmod(struct up_dev_s *priv, int offset,
-                                uint32_t clrbits, uint32_t setbits)
-{
-  uint32_t addr = priv->usartbase + offset;
-  uint32_t regval = (getreg32(addr) & ~clrbits) | setbits;
-  putreg32(regval, addr);
-}
-
-/****************************************************************************
  * Name: up_setusartint
  ****************************************************************************/
 
@@ -1079,9 +1067,9 @@ static void up_detach(struct uart_dev_s *dev)
  *
  * Description:
  *   This is the USART interrupt handler.  It will be invoked when an
- *   interrupt received on the 'irq'  It should call uart_transmitchars or
- *   uart_receivechar to perform the appropriate data transfers.  The
- *   interrupt handling logic must be able to map the 'irq' number into the
+ *   interrupt is received on the 'irq'.  It should call uart_xmitchars or
+ *   uart_recvchars to perform the appropriate data transfers.  The
+ *   interrupt handling logic must be able to map the 'arg' to the
  *   appropriate uart_dev_s structure in order to call these functions.
  *
  ****************************************************************************/
@@ -1327,7 +1315,7 @@ static int up_ioctl(struct file *filep, int cmd, unsigned long arg)
 #endif
           CS8;
 
-        /* TODO: CCTS_IFLOW, CCTS_OFLOW */
+        /* TODO: CRTS_IFLOW, CCTS_OFLOW */
       }
       break;
 
@@ -1982,7 +1970,7 @@ void arm_serialinit(void)
 
   /* Register all remaining USARTs */
 
-  strcpy(devname, "/dev/ttySx");
+  strlcpy(devname, "/dev/ttySx", sizeof(devname));
 
   for (i = 0; i < STM32_NSERIAL; i++)
     {

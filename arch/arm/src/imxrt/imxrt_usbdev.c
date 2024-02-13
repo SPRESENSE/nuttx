@@ -408,8 +408,8 @@ struct imxrt_usbdev_s
 static uint32_t imxrt_getreg(uint32_t addr);
 static void imxrt_putreg(uint32_t val, uint32_t addr);
 #else
-# define imxrt_getreg(addr)     getreg32(addr)
-# define imxrt_putreg(val,addr) putreg32(val,addr)
+#  define imxrt_getreg(addr)     getreg32(addr)
+#  define imxrt_putreg(val,addr) putreg32(val,addr)
 #endif
 
 static inline void imxrt_clrbits(uint32_t mask, uint32_t addr);
@@ -2281,7 +2281,7 @@ static struct usbdev_req_s *imxrt_epallocreq(struct usbdev_ep_s *ep)
 
   usbtrace(TRACE_EPALLOCREQ, ((struct imxrt_ep_s *)ep)->epphy);
 
-  privreq = (struct imxrt_req_s *)kmm_malloc(sizeof(struct imxrt_req_s));
+  privreq = kmm_malloc(sizeof(struct imxrt_req_s));
   if (!privreq)
     {
       usbtrace(TRACE_DEVERROR(IMXRT_TRACEERR_ALLOCFAIL), 0);
@@ -2923,8 +2923,6 @@ void arm_usbinitialize(void)
   /* Reset/Re-initialize the USB hardware */
 
   imxrt_usbreset(priv);
-
-  return;
 }
 
 /****************************************************************************

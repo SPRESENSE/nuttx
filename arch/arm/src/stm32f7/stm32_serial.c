@@ -381,7 +381,7 @@
  * blocked.
  */
 
-# if defined(CONFIG_USART1_RXDMA) && defined(CONFIG_USART1_IFLOWCONTROL)
+#  if defined(CONFIG_USART1_RXDMA) && defined(CONFIG_USART1_IFLOWCONTROL)
 #    warning "RXDMA and IFLOWCONTROL both enabled for USART1. \
               This combination can lead to data loss."
 #  endif
@@ -2248,9 +2248,9 @@ static void up_detach(struct uart_dev_s *dev)
  *
  * Description:
  *   This is the USART interrupt handler.  It will be invoked when an
- *   interrupt received on the 'irq'  It should call uart_transmitchars or
- *   uart_receivechar to perform the appropriate data transfers.  The
- *   interrupt handling logic must be able to map the 'irq' number into the
+ *   interrupt is received on the 'irq'.  It should call uart_xmitchars or
+ *   uart_recvchars to perform the appropriate data transfers.  The
+ *   interrupt handling logic must be able to map the 'arg' to the
  *   appropriate uart_dev_s structure in order to call these functions.
  *
  ****************************************************************************/
@@ -2586,7 +2586,7 @@ static int up_ioctl(struct file *filep, int cmd, unsigned long arg)
 
         cfsetispeed(termiosp, priv->baud);
 
-        /* TODO: CCTS_IFLOW, CCTS_OFLOW */
+        /* TODO: CRTS_IFLOW, CCTS_OFLOW */
       }
       break;
 
@@ -3639,10 +3639,10 @@ void arm_serialinit(void)
 
 #if !defined(SERIAL_HAVE_ONLY_DMA)
 #  if defined(SERIAL_HAVE_RXDMA)
-  UNUSED(&g_uart_rxdma_ops);
+  UNUSED(g_uart_rxdma_ops);
 #  endif
 #  if defined(SERIAL_HAVE_TXDMA)
-  UNUSED(&g_uart_txdma_ops);
+  UNUSED(g_uart_txdma_ops);
 #  endif
 #endif
 
@@ -3677,7 +3677,7 @@ void arm_serialinit(void)
 
   /* Register all remaining USARTs */
 
-  strcpy(devname, "/dev/ttySx");
+  strlcpy(devname, "/dev/ttySx", sizeof(devname));
 
   for (i = 0; i < STM32_NSERIAL; i++)
     {

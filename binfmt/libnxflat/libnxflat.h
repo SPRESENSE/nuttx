@@ -25,11 +25,6 @@
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
-
-#include <sys/types.h>
-
-#include <nuttx/arch.h>
 #include <nuttx/binfmt/nxflat.h>
 
 /****************************************************************************
@@ -37,8 +32,23 @@
  ****************************************************************************/
 
 /****************************************************************************
- * Public Types
+ * Public Function Definitions
  ****************************************************************************/
+
+/****************************************************************************
+ * Name: nxflat_verifyheader
+ *
+ * Description:
+ *   Given the header from a possible NXFLAT executable, verify that it is
+ *   an NXFLAT executable.
+ *
+ * Returned Value:
+ *   0 (OK) is returned on success and a negated errno is returned on
+ *   failure.
+ *
+ ****************************************************************************/
+
+int nxflat_verifyheader(FAR const struct nxflat_hdr_s *header);
 
 /****************************************************************************
  * Name: nxflat_addrenv_alloc
@@ -76,7 +86,7 @@ int nxflat_addrenv_alloc(FAR struct nxflat_loadinfo_s *loadinfo,
  ****************************************************************************/
 
 #ifdef CONFIG_ARCH_ADDRENV
-#  define nxflat_addrenv_select(l) up_addrenv_select(&(l)->addrenv, &(l)->oldenv)
+#  define nxflat_addrenv_select(l) addrenv_select(&(l)->addrenv)
 #endif
 
 /****************************************************************************
@@ -95,7 +105,7 @@ int nxflat_addrenv_alloc(FAR struct nxflat_loadinfo_s *loadinfo,
  ****************************************************************************/
 
 #ifdef CONFIG_ARCH_ADDRENV
-#  define nxflat_addrenv_restore(l) up_addrenv_restore(&(l)->oldenv)
+#  define nxflat_addrenv_restore(l) addrenv_restore()
 #endif
 
 /****************************************************************************

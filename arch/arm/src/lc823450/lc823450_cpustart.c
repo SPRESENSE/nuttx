@@ -89,9 +89,15 @@ static void cpu1_boot(void)
 
   DPRINTF("cpu = %d\n", cpu);
 
+#if CONFIG_ARCH_INTERRUPTSTACK > 7
+  /* Initializes the stack pointer */
+
+  arm_initialize_stack();
+#endif
+
   if (cpu == 1)
     {
-      putreg32((uint32_t)&_stext, NVIC_VECTAB); /* use CPU0 vectors */
+      putreg32((uint32_t)_stext, NVIC_VECTAB); /* use CPU0 vectors */
 
 #if defined(CONFIG_BUILD_FLAT) && defined(CONFIG_ARM_MPU)
       lc823450_mpuinitialize();
@@ -166,7 +172,7 @@ int up_cpu_start(int cpu)
   backup[0] = getreg32(CPU1_VECTOR_ISTACK);
   backup[1] = getreg32(CPU1_VECTOR_RESETV);
   putreg32((uint32_t)tcb->stack_base_ptr +
-           tcb->adj_stack_size, CPU1_VECTOR_ISTACK);
+                     tcb->adj_stack_size, CPU1_VECTOR_ISTACK);
   putreg32((uint32_t)cpu1_boot, CPU1_VECTOR_RESETV);
 
   spin_lock(&g_cpu_wait[0]);

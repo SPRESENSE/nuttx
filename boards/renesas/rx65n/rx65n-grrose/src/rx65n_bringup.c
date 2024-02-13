@@ -211,7 +211,7 @@ static int nsh_usbhostinitialize(void)
 
       ret = kthread_create("usbhost", CONFIG_USBHOST_DEFPRIO,
                            CONFIG_USBHOST_STACKSIZE,
-                           (main_t)nsh_waiter, (FAR char * const *)NULL);
+                           nsh_waiter, NULL);
       syslog(LOG_INFO, "USBHost: Created pid = %d\n", ret);
       return ret < 0 ? -ENOEXEC : OK;
     }
@@ -311,7 +311,7 @@ static void rx65n_rspi_initialize(void)
 #ifdef HAVE_RTC_DRIVER
 static int rtc_driver_initialize(void)
 {
-  FAR struct rtc_lowerhalf_s *lower;
+  struct rtc_lowerhalf_s *lower;
   int ret;
 
   /* Instantiate the rx65n lower-half RTC driver */
@@ -412,7 +412,7 @@ int rx65n_bringup(void)
 #endif /* CONFIG_CDCACM & !CONFIG_CDCACM_CONSOLE */
 
 #ifdef HAVE_RIIC_DRIVER
-  FAR struct i2c_master_s *i2c;
+  struct i2c_master_s *i2c;
 
   /* Get the I2C lower half instance */
 #ifdef CONFIG_RX65N_RIIC0

@@ -665,19 +665,6 @@ static inline void cxd56_cableconnected(bool connected)
 }
 
 /****************************************************************************
- * Name: cxd56_iscableconnected
- *
- * Description:
- *   Return the cable status. (true is connected)
- *
- ****************************************************************************/
-
-static inline bool cxd56_iscableconnected(void)
-{
-  return getreg32(CXD56_TOPREG_USB_VBUS) & VBUS_DET;
-}
-
-/****************************************************************************
  * Name: cxd56_rqdequeue
  *
  * Description:
@@ -2307,7 +2294,7 @@ static struct usbdev_req_s *cxd56_epallocreq(struct usbdev_ep_s *ep)
 #endif
   usbtrace(TRACE_EPALLOCREQ, ((struct cxd56_ep_s *)ep)->epphy);
 
-  privreq = (struct cxd56_req_s *)kmm_malloc(sizeof(struct cxd56_req_s));
+  privreq = kmm_malloc(sizeof(struct cxd56_req_s));
   if (!privreq)
     {
       usbtrace(TRACE_DEVERROR(CXD56_TRACEERR_ALLOCFAIL), 0);
@@ -2603,8 +2590,7 @@ static int cxd56_allocepbuffer(struct cxd56_ep_s *privep)
   DEBUGASSERT(!privep->desc && !privep->buffer);
   DEBUGASSERT(privep->epphy); /* Do not use for EP0 */
 
-  privep->desc =
-    (struct cxd56_data_desc_s *)kmm_malloc(sizeof(struct cxd56_data_desc_s));
+  privep->desc = kmm_malloc(sizeof(struct cxd56_data_desc_s));
   if (!privep->desc)
     {
       return -1;
@@ -3355,7 +3341,7 @@ int cxd56_usbdev_setsigno(int signo)
   uinfo("signo = %d\n", signo);
 
   priv->signo = signo;
-  priv->pid   = getpid();
+  priv->pid   = nxsched_getpid();
 
   return OK;
 }
@@ -3407,8 +3393,7 @@ static int cxd56_usbdev_open(struct file *filep, const char *relpath,
 
   /* Allocate the open file structure */
 
-  priv = (struct cxd56_usbdev_file_s *)kmm_zalloc(
-    sizeof(struct cxd56_usbdev_file_s));
+  priv = kmm_zalloc(sizeof(struct cxd56_usbdev_file_s));
   if (!priv)
     {
       uerr("ERROR: Failed to allocate file attributes\n");
@@ -3502,8 +3487,7 @@ static int cxd56_usbdev_dup(const struct file *oldp,
 
   /* Allocate a new container to hold the task and attribute selection */
 
-  newattr = (struct cxd56_usbdev_file_s *)kmm_malloc(
-    sizeof(struct cxd56_usbdev_file_s));
+  newattr = kmm_malloc(sizeof(struct cxd56_usbdev_file_s));
   if (!newattr)
     {
       uerr("ERROR: Failed to allocate file attributes\n");

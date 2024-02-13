@@ -30,6 +30,10 @@ ifeq ($(CONFIG_DEV_ZERO),y)
   CSRCS += dev_zero.c
 endif
 
+ifeq ($(CONFIG_DEV_ASCII),y)
+  CSRCS += dev_ascii.c
+endif
+
 ifeq ($(CONFIG_LWL_CONSOLE),y)
   CSRCS += lwl_console.c
 endif
@@ -45,6 +49,22 @@ ifeq ($(CONFIG_DRVR_WRITEBUFFER),y)
   CSRCS += rwbuffer.c
 else ifeq ($(CONFIG_DRVR_READAHEAD),y)
   CSRCS += rwbuffer.c
+endif
+
+ifeq ($(CONFIG_DEV_RPMSG),y)
+  CSRCS += rpmsgdev.c
+endif
+
+ifeq ($(CONFIG_DEV_RPMSG_SERVER),y)
+  CSRCS += rpmsgdev_server.c
+endif
+
+ifeq ($(CONFIG_BLK_RPMSG),y)
+  CSRCS += rpmsgblk.c
+endif
+
+ifeq ($(CONFIG_BLK_RPMSG_SERVER),y)
+  CSRCS += rpmsgblk_server.c
 endif
 
 # Include build support

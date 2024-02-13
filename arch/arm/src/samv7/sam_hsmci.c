@@ -28,6 +28,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
+#include <sys/param.h>
 #include <assert.h>
 #include <debug.h>
 #include <errno.h>
@@ -118,12 +119,12 @@
  */
 
 #undef  HSCMI_NORXDMA              /* Define to disable RX DMA */
-#define HSCMI_NOTXDMA            1 /* Define to disable TX DMA */
+#undef  HSCMI_NOTXDMA              /* Define to disable TX DMA */
 
-/* Timing */
+/* Timing : 100mS short timeout, 2 seconds for long one */
 
-#define HSMCI_CMDTIMEOUT         (100000)
-#define HSMCI_LONGTIMEOUT        (0x7fffffff)
+#define HSMCI_CMDTIMEOUT         MSEC2TICK(100)
+#define HSMCI_LONGTIMEOUT        MSEC2TICK(2000)
 
 /* Big DTIMER setting */
 
@@ -204,7 +205,7 @@
   (HSMCI_INT_OVRE  | HSMCI_INT_BLKOVRE | HSMCI_INT_CSTOE | HSMCI_INT_DTOE | \
    HSMCI_INT_DCRCE)
 
-#define HSMCI_DATA_DMASEND_ERRORS \
+#define HSMCI_DATA_SEND_ERRORS \
   (HSMCI_INT_UNRE  | HSMCI_INT_CSTOE | HSMCI_INT_DTOE    | HSMCI_INT_DCRCE)
 
 /* Data transfer status and interrupt mask bits.
@@ -228,7 +229,7 @@
 #define HSMCI_DMARECV_INTS \
   (HSMCI_DATA_RECV_ERRORS | HSMCI_INT_XFRDONE /* | HSMCI_INT_DMADONE */)
 #define HSMCI_DMASEND_INTS \
-  (HSMCI_DATA_DMASEND_ERRORS | HSMCI_INT_XFRDONE /* | HSMCI_INT_DMADONE */)
+  (HSMCI_DATA_SEND_ERRORS | HSMCI_INT_XFRDONE /* | HSMCI_INT_DMADONE */)
 
 /* Event waiting interrupt mask bits.
  *
@@ -270,11 +271,6 @@
 #  define SAMPLENDX_AT_WAKEUP       1
 #  define DEBUG_NCMDSAMPLES         2
 #endif
-
-/* Some semi-standard definitions */
-
-#define MAX(a,b) (((a) > (b)) ? (a) : (b))
-#define MIN(a,b) (((a) < (b)) ? (a) : (b))
 
 /****************************************************************************
  * Private Types
@@ -372,6 +368,11 @@ struct sam_dev_s
   int                ntimes;          /* Number of times */
 #endif
 
+#ifdef CONFIG_SAMV7_HSMCI_SW_CARDDETECT
+  uint32_t          cdgpio;
+  uint32_t          cdirq;
+#endif
+
   /* Register logging support */
 
 #if defined(CONFIG_SAMV7_HSMCI_CMDDEBUG) && defined(CONFIG_SAMV7_HSMCI_XFRDEBUG)
@@ -393,27 +394,32 @@ struct sam_dev_s
 
 /* Low-level helpers ********************************************************/
 
-static int  sam_takesem(struct sam_dev_s *priv);
-#define     sam_givesem(priv) (nxsem_post(&priv->waitsem))
+#ifdef CONFIG_SAMV7_HSMCI_SW_CARDDETECT
+static int sam_carddetect_enable(struct sam_dev_s *priv);
+static int sam_carddetect_disable(struct sam_dev_s *priv);
+static int sam_carddetect_handler(int irq, void *context,
+                                 void *arg);
+#endif
 
 #ifdef CONFIG_SAMV7_HSMCI_REGDEBUG
 static bool sam_checkreg(struct sam_dev_s *priv, bool wr,
               uint32_t value, uint32_t address);
 #else
-# define    sam_checkreg(priv,wr,value,address) (false)
+#  define   sam_checkreg(priv,wr,value,address) (false)
 #endif
 
 static inline uint32_t sam_getreg(struct sam_dev_s *priv,
-                  unsigned int offset);
+                                  unsigned int offset);
 static inline void sam_putreg(struct sam_dev_s *priv, uint32_t value,
-                  unsigned int offset);
+                              unsigned int offset);
 
 static inline void sam_configwaitints(struct sam_dev_s *priv,
-              uint32_t waitmask, sdio_eventset_t waitevents);
+                                      uint32_t waitmask,
+                                      sdio_eventset_t waitevents);
 static void sam_disablewaitints(struct sam_dev_s *priv,
-              sdio_eventset_t wkupevent);
+                                sdio_eventset_t wkupevent);
 static inline void sam_configxfrints(struct sam_dev_s *priv,
-              uint32_t xfrmask);
+                                     uint32_t xfrmask);
 static void sam_disablexfrints(struct sam_dev_s *priv);
 static inline void sam_enableints(struct sam_dev_s *priv);
 
@@ -458,14 +464,14 @@ static void sam_cmddump(struct sam_dev_s *priv);
 
 static void sam_dmacallback(DMA_HANDLE handle, void *arg, int result);
 static inline uintptr_t hsmci_regaddr(struct sam_dev_s *priv,
-              unsigned int offset);
+                                      unsigned int offset);
 
 /* Data Transfer Helpers ****************************************************/
 
 static void sam_eventtimeout(wdparm_t arg);
 static void sam_endwait(struct sam_dev_s *priv, sdio_eventset_t wkupevent);
 static void sam_endtransfer(struct sam_dev_s *priv,
-              sdio_eventset_t wkupevent);
+                            sdio_eventset_t wkupevent);
 static void sam_notransfer(struct sam_dev_s *priv);
 
 /* Interrupt Handling *******************************************************/
@@ -481,48 +487,48 @@ static sdio_capset_t sam_capabilities(struct sdio_dev_s *dev);
 static sdio_statset_t sam_status(struct sdio_dev_s *dev);
 static void sam_widebus(struct sdio_dev_s *dev, bool enable);
 static void sam_clock(struct sdio_dev_s *dev,
-              enum sdio_clock_e rate);
+                      enum sdio_clock_e rate);
 static int  sam_attach(struct sdio_dev_s *dev);
 
 /* Command/Status/Data Transfer */
 
 static int  sam_sendcmd(struct sdio_dev_s *dev, uint32_t cmd,
-              uint32_t arg);
+                        uint32_t arg);
 static void sam_blocksetup(struct sdio_dev_s *dev, unsigned int blocklen,
-              unsigned int nblocks);
+                           unsigned int nblocks);
 static int  sam_recvsetup(struct sdio_dev_s *dev, uint8_t *buffer,
-              size_t nbytes);
+                          size_t nbytes);
 static int  sam_sendsetup(struct sdio_dev_s *dev,
-              const uint8_t *buffer, size_t nbytes);
+                          const uint8_t *buffer, size_t nbytes);
 static int  sam_cancel(struct sdio_dev_s *dev);
 static int  sam_waitresponse(struct sdio_dev_s *dev, uint32_t cmd);
 static int  sam_recvshort(struct sdio_dev_s *dev, uint32_t cmd,
-              uint32_t *rshort);
+                          uint32_t *rshort);
 static int  sam_recvlong(struct sdio_dev_s *dev, uint32_t cmd,
-              uint32_t rlong[4]);
+                         uint32_t rlong[4]);
 static int  sam_recvnotimpl(struct sdio_dev_s *dev, uint32_t cmd,
-              uint32_t *rnotimpl);
+                            uint32_t *rnotimpl);
 
 /* EVENT handler */
 
 static void sam_waitenable(struct sdio_dev_s *dev,
-              sdio_eventset_t eventset, uint32_t timeout);
+                           sdio_eventset_t eventset, uint32_t timeout);
 static sdio_eventset_t sam_eventwait(struct sdio_dev_s *dev);
 static void sam_callbackenable(struct sdio_dev_s *dev,
-              sdio_eventset_t eventset);
+                               sdio_eventset_t eventset);
 static int  sam_registercallback(struct sdio_dev_s *dev,
-              worker_t callback, void *arg);
+                                 worker_t callback, void *arg);
 
 /* DMA */
 
 #ifdef CONFIG_SAMV7_HSMCI_DMA
 #ifndef HSCMI_NORXDMA
 static int  sam_dmarecvsetup(struct sdio_dev_s *dev,
-              uint8_t *buffer, size_t buflen);
+                             uint8_t *buffer, size_t buflen);
 #endif
 #ifndef HSCMI_NOTXDMA
 static int  sam_dmasendsetup(struct sdio_dev_s *dev,
-              const uint8_t *buffer, size_t buflen);
+                             const uint8_t *buffer, size_t buflen);
 #endif
 #endif
 
@@ -534,51 +540,57 @@ static void sam_callback(void *arg);
  * Private Data
  ****************************************************************************/
 
-/* Callbacks */
-
-static const struct sdio_dev_s g_callbacks =
-{
-  .reset            = sam_reset,
-  .capabilities     = sam_capabilities,
-  .status           = sam_status,
-  .widebus          = sam_widebus,
-  .clock            = sam_clock,
-  .attach           = sam_attach,
-  .sendcmd          = sam_sendcmd,
-  .blocksetup       = sam_blocksetup,
-  .recvsetup        = sam_recvsetup,
-  .sendsetup        = sam_sendsetup,
-  .cancel           = sam_cancel,
-  .waitresponse     = sam_waitresponse,
-  .recv_r1          = sam_recvshort,
-  .recv_r2          = sam_recvlong,
-  .recv_r3          = sam_recvshort,
-  .recv_r4          = sam_recvnotimpl,
-  .recv_r5          = sam_recvnotimpl,
-  .recv_r6          = sam_recvshort,
-  .recv_r7          = sam_recvshort,
-  .waitenable       = sam_waitenable,
-  .eventwait        = sam_eventwait,
-  .callbackenable   = sam_callbackenable,
-  .registercallback = sam_registercallback,
-#ifdef CONFIG_SDIO_DMA
-#ifndef HSCMI_NORXDMA
-  .dmarecvsetup     = sam_dmarecvsetup,
-#else
-  .dmarecvsetup     = sam_recvsetup,
-#endif
-#ifndef HSCMI_NOTXDMA
-  .dmasendsetup     = sam_dmasendsetup,
-#else
-  .dmasendsetup     = sam_sendsetup,
-#endif
-#endif
-};
-
 /* Pre-allocate memory for each HSMCI device */
 
 #ifdef CONFIG_SAMV7_HSMCI0
-static struct sam_dev_s g_hsmci0;
+static struct sam_dev_s g_hsmci0 =
+{
+  .dev =
+  {
+    .reset            = sam_reset,
+    .capabilities     = sam_capabilities,
+    .status           = sam_status,
+    .widebus          = sam_widebus,
+    .clock            = sam_clock,
+    .attach           = sam_attach,
+    .sendcmd          = sam_sendcmd,
+    .blocksetup       = sam_blocksetup,
+    .recvsetup        = sam_recvsetup,
+    .sendsetup        = sam_sendsetup,
+    .cancel           = sam_cancel,
+    .waitresponse     = sam_waitresponse,
+    .recv_r1          = sam_recvshort,
+    .recv_r2          = sam_recvlong,
+    .recv_r3          = sam_recvshort,
+    .recv_r4          = sam_recvnotimpl,
+    .recv_r5          = sam_recvnotimpl,
+    .recv_r6          = sam_recvshort,
+    .recv_r7          = sam_recvshort,
+    .waitenable       = sam_waitenable,
+    .eventwait        = sam_eventwait,
+    .callbackenable   = sam_callbackenable,
+    .registercallback = sam_registercallback,
+#ifdef CONFIG_SDIO_DMA
+#ifndef HSCMI_NORXDMA
+    .dmarecvsetup     = sam_dmarecvsetup,
+#else
+    .dmarecvsetup     = sam_recvsetup,
+#endif
+#ifndef HSCMI_NOTXDMA
+    .dmasendsetup     = sam_dmasendsetup,
+#else
+    .dmasendsetup     = sam_sendsetup,
+#endif
+#endif
+  },
+  .waitsem            = SEM_INITIALIZER(0),
+  .base               = SAM_HSMCI0_BASE,
+  .hsmci              = 0,
+#ifdef CONFIG_SAMV7_HSMCI_SW_CARDDETECT
+  .cdgpio             = GPIO_HSMCI0_CD,
+  .cdirq              = IRQ_HSMCI0_CD,
+#endif
+};
 #endif
 
 /****************************************************************************
@@ -586,25 +598,71 @@ static struct sam_dev_s g_hsmci0;
  ****************************************************************************/
 
 /****************************************************************************
- * Name: sam_takesem
+ * Name: sam_carddetect_enable
  *
  * Description:
- *   Take the wait semaphore (handling false alarm wakeups due to the receipt
- *   of signals).
+ *   Enables card detection (switch CD/DAT3 to interrupt mode and enables it)
  *
  * Input Parameters:
- *   dev - Instance of the SDIO device driver state structure.
- *
- * Returned Value:
- *   Normally OK, but may return -ECANCELED in the rare event that the task
- *   has been canceled.
+ *   priv       - A reference to the HSMCI device state structure
  *
  ****************************************************************************/
 
-static int sam_takesem(struct sam_dev_s *priv)
+#ifdef CONFIG_SAMV7_HSMCI_SW_CARDDETECT
+static int sam_carddetect_enable(struct sam_dev_s *priv)
 {
-  return nxsem_wait_uninterruptible(&priv->waitsem);
+  sam_configgpio(priv->cdgpio);
+  sam_gpioirq(priv->cdgpio);
+  irq_attach(priv->cdirq, sam_carddetect_handler, (void *)priv);
+  sam_gpioirqenable(priv->cdirq);
+
+  return OK;
 }
+
+/****************************************************************************
+ * Name: sam_carddetect_disable
+ *
+ * Description:
+ *   Disables card detection (switch CD/DAT3 to data mode)
+ *
+ * Input Parameters:
+ *   priv       - A reference to the HSMCI device state structure
+ *
+ ****************************************************************************/
+
+static int sam_carddetect_disable(struct sam_dev_s *priv)
+{
+  sam_gpioirqdisable(priv->cdirq);
+  irq_detach(priv->cdirq);
+
+  sam_configgpio(GPIO_MCI0_DA3);
+
+  return OK;
+}
+
+/****************************************************************************
+ * Name: sam_carddetect_handler
+ *
+ * Description:
+ *   Standard interrupt handler for CD/DAT3 pin. Calls sdio_mediachange
+ *   with current value of CD pin.
+ *
+ ****************************************************************************/
+
+static int sam_carddetect_handler(int irq, void *context,
+                                  void *arg)
+{
+  struct sam_dev_s *priv = (struct sam_dev_s *)arg;
+  bool inserted;
+
+  inserted = sam_gpioread(priv->cdgpio);
+  mcinfo("Inserted: %s\n", inserted ? "YES" : "NO");
+
+  sdio_mediachange(&priv->dev, inserted);
+
+  return OK;
+}
+#endif
 
 /****************************************************************************
  * Name: sam_checkreg
@@ -1305,7 +1363,7 @@ static void sam_endwait(struct sam_dev_s *priv, sdio_eventset_t wkupevent)
 
   /* Wake up the waiting thread */
 
-  sam_givesem(priv);
+  nxsem_post(&priv->waitsem);
 }
 
 /****************************************************************************
@@ -1415,6 +1473,14 @@ static void sam_notransfer(struct sam_dev_s *priv)
 
   priv->xfrbusy = false;
   priv->txbusy  = false;
+
+#ifdef CONFIG_SAMV7_HSMCI_SW_CARDDETECT
+  /* Transfer ended so switch CD/DAT3 do CD mode to detect card inserion
+   * or remove.
+   */
+
+  sam_carddetect_enable(priv);
+#endif
 }
 
 /****************************************************************************
@@ -1572,6 +1638,21 @@ static int sam_hsmci_interrupt(int irq, void *context, void *arg)
 
           else
             {
+              /* If buffer is not NULL that means that RX DMA is finished.
+               * We need to invalidate RX buffer
+               */
+
+              if (priv->buffer != NULL)
+                {
+                  DEBUGASSERT(priv->remaining > 0);
+
+                  up_invalidate_dcache((uintptr_t)priv->buffer,
+                                       (uintptr_t)priv->buffer +
+                                       priv->remaining);
+                  priv->buffer    = NULL;
+                  priv->remaining = 0;
+                }
+
               /* End the transfer */
 
               sam_endtransfer(priv, SDIOWAIT_TRANSFERDONE);
@@ -1741,6 +1822,7 @@ static sdio_capset_t sam_capabilities(struct sdio_dev_s *dev)
 #ifdef CONFIG_SAMV7_HSMCI_DMA
   caps |= SDIO_CAPS_DMASUPPORTED;
 #endif
+  caps |= SDIO_CAPS_DMABEFOREWRITE;
 
   return caps;
 }
@@ -1953,6 +2035,12 @@ static int sam_sendcmd(struct sdio_dev_s *dev,
   uint32_t regval;
   uint32_t cmdidx;
 
+#ifdef CONFIG_SAMV7_HSMCI_SW_CARDDETECT
+  /* Switch CD/DAT3 pin do data mode */
+
+  sam_carddetect_disable(priv);
+#endif
+
   sam_cmdsampleinit(priv);
 
   /* Set the HSMCI Argument value */
@@ -2131,6 +2219,12 @@ static int sam_recvsetup(struct sdio_dev_s *dev, uint8_t *buffer,
 
   DEBUGASSERT(priv != NULL && buffer != NULL && buflen > 0);
 
+#ifdef CONFIG_SAMV7_HSMCI_SW_CARDDETECT
+  /* Switch CD/DAT3 pin do data mode */
+
+  sam_carddetect_disable(priv);
+#endif
+
 #ifndef CONFIG_SAMV7_HSMCI_UNALIGNED
   /* Default behavior is to transfer 32-bit values only */
 
@@ -2201,6 +2295,12 @@ static int sam_sendsetup(struct sdio_dev_s *dev,
 
   DEBUGASSERT(priv != NULL && buffer != NULL && buflen > 0);
 
+#ifdef CONFIG_SAMV7_HSMCI_SW_CARDDETECT
+  /* Switch CD/DAT3 pin do data mode */
+
+  sam_carddetect_disable(priv);
+#endif
+
 #ifndef CONFIG_SAMV7_HSMCI_UNALIGNED
   /* Default behavior is to transfer 32-bit values only */
 
@@ -2231,7 +2331,6 @@ static int sam_sendsetup(struct sdio_dev_s *dev,
    * in order to avoid a TX data underrun.
    */
 
-  sched_lock();
   flags = enter_critical_section();
 
   src       = (const uint32_t *)buffer;
@@ -2242,13 +2341,12 @@ static int sam_sendsetup(struct sdio_dev_s *dev,
       /* Check the HSMCI status */
 
       sr = sam_getreg(priv, SAM_HSMCI_SR_OFFSET);
-      if ((sr & HSMCI_DATA_DMASEND_ERRORS) != 0)
+      if ((sr & HSMCI_DATA_SEND_ERRORS) != 0)
         {
           /* Some fatal error has occurred */
 
           mcerr("ERROR: sr %08" PRIx32 "\n", sr);
           leave_critical_section(flags);
-          sched_unlock();
           return -EIO;
         }
       else if ((sr & HSMCI_INT_TXRDY) != 0)
@@ -2306,7 +2404,6 @@ static int sam_sendsetup(struct sdio_dev_s *dev,
     }
 
   leave_critical_section(flags);
-  sched_unlock();
   return OK;
 }
 
@@ -2387,7 +2484,14 @@ static int sam_waitresponse(struct sdio_dev_s *dev, uint32_t cmd)
   struct sam_dev_s *priv = (struct sam_dev_s *)dev;
   uint32_t sr;
   uint32_t pending;
+  clock_t  watchtime;
   int32_t  timeout;
+
+#ifdef CONFIG_SAMV7_HSMCI_SW_CARDDETECT
+  /* Switch CD/DAT3 pin do data mode */
+
+  sam_carddetect_disable(priv);
+#endif
 
   switch (cmd & MMCSD_RESPONSE_MASK)
     {
@@ -2414,6 +2518,7 @@ static int sam_waitresponse(struct sdio_dev_s *dev, uint32_t cmd)
 
   /* Then wait for the response (or timeout) */
 
+  watchtime = clock_systime_ticks();
   for (; ; )
     {
       /* Did a Command-Response sequence termination event occur? */
@@ -2463,7 +2568,7 @@ static int sam_waitresponse(struct sdio_dev_s *dev, uint32_t cmd)
               return OK;
             }
        }
-      else if (--timeout <= 0)
+      else if (clock_systime_ticks() - watchtime > timeout)
         {
           mcerr("ERROR: Timeout cmd: %08" PRIx32 " events: %08" PRIx32
                 " SR: %08" PRIx32 "\n",
@@ -2502,6 +2607,12 @@ static int sam_recvshort(struct sdio_dev_s *dev,
 {
   struct sam_dev_s *priv = (struct sam_dev_s *)dev;
   int ret = OK;
+
+#ifdef CONFIG_SAMV7_HSMCI_SW_CARDDETECT
+  /* Switch CD/DAT3 pin do data mode */
+
+  sam_carddetect_disable(priv);
+#endif
 
   /* These responses could have CRC errors:
    *
@@ -2553,7 +2664,7 @@ static int sam_recvshort(struct sdio_dev_s *dev,
            (cmd & MMCSD_RESPONSE_MASK) != MMCSD_R3_RESPONSE &&
            (cmd & MMCSD_RESPONSE_MASK) != MMCSD_R7_RESPONSE)
     {
-      mcerr("ERROR: Wrong response CMD=%08x\n", cmd);
+      mcerr("ERROR: Wrong response CMD=%08" PRIx32 "\n", cmd);
       ret = -EINVAL;
     }
   else
@@ -2590,6 +2701,12 @@ static int sam_recvlong(struct sdio_dev_s *dev, uint32_t cmd,
   struct sam_dev_s *priv = (struct sam_dev_s *)dev;
   int ret = OK;
 
+#ifdef CONFIG_SAMV7_HSMCI_SW_CARDDETECT
+  /* Switch CD/DAT3 pin do data mode */
+
+  sam_carddetect_disable(priv);
+#endif
+
   /* R2  CID, CSD register (136-bit)
    *     135       0               Start bit
    *     134       0               Transmission bit (0=from card)
@@ -2604,7 +2721,7 @@ static int sam_recvlong(struct sdio_dev_s *dev, uint32_t cmd,
 
   if ((cmd & MMCSD_RESPONSE_MASK) != MMCSD_R2_RESPONSE)
     {
-      mcerr("ERROR: Wrong response CMD=%08x\n", cmd);
+      mcerr("ERROR: Wrong response CMD=%08" PRIx32 "\n", cmd);
       ret = -EINVAL;
     }
   else
@@ -2737,16 +2854,7 @@ static void sam_waitenable(struct sdio_dev_s *dev,
           return;
         }
 
-      /* Start the watchdog timer.  I am not sure why this is, but I am
-       * currently seeing some additional delays when DMA is used.
-       */
-
-      if (priv->txbusy)
-        {
-          /* TX transfers can be VERY long in the worst case */
-
-          timeout = MAX(5000, timeout);
-        }
+      /* Start the watchdog timer */
 
       delay = MSEC2TICK(timeout);
       ret   = wd_start(&priv->waitwdog, delay,
@@ -2813,7 +2921,7 @@ static sdio_eventset_t sam_eventwait(struct sdio_dev_s *dev)
        * incremented and there will be no wait.
        */
 
-      ret = sam_takesem(priv);
+      ret = nxsem_wait_uninterruptible(&priv->waitsem);
       if (ret < 0)
         {
           /* Task canceled.  Cancel the wdog (assuming it was started),
@@ -2876,6 +2984,15 @@ static void sam_callbackenable(struct sdio_dev_s *dev,
 
   mcinfo("eventset: %02x\n", eventset);
   DEBUGASSERT(priv != NULL);
+
+#ifdef CONFIG_SAMV7_HSMCI_SW_CARDDETECT
+  /* Calling callbackenable means that we expect the card to be inserted
+   * or removed, therefore we have to switch CD/DAT3 pin to detection
+   * mode.
+   */
+
+  sam_carddetect_enable(priv);
+#endif
 
   priv->cbevents = eventset;
   sam_callback(priv);
@@ -2953,6 +3070,12 @@ static int sam_dmarecvsetup(struct sdio_dev_s *dev, uint8_t *buffer,
 
   DEBUGASSERT(priv != NULL && buffer != NULL && buflen > 0);
 
+#ifdef CONFIG_SAMV7_HSMCI_SW_CARDDETECT
+  /* Switch CD/DAT3 pin do data mode */
+
+  sam_carddetect_disable(priv);
+#endif
+
   /* 32-bit buffer alignment is required for DMA transfers */
 
   if (((uintptr_t)buffer & 3) != 0 || (buflen & 3) != 0)
@@ -2980,7 +3103,7 @@ static int sam_dmarecvsetup(struct sdio_dev_s *dev, uint8_t *buffer,
 
   DEBUGASSERT(nblocks > 0 && blocksize > 0 && (blocksize & 3) == 0);
 
-  /* Physical address of the HSCMI source register, either the TDR (for
+  /* Physical address of the HSCMI source register, either the RDR (for
    * single transfers) or the first FIFO register, and the physical address
    * of the buffer in RAM.
    */
@@ -3016,9 +3139,11 @@ static int sam_dmarecvsetup(struct sdio_dev_s *dev, uint8_t *buffer,
 
   /* Start the DMA */
 
-  priv->dmabusy = true;
-  priv->xfrbusy = true;
-  priv->txbusy  = false;
+  priv->dmabusy   = true;
+  priv->xfrbusy   = true;
+  priv->txbusy    = false;
+  priv->buffer    = (uint32_t *)buffer;
+  priv->remaining = buflen;
   sam_dmastart(priv->dma, sam_dmacallback, priv);
 
   /* Configure transfer-related interrupts.  Transfer interrupts are not
@@ -3065,6 +3190,12 @@ static int sam_dmasendsetup(struct sdio_dev_s *dev,
   unsigned int i;
 
   DEBUGASSERT(priv != NULL && buffer != NULL && buflen > 0);
+
+#ifdef CONFIG_SAMV7_HSMCI_SW_CARDDETECT
+  /* Switch CD/DAT3 pin do data mode */
+
+  sam_carddetect_disable(priv);
+#endif
 
   /* 32-bit buffer alignment is required for DMA transfers */
 
@@ -3135,7 +3266,7 @@ static int sam_dmasendsetup(struct sdio_dev_s *dev,
   sam_dmastart(priv->dma, sam_dmacallback, priv);
 
   /* Configure transfer-related interrupts.  Transfer interrupts are not
-   * enabled until after the transfer is start with an SD command (i.e.,
+   * enabled until after the transfer is started with an SD command (i.e.,
    * at the beginning of sam_eventwait().
    */
 
@@ -3282,11 +3413,6 @@ struct sdio_dev_s *sdio_initialize(int slotno)
 
       priv = &g_hsmci0;
 
-      /* HSMCI0 Initialization */
-
-      priv->base  = SAM_HSMCI0_BASE;
-      priv->hsmci = 0;
-
       /* Configure PIOs for 4-bit, wide-bus operation.  NOTE: (1) the chip
        * is capable of 8-bit wide bus operation but D4-D7 are not configured,
        * (2) any card detection PIOs must be set up in board-specific logic.
@@ -3297,7 +3423,9 @@ struct sdio_dev_s *sdio_initialize(int slotno)
       sam_configgpio(GPIO_MCI0_DA0);   /* Data 0 of Slot A */
       sam_configgpio(GPIO_MCI0_DA1);   /* Data 1 of Slot A */
       sam_configgpio(GPIO_MCI0_DA2);   /* Data 2 of Slot A */
+#ifndef CONFIG_SAMV7_HSMCI_SW_CARDDETECT
       sam_configgpio(GPIO_MCI0_DA3);   /* Data 3 of Slot A */
+#endif
       sam_configgpio(GPIO_MCI0_CK);    /* Common SD clock */
       sam_configgpio(GPIO_MCI0_CDA);   /* Command/Response of Slot A */
 
@@ -3321,21 +3449,18 @@ struct sdio_dev_s *sdio_initialize(int slotno)
   mcinfo("priv: %p base: %08" PRIx32 " hsmci: %d pid: %" PRId32 "\n",
          priv, priv->base, priv->hsmci, pid);
 
-  /* Initialize the HSMCI slot structure */
-
-  /* Initialize semaphores */
-
-  nxsem_init(&priv->waitsem, 0, 0);
-
-  /* The waitsem semaphore is used for signaling and, hence, should not have
-   * priority inheritance enabled.
+#ifdef CONFIG_SAMV7_HSMCI_SW_CARDDETECT
+  /* We do not have separare card detect pin on SD card slot. This means
+   * card detection has to be done on CD/DAT3 pin. Generally we have to
+   * switch between configuration of the pin (once as a simple interrupt
+   * GPIO and then as data pin for SDIO driver).
+   *
+   * Lets start with CD pin configuration.
    */
 
-  nxsem_set_protocol(&priv->waitsem, SEM_PRIO_NONE);
-
-  /* Initialize the callbacks */
-
-  memcpy(&priv->dev, &g_callbacks, sizeof(struct sdio_dev_s));
+  sam_carddetect_enable(priv);
+  sdio_mediachange(&priv->dev, sam_gpioread(priv->cdgpio));
+#endif
 
   /* Allocate a DMA channel */
 

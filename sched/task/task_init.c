@@ -27,12 +27,13 @@
 #include <sys/types.h>
 #include <stdint.h>
 #include <sched.h>
-#include <queue.h>
 #include <assert.h>
 #include <errno.h>
 
 #include <nuttx/arch.h>
+#include <nuttx/queue.h>
 #include <nuttx/sched.h>
+#include <nuttx/trace.h>
 
 #include "sched/sched.h"
 #include "environ/environ.h"
@@ -90,10 +91,21 @@ int nxtask_init(FAR struct task_tcb_s *tcb, const char *name, int priority,
   uint8_t ttype = tcb->cmn.flags & TCB_FLAG_TTYPE_MASK;
   int ret;
 
+  sched_trace_begin();
+
 #ifndef CONFIG_DISABLE_PTHREAD
   /* Only tasks and kernel threads can be initialized in this way */
 
   DEBUGASSERT(tcb && ttype != TCB_FLAG_TTYPE_PTHREAD);
+#endif
+
+#ifdef CONFIG_ARCH_ADDRENV
+  /* Kernel threads do not own any address environment */
+
+  if ((ttype & TCB_FLAG_TTYPE_MASK) == TCB_FLAG_TTYPE_KERNEL)
+    {
+      tcb->cmn.addrenv_own = NULL;
+    }
 #endif
 
   /* Create a new task group */
@@ -101,6 +113,7 @@ int nxtask_init(FAR struct task_tcb_s *tcb, const char *name, int priority,
   ret = group_allocate(tcb, tcb->cmn.flags);
   if (ret < 0)
     {
+      sched_trace_end();
       return ret;
     }
 
@@ -166,6 +179,7 @@ int nxtask_init(FAR struct task_tcb_s *tcb, const char *name, int priority,
   /* Now we have enough in place that we can join the group */
 
   group_initialize(tcb);
+  sched_trace_end();
   return ret;
 
 errout_with_group:
@@ -190,6 +204,8 @@ errout_with_group:
     }
 
   group_leave(&tcb->cmn);
+
+  sched_trace_end();
   return ret;
 }
 
@@ -218,7 +234,7 @@ void nxtask_uninit(FAR struct task_tcb_s *tcb)
    * nxtask_setup_scheduler().
    */
 
-  dq_rem((FAR dq_entry_t *)tcb, (FAR dq_queue_t *)&g_inactivetasks);
+  dq_rem((FAR dq_entry_t *)tcb, &g_inactivetasks);
 
   /* Release all resources associated with the TCB... Including the TCB
    * itself.

@@ -57,9 +57,29 @@ enum nrf52_gpiote_outcfg_e
  *
  * Input Parameters:
  *  - pinset:      GPIO pin configuration
+ *  - channel:     GPIOTE channel used to capture events
  *  - risingedge:  Enables interrupt on rising edges
  *  - fallingedge: Enables interrupt on falling edges
- *  - event:       Generate event when set
+ *  - func:        When non-NULL, generate interrupt
+ *  - arg:         Argument passed to the interrupt callback
+ *
+ ****************************************************************************/
+
+void nrf52_gpiote_set_ch_event(uint32_t pinset, int channel,
+                               bool risingedge, bool fallingedge,
+                               xcpt_t func, void *arg);
+
+/****************************************************************************
+ * Name: nrf52_gpiote_set_event
+ *
+ * Description:
+ *   Configures a GPIOTE channel in EVENT mode, assigns it to a given pin
+ *   and sets a handler for the first availalbe GPIOTE channel
+ *
+ * Input Parameters:
+ *  - pinset:      GPIO pin configuration
+ *  - risingedge:  Enables interrupt on rising edges
+ *  - fallingedge: Enables interrupt on falling edges
  *  - func:        When non-NULL, generate interrupt
  *  - arg:         Argument passed to the interrupt callback
  *
@@ -69,9 +89,9 @@ enum nrf52_gpiote_outcfg_e
  *
  ****************************************************************************/
 
-void nrf52_gpiote_set_ch_event(uint32_t pinset, int channel,
-                               bool risingedge, bool fallingedge,
-                               xcpt_t func, void *arg);
+int nrf52_gpiote_set_event(uint32_t pinset,
+                           bool risingedge, bool fallingedge,
+                           xcpt_t func, void *arg);
 
 #ifdef CONFIG_NRF52_PER_PIN_INTERRUPTS
 /****************************************************************************
@@ -115,14 +135,9 @@ void nrf52_gpiote_set_pin_event(uint32_t pinset, xcpt_t func, void *arg);
  *  - func:        When non-NULL, generate interrupt
  *  - arg:         Argument passed to the interrupt callback
  *
- * Returned Value:
- *   Zero (OK) on success; a negated errno value on failure indicating the
- *   nature of the failure.
- *
  ****************************************************************************/
 
-void nrf52_gpiote_set_port_event(uint32_t pinset, xcpt_t func,
-                                 void *arg);
+void nrf52_gpiote_set_port_event(uint32_t pinset, xcpt_t func, void *arg);
 
 #endif
 
@@ -138,14 +153,10 @@ void nrf52_gpiote_set_port_event(uint32_t pinset, xcpt_t func,
  *   Finally, a given pin should only be assigned to a given channel.
  *
  * Input Parameters:
- *  - pinset: gpio pin configuration (only port + pin is important here)
- *  - channel: the GPIOTE channel used to control the given pin
+ *  - pinset:      gpio pin configuration (only port + pin is important here)
+ *  - channel:     the GPIOTE channel used to control the given pin
  *  - output_high: set pin initially to output HIGH or LOW.
- *  - outcfg: configure pin behavior one OUT task is triggered
- *
- * Returned Value:
- *   Zero (OK) on success; a negated errno value on failure indicating the
- *   nature of the failure.
+ *  - outcfg:      configure pin behavior one OUT task is triggered
  *
  ****************************************************************************/
 

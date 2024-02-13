@@ -34,13 +34,6 @@
 #ifdef CONFIG_NET
 
 /****************************************************************************
- * Pre-processor Definitions
- ****************************************************************************/
-
-#define IPv4BUF ((FAR struct ipv4_hdr_s *)&dev->d_buf[NET_LL_HDRLEN(dev)])
-#define IPv6BUF ((FAR struct ipv6_hdr_s *)&dev->d_buf[NET_LL_HDRLEN(dev)])
-
-/****************************************************************************
  * Public Functions
  ****************************************************************************/
 
@@ -61,7 +54,8 @@
  *
  ****************************************************************************/
 
-#if !defined(CONFIG_NET_ARCH_CHKSUM) && defined(CONFIG_NET_IPv4)
+#if !defined(CONFIG_NET_ARCH_CHKSUM) && \
+    defined(CONFIG_NET_IPv4) && defined(CONFIG_MM_IOB)
 uint16_t ipv4_upperlayer_chksum(FAR struct net_driver_s *dev, uint8_t proto)
 {
   FAR struct ipv4_hdr_s *ipv4 = IPv4BUF;
@@ -80,13 +74,6 @@ uint16_t ipv4_upperlayer_chksum(FAR struct net_driver_s *dev, uint8_t proto)
 
   upperlen = (((uint16_t)(ipv4->len[0]) << 8) + ipv4->len[1]) - iphdrlen;
 
-  /* Verify some minimal assumptions */
-
-  if (upperlen > NETDEV_PKTSIZE(dev))
-    {
-      return 0;
-    }
-
   /* First sum pseudo-header.
    *
    * IP protocol and length fields. This addition cannot carry.
@@ -100,7 +87,8 @@ uint16_t ipv4_upperlayer_chksum(FAR struct net_driver_s *dev, uint8_t proto)
 
   /* Sum IP payload data. */
 
-  sum = chksum(sum, &dev->d_buf[iphdrlen + NET_LL_HDRLEN(dev)], upperlen);
+  sum = chksum_iob(sum, dev->d_iob, iphdrlen);
+
   return (sum == 0) ? 0xffff : HTONS(sum);
 }
 #endif /* CONFIG_NET_ARCH_CHKSUM */
@@ -125,7 +113,8 @@ uint16_t ipv4_upperlayer_chksum(FAR struct net_driver_s *dev, uint8_t proto)
  *
  ****************************************************************************/
 
-#if !defined(CONFIG_NET_ARCH_CHKSUM) && defined(CONFIG_NET_IPv6)
+#if !defined(CONFIG_NET_ARCH_CHKSUM) && \
+    defined(CONFIG_NET_IPv6) && defined(CONFIG_MM_IOB)
 uint16_t ipv6_upperlayer_chksum(FAR struct net_driver_s *dev,
                                 uint8_t proto, unsigned int iplen)
 {
@@ -146,13 +135,6 @@ uint16_t ipv6_upperlayer_chksum(FAR struct net_driver_s *dev,
 
   upperlen -= (iplen - IPv6_HDRLEN);
 
-  /* Verify some minimal assumptions */
-
-  if (upperlen > NETDEV_PKTSIZE(dev))
-    {
-      return 0;
-    }
-
   /* The checksum is calculated starting with a pseudo-header of IPv6 header
    * fields according to the IPv6 standard, which consists of the source
    * and destination addresses, the packet length and the next header field.
@@ -167,7 +149,8 @@ uint16_t ipv6_upperlayer_chksum(FAR struct net_driver_s *dev,
 
   /* Sum IP payload data. */
 
-  sum = chksum(sum, &dev->d_buf[NET_LL_HDRLEN(dev) + iplen], upperlen);
+  sum = chksum_iob(sum, dev->d_iob, iplen);
+
   return (sum == 0) ? 0xffff : HTONS(sum);
 }
 #endif /* CONFIG_NET_ARCH_CHKSUM */
@@ -190,9 +173,8 @@ uint16_t ipv6_upperlayer_chksum(FAR struct net_driver_s *dev,
  ****************************************************************************/
 
 #if defined(CONFIG_NET_IPv4) && !defined(CONFIG_NET_ARCH_CHKSUM)
-uint16_t ipv4_chksum(FAR struct net_driver_s *dev)
+uint16_t ipv4_chksum(FAR struct ipv4_hdr_s *ipv4)
 {
-  FAR struct ipv4_hdr_s *ipv4 = IPv4BUF;
   uint16_t iphdrlen;
   uint16_t sum;
 
@@ -200,7 +182,7 @@ uint16_t ipv4_chksum(FAR struct net_driver_s *dev)
 
   iphdrlen = (ipv4->vhl & IPv4_HLMASK) << 2;
 
-  sum = chksum(0, &dev->d_buf[NET_LL_HDRLEN(dev)], iphdrlen);
+  sum = chksum(0, (FAR const uint8_t *)ipv4, iphdrlen);
   return (sum == 0) ? 0xffff : HTONS(sum);
 }
 #endif /* CONFIG_NET_ARCH_CHKSUM */

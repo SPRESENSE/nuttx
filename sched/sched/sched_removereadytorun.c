@@ -25,8 +25,9 @@
 #include <nuttx/config.h>
 
 #include <stdbool.h>
-#include <queue.h>
 #include <assert.h>
+
+#include <nuttx/queue.h>
 #include <nuttx/sched_note.h>
 
 #include "irq/irq.h"
@@ -44,6 +45,7 @@
  *
  * Input Parameters:
  *   rtcb - Points to the TCB that is ready-to-run
+ *   merge - Merge pending list or not
  *
  * Returned Value:
  *   true if the currently active task (the head of the ready-to-run list)
@@ -59,9 +61,12 @@
  ****************************************************************************/
 
 #ifndef CONFIG_SMP
-bool nxsched_remove_readytorun(FAR struct tcb_s *rtcb)
+bool nxsched_remove_readytorun(FAR struct tcb_s *rtcb, bool merge)
 {
+  FAR dq_queue_t *tasklist;
   bool doswitch = false;
+
+  tasklist = TLIST_HEAD(rtcb);
 
   /* Check if the TCB to be removed is at the head of the ready to run list.
    * There is only one list, g_readytorun, and it always contains the
@@ -69,7 +74,7 @@ bool nxsched_remove_readytorun(FAR struct tcb_s *rtcb)
    * then we are removing the currently active task.
    */
 
-  if (rtcb->blink == NULL)
+  if (rtcb->blink == NULL && TLIST_ISRUNNABLE(rtcb->task_state))
     {
       /* There must always be at least one task in the list (the IDLE task)
        * after the TCB being removed.
@@ -86,11 +91,17 @@ bool nxsched_remove_readytorun(FAR struct tcb_s *rtcb)
    * is always the g_readytorun list.
    */
 
-  dq_rem((FAR dq_entry_t *)rtcb, (FAR dq_queue_t *)&g_readytorun);
+  dq_rem((FAR dq_entry_t *)rtcb, tasklist);
 
   /* Since the TCB is not in any list, it is now invalid */
 
   rtcb->task_state = TSTATE_TASK_INVALID;
+
+  if (g_pendingtasks.head && merge)
+    {
+      doswitch |= nxsched_merge_pending();
+    }
+
   return doswitch;
 }
 #endif /* !CONFIG_SMP */
@@ -103,6 +114,7 @@ bool nxsched_remove_readytorun(FAR struct tcb_s *rtcb)
  *
  * Input Parameters:
  *   rtcb - Points to the TCB that is ready-to-run
+ *   merge - Merge pending list or not
  *
  * Returned Value:
  *   true if the currently active task (the head of the ready-to-run list)
@@ -118,7 +130,7 @@ bool nxsched_remove_readytorun(FAR struct tcb_s *rtcb)
  ****************************************************************************/
 
 #ifdef CONFIG_SMP
-bool nxsched_remove_readytorun(FAR struct tcb_s *rtcb)
+bool nxsched_remove_readytorun(FAR struct tcb_s *rtcb, bool merge)
 {
   FAR dq_queue_t *tasklist;
   bool doswitch = false;
@@ -129,7 +141,7 @@ bool nxsched_remove_readytorun(FAR struct tcb_s *rtcb)
    */
 
   cpu      = rtcb->cpu;
-  tasklist = TLIST_HEAD(rtcb->task_state, cpu);
+  tasklist = TLIST_HEAD(rtcb, cpu);
 
   /* Check if the TCB to be removed is at the head of a ready-to-run list.
    * For the case of SMP, there are two lists involved:  (1) the
@@ -137,8 +149,7 @@ bool nxsched_remove_readytorun(FAR struct tcb_s *rtcb)
    * assigned to a CPU, and (2) and the g_assignedtasks[] lists which hold
    * tasks assigned a CPU, including the task that is currently running on
    * that CPU.  Only this latter list contains the currently active task
-   * only only removing the head of that list can result in a context
-   * switch.
+   * only removing the head of that list can result in a context switch.
    *
    * rtcb->blink == NULL will tell us if the TCB is at the head of the
    * ready-to-run list and, hence, a candidate for the new running task.
@@ -158,7 +169,7 @@ bool nxsched_remove_readytorun(FAR struct tcb_s *rtcb)
        * after the TCB being removed.
        */
 
-      nxttcb = (FAR struct tcb_s *)rtcb->flink;
+      nxttcb = rtcb->flink;
       DEBUGASSERT(nxttcb != NULL);
 
       /* If we are modifying the head of some assigned task list other than
@@ -197,7 +208,7 @@ bool nxsched_remove_readytorun(FAR struct tcb_s *rtcb)
 
           for (rtrtcb = (FAR struct tcb_s *)g_readytorun.head;
                rtrtcb != NULL && !CPU_ISSET(cpu, &rtrtcb->affinity);
-               rtrtcb = (FAR struct tcb_s *)rtrtcb->flink);
+               rtrtcb = rtrtcb->flink);
         }
 
       /* Did we find a task in the g_readytorun list?  Which task should
@@ -214,7 +225,7 @@ bool nxsched_remove_readytorun(FAR struct tcb_s *rtcb)
            * list and add to the head of the g_assignedtasks[cpu] list.
            */
 
-          dq_rem((FAR dq_entry_t *)rtrtcb, (FAR dq_queue_t *)&g_readytorun);
+          dq_rem((FAR dq_entry_t *)rtrtcb, &g_readytorun);
           dq_addfirst((FAR dq_entry_t *)rtrtcb, tasklist);
 
           rtrtcb->cpu = cpu;
@@ -274,6 +285,11 @@ bool nxsched_remove_readytorun(FAR struct tcb_s *rtcb)
   /* Since the TCB is no longer in any list, it is now invalid */
 
   rtcb->task_state = TSTATE_TASK_INVALID;
+
+  if (g_pendingtasks.head && merge)
+    {
+      doswitch |= nxsched_merge_pending();
+    }
 
   return doswitch;
 }

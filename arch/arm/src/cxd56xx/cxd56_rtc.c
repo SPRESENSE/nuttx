@@ -318,8 +318,6 @@ static void cxd56_rtc_initialize(wdparm_t arg)
   /* Make it possible to use the RTC timer functions */
 
   g_rtc_enabled = true;
-
-  return;
 }
 
 /****************************************************************************
@@ -555,7 +553,7 @@ int cxd56_rtc_setalarm(struct alm_setalarm_s *alminfo)
   id = alminfo->as_id;
   cbinfo = &g_alarmcb[id];
 
-  if (cbinfo->ac_cb == NULL)
+  if (g_rtc_enabled && (cbinfo->ac_cb == NULL))
     {
       /* The set the alarm */
 

@@ -110,23 +110,27 @@ int vasprintf(FAR char **ptr, FAR const IPTR char *fmt, va_list ap)
   /* Then let lib_vsprintf do it's real thing */
 
 #ifdef va_copy
-  nbytes = lib_vsprintf((FAR struct lib_outstream_s *)&memoutstream.public,
+  nbytes = lib_vsprintf((FAR struct lib_outstream_s *)&memoutstream.common,
                         fmt, ap2);
   va_end(ap2);
 #else
-  nbytes = lib_vsprintf((FAR struct lib_outstream_s *)&memoutstream.public,
+  nbytes = lib_vsprintf((FAR struct lib_outstream_s *)&memoutstream.common,
                         fmt, ap);
 #endif
 
   /* Return a pointer to the string to the caller.  NOTE: the memstream put()
    * method has already added the NUL terminator to the end of the string
    * (not included in the nput count).
-   *
-   * Hmmm.. looks like the memory would be stranded if lib_vsprintf()
-   * returned an error.  Does that ever happen?
    */
 
   DEBUGASSERT(nbytes < 0 || nbytes == nulloutstream.nput);
+
+  if (nbytes < 0)
+    {
+      lib_free(buf);
+      return ERROR;
+    }
+
   *ptr = buf;
   return nbytes;
 }

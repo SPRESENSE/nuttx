@@ -42,6 +42,7 @@
 
 #include "esp32_smp.h"
 #include "esp32_gpio.h"
+#include "esp32_rtc_gpio.h"
 
 #include "esp32_irq.h"
 
@@ -115,18 +116,6 @@
 /****************************************************************************
  * Public Data
  ****************************************************************************/
-
-/* g_current_regs[] holds a reference to the current interrupt level
- * register storage structure.  It is non-NULL only during interrupt
- * processing.  Access to g_current_regs[] must be through the macro
- * CURRENT_REGS for portability.
- */
-
-/* For the case of architectures with multiple CPUs, then there must be one
- * such value for each processor that can receive an interrupt.
- */
-
-volatile uint32_t *g_current_regs[CONFIG_SMP_NCPUS];
 
 #if defined(CONFIG_SMP) && CONFIG_ARCH_INTERRUPTSTACK > 15
 /* In the SMP configuration, we will need custom interrupt stacks.
@@ -273,6 +262,7 @@ static void esp32_intinfo(int cpu, int periphid,
  *   devices.
  *
  * Input Parameters:
+ *   cpu     - CPU core to query for CPU interrupt candidates
  *   intmask - mask of candidate CPU interrupts.  The CPU interrupt will be
  *             be allocated from free interrupts within this set
  *
@@ -282,20 +272,18 @@ static void esp32_intinfo(int cpu, int periphid,
  *
  ****************************************************************************/
 
-static int esp32_getcpuint(uint32_t intmask)
+static int esp32_getcpuint(int cpu, uint32_t intmask)
 {
   uint32_t *freeints;
   uint32_t bitmask;
   uint32_t intset;
   int cpuint;
   int ret = -ENOMEM;
-  int cpu = 0;
 
   /* Check if there are CPU interrupts with the requested properties
    * available.
    */
 
-  cpu = up_cpu_index();
 #ifdef CONFIG_SMP
   if (cpu != 0)
     {
@@ -328,7 +316,7 @@ static int esp32_getcpuint(uint32_t intmask)
            * that CPU interrupt is available.
            */
 
-          bitmask = (1ul << cpuint);
+          bitmask = 1ul << cpuint;
           if ((intset & bitmask) != 0)
             {
               /* Got it! */
@@ -346,7 +334,7 @@ static int esp32_getcpuint(uint32_t intmask)
 
   if (ret >= 0)
     {
-      xtensa_enable_cpuint(&g_intenable[cpu], (1ul << ret));
+      xtensa_enable_cpuint(&g_intenable[cpu], 1ul << ret);
     }
 
   return ret;
@@ -359,6 +347,7 @@ static int esp32_getcpuint(uint32_t intmask)
  *   Allocate a level CPU interrupt
  *
  * Input Parameters:
+ *   cpu      - CPU core to query for CPU interrupt candidates
  *   priority - Priority of the CPU interrupt (1-5)
  *   type     - Interrupt type (level or edge).
  *
@@ -370,7 +359,7 @@ static int esp32_getcpuint(uint32_t intmask)
  *
  ****************************************************************************/
 
-static int esp32_alloc_cpuint(int priority, int type)
+static int esp32_alloc_cpuint(int cpu, int priority, int type)
 {
   uint32_t mask;
 
@@ -396,7 +385,7 @@ static int esp32_alloc_cpuint(int priority, int type)
       mask = g_priority[ESP32_PRIO_INDEX(priority)] & ESP32_CPUINT_EDGESET;
     }
 
-  return esp32_getcpuint(mask);
+  return esp32_getcpuint(cpu, mask);
 }
 
 /****************************************************************************
@@ -422,7 +411,7 @@ static void esp32_free_cpuint(int cpuint)
 
   /* Mark the CPU interrupt as available */
 
-  bitmask  = (1ul << cpuint);
+  bitmask = 1ul << cpuint;
 
 #ifdef CONFIG_SMP
   if (up_cpu_index() != 0)
@@ -480,7 +469,7 @@ void up_irqinitialize(void)
   /* Reserve CPU0 interrupt for some special drivers */
 
 #ifdef CONFIG_ESP32_WIFI
-  g_cpu0_intmap[ESP32_CPUINT_MAC]  = CPUINT_ASSIGN(ESP32_IRQ_MAC);
+  g_cpu0_intmap[ESP32_CPUINT_MAC] = CPUINT_ASSIGN(ESP32_IRQ_MAC);
   xtensa_enable_cpuint(&g_intenable[0], 1 << ESP32_CPUINT_MAC);
 #endif
 
@@ -508,6 +497,10 @@ void up_irqinitialize(void)
 
   esp32_gpioirqinitialize(0);
 #endif
+
+  /* Initialize RTCIO interrupt support */
+
+  esp32_rtcioirqinitialize();
 
 #ifndef CONFIG_SUPPRESS_INTERRUPTS
   /* And finally, enable interrupts.  Also clears PS.EXCM */
@@ -563,7 +556,7 @@ void up_disable_irq(int irq)
         }
 #endif
 
-      xtensa_disable_cpuint(&g_intenable[cpu], (1ul << cpuint));
+      xtensa_disable_cpuint(&g_intenable[cpu], 1ul << cpuint);
     }
   else
     {
@@ -619,7 +612,7 @@ void up_enable_irq(int irq)
 
       /* Enable the CPU interrupt now for internal CPU. */
 
-      xtensa_enable_cpuint(&g_intenable[cpu], (1ul << cpuint));
+      xtensa_enable_cpuint(&g_intenable[cpu], 1ul << cpuint);
     }
   else
     {
@@ -818,7 +811,7 @@ int esp32_setup_irq(int cpu, int periphid, int priority, int type)
    *    3. Map the CPU interrupt to the IRQ to ease searching later.
    */
 
-  cpuint = esp32_alloc_cpuint(priority, type);
+  cpuint = esp32_alloc_cpuint(cpu, priority, type);
   if (cpuint < 0)
     {
       irqerr("Unable to allocate CPU interrupt for priority=%d and type=%d",
@@ -963,7 +956,7 @@ uint32_t *xtensa_int_decode(uint32_t cpuints, uint32_t *regs)
 
   for (; bit < ESP32_NCPUINTS && cpuints != 0; bit++)
     {
-      mask = (1 << bit);
+      mask = 1 << bit;
       if ((cpuints & mask) != 0)
         {
           /* Extract the IRQ number from the mapping table */

@@ -131,7 +131,7 @@
 #    error CONFIG_SAMA5_DDRCS_HEAP_END is beyond CONFIG_RAM_VEND
 #  elif CONFIG_SAMA5_DDRCS_HEAP_END < CONFIG_RAM_VSTART
 #    error CONFIG_SAMA5_DDRCS_HEAP_END is before CONFIG_RAM_VSTART
-# endif
+#  endif
 
 #  define SAMA5_PRIMARY_HEAP_END CONFIG_SAMA5_DDRCS_HEAP_END
 #else
@@ -247,8 +247,8 @@ void up_allocate_heap(void **heap_start, size_t *heap_size)
    */
 
   board_autoled_on(LED_HEAPALLOCATE);
-  *heap_start = (void *)&_ebss;
-  *heap_size  = SAMA5_PRIMARY_HEAP_END - (size_t)&_ebss;
+  *heap_start = _ebss;
+  *heap_size  = SAMA5_PRIMARY_HEAP_END - (size_t)_ebss;
 
 #else
   /* Both data and the heap are in ISRAM.  The heap is then from the end of

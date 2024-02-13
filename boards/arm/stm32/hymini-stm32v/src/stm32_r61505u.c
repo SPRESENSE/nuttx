@@ -295,8 +295,8 @@ static void stm32_selectlcd(void)
 
   /* Bank1 NOR/SRAM timing register configuration */
 
-  putreg32(FSMC_BTR_ADDSET(2)  | FSMC_BTR_ADDHLD(0) | FSMC_BTR_DATAST(2) |
-           FSMC_BTR_BUSTURN(0) | FSMC_BTR_CLKDIV(0) | FSMC_BTR_DATLAT(0) |
+  putreg32(FSMC_BTR_ADDSET(2)  | FSMC_BTR_ADDHLD(1) | FSMC_BTR_DATAST(2) |
+           FSMC_BTR_BUSTURN(1) | FSMC_BTR_CLKDIV(1) | FSMC_BTR_DATLAT(2) |
            FSMC_BTR_ACCMODA,
            STM32_FSMC_BTR1);
 
@@ -398,10 +398,10 @@ static inline void lcd_gramselect(void)
 static void lcd_setcursor(unsigned int x, unsigned int y)
 {
 #if defined(CONFIG_LCD_PORTRAIT) || defined (CONFIG_LCD_RPORTRAIT)
-# if defined (CONFIG_LCD_RPORTRAIT)
+#  if defined (CONFIG_LCD_RPORTRAIT)
   x = (LCD_XRES - 1) - x;
   y = (LCD_YRES - 1) - y;
-# endif
+#  endif
   write_reg(0x20, x); /* Row */
   write_reg(0x21, y); /* Line */
 #endif
@@ -809,7 +809,7 @@ static void lcd_backlight(void)
 
   /* Select the output polarity level == HIGH */
 
-  ccer &= !ATIM_CCER_CC2P;
+  ccer &= ~ATIM_CCER_CC2P;
 
   /* Enable channel 2 */
 

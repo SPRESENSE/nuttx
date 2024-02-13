@@ -285,6 +285,23 @@ static void print_ec_cause(uint64_t esr)
  ****************************************************************************/
 
 /****************************************************************************
+ * Name: up_mdelay
+ ****************************************************************************/
+
+void up_mdelay(unsigned int milliseconds)
+{
+  volatile unsigned int i;
+  volatile unsigned int j;
+
+  for (i = 0; i < milliseconds; i++)
+    {
+      for (j = 0; j < CONFIG_BOARD_LOOPSPERMSEC; j++)
+        {
+        }
+    }
+}
+
+/****************************************************************************
  * Name: arm64_fatal_error
  *
  * Description:
@@ -294,10 +311,10 @@ static void print_ec_cause(uint64_t esr)
 void arm64_fatal_error(unsigned int reason, struct regs_context * reg)
 {
   uint64_t el, esr, elr, far;
-  int cpu = up_cpu_index();
 
   sinfo("reason = %d\n", reason);
-  sinfo("arm64_fatal_error: CPU%d task: %s\n", cpu, running_task()->name);
+
+  CURRENT_REGS = (uint64_t *)reg;
 
   if (reason != K_ERR_SPURIOUS_IRQ)
     {
@@ -323,6 +340,7 @@ void arm64_fatal_error(unsigned int reason, struct regs_context * reg)
               break;
             }
 
+#ifdef CONFIG_ARCH_HAVE_EL3
           case MODE_EL3:
             {
               sinfo("CurrentEL: MODE_EL3\n");
@@ -331,6 +349,7 @@ void arm64_fatal_error(unsigned int reason, struct regs_context * reg)
               __asm__ volatile ("mrs %0, elr_el3" : "=r" (elr));
               break;
             }
+#endif
 
           default:
             {
@@ -353,13 +372,5 @@ void arm64_fatal_error(unsigned int reason, struct regs_context * reg)
         }
     }
 
-  if (reg != NULL)
-    {
-      arm64_dump_fatal(reg);
-    }
-
-  for (; ; )
-    {
-      up_mdelay(1000);
-    }
+  PANIC_WITH_REGS("panic", reg);
 }

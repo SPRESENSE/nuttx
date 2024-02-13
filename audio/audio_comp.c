@@ -57,6 +57,7 @@ struct audio_comp_priv_s
  * Private Function Prototypes
  ****************************************************************************/
 
+static int audio_comp_setup(FAR struct audio_lowerhalf_s *dev, int opencnt);
 static int audio_comp_getcaps(FAR struct audio_lowerhalf_s *dev, int type,
                               FAR struct audio_caps_s *caps);
 #ifdef CONFIG_AUDIO_MULTI_SESSION
@@ -67,7 +68,7 @@ static int audio_comp_configure(FAR struct audio_lowerhalf_s *dev,
 static int audio_comp_configure(FAR struct audio_lowerhalf_s *dev,
                                 FAR const struct audio_caps_s *caps);
 #endif
-static int audio_comp_shutdown(FAR struct audio_lowerhalf_s *dev);
+static int audio_comp_shutdown(FAR struct audio_lowerhalf_s *dev, int cnt);
 #ifdef CONFIG_AUDIO_MULTI_SESSION
 static int audio_comp_start(FAR struct audio_lowerhalf_s *dev,
                             FAR void *session);
@@ -137,6 +138,7 @@ static void audio_comp_callback(FAR void *arg, uint16_t reason,
 
 static const struct audio_ops_s g_audio_comp_ops =
 {
+  audio_comp_setup,         /* setup          */
   audio_comp_getcaps,       /* getcaps        */
   audio_comp_configure,     /* configure      */
   audio_comp_shutdown,      /* shutdown       */
@@ -164,6 +166,50 @@ static const struct audio_ops_s g_audio_comp_ops =
  ****************************************************************************/
 
 /****************************************************************************
+ * Name: audio_comp_setup
+ *
+ * Description: Call lower device driver's setup
+ *
+ ****************************************************************************/
+
+static int audio_comp_setup(FAR struct audio_lowerhalf_s *dev, int cnt)
+{
+  FAR struct audio_comp_priv_s *priv = (FAR struct audio_comp_priv_s *)dev;
+  FAR struct audio_lowerhalf_s **lower = priv->lower;
+  int i;
+  int ret;
+
+  for (i = 0; i < priv->count; i++)
+    {
+      if (lower[i]->ops->setup)
+        {
+          ret = lower[i]->ops->setup(lower[i], cnt);
+          if (ret < 0)
+            {
+              break;
+            }
+        }
+    }
+
+  /* If an error is occured on a lower device,
+   * shutdown of lower device which is already opened is called.
+   */
+
+  if (i != priv->count)
+    {
+      for (; i >= 0; i--)
+        {
+          if (lower[i]->ops->open && lower[i]->ops->shutdown)
+            {
+              lower[i]->ops->shutdown(lower[i], cnt - 1);
+            }
+        }
+    }
+
+  return ret;
+}
+
+/****************************************************************************
  * Name: audio_comp_getcaps
  *
  * Description: Get the audio device capabilities
@@ -176,6 +222,8 @@ static int audio_comp_getcaps(FAR struct audio_lowerhalf_s *dev, int type,
   FAR struct audio_comp_priv_s *priv = (FAR struct audio_comp_priv_s *)dev;
   FAR struct audio_lowerhalf_s **lower = priv->lower;
   int ret = -ENOTTY;
+  int max = UINT8_MAX;
+  int min = 0;
   int i;
 
   caps->ac_channels   = UINT8_MAX;
@@ -200,15 +248,22 @@ static int audio_comp_getcaps(FAR struct audio_lowerhalf_s *dev, int type,
               break;
             }
 
-          if (caps->ac_channels > dup.ac_channels)
+          if (max > (dup.ac_channels & 0x0f))
             {
-              caps->ac_channels = dup.ac_channels;
+              max = dup.ac_channels & 0x0f;
+            }
+
+          if (min < (dup.ac_channels & 0xf0))
+            {
+              min = dup.ac_channels & 0xf0;
             }
 
           caps->ac_format.hw   &= dup.ac_format.hw;
           caps->ac_controls.w  &= dup.ac_controls.w;
         }
     }
+
+  caps->ac_channels = max | min;
 
   return ret;
 }
@@ -271,7 +326,7 @@ static int audio_comp_configure(FAR struct audio_lowerhalf_s *dev,
  *
  ****************************************************************************/
 
-static int audio_comp_shutdown(FAR struct audio_lowerhalf_s *dev)
+static int audio_comp_shutdown(FAR struct audio_lowerhalf_s *dev, int cnt)
 {
   FAR struct audio_comp_priv_s *priv = (FAR struct audio_comp_priv_s *)dev;
   FAR struct audio_lowerhalf_s **lower = priv->lower;
@@ -282,7 +337,7 @@ static int audio_comp_shutdown(FAR struct audio_lowerhalf_s *dev)
     {
       if (lower[i]->ops->shutdown)
         {
-          int tmp = lower[i]->ops->shutdown(lower[i]);
+          int tmp = lower[i]->ops->shutdown(lower[i], cnt);
           if (tmp == -ENOTTY)
             {
               continue;

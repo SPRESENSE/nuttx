@@ -26,11 +26,26 @@ config IOB_NBUFFERS
 
 config IOB_BUFSIZE
 	int "Payload size of one I/O buffer"
+	range 196 65535 if NET_TCP_SELECTIVE_ACK && NET_IPv6 && RNDIS
+	range 128 65535 if NET_TCP_SELECTIVE_ACK && (NET_IPv4 || NET_IPv6)
 	default 196
 	---help---
 		Each packet is represented by a series of small I/O buffers in a
 		chain.  This setting determines the data payload each preallocated
 		I/O buffer.
+
+config IOB_ALIGNMENT
+	int "Alignment size of each I/O buffer"
+	default 4
+	---help---
+		The member io_data of all I/O buffers is aligned to the value
+		specified by this configuration.
+
+config IOB_SECTION
+	string "The section where iob buffer is located"
+	---help---
+		The section where iob buffer is located.
+		The section must be zero-initialized on system boot.
 
 config IOB_NCHAINS
 	int "Number of pre-allocated I/O buffer chain heads"

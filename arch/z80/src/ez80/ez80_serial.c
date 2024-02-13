@@ -128,8 +128,6 @@ static struct ez80_dev_s g_uart0priv =
 static uart_dev_t g_uart0port =
 {
   0,                        /* open_count */
-  false,                    /* xmitwaiting */
-  false,                    /* recvwaiting */
 #ifdef CONFIG_UART0_SERIAL_CONSOLE
   true,                     /* isconsole */
 #else
@@ -209,24 +207,24 @@ static uart_dev_t g_uart1port =
 /* Now, which one with be tty0/console and which tty1? */
 
 #if defined(CONFIG_UART0_SERIAL_CONSOLE) && defined(CONFIG_EZ80_UART0)
-# define CONSOLE_DEV     g_uart0port
-# define TTYS0_DEV       g_uart0port
-# if defined(CONFIG_EZ80_UART1)
-#   define TTYS1_DEV     g_uart1port
-# endif
+#  define CONSOLE_DEV    g_uart0port
+#  define TTYS0_DEV      g_uart0port
+#  if defined(CONFIG_EZ80_UART1)
+#    define TTYS1_DEV    g_uart1port
+#  endif
 #elif defined(CONFIG_UART1_SERIAL_CONSOLE) && defined(CONFIG_EZ80_UART1)
-# define CONSOLE_DEV     g_uart1port
-# define TTYS0_DEV       g_uart1port
-# if defined(CONFIG_EZ80_UART0)
-#   define TTYS1_DEV     g_uart0port
-# endif
+#  define CONSOLE_DEV    g_uart1port
+#  define TTYS0_DEV      g_uart1port
+#  if defined(CONFIG_EZ80_UART0)
+#    define TTYS1_DEV    g_uart0port
+#  endif
 #elif defined(CONFIG_EZ80_UART0)
-# define TTYS0_DEV       g_uart0port
-# if defined(CONFIG_EZ80_UART1)
-#   define TTYS1_DEV     g_uart1port
-# endif
+#  define TTYS0_DEV      g_uart0port
+#  if defined(CONFIG_EZ80_UART1)
+#    define TTYS1_DEV    g_uart1port
+#  endif
 #elif defined(CONFIG_EZ80_UART0)
-# define TTYS0_DEV       g_uart1port
+#  define TTYS0_DEV      g_uart1port
 #endif
 
 /****************************************************************************
@@ -466,12 +464,11 @@ static void ez80_detach(FAR struct uart_dev_s *dev)
  * Name: ez80_interrupt
  *
  * Description:
- *   This is the UART interrupt handler.  It will be invoked
- *   when an interrupt received on the 'irq'  It should call
- *   uart_transmitchars or uart_receivechar to perform the
- *   appropriate data transfers.  The interrupt handling logic\
- *   must be able to map the 'irq' number into the appropriate
- *   uart_dev_s structure in order to call these functions.
+ *   This is the UART interrupt handler.  It will be invoked when an
+ *   interrupt is received on the 'irq'.  It should call uart_xmitchars or
+ *   uart_recvchars to perform the appropriate data transfers.  The
+ *   interrupt handling logic must be able to map the 'arg' to the
+ *   appropriate uart_dev_s structure in order to call these functions.
  *
  ****************************************************************************/
 
@@ -774,11 +771,11 @@ int up_putc(int ch)
  ****************************************************************************/
 
 #ifdef CONFIG_UART1_SERIAL_CONSOLE
-# define ez80_inp(offs)      inp((EZ80_UART1_BASE+(offs)))
-# define ez80_outp(offs,val) outp((EZ80_UART1_BASE+(offs)), (val))
+#  define ez80_inp(offs)      inp((EZ80_UART1_BASE+(offs)))
+#  define ez80_outp(offs,val) outp((EZ80_UART1_BASE+(offs)), (val))
 #else
-# define ez80_inp(offs)      inp((EZ80_UART0_BASE+(offs)))
-# define ez80_outp(offs,val) outp((EZ80_UART0_BASE+(offs)), (val))
+#  define ez80_inp(offs)      inp((EZ80_UART0_BASE+(offs)))
+#  define ez80_outp(offs,val) outp((EZ80_UART0_BASE+(offs)), (val))
 #endif
 
 #define ez80_txready()       ((ez80_inp(EZ80_UART_LSR) & EZ80_UARTLSR_THRE) != 0)

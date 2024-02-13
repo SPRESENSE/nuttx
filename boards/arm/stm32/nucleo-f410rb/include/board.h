@@ -27,11 +27,7 @@
 
 #include <nuttx/config.h>
 #ifndef __ASSEMBLY__
-# include <stdint.h>
-#endif
-
-#ifdef __KERNEL__
-#  include "stm32.h"
+#  include <stdint.h>
 #endif
 
 /****************************************************************************

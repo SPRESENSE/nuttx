@@ -33,10 +33,13 @@
 
 #include <nuttx/arch.h>
 #include <nuttx/audio/audio.h>
-#include <nuttx/audio/cxd56.h>
 #include <nuttx/audio/pcm.h>
 #include <nuttx/signal.h>
 #include <arch/chip/audio.h>
+
+#ifdef CONFIG_AUDIO_CXD56
+#include "arch/chip/cxd56_audio_lower.h"
+#endif
 
 #include "chip.h"
 #include "arm_internal.h"
@@ -74,6 +77,7 @@
  *
  ****************************************************************************/
 
+#if defined(CONFIG_CXD56_I2S0) || defined(CONFIG_CXD56_I2S1)
 static bool check_pin_i2s_mode(uint32_t pin)
 {
   bool                res = false;
@@ -89,6 +93,7 @@ static bool check_pin_i2s_mode(uint32_t pin)
 
   return res;
 }
+#endif
 
 /****************************************************************************
  * Public Functions
@@ -462,78 +467,39 @@ void board_audio_finalize(void)
  *
  ****************************************************************************/
 
-static struct cxd56_lower_s g_cxd56_lower[2];
-
-int board_audio_initialize_driver(int minor)
+int board_audio_initialize_driver(void)
 {
-  struct audio_lowerhalf_s *cxd56;
-  struct audio_lowerhalf_s *pcm;
-  char devname[12];
+  struct audio_lowerhalf_s *dev;
   int ret;
 
-  /* Initialize CXD56 output device driver */
+  /* Initialize CXD56 Audio System */
 
-  cxd56 = cxd56_initialize(&g_cxd56_lower[0]);
-  if (!cxd56)
-    {
-      auderr("ERROR: Failed to initialize the CXD56 audio\n");
+  ret = cxd56_audsystem_initialize(cxd56_audio_lower());
+  ASSERT(ret == OK);
 
-      return -ENODEV;
-    }
+  /* Initialize MIC Input device */
 
-#ifndef CONFIG_AUDIO_FORMAT_PCM
-  pcm = cxd56;
-#else
+  dev = cxd56_aud_miclower();
+  ret = audio_register("pcm_in0", dev);
+  ASSERT(ret == OK);
 
-  /* Initialize a PCM decoder with the CXD56 instance. */
+  /* Initialize SPK Output device */
 
-  pcm = pcm_decode_initialize(cxd56);
-  if (!pcm)
-    {
-      auderr("ERROR: Failed create the PCM decoder\n");
+  dev = cxd56_aud_spk0out();
+  ret = audio_register("pcm0", dev);
+  ASSERT(ret == OK);
 
-      return -ENODEV;
-    }
+  /* Initialize I2S Output device */
 
-#endif
+  dev = cxd56_aud_spk1out();
+  ret = audio_register("pcm1", dev);
+  ASSERT(ret == OK);
 
-  /* Create a device name */
+  /* Initialize I2S Input device */
 
-  snprintf(devname, 12, "pcm%d",  minor);
-
-  /* Finally, we can register the PCM/CXD56 audio device. */
-
-  ret = audio_register(devname, pcm);
-  if (ret < 0)
-    {
-      auderr("ERROR: Failed to register /dev/%s device: %d\n",
-             devname, ret);
-    }
-
-  /* Initialize CXD56 input device driver */
-
-  cxd56 = cxd56_initialize(&g_cxd56_lower[1]);
-  if (!cxd56)
-    {
-      auderr("ERROR: Failed to initialize the CXD56 audio\n");
-
-      return -ENODEV;
-    }
-
-  /* No decoder support at the moment, only raw PCM data. */
-
-  /* Create a device name */
-
-  snprintf(devname, 12, "pcm_in%d",  minor);
-
-  /* Finally, we can register the CXD56 audio input device. */
-
-  ret = audio_register(devname, cxd56);
-  if (ret < 0)
-    {
-      auderr("ERROR: Failed to register /dev/%s device: %d\n",
-             devname, ret);
-    }
+  dev = cxd56_aud_i2sin();
+  ret = audio_register("pcm_in1", dev);
+  ASSERT(ret == OK);
 
   return ret;
 }

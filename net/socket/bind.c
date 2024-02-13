@@ -82,12 +82,24 @@ int psock_bind(FAR struct socket *psock, const struct sockaddr *addr,
 
   if (!psock || psock->s_conn == NULL)
     {
-      return -ENOTSOCK;
+      return -EBADF;
+    }
+
+  /* Make sure that an address was provided */
+
+  if (addr == NULL)
+    {
+      return -EFAULT;
     }
 
   /* Let the address family's connect() method handle the operation */
 
-  DEBUGASSERT(psock->s_sockif != NULL && psock->s_sockif->si_bind != NULL);
+  DEBUGASSERT(psock->s_sockif != NULL);
+  if (psock->s_sockif->si_bind == NULL)
+    {
+      return -EOPNOTSUPP;
+    }
+
   ret = psock->s_sockif->si_bind(psock, addr, addrlen);
 
   /* Was the bind successful */
@@ -139,20 +151,24 @@ int bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
   FAR struct socket *psock;
   int ret;
 
-  /* Use the socket descriptor to get the underlying socket structure */
+  /* Get the underlying socket structure */
 
-  psock = sockfd_socket(sockfd);
+  ret = sockfd_socket(sockfd, &psock);
 
   /* Then let psock_bind do all of the work */
 
-  ret = psock_bind(psock, addr, addrlen);
-  if (ret < 0)
+  if (ret == OK)
     {
-      _SO_SETERRNO(psock, -ret);
-      return ERROR;
+      ret = psock_bind(psock, addr, addrlen);
     }
 
-  return OK;
+  if (ret < 0)
+    {
+      set_errno(-ret);
+      ret = ERROR;
+    }
+
+  return ret;
 }
 
 #endif /* CONFIG_NET */

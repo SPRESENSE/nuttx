@@ -269,7 +269,7 @@ int inode_stat(FAR struct inode *inode, FAR struct stat *buf, int resolve)
     }
   else
 #endif
-#if !defined(CONFIG_DISABLE_MQUEUE)
+#if !defined(CONFIG_DISABLE_MQUEUE) || !defined(CONFIG_DISABLE_MQUEUE_SYSV)
   /* Check for a message queue */
 
   if (INODE_IS_MQUEUE(inode))
@@ -360,7 +360,15 @@ int inode_stat(FAR struct inode *inode, FAR struct stat *buf, int resolve)
     }
   else
 #endif
+#if defined(CONFIG_PIPES)
+  /* Check for pipes */
 
+  if (INODE_IS_PIPE(inode))
+    {
+      buf->st_mode = S_IRWXO | S_IRWXG | S_IRWXU | S_IFIFO;
+    }
+  else
+#endif
   /* Handle "normal inodes */
 
   if (inode->u.i_ops != NULL)
@@ -381,9 +389,9 @@ int inode_stat(FAR struct inode *inode, FAR struct stat *buf, int resolve)
 
       /* Determine the type of the inode */
 
-      /* Check for a mountpoint */
+      /* Check for a mountpoint and a pseudo dir */
 
-      if (INODE_IS_MOUNTPT(inode))
+      if (INODE_IS_MOUNTPT(inode) || INODE_IS_PSEUDODIR(inode))
         {
           buf->st_mode |= S_IFDIR;
         }
@@ -416,7 +424,18 @@ int inode_stat(FAR struct inode *inode, FAR struct stat *buf, int resolve)
         {
           /* What is it if it also has child inodes? */
 
-          buf->st_mode |= S_IFCHR;
+#ifdef CONFIG_PSEUDOFS_FILE
+          buf->st_size = inode->i_size;
+
+          if (inode_is_pseudofile(inode))
+            {
+              buf->st_mode |= S_IFREG;
+            }
+          else
+#endif
+            {
+              buf->st_mode |= S_IFCHR;
+            }
         }
     }
   else
@@ -438,6 +457,7 @@ int inode_stat(FAR struct inode *inode, FAR struct stat *buf, int resolve)
   buf->st_mtim  = inode->i_mtime;
   buf->st_ctim  = inode->i_ctime;
 #endif
+  buf->st_ino   = inode->i_ino;
 
   return OK;
 }

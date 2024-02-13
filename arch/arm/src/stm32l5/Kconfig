@@ -196,6 +196,26 @@ config STM32L5_SRAM2_INIT
 		case, the board should handle the initialization itself at the appropriate
 		time.
 
+config STM32L5_USE_LEGACY_PINMAP
+	bool "Use the legacy pinmap with GPIO_SPEED_xxx included."
+	default y
+	---help---
+		In the past, pinmap files included GPIO_SPEED_xxxMhz. These speed
+		settings should have come from the board.h as it describes the wiring
+		of the SoC to the board. The speed is really slew rate control and
+		therefore is related to the layout and can only be properly set
+		in board.h.
+
+		CONFIG_STM32L5_USE_LEGACY_PINMAP is provided, to allow lazy migration to
+		using pinmaps without speeds. The work required to do this can be aided
+		by running tools/stm32_pinmap_tool.py. The tools will take a board.h
+		file and a legacy pinmap and output the required changes that one needs
+		to make to a board.h file.
+
+		Eventually, CONFIG_STM32L5_USE_LEGACY_PINMAP will be deprecated and the
+		legacy pinmaps removed from NuttX. Any new boards added should set
+		CONFIG_STM32L5_USE_LEGACY_PINMAP=n and fully define the pins in board.h
+
 comment "STM32L5 Peripherals"
 
 menu "STM32L5 Peripheral Support"
@@ -373,7 +393,7 @@ menu "RTC Configuration"
 config STM32L5_RTC_MAGIC_REG
 	int "BKP register"
 	default 0
-	range  0 31
+	range 0 31
 	---help---
 		The BKP register used to store/check the Magic value to determine if
 		RTC is already setup
@@ -2863,9 +2883,10 @@ config STM32L5_SERIALBRK_BSDCOMPAT
 	---help---
 		Enable using GPIO on the TX pin to send a BSD compatible break:
 		TIOCSBRK will start the break and TIOCCBRK will end the break.
-		The current STM32 U[S]ARTS have no way to leave the break (TX=LOW)
-		on because the SW starts the break and then the HW automatically clears
-		the break. This makes it is difficult to sent a long break.
+		The current STM32L5 U[S]ARTS have no way to leave the break on
+		(TX=LOW) because software starts the break and then the hardware
+		automatically clears the break. This makes it difficult to send
+		a long break.
 
 config STM32L5_USART_SINGLEWIRE
 	bool "Single Wire Support"

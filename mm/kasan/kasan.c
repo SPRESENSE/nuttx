@@ -22,7 +22,7 @@
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/semaphore.h>
+#include <nuttx/spinlock.h>
 
 #include <assert.h>
 #include <debug.h>
@@ -50,6 +50,8 @@
 #define KASAN_REGION_SIZE(size) \
   (sizeof(struct kasan_region_s) + KASAN_SHADOW_SIZE(size))
 
+#define KASAN_INIT_VALUE            0xDEADCAFE
+
 /****************************************************************************
  * Private Types
  ****************************************************************************/
@@ -66,17 +68,24 @@ struct kasan_region_s
  * Private Data
  ****************************************************************************/
 
-static sem_t g_lock = SEM_INITIALIZER(1);
+static spinlock_t g_lock;
 static FAR struct kasan_region_s *g_region;
+static uint32_t g_region_init;
 
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
 
-static FAR uintptr_t *kasan_mem_to_shadow(uintptr_t addr, size_t size,
+static FAR uintptr_t *kasan_mem_to_shadow(FAR const void *ptr, size_t size,
                                           unsigned int *bit)
 {
   FAR struct kasan_region_s *region;
+  uintptr_t addr = (uintptr_t)ptr;
+
+  if (g_region_init != KASAN_INIT_VALUE)
+    {
+      return NULL;
+    }
 
   for (region = g_region; region != NULL; region = region->next)
     {
@@ -93,21 +102,25 @@ static FAR uintptr_t *kasan_mem_to_shadow(uintptr_t addr, size_t size,
   return NULL;
 }
 
-static void kasan_report(uintptr_t addr, size_t size, bool is_write)
+static void kasan_report(FAR const void *addr, size_t size,
+                         bool is_write,
+                         FAR void *return_address)
 {
   static int recursion;
 
   if (++recursion == 1)
     {
-      _alert("kasan detected a %s access error, address at %0#"PRIxPTR
-            ", size is %zu\n", is_write ? "write" : "read", addr, size);
+      _alert("kasan detected a %s access error, address at %p,"
+             "size is %zu, return address: %p\n",
+             is_write ? "write" : "read",
+             addr, size, return_address);
       PANIC();
     }
 
   --recursion;
 }
 
-static bool kasan_is_poisoned(uintptr_t addr, size_t size)
+static bool kasan_is_poisoned(FAR const void *addr, size_t size)
 {
   FAR uintptr_t *p;
   unsigned int bit;
@@ -116,12 +129,16 @@ static bool kasan_is_poisoned(uintptr_t addr, size_t size)
   return p && ((*p >> bit) & 1);
 }
 
-static void kasan_set_poison(uintptr_t addr, size_t size, bool poisoned)
+static void kasan_set_poison(FAR const void *addr, size_t size,
+                             bool poisoned)
 {
   FAR uintptr_t *p;
   unsigned int bit;
   unsigned int nbit;
   uintptr_t mask;
+  int flags;
+
+  flags = spin_lock_irqsave(&g_lock);
 
   p = kasan_mem_to_shadow(addr, size, &bit);
   DEBUGASSERT(p != NULL);
@@ -160,6 +177,18 @@ static void kasan_set_poison(uintptr_t addr, size_t size, bool poisoned)
           *p &= ~mask;
         }
     }
+
+  spin_unlock_irqrestore(&g_lock, flags);
+}
+
+static inline void kasan_check_report(FAR const void *addr, size_t size,
+                                      bool is_write,
+                                      FAR void *return_address)
+{
+  if (kasan_is_poisoned(addr, size))
+    {
+      kasan_report(addr, size, false, return_address);
+    }
 }
 
 /****************************************************************************
@@ -170,17 +199,18 @@ static void kasan_set_poison(uintptr_t addr, size_t size, bool poisoned)
 
 void kasan_poison(FAR const void *addr, size_t size)
 {
-  kasan_set_poison((uintptr_t)addr, size, true);
+  kasan_set_poison(addr, size, true);
 }
 
 void kasan_unpoison(FAR const void *addr, size_t size)
 {
-  kasan_set_poison((uintptr_t)addr, size, false);
+  kasan_set_poison(addr, size, false);
 }
 
 void kasan_register(FAR void *addr, FAR size_t *size)
 {
   FAR struct kasan_region_s *region;
+  int flags;
 
   region = (FAR struct kasan_region_s *)
     ((FAR char *)addr + *size - KASAN_REGION_SIZE(*size));
@@ -188,10 +218,11 @@ void kasan_register(FAR void *addr, FAR size_t *size)
   region->begin = (uintptr_t)addr;
   region->end   = region->begin + *size;
 
-  _SEM_WAIT(&g_lock);
-  region->next = g_region;
-  g_region     = region;
-  _SEM_POST(&g_lock);
+  flags = spin_lock_irqsave(&g_lock);
+  region->next  = g_region;
+  g_region      = region;
+  g_region_init = KASAN_INIT_VALUE;
+  spin_unlock_irqrestore(&g_lock, flags);
 
   kasan_poison(addr, *size);
   *size -= KASAN_REGION_SIZE(*size);
@@ -207,7 +238,7 @@ void __sanitizer_annotate_contiguous_container(FAR const void *beg,
   /* Shut up compiler complaints */
 }
 
-void __asan_before_dynamic_init(FAR const char *module_name)
+void __asan_before_dynamic_init(FAR const void *module_name)
 {
   /* Shut up compiler complaints */
 }
@@ -222,188 +253,64 @@ void __asan_handle_no_return(void)
   /* Shut up compiler complaints */
 }
 
-void __asan_report_load_n_noabort(uintptr_t addr, size_t size)
+void __asan_report_load_n_noabort(FAR void *addr, size_t size)
 {
-  kasan_report(addr, size, false);
+  kasan_report(addr, size, false, return_address(0));
 }
 
-void __asan_report_store_n_noabort(uintptr_t addr, size_t size)
+void __asan_report_store_n_noabort(FAR void *addr, size_t size)
 {
-  kasan_report(addr, size, true);
+  kasan_report(addr, size, true, return_address(0));
 }
 
-void __asan_report_load16_noabort(uintptr_t addr)
+void __asan_loadN_noabort(FAR void *addr, size_t size)
 {
-  __asan_report_load_n_noabort(addr, 16);
+  kasan_check_report(addr, size, false, return_address(0));
 }
 
-void __asan_report_store16_noabort(uintptr_t addr)
+void __asan_storeN_noabort(FAR void * addr, size_t size)
 {
-  __asan_report_store_n_noabort(addr, 16);
+  kasan_check_report(addr, size, true, return_address(0));
 }
 
-void __asan_report_load8_noabort(uintptr_t addr)
+void __asan_loadN(FAR void *addr, size_t size)
 {
-  __asan_report_load_n_noabort(addr, 8);
+  kasan_check_report(addr, size, false, return_address(0));
 }
 
-void __asan_report_store8_noabort(uintptr_t addr)
+void __asan_storeN(FAR void *addr, size_t size)
 {
-  __asan_report_store_n_noabort(addr, 8);
+  kasan_check_report(addr, size, true, return_address(0));
 }
 
-void __asan_report_load4_noabort(uintptr_t addr)
-{
-  __asan_report_load_n_noabort(addr, 4);
-}
+#define DEFINE_ASAN_LOAD_STORE(size) \
+  void __asan_report_load##size##_noabort(FAR void *addr) \
+  { \
+    kasan_report(addr, size, false, return_address(0)); \
+  } \
+  void __asan_report_store##size##_noabort(FAR void *addr) \
+  { \
+    kasan_report(addr, size, true, return_address(0)); \
+  } \
+  void __asan_load##size##_noabort(FAR void *addr) \
+  { \
+    kasan_check_report(addr, size, false, return_address(0)); \
+  } \
+  void __asan_store##size##_noabort(FAR void *addr) \
+  { \
+    kasan_check_report(addr, size, true, return_address(0)); \
+  } \
+  void __asan_load##size(FAR void *addr) \
+  { \
+    kasan_check_report(addr, size, false, return_address(0)); \
+  } \
+  void __asan_store##size(FAR void *addr) \
+  { \
+    kasan_check_report(addr, size, true, return_address(0)); \
+  }
 
-void __asan_report_store4_noabort(uintptr_t addr)
-{
-  __asan_report_store_n_noabort(addr, 4);
-}
-
-void __asan_report_load2_noabort(uintptr_t addr)
-{
-  __asan_report_load_n_noabort(addr, 2);
-}
-
-void __asan_report_store2_noabort(uintptr_t addr)
-{
-  __asan_report_store_n_noabort(addr, 2);
-}
-
-void __asan_report_load1_noabort(uintptr_t addr)
-{
-  __asan_report_load_n_noabort(addr, 1);
-}
-
-void __asan_report_store1_noabort(uintptr_t addr)
-{
-  __asan_report_store_n_noabort(addr, 1);
-}
-
-void __asan_loadN_noabort(uintptr_t addr, size_t size)
-{
-  if (kasan_is_poisoned(addr, size))
-    {
-      kasan_report(addr, size, false);
-    }
-}
-
-void __asan_storeN_noabort(uintptr_t addr, size_t size)
-{
-  if (kasan_is_poisoned(addr, size))
-    {
-      kasan_report(addr, size, true);
-    }
-}
-
-void __asan_load16_noabort(uintptr_t addr)
-{
-  __asan_loadN_noabort(addr, 16);
-}
-
-void __asan_store16_noabort(uintptr_t addr)
-{
-  __asan_storeN_noabort(addr, 16);
-}
-
-void __asan_load8_noabort(uintptr_t addr)
-{
-  __asan_loadN_noabort(addr, 8);
-}
-
-void __asan_store8_noabort(uintptr_t addr)
-{
-  __asan_storeN_noabort(addr, 8);
-}
-
-void __asan_load4_noabort(uintptr_t addr)
-{
-  __asan_loadN_noabort(addr, 4);
-}
-
-void __asan_store4_noabort(uintptr_t addr)
-{
-  __asan_storeN_noabort(addr, 4);
-}
-
-void __asan_load2_noabort(uintptr_t addr)
-{
-  __asan_loadN_noabort(addr, 2);
-}
-
-void __asan_store2_noabort(uintptr_t addr)
-{
-  __asan_storeN_noabort(addr, 2);
-}
-
-void __asan_load1_noabort(uintptr_t addr)
-{
-  __asan_loadN_noabort(addr, 1);
-}
-
-void __asan_store1_noabort(uintptr_t addr)
-{
-  __asan_storeN_noabort(addr, 1);
-}
-
-void __asan_loadN(uintptr_t addr, size_t size)
-{
-  __asan_loadN_noabort(addr, size);
-}
-
-void __asan_storeN(uintptr_t addr, size_t size)
-{
-  __asan_storeN_noabort(addr, size);
-}
-
-void __asan_load16(uintptr_t addr)
-{
-  __asan_load16_noabort(addr);
-}
-
-void __asan_store16(uintptr_t addr)
-{
-  __asan_store16_noabort(addr);
-}
-
-void __asan_load8(uintptr_t addr)
-{
-  __asan_load8_noabort(addr);
-}
-
-void __asan_store8(uintptr_t addr)
-{
-  __asan_store8_noabort(addr);
-}
-
-void __asan_load4(uintptr_t addr)
-{
-  __asan_load4_noabort(addr);
-}
-
-void __asan_store4(uintptr_t addr)
-{
-  __asan_store4_noabort(addr);
-}
-
-void __asan_load2(uintptr_t addr)
-{
-  __asan_load2_noabort(addr);
-}
-
-void __asan_store2(uintptr_t addr)
-{
-  __asan_store2_noabort(addr);
-}
-
-void __asan_load1(uintptr_t addr)
-{
-  __asan_load1_noabort(addr);
-}
-
-void __asan_store1(uintptr_t addr)
-{
-  __asan_store1_noabort(addr);
-}
+DEFINE_ASAN_LOAD_STORE(1)
+DEFINE_ASAN_LOAD_STORE(2)
+DEFINE_ASAN_LOAD_STORE(4)
+DEFINE_ASAN_LOAD_STORE(8)
+DEFINE_ASAN_LOAD_STORE(16)

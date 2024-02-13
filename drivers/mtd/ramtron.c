@@ -69,8 +69,8 @@
  *  configuration:
  */
 
-#define RAMTRON_EMULATE_SECTOR_SHIFT  9
-#define RAMTRON_EMULATE_PAGE_SHIFT    9
+#define RAMTRON_EMULATE_SECTOR_SHIFT  CONFIG_RAMTRON_EMULATE_SECTOR_SHIFT
+#define RAMTRON_EMULATE_PAGE_SHIFT    CONFIG_RAMTRON_EMULATE_PAGE_SHIFT
 #define RAMTRON_EMULATE_PAGE_SIZE     (1 << RAMTRON_EMULATE_PAGE_SHIFT)
 
 /* RAMTRON Identification register values */
@@ -143,7 +143,7 @@ struct ramtron_dev_s
   FAR struct spi_dev_s *dev;               /* Saved SPI interface instance */
   uint8_t sectorshift;
   uint8_t pageshift;
-  uint16_t nsectors;
+  uint32_t nsectors;
   uint32_t npages;
   uint32_t speed;                          /* Overridable via ioctl */
   FAR const struct ramtron_parts_s *part;  /* Part instance */
@@ -195,6 +195,18 @@ static const struct ramtron_parts_s g_ramtron_parts[] =
     "FM25V02A",                   /* name */
     0x22,                         /* id1 */
     0x08,                         /* id2 */
+    32L * 1024L,                  /* size */
+    2,                            /* addr_len */
+    RAMTRON_INIT_CLK_MAX          /* speed */
+#ifdef CONFIG_RAMTRON_CHUNKING
+    , false,                      /* chunked */
+    RAMTRON_EMULATE_PAGE_SIZE     /* chunksize */
+#endif
+  },
+  {
+    "FM25V02A-DGQ",               /* name */
+    0x22,                         /* id1 */
+    0x48,                         /* id2 */
     32L * 1024L,                  /* size */
     2,                            /* addr_len */
     RAMTRON_INIT_CLK_MAX          /* speed */
@@ -838,6 +850,8 @@ static int ramtron_ioctl(FAR struct mtd_dev_s *dev,
                     (FAR struct mtd_geometry_s *)((uintptr_t)arg);
           if (geo)
             {
+              memset(geo, 0, sizeof(*geo));
+
               /* Populate the geometry structure with information need to
                * know the capacity and how to access the device.
                *

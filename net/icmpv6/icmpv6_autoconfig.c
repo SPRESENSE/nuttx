@@ -90,7 +90,6 @@ static void icmpv6_router_terminate(FAR struct icmpv6_router_s *state,
  ****************************************************************************/
 
 static uint16_t icmpv6_router_eventhandler(FAR struct net_driver_s *dev,
-                                           FAR void *pvconn,
                                            FAR void *priv, uint16_t flags)
 {
   FAR struct icmpv6_router_s *state = (FAR struct icmpv6_router_s *)priv;
@@ -123,6 +122,13 @@ static uint16_t icmpv6_router_eventhandler(FAR struct net_driver_s *dev,
 
           /* REVISIT: No timeout. Just wait for the next polling cycle */
 
+          return flags;
+        }
+
+      /* Prepare device buffer */
+
+      if (netdev_iob_prepare(dev, false, 0) != OK)
+        {
           return flags;
         }
 
@@ -178,19 +184,13 @@ static int icmpv6_send_message(FAR struct net_driver_s *dev, bool advertise)
   struct icmpv6_router_s state;
   int ret;
 
-  /* Initialize the state structure with the network locked.
-   *
-   *
-   * This semaphore is used for signaling and, hence, should not have
-   * priority inheritance enabled.
-   */
+  /* Initialize the state structure with the network locked. */
 
   nxsem_init(&state.snd_sem, 0, 0); /* Doesn't really fail */
-  nxsem_set_protocol(&state.snd_sem, SEM_PRIO_NONE);
 
   /* Remember the routing device name */
 
-  strncpy((FAR char *)state.snd_ifname, (FAR const char *)dev->d_ifname,
+  strlcpy((FAR char *)state.snd_ifname, (FAR const char *)dev->d_ifname,
           IFNAMSIZ);
 
   /* Allocate resources to receive a callback.  This and the following
@@ -222,12 +222,12 @@ static int icmpv6_send_message(FAR struct net_driver_s *dev, bool advertise)
   netdev_txnotify_dev(dev);
 
   /* Wait for the send to complete or an error to occur
-   * net_lockedwait will also terminate if a signal is received.
+   * net_sem_wait will also terminate if a signal is received.
    */
 
   do
     {
-      net_lockedwait(&state.snd_sem);
+      net_sem_wait(&state.snd_sem);
     }
   while (!state.snd_sent);
 
@@ -332,7 +332,7 @@ int icmpv6_autoconfig(FAR struct net_driver_s *dev)
    *    method must be employed.
    */
 
-  ret = icmpv6_neighbor(lladdr);
+  ret = icmpv6_neighbor(dev, lladdr);
   if (ret >= 0)
     {
       /* Hmmm... someone else responded to our Neighbor Solicitation.  We

@@ -41,7 +41,7 @@
 #include <nuttx/kmalloc.h>
 #include <nuttx/wdog.h>
 #include <nuttx/clock.h>
-#include <nuttx/semaphore.h>
+#include <nuttx/mutex.h>
 #include <nuttx/spi/spi.h>
 
 #include "arm_internal.h"
@@ -86,7 +86,7 @@ typedef void (*select_t)(uint32_t devid, bool selected);
 struct sam_spidev_s
 {
   uint32_t base;               /* SPI controller register base address */
-  sem_t spisem;                /* Assures mutually exclusive access to SPI */
+  mutex_t spilock;             /* Assures mutually exclusive access to SPI */
   select_t select;             /* SPI select call-out */
   bool initialized;            /* TRUE: Controller has been initialized */
   bool escape_lastxfer;        /* Don't set LASTXFER-Bit in the next transfer */
@@ -154,6 +154,7 @@ static const struct spi_ops_s g_spiops =
 static struct sam_spidev_s g_spidev =
 {
   .base              = SAM_QSPI_BASE,
+  .spilock           = NXMUTEX_INITIALIZER,
   .select            = sam_qspi_select,
 };
 
@@ -257,11 +258,11 @@ static int qspi_spi_lock(struct spi_dev_s *dev, bool lock)
   spiinfo("lock=%d\n", lock);
   if (lock)
     {
-      ret = nxsem_wait_uninterruptible(&spi->spisem);
+      ret = nxmutex_lock(&spi->spilock);
     }
   else
     {
-      ret = nxsem_post(&spi->spisem);
+      ret = nxmutex_unlock(&spi->spilock);
     }
 
   return ret;
@@ -770,11 +771,11 @@ struct spi_dev_s *sam_qspi_spi_initialize(int intf)
   /* The supported SAM parts have only a single QSPI port */
 
   spiinfo("intf: %d\n", intf);
-  DEBUGASSERT(intf >= 0 && intf < SAMV7_NQSPI_SPI);
+  DEBUGASSERT(intf >= 0 && intf < (SAMV7_NQSPI_SPI + SAMV7_NQSPI));
 
   /* Allocate a new state structure for this chip select. */
 
-  spics = (struct sam_spics_s *)kmm_zalloc(sizeof(struct sam_spics_s));
+  spics = kmm_zalloc(sizeof(struct sam_spics_s));
   if (!spics)
     {
       spierr("ERROR: Failed to allocate a chip select structure\n");
@@ -832,12 +833,6 @@ struct spi_dev_s *sam_qspi_spi_initialize(int intf)
       qspi_getreg(spi, SAM_QSPI_SR_OFFSET);
       qspi_getreg(spi, SAM_QSPI_RDR_OFFSET);
 
-      /* Initialize the SPI semaphore that enforces mutually exclusive
-       * access to the SPI registers.
-       */
-
-      nxsem_init(&spi->spisem, 0, 1);
-      spi->escape_lastxfer = false;
       spi->initialized = true;
     }
 

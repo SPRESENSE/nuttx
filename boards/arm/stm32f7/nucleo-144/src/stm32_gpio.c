@@ -115,10 +115,20 @@ static struct stm32gpio_dev_s g_gpin[BOARD_NGPIOIN];
 
 static const uint32_t g_gpiooutputs[BOARD_NGPIOOUT] =
 {
+  GPIO_LD1,
+  GPIO_LD2,
+  GPIO_LD3,
   GPIO_OUT1,
   GPIO_OUT2,
   GPIO_OUT3,
   GPIO_OUT4,
+  GPIO_OUT5,
+#if !defined(CONFIG_STM32F7_TIM1_CH1NOUT)
+  GPIO_OUT6,
+#endif
+#if !defined(CONFIG_STM32F7_TIM1_CH2NOUT)  
+  GPIO_OUT7,
+#endif
 };
 
 static struct stm32gpio_dev_s g_gpout[BOARD_NGPIOOUT];

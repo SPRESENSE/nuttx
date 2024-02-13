@@ -35,8 +35,8 @@
 
 #include <nuttx/fs/fs.h>
 #include <nuttx/irq.h>
-#include <nuttx/kmalloc.h>
-#include <nuttx/semaphore.h>
+#include <nuttx/lib/lib.h>
+#include <nuttx/mutex.h>
 #include <nuttx/efuse/efuse.h>
 
 #ifdef CONFIG_EFUSE
@@ -53,7 +53,7 @@
 
 struct efuse_upperhalf_s
 {
-  sem_t     exclsem;  /* Supports mutual exclusion */
+  mutex_t   lock;     /* Supports mutual exclusion */
   FAR char *path;     /* Registration path */
 
   /* The contained lower-half driver */
@@ -84,10 +84,6 @@ static const struct file_operations g_efuseops =
   efuse_write, /* write */
   NULL,        /* seek */
   efuse_ioctl, /* ioctl */
-  NULL         /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL       /* unlink */
-#endif
 };
 
 /****************************************************************************
@@ -148,7 +144,7 @@ static int efuse_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 
   /* Get exclusive access to the device structures */
 
-  ret = nxsem_wait(&upper->exclsem);
+  ret = nxmutex_lock(&upper->lock);
   if (ret < 0)
     {
       return ret;
@@ -174,8 +170,8 @@ static int efuse_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 
     case EFUSEIOC_READ_FIELD:
       {
-        FAR struct efuse_param *param =
-                   (FAR struct efuse_param *)((uintptr_t)arg);
+        FAR struct efuse_param_s *param =
+                   (FAR struct efuse_param_s *)((uintptr_t)arg);
 
         /* Read the efuse */
 
@@ -204,8 +200,8 @@ static int efuse_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 
     case EFUSEIOC_WRITE_FIELD:
       {
-        FAR struct efuse_param *param =
-                   (FAR struct efuse_param *)((uintptr_t)arg);
+        FAR struct efuse_param_s *param =
+                   (FAR struct efuse_param_s *)((uintptr_t)arg);
 
         /* Write the efuse */
 
@@ -238,7 +234,7 @@ static int efuse_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
       break;
     }
 
-  nxsem_post(&upper->exclsem);
+  nxmutex_unlock(&upper->lock);
   return ret;
 }
 
@@ -291,7 +287,7 @@ FAR void *efuse_register(FAR const char *path,
    * by kmm_zalloc()).
    */
 
-  nxsem_init(&upper->exclsem, 0, 1);
+  nxmutex_init(&upper->lock);
   upper->lower = lower;
 
   /* Copy the registration path */
@@ -315,10 +311,10 @@ FAR void *efuse_register(FAR const char *path,
   return (FAR void *)upper;
 
 errout_with_path:
-  kmm_free(upper->path);
+  lib_free(upper->path);
 
 errout_with_upper:
-  nxsem_destroy(&upper->exclsem);
+  nxmutex_destroy(&upper->lock);
   kmm_free(upper);
 
 errout:
@@ -360,8 +356,8 @@ void efuse_unregister(FAR void *handle)
 
   /* Then free all of the driver resources */
 
-  kmm_free(upper->path);
-  nxsem_destroy(&upper->exclsem);
+  lib_free(upper->path);
+  nxmutex_destroy(&upper->lock);
   kmm_free(upper);
 }
 

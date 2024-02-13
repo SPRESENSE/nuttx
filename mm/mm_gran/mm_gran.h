@@ -31,7 +31,7 @@
 
 #include <arch/types.h>
 #include <nuttx/mm/gran.h>
-#include <nuttx/semaphore.h>
+#include <nuttx/mutex.h>
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -69,7 +69,7 @@ struct gran_s
 #ifdef CONFIG_GRAN_INTR
   irqstate_t irqstate;  /* For exclusive access to the GAT */
 #else
-  sem_t      exclsem;   /* For exclusive access to the GAT */
+  mutex_t    lock;       /* For exclusive access to the GAT */
 #endif
   uintptr_t  heapstart; /* The aligned start of the granule heap */
   uint32_t   gat[1];    /* Start of the granule allocation table */
@@ -109,11 +109,12 @@ void gran_leave_critical(FAR struct gran_s *priv);
  *   ngranules - The number of granules allocated
  *
  * Returned Value:
- *   None
+ *   On success, a non-NULL pointer to the allocated memory is returned;
+ *   NULL is returned on failure.
  *
  ****************************************************************************/
 
-void gran_mark_allocated(FAR struct gran_s *priv, uintptr_t alloc,
-                         unsigned int ngranules);
+FAR void *gran_mark_allocated(FAR struct gran_s *priv, uintptr_t alloc,
+                              unsigned int ngranules);
 
 #endif /* __MM_MM_GRAN_MM_GRAN_H */

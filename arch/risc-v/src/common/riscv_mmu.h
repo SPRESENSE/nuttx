@@ -25,31 +25,11 @@
 
 #define RV_MMU_PAGE_SHIFT       (12)
 #define RV_MMU_PAGE_SIZE        (1 << RV_MMU_PAGE_SHIFT) /* 4K pages */
+#define RV_MMU_PAGE_MASK        (RV_MMU_PAGE_SIZE - 1)
 
 /* Entries per PGT */
 
 #define RV_MMU_PAGE_ENTRIES     (RV_MMU_PAGE_SIZE / sizeof(uintptr_t))
-
-/* Supervisor Address Translation and Protection (satp) */
-
-#define SATP_PPN_SHIFT          (0)
-#define SATP_PPN_MASK           (((1ul << 44) - 1) << SATP_PPN_SHIFT)
-#define SATP_ASID_SHIFT         (44)
-#define SATP_ASID_MASK          (((1ul << 16) - 1) << SATP_ASID_SHIFT)
-#define SATP_MODE_SHIFT         (60)
-#define SATP_MODE_MASK          (((1ul << 4) - 1) << SATP_MODE_SHIFT)
-
-/* Modes, for RV32 only 1 is valid, for RV64 1-7 and 10-15 are reserved */
-
-#define SATP_MODE_BARE          (0ul)
-#define SATP_MODE_SV32          (1ul)
-#define SATP_MODE_SV39          (8ul)
-#define SATP_MODE_SV48          (9ul)
-
-/* satp address to PPN translation */
-
-#define SATP_ADDR_TO_PPN(_addr) ((_addr) >> RV_MMU_PAGE_SHIFT)
-#define SATP_PPN_TO_ADDR(_ppn)  ((_ppn)  << RV_MMU_PAGE_SHIFT)
 
 /* Common Page Table Entry (PTE) bits */
 
@@ -84,31 +64,87 @@
 #define MMU_KTEXT_FLAGS         (PTE_R | PTE_X | PTE_G)
 #define MMU_KDATA_FLAGS         (PTE_R | PTE_W | PTE_G)
 
-/* SvX definitions, only Sv39 is currently supported, but it should be
- * trivial to extend the driver to support other SvX implementations
- *
- * Sv39 has:
+/* Modes, for RV32 only 1 is valid, for RV64 1-7 and 10-15 are reserved */
+
+#define SATP_MODE_BARE          (0ul)
+#define SATP_MODE_SV32          (1ul)
+#define SATP_MODE_SV39          (8ul)
+#define SATP_MODE_SV48          (9ul)
+
+#if CONFIG_ARCH_HAVE_MMU
+#define RV_MMU_PTE_PADDR_SHIFT  (10)
+#define RV_MMU_PTE_PPN_SHIFT    (2)
+#define RV_MMU_VADDR_SHIFT(_n)  (RV_MMU_PAGE_SHIFT + RV_MMU_VPN_WIDTH * \
+                                 (RV_MMU_PT_LEVELS - (_n)))
+/* Sv39 has:
  * - 4K page size
  * - 3 page table levels
  * - 9-bit VPN width
  */
 
 #ifdef CONFIG_ARCH_MMU_TYPE_SV39
-#define RV_MMU_PTE_PADDR_SHIFT  (10)
-#define RV_MMU_PTE_PPN_MASK     (((1ul << 44) - 1) << RV_MMU_PTE_PADDR_SHIFT)
-#define RV_MMU_PTE_PPN_SHIFT    (2)
+#define RV_MMU_PPN_WIDTH        44
+#define RV_MMU_ASID_WIDTH       16
+#define RV_MMU_MODE_WIDTH       4
+#define RV_MMU_PTE_PPN_MASK     (((1ul << RV_MMU_PPN_WIDTH) - 1) << RV_MMU_PTE_PADDR_SHIFT)
 #define RV_MMU_VPN_WIDTH        (9)
 #define RV_MMU_VPN_MASK         ((1ul << RV_MMU_VPN_WIDTH) - 1)
 #define RV_MMU_PT_LEVELS        (3)
-#define RV_MMU_VADDR_SHIFT(_n)  (RV_MMU_PAGE_SHIFT + RV_MMU_VPN_WIDTH * \
-                                 (RV_MMU_PT_LEVELS - (_n)))
 #define RV_MMU_SATP_MODE        (SATP_MODE_SV39)
 #define RV_MMU_L1_PAGE_SIZE     (0x40000000) /* 1G */
 #define RV_MMU_L2_PAGE_SIZE     (0x200000)   /* 2M */
 #define RV_MMU_L3_PAGE_SIZE     (0x1000)     /* 4K */
+
+/* Minimum alignment requirement for any section of memory is 2MB */
+
+#define RV_MMU_SECTION_ALIGN        (RV_MMU_L2_PAGE_SIZE)
+#define RV_MMU_SECTION_ALIGN_MASK   (RV_MMU_SECTION_ALIGN - 1)
+
+/* Sv32 has:
+ * - 4K page size
+ * - 2 page table levels
+ * - 10-bit VPN width
+ */
+
+#elif CONFIG_ARCH_MMU_TYPE_SV32
+#define RV_MMU_PPN_WIDTH        22
+#define RV_MMU_ASID_WIDTH       9
+#define RV_MMU_MODE_WIDTH       1
+#define RV_MMU_PTE_PPN_MASK     (((1ul << RV_MMU_PPN_WIDTH) - 1) << RV_MMU_PTE_PADDR_SHIFT)
+#define RV_MMU_VPN_WIDTH        (10)
+#define RV_MMU_VPN_MASK         ((1ul << RV_MMU_VPN_WIDTH) - 1)
+#define RV_MMU_PT_LEVELS        (2)
+#define RV_MMU_SATP_MODE        (SATP_MODE_SV32)
+#define RV_MMU_L1_PAGE_SIZE     (0x400000)   /* 4M */
+#define RV_MMU_L2_PAGE_SIZE     (0x1000)     /* 4K */
+
+#define RV_MMU_SECTION_ALIGN        (RV_MMU_L1_PAGE_SIZE)
+#define RV_MMU_SECTION_ALIGN_MASK   (RV_MMU_SECTION_ALIGN - 1)
+
 #else
 #error "Unsupported RISC-V MMU implementation selected"
-#endif /* CONFIG_ARCH_MMU_TYPE_SV39 */
+#endif
+#endif /* CONFIG_ARCH_HAVE_MMU */
+
+/* Supervisor Address Translation and Protection (satp) */
+
+#define SATP_PPN_SHIFT          (0)
+#define SATP_PPN_MASK           (((1ul << RV_MMU_PPN_WIDTH) - 1) << SATP_PPN_SHIFT)
+#define SATP_ASID_SHIFT         (RV_MMU_PPN_WIDTH)
+#define SATP_ASID_MASK          (((1ul << RV_MMU_ASID_WIDTH) - 1) << SATP_ASID_SHIFT)
+#define SATP_MODE_SHIFT         (RV_MMU_PPN_WIDTH + RV_MMU_ASID_WIDTH)
+#define SATP_MODE_MASK          (((1ul << RV_MMU_MODE_WIDTH) - 1) << SATP_MODE_SHIFT)
+
+/* satp address to PPN translation */
+
+#define SATP_ADDR_TO_PPN(_addr) ((_addr) >> RV_MMU_PAGE_SHIFT)
+#define SATP_PPN_TO_ADDR(_ppn)  ((_ppn)  << RV_MMU_PAGE_SHIFT)
+
+/****************************************************************************
+ * Public Data
+ ****************************************************************************/
+
+extern uintptr_t g_kernel_pgt_pbase;
 
 /****************************************************************************
  * Name: mmu_satp_reg
@@ -151,7 +187,8 @@ static inline void mmu_write_satp(uintptr_t reg)
     (
       "csrw satp, %0\n"
       "sfence.vma x0, x0\n"
-      "fence\n"
+      "fence rw, rw\n"
+      "fence.i\n"
       :
       : "rK" (reg)
       : "memory"
@@ -272,10 +309,29 @@ static inline uintptr_t mmu_pte_to_paddr(uintptr_t pte)
 }
 
 /****************************************************************************
+ * Name: mmu_satp_to_paddr
+ *
+ * Description:
+ *   Extract physical address from SATP
+ *
+ * Returned Value:
+ *   Physical address from SATP value
+ *
+ ****************************************************************************/
+
+static inline uintptr_t mmu_satp_to_paddr(uintptr_t satp)
+{
+  uintptr_t ppn;
+  ppn = satp;
+  ppn = ((ppn >> SATP_PPN_SHIFT) & SATP_PPN_MASK);
+  return SATP_PPN_TO_ADDR(ppn);
+}
+
+/****************************************************************************
  * Name: mmu_get_satp_pgbase
  *
  * Description:
- *   Utility function to read the base page table physical address
+ *   Utility function to read the current base page table physical address
  *
  * Returned Value:
  *   Physical address of the current base page table
@@ -284,10 +340,7 @@ static inline uintptr_t mmu_pte_to_paddr(uintptr_t pte)
 
 static inline uintptr_t mmu_get_satp_pgbase(void)
 {
-  uintptr_t ppn;
-  ppn = mmu_read_satp();
-  ppn = ((ppn >> SATP_PPN_SHIFT) & SATP_PPN_MASK);
-  return SATP_PPN_TO_ADDR(ppn);
+  return mmu_satp_to_paddr(mmu_read_satp());
 }
 
 /****************************************************************************
@@ -352,6 +405,25 @@ void mmu_ln_restore(uint32_t ptlevel, uintptr_t lnvaddr, uintptr_t vaddr,
                     uintptr_t entry);
 
 /****************************************************************************
+ * Name: mmu_ln_clear
+ *
+ * Description:
+ *   Unmap a level n translation table entry.
+ *
+ * Input Parameters:
+ *   ptlevel - The translation table level, amount of levels is
+ *     MMU implementation specific
+ *   lnvaddr - The virtual address of the beginning of the page table at
+ *     level n
+ *   vaddr - The virtual address to get pte for. Must be aligned to a PPN
+ *     address boundary which is dependent on the level of the entry
+ *
+ ****************************************************************************/
+
+#define mmu_ln_clear(ptlevel, lnvaddr, vaddr) \
+  mmu_ln_restore(ptlevel, lnvaddr, vaddr, 0)
+
+/****************************************************************************
  * Name: mmu_ln_map_region
  *
  * Description:
@@ -373,5 +445,22 @@ void mmu_ln_restore(uint32_t ptlevel, uintptr_t lnvaddr, uintptr_t vaddr,
 
 void mmu_ln_map_region(uint32_t ptlevel, uintptr_t lnvaddr, uintptr_t paddr,
                        uintptr_t vaddr, size_t size, uint32_t mmuflags);
+
+/****************************************************************************
+ * Name: mmu_ln_map_region
+ *
+ * Description:
+ *   Get (giga/mega) page size for level n.
+ *
+ * Input Parameters:
+ *   ptlevel - The translation table level, amount of levels is
+ *     MMU implementation specific
+ *
+ * Returned Value:
+ *   Region size for one page at level n.
+ *
+ ****************************************************************************/
+
+size_t mmu_get_region_size(uint32_t ptlevel);
 
 #endif /* ___ARCH_RISC_V_SRC_COMMON_RISCV_MMU_H_ */

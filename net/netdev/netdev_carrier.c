@@ -35,6 +35,7 @@
 #include <net/ethernet.h>
 #include <nuttx/net/netdev.h>
 
+#include "ipfrag/ipfrag.h"
 #include "netdev/netdev.h"
 #include "netlink/netlink.h"
 #include "arp/arp.h"
@@ -92,9 +93,15 @@ int netdev_carrier_off(FAR struct net_driver_s *dev)
       dev->d_flags &= ~IFF_RUNNING;
       netlink_device_notify(dev);
 
+#ifdef CONFIG_NET_IPFRAG
+      /* Clean up fragment data for this NIC (if any) */
+
+      ip_frag_stop(dev);
+#endif
+
       /* Notify clients that the network has been taken down */
 
-      devif_dev_event(dev, NULL, NETDEV_DOWN);
+      devif_dev_event(dev, NETDEV_DOWN);
       arp_cleanup(dev);
 
       return OK;

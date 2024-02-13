@@ -44,6 +44,8 @@ config ARCH_CHIP_LITEX
 	select ARCH_RV_ISA_M
 	select ARCH_RV_ISA_A
 	select ARCH_DCACHE
+	select ARCH_HAVE_TICKLESS
+	select ARCH_HAVE_RESET
 	---help---
 		Enjoy Digital LITEX VEXRISCV softcore processor (RV32IMA).
 
@@ -84,8 +86,37 @@ config ARCH_CHIP_ESP32C3
 	select LIBC_ARCH_STRNLEN
 	select ARCH_HAVE_TEXT_HEAP
 	select ARCH_HAVE_BOOTLOADER
+	select ARCH_HAVE_PERF_EVENTS
 	---help---
 		Espressif ESP32-C3 (RV32IMC).
+
+config ARCH_CHIP_ESP32C6
+	bool "Espressif ESP32-C6"
+	select ARCH_RV32
+	select ARCH_RV_ISA_M
+	select ARCH_RV_ISA_A
+	select ARCH_RV_ISA_C
+	select ARCH_VECNOTIRQ
+	select ARCH_HAVE_RESET
+	select LIBC_ARCH_MEMCPY
+	select LIBC_ARCH_MEMCHR
+	select LIBC_ARCH_MEMCMP
+	select LIBC_ARCH_MEMMOVE
+	select LIBC_ARCH_MEMSET
+	select LIBC_ARCH_STRCHR
+	select LIBC_ARCH_STRCMP
+	select LIBC_ARCH_STRCPY
+	select LIBC_ARCH_STRLCPY
+	select LIBC_ARCH_STRNCPY
+	select LIBC_ARCH_STRLEN
+	select LIBC_ARCH_STRNLEN
+	---help---
+		Espressif ESP32-C6 (RV32IMAC).
+
+config ARCH_CHIP_ESPRESSIF
+	bool "Espressif ESP32 family"
+	---help---
+		Family of RISC-V based microcontrollers from Espressif Systems.
 
 config ARCH_CHIP_C906
 	bool "THEAD C906"
@@ -134,12 +165,13 @@ config ARCH_CHIP_RV32M1
 
 config ARCH_CHIP_QEMU_RV
 	bool "QEMU RV"
-	select ARCH_HAVE_FPU if EXPERIMENTAL
-	select ARCH_HAVE_DPFPU if EXPERIMENTAL
+	select ARCH_HAVE_FPU
+	select ARCH_HAVE_DPFPU
 	select ARCH_HAVE_MULTICPU
 	select ARCH_HAVE_MPU
 	select ARCH_HAVE_MMU
 	select ARCH_MMU_TYPE_SV39 if ARCH_CHIP_QEMU_RV64
+	select ARCH_MMU_TYPE_SV32 if ARCH_CHIP_QEMU_RV32
 	select ARCH_HAVE_ADDRENV
 	select ARCH_NEED_ADDRENV_MAPPING
 	select ARCH_HAVE_S_MODE
@@ -147,6 +179,37 @@ config ARCH_CHIP_QEMU_RV
 	select ALARM_ARCH
 	---help---
 		QEMU Generic RV32/RV64 processor
+
+config ARCH_CHIP_HPM6750
+	bool "Hpmicro HPM6750"
+	select ARCH_RV32
+	select ARCH_RV_ISA_M
+	select ARCH_RV_ISA_A
+	select ARCH_RV_ISA_C
+	select ONESHOT
+	select ALARM_ARCH
+	---help---
+		Hpmicro HPM6750 processor (D45 RISC-V Core with MAC extensions).
+
+config ARCH_CHIP_JH7110
+	bool "StarFive JH7110"
+	select ARCH_RV64
+	select ARCH_RV_ISA_M
+	select ARCH_RV_ISA_A
+	select ARCH_RV_ISA_C
+	select ARCH_HAVE_FPU
+	select ARCH_HAVE_DPFPU
+	select ARCH_HAVE_MULTICPU
+	select ARCH_HAVE_MPU
+	select ARCH_HAVE_MMU
+	select ARCH_MMU_TYPE_SV39
+	select ARCH_HAVE_ADDRENV
+	select ARCH_NEED_ADDRENV_MAPPING
+	select ARCH_HAVE_S_MODE
+	select ONESHOT
+	select ALARM_ARCH
+	---help---
+		StarFive JH7110 SoC.
 
 config ARCH_CHIP_RISCV_CUSTOM
 	bool "Custom RISC-V chip"
@@ -190,10 +253,14 @@ config ARCH_CHIP
 	default "litex"		if ARCH_CHIP_LITEX
 	default "bl602"		if ARCH_CHIP_BL602
 	default "esp32c3"	if ARCH_CHIP_ESP32C3
+	default "esp32c6"	if ARCH_CHIP_ESP32C6
+	default "espressif"	if ARCH_CHIP_ESPRESSIF
 	default "c906"		if ARCH_CHIP_C906
 	default "mpfs"		if ARCH_CHIP_MPFS
 	default "rv32m1"	if ARCH_CHIP_RV32M1
 	default "qemu-rv"	if ARCH_CHIP_QEMU_RV
+	default "hpm6750"	if ARCH_CHIP_HPM6750
+	default "jh7110"	if ARCH_CHIP_JH7110
 
 config ARCH_RISCV_INTXCPT_EXTENSIONS
 	bool "RISC-V Integer Context Extensions"
@@ -212,6 +279,10 @@ config ARCH_RISCV_INTXCPT_EXTREGS
 endif
 
 config ARCH_MMU_TYPE_SV39
+	bool
+	default n
+
+config ARCH_MMU_TYPE_SV32
 	bool
 	default n
 
@@ -237,6 +308,9 @@ config RISCV_MISALIGNED_HANDLER
 # Kernel mode requires this as M-mode uses flat addressing and the kernel
 # memory must be mapped in order to share memory between the kernel and
 # different user tasks which reside in virtual memory.
+#
+# Note that S-mode requires a companion software (SBI)
+#
 
 config ARCH_USE_S_MODE
 	bool "Run the NuttX kernel in S-mode"
@@ -272,14 +346,21 @@ config ARCH_MPU_HAS_NAPOT
 
 choice
 	prompt "Toolchain Selection"
-	default RISCV_TOOLCHAIN_GNU_RVG
+	default RISCV_TOOLCHAIN_GNU_RV64
 
-config RISCV_TOOLCHAIN_GNU_RVG
-	bool "Generic GNU RVG toolchain"
+config RISCV_TOOLCHAIN_GNU_RV64
+	bool "Generic GNU RV64 toolchain"
 	select ARCH_TOOLCHAIN_GNU
 	---help---
 		This option should work for any modern GNU toolchain (GCC 5.2 or newer)
 		configured for riscv64-unknown-elf.
+
+config RISCV_TOOLCHAIN_GNU_RV32
+	bool "Generic GNU RV32 toolchain"
+	select ARCH_TOOLCHAIN_GNU
+	---help---
+		This option should work for any modern GNU toolchain (GCC 5.2 or newer)
+		configured for riscv32-unknown-elf.
 
 endchoice
 
@@ -302,7 +383,32 @@ config RISCV_SEMIHOSTING_HOSTFS_CACHE_COHERENCE
 
 endif
 
+if ARCH_CHIP_LITEX
+
+choice
+	prompt "LITEX Core Selection"
+	default LITEX_CORE_VEXRISCV
+
+config LITEX_CORE_VEXRISCV
+	bool "vexriscv core"
+
+config LITEX_CORE_VEXRISCV_SMP
+	bool "vexriscv_smp core"
+	select ARCH_HAVE_MPU
+	select ARCH_HAVE_MMU
+	select ARCH_RV_ISA_C
+	select ARCH_MMU_TYPE_SV32
+	select ARCH_HAVE_ADDRENV
+	select ARCH_NEED_ADDRENV_MAPPING
+	select ARCH_HAVE_S_MODE
+	select ARCH_HAVE_ELF_EXECUTABLE
+
+endchoice
+
+endif
+
 source "arch/risc-v/src/opensbi/Kconfig"
+source "arch/risc-v/src/nuttsbi/Kconfig"
 
 if ARCH_CHIP_FE310
 source "arch/risc-v/src/fe310/Kconfig"
@@ -319,6 +425,12 @@ endif
 if ARCH_CHIP_ESP32C3
 source "arch/risc-v/src/esp32c3/Kconfig"
 endif
+if ARCH_CHIP_ESP32C6
+source "arch/risc-v/src/esp32c6/Kconfig"
+endif
+if ARCH_CHIP_ESPRESSIF
+source "arch/risc-v/src/espressif/Kconfig"
+endif
 if ARCH_CHIP_C906
 source "arch/risc-v/src/c906/Kconfig"
 endif
@@ -330,5 +442,11 @@ source "arch/risc-v/src/rv32m1/Kconfig"
 endif
 if ARCH_CHIP_QEMU_RV
 source "arch/risc-v/src/qemu-rv/Kconfig"
+endif
+if ARCH_CHIP_HPM6750
+source "arch/risc-v/src/hpm6750/Kconfig"
+endif
+if ARCH_CHIP_JH7110
+source "arch/risc-v/src/jh7110/Kconfig"
 endif
 endif

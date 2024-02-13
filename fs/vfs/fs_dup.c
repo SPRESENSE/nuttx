@@ -28,6 +28,7 @@
 #include <sched.h>
 #include <assert.h>
 #include <errno.h>
+#include <fcntl.h>
 
 #include <nuttx/fs/fs.h>
 #include "inode/inode.h"
@@ -49,7 +50,7 @@
  *
  ****************************************************************************/
 
-int file_dup(FAR struct file *filep, int minfd)
+int file_dup(FAR struct file *filep, int minfd, bool cloexec)
 {
   struct file filep2;
   int fd2;
@@ -66,8 +67,13 @@ int file_dup(FAR struct file *filep, int minfd)
 
   /* Then allocate a new file descriptor for the inode */
 
-  fd2 = files_allocate(filep2.f_inode, filep2.f_oflags,
-                       filep2.f_pos, filep2.f_priv, minfd);
+  if (cloexec)
+    {
+      filep2.f_oflags |= O_CLOEXEC;
+    }
+
+  fd2 = file_allocate(filep2.f_inode, filep2.f_oflags,
+                      filep2.f_pos, filep2.f_priv, minfd, false);
   if (fd2 < 0)
     {
       file_close(&filep2);
@@ -75,42 +81,6 @@ int file_dup(FAR struct file *filep, int minfd)
     }
 
   return fd2;
-}
-
-/****************************************************************************
- * Name: nx_dup
- *
- * Description:
- *   nx_dup() is similar to the standard 'dup' interface except that is
- *   not a cancellation point and it does not modify the errno variable.
- *
- *   nx_dup() is an internal NuttX interface and should not be called from
- *   applications.
- *
- * Returned Value:
- *   The new file descriptor is returned on success; a negated errno value is
- *   returned on any failure.
- *
- ****************************************************************************/
-
-int nx_dup(int fd)
-{
-  FAR struct file *filep;
-  int ret;
-
-  /* Get the file structure corresponding to the file descriptor. */
-
-  ret = fs_getfilep(fd, &filep);
-  if (ret < 0)
-    {
-      return ret;
-    }
-
-  DEBUGASSERT(filep != NULL);
-
-  /* Let file_dup() do the real work */
-
-  return file_dup(filep, 0);
 }
 
 /****************************************************************************
@@ -123,14 +93,30 @@ int nx_dup(int fd)
 
 int dup(int fd)
 {
+  FAR struct file *filep;
   int ret;
 
-  ret = nx_dup(fd);
+  /* Get the file structure corresponding to the file descriptor. */
+
+  ret = fs_getfilep(fd, &filep);
   if (ret < 0)
     {
-      set_errno(-ret);
-      ret = ERROR;
+      goto err;
+    }
+
+  DEBUGASSERT(filep != NULL);
+
+  /* Let file_dup() do the real work */
+
+  ret = file_dup(filep, 0, 0);
+  if (ret < 0)
+    {
+      goto err;
     }
 
   return ret;
+
+err:
+  set_errno(-ret);
+  return ERROR;
 }

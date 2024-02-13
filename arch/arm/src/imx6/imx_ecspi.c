@@ -31,6 +31,7 @@
 #include <debug.h>
 
 #include <nuttx/arch.h>
+#include <nuttx/mutex.h>
 #include <nuttx/semaphore.h>
 #include <nuttx/spi/spi.h>
 
@@ -128,7 +129,7 @@ struct imx_spidev_s
 #ifndef CONFIG_SPI_POLLWAIT
   sem_t waitsem;                /* Wait for transfer to complete */
 #endif
-  sem_t exclsem;                /* Supports mutually exclusive access */
+  mutex_t lock;                 /* Supports mutually exclusive access */
 
   /* These following are the source and destination buffers of the transfer.
    * they are retained in this structure so that they will be accessible
@@ -267,7 +268,9 @@ static struct imx_spidev_s g_spidev[] =
       .ops     = &g_spiops,
       .base    = IMX_ECSPI1_VBASE,
       .spindx  = SPI1_NDX,
+      .lock    = NXMUTEX_INITIALIZER,
 #ifndef CONFIG_SPI_POLLWAIT
+      .waitsem = SEM_INITIALIZER(0),
       .irq     = IMX_IRQ_ECSPI1,
 #endif
       .select  = imx_spi1select,
@@ -283,7 +286,9 @@ static struct imx_spidev_s g_spidev[] =
       .ops     = &g_spiops,
       .base    = IMX_ECSPI2_VBASE,
       .spindx  = SPI2_NDX,
+      .lock    = NXMUTEX_INITIALIZER,
 #ifndef CONFIG_SPI_POLLWAIT
+      .waitsem = SEM_INITIALIZER(0),
       .irq     = IMX_IRQ_ECSPI2,
 #endif
       .select  = imx_spi2select,
@@ -299,7 +304,9 @@ static struct imx_spidev_s g_spidev[] =
       .ops     = &g_spiops,
       .base    = IMX_ECSPI3_VBASE,
       .spindx  = SPI3_NDX,
+      .lock    = NXMUTEX_INITIALIZER,
 #ifndef CONFIG_SPI_POLLWAIT
+      .waitsem = SEM_INITIALIZER(0),
       .irq     = IMX_IRQ_ECSPI3,
 #endif
       .select  = imx_spi3select,
@@ -315,7 +322,9 @@ static struct imx_spidev_s g_spidev[] =
       .ops     = &g_spiops,
       .base    = IMX_ECSPI4_VBASE,
       .spindx  = SPI4_NDX,
+      .lock    = NXMUTEX_INITIALIZER,
 #ifndef CONFIG_SPI_POLLWAIT
+      .waitsem = SEM_INITIALIZER(0),
       .irq     = IMX_IRQ_ECSPI4,
 #endif
       .select  = imx_spi4select,
@@ -331,7 +340,9 @@ static struct imx_spidev_s g_spidev[] =
       .ops     = &g_spiops,
       .base    = IMX_ECSPI5_VBASE,
       .spindx  = SPI5_NDX,
+      .lock    = NXMUTEX_INITIALIZER,
 #ifndef CONFIG_SPI_POLLWAIT
+      .waitsem = SEM_INITIALIZER(0),
       .irq     = IMX_IRQ_ECSPI5,
 #endif
       .select  = imx_spi5select,
@@ -777,11 +788,11 @@ static int spi_lock(struct spi_dev_s *dev, bool lock)
 
   if (lock)
     {
-      ret = nxsem_wait_uninterruptible(&priv->exclsem);
+      ret = nxmutex_lock(&priv->lock);
     }
   else
     {
-      ret = nxsem_post(&priv->exclsem);
+      ret = nxmutex_unlock(&priv->lock);
     }
 
   return ret;
@@ -1280,19 +1291,6 @@ struct spi_dev_s *imx_spibus_initialize(int port)
     }
 
   /* Initialize the state structure */
-
-  /* Initialize Semaphores */
-
-#ifndef CONFIG_SPI_POLLWAIT
-  /* Initialize the semaphore that is used to wake up the waiting
-   * thread when the DMA transfer completes.  This semaphore is used for
-   * signaling and, hence, should not have priority inheritance enabled.
-   */
-
-  nxsem_init(&priv->waitsem, 0, 0);
-  nxsem_set_protocol(&priv->waitsem, SEM_PRIO_NONE);
-#endif
-  nxsem_init(&priv->exclsem, 0, 1);
 
   /* Initialize control register:
    * min frequency, ignore ready, master mode, mode=0, 8-bit

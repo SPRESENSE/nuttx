@@ -44,6 +44,8 @@
 
 #ifdef CONFIG_ARCH_MMU_TYPE_SV39
 #  define ARCH_PGT_MAX_LEVELS (3)
+#elif CONFIG_ARCH_MMU_TYPE_SV32
+#  define ARCH_PGT_MAX_LEVELS (2)
 #endif
 
 /* Amount of static page tables allocated for an address environment */
@@ -74,7 +76,7 @@
  *   which gives access to 2MB of memory. This is plenty for many tasks.
  */
 
-struct group_addrenv_s
+struct arch_addrenv_s
 {
   /* Pointers to MAX_LEVELS-1 tables here, one of each are allocated for the
    * task when it is created.
@@ -100,13 +102,7 @@ struct group_addrenv_s
   uintptr_t satp;
 };
 
-typedef struct group_addrenv_s group_addrenv_t;
-
-/* If an address environment needs to be saved, saving the satp register
- * will suffice. The register width is architecture dependent
- */
-
-typedef uintptr_t save_addrenv_t;
+typedef struct arch_addrenv_s arch_addrenv_t;
 #endif /* __ASSEMBLY__ */
 #endif /* CONFIG_ARCH_ADDRENV */
 

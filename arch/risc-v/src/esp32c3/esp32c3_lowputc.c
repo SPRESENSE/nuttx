@@ -40,6 +40,7 @@
 #include "hardware/esp32c3_system.h"
 #include "hardware/esp32c3_uart.h"
 #include "hardware/esp32c3_soc.h"
+#include "hardware/esp32c3_gpio_sigmap.h"
 
 #include "esp32c3_clockconfig.h"
 #include "esp32c3_config.h"
@@ -764,6 +765,12 @@ void esp32c3_lowputc_restore_all_uart_int(const struct esp32c3_uart_s *priv,
 void esp32c3_lowputc_config_pins(const struct esp32c3_uart_s *priv)
 {
   /* Configure the pins */
+
+  /* Keep TX pin in high level to avoid "?" trash character
+   * This "?" is the Unicode replacement character (U+FFFD)
+   */
+
+  esp32c3_gpiowrite(priv->txpin, true);
 
   esp32c3_gpio_matrix_out(priv->txpin, priv->txsig, 0, 0);
   esp32c3_configgpio(priv->txpin, OUTPUT_FUNCTION_1);

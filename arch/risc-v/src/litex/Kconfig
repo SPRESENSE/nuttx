@@ -5,10 +5,78 @@
 
 comment "LITEX Configuration Options"
 
+config LITEX_SYS_CORE_FREQ_HZ
+	int "Risc-V system core frequency (Hz)"
+	default 100000000
+	---help---
+		This value should match default frequency of the FPGA fabric system clock.
+
+config LITEX_COHERENT_DMA
+	bool "Litex Coherent DMA"
+	default n
+	---help---
+		Select this option if the soft core was build with coherent DMA. When selected,
+		dcache is considered coherent and not invalidated before DMA transfers.
+
 menu "LITEX Peripheral Support"
 
 # These "hidden" settings determine whether a peripheral option is available
 # for the selected MCU
+
+config LITEX_USE_CUSTOM_MEMORY_MAP
+	bool "Custom peripheral memory mapping"
+	default n
+	---help---
+		Use a custom memory map for the peripheral base addresses defined in
+		arch/risc-v/src/litex/hardware/litex_memorymap.h.
+
+if LITEX_USE_CUSTOM_MEMORY_MAP
+
+config LITEX_CUSTOM_MEMORY_MAP_PATH
+	string "Path to custom memory map include file."
+	default ""
+	---help---
+		Specify the path to the file containing the peripheral memory mapping.
+		The path specified must be relative to arch/risc-v/src/litex/hardware/litex_memorymap.h.
+		The file must redefine any symbols which are intended to be overridden.
+
+endif
+
+config LITEX_USE_CUSTOM_IRQ_DEFINITIONS
+	bool "Custom IRQ mapping"
+	default n
+	---help---
+		Use custom definitions for risc-v IRQ numbers and sequence.
+		Allowing for the definitions in arch/risc-v/include/litex/irq.h to be overridden.
+
+if LITEX_USE_CUSTOM_IRQ_DEFINITIONS
+
+config LITEX_CUSTOM_IRQ_DEFINITIONS_PATH
+	string "Path to custom IRQ mapping include file."
+	default ""
+	---help---
+		Specify the path to the file containing the custom IRQ definitions.
+		The path specified must be relative to arch/risc-v/include/litex/irq.
+		The file must redefine any symbols which are intended to be overridden.
+
+endif
+
+config LITEX_GPIO
+	bool "GPIO"
+	default n
+	---help---
+		Select if gateware configuration has a GPIO interface available.
+
+
+if LITEX_GPIO
+
+config LITEX_GPIO_IRQ
+	bool "Enable GPIO IRQ"
+	default n
+	---help---
+		Select if gateware configuration has support for GPIO IRQ events.
+
+endif
 
 config LITEX_HAVE_UART0
 	bool
@@ -37,9 +105,13 @@ config LITEX_SDIO
 
 config LITEX_SDIO1
 	bool "Enable SDIO1"
-	default y if LITEX_SDIO
+	default LITEX_SDIO
 	select LITEX_SDIO_DMA
 	depends on LITEX_SDIO
+
+config LITEX_PWM
+	bool "Enable PWM controller"
+	default n
 
 if LITEX_SDIO1
 
@@ -83,3 +155,32 @@ config LITEX_EMAC_PHYADDR
 		The 5-bit address of the PHY on the board.  Default: 1
 
 endmenu # PHY interface
+
+menu "LITEX MMU options"
+	depends on ARCH_USE_MMU
+
+config LITEX_MMU_IO_BASE
+	hex "IO base address."
+	default 0x80000000
+	---help---
+		The base address for the IO MMU mapping.
+
+config LITEX_MMU_IO_SIZE
+	hex "IO base address."
+	default 0x7F000000
+	---help---
+		The size for the IO MMU mapping.
+
+config LITEX_MMU_L1_SIZE
+	int "L1 page table size."
+	default 1024
+	---help---
+		The size of the L1 page table. Each entry in the page table represents a 4MB L1 page.
+
+config LITEX_MMU_L2_SIZE
+	int "L2 page table size."
+	default 4096
+	---help---
+		The size of the L2 page table. Each entry in the page table represents a 4kB L1 page.
+
+endmenu # LITEX MMU options

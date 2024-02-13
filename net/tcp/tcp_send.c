@@ -63,16 +63,6 @@
 #include "utils/utils.h"
 
 /****************************************************************************
- * Pre-processor Definitions
- ****************************************************************************/
-
-#define IPv4BUF    ((FAR struct ipv4_hdr_s *)&dev->d_buf[NET_LL_HDRLEN(dev)])
-#define IPv6BUF    ((FAR struct ipv6_hdr_s *)&dev->d_buf[NET_LL_HDRLEN(dev)])
-
-#define TCPIPv4BUF ((FAR struct tcp_hdr_s *)&dev->d_buf[NET_LL_HDRLEN(dev) + IPv4_HDRLEN])
-#define TCPIPv6BUF ((FAR struct tcp_hdr_s *)&dev->d_buf[NET_LL_HDRLEN(dev) + IPv6_HDRLEN])
-
-/****************************************************************************
  * Private Functions
  ****************************************************************************/
 
@@ -112,184 +102,6 @@ static inline FAR struct tcp_hdr_s *tcp_header(FAR struct net_driver_s *dev)
 }
 
 /****************************************************************************
- * Name: tcp_sendcomplete, tcp_ipv4_sendcomplete, and tcp_ipv6_sendcomplete
- *
- * Description:
- *   Complete the final portions of the send operation.  This function sets
- *   up IP header and computes the TCP checksum
- *
- * Input Parameters:
- *   dev - The device driver structure to use in the send operation
- *
- * Returned Value:
- *   None
- *
- * Assumptions:
- *   Called with the network locked.
- *
- ****************************************************************************/
-
-#ifdef CONFIG_NET_IPv4
-static inline void tcp_ipv4_sendcomplete(FAR struct net_driver_s *dev,
-                                         FAR struct tcp_hdr_s *tcp,
-                                         FAR struct ipv4_hdr_s *ipv4)
-{
-  /* Set up some IP header fields that are needed for TCP checksum
-   * calculation.
-   */
-
-  ipv4->proto       = IP_PROTO_TCP;
-  ipv4->ttl         = IP_TTL_DEFAULT;
-  ipv4->vhl         = 0x45;
-
-  /* At this point the TCP header holds the size of the payload, the
-   * TCP header, and the IP header.
-   */
-
-  ipv4->len[0]      = (dev->d_len >> 8);
-  ipv4->len[1]      = (dev->d_len & 0xff);
-
-  /* Calculate TCP checksum. */
-
-  tcp->urgp[0]      = 0;
-  tcp->urgp[1]      = 0;
-
-  tcp->tcpchksum    = 0;
-  tcp->tcpchksum    = ~tcp_ipv4_chksum(dev);
-
-  /* Finish initializing the IP header and calculate the IP checksum */
-
-  ipv4->vhl         = 0x45;
-  ipv4->tos         = 0;
-  ipv4->ipoffset[0] = 0;
-  ipv4->ipoffset[1] = 0;
-  ++g_ipid;
-  ipv4->ipid[0]     = g_ipid >> 8;
-  ipv4->ipid[1]     = g_ipid & 0xff;
-
-  /* Calculate IP checksum. */
-
-  ipv4->ipchksum    = 0;
-  ipv4->ipchksum    = ~ipv4_chksum(dev);
-
-  ninfo("IPv4 length: %d\n", ((int)ipv4->len[0] << 8) + ipv4->len[1]);
-
-#ifdef CONFIG_NET_STATISTICS
-  g_netstats.ipv4.sent++;
-#endif
-}
-#endif /* CONFIG_NET_IPv4 */
-
-/****************************************************************************
- * Name: tcp_ipv6_sendcomplete
- *
- * Description:
- *   Complete the final portions of the send operation.  This function sets
- *   up IP header and computes the TCP checksum
- *
- * Input Parameters:
- *   dev - The device driver structure to use in the send operation
- *
- * Returned Value:
- *   None
- *
- * Assumptions:
- *   Called with the network locked.
- *
- ****************************************************************************/
-
-#ifdef CONFIG_NET_IPv6
-static inline void tcp_ipv6_sendcomplete(FAR struct net_driver_s *dev,
-                                         FAR struct tcp_hdr_s *tcp,
-                                         FAR struct ipv6_hdr_s *ipv6)
-{
-  uint16_t iplen;
-
-  /* Set up some IP header fields that are needed for TCP checksum
-   * calculation.
-   */
-
-  ipv6->proto     = IP_PROTO_TCP;
-  ipv6->ttl       = IP_TTL_DEFAULT;
-
-  /* At this point the TCP header holds the size of the payload, the
-   * TCP header, and the IP header.  For IPv6, the IP length field does
-   * not include the size of IPv6 IP header length.
-   */
-
-  iplen           = dev->d_len - IPv6_HDRLEN;
-  ipv6->len[0]    = (iplen >> 8);
-  ipv6->len[1]    = (iplen & 0xff);
-
-  /* Calculate TCP checksum. */
-
-  tcp->urgp[0]     = 0;
-  tcp->urgp[1]     = 0;
-
-  tcp->tcpchksum   = 0;
-  tcp->tcpchksum   = ~tcp_ipv6_chksum(dev);
-
-  /* Finish initializing the IP header (no IPv6 checksum) */
-
-  ipv6->vtc    = 0x60;
-  ipv6->tcf    = 0x00;
-  ipv6->flow   = 0x00;
-
-  ninfo("IPv6 length: %d\n", ((int)ipv6->len[0] << 8) + ipv6->len[1]);
-
-#ifdef CONFIG_NET_STATISTICS
-  g_netstats.ipv6.sent++;
-#endif
-}
-#endif /* CONFIG_NET_IPv6 */
-
-/****************************************************************************
- * Name: tcp_sendcomplete
- *
- * Description:
- *   Complete the final portions of the send operation.  This function sets
- *   up IP header and computes the TCP checksum
- *
- * Input Parameters:
- *   dev - The device driver structure to use in the send operation
- *
- * Returned Value:
- *   None
- *
- * Assumptions:
- *   Called with the network locked.
- *
- ****************************************************************************/
-
-static void tcp_sendcomplete(FAR struct net_driver_s *dev,
-                             FAR struct tcp_hdr_s *tcp)
-{
-#ifdef CONFIG_NET_IPv6
-#ifdef CONFIG_NET_IPv4
-  if (IFF_IS_IPv6(dev->d_flags))
-#endif
-    {
-      tcp_ipv6_sendcomplete(dev, tcp, IPv6BUF);
-    }
-#endif /* CONFIG_NET_IPv6 */
-
-#ifdef CONFIG_NET_IPv4
-#ifdef CONFIG_NET_IPv6
-  else
-#endif
-    {
-      tcp_ipv4_sendcomplete(dev, tcp, IPv4BUF);
-    }
-#endif /* CONFIG_NET_IPv4 */
-
-  ninfo("Outgoing TCP packet length: %d bytes\n", dev->d_len);
-
-#ifdef CONFIG_NET_STATISTICS
-  g_netstats.tcp.sent++;
-#endif
-}
-
-/****************************************************************************
  * Name: tcp_sendcommon
  *
  * Description:
@@ -313,32 +125,6 @@ static void tcp_sendcommon(FAR struct net_driver_s *dev,
                            FAR struct tcp_conn_s *conn,
                            FAR struct tcp_hdr_s *tcp)
 {
-  /* Copy the IP address into the IPv6 header */
-
-#ifdef CONFIG_NET_IPv6
-#ifdef CONFIG_NET_IPv4
-  if (IFF_IS_IPv6(dev->d_flags))
-#endif
-    {
-      FAR struct ipv6_hdr_s *ipv6 = IPv6BUF;
-
-      net_ipv6addr_hdrcopy(ipv6->srcipaddr, dev->d_ipv6addr);
-      net_ipv6addr_hdrcopy(ipv6->destipaddr, conn->u.ipv6.raddr);
-    }
-#endif /* CONFIG_NET_IPv6 */
-
-#ifdef CONFIG_NET_IPv4
-#ifdef CONFIG_NET_IPv6
-  else
-#endif
-    {
-      FAR struct ipv4_hdr_s *ipv4 = IPv4BUF;
-
-      net_ipv4addr_hdrcopy(ipv4->srcipaddr, &dev->d_ipaddr);
-      net_ipv4addr_hdrcopy(ipv4->destipaddr, &conn->u.ipv4.raddr);
-    }
-#endif /* CONFIG_NET_IPv4 */
-
   /* Set TCP sequence numbers and port numbers */
 
   memcpy(tcp->ackno, conn->rcvseq, 4);
@@ -379,9 +165,59 @@ static void tcp_sendcommon(FAR struct net_driver_s *dev,
       tcp->wnd[1] = recvwndo & 0xff;
     }
 
-  /* Finish the IP portion of the message and calculate checksums */
+  tcp->urgp[0] = 0;
+  tcp->urgp[1] = 0;
 
-  tcp_sendcomplete(dev, tcp);
+  /* Update device buffer length before setup the IP header */
+
+  iob_update_pktlen(dev->d_iob, dev->d_len, false);
+
+  /* Calculate chk & build L3 header */
+
+#ifdef CONFIG_NET_IPv6
+#ifdef CONFIG_NET_IPv4
+  if (IFF_IS_IPv6(dev->d_flags))
+#endif
+    {
+      ninfo("do IPv6 IP header build!\n");
+      ipv6_build_header(IPv6BUF, dev->d_len - IPv6_HDRLEN,
+                        IP_PROTO_TCP, dev->d_ipv6addr, conn->u.ipv6.raddr,
+                        conn->sconn.ttl, conn->sconn.s_tclass);
+
+      /* Calculate TCP checksum. */
+
+      tcp->tcpchksum = 0;
+      tcp->tcpchksum = ~tcp_ipv6_chksum(dev);
+#ifdef CONFIG_NET_STATISTICS
+      g_netstats.ipv6.sent++;
+#endif
+    }
+#endif /* CONFIG_NET_IPv6 */
+
+#ifdef CONFIG_NET_IPv4
+#ifdef CONFIG_NET_IPv6
+  else
+#endif
+    {
+      ninfo("do IPv4 IP header build!\n");
+      ipv4_build_header(IPv4BUF, dev->d_len, IP_PROTO_TCP,
+                        &dev->d_ipaddr, &conn->u.ipv4.raddr,
+                        conn->sconn.ttl, conn->sconn.s_tos, NULL);
+
+      /* Calculate TCP checksum. */
+
+      tcp->tcpchksum = 0;
+      tcp->tcpchksum = ~tcp_ipv4_chksum(dev);
+#ifdef CONFIG_NET_STATISTICS
+      g_netstats.ipv4.sent++;
+#endif
+    }
+#endif /* CONFIG_NET_IPv4 */
+
+  ninfo("Outgoing TCP packet length: %d bytes\n", dev->d_len);
+#ifdef CONFIG_NET_STATISTICS
+  g_netstats.tcp.sent++;
+#endif
 
 #if !defined(CONFIG_NET_TCP_WRITE_BUFFERS)
   if ((tcp->flags & (TCP_SYN | TCP_FIN)) != 0)
@@ -431,12 +267,80 @@ static void tcp_sendcommon(FAR struct net_driver_s *dev,
 void tcp_send(FAR struct net_driver_s *dev, FAR struct tcp_conn_s *conn,
               uint16_t flags, uint16_t len)
 {
-  FAR struct tcp_hdr_s *tcp = tcp_header(dev);
+  FAR struct tcp_hdr_s *tcp;
 
-  tcp->flags     = flags;
-  dev->d_len     = len;
-  tcp->tcpoffset = (TCP_HDRLEN / 4) << 4;
+  if (dev->d_iob == NULL)
+    {
+      return;
+    }
+
+  tcp        = tcp_header(dev);
+  tcp->flags = flags;
+  dev->d_len = len;
+
+#ifdef CONFIG_NET_TCP_SELECTIVE_ACK
+  if ((conn->flags & TCP_SACK) && (flags == TCP_ACK) && conn->nofosegs > 0)
+    {
+      int optlen = conn->nofosegs * sizeof(struct tcp_sack_s);
+      int i;
+
+      tcp->optdata[0] = TCP_OPT_NOOP;
+      tcp->optdata[1] = TCP_OPT_NOOP;
+      tcp->optdata[2] = TCP_OPT_SACK;
+      tcp->optdata[3] = TCP_OPT_SACK_PERM_LEN + optlen;
+
+      optlen += 4;
+
+      for (i = 0; i < conn->nofosegs; i++)
+        {
+          ninfo("TCP SACK [%d]"
+                "[%" PRIu32 " : %" PRIu32 " : %" PRIu32 "]\n", i,
+                conn->ofosegs[i].left, conn->ofosegs[i].right,
+                TCP_SEQ_SUB(conn->ofosegs[i].right, conn->ofosegs[i].left));
+          tcp_setsequence(&tcp->optdata[4 + i * 2 * sizeof(uint32_t)],
+                          conn->ofosegs[i].left);
+          tcp_setsequence(&tcp->optdata[4 + (i * 2 + 1) * sizeof(uint32_t)],
+                          conn->ofosegs[i].right);
+        }
+
+      dev->d_len += optlen;
+      tcp->tcpoffset = ((TCP_HDRLEN + optlen) / 4) << 4;
+    }
+  else
+#endif /* CONFIG_NET_TCP_SELECTIVE_ACK */
+    {
+      tcp->tcpoffset = (TCP_HDRLEN / 4) << 4;
+    }
+
   tcp_sendcommon(dev, conn, tcp);
+
+#if defined(CONFIG_NET_STATISTICS) && \
+    defined(CONFIG_NET_TCP_DEBUG_DROP_SEND)
+
+#pragma message \
+  "CONFIG_NET_TCP_DEBUG_DROP_SEND is selected, this is debug " \
+  "feature to drop the tcp send packet on the floor, " \
+  "please confirm the configuration again if you do not want " \
+  "debug the TCP stack."
+
+  /* Debug feature to drop the tcp received packet on the floor */
+
+  if ((flags & TCP_PSH) != 0)
+    {
+      if ((g_netstats.tcp.sent %
+          CONFIG_NET_TCP_DEBUG_DROP_SEND_PROBABILITY) == 0)
+        {
+          uint32_t seq = tcp_getsequence(tcp->seqno);
+
+          ninfo("TCP DROP SNDPKT: "
+                "[%d][%" PRIu32 " : %" PRIu32 " : %d]\n",
+                g_netstats.tcp.sent, seq, TCP_SEQ_ADD(seq, dev->d_sndlen),
+                dev->d_sndlen);
+
+          dev->d_len = 0;
+        }
+    }
+#endif
 }
 
 /****************************************************************************
@@ -456,19 +360,26 @@ void tcp_send(FAR struct net_driver_s *dev, FAR struct tcp_conn_s *conn,
  *
  ****************************************************************************/
 
-void tcp_reset(FAR struct net_driver_s *dev)
+void tcp_reset(FAR struct net_driver_s *dev, FAR struct tcp_conn_s *conn)
 {
-  FAR struct tcp_hdr_s *tcp = tcp_header(dev);
+  FAR struct tcp_hdr_s *tcp;
   uint32_t ackno;
   uint16_t tmp16;
   uint16_t acklen = 0;
   uint8_t seqbyte;
+
+  if (dev->d_iob == NULL)
+    {
+      return;
+    }
 
 #ifdef CONFIG_NET_STATISTICS
   g_netstats.tcp.rst++;
 #endif
 
   /* TCP setup */
+
+  tcp = tcp_header(dev);
 
   if ((tcp->flags & TCP_SYN) != 0 || (tcp->flags & TCP_FIN) != 0)
     {
@@ -481,7 +392,12 @@ void tcp_reset(FAR struct net_driver_s *dev)
 #endif
     {
       FAR struct ipv6_hdr_s *ip = IPv6BUF;
+
       acklen += (ip->len[0] << 8 | ip->len[1]);
+
+      /* Set the packet length to the size of the IPv6 + TCP headers */
+
+      dev->d_len = IPv6TCP_HDRLEN;
     }
 #endif /* CONFIG_NET_IPv6 */
 
@@ -491,7 +407,12 @@ void tcp_reset(FAR struct net_driver_s *dev)
 #endif
     {
       FAR struct ipv4_hdr_s *ip = IPv4BUF;
+
       acklen += (ip->len[0] << 8) + ip->len[1] - (ip->vhl & 0x0f) * 4;
+
+      /* Set the packet length to the size of the IPv4 + TCP headers */
+
+      dev->d_len = IPv4TCP_HDRLEN;
     }
 #endif /* CONFIG_NET_IPv4 */
 
@@ -534,14 +455,18 @@ void tcp_reset(FAR struct net_driver_s *dev)
   tcp->destport = tmp16;
 
   /* Initialize the rest of the tcp header to sane values.
-   *
-   * Note: urgp is set by tcp_ipv4_sendcomplete/tcp_ipv6_sendcomplete.
    */
 
   tcp->wnd[0] = 0;
   tcp->wnd[1] = 0;
+  tcp->urgp[0] = 0;
+  tcp->urgp[0] = 0;
 
-  /* Set the packet length and swap IP addresses. */
+  /* Update device buffer length before setup the IP header */
+
+  iob_update_pktlen(dev->d_iob, dev->d_len, false);
+
+  /* Calculate chk & build L3 header */
 
 #ifdef CONFIG_NET_IPv6
 #ifdef CONFIG_NET_IPv4
@@ -550,14 +475,12 @@ void tcp_reset(FAR struct net_driver_s *dev)
     {
       FAR struct ipv6_hdr_s *ipv6 = IPv6BUF;
 
-      /* Set the packet length to the size of the IPv6 + TCP headers */
-
-      dev->d_len = IPv6TCP_HDRLEN;
-
-      /* Swap IPv6 addresses */
-
-      net_ipv6addr_hdrcopy(ipv6->destipaddr, ipv6->srcipaddr);
-      net_ipv6addr_hdrcopy(ipv6->srcipaddr, dev->d_ipv6addr);
+      ipv6_build_header(ipv6, dev->d_len - IPv6_HDRLEN,
+                        IP_PROTO_TCP, dev->d_ipv6addr, ipv6->srcipaddr,
+                        conn ? conn->sconn.ttl : IP_TTL_DEFAULT,
+                        conn ? conn->sconn.s_tos : 0);
+      tcp->tcpchksum = 0;
+      tcp->tcpchksum = ~tcp_ipv6_chksum(dev);
     }
 #endif /* CONFIG_NET_IPv6 */
 
@@ -568,20 +491,15 @@ void tcp_reset(FAR struct net_driver_s *dev)
     {
       FAR struct ipv4_hdr_s *ipv4 = IPv4BUF;
 
-      /* Set the packet length to the size of the IPv4 + TCP headers */
+      ipv4_build_header(IPv4BUF, dev->d_len, IP_PROTO_TCP,
+                        &dev->d_ipaddr, (FAR in_addr_t *)ipv4->srcipaddr,
+                        conn ? conn->sconn.ttl : IP_TTL_DEFAULT,
+                        conn ? conn->sconn.s_tos : 0, NULL);
 
-      dev->d_len = IPv4TCP_HDRLEN;
-
-      /* Swap IPv4 addresses */
-
-      net_ipv4addr_hdrcopy(ipv4->destipaddr, ipv4->srcipaddr);
-      net_ipv4addr_hdrcopy(ipv4->srcipaddr, &dev->d_ipaddr);
+      tcp->tcpchksum = 0;
+      tcp->tcpchksum = ~tcp_ipv4_chksum(dev);
     }
 #endif /* CONFIG_NET_IPv4 */
-
-  /* And send out the RST packet */
-
-  tcp_sendcomplete(dev, tcp);
 }
 
 /****************************************************************************
@@ -653,43 +571,35 @@ void tcp_synack(FAR struct net_driver_s *dev, FAR struct tcp_conn_s *conn,
   uint16_t tcp_mss;
   int16_t optlen = 0;
 
-  /* Get values that vary with the underlying IP domain */
-
-#ifdef CONFIG_NET_IPv6
-#ifdef CONFIG_NET_IPv4
-  if (IFF_IS_IPv6(dev->d_flags))
-#endif
+  if (dev->d_iob == NULL)
     {
-      /* Get the offset TCP header address for this packet */
-
-      tcp     = TCPIPv6BUF;
-
-      /* Set the packet length for the TCP Maximum Segment Size */
-
-      dev->d_len  = IPv6TCP_HDRLEN;
+      return;
     }
-#endif /* CONFIG_NET_IPv6 */
 
-#ifdef CONFIG_NET_IPv4
-#ifdef CONFIG_NET_IPv6
+  /* Get the offset TCP header address for this packet */
+
+  tcp = tcp_header(dev);
+
+  /* Set the packet length for the TCP Maximum Segment Size */
+
+  dev->d_len = tcpip_hdrsize(conn);
+
+  /* Set the packet length for the TCP Maximum Segment Size */
+
+#ifdef CONFIG_NET_TCPPROTO_OPTIONS
+  if (conn->user_mss != 0 && conn->user_mss < tcp_rx_mss(dev))
+    {
+      tcp_mss = conn->user_mss;
+    }
   else
 #endif
     {
-      /* Get the offset TCP header address for this packet */
-
-      tcp     = TCPIPv4BUF;
-
-      /* Set the packet length for the TCP Maximum Segment Size */
-
-      dev->d_len  = IPv4TCP_HDRLEN;
+      tcp_mss = tcp_rx_mss(dev);
     }
-#endif /* CONFIG_NET_IPv4 */
-
-  tcp_mss = tcp_rx_mss(dev);
 
   /* Save the ACK bits */
 
-  tcp->flags      = ack;
+  tcp->flags = ack;
 
   /* We send out the TCP Maximum Segment Size option with our ACK. */
 
@@ -706,6 +616,17 @@ void tcp_synack(FAR struct net_driver_s *dev, FAR struct tcp_conn_s *conn,
       tcp->optdata[optlen++] = TCP_OPT_WS;
       tcp->optdata[optlen++] = TCP_OPT_WS_LEN;
       tcp->optdata[optlen++] = CONFIG_NET_TCP_WINDOW_SCALE_FACTOR;
+    }
+#endif
+
+#ifdef CONFIG_NET_TCP_SELECTIVE_ACK
+  if (tcp->flags == TCP_SYN ||
+      ((tcp->flags == (TCP_ACK | TCP_SYN)) && (conn->flags & TCP_SACK)))
+    {
+      tcp->optdata[optlen++] = TCP_OPT_NOOP;
+      tcp->optdata[optlen++] = TCP_OPT_NOOP;
+      tcp->optdata[optlen++] = TCP_OPT_SACK_PERM;
+      tcp->optdata[optlen++] = TCP_OPT_SACK_PERM_LEN;
     }
 #endif
 
@@ -762,6 +683,46 @@ void tcp_send_txnotify(FAR struct socket *psock,
       netdev_ipv6_txnotify(conn->u.ipv6.laddr, conn->u.ipv6.raddr);
     }
 #endif /* CONFIG_NET_IPv6 */
+}
+
+/****************************************************************************
+ * Name: tcpip_hdrsize
+ *
+ * Description:
+ *   Get the total size of L3 and L4 TCP header
+ *
+ * Input Parameters:
+ *   conn     The connection structure associated with the socket
+ *
+ * Returned Value:
+ *   the total size of L3 and L4 TCP header
+ *
+ ****************************************************************************/
+
+uint16_t tcpip_hdrsize(FAR struct tcp_conn_s *conn)
+{
+  uint16_t hdrsize = sizeof(struct tcp_hdr_s);
+
+#if defined(CONFIG_NET_IPv4) && defined(CONFIG_NET_IPv6)
+  if (conn->domain == PF_INET)
+    {
+      /* Select the IPv4 domain */
+
+      return sizeof(struct ipv4_hdr_s) + hdrsize;
+    }
+  else /* if (domain == PF_INET6) */
+    {
+      /* Select the IPv6 domain */
+
+      return sizeof(struct ipv6_hdr_s) + hdrsize;
+    }
+#elif defined(CONFIG_NET_IPv4)
+  ((void)conn);
+  return sizeof(struct ipv4_hdr_s) + hdrsize;
+#elif defined(CONFIG_NET_IPv6)
+  ((void)conn);
+  return sizeof(struct ipv6_hdr_s) + hdrsize;
+#endif
 }
 
 #endif /* CONFIG_NET && CONFIG_NET_TCP */

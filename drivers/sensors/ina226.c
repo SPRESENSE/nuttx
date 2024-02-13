@@ -97,12 +97,6 @@ static const struct file_operations g_ina226fops =
   ina226_close,    /* close */
   ina226_read,     /* read */
   ina226_write,    /* write */
-  NULL,            /* seek */
-  NULL,            /* ioctl */
-  NULL             /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL           /* unlink */
-#endif
 };
 
 /****************************************************************************
@@ -350,7 +344,7 @@ int ina226_register(FAR const char *devpath, FAR struct i2c_master_s *i2c,
 
   /* Initialize the ina226 device structure */
 
-  priv = (FAR struct ina226_dev_s *)kmm_malloc(sizeof(struct ina226_dev_s));
+  priv = kmm_malloc(sizeof(struct ina226_dev_s));
   if (priv == NULL)
     {
       snerr("ERROR: Failed to allocate instance\n");

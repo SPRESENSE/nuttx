@@ -22,9 +22,9 @@
 
 ARCH_SRCDIR = $(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src
 
-INCLUDES += ${shell $(INCDIR) "$(CC)" $(ARCH_SRCDIR)}
-INCLUDES += ${shell $(INCDIR) "$(CC)" $(ARCH_SRCDIR)$(DELIM)chip}
-INCLUDES += ${shell $(INCDIR) "$(CC)" $(TOPDIR)$(DELIM)sched}
+INCLUDES += ${INCDIR_PREFIX}$(ARCH_SRCDIR)
+INCLUDES += ${INCDIR_PREFIX}$(ARCH_SRCDIR)$(DELIM)chip
+INCLUDES += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)sched
 
 CPPFLAGS += $(INCLUDES)
 CFLAGS += $(INCLUDES)
@@ -34,177 +34,215 @@ AFLAGS += $(INCLUDES)
 NUTTX = $(call CONVERT_PATH,$(TOPDIR)$(DELIM)nuttx$(EXEEXT))
 
 # Determine which objects are required in the link.The
-# up_head object normally draws in all that is needed, but
+# sim_head object normally draws in all that is needed, but
 # there are a fews that must be included because they
 # are called only from the host OS-specific logic(HOSTOBJS)
 
-LINKOBJS = up_head$(OBJEXT)
-REQUIREDOBJS = $(LINKOBJS)
+LINKOBJS = sim_head$(OBJEXT)
+REQUIREDOBJS = $(LINKOBJS) sim_doirq$(OBJEXT)
+ifeq ($(CONFIG_SIM_NETUSRSOCK),y)
+  REQUIREDOBJS += sim_usrsock$(OBJEXT)
+endif
 
 ifeq ($(CONFIG_HOST_X86_64),y)
 ifeq ($(CONFIG_SIM_M32),y)
-  ASRCS += up_vfork_x86.S
+  ASRCS += sim_fork_x86.S
 else
-  ASRCS += up_vfork_x86_64.S
+  ASRCS += sim_fork_x86_64.S
 endif
 else ifeq ($(CONFIG_HOST_X86),y)
-  ASRCS += up_vfork_x86.S
+  ASRCS += sim_fork_x86.S
 else ifeq ($(CONFIG_HOST_ARM),y)
-  ASRCS += up_vfork_arm.S
+  ASRCS += sim_fork_arm.S
 else ifeq ($(CONFIG_HOST_ARM64),y)
-  ASRCS += up_vfork_arm64.S
+  ASRCS += sim_fork_arm64.S
 endif
 
 AOBJS = $(ASRCS:.S=$(OBJEXT))
 
-CSRCS  = up_initialize.c up_idle.c up_interruptcontext.c up_initialstate.c
-CSRCS += up_createstack.c up_usestack.c up_releasestack.c up_stackframe.c
-CSRCS += up_unblocktask.c up_blocktask.c up_releasepending.c
-CSRCS += up_reprioritizertr.c up_exit.c up_schedulesigaction.c
-CSRCS += up_heap.c up_uart.c up_assert.c up_nputs.c
-CSRCS += up_copyfullstate.c
-CSRCS += up_sigdeliver.c
+CSRCS  = sim_initialize.c sim_idle.c sim_doirq.c sim_initialstate.c
+CSRCS += sim_createstack.c sim_usestack.c sim_releasestack.c sim_stackframe.c
+CSRCS += sim_exit.c sim_schedulesigaction.c sim_switchcontext.c sim_heap.c
+CSRCS += sim_uart.c sim_copyfullstate.c sim_sigdeliver.c sim_tcbinfo.c sim_cpuinfo.c
+CSRCS += sim_registerdump.c sim_saveusercontext.c sim_textheap.c
 
 ifeq ($(CONFIG_SCHED_BACKTRACE),y)
-CSRCS += up_backtrace.c
+CSRCS += sim_backtrace.c
 endif
 
-ifeq ($(CONFIG_ARCH_HAVE_VFORK),y)
-ifeq ($(CONFIG_SCHED_WAITPID),y)
-CSRCS += up_vfork.c
-endif
+ifeq ($(CONFIG_ARCH_HAVE_FORK),y)
+CSRCS += sim_fork.c
 endif
 
-VPATH = sim
+VPATH = :sim
+ifeq ($(CONFIG_WINDOWS_NATIVE),y)
+  VPATH += :sim/win
+else
+  VPATH += :sim/posix
+endif
 DEPPATH = $(patsubst %,--dep-path %,$(subst :, ,$(VPATH)))
 
+CFLAGS += -fvisibility=default
 HOSTCFLAGS = $(ARCHWARNINGS) $(ARCHOPTIMIZATION) \
-   $(ARCHCFLAGS) $(HOSTINCLUDES) $(EXTRAFLAGS) -D__SIM__ -pipe
+   $(ARCHCFLAGS) $(HOSTINCLUDES) $(EXTRAFLAGS) -D__SIM__ -pipe \
+   -fvisibility=default
 
-HOSTCFLAGS += ${shell $(INCDIR) "$(CC)" $(ARCH_SRCDIR)}
+HOSTCFLAGS += ${INCDIR_PREFIX}$(ARCH_SRCDIR)
+HOSTCFLAGS += ${INCDIR_PREFIX}$(ARCH_SRCDIR)$(DELIM)chip
 ifeq ($(CONFIG_HOST_MACOS),y)
   HOSTCFLAGS += -Wno-deprecated-declarations
 endif
 
-HOSTSRCS = up_hostirq.c up_hostmemory.c up_hosttime.c up_simuart.c up_hostmisc.c
-STDLIBS += -lpthread
-ifeq ($(CONFIG_HOST_MACOS),y)
-ifeq ($(CONFIG_HAVE_CXXINITIALIZE),y)
-  # Note: up_macho_init.c is not in CSRCS because it's picky about
-  # the place in the object list for linking. Namely, its constructor
-  # should be the first one in the executable.
-  HEADSRC = up_macho_init.c
-endif
-else
-  STDLIBS += -lrt
+ifeq ($(CONFIG_FS_LARGEFILE),y)
+  HOSTCFLAGS += -D_FILE_OFFSET_BITS=64
 endif
 
-ifeq ($(CONFIG_STACK_COLORATION),y)
-  CSRCS += up_checkstack.c
-endif
-
-ifeq ($(CONFIG_SPINLOCK),y)
-  HOSTSRCS += up_testset.c
-endif
-
-ifeq ($(CONFIG_SMP),y)
-  CSRCS += up_smpsignal.c up_cpuidlestack.c
-  REQUIREDOBJS += up_smpsignal$(OBJEXT)
-  HOSTSRCS += up_simsmp.c
-endif
-
-ifeq ($(CONFIG_ONESHOT),y)
-  CSRCS += up_oneshot.c
-endif
-
-ifeq ($(CONFIG_RTC_DRIVER),y)
-  CSRCS += up_rtc.c
-endif
-
-ifeq ($(CONFIG_SIM_LCDDRIVER),y)
-  CSRCS += up_lcd.c
-else ifeq ($(CONFIG_SIM_FRAMEBUFFER),y)
-  CSRCS += up_framebuffer.c
-endif
-
-ifeq ($(CONFIG_SIM_X11FB),y)
-  HOSTSRCS += up_x11framebuffer.c
-  STDLIBS += -lX11 -lXext
-ifeq ($(CONFIG_SIM_TOUCHSCREEN),y)
-  CSRCS += up_touchscreen.c
-  REQUIREDOBJS += up_touchscreen$(OBJEXT)
-  HOSTSRCS += up_x11eventloop.c
-else ifeq ($(CONFIG_SIM_AJOYSTICK),y)
-  CSRCS += up_ajoystick.c
-  HOSTSRCS += up_x11eventloop.c
-else ifeq ($(CONFIG_SIM_BUTTONS),y)
-  HOSTSRCS += up_x11eventloop.c
-endif
-
-ifeq ($(CONFIG_SIM_KEYBOARD),y)
-  CSRCS += up_keyboard.c
-endif
-endif
-
-ifeq ($(CONFIG_FS_FAT),y)
-  CSRCS += up_blockdevice.c up_deviceimage.c
-  STDLIBS += -lz
-endif
-
-ifeq ($(CONFIG_ARCH_ROMGETC),y)
-  CSRCS += up_romgetc.c
-endif
-
-ifeq ($(CONFIG_SIM_NETDEV_TAP),y)
-  CSRCS += up_netdriver.c
-ifneq ($(CONFIG_WINDOWS_CYGWIN),y)
-  HOSTSRCS += up_tapdev.c
-else # CONFIG_WINDOWS_CYGWIN != y
-  HOSTSRCS += up_wpcap.c
-  STDLIBS = /lib/w32api/libws2_32.a /lib/w32api/libiphlpapi.a
-endif # CONFIG_WINDOWS_CYGWIN != y
-else ifeq ($(CONFIG_SIM_NETDEV_VPNKIT),y)
-  CSRCS += up_netdriver.c
-  HOSTSRCS += up_vpnkit.c
-  VPATH += :sim/vpnkit
-  HOSTSRCS += protocol.c negotiate.c
-endif
-
-ifeq ($(CONFIG_SIM_NETUSRSOCK),y)
-  HOSTSRCS += up_usrsock_host.c
-  CSRCS += up_usrsock.c
-endif
-
-ifeq ($(CONFIG_SIM_HCISOCKET),y)
-  HOSTSRCS += up_hcisocket_host.c
-  CSRCS += up_hcisocket.c
-endif
-
-ifeq ($(CONFIG_SIM_I2CBUS_LINUX),y)
-  HOSTSRCS += up_i2cbuslinux.c
-endif
-
-ifeq ($(CONFIG_SIM_SPI_LINUX),y)
-  HOSTSRCS += up_spilinux.c
-endif
-
-ifeq ($(CONFIG_RPTUN),y)
-  CSRCS += up_rptun.c
-endif
-
-ifeq ($(CONFIG_SIM_SOUND_ALSA),y)
-  CSRCS += up_alsa.c
-  STDLIBS += -lasound
-endif
-
-ifeq ($(CONFIG_SIM_HOSTFS),y)
-  HOSTSRCS += up_hostfs.c
+HOSTSRCS  = sim_hostirq.c sim_hostmemory.c sim_hostmisc.c sim_hosttime.c sim_hostuart.c
+HOSTSRCS += sim_hostfs.c
 
 hostfs.h: $(TOPDIR)/include/nuttx/fs/hostfs.h
 	@echo "CP:  $<"
 	$(Q) cp $< $@
 
-up_hostfs.c: hostfs.h
+sim_hostfs.c: hostfs.h
+
+STDLIBS += -lpthread
+ifeq ($(CONFIG_HOST_MACOS),y)
+ifeq ($(CONFIG_HAVE_CXXINITIALIZE),y)
+  # Note: sim_macho_init.c is not in CSRCS because it's picky about
+  # the place in the object list for linking. Namely, its constructor
+  # should be the first one in the executable.
+  HEADSRC = sim_macho_init.c
+endif
+else
+  STDLIBS += -lrt
+endif
+
+ifeq ($(CONFIG_LIBM_TOOLCHAIN),y)
+  STDLIBS += -lm
+endif
+
+ifeq ($(CONFIG_ARCH_COVERAGE),y)
+  STDLIBS += -lgcov
+endif
+
+ifeq ($(CONFIG_STACK_COLORATION),y)
+  CSRCS += sim_checkstack.c
+endif
+
+ifeq ($(CONFIG_SPINLOCK),y)
+  HOSTSRCS += sim_testset.c
+endif
+
+ifeq ($(CONFIG_SMP),y)
+  CSRCS += sim_smpsignal.c sim_cpuidlestack.c
+  HOSTSRCS += sim_hostsmp.c
+endif
+
+ifeq ($(CONFIG_ONESHOT),y)
+  CSRCS += sim_oneshot.c
+endif
+
+ifeq ($(CONFIG_RTC_DRIVER),y)
+  CSRCS += sim_rtc.c
+endif
+
+ifeq ($(CONFIG_SIM_LCDDRIVER),y)
+  CSRCS += sim_lcd.c
+else ifeq ($(CONFIG_SIM_FRAMEBUFFER),y)
+  CSRCS += sim_framebuffer.c
+endif
+
+ifeq ($(CONFIG_SIM_X11FB),y)
+  HOSTSRCS += sim_x11framebuffer.c
+ifeq ($(CONFIG_HOST_MACOS),y)
+  STDLIBS += -L/opt/X11/lib
+endif
+  STDLIBS += -lX11 -lXext
+ifeq ($(CONFIG_SIM_TOUCHSCREEN),y)
+  CSRCS += sim_touchscreen.c
+  HOSTSRCS += sim_x11eventloop.c
+else ifeq ($(CONFIG_SIM_AJOYSTICK),y)
+  CSRCS += sim_ajoystick.c
+  HOSTSRCS += sim_x11eventloop.c
+else ifeq ($(CONFIG_SIM_BUTTONS),y)
+  HOSTSRCS += sim_x11eventloop.c
+endif
+
+ifeq ($(CONFIG_SIM_KEYBOARD),y)
+  CSRCS += sim_keyboard.c
+endif
+endif
+
+ifeq ($(CONFIG_FS_FAT),y)
+  CSRCS += sim_blockdevice.c sim_deviceimage.c
+  STDLIBS += -lz
+endif
+
+ifeq ($(CONFIG_SIM_NETDEV_TAP),y)
+  CSRCS += sim_netdriver.c
+ifneq ($(CONFIG_WINDOWS_CYGWIN),y)
+  HOSTSRCS += sim_tapdev.c
+else # CONFIG_WINDOWS_CYGWIN != y
+  HOSTSRCS += sim_wpcap.c
+  STDLIBS = /lib/w32api/libws2_32.a /lib/w32api/libiphlpapi.a
+endif # CONFIG_WINDOWS_CYGWIN != y
+else ifeq ($(CONFIG_SIM_NETDEV_VPNKIT),y)
+  CSRCS += sim_netdriver.c
+  HOSTSRCS += sim_vpnkit.c
+  VPATH += :sim/posix/vpnkit
+  HOSTSRCS += sim_protocol.c sim_negotiate.c
+endif
+
+ifeq ($(CONFIG_SIM_NETUSRSOCK),y)
+  HOSTSRCS += sim_hostusrsock.c
+  CSRCS += sim_usrsock.c
+endif
+
+ifeq ($(CONFIG_SIM_HCISOCKET),y)
+  HOSTSRCS += sim_hosthcisocket.c
+  CSRCS += sim_hcisocket.c
+endif
+
+ifeq ($(CONFIG_SIM_I2CBUS_LINUX),y)
+  HOSTSRCS += sim_linuxi2c.c
+endif
+
+ifeq ($(CONFIG_SIM_SPI_LINUX),y)
+  HOSTSRCS += sim_linuxspi.c
+endif
+
+ifeq ($(CONFIG_SIM_USB_DEV),y)
+  CSRCS += sim_usbdev.c
+ifeq ($(CONFIG_SIM_USB_RAW_GADGET),y)
+  HOSTSRCS += sim_rawgadget.c
+endif
+endif
+
+ifeq ($(CONFIG_SIM_USB_HOST),y)
+  CSRCS += sim_usbhost.c
+ifeq ($(CONFIG_SIM_LIBUSB),y)
+  HOSTSRCS += sim_libusb.c
+  STDLIBS += -lusb-1.0
+endif
+endif
+
+ifeq ($(CONFIG_RPTUN),y)
+  CSRCS += sim_rptun.c
+endif
+
+ifeq ($(CONFIG_SIM_SOUND_ALSA),y)
+  CSRCS += sim_alsa.c
+  CSRCS += sim_offload.c
+  STDLIBS += -lasound
+  STDLIBS += -lmad
+  STDLIBS += -lmp3lame
+endif
+
+ifeq ($(CONFIG_SIM_CAMERA_V4L2),y)
+  HOSTSRCS += sim_host_v4l2.c
+  CSRCS += sim_camera.c
+  STDLIBS += -lv4l2
 endif
 
 COBJS = $(CSRCS:.c=$(OBJEXT))
@@ -215,6 +253,20 @@ HEADOBJ = $(HEADSRC:.c=$(OBJEXT))
 
 SRCS = $(ASRCS) $(CSRCS) $(HOSTSRCS)
 OBJS = $(AOBJS) $(COBJS) $(HOSTOBJS)
+
+$(foreach lib,$(notdir $(wildcard $(APPDIR)$(DELIM)staging$(DELIM)*$(LIBEXT))), \
+  $(foreach elib,$(EXTRA_LIBS), \
+    $(if $(filter $(notdir $(elib)),$(lib)), \
+      $(eval NAMEFULL_LIBS+=$(elib)), \
+      $(if $(filter $(notdir $(elib)),$(patsubst lib%$(LIBEXT),-l%,$(lib))), \
+        $(eval NAMESPEC_LIBS+=$(elib)) \
+       ) \
+     ) \
+   ) \
+ )
+
+EXTRA_LIBS := $(filter-out $(NAMEFULL_LIBS) $(NAMESPEC_LIBS),$(EXTRA_LIBS))
+EXTRA_LIBS += $(wildcard $(APPDIR)$(DELIM)staging$(DELIM)*$(LIBEXT))
 
 # Override in Make.defs if linker is not 'ld'
 
@@ -245,9 +297,9 @@ RELLIBS += -lboard
 
 # Make targets begin here
 
-all: up_head$(OBJEXT) libarch$(LIBEXT)
+all: sim_head$(OBJEXT) libarch$(LIBEXT)
 
-.PHONY: export_startup clean distclean cleanrel depend
+.PHONY: export_startup clean distclean cleanrel depend board/libboard$(LIBEXT)
 
 $(AOBJS): %$(OBJEXT): %.S
 	$(call ASSEMBLE, $<, $@)
@@ -256,8 +308,9 @@ $(COBJS) $(LINKOBJS): %$(OBJEXT): %.c
 	$(call COMPILE, $<, $@)
 
 $(HOSTOBJS) $(HEADOBJ): %$(OBJEXT): %.c
-	$(Q) echo "CC:  $<"
+	$(Q) $(ECHO_BEGIN)"CC:  $<"
 	$(Q) "$(CC)" -c $(HOSTCFLAGS) $< -o $@
+	$(Q) $(ECHO_END)
 
 # The architecture-specific library
 
@@ -294,8 +347,10 @@ nuttx-names.dat: nuttx-names.in
 	$(call PREPROCESS, nuttx-names.in, nuttx-names.dat)
 
 define LINK_ALLSYMS
-	$(Q) $(TOPDIR)/tools/mkallsyms.sh noconst $(NUTTX) $(CROSSDEV) > allsyms.tmp
-	$(Q) $(call COMPILE, -x c allsyms.tmp, allsyms$(OBJEXT))
+	$(if $(CONFIG_HOST_MACOS), \
+	$(Q) $(TOPDIR)/tools/mkallsyms.sh noconst $(NUTTX) $(CROSSDEV) > allsyms.tmp, \
+	$(Q) $(TOPDIR)/tools/mkallsyms.py $(NUTTX) allsyms.tmp)
+	$(Q) $(call COMPILE, allsyms.tmp, allsyms$(OBJEXT), -x c)
 	$(if $(CONFIG_HAVE_CXX),\
 	$(Q) "$(CXX)" $(CFLAGS) $(LDFLAGS) -o $(NUTTX) \
 	      $(HEADOBJ) nuttx.rel $(HOSTOBJS) $(STDLIBS) allsyms$(OBJEXT),\
@@ -340,8 +395,8 @@ endif
 
 # This is part of the top-level export target
 
-export_startup: up_head.o $(HOSTOBJS) nuttx-names.dat
-	cp up_head.o $(HOSTOBJS) ${EXPORT_DIR}/startup
+export_startup: sim_head.o $(HOSTOBJS) nuttx-names.dat
+	cp sim_head.o $(HOSTOBJS) ${EXPORT_DIR}/startup
 	cp nuttx-names.dat ${EXPORT_DIR}/libs
 
 # Dependencies

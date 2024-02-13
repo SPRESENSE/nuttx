@@ -29,6 +29,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
+#include <sys/param.h>
 #include <assert.h>
 #include <debug.h>
 #include <errno.h>
@@ -211,10 +212,6 @@
 #define SDIO_OCR_NUM_FUNCTIONS(ocr) (((ocr) >> 28) & 0x7)
 #define SDIO_FUNC_NUM_MAX       (7)
 
-#ifndef MIN
-#  define MIN(a, b) ((a) < (b) ? (a) : (b))
-#endif
-
 #define SDIO_BLOCK_TIMEOUT      200
 #define SDIO_BLOCK_SIZE         512
 
@@ -261,8 +258,8 @@ struct cxd56_sdiodev_s
   bool usedma;
   bool dmasend_prepare;
   size_t   receive_size;
-  uint8_t  *aligned_buffer;           /* Used to buffer alignment */
-  uint8_t  *receive_buffer;           /* Used to keep receive buffer address */
+  uint8_t *aligned_buffer;            /* Used to buffer alignment */
+  uint8_t *receive_buffer;            /* Used to keep receive buffer address */
   uint32_t dma_cmd;
   uint32_t dmasend_cmd;
   uint32_t dmasend_regcmd;
@@ -308,8 +305,6 @@ struct cxd56_sdhcregs_s
 
 /* Low-level helpers ********************************************************/
 
-static int  cxd56_takesem(struct cxd56_sdiodev_s *priv);
-#define     cxd56_givesem(priv) (nxsem_post(&(priv)->waitsem))
 static void cxd56_configwaitints(struct cxd56_sdiodev_s *priv,
               uint32_t waitints, sdio_eventset_t waitevents,
               sdio_eventset_t wkupevents);
@@ -466,6 +461,7 @@ struct cxd56_sdiodev_s g_sdhcdev =
       .dmasendsetup     = cxd56_sdio_sendsetup,
 #endif
     },
+  .waitsem = SEM_INITIALIZER(0),
 };
 
 /* Register logging support */
@@ -483,27 +479,6 @@ static uint32_t cxd56_sdhci_adma_dscr[CXD56_SDIO_MAX_LEN_ADMA_DSCR * 2];
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
-
-/****************************************************************************
- * Name: cxd56_takesem
- *
- * Description:
- *   Take the wait semaphore (handling false alarm wakeups due to the receipt
- *   of signals).
- *
- * Input Parameters:
- *   dev - Instance of the SDIO device driver state structure.
- *
- * Returned Value:
- *   Normally OK, but may return -ECANCELED in the rare event that the task
- *   has been canceled.
- *
- ****************************************************************************/
-
-static int cxd56_takesem(struct cxd56_sdiodev_s *priv)
-{
-  return nxsem_wait_uninterruptible(&priv->waitsem);
-}
 
 /****************************************************************************
  * Name: cxd56_configwaitints
@@ -1006,7 +981,7 @@ static void cxd56_endwait(struct cxd56_sdiodev_s *priv,
 
   /* Wake up the waiting thread */
 
-  cxd56_givesem(priv);
+  nxsem_post(&priv->waitsem);
 }
 
 /****************************************************************************
@@ -1337,16 +1312,6 @@ static void cxd56_sdio_sdhci_reset(struct sdio_dev_s *dev)
          getreg32(CXD56_SDHCI_IRQSTATEN));
 
   /* Initialize the SDHC slot structure data structure */
-
-  /* Initialize semaphores */
-
-  nxsem_init(&priv->waitsem, 0, 0);
-
-  /* The waitsem semaphore is used for signaling and, hence, should not have
-   * priority inheritance enabled.
-   */
-
-  nxsem_set_protocol(&priv->waitsem, SEM_PRIO_NONE);
 
   /* The next phase of the hardware reset would be to set the SYSCTRL INITA
    * bit to send 80 clock ticks for card to power up and then reset the card
@@ -2599,7 +2564,7 @@ static sdio_eventset_t cxd56_sdio_eventwait(struct sdio_dev_s *dev)
        * there will be no wait.
        */
 
-      ret = cxd56_takesem(priv);
+      ret = nxsem_wait_uninterruptible(&priv->waitsem);
       if (ret < 0)
         {
           /* Task canceled.  Cancel the wdog (assuming it was started) and
@@ -2641,7 +2606,7 @@ static sdio_eventset_t cxd56_sdio_eventwait(struct sdio_dev_s *dev)
 
   cxd56_configwaitints(priv, 0, 0, 0);
 #ifdef CONFIG_SDIO_DMA
-  priv->xfrflags   = 0;
+  priv->xfrflags = 0;
   if (priv->aligned_buffer)
     {
       if (priv->dma_cmd == MMCSD_CMD17 || priv->dma_cmd == MMCSD_CMD18)
@@ -2655,7 +2620,6 @@ static sdio_eventset_t cxd56_sdio_eventwait(struct sdio_dev_s *dev)
       /* Free aligned buffer */
 
       kmm_free(priv->aligned_buffer);
-
       priv->aligned_buffer = NULL;
     }
 #endif
@@ -2828,7 +2792,7 @@ static int cxd56_sdio_dmarecvsetup(struct sdio_dev_s *dev,
 {
   struct cxd56_sdiodev_s *priv = (struct cxd56_sdiodev_s *)dev;
   unsigned int blocksize;
-  int      ret = OK;
+  int ret = OK;
 
   DEBUGASSERT(priv != NULL && buffer != NULL && buflen > 0);
   DEBUGASSERT(((uint32_t)buffer & 3) == 0);
@@ -2909,6 +2873,7 @@ static int cxd56_sdio_dmarecvsetup(struct sdio_dev_s *dev,
 
   cxd56_sample(priv, SAMPLENDX_AFTER_SETUP);
   return OK;
+
 error:
 
   /* Free allocated align buffer */
@@ -3034,6 +2999,7 @@ static int cxd56_sdio_dmasendsetup(struct sdio_dev_s *dev,
   cxd56_configxfrints(priv, SDHCI_DMADONE_INTS);
 
   return OK;
+
 error:
 
   /* Free allocated align buffer */
@@ -3308,7 +3274,7 @@ struct sdio_dev_s *cxd56_sdhci_finalize(int slotno)
 
   /* SD clock disable */
 
-  cxd56_sdio_clock(&(priv->dev), CLOCK_SDIO_DISABLED);
+  cxd56_sdio_clock(&priv->dev, CLOCK_SDIO_DISABLED);
 
   /* Power OFF for SDIO */
 
@@ -3391,11 +3357,6 @@ void cxd56_sdhci_mediachange(struct sdio_dev_s *dev)
 
   if (cdstatus != priv->cdstatus)
     {
-      if (priv->cdstatus & SDIO_STATUS_PRESENT)
-        {
-          priv->cbevents &= SDIOMEDIA_INSERTED;
-        }
-
       mediachange = 1;
     }
 

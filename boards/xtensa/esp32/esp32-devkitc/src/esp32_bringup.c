@@ -41,6 +41,7 @@
 #endif
 #include <nuttx/fs/fs.h>
 #include <nuttx/himem/himem.h>
+#include <nuttx/board.h>
 
 #if defined(CONFIG_ESP32_EFUSE)
 #include "esp32_efuse.h"
@@ -56,7 +57,7 @@
 #endif
 
 #ifdef CONFIG_TIMER
-#include <esp32_tim_lowerhalf.h>
+#  include <esp32_tim_lowerhalf.h>
 #endif
 
 #ifdef CONFIG_ONESHOT
@@ -85,6 +86,14 @@
 
 #ifdef CONFIG_ESP32_I2C
 #  include "esp32_board_i2c.h"
+#endif
+
+#ifdef CONFIG_ESP32_I2S
+#  include "esp32_i2s.h"
+#endif
+
+#ifdef CONFIG_ESP32_PCNT_AS_QE
+#  include "board_qencoder.h"
 #endif
 
 #ifdef CONFIG_I2CMULTIPLEXER_TCA9548A
@@ -123,6 +132,11 @@
 #  include <nuttx/input/buttons.h>
 #endif
 
+#ifdef CONFIG_LCD_DEV
+#  include <nuttx/board.h>
+#  include <nuttx/lcd/lcd_dev.h>
+#endif
+
 #ifdef CONFIG_RTC_DRIVER
 #  include "esp32_rtc_lowerhalf.h"
 #endif
@@ -133,6 +147,14 @@
 
 #ifdef CONFIG_LCD_BACKPACK
 #  include "esp32_lcd_backpack.h"
+#endif
+
+#ifdef CONFIG_SENSORS_MAX6675
+#  include "esp32_max6675.h"
+#endif
+
+#ifdef CONFIG_ESP32_RMT
+#  include "esp32_rmt.h"
 #endif
 
 #include "esp32-devkitc.h"
@@ -249,6 +271,14 @@ int esp32_bringup(void)
     }
 #endif /* CONFIG_ESP32_LEDC */
 
+#ifdef CONFIG_SENSORS_MAX6675
+  ret = board_max6675_initialize(0, 2);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: MAX6675 initialization failed: %d\n", ret);
+    }
+#endif
+
 #ifdef CONFIG_ESP32_TWAI
 
   /* Initialize TWAI and register the TWAI driver. */
@@ -273,7 +303,7 @@ int esp32_bringup(void)
   if (ret)
     {
       syslog(LOG_ERR, "ERROR: Failed to initialize Wi-Fi and BT "
-             "coexistence support\n");
+                      "coexistence support\n");
     }
 #endif
 
@@ -294,9 +324,9 @@ int esp32_bringup(void)
     }
 #endif
 
-/* First, register the timer drivers and let timer 1 for oneshot
- * if it is enabled.
- */
+  /* First, register the timer drivers and let timer 1 for oneshot
+   * if it is enabled.
+   */
 
 #ifdef CONFIG_TIMER
 
@@ -394,6 +424,19 @@ int esp32_bringup(void)
     }
 #endif
 
+#ifdef CONFIG_SENSORS_QENCODER
+  /* Initialize and register the qencoder driver */
+
+  ret = board_qencoder_initialize(0, PCNT_QE0_ID);
+  if (ret != OK)
+    {
+      syslog(LOG_ERR,
+             "ERROR: Failed to register the qencoder: %d\n",
+             ret);
+      return ret;
+    }
+#endif
+
   /* Register the TCA9548A Multiplexer before others I2C drivers to allow it
    * be used by other drivers. Look at esp32_ms5611.c how to use it.
    */
@@ -453,6 +496,81 @@ int esp32_bringup(void)
     }
 #endif
 
+#ifdef CONFIG_ESP32_I2S
+
+#if defined(CONFIG_ESP32_I2S0) && !defined(CONFIG_AUDIO_CS4344) || \
+    defined(CONFIG_ESP32_I2S1)
+  bool i2s_enable_tx;
+  bool i2s_enable_rx;
+#endif
+
+#ifdef CONFIG_ESP32_I2S0
+
+  /* Configure I2S0 */
+
+#ifdef CONFIG_AUDIO_CS4344
+
+  /* Configure CS4344 audio on I2S0 */
+
+  ret = esp32_cs4344_initialize(ESP32_I2S0);
+  if (ret != OK)
+    {
+      syslog(LOG_ERR, "Failed to initialize CS4344 audio: %d\n", ret);
+    }
+#else
+
+#ifdef CONFIG_ESP32_I2S0_TX
+  i2s_enable_tx = true;
+#else
+  i2s_enable_tx = false;
+#endif /* CONFIG_ESP32_I2S0_TX */
+
+#ifdef CONFIG_ESP32_I2S0_RX
+    i2s_enable_rx = true;
+#else
+    i2s_enable_rx = false;
+#endif /* CONFIG_ESP32_I2S0_RX */
+
+  /* Configure I2S generic audio on I2S0 */
+
+  ret = board_i2sdev_initialize(ESP32_I2S0, i2s_enable_tx, i2s_enable_rx);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "Failed to initialize I2S%d driver: %d\n",
+             CONFIG_ESP32_I2S0, ret);
+    }
+
+#endif /* CONFIG_AUDIO_CS4344 */
+
+#endif  /* CONFIG_ESP32_I2S0 */
+
+#ifdef CONFIG_ESP32_I2S1
+
+#ifdef CONFIG_ESP32_I2S1_TX
+  i2s_enable_tx = true;
+#else
+  i2s_enable_tx = false;
+#endif /* CONFIG_ESP32_I2S1_TX */
+
+#ifdef CONFIG_ESP32_I2S1_RX
+    i2s_enable_rx = true;
+#else
+    i2s_enable_rx = false;
+#endif /* CONFIG_ESP32_I2S1_RX */
+
+  /* Configure I2S generic audio on I2S1 */
+
+  ret = board_i2sdev_initialize(ESP32_I2S1, i2s_enable_tx, i2s_enable_rx);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "Failed to initialize I2S%d driver: %d\n",
+             CONFIG_ESP32_I2S1, ret);
+    }
+
+#endif  /* CONFIG_ESP32_I2S1 */
+
+#endif /* CONFIG_ESP32_I2S */
+
 #ifdef CONFIG_SENSORS_SHT3X
   /* Try to register SHT3x device in I2C0 */
 
@@ -497,6 +615,28 @@ int esp32_bringup(void)
     }
 #endif
 
+#ifdef CONFIG_LCD_DEV
+  ret = board_lcd_initialize();
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: board_lcd_initialize() failed: %d\n", ret);
+    }
+
+  ret = lcddev_register(0);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: lcddev_register() failed: %d\n", ret);
+    }
+#endif
+
+#ifdef CONFIG_ESP32_RMT
+  ret = board_rmt_initialize(RMT_CHANNEL, RMT_OUTPUT_PIN);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: board_rmt_initialize() failed: %d\n", ret);
+    }
+#endif
+
 #ifdef CONFIG_RTC_DRIVER
   /* Instantiate the ESP32 RTC driver */
 
@@ -515,6 +655,16 @@ int esp32_bringup(void)
     {
       syslog(LOG_ERR, "Failed to initialize SPI%d driver: %d\n",
              ESP32_SPI2, ret);
+    }
+#  endif
+#endif
+
+#ifdef CONFIG_WS2812
+#  ifndef CONFIG_WS2812_NON_SPI_DRIVER 
+  ret = board_ws2812_initialize(0, ESP32_SPI3, CONFIG_WS2812_LED_COUNT);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "Failed to initialize ws2812 driver\n");
     }
 #  endif
 #endif

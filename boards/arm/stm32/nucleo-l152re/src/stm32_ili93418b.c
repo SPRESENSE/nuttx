@@ -70,11 +70,8 @@
  * ByPass_Mode: 1 (Memory)
  */
 
-#define STM32_ILI9341_IFMODE_PARAM ((!ILI9341_INTERFACE_CONTROL_EPL) |  \
-                                    ILI9341_INTERFACE_CONTROL_DPL |     \
-                                    (!ILI9341_INTERFACE_CONTROL_HSPL) | \
-                                    (!ILI9341_INTERFACE_CONTROL_VSPL) | \
-                                    ILI9341_INTERFACE_CONTROL_RCM(2) |  \
+#define STM32_ILI9341_IFMODE_PARAM (ILI9341_INTERFACE_CONTROL_DPL |    \
+                                    ILI9341_INTERFACE_CONTROL_RCM(2) | \
                                     ILI9341_INTERFACE_CONTROL_BPASS)
 
 /* Interface control (IFCTL)
@@ -87,11 +84,7 @@
  * WEMODE:  1   Reset column and page if data transfer exceeds
  */
 
-#define STM32_ILI9341_IFCTL_PARAM1 (ILI9341_INTERFACE_CONTROL_WEMODE |  \
-                                    !ILI9341_INTERFACE_CONTROL_BGREOR | \
-                                    !ILI9341_INTERFACE_CONTROL_MVEOR |  \
-                                    !ILI9341_INTERFACE_CONTROL_MXEOR |  \
-                                    !ILI9341_INTERFACE_CONTROL_MYEOR)
+#define STM32_ILI9341_IFCTL_PARAM1 (ILI9341_INTERFACE_CONTROL_WEMODE)
 
 /* Parameter 2: 0x0000
  *
@@ -110,10 +103,8 @@
  * RIM:     0   18-bit 1 transfer/pixel RGB interface mode
  *
  */
-#define STM32_ILI9341_IFCTL_PARAM3 ((!ILI9341_INTERFACE_CONTROL_RIM) | \
-                                    ILI9341_INTERFACE_CONTROL_RM |     \
-                                    ILI9341_INTERFACE_CONTROL_DM(1) |  \
-                                    (!ILI9341_INTERFACE_CONTROL_ENDIAN))
+#define STM32_ILI9341_IFCTL_PARAM3 (ILI9341_INTERFACE_CONTROL_RM | \
+                                    ILI9341_INTERFACE_CONTROL_DM(1))
 
 /* LCD CONTROL */
 
@@ -242,7 +233,7 @@ static inline void write_byte(uint8_t data)
   LCD_WR_SET;
 }
 
-/** references https://controllerstech.com/interface-tft-display-with-stm32/
+/* references https://controllerstech.com/interface-tft-display-with-stm32/
  * #define READ() (((getreg32(STM32_GPIOA_IDR) & (1 << GPIO_PIN9)) >> 9) |  \
  *                 ((getreg32(STM32_GPIOC_IDR) & (1 << GPIO_PIN7)) >> 6) |  \
  *                 ((getreg32(STM32_GPIOA_IDR) & (1 << GPIO_PIN10)) >> 8) | \
@@ -313,13 +304,13 @@ static inline uint8_t read_byte(void)
 static int stm32_ili93418b_recvblock(struct ili9341_lcd_s *lcd,
                                      uint16_t *wd, uint16_t nwords)
 {
-  /** ili9341 uses a 18-bit pixel format packed in a 24-bit stream per pixel.
-   *  The following format is transmitted: RRRRRR00 GGGGGG00 BBBBBB00
-   *  Convert it to:                       RRRRRGGG GGGBBBBB
+  /* ili9341 uses a 18-bit pixel format packed in a 24-bit stream per pixel.
+   * The following format is transmitted: RRRRRR00 GGGGGG00 BBBBBB00
+   * Convert it to:                       RRRRRGGG GGGBBBBB
    */
 
-  /**  8-bit parallel mode is enabled for pixel data operations.
-   *  Each pixel must be received by three read operations.
+  /* 8-bit parallel mode is enabled for pixel data operations.
+   * Each pixel must be received by three read operations.
    */
 
   uint16_t *dest = (uint16_t *)wd;

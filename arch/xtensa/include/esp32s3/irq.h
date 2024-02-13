@@ -99,7 +99,7 @@
 #define ESP32S3_PERIPH_PWM1                                32
 #define ESP32S3_PERIPH_LEDC                                35
 #define ESP32S3_PERIPH_EFUSE                               36
-#define ESP32S3_PERIPH_CAN                                 37
+#define ESP32S3_PERIPH_TWAI                                37
 #define ESP32S3_PERIPH_USB                                 38
 #define ESP32S3_PERIPH_RTC_CORE                            39
 
@@ -208,8 +208,8 @@
 #define ESP32S3_IRQ_PWR                                 (XTENSA_IRQ_FIRSTPERIPH + ESP32S3_PERIPH_PWR)
 #define ESP32S3_IRQ_BB                                  (XTENSA_IRQ_FIRSTPERIPH + ESP32S3_PERIPH_BB)
 #define ESP32S3_IRQ_BT_MAC                              (XTENSA_IRQ_FIRSTPERIPH + ESP32S3_PERIPH_BT_MAC)
-#define ESP32S3_IRQ_BT_BB                               (XTENSA_IRQ_FIRSTPERIPH + ESP32S3_PERIPH_BB)
-#define ESP32S3_IRQ_BT_BB_NMI                           (XTENSA_IRQ_FIRSTPERIPH + ESP32S3_PERIPH_BB_NMI)
+#define ESP32S3_IRQ_BT_BB                               (XTENSA_IRQ_FIRSTPERIPH + ESP32S3_PERIPH_BT_BB)
+#define ESP32S3_IRQ_BT_BB_NMI                           (XTENSA_IRQ_FIRSTPERIPH + ESP32S3_PERIPH_BT_BB_NMI)
 #define ESP32S3_IRQ_RWBT                                (XTENSA_IRQ_FIRSTPERIPH + ESP32S3_PERIPH_RWBT)
 #define ESP32S3_IRQ_RWBLE                               (XTENSA_IRQ_FIRSTPERIPH + ESP32S3_PERIPH_RWBLE)
 #define ESP32S3_IRQ_RWBT_NMI                            (XTENSA_IRQ_FIRSTPERIPH + ESP32S3_PERIPH_RWBT_NMI)
@@ -239,7 +239,7 @@
 #define ESP32S3_IRQ_PWM1                                (XTENSA_IRQ_FIRSTPERIPH + ESP32S3_PERIPH_PWM1)
 #define ESP32S3_IRQ_LEDC                                (XTENSA_IRQ_FIRSTPERIPH + ESP32S3_PERIPH_LEDC)
 #define ESP32S3_IRQ_EFUSE                               (XTENSA_IRQ_FIRSTPERIPH + ESP32S3_PERIPH_EFUSE)
-#define ESP32S3_IRQ_CAN                                 (XTENSA_IRQ_FIRSTPERIPH + ESP32S3_PERIPH_CAN)
+#define ESP32S3_IRQ_TWAI                                (XTENSA_IRQ_FIRSTPERIPH + ESP32S3_PERIPH_TWAI)
 #define ESP32S3_IRQ_USB                                 (XTENSA_IRQ_FIRSTPERIPH + ESP32S3_PERIPH_USB)
 #define ESP32S3_IRQ_RTC_CORE                            (XTENSA_IRQ_FIRSTPERIPH + ESP32S3_PERIPH_RTC_CORE)
 
@@ -307,7 +307,7 @@
 #define ESP32S3_NIRQS_SREG2                             32
 
 #define ESP32S3_IRQ_USB_DEVICE                          (XTENSA_IRQ_FIRSTPERIPH + ESP32S3_PERIPH_USB_DEVICE)
-#define ESP32S3_IRQ_PERIPH_BACKUP                         (XTENSA_IRQ_FIRSTPERIPH + ESP32S3_PERIPH_PERIPH_BACKUP)
+#define ESP32S3_IRQ_PERIPH_BACKUP                       (XTENSA_IRQ_FIRSTPERIPH + ESP32S3_PERIPH_PERIPH_BACKUP)
 #define ESP32S3_IRQ_DMA_EXTMEM_REJECT                   (XTENSA_IRQ_FIRSTPERIPH + ESP32S3_PERIPH_DMA_EXTMEM_REJECT)
 
 #define ESP32S3_IRQ_SREG3                               ESP32S3_IRQ_USB_DEVICE
@@ -331,9 +331,54 @@
 #  define ESP32S3_NIRQ_GPIO             0
 #endif
 
+#ifdef CONFIG_ESP32S3_RTCIO_IRQ
+
+/* Second level RTC interrupts.  RTC interrupts are decoded and dispatched
+ * as a second level of decoding:  The first level dispatches to the RTC
+ * interrupt handler.  The second to the decoded RTC interrupt handler.
+ * A third level might be required to be implemented on the driver (e.g.
+ * Touch pads)
+ */
+
+#  define ESP32S3_NIRQ_RTCIO_PERIPH                 21
+#  define ESP32S3_NIRQ_RTCIO_TOUCHPAD               15
+#  define ESP32S3_NIRQ_RTCIO                        (ESP32S3_NIRQ_RTCIO_PERIPH+ESP32S3_NIRQ_RTCIO_TOUCHPAD)
+
+#  define ESP32S3_FIRST_RTCIOIRQ_PERIPH             (XTENSA_NIRQ_INTERNAL+ESP32S3_NIRQ_PERIPH+ESP32S3_NIRQ_GPIO)
+#  define ESP32S3_LAST_RTCIOIRQ_PERIPH              (ESP32S3_FIRST_RTCIOIRQ_PERIPH+ESP32S3_NIRQ_RTCIO_PERIPH-1)
+#  define ESP32S3_IRQ_RTC_SLP_WAKEUP                (ESP32S3_FIRST_RTCIOIRQ_PERIPH+0)
+#  define ESP32S3_IRQ_RTC_SLP_REJECT                (ESP32S3_FIRST_RTCIOIRQ_PERIPH+1)
+#  define ESP32S3_IRQ_RTC_SDIO_IDLE                 (ESP32S3_FIRST_RTCIOIRQ_PERIPH+2)
+#  define ESP32S3_IRQ_RTC_WDT                       (ESP32S3_FIRST_RTCIOIRQ_PERIPH+3)
+#  define ESP32S3_IRQ_RTC_TOUCH_SCAN_DONE           (ESP32S3_FIRST_RTCIOIRQ_PERIPH+4)
+#  define ESP32S3_IRQ_RTC_ULP_CP                    (ESP32S3_FIRST_RTCIOIRQ_PERIPH+5)
+#  define ESP32S3_IRQ_RTC_TOUCH_DONE                (ESP32S3_FIRST_RTCIOIRQ_PERIPH+6)
+#  define ESP32S3_IRQ_RTC_TOUCH_ACTIVE              (ESP32S3_FIRST_RTCIOIRQ_PERIPH+7)
+#  define ESP32S3_IRQ_RTC_TOUCH_INACTIVE            (ESP32S3_FIRST_RTCIOIRQ_PERIPH+8)
+#  define ESP32S3_IRQ_RTC_BROWN_OUT                 (ESP32S3_FIRST_RTCIOIRQ_PERIPH+9)
+#  define ESP32S3_IRQ_RTC_MAIN_TIMER                (ESP32S3_FIRST_RTCIOIRQ_PERIPH+10)
+#  define ESP32S3_IRQ_RTC_SARADC1                   (ESP32S3_FIRST_RTCIOIRQ_PERIPH+11)
+#  define ESP32S3_IRQ_RTC_TSENS                     (ESP32S3_FIRST_RTCIOIRQ_PERIPH+12)
+#  define ESP32S3_IRQ_RTC_COCPU                     (ESP32S3_FIRST_RTCIOIRQ_PERIPH+13)
+#  define ESP32S3_IRQ_RTC_SARADC2                   (ESP32S3_FIRST_RTCIOIRQ_PERIPH+14)
+#  define ESP32S3_IRQ_RTC_SWD                       (ESP32S3_FIRST_RTCIOIRQ_PERIPH+15)
+#  define ESP32S3_IRQ_RTC_XTAL32K_DEAD              (ESP32S3_FIRST_RTCIOIRQ_PERIPH+16)
+#  define ESP32S3_IRQ_RTC_COCPU_TRAP                (ESP32S3_FIRST_RTCIOIRQ_PERIPH+17)
+#  define ESP32S3_IRQ_RTC_TOUCH_TIMEOUT             (ESP32S3_FIRST_RTCIOIRQ_PERIPH+18)
+#  define ESP32S3_IRQ_RTC_GLITCH_DET                (ESP32S3_FIRST_RTCIOIRQ_PERIPH+19)
+#  define ESP32S3_IRQ_RTC_TOUCH_APPROACH_LOOP_DONE  (ESP32S3_FIRST_RTCIOIRQ_PERIPH+20)
+
+#  define ESP32S3_FIRST_RTCIOIRQ_TOUCHPAD           (ESP32S3_LAST_RTCIOIRQ_PERIPH+1)
+#  define ESP32S3_LAST_RTCIOIRQ_TOUCHPAD            (ESP32S3_FIRST_RTCIOIRQ_TOUCHPAD+ESP32S3_NIRQ_RTCIO_TOUCHPAD-1)
+#  define ESP32S3_TOUCHPAD2IRQ(t)                   ((t) + ESP32S3_FIRST_RTCIOIRQ_TOUCHPAD)
+#  define ESP32S3_IRQ2TOUCHPAD(i)                   ((i) - ESP32S3_FIRST_RTCIOIRQ_TOUCHPAD)
+#else
+#  define ESP32S3_NIRQ_RTCIO                        0
+#endif
+
 /* Total number of interrupts */
 
-#define NR_IRQS                     (XTENSA_NIRQ_INTERNAL + ESP32S3_NIRQ_PERIPH + ESP32S3_NIRQ_GPIO)
+#define NR_IRQS                     (XTENSA_NIRQ_INTERNAL + ESP32S3_NIRQ_PERIPH + ESP32S3_NIRQ_GPIO + ESP32S3_NIRQ_RTCIO)
 
 /* Xtensa CPU Interrupts.
  *
@@ -393,22 +438,19 @@
 #define ESP32S3_CPUINT_LEVELPERIPH_20 31
 
 #define ESP32S3_CPUINT_NLEVELPERIPHS  21
-#define ESP32S3_CPUINT_LEVELSET       0x8fbe333f
+#define ESP32S3_CPUINT_LEVELSET       0xdffe373f
 
-#define ESP32S3_CPUINT_EDGEPERIPH_0   10
-#define ESP32S3_CPUINT_EDGEPERIPH_1   22
-#define ESP32S3_CPUINT_EDGEPERIPH_2   28
-#define ESP32S3_CPUINT_EDGEPERIPH_3   30
-
-#define ESP32S3_CPUINT_NEDGEPERIPHS   4
-#define ESP32S3_CPUINT_EDGESET        0x50400400
+#define ESP32S3_CPUINT_NEDGEPERIPHS   0
 
 #define ESP32S3_CPUINT_NNMIPERIPHS    1
 #define ESP32S3_CPUINT_NMISET         0x00004000
 
 #define ESP32S3_CPUINT_MAC            0
+#define ESP32S3_CPUINT_PWR            0
+#define ESP32S3_CPUINT_RWBLE          5
 #define ESP32S3_CPUINT_TIMER0         6
 #define ESP32S3_CPUINT_SOFTWARE0      7
+#define ESP32S3_CPUINT_BT_BB          8
 #define ESP32S3_CPUINT_PROFILING      11
 #define ESP32S3_CPUINT_TIMER1         15
 #define ESP32S3_CPUINT_TIMER2         16

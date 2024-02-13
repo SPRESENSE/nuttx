@@ -29,7 +29,7 @@ include armv7-m/Make.defs
 
 CHIP_CSRCS  = stm32_allocateheap.c stm32_exti_gpio.c stm32_gpio.c
 CHIP_CSRCS += stm32_irq.c stm32_lowputc.c stm32_rcc.c stm32_serial.c
-CHIP_CSRCS += stm32_start.c stm32_capture.c stm32_uid.c
+CHIP_CSRCS += stm32_start.c stm32_capture.c stm32_uid.c stm32_waste.c
 
 ifneq ($(CONFIG_SCHED_TICKLESS),y)
 CHIP_CSRCS += stm32_timerisr.c
@@ -107,6 +107,13 @@ endif
 
 ifeq ($(CONFIG_USBHOST),y)
 CHIP_CSRCS += stm32_otghost.c
+ifeq ($(CONFIG_USBHOST_TRACE),y)
+CHIP_CSRCS += stm32_usbhost.c
+else
+ifeq ($(CONFIG_DEBUG_USB),y)
+CHIP_CSRCS += stm32_usbhost.c
+endif
+endif
 endif
 
 ifeq ($(CONFIG_STM32F7_TIM),y)
@@ -155,8 +162,12 @@ ifeq ($(CONFIG_SENSORS_QENCODER),y)
 CHIP_CSRCS += stm32_qencoder.c
 endif
 
-ifeq ($(CONFIG_STM32F7_CAN),y)
+ifeq ($(CONFIG_STM32F7_CAN_CHARDRIVER),y)
 CHIP_CSRCS += stm32_can.c
+endif
+
+ifeq ($(CONFIG_STM32F7_CAN_SOCKET),y)
+CHIP_CSRCS += stm32_can_sock.c
 endif
 
 ifeq ($(CONFIG_STM32F7_SAI),y)
@@ -165,4 +176,8 @@ endif
 
 ifeq ($(CONFIG_STM32F7_PWM),y)
 CHIP_CSRCS += stm32_pwm.c
+endif
+
+ifeq ($(CONFIG_STM32F7_FOC),y)
+CHIP_CSRCS += stm32_foc.c
 endif
