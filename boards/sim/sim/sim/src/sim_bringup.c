@@ -75,7 +75,7 @@
 #ifdef CONFIG_RPMSG_UART
 void rpmsg_serialinit(void)
 {
-#ifdef CONFIG_SIM_RPTUN_MASTER
+#ifdef CONFIG_SIM_RPMSG_MASTER
   uart_rpmsg_init("proxy", "proxy", 4096, false);
 #else
   uart_rpmsg_init("server", "proxy", 4096, true);
@@ -463,11 +463,12 @@ int sim_bringup(void)
 #endif
 
 #ifdef CONFIG_RPTUN
-#ifdef CONFIG_SIM_RPTUN_MASTER
+#  ifdef CONFIG_SIM_RPMSG_MASTER
   sim_rptun_init("server-proxy", "proxy",
                  SIM_RPTUN_MASTER | SIM_RPTUN_NOBOOT);
-#else
+#  else
   sim_rptun_init("server-proxy", "server", SIM_RPTUN_SLAVE);
+#  endif
 #endif
 
 #ifdef CONFIG_DEV_RPMSG
@@ -482,7 +483,6 @@ int sim_bringup(void)
 
 #ifdef CONFIG_RPMSGMTD
   rpmsgmtd_register("server", "/dev/rammtd", NULL);
-#endif
 #endif
 
 #ifdef CONFIG_SIM_WTGAHRS2_UARTN

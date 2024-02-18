@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/x86_64/intel64/qemu-intel64/src/qemu_net.c
+ * boards/arm/stm32/stm32f401rc-rs485/src/stm32_usb.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -24,33 +24,69 @@
 
 #include <nuttx/config.h>
 
+#include <sys/types.h>
+#include <stdint.h>
+#include <stdbool.h>
 #include <debug.h>
 
-#include <nuttx/board.h>
-#include <arch/arch.h>
-#include <arch/board/board.h>
+#include "stm32_otgfs.h"
+#include "stm32_gpio.h"
+#include "stm32f401rc-rs485.h"
 
-#include "x86_64_internal.h"
+#ifdef CONFIG_STM32_OTGFS
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
+
+#ifdef CONFIG_USBDEV
+#  define HAVE_USB 1
+#else
+#  warning "CONFIG_STM32_OTGFS is enabled but CONFIG_USBDEV is not"
+#  undef HAVE_USB
+#endif
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: x86_64_netinitialize
+ * Name: stm32_usb_configure
  *
  * Description:
- *   All x86 architectures must provide the following function to setup the
- *   on board Ethernet device. This function is called in the initialization.
+ *   Called from stm32_boardinitialize very early in inialization to setup
+ *   USB-related GPIO pins for the Olimex STM32 P407 board.
  *
  ****************************************************************************/
 
-#if defined(CONFIG_NET) && !defined(CONFIG_NETDEV_LATEINIT)
-void x86_64_netinitialize(void)
+void stm32_usb_configure(void)
 {
+#ifdef CONFIG_STM32_OTGFS
+  /* The OTG FS has an internal soft pull-up.
+   * No GPIO configuration is required
+   */
+
+  /* We don´t have the OTG FS VBUS sensing GPIO */
+#endif
+}
+
+/****************************************************************************
+ * Name:  stm32_usbsuspend
+ *
+ * Description:
+ *   Board logic must provide the stm32_usbsuspend logic if the USBDEV
+ *   driver is used.  This function is called whenever the USB enters or
+ *   leaves suspend mode.
+ *   This is an opportunity for the board logic to shutdown clocks, power,
+ *   etc. while the USB is suspended.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_USBDEV
+void stm32_usbsuspend(struct usbdev_s *dev, bool resume)
+{
+  uinfo("resume: %d\n", resume);
 }
 #endif
+
+#endif /* CONFIG_STM32_OTGFS */

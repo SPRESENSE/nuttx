@@ -1,5 +1,5 @@
 ############################################################################
-# boards/arm/stm32/smt32f401rc-rs485/src/Make.defs
+# arch/x86_64/src/intel64/Toolchain.defs
 #
 # Licensed to the Apache Software Foundation (ASF) under one or more
 # contributor license agreements.  See the NOTICE file distributed with
@@ -18,39 +18,4 @@
 #
 ############################################################################
 
-include $(TOPDIR)/Make.defs
-
-CSRCS = stm32_boot.c stm32_bringup.c
-
-
-ifeq ($(CONFIG_ARCH_LEDS),y)
-CSRCS += stm32_autoleds.c
-endif
-
-ifeq ($(CONFIG_USERLED),y)
-CSRCS += stm32_userleds.c
-endif
-
-ifeq ($(CONFIG_BOARDCTL),y)
-CSRCS += stm32_appinit.c
-endif
-
-ifeq ($(CONFIG_ARCH_BUTTONS),y)
-CSRCS +=  stm32_buttons.c
-endif
-
-ifeq ($(CONFIG_STM32_SDIO),y)
-CSRCS += stm32_sdio.c
-endif
-
-ifeq ($(CONFIG_STM32_OTGFS),y)
-CSRCS += stm32_usb.c
-endif
-
-ifeq ($(CONFIG_I2C_EE_24XX),y)
-CSRCS += stm32_at24.c
-endif
-
-DEPPATH += --dep-path board
-VPATH += :board
-CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)board$(DELIM)board
+include $(TOPDIR)/arch/x86_64/src/common/Toolchain.defs
