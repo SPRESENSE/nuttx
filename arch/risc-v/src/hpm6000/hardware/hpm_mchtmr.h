@@ -1,5 +1,5 @@
 /****************************************************************************
- * drivers/rptun/rptun.h
+ * arch/risc-v/src/hpm6000/hardware/hpm_mchtmr.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,20 +18,14 @@
  *
  ****************************************************************************/
 
-#ifndef __DRIVERS_RPTUN_RPTUN_H
-#define __DRIVERS_RPTUN_RPTUN_H
+#ifndef __ARCH_RISCV_SRC_HPM6000_HARDWARE_HPM_MCHTMR_H
+#define __ARCH_RISCV_SRC_HPM6000_HARDWARE_HPM_MCHTMR_H
 
 /****************************************************************************
- * Included Files
+ * Pre-processor Definitions
  ****************************************************************************/
 
-#include <nuttx/rptun/rptun.h>
+#define HPM_MCHTMR_MTIME     (HPM_MCHTMR_BASE + 0x0000)
+#define HPM_MCHTMR_MTIMECMP  (HPM_MCHTMR_BASE + 0x0008)
 
-/****************************************************************************
- * Public Function Prototypes
- ****************************************************************************/
-
-int rptun_buffer_nused(FAR struct rpmsg_virtio_device *rvdev, bool rx);
-void rptun_dump(FAR struct rpmsg_virtio_device *rvdev);
-
-#endif /* __DRIVERS_RPTUN_RPTUN_H */
+#endif /* __ARCH_RISCV_SRC_HPM6000_HARDWARE_HPM_MCHTMR_H */
