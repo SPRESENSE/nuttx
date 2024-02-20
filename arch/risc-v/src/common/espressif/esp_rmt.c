@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/xtensa/src/common/espressif/esp_rmt.c
+ * arch/risc-v/src/common/espressif/esp_rmt.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -41,21 +41,10 @@
 #include <nuttx/spinlock.h>
 #include <nuttx/mm/circbuf.h>
 
-#include "xtensa.h"
-#ifdef CONFIG_ARCH_CHIP_ESP32
-#include "hardware/esp32_soc.h"
-#include "esp32_gpio.h"
-#include "esp32_irq.h"
-#elif CONFIG_ARCH_CHIP_ESP32S2
-#include "hardware/esp32s2_soc.h"
-#include "esp32s2_gpio.h"
-#include "esp32s2_irq.h"
-#elif CONFIG_ARCH_CHIP_ESP32S3
-#include "hardware/esp32s3_soc.h"
-#include "esp32s3_gpio.h"
-#include "esp32s3_irq.h"
-#endif
+#include "esp_gpio.h"
+#include "esp_irq.h"
 
+#include "esp_attr.h"
 #include "hal/gpio_types.h"
 #include "hal/rmt_hal.h"
 #include "hal/rmt_ll.h"
@@ -126,41 +115,6 @@
   }
 
 #define rmt_item32_t rmt_symbol_word_t
-
-#ifdef CONFIG_ARCH_CHIP_ESP32
-#  define esp_configgpio      esp32_configgpio
-#  define esp_gpio_matrix_out esp32_gpio_matrix_out
-#  define esp_gpio_matrix_in  esp32_gpio_matrix_in
-#  define esp_setup_irq       esp32_setup_irq
-#  define esp_teardown_irq    esp32_teardown_irq
-
-#  define GPIO_OUT_FUNC       OUTPUT_FUNCTION_3
-#  define GPIO_IN_FUNC        INPUT_FUNCTION_3
-#  define ESP_CPUINT_LEVEL    ESP32_CPUINT_LEVEL
-
-#elif CONFIG_ARCH_CHIP_ESP32S2
-#  define esp_configgpio      esp32s2_configgpio
-#  define esp_gpio_matrix_out esp32s2_gpio_matrix_out
-#  define esp_gpio_matrix_in  esp32s2_gpio_matrix_in
-#  define esp_setup_irq       esp32s2_setup_irq
-#  define esp_teardown_irq    esp32s2_teardown_irq
-
-#  define GPIO_OUT_FUNC       OUTPUT_FUNCTION_2
-#  define GPIO_IN_FUNC        INPUT_FUNCTION_2
-#  define ESP_CPUINT_LEVEL    ESP32S2_CPUINT_LEVEL
-
-#elif CONFIG_ARCH_CHIP_ESP32S3
-#  define esp_configgpio      esp32s3_configgpio
-#  define esp_gpio_matrix_out esp32s3_gpio_matrix_out
-#  define esp_gpio_matrix_in  esp32s3_gpio_matrix_in
-#  define esp_setup_irq       esp32s3_setup_irq
-#  define esp_teardown_irq    esp32s3_teardown_irq
-
-#  define GPIO_OUT_FUNC       OUTPUT_FUNCTION_2
-#  define GPIO_IN_FUNC        INPUT_FUNCTION_2
-#  define ESP_CPUINT_LEVEL    ESP32S3_CPUINT_LEVEL
-
-#endif
 
 /****************************************************************************
  * Private Types
@@ -383,7 +337,7 @@ static int rmt_write_items(rmt_channel_t channel,
                            int item_num,
                            bool wait_tx_done);
 static ssize_t esp_rmt_read(struct rmt_dev_s *dev, char *buffer,
-                              size_t buflen);
+                            size_t buflen);
 static ssize_t esp_rmt_write(FAR struct rmt_dev_s *dev,
                              FAR const char *buffer,
                              size_t buflen);
@@ -492,8 +446,7 @@ static int rmt_set_rx_thr_intr_en(rmt_channel_t channel, bool en,
     {
       uint32_t item_block_len =
           rmt_ll_rx_get_mem_blocks(g_rmtdev_common.hal.regs,
-                                   RMT_DECODE_RX_CHANNEL(channel)) *
-          RMT_MEM_ITEM_NUM;
+              RMT_DECODE_RX_CHANNEL(channel)) * RMT_MEM_ITEM_NUM;
 
       if (evt_thresh >= item_block_len)
         {
@@ -750,7 +703,7 @@ static int rmt_set_gpio(rmt_channel_t channel, rmt_mode_t mode,
   if (mode == RMT_MODE_TX)
     {
       DEBUGASSERT(RMT_IS_TX_CHANNEL(channel));
-      esp_configgpio(gpio_num, GPIO_OUT_FUNC);
+      esp_configgpio(gpio_num, OUTPUT);
       esp_gpio_matrix_out(
         gpio_num,
         rmt_periph_signals.groups[0].channels[channel].tx_sig,
@@ -759,7 +712,7 @@ static int rmt_set_gpio(rmt_channel_t channel, rmt_mode_t mode,
   else
     {
       DEBUGASSERT(RMT_IS_RX_CHANNEL(channel));
-      esp_configgpio(gpio_num, GPIO_IN_FUNC);
+      esp_configgpio(gpio_num, INPUT);
       esp_gpio_matrix_in(
         gpio_num,
         rmt_periph_signals.groups[0].channels[channel].rx_sig,
@@ -1128,29 +1081,25 @@ static int rmt_isr_register(int (*fn)(int, void *, void *), void *arg,
   DEBUGASSERT(fn);
   DEBUGASSERT(g_rmtdev_common.rmt_driver_channels == 0);
 
-  cpuint = esp_setup_irq(
-#ifndef CONFIG_ARCH_CHIP_ESP32S2
-    cpu,
-#endif
-    rmt_periph_signals.groups[0].irq, 1, ESP_CPUINT_LEVEL);
+  cpuint = esp_setup_irq(rmt_periph_signals.groups[0].irq,
+                         ESP_IRQ_PRIORITY_DEFAULT,
+                         ESP_IRQ_TRIGGER_LEVEL);
   if (cpuint < 0)
     {
       rmterr("Failed to allocate a CPU interrupt.\n");
       return -ENOMEM;
     }
 
-  ret = irq_attach(rmt_periph_signals.groups[0].irq + XTENSA_IRQ_FIRSTPERIPH,
+  ret = irq_attach(ESP_SOURCE2IRQ(rmt_periph_signals.groups[0].irq),
                    fn, &g_rmtdev_common.hal);
   if (ret < 0)
     {
       rmterr("Couldn't attach IRQ to handler.\n");
-      esp_teardown_irq(
-#ifndef CONFIG_ARCH_CHIP_ESP32S2
-        cpu,
-#endif
-        rmt_periph_signals.groups[0].irq, cpuint);
+      esp_teardown_irq(rmt_periph_signals.groups[0].irq, cpuint);
       return ret;
     }
+
+  up_enable_irq(ESP_SOURCE2IRQ(rmt_periph_signals.groups[0].irq));
 
   return ret;
 }
@@ -1366,7 +1315,7 @@ static int IRAM_ATTR rmt_driver_isr_default(int irq, void *context,
         }
 
       rmt_ll_rx_set_mem_owner(g_rmtdev_common.hal.regs, channel,
-                                  RMT_LL_MEM_OWNER_SW);
+                              RMT_LL_MEM_OWNER_SW);
       memcpy(
         (void *)(p_rmt->rx_item_buf + p_rmt->rx_item_len),
         (void *)(RMTMEM.chan[RMT_ENCODE_RX_CHANNEL(channel)].data32 \
@@ -1435,7 +1384,7 @@ static int IRAM_ATTR rmt_driver_isr_default(int irq, void *context,
 
           rmt_ll_rx_reset_pointer(g_rmtdev_common.hal.regs, channel);
           rmtinfo("RMT RX channel %d error", channel);
-          rmtinfo("status: 0x%08x",
+          rmtinfo("status: 0x%08lx",
                   rmt_ll_rx_get_status_word(g_rmtdev_common.hal.regs,
                                             channel));
         }
@@ -1460,7 +1409,7 @@ static int IRAM_ATTR rmt_driver_isr_default(int irq, void *context,
 
           rmt_ll_tx_reset_pointer(g_rmtdev_common.hal.regs, channel);
           rmtinfo("RMT TX channel %d error", channel);
-          rmtinfo("status: 0x%08x",
+          rmtinfo("status: 0x%08lx",
                   rmt_ll_tx_get_status_word(g_rmtdev_common.hal.regs,
                                             channel));
         }
@@ -1750,7 +1699,7 @@ static int rmt_write_items(rmt_channel_t channel,
  ****************************************************************************/
 
 static ssize_t esp_rmt_read(struct rmt_dev_s *dev, char *buffer,
-                              size_t buflen)
+                            size_t buflen)
 {
   struct rmt_dev_lowerhalf_s *priv = (struct rmt_dev_lowerhalf_s *)dev;
   rmt_mode_t mode = priv->mode;
@@ -1812,7 +1761,7 @@ static ssize_t esp_rmt_read(struct rmt_dev_s *dev, char *buffer,
  ****************************************************************************/
 
 static ssize_t esp_rmt_write(struct rmt_dev_s *dev, const char *buffer,
-                               size_t buflen)
+                             size_t buflen)
 {
   struct rmt_dev_lowerhalf_s *priv = (struct rmt_dev_lowerhalf_s *)dev;
   rmt_mode_t mode = priv->mode;
@@ -1906,7 +1855,7 @@ static struct rmt_dev_s
 
       if (g_rx_channel != RMT_CHANNEL_MAX && g_tx_channel != RMT_CHANNEL_MAX)
         {
-          esp_configgpio(config.gpio_num, GPIO_OUT_FUNC | GPIO_IN_FUNC);
+          esp_configgpio(config.gpio_num, OUTPUT | INPUT);
           esp_gpio_matrix_out(config.gpio_num,
                               RMT_SIG_OUT0_IDX + g_tx_channel,
                               0, 0);

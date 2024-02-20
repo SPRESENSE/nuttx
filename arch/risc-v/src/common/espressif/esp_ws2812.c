@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/xtensa/src/common/espressif/esp_ws2812.c
+ * arch/risc-v/src/common/espressif/esp_ws2812.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -470,7 +470,7 @@ static ssize_t esp_write(struct file *filep, const char *data, size_t len)
       if (((position + len) / WS2812_RW_PIXEL_SIZE) > dev->nleds)
         {
           ledwarn("esp_ws2812 write truncated:\n\t\tLED position: %d\n"
-                  "\t\tLED requested to be written: %d\n"
+                  "\t\tLED requested to be written: %ld\n"
                   "\t\tLED strip LED count: %d\n"
                   "\t\tLED being written: %d\n",
                   position / WS2812_RW_PIXEL_SIZE,
@@ -563,9 +563,9 @@ struct ws2812_dev_s *esp_ws2812_setup(const char       *path,
                                       uint16_t         pixel_count,
                                       bool             has_white)
 {
-  struct ws2812_dev_s       *dev;
+  struct ws2812_dev_s     *dev;
   struct esp_ws2812_dev_s *priv;
-  int err;
+  int                     err;
 
   /* Allocate struct holding generic WS2812 device data */
 
