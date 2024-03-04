@@ -55,7 +55,7 @@
 
 #define VIDEO_REMAINING_CAPNUM_INFINITY (-1)
 
-#define VIDEO_ID(x, y) (((x) << 16) | (y))
+#define VIDEO_ID(x, y) (y)
 
 /****************************************************************************
  * Private Types
@@ -2163,8 +2163,7 @@ static int video_query_ext_ctrl(FAR struct video_mng_s *vmng,
   attr->nr_of_dims = 0;
   memset(attr->dims, 0, sizeof(attr->dims));
 
-  if (attr->ctrl_class == V4L2_CTRL_CLASS_CAMERA &&
-      attr->id == V4L2_CID_SCENE_MODE)
+  if (attr->id == V4L2_CID_SCENE_MODE)
     {
       /* Scene mode is processed in only video driver. */
 
@@ -2235,8 +2234,7 @@ static int video_querymenu(FAR video_mng_t *vmng,
       return -EINVAL;
     }
 
-  if (menu->ctrl_class == V4L2_CTRL_CLASS_CAMERA &&
-      menu->id == V4L2_CID_SCENE_MODE)
+  if (menu->id == V4L2_CID_SCENE_MODE)
     {
       /* Scene mode is processed in only video driver. */
 
@@ -2494,8 +2492,7 @@ static int video_s_ext_ctrls(FAR struct video_mng_s *priv,
        cnt < ctrls->count;
        cnt++, control++)
     {
-      if (ctrls->ctrl_class == V4L2_CTRL_CLASS_CAMERA &&
-          control->id == V4L2_CID_SCENE_MODE)
+      if (control->id == V4L2_CID_SCENE_MODE)
         {
           ret = reflect_scene_parameter(priv, control->value);
         }
