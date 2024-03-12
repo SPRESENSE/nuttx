@@ -32,8 +32,6 @@
 #include <assert.h>
 #include <errno.h>
 #include <poll.h>
-#include <sys/stat.h>
-#include <nuttx/fs/fs.h>
 
 #include <nuttx/kmalloc.h>
 #include <nuttx/mutex.h>
@@ -1020,18 +1018,6 @@ static void cleanup_resources(FAR video_mng_t *vmng)
   cleanup_scenes_parameter(vmng);
 }
 
-static void cleanup_private_data(FAR struct inode *inode)
-{
-  FAR video_mng_t  *priv  = inode->i_private;
-
-  nxmutex_unlock(&priv->lock_open_num);
-  nxmutex_destroy(&priv->lock_open_num);
-  unregister_driver(priv->devpath);
-  kmm_free(priv->devpath);
-  kmm_free(priv);
-  inode->i_private = NULL;
-}
-
 static bool is_sem_waited(FAR sem_t *sem)
 {
   int semcount;
@@ -1111,7 +1097,11 @@ static int video_close(FAR struct file *filep)
 #ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
       if (priv->unlinked)
         {
-          cleanup_private_data(inode);
+          nxmutex_unlock(&priv->lock_open_num);
+          nxmutex_destroy(&priv->lock_open_num);
+          kmm_free(priv->devpath);
+          kmm_free(priv);
+          inode->i_private = NULL;
           return OK;
         }
 
@@ -1141,7 +1131,11 @@ static int video_unlink(FAR struct inode *inode)
   nxmutex_lock(&priv->lock_open_num);
   if (priv->open_num == 0)
     {
-      cleanup_private_data(inode);
+      nxmutex_unlock(&priv->lock_open_num);
+      nxmutex_destroy(&priv->lock_open_num);
+      kmm_free(priv->devpath);
+      kmm_free(priv);
+      inode->i_private = NULL;
     }
   else
     {
@@ -3437,16 +3431,7 @@ int video_initialize(FAR const char *devpath)
 
 int video_uninitialize(FAR const char *devpath)
 {
-  int ret;
-  struct stat buf;
-
-  ret = nx_stat(devpath, &buf, 1);
-  if (ret == 0)
-    {
-      ret = nx_unlink(devpath);
-    }
-
-  return ret;
+  return video_unregister(devpath);
 }
 
 int video_register(FAR const char *devpath,
