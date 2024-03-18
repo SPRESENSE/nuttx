@@ -36,6 +36,10 @@ if(CONFIG_ARCH_BUTTONS)
   list(APPEND SRCS stm32_buttons.c)
 endif()
 
+if(CONFIG_ADC)
+  list(APPEND SRCS stm32_adc.c)
+endif()
+
 if(CONFIG_STM32_SDIO)
   list(APPEND SRCS stm32_sdio.c)
 endif()
@@ -46,6 +50,10 @@ endif()
 
 if(CONFIG_STM32_CONFIG_I2C_EE_24XXEEPROM)
   list(APPEND SRCS stm32_at24.c)
+endif()
+
+if(CONFIG_STM32_PWM)
+  list(APPEND SRCS stm32_pwm.c)
 endif()
 
 target_sources(board PRIVATE ${SRCS})

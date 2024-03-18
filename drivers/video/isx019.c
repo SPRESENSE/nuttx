@@ -855,8 +855,8 @@ static const int32_t g_isx019_iso[] =
 
 #define NR_ISO (sizeof(g_isx019_iso) / sizeof(int32_t))
 
-/* Gain values corresponding to each elements of g_isx019_iso table.
- * This needs to have the same size of g_isx019_iso.
+/* Gain values corresponding to each element of g_isx019_iso table.
+ * This needs to have the same size as g_isx019_iso.
  */
 
 static const uint8_t g_isx019_gain[] =
@@ -1383,7 +1383,7 @@ static int isx019_init(FAR struct imgsensor_s *sensor)
   priv->gamma = 1000;
 
   /* Because store_default_value() needs the clock ratio,
-   * clock_ratio has to be calulated first.
+   * clock_ratio has to be calculated first.
    */
 
   clk = board_isx019_get_master_clock();

@@ -1,5 +1,5 @@
 /****************************************************************************
- * sched/group/group_find.c
+ * boards/arm/stm32h7/linum-stm32h753bi/src/stm32_at24.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -24,64 +24,73 @@
 
 #include <nuttx/config.h>
 
-#include <sched.h>
-#include <assert.h>
+#include <sys/mount.h>
+
+#include <stdbool.h>
+#include <stdio.h>
 #include <errno.h>
 #include <debug.h>
 
-#include <nuttx/irq.h>
-#include <nuttx/kmalloc.h>
-#include <nuttx/sched.h>
+#include <nuttx/i2c/i2c_master.h>
+#include <nuttx/eeprom/i2c_xx24xx.h>
+#include "stm32_i2c.h"
 
-#include "group/group.h"
-#include "environ/environ.h"
+#include "linum-stm32h753bi.h"
+
+/****************************************************************************
+ * Pre-processor Definitions
+ ****************************************************************************/
+
+#define AT24_I2C_BUS     3  /* EEPROM chip is configured to use I2C3 */
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: group_findbypid
+ * Name: stm32_at24_init
  *
  * Description:
- *   Given a task ID, find the group task structure with was started by that
- *   task ID.  That task's ID is retained in the group as tg_pid and will
- *   be remember even if the main task thread leaves the group.
- *
- * Input Parameters:
- *   pid - The task ID of the main task thread.
- *
- * Returned Value:
- *   On success, a pointer to the group task structure is returned.  This
- *   function can fail only if there is no group that corresponds to the
- *   task ID.
- *
- * Assumptions:
- *   Called during when signally tasks in a safe context.  No special
- *   precautions should be required here.  However, extra care is taken when
- *   accessing the global g_grouphead list.
+ *   Initialize and configure the AT24 serial EEPROM
  *
  ****************************************************************************/
 
-#if defined(HAVE_GROUP_MEMBERS)
-FAR struct task_group_s *group_findbypid(pid_t pid)
+int stm32_at24_init(char *path)
 {
-  FAR struct task_group_s *group;
-  irqstate_t flags;
+  FAR struct i2c_master_s *i2c;
+  static bool initialized = false;
+  int ret;
 
-  /* Find the status structure with the matching PID  */
+  /* Have we already initialized? */
 
-  flags = enter_critical_section();
-  for (group = g_grouphead; group; group = group->flink)
+  if (!initialized)
     {
-      if (group->tg_pid == pid)
+      /* No.. Get the I2C bus driver */
+
+      finfo("Initialize I2C%d\n", AT24_I2C_BUS);
+      i2c = stm32_i2cbus_initialize(AT24_I2C_BUS);
+      if (!i2c)
         {
-          leave_critical_section(flags);
-          return group;
+          ferr("ERROR: Failed to initialize I2C%d\n", AT24_I2C_BUS);
+          return -ENODEV;
         }
+
+      /* Now bind the I2C interface to the AT24 I2C EEPROM driver */
+
+      finfo("Bind the AT24 EEPROM driver to I2C%d\n", AT24_I2C_BUS);
+      ret = ee24xx_initialize(i2c, 0x54, path, EEPROM_24XX256, false);
+      if (ret < 0)
+        {
+          ferr("ERROR: Failed to bind I2C%d to the AT24 EEPROM driver\n",
+               AT24_I2C_BUS);
+          return -ENODEV;
+        }
+
+      /* Now we are initialized */
+
+      initialized = true;
     }
 
-  leave_critical_section(flags);
-  return NULL;
+  return OK;
 }
-#endif
+

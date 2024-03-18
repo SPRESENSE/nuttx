@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/x86_64/src/intel64/intel64_timerisr.c
+ * arch/x86_64/src/intel64/intel64_tsc_timerisr.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -53,11 +53,7 @@
  * Private Data
  ****************************************************************************/
 
-unsigned long x86_64_timer_freq;
-
-static unsigned long tsc_overflow;
-static unsigned long tsc_last;
-static unsigned long tsc_overflows;
+unsigned long g_x86_64_timer_freq;
 
 /****************************************************************************
  * Private Functions
@@ -74,8 +70,9 @@ static unsigned long tsc_overflows;
 void apic_timer_set(unsigned long timeout_ns)
 {
   unsigned long long ticks =
-    (unsigned long long)timeout_ns * x86_64_timer_freq / NS_PER_SEC;
-#ifdef CONFIG_ARCH_INTEL64_HAVE_TSC_DEADLINE
+    (unsigned long long)timeout_ns * g_x86_64_timer_freq / NS_PER_SEC;
+
+#ifdef CONFIG_ARCH_INTEL64_TSC_DEADLINE
     write_msr(MSR_IA32_TSC_DEADLINE, rdtsc() + ticks);
 #else
     write_msr(MSR_X2APIC_TMICT, ticks);
@@ -115,12 +112,11 @@ static int intel64_timerisr(int irq, uint32_t *regs, void *arg)
 
 void up_timer_initialize(void)
 {
-  unsigned long ecx;
   uint32_t vector = IRQ0;
 
   irq_attach(IRQ0, (xcpt_t)intel64_timerisr, NULL);
 
-#ifdef CONFIG_ARCH_INTEL64_HAVE_TSC_DEADLINE
+#ifdef CONFIG_ARCH_INTEL64_TSC_DEADLINE
   vector |= MSR_X2APIC_LVTT_TSC_DEADLINE;
 #endif
 

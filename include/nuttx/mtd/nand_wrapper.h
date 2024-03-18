@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/x86_64/intel64/qemu-intel64/src/qemu_freq.c
+ * include/nuttx/mtd/nand_wrapper.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -17,81 +17,68 @@
  * under the License.
  *
  ****************************************************************************/
+#ifndef __INCLUDE_NUTTX_MTD_NAND_WRAPPER_H
+#define __INCLUDE_NUTTX_MTD_NAND_WRAPPER_H
 
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
+#include <stdio.h>
+#include <syslog.h>
 
-#include <stdint.h>
-#include <stdbool.h>
-#include <time.h>
+#include <nuttx/drivers/drivers.h>
+#include <nuttx/mtd/nand.h>
 
-#include <nuttx/arch.h>
-#include <nuttx/clock.h>
+/****************************************************************************
+ * Pre-processor Definitions
+ ****************************************************************************/
 
-#include <nuttx/board.h>
-#include <arch/board/board.h>
+/****************************************************************************
+ * Public Types
+ ****************************************************************************/
+
+struct nand_wrapper_dev_s
+{
+  struct nand_dev_s wrapper; /* Wrapper device */
+  struct nand_dev_s under;   /* Underlying actuall upper half device */
+};
 
 /****************************************************************************
  * Public Data
  ****************************************************************************/
 
-extern unsigned long x86_64_timer_freq;
-
-/****************************************************************************
- * Public Functions
- ****************************************************************************/
-
-/****************************************************************************
- * Name: x86_64_timer_initialize
- *
- * Description:
- *   Initializes all platform-specific timer facilities.  This function is
- *   called early in the initialization sequence by up_initialize().
- *   On return, the current up-time should be available from
- *   up_timer_gettime() and the interval timer is ready for use (but not
- *   actively timing.
- *
- *   Provided by platform-specific code and called from the architecture-
- *   specific logic.
- *
- * Input Parameters:
- *   None
- *
- * Returned Value:
- *   None
- *
- * Assumptions:
- *   Called early in the initialization sequence before any special
- *   concurrency protections are required.
- *
- ****************************************************************************/
-
-void x86_64_timer_calibrate_freq(void)
+#ifdef __cplusplus
+#define EXTERN extern "C"
+extern "C"
 {
-#ifdef CONFIG_ARCH_INTEL64_HAVE_TSC_DEADLINE
-
-  unsigned long crystal_freq;
-  unsigned long numerator;
-  unsigned long denominator;
-
-  asm volatile("cpuid"
-      : "=c" (crystal_freq), "=b" (numerator), "=a" (denominator)
-      : "a" (X86_64_CPUID_TSC)
-      : "rdx", "memory");
-
-  if (numerator == 0 || denominator == 0 || crystal_freq == 0)
-    {
-      x86_64_timer_freq = CONFIG_ARCH_INTEL64_CORE_FREQ_KHZ * 1000L;
-    }
-  else
-    {
-      x86_64_timer_freq = crystal_freq / denominator * numerator;
-    }
-
 #else
-  x86_64_timer_freq = CONFIG_ARCH_INTEL64_APIC_FREQ_KHZ * 1000L;
+#define EXTERN extern
 #endif
+
+/****************************************************************************
+ * Inline Functions
+ ****************************************************************************/
+
+/****************************************************************************
+ * Public Function Prototypes
+ ****************************************************************************/
+
+int nand_wrapper_erase(FAR struct mtd_dev_s *dev, off_t startblock,
+                            size_t nblocks);
+ssize_t nand_wrapper_bread(FAR struct mtd_dev_s *dev, off_t startpage,
+                      size_t npages, FAR uint8_t *buffer);
+ssize_t nand_wrapper_bwrite(FAR struct mtd_dev_s *dev, off_t startpage,
+                        size_t npages, FAR const uint8_t *buffer);
+int nand_wrapper_ioctl(FAR struct mtd_dev_s *dev, int cmd,
+                            unsigned long arg);
+int nand_wrapper_isbad(FAR struct mtd_dev_s *dev, off_t block);
+int nand_wrapper_markbad(FAR struct mtd_dev_s *dev, off_t block);
+void nand_wrapper_initialize(void);
+
+#undef EXTERN
+#ifdef __cplusplus
 }
+#endif
+
+#endif /* __TESTING_NAND_RAM_NAND_RAM_H */

@@ -89,14 +89,19 @@ set(ARCHCFLAGS
     "-Wstrict-prototypes -fno-common -Wall -Wshadow -Wundef -Wno-attributes -Wno-unknown-pragmas"
 )
 set(ARCHCXXFLAGS
-    "-nostdinc++ -fno-common -Wall -Wshadow -Wundef -Wno-attributes -Wno-unknown-pragmas"
-)
+    "-fno-common -Wall -Wshadow -Wundef -Wno-attributes -Wno-unknown-pragmas")
 
-if(CONFIG_CXX_EXCEPTION)
+if(NOT CONFIG_LIBCXXTOOLCHAIN)
+  set(ARCHCXXFLAGS "${ARCHCXXFLAGS} -nostdinc++")
+else()
+  set(ARCHCXXFLAGS "${ARCHCXXFLAGS} -D_STDLIB_H_")
+endif()
+
+if(NOT CONFIG_CXX_EXCEPTION)
   string(APPEND ARCHCXXFLAGS " -fno-exceptions -fcheck-new")
 endif()
 
-if(CONFIG_CXX_RTTI)
+if(NOT CONFIG_CXX_RTTI)
   string(APPEND ARCHCXXFLAGS " -fno-rtti")
 endif()
 
@@ -118,4 +123,24 @@ endif()
 
 if(CONFIG_ARCH_INTEL64_HAVE_RDRAND)
   add_compile_options(-mrdrnd)
+endif()
+
+if(CONFIG_ARCH_X86_64_SSE3)
+  add_compile_options(-msse3)
+endif()
+
+if(CONFIG_ARCH_X86_64_SSSE3)
+  add_compile_options(-mssse3)
+endif()
+
+if(CONFIG_ARCH_X86_64_SSE41)
+  add_compile_options(-msse4.1)
+endif()
+
+if(CONFIG_ARCH_X86_64_SSE42)
+  add_compile_options(-msse4.2)
+endif()
+
+if(CONFIG_ARCH_X86_64_SSE4A)
+  add_compile_options(-msse4a)
 endif()

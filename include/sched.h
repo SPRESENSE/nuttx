@@ -113,7 +113,7 @@
 
 /* int CPU_EQUAL(FAR const cpu_set_t *set1, FAR const cpu_set_t *set2); */
 
-#  define CPU_EQUAL(s1,s2) (*(s2) == *(s2))
+#  define CPU_EQUAL(s1,s2) (*(s1) == *(s2))
 
 /* REVISIT: Variably sized CPU sets are not supported */
 
@@ -254,6 +254,9 @@ int    sched_getaffinity(pid_t pid, size_t cpusetsize, FAR cpu_set_t *mask);
 int    sched_cpucount(FAR const cpu_set_t *set);
 int    sched_getcpu(void);
 #else
+#  define sched_setaffinity(p, c, m) 0
+#  define sched_getaffinity(p, c, m) (*(m) |= (1 << 0), 0)
+#  define sched_cpucount(s) 1
 #  define sched_getcpu() 0
 #endif /* CONFIG_SMP */
 

@@ -26,38 +26,45 @@
 #include <nuttx/board.h>
 #include <arch/board/board.h>
 
+#ifdef CONFIG_DEV_SIMPLE_ADDRENV
+#  include <nuttx/drivers/addrenv.h>
+#endif
+
 #include "x86_64_internal.h"
+
+/****************************************************************************
+ * Private Data
+ ****************************************************************************/
+
+#ifdef CONFIG_DEV_SIMPLE_ADDRENV
+/* Map 1:1 with 0x100000000 offset */
+
+struct simple_addrenv_s g_addrenv =
+{
+  .va   = X86_64_LOAD_OFFSET,
+  .pa   = 0,
+  .size = 0xffffffffffffffff
+};
+#endif
 
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: up_calibratedelay
+ * Name: up_addrenv_init
  *
  * Description:
- *   Delay loops are provided for short timing loops.  This function, if
- *   enabled, will just wait for 100 seconds.  Using a stopwatch, you can
- *   can then determine if the timing loops are properly calibrated.
+ *   Initialize addrenv.
  *
  ****************************************************************************/
 
-#if defined(CONFIG_ARCH_CALIBRATION) && defined(CONFIG_DEBUG_FEATURES)
-static void up_calibratedelay(void)
+static void x86_64_addrenv_init(void)
 {
-  int i;
-
-  _warn("Beginning 100s delay\n");
-  for (i = 0; i < 100; i++)
-    {
-      up_mdelay(1000);
-    }
-
-  _warn("End 100s delay\n");
-}
-#else
-#  define up_calibratedelay()
+#ifdef CONFIG_DEV_SIMPLE_ADDRENV
+  simple_addrenv_initialize(&g_addrenv);
 #endif
+}
 
 /****************************************************************************
  * Public Functions
@@ -85,6 +92,10 @@ void up_initialize(void)
   /* Add any extra memory fragments to the memory manager */
 
   x86_64_addregion();
+
+  /* Initialzie addrenv */
+
+  x86_64_addrenv_init();
 
 #ifdef CONFIG_PM
   /* Initialize the power management subsystem.  This MCU-specific function
@@ -124,5 +135,6 @@ void up_initialize(void)
   /* Initialize USB -- device and/or host */
 
   x86_64_usbinitialize();
+
   board_autoled_on(LED_IRQSENABLED);
 }

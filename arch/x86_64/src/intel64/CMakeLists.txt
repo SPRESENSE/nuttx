@@ -36,6 +36,8 @@ set(SRCS
     intel64_schedulesigaction.c
     intel64_sigdeliver.c
     intel64_usestack.c
+    intel64_systemreset.c
+    intel64_freq.c
     intel64_start.c
     intel64_handlers.c
     intel64_idle.c
@@ -44,14 +46,32 @@ set(SRCS
     intel64_rng.c
     intel64_check_capability.c)
 
+if(CONFIG_ARCH_HAVE_TESTSET)
+  list(APPEND SRCS intel64_testset.S)
+endif()
+
 if(CONFIG_MULTBOOT2_FB_TERM)
   list(APPEND SRCS intel64_mbfb.c)
 endif()
 
-if(CONFIG_SCHED_TICKLESS)
-  list(APPEND SRCS intel64_tickless.c)
-else()
-  list(APPEND SRCS intel64_timerisr.c)
+if(CONFIG_ARCH_INTEL64_HAVE_TSC)
+  if(CONFIG_SCHED_TICKLESS)
+    list(APPEND SRCS intel64_tsc_tickless.c)
+  else()
+    list(APPEND SRCS intel64_tsc_timerisr.c)
+  endif()
+endif()
+
+if(CONFIG_INTEL64_HPET)
+  list(APPEND SRCS intel64_hpet.c)
+endif()
+
+if(CONFIG_INTEL64_ONESHOT)
+  list(APPEND SRCS intel64_oneshot.c intel64_oneshot_lower.c)
+endif()
+
+if(CONFIG_ARCH_FPU)
+  list(APPEND SRCS intel64_fpucmp.c)
 endif()
 
 target_sources(arch PRIVATE ${SRCS})

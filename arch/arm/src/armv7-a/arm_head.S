@@ -34,8 +34,6 @@
 #ifndef IDLE_STACK_BASE
   #ifdef CONFIG_BOOT_SDRAM_DATA
     #define IDLE_STACK_BASE IDLE_STACK_VBASE
-  #elif defined(CONFIG_SMP)
-    #define IDLE_STACK_BASE _enoinit
   #else
     #define IDLE_STACK_BASE _ebss
   #endif
@@ -43,7 +41,7 @@
 
 #define IDLE_STACK_TOP  (IDLE_STACK_BASE + CONFIG_IDLETHREAD_STACKSIZE)
 
-#ifndef CONFIG_PAGING
+#ifndef CONFIG_LEGACY_PAGING
 
 	.file	"arm_head.S"
 

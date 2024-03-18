@@ -160,6 +160,9 @@
      __asm__ __volatile__("csrc " __STR(reg) ", %0" :: "rK"(bits)); \
   })
 
+#define riscv_append_pmp_region(a, b, s) \
+  riscv_config_pmp_region(riscv_next_free_pmp_region(), a, b, s)
+
 #endif
 
 /****************************************************************************
@@ -312,6 +315,7 @@ void riscv_netinitialize(void);
 
 uintptr_t *riscv_doirq(int irq, uintptr_t *regs);
 int riscv_exception(int mcause, void *regs, void *args);
+int riscv_fillpage(int mcause, void *regs, void *args);
 int riscv_misaligned(int irq, void *context, void *arg);
 
 /* Debug ********************************************************************/

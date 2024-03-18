@@ -87,7 +87,7 @@
 
 #if !defined(CONFIG_BUILD_KERNEL) || defined(CONFIG_NUTTSBI)
 
-static bool g_big = false;    /* true if running on big core */
+static volatile uint64_t g_misa locate_data(".data");
 
 /****************************************************************************
  * Private Functions
@@ -127,12 +127,10 @@ static void k230_hart_cleanup(void)
 
 void k230_hart_init(void)
 {
-  #define MISA_VECTOR_BIT   ('V'-'A')
-  #define MISA_VECTOR_MASK  (1 << MISA_VECTOR_BIT)
+  bool big;
 
-  /* When called from sbi_start(), MISA is 0 somehow. */
-
-  g_big = (READ_CSR(CSR_MISA) & MISA_VECTOR_MASK);
+  while (!(g_misa = READ_CSR(CSR_MISA)));
+  big = g_misa & (1 << 21);
 
   k230_hart_cleanup();
 
@@ -140,8 +138,8 @@ void k230_hart_init(void)
   WRITE_CSR(CSR_MHCR,  MHCR);
   WRITE_CSR(CSR_MCOR,  MCOR);
   WRITE_CSR(CSR_MSMPR, MSMPR);
-  WRITE_CSR(CSR_MCCR2, g_big ? MCCR2_BIG : MCCR2);
-  WRITE_CSR(CSR_MHINT, g_big ? MHINT_BIG : MHINT);
+  WRITE_CSR(CSR_MCCR2, big ? MCCR2_BIG : MCCR2);
+  WRITE_CSR(CSR_MHINT, big ? MHINT_BIG : MHINT);
 
 #ifdef RISCV_PBMT
   SET_CSR(CSR_MENVCFG, MENVCFG_PBMT);
@@ -155,7 +153,7 @@ void k230_hart_init(void)
 
 bool k230_hart_is_big(void)
 {
-  return g_big;
+  return g_misa & (1 << 21);
 }
 
 /****************************************************************************

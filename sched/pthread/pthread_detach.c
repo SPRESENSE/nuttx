@@ -64,45 +64,45 @@ int pthread_detach(pthread_t thread)
 {
   FAR struct tcb_s *rtcb = this_task();
   FAR struct task_group_s *group = rtcb->group;
-  FAR struct join_s *pjoin;
+  FAR struct task_join_s *join;
+  FAR struct tcb_s *tcb;
   int ret;
 
-  sinfo("Thread=%d group=%p\n", thread, group);
-  DEBUGASSERT(group);
+  nxrmutex_lock(&group->tg_joinlock);
 
-  /* Find the entry associated with this pthread. */
-
-  nxmutex_lock(&group->tg_joinlock);
-  ret = pthread_findjoininfo(group, (pid_t)thread, &pjoin);
-  if (ret == OK)
+  tcb = nxsched_get_tcb((pid_t)thread);
+  if (tcb == NULL)
     {
-      /* Has the thread already terminated? */
+      /* If tcb has been destroyed, update the pending join
+       * status in the group.
+       */
 
-      if (pjoin->terminated)
+      ret = pthread_findjoininfo(group, (pid_t)thread, &join, false);
+      if (ret == OK)
         {
-          /* YES.. just remove the thread entry. */
-
-          pthread_destroyjoin(group, pjoin);
+          join->detached = true;
         }
       else
         {
-          /* NO.. Just mark the thread as detached.  It
-           * will be removed and deallocated when the
-           * thread exits
-           */
-
-          if (pjoin->detached)
-            {
-              ret = EINVAL;
-            }
-          else
-            {
-              pjoin->detached = true;
-            }
+          ret = ESRCH;
         }
+
+      goto errout;
     }
 
-  nxmutex_unlock(&group->tg_joinlock);
+  if ((group != tcb->group) ||
+      (tcb->flags & TCB_FLAG_DETACHED) != 0)
+    {
+      ret = EINVAL;
+    }
+  else
+    {
+      tcb->flags |= TCB_FLAG_DETACHED;
+      ret = OK;
+    }
+
+errout:
+  nxrmutex_unlock(&group->tg_joinlock);
 
   sinfo("Returning %d\n", ret);
   return ret;

@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/x86_64/src/intel64/intel64_tickless.c
+ * arch/x86_64/src/intel64/intel64_tsc_tickless.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -74,7 +74,7 @@
  * Private Data
  ****************************************************************************/
 
-unsigned long x86_64_timer_freq;
+unsigned long g_x86_64_timer_freq;
 
 static struct timespec g_goal_time_ts;
 static uint64_t g_last_stop_time;
@@ -92,7 +92,7 @@ void up_mask_tmr(void)
 {
   /* Disable TSC Deadline interrupt */
 
-#ifdef CONFIG_ARCH_INTEL64_HAVE_TSC_DEADLINE
+#ifdef CONFIG_ARCH_INTEL64_TSC_DEADLINE
   write_msr(MSR_X2APIC_LVTT, TMR_IRQ | MSR_X2APIC_LVTT_TSC_DEADLINE |
             (1 << 16));
 #else
@@ -108,7 +108,7 @@ void up_unmask_tmr(void)
 {
   /* Enable TSC Deadline interrupt */
 
-#ifdef CONFIG_ARCH_INTEL64_HAVE_TSC_DEADLINE
+#ifdef CONFIG_ARCH_INTEL64_TSC_DEADLINE
   write_msr(MSR_X2APIC_LVTT, TMR_IRQ | MSR_X2APIC_LVTT_TSC_DEADLINE);
 #else
   write_msr(MSR_X2APIC_LVTT, TMR_IRQ);
@@ -138,16 +138,16 @@ void up_timer_initialize(void)
 
 static inline uint64_t up_ts2tick(const struct timespec *ts)
 {
-  return ROUND_INT_DIV((uint64_t)ts->tv_nsec * x86_64_timer_freq,
+  return ROUND_INT_DIV((uint64_t)ts->tv_nsec * g_x86_64_timer_freq,
                        NS_PER_SEC) +
-         (uint64_t)ts->tv_sec * x86_64_timer_freq;
+         (uint64_t)ts->tv_sec * g_x86_64_timer_freq;
 }
 
 static inline void up_tick2ts(uint64_t tick, struct timespec *ts)
 {
-  ts->tv_sec  = (tick / x86_64_timer_freq);
-  ts->tv_nsec = (uint64_t)(ROUND_INT_DIV((tick % x86_64_timer_freq) *
-                           NSEC_PER_SEC, x86_64_timer_freq));
+  ts->tv_sec  = (tick / g_x86_64_timer_freq);
+  ts->tv_nsec = (uint64_t)(ROUND_INT_DIV((tick % g_x86_64_timer_freq) *
+                           NSEC_PER_SEC, g_x86_64_timer_freq));
 }
 
 static inline void up_tmr_sync_up(void)

@@ -127,8 +127,8 @@ void k230_userspace(void)
 
 static void configure_mpu(void)
 {
-  riscv_config_pmp_region(0, UFLASH_F, UFLASH_START, UFLASH_SIZE);
-  riscv_config_pmp_region(1, USRAM_F, USRAM_START, USRAM_SIZE);
+  riscv_append_pmp_region(UFLASH_F, UFLASH_START, UFLASH_SIZE);
+  riscv_append_pmp_region(USRAM_F, USRAM_START, USRAM_SIZE);
 }
 
 #endif /* CONFIG_BUILD_PROTECTED */

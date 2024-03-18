@@ -398,7 +398,7 @@ int nxsig_tcbdispatch(FAR struct tcb_s *stcb, siginfo_t *info)
           (masked == 0 ||
            nxsig_ismember(&stcb->sigwaitmask, info->si_signo)))
         {
-          memcpy(&stcb->sigunbinfo, info, sizeof(siginfo_t));
+          memcpy(stcb->sigunbinfo, info, sizeof(siginfo_t));
           sigemptyset(&stcb->sigwaitmask);
 
           if (WDOG_ISACTIVE(&stcb->waitdog))
@@ -461,7 +461,7 @@ int nxsig_tcbdispatch(FAR struct tcb_s *stcb, siginfo_t *info)
 
       if (stcb->task_state == TSTATE_WAIT_SIG)
         {
-          memcpy(&stcb->sigunbinfo, info, sizeof(siginfo_t));
+          memcpy(stcb->sigunbinfo, info, sizeof(siginfo_t));
           sigemptyset(&stcb->sigwaitmask);
 
           if (WDOG_ISACTIVE(&stcb->waitdog))
@@ -614,7 +614,7 @@ int nxsig_dispatch(pid_t pid, FAR siginfo_t *info)
        * created the task group. Try looking it up.
        */
 
-      group = group_findbypid(pid);
+      group = task_getgroup(pid);
     }
 
   /* Did we locate the group? */

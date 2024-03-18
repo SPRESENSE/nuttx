@@ -18,14 +18,14 @@
 #
 # ##############################################################################
 
-set(SRCS qemu_boot.c qemu_bringup.c qemu_freq.c qemu_net.c)
+set(SRCS qemu_boot.c qemu_bringup.c qemu_net.c)
 
 if(CONFIG_BOARDCTL)
   list(APPEND SRCS qemu_appinit.c)
 endif()
 
-if(CONFIG_QEMU_PCI)
-  list(APPEND SRCS qemu_pci.c)
+if(CONFIG_BOARDCTL_RESET)
+  list(APPEND SRCS qemu_reset.c)
 endif()
 
 target_sources(board PRIVATE ${SRCS})
