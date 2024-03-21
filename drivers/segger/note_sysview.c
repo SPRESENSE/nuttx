@@ -164,11 +164,11 @@ static void note_sysview_send_tasklist(void)
 {
   int i;
 
-  for (i = 0; i < g_npidhash; i++)
+  for (i = 0; i < nxsched_npidhash(); i++)
     {
-      if (g_pidhash[i] != NULL)
+      if (nxsched_pidhash()[i] != NULL)
         {
-          note_sysview_send_taskinfo(g_pidhash[i]);
+          note_sysview_send_taskinfo(nxsched_pidhash()[i]);
         }
     }
 }
@@ -247,7 +247,7 @@ static void note_sysview_irqhandler(FAR struct note_driver_s *drv, int irq,
 
   if (enter)
     {
-      driver->irq[up_cpu_index()] = irq;
+      driver->irq[this_cpu()] = irq;
 
       SEGGER_SYSVIEW_OnTaskStopExec();
       SEGGER_SYSVIEW_RecordEnterISR();
@@ -270,7 +270,7 @@ static void note_sysview_irqhandler(FAR struct note_driver_s *drv, int irq,
             }
         }
 
-      driver->irq[up_cpu_index()] = 0;
+      driver->irq[this_cpu()] = 0;
     }
 }
 #endif
@@ -337,7 +337,7 @@ static void note_sysview_syscall_leave(FAR struct note_driver_s *drv,
 
 unsigned int note_sysview_get_interrupt_id(void)
 {
-  return g_note_sysview_driver.irq[up_cpu_index()];
+  return g_note_sysview_driver.irq[this_cpu()];
 }
 
 /****************************************************************************
