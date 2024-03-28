@@ -694,7 +694,8 @@ static uint16_t isx012_getreg(FAR isx012_dev_t *priv,
     {
       /* Restart and read 16bits from the register */
 
-      ret = i2c_read(priv->i2c, &priv->i2c_cfg, (FAR uint8_t *)buffer, regsize);
+      ret = i2c_read(priv->i2c, &priv->i2c_cfg,
+                     (FAR uint8_t *)buffer, regsize);
       if (ret < 0)
         {
           verr("i2c_read failed: %d\n", ret);
