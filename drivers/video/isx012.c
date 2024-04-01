@@ -235,8 +235,8 @@ static int isx012_change_device_state(FAR isx012_dev_t *priv,
                                       isx012_state_t state);
 static int isx012_replace_frameinterval_to_regval
                 (FAR imgsensor_interval_t *interval);
-static int8_t isx012_get_maximum_fps(uint8_t nr_datafmt,
-                                     FAR imgsensor_format_t *datafmt);
+static int8_t isx012_get_maximum_fpsid(uint8_t nr_datafmt,
+                                       FAR imgsensor_format_t *datafmt);
 static int isx012_set_shd(FAR isx012_dev_t *priv);
 static bool is_movie_needed(uint8_t fmt, uint8_t fps);
 
@@ -1487,8 +1487,8 @@ static FAR const char *isx012_get_driver_name(FAR struct imgsensor_s *sensor)
   return "ISX012";
 }
 
-static int8_t isx012_get_maximum_fps(uint8_t nr_fmt,
-                                     FAR imgsensor_format_t *fmt)
+static int8_t isx012_get_maximum_fpsid(uint8_t nr_fmt,
+                                       FAR imgsensor_format_t *fmt)
 {
   int8_t max_fps = REGVAL_FPSTYPE_120FPS;
   uint16_t main_w;
@@ -1668,14 +1668,67 @@ static int isx012_replace_frameinterval_to_regval
     }
 }
 
+static bool is_supported_fpsid(int value, int max)
+{
+  switch (max)
+    {
+      case REGVAL_FPSTYPE_120FPS:
+
+        /* In this case, any FPS is acceptable. */
+
+        return true;
+
+      case REGVAL_FPSTYPE_60FPS:
+        if (value == REGVAL_FPSTYPE_120FPS)
+          {
+            return false;
+          }
+
+        break;
+
+      case REGVAL_FPSTYPE_30FPS:
+        if ((value == REGVAL_FPSTYPE_120FPS) ||
+            (value == REGVAL_FPSTYPE_60FPS))
+          {
+            return false;
+          }
+
+        break;
+
+      case REGVAL_FPSTYPE_15FPS:
+        if ((value == REGVAL_FPSTYPE_120FPS) ||
+            (value == REGVAL_FPSTYPE_60FPS)  ||
+            (value == REGVAL_FPSTYPE_30FPS))
+          {
+            return false;
+          }
+
+        break;
+
+      default: /* REGVAL_FPSTYPE_10FPS
+                * REGVAL_FPSTYPE_7_5FPS
+                * REGVAL_FPSTYPE_6FPS
+                * REGVAL_FPSTYPE_5FPS
+                */
+
+        /* Never come here by HW specification.
+         * For any setting, at least 15FPS is supported.
+         */
+
+        return false;
+    }
+
+  return true;
+}
+
 static int isx012_validate_frame_setting(FAR struct imgsensor_s *sensor,
                                          imgsensor_stream_type_t type,
                                          uint8_t nr_fmt,
                                          FAR imgsensor_format_t *fmt,
                                          FAR imgsensor_interval_t *interval)
 {
-  int max_fps;
-  int arg_fps;
+  int max_fpsid;
+  int app_fpsid;
 
   if ((fmt == NULL) ||
       (interval == NULL))
@@ -1688,19 +1741,19 @@ static int isx012_validate_frame_setting(FAR struct imgsensor_s *sensor,
       return -EINVAL;
     }
 
-  max_fps = isx012_get_maximum_fps(nr_fmt, fmt);
-  if (max_fps == -EINVAL)
+  max_fpsid = isx012_get_maximum_fpsid(nr_fmt, fmt);
+  if (max_fpsid == -EINVAL)
     {
       return -EINVAL;
     }
 
-  arg_fps = isx012_replace_frameinterval_to_regval(interval);
-  if (arg_fps == -EINVAL)
+  app_fpsid = isx012_replace_frameinterval_to_regval(interval);
+  if (app_fpsid == -EINVAL)
     {
       return -EINVAL;
     }
 
-  if (max_fps > arg_fps)
+  if (!is_supported_fpsid(app_fpsid, max_fpsid))
     {
       return -EINVAL;
     }
