@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/xtensa/esp32s3/common/include/esp32s3_board_rmt.h
+ * boards/xtensa/esp32/common/src/esp32_board_rmt.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,39 +18,57 @@
  *
  ****************************************************************************/
 
-#ifndef __BOARDS_XTENSA_ESP32S3_COMMON_INCLUDE_ESP32S3_BOARD_RMT_H
-#define __BOARDS_XTENSA_ESP32S3_COMMON_INCLUDE_ESP32S3_BOARD_RMT_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
+#include <errno.h>
+#include <debug.h>
+#include <stdio.h>
+
+#include "xtensa.h"
+
+#include <nuttx/kmalloc.h>
+#include <nuttx/rmt/rmtchar.h>
+#ifdef CONFIG_WS2812_NON_SPI_DRIVER
+#include <nuttx/leds/ws2812.h>
+
+#include "espressif/esp_ws2812.h"
+#endif
+
+#include "espressif/esp_rmt.h"
+
+#ifdef CONFIG_ESP_RMT
+
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
-#ifndef __ASSEMBLY__
+/****************************************************************************
+ * Private Types
+ ****************************************************************************/
+
+/****************************************************************************
+ * Private Function Prototypes
+ ****************************************************************************/
+
+/****************************************************************************
+ * Private Data
+ ****************************************************************************/
 
 /****************************************************************************
  * Public Data
  ****************************************************************************/
 
-#undef EXTERN
-#if defined(__cplusplus)
-#define EXTERN extern "C"
-extern "C"
-{
-#else
-#define EXTERN extern
-#endif
-
 /****************************************************************************
- * Public Function Prototypes
+ * Private Functions
  ****************************************************************************/
 
-#ifdef CONFIG_ESP_RMT
+/****************************************************************************
+ * Public Functions
+ ****************************************************************************/
 
 /****************************************************************************
  * Name: board_rmt_rxinitialize
@@ -67,7 +85,21 @@ extern "C"
  *
  ****************************************************************************/
 
-int board_rmt_rxinitialize(int ch, int pin);
+int board_rmt_rxinitialize(int ch, int pin)
+{
+  int ret;
+
+  struct rmt_dev_s *rmt = esp_rmt_rx_init(ch, pin);
+
+  ret = rmtchar_register(rmt);
+  if (ret < 0)
+    {
+      rmterr("ERROR: rmtchar_register failed: %d\n", ret);
+      return ret;
+    }
+
+  return ret;
+}
 
 /****************************************************************************
  * Name: board_rmt_txinitialize
@@ -84,14 +116,40 @@ int board_rmt_rxinitialize(int ch, int pin);
  *
  ****************************************************************************/
 
-int board_rmt_txinitialize(int ch, int pin);
-
-#endif /* CONFIG_ESP_RMT */
-
-#undef EXTERN
-#if defined(__cplusplus)
-}
+int board_rmt_txinitialize(int ch, int pin)
+{
+  int ret;
+  struct rmt_dev_s *rmt;
+#ifdef CONFIG_WS2812_NON_SPI_DRIVER
+  struct ws2812_dev_s *led;
 #endif
 
-#endif /* __ASSEMBLY__ */
-#endif /* __BOARDS_XTENSA_ESP32S3_COMMON_INCLUDE_ESP32S3_BOARD_RMT_H */
+  rmt = esp_rmt_tx_init(ch, pin);
+
+  if (rmt == NULL)
+    {
+      rmterr("ERROR: esp_rmt_tx_init failed\n");
+      return -ENODEV;
+    }
+
+  ret = rmtchar_register(rmt);
+  if (ret < 0)
+    {
+      rmterr("ERROR: rmtchar_register failed: %d\n", ret);
+      return ret;
+    }
+
+#ifdef CONFIG_WS2812_NON_SPI_DRIVER
+  led = esp_ws2812_setup("/dev/leds0", rmt,
+                         CONFIG_WS2812_LED_COUNT, false);
+
+  if (led == NULL)
+    {
+      rmterr("ERROR: esp_ws2812_setup failed\n");
+      return -ENODEV;
+    }
+#endif
+
+  return ret;
+}
+#endif
