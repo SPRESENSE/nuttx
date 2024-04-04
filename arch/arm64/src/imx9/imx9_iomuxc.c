@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm64/src/imx9/imx9_clockconfig.h
+ * arch/arm64/src/imx9/imx9_iomuxc.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,9 +18,6 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_ARM64_SRC_IMX9_IMX9_CLOCKCONFIG_H
-#define __ARCH_ARM64_SRC_IMX9_IMX9_CLOCKCONFIG_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
@@ -28,63 +25,92 @@
 #include <nuttx/config.h>
 
 #include <stdint.h>
+#include <stdbool.h>
+
+#include "arm64_internal.h"
+#include "imx9_iomuxc.h"
 
 /****************************************************************************
- * Public Function Prototypes
+ * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: imx9_clockconfig
+ * Name: imx9_iomux_configure
  *
  * Description:
- *   Called to initialize the i.IMX9.  This does whatever setup is needed to
- *   put the SoC in a usable state.  This includes the initialization of
- *   clocking using the settings in board.h.
- *
- ****************************************************************************/
-
-void imx9_clockconfig(void);
-
-/****************************************************************************
- * Name: imx9_get_clock
- *
- * Description:
- *   This function returns the clock frequency of the specified functional
- *   clock.
+ *   This function writes the encoded pad configuration to the Pad Control
+ *   register.
  *
  * Input Parameters:
- *   clkname   - Identifies the clock of interest
- *   frequency - The location where the peripheral clock frequency will be
- *              returned
+ *   cfg - The IOMUX configuration
  *
  * Returned Value:
- *   Zero (OK) is returned on success; a negated errno value is returned on
- *   any failure.  -ENODEV is returned if the clock is not enabled or is not
- *   being clocked.
+ *   Zero (OK) on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
-int imx9_get_clock(int clkname, uint32_t *frequency);
+int imx9_iomux_configure(iomux_cfg_t cfg)
+{
+  if (!cfg.padcfg.ctlreg)
+    {
+      return -EINVAL;
+    }
+
+  putreg32(cfg.padcfg.mode | cfg.mux, cfg.padcfg.ctlreg);
+
+  if (cfg.padcfg.dsyreg)
+    {
+      putreg32(cfg.padcfg.dsy, cfg.padcfg.dsyreg);
+    }
+
+  if (cfg.padcfg.padreg)
+    {
+      putreg32(cfg.pad, cfg.padcfg.padreg);
+    }
+
+  return OK;
+}
 
 /****************************************************************************
- * Name: imx9_get_rootclock
+ * Name: imx9_iomux_configure
  *
  * Description:
- *   This function returns the clock frequency of the specified root
- *   functional clock.
+ *   This can be used to forcibly set a pad to GPIO mode. This overrides and
+ *   disconnects any peripheral using the pin.
  *
  * Input Parameters:
- *   clkroot   - Identifies the peripheral clock of interest
- *   frequency - The location where the peripheral clock frequency will be
- *              returned
+ *   cfg  - The IOMUX configuration.
+ *   sion - if true; sets SION, otherwise clears it.
  *
  * Returned Value:
- *   Zero (OK) is returned on success; a negated errno value is returned on
- *   any failure.  -ENODEV is returned if the clock is not enabled or is not
- *   being clocked.
+ *   Zero (OK) on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
-int imx9_get_rootclock(int clkroot, uint32_t *frequency);
+int imx9_iomux_gpio(iomux_cfg_t cfg, bool sion)
+{
+  uint32_t reg_sion;
 
-#endif /* __ARCH_ARM64_SRC_IMX9_IMX9_CLOCKCONFIG_H */
+  if (!cfg.padcfg.ctlreg)
+    {
+      return -EINVAL;
+    }
+
+  /* Set sion if requested to do so */
+
+  reg_sion = sion ? IOMUXC_MUX_SION_ON : 0;
+
+  /* Based on pad number, either ALT0/ALT5 sets the pad as GPIO */
+
+  if ((cfg.padcfg.ctlreg >= IOMUXC_MUX_CTL_GPIO_IO00_OFFSET) &&
+      (cfg.padcfg.ctlreg <= IOMUXC_MUX_CTL_GPIO_IO29_OFFSET))
+    {
+      putreg32(IOMUXC_MUX_MODE_ALT0 | reg_sion, cfg.padcfg.ctlreg);
+    }
+  else
+    {
+      putreg32(IOMUXC_MUX_MODE_ALT5 | reg_sion, cfg.padcfg.ctlreg);
+    }
+
+  return OK;
+}

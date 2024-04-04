@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm64/src/imx9/imx9_clockconfig.h
+ * arch/arm64/src/imx9/imx9_iomuxc.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,9 +18,6 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_ARM64_SRC_IMX9_IMX9_CLOCKCONFIG_H
-#define __ARCH_ARM64_SRC_IMX9_IMX9_CLOCKCONFIG_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
@@ -28,63 +25,93 @@
 #include <nuttx/config.h>
 
 #include <stdint.h>
+#include <stdbool.h>
+
+#include "hardware/imx9_iomuxc.h"
 
 /****************************************************************************
- * Public Function Prototypes
+ * Pre-processor Definitions
  ****************************************************************************/
 
+#define IOMUX_PADCFG(_ctlreg, _mode, _dsyreg, _dsy, _padreg) \
+  {                                                          \
+    .ctlreg = (_ctlreg),                                     \
+    .mode   = (_mode),                                       \
+    .dsyreg = (_dsyreg),                                     \
+    .dsy    = (_dsy),                                        \
+    .padreg = (_padreg),                                     \
+  }
+
+#define IOMUX_CFG(_padcfg, _pad, _mux) \
+  (iomux_cfg_t)                        \
+  {                                    \
+    .padcfg = _padcfg,                 \
+    .pad    = (_pad),                  \
+    .mux    = (_mux),                  \
+  }
+
 /****************************************************************************
- * Name: imx9_clockconfig
- *
- * Description:
- *   Called to initialize the i.IMX9.  This does whatever setup is needed to
- *   put the SoC in a usable state.  This includes the initialization of
- *   clocking using the settings in board.h.
- *
+ * Public Types
  ****************************************************************************/
 
-void imx9_clockconfig(void);
+/* Information for the pad alternate function */
+
+struct iomux_padcfg_s
+{
+  /* Register offsets for PAD */
+
+  uintptr_t ctlreg;
+  uintptr_t padreg;
+  uintptr_t dsyreg;
+
+  /* ALT and input daisy configuration for pad */
+
+  uint32_t  mode;
+  uint32_t  dsy;
+};
+
+struct iomux_cfg_s
+{
+  struct iomux_padcfg_s padcfg;
+
+  /* Register values */
+
+  uint32_t pad;
+  uint32_t mux;
+};
+typedef struct iomux_cfg_s iomux_cfg_t;
 
 /****************************************************************************
- * Name: imx9_get_clock
+ * Name: imx9_iomux_configure
  *
  * Description:
- *   This function returns the clock frequency of the specified functional
- *   clock.
+ *   This function writes the encoded pad configuration to the Pad Control
+ *   register.
  *
  * Input Parameters:
- *   clkname   - Identifies the clock of interest
- *   frequency - The location where the peripheral clock frequency will be
- *              returned
+ *   cfg - The IOMUX configuration
  *
  * Returned Value:
- *   Zero (OK) is returned on success; a negated errno value is returned on
- *   any failure.  -ENODEV is returned if the clock is not enabled or is not
- *   being clocked.
+ *   Zero (OK) on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
-int imx9_get_clock(int clkname, uint32_t *frequency);
+int imx9_iomux_configure(iomux_cfg_t cfg);
 
 /****************************************************************************
- * Name: imx9_get_rootclock
+ * Name: imx9_iomux_configure
  *
  * Description:
- *   This function returns the clock frequency of the specified root
- *   functional clock.
+ *   This can be used to forcibly set a pad to GPIO mode. This overrides and
+ *   disconnects any peripheral using the pin.
  *
  * Input Parameters:
- *   clkroot   - Identifies the peripheral clock of interest
- *   frequency - The location where the peripheral clock frequency will be
- *              returned
+ *   cfg - The IOMUX configuration.
+ *   sion - if true; sets SION, otherwise clears it.
  *
  * Returned Value:
- *   Zero (OK) is returned on success; a negated errno value is returned on
- *   any failure.  -ENODEV is returned if the clock is not enabled or is not
- *   being clocked.
+ *   Zero (OK) on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
-int imx9_get_rootclock(int clkroot, uint32_t *frequency);
-
-#endif /* __ARCH_ARM64_SRC_IMX9_IMX9_CLOCKCONFIG_H */
+int imx9_iomux_gpio(iomux_cfg_t cfg, bool sion);
