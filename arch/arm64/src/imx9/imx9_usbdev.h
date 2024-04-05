@@ -1,7 +1,7 @@
 /****************************************************************************
- * boards/arm64/imx9/imx93-evk/src/imx93-evk.h
+ * arch/arm64/src/imx9/imx9_usbdev.h
  *
- * Licensed to the Apache Software Foundation (ASF) under one or more
+  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
  * ASF licenses this file to you under the Apache License, Version 2.0 (the
@@ -18,8 +18,8 @@
  *
  ****************************************************************************/
 
-#ifndef __BOARDS_ARM64_IMX9_IMX93_EVK_SRC_IMX93_EVK_H
-#define __BOARDS_ARM64_IMX9_IMX93_EVK_SRC_IMX93_EVK_H
+#ifndef __ARCH_ARM64_SRC_IMX9_IMX9_USBDEV_H
+#define __ARCH_ARM64_SRC_IMX9_IMX9_USBDEV_H
 
 /****************************************************************************
  * Included Files
@@ -27,11 +27,19 @@
 
 #include <nuttx/config.h>
 
-#include <stdint.h>
+/****************************************************************************
+ * Pre-processor Definitions
+ ****************************************************************************/
 
 /****************************************************************************
  * Public Types
  ****************************************************************************/
+
+typedef enum
+{
+  IMX9_USBC1 = 0,
+  IMX9_USBC2 = 1,
+} imx9_usb_id_t;
 
 /****************************************************************************
  * Public Data
@@ -39,33 +47,40 @@
 
 #ifndef __ASSEMBLY__
 
-/****************************************************************************
- * Public Functions Definitions
- ****************************************************************************/
-
-/****************************************************************************
- * Name: imx9_bringup
- *
- * Description:
- *   Bring up board features
- *
- ****************************************************************************/
-
-#if defined(CONFIG_BOARDCTL) || defined(CONFIG_BOARD_LATE_INITIALIZE)
-int imx9_bringup(void);
+#undef EXTERN
+#if defined(__cplusplus)
+#define EXTERN extern "C"
+extern "C"
+{
+#else
+#define EXTERN extern
 #endif
 
 /****************************************************************************
- * Name: imx9_pwm_setup
+ * Public Function Prototypes
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: imx9_vbus_detect
  *
  * Description:
- *   Initialize PWM outputs
+ *   Read the VBUS state from the USB OTG controller. This can be used
+ *   to poll the VBUS state
+ *
+ * Input Parameters:
+ *   id: IMX9_USBC1 or IMX9_USBC2
+ *
+ * Returned Value:
+ *   true if VBUS is valid; false otherwise
  *
  ****************************************************************************/
 
-#if defined(CONFIG_PWM)
-int imx9_pwm_setup(void);
+bool imx9_vbus_detect(imx9_usb_id_t id);
+
+#undef EXTERN
+#if defined(__cplusplus)
+}
 #endif
 
 #endif /* __ASSEMBLY__ */
-#endif /* __BOARDS_ARM64_IMX9_IMX93_EVK_SRC_IMX93_EVK_H */
+#endif /* __ARCH_ARM64_SRC_IMX9_IMX9_USBDEV_H */

@@ -31,6 +31,24 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
+/* FLEXIO to PWM pin muxings */
+
+/* EVK signals
+ * GPIO_IO04 -> FLEXIO1_04
+ * GPIO_IO05 -> FLEXIO1_05
+ * GPIO_IO06 -> FLEXIO1_06
+ * GPIO_IO07 -> FLEXIO1_07
+ */
+
+#define FLEXIO1_PWM0_MUX IOMUX_CFG(IOMUXC_PAD_GPIO_IO04_FLEXIO1_FLEXIO04, IOMUXC_PAD_FSEL_SFAST | IOMUXC_PAD_DSE_X6, 0)
+#define FLEXIO1_PWM1_MUX IOMUX_CFG(IOMUXC_PAD_GPIO_IO05_FLEXIO1_FLEXIO05, IOMUXC_PAD_FSEL_SFAST | IOMUXC_PAD_DSE_X6, 0)
+#define FLEXIO1_PWM2_MUX IOMUX_CFG(IOMUXC_PAD_GPIO_IO06_FLEXIO1_FLEXIO06, IOMUXC_PAD_FSEL_SFAST | IOMUXC_PAD_DSE_X6, 0)
+#define FLEXIO1_PWM3_MUX IOMUX_CFG(IOMUXC_PAD_GPIO_IO07_FLEXIO1_FLEXIO07, IOMUXC_PAD_FSEL_SFAST | IOMUXC_PAD_DSE_X6, 0)
+
+/* TPM3 ch3 to PWM pin GPIO_IO24 muxing */
+
+#define TPM3_PWM3_MUX IOMUX_CFG(IOMUXC_PAD_GPIO_IO24_TPM3_CH3, IOMUXC_PAD_FSEL_SFAST | IOMUXC_PAD_DSE_X6, 0)
+
 /****************************************************************************
  * Public Data
  ****************************************************************************/

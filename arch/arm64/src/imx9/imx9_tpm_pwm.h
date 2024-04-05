@@ -1,7 +1,7 @@
 /****************************************************************************
- * boards/arm64/imx9/imx93-evk/src/imx93-evk.h
+ * arch/arm64/src/imx9/imx9_tpm_pwm.h
  *
- * Licensed to the Apache Software Foundation (ASF) under one or more
+  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
  * ASF licenses this file to you under the Apache License, Version 2.0 (the
@@ -18,20 +18,38 @@
  *
  ****************************************************************************/
 
-#ifndef __BOARDS_ARM64_IMX9_IMX93_EVK_SRC_IMX93_EVK_H
-#define __BOARDS_ARM64_IMX9_IMX93_EVK_SRC_IMX93_EVK_H
+#ifndef __ARCH_ARM64_SRC_IMX9_IMX9_TPM_PWM_H
+#define __ARCH_ARM64_SRC_IMX9_IMX9_TPM_PWM_H
 
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
+#include <arch/board/board.h>
+#include "hardware/imx9_tpm.h"
 
-#include <stdint.h>
+/* Check if PWM support for any channel is enabled. */
+
+#ifdef CONFIG_IMX9_TPM_PWM
+
+/****************************************************************************
+ * Pre-processor Definitions
+ ****************************************************************************/
 
 /****************************************************************************
  * Public Types
  ****************************************************************************/
+
+typedef enum
+{
+  PWM_TPM1 = 0,
+  PWM_TPM2 = 1,
+  PWM_TPM3 = 2,
+  PWM_TPM4 = 3,
+  PWM_TPM5 = 4,
+  PWM_TPM6 = 5,
+} tpm_pwm_id_t;
 
 /****************************************************************************
  * Public Data
@@ -39,33 +57,41 @@
 
 #ifndef __ASSEMBLY__
 
-/****************************************************************************
- * Public Functions Definitions
- ****************************************************************************/
-
-/****************************************************************************
- * Name: imx9_bringup
- *
- * Description:
- *   Bring up board features
- *
- ****************************************************************************/
-
-#if defined(CONFIG_BOARDCTL) || defined(CONFIG_BOARD_LATE_INITIALIZE)
-int imx9_bringup(void);
+#undef EXTERN
+#if defined(__cplusplus)
+#define EXTERN extern "C"
+extern "C"
+{
+#else
+#define EXTERN extern
 #endif
 
 /****************************************************************************
- * Name: imx9_pwm_setup
+ * Public Function Prototypes
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: imx9_tpm_pwm_init
  *
  * Description:
- *   Initialize PWM outputs
+ *   Initialize a TPM block for EPWM usage.
+ *
+ * Input Parameters:
+ *   pwmid - A number identifying the pwm block.
+ *
+ * Returned Value:
+ *   On success, a pointer to the lower half of the PWM driver is
+ *   returned. NULL is returned on any failure.
  *
  ****************************************************************************/
 
-#if defined(CONFIG_PWM)
-int imx9_pwm_setup(void);
+struct pwm_lowerhalf_s *imx9_tpm_pwm_init(tpm_pwm_id_t pwmid);
+
+#undef EXTERN
+#if defined(__cplusplus)
+}
 #endif
 
 #endif /* __ASSEMBLY__ */
-#endif /* __BOARDS_ARM64_IMX9_IMX93_EVK_SRC_IMX93_EVK_H */
+#endif /* CONFIG_IMX9_TPM_PWM */
+#endif /* __ARCH_ARM64_SRC_IMX9_IMX9_TPM_PWM_H */
