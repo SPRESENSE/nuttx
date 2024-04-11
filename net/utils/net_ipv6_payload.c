@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/risc-v/src/esp32c3-legacy/esp32c3_head.S
+ * net/utils/net_ipv6_payload.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -23,55 +23,52 @@
  ****************************************************************************/
 
 #include <nuttx/config.h>
-#include <arch/irq.h>
 
-#include "chip.h"
+#include <nuttx/net/ip.h>
+#include <nuttx/net/ipv6ext.h>
 
-/****************************************************************************
- * Public Symbols
- ****************************************************************************/
-
-  .global  __start
+#ifdef CONFIG_NET_IPv6
 
 /****************************************************************************
- * Section: .text
+ * Public Functions
  ****************************************************************************/
-
-  .section .text
 
 /****************************************************************************
- * Name: __start
+ * Name: net_ipv6_payload
+ *
+ * Description:
+ *   Given a pointer to the IPv6 header, this function will return a pointer
+ *   to the beginning of the L4 payload.
+ *
+ * Input Parameters:
+ *   ipv6  - A pointer to the IPv6 header.
+ *   proto - The location to return the protocol number in the IPv6 header.
+ *
+ * Returned Value:
+ *   A pointer to the beginning of the payload.
+ *
  ****************************************************************************/
 
-__start:
-  .option push
-  .option norelax
+FAR void *net_ipv6_payload(FAR struct ipv6_hdr_s *ipv6, FAR uint8_t *proto)
+{
+  FAR struct ipv6_extension_s *exthdr;
+  FAR uint8_t *payload = (FAR uint8_t *)ipv6 + IPv6_HDRLEN;
+  uint8_t nxthdr = ipv6->proto;
+  uint16_t extlen;
 
-  /* Set stack pointer to the idle thread stack */
+  while (ipv6_exthdr(nxthdr))
+    {
+      /* Just skip over the extension header */
 
-  lui  sp, %hi(ESP32C3_IDLESTACK_TOP)
-  addi sp, sp, %lo(ESP32C3_IDLESTACK_TOP)
+      exthdr = (FAR struct ipv6_extension_s *)payload;
+      extlen = EXTHDR_LEN(exthdr->len);
 
-  /* Set gp pointer */
+      payload += extlen;
+      nxthdr   = exthdr->nxthdr;
+    }
 
-  la   gp, __global_pointer$
+  *proto = nxthdr;
+  return payload;
+}
 
-  /* Disable all interrupts (i.e. timer, external) in mstatus */
-
-  csrw CSR_MSTATUS, zero
-
-  .option pop
-
-  /* Initialize the Machine Trap-Vector */
-
-  lui  t0, %hi(_vector_table)
-  addi t0, t0, %lo(_vector_table)
-  csrw  CSR_MTVEC, t0
-
-  /* Jump to __esp32c3_start */
-
-  jal  x1, __esp32c3_start
-
-  /* We shouldn't return from __esp32c3_start */
-
-  ret
+#endif /* CONFIG_NET_IPv6 */
