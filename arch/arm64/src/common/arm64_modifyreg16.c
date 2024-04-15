@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/qemu/qemu_memorymap.c
+ * arch/arm64/src/common/arm64_modifyreg16.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -22,56 +22,36 @@
  * Included Files
  ****************************************************************************/
 
-#include <sys/param.h>
+#include <nuttx/config.h>
 
-#include "mmu.h"
-#include "qemu_memorymap.h"
+#include <stdint.h>
+#include <debug.h>
 
-/****************************************************************************
- * Macro Definitions
- ****************************************************************************/
+#include <nuttx/spinlock.h>
 
-#define _NSECTIONS(b)                 (((b) + 0x000fffff) >> 20)
-
-/****************************************************************************
- * Private Data
- ****************************************************************************/
-
-static const struct section_mapping_s g_section_mapping[] =
-{
-  {
-    VIRT_FLASH_PSECTION, VIRT_FLASH_VSECTION,
-    MMU_MEMFLAGS, _NSECTIONS(VIRT_FLASH_SECSIZE)
-  },
-  {
-    VIRT_IO_PSECTION, VIRT_IO_VSECTION,
-    MMU_IOFLAGS, _NSECTIONS(VIRT_IO_SECSIZE)
-  },
-  {
-    VIRT_SEC_MEM_PSECTION, VIRT_SEC_MEM_VSECTION,
-    MMU_MEMFLAGS, _NSECTIONS(VIRT_SEC_MEM_SECSIZE)
-  },
-  {
-    VIRT_PCIE_PSECTION, VIRT_PCIE_VSECTION,
-    MMU_IOFLAGS, _NSECTIONS(VIRT_PCIE_SECSIZE)
-  },
-};
+#include "arm64_internal.h"
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: qemu_setupmappings
+ * Name: modifyreg16
  *
  * Description:
- *   Initializes the non-code area page table
+ *   Atomically modify the specified bits in a memory mapped register
  *
  ****************************************************************************/
 
-int qemu_setupmappings(void)
+void modifyreg16(unsigned int addr, uint16_t clearbits, uint16_t setbits)
 {
-  mmu_l1_map_regions(g_section_mapping, nitems(g_section_mapping));
+  irqstate_t flags;
+  uint16_t   regval;
 
-  return 0;
+  flags   = spin_lock_irqsave(NULL);
+  regval  = getreg16(addr);
+  regval &= ~clearbits;
+  regval |= setbits;
+  putreg16(regval, addr);
+  spin_unlock_irqrestore(NULL, flags);
 }
