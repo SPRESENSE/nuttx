@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/xtensa/src/esp32s3/esp32s3_twai.h
+ * boards/arm/stm32/common/include/stm32_ds1307.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,18 +18,21 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_XTENSA_SRC_ESP32S3_ESP32S3_TWAI_H
-#define __ARCH_XTENSA_SRC_ESP32S3_ESP32S3_TWAI_H
+#ifndef __BOARDS_ARM_STM32_COMMON_INCLUDE_STM32_DS1307_H
+#define __BOARDS_ARM_STM32_COMMON_INCLUDE_STM32_DS1307_H
 
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
-#include <nuttx/can/can.h>
 
 /****************************************************************************
  * Pre-processor Definitions
+ ****************************************************************************/
+
+/****************************************************************************
+ * Type Definitions
  ****************************************************************************/
 
 /****************************************************************************
@@ -40,37 +43,41 @@
  * Public Data
  ****************************************************************************/
 
-#ifndef __ASSEMBLY__
 #ifdef __cplusplus
+#define EXTERN extern "C"
 extern "C"
 {
+#else
+#define EXTERN extern
 #endif
 
 /****************************************************************************
- * Public Functions Prototypes
+ * Inline Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: esp32s3_twaiinitialize
+ * Public Function Prototypes
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: board_ds1307_initialize
  *
  * Description:
- *   Initialize the selected CAN port
+ *   Initialize and configure the DS1307 RTC
  *
  * Input Parameters:
- *   Port number (for hardware that has multiple TWAI interfaces)
+ *   busno - The I2C bus number where DS1307 is connected.
  *
  * Returned Value:
- *   Valid TWAI device structure reference on success; a NULL on failure
+ *   Zero (OK) on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
-#if defined(CONFIG_CAN) && defined(CONFIG_ESP32S3_TWAI)
-struct can_dev_s *esp32s3_twaiinitialize(void);
-#endif
+int board_ds1307_initialize(int busno);
 
+#undef EXTERN
 #ifdef __cplusplus
 }
 #endif
-#endif /* __ASSEMBLY__ */
 
-#endif /* __ARCH_XTENSA_SRC_ESP32S3_ESP32S3_TWAI_H */
+#endif /* __BOARDS_ARM_STM32_COMMON_INCLUDE_STM32_DS1307_H */

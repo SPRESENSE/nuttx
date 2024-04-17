@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/xtensa/src/esp32s3/esp32s3_twai.h
+ * libs/libc/stdlib/lib_reallocarray.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,59 +18,61 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_XTENSA_SRC_ESP32S3_ESP32S3_TWAI_H
-#define __ARCH_XTENSA_SRC_ESP32S3_ESP32S3_TWAI_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
-#include <nuttx/can/can.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+#include "libc.h"
 
 /****************************************************************************
- * Pre-processor Definitions
+ * Pre-processor definitions
+ ****************************************************************************/
+
+/* Set overflow control only if larger than 65536 for bit platforms. The
+ * limit is the same as in OpenBSD.
+ */
+
+#define CHECK_OVERFLOW_LIMIT (1UL << (sizeof(size_t) * 4))
+
+/****************************************************************************
+ * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Public Types
- ****************************************************************************/
-
-/****************************************************************************
- * Public Data
- ****************************************************************************/
-
-#ifndef __ASSEMBLY__
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
-/****************************************************************************
- * Public Functions Prototypes
- ****************************************************************************/
-
-/****************************************************************************
- * Name: esp32s3_twaiinitialize
+ * Name: reallocarray
  *
  * Description:
- *   Initialize the selected CAN port
+ *   The reallocarray function has the same functionality as realloc but
+ *   it fails safely if multiplication overflow occurs.
  *
  * Input Parameters:
- *   Port number (for hardware that has multiple TWAI interfaces)
+ *   ptr   - old memory to be reallocated and freed
+ *   nmemb - number of elements
+ *   size  - size of one element in bytes
  *
  * Returned Value:
- *   Valid TWAI device structure reference on success; a NULL on failure
+ *   Upon successful completion, the address of the re-allocated memory
+ *   is returned and previous pointer is freed. NULL is returned on error
+ *   with original block of memory left unchanged.
  *
  ****************************************************************************/
 
-#if defined(CONFIG_CAN) && defined(CONFIG_ESP32S3_TWAI)
-struct can_dev_s *esp32s3_twaiinitialize(void);
-#endif
+FAR void *reallocarray(FAR void *ptr, size_t nmemb, size_t size)
+{
+  if (nmemb != 0 && (nmemb >= CHECK_OVERFLOW_LIMIT ||
+      size >= CHECK_OVERFLOW_LIMIT))
+    {
+      /* Do division only if at least one element is larget than limit */
 
-#ifdef __cplusplus
+      if ((SIZE_MAX / nmemb) < size)
+        {
+          set_errno(ENOMEM);
+          return NULL;
+        }
+    }
+
+  return lib_realloc(ptr, nmemb * size);
 }
-#endif
-#endif /* __ASSEMBLY__ */
-
-#endif /* __ARCH_XTENSA_SRC_ESP32S3_ESP32S3_TWAI_H */
