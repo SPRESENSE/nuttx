@@ -399,6 +399,29 @@ void netlink_notifier_teardown(FAR struct netlink_conn_s *conn);
 void netlink_notifier_signal(FAR struct netlink_conn_s *conn);
 
 /****************************************************************************
+ * Name: netlink_add_terminator
+ *
+ * Description:
+ *   Add one NLMSG_DONE response to handle.
+ *
+ * Input Parameters:
+ *   handle - The handle previously provided to the sendto() implementation
+ *            for the protocol.  This is an opaque reference to the Netlink
+ *            socket state structure.
+ *   req    - The request message header.
+ *   group  - The broadcast group index, 0 for normal response.
+ *
+ * Returned Value:
+ *   Zero (OK) is returned if the terminator was successfully added to the
+ *   response list.
+ *   A negated error value is returned if an unexpected error occurred.
+ *
+ ****************************************************************************/
+
+int netlink_add_terminator(NETLINK_HANDLE handle,
+                           FAR const struct nlmsghdr *req, int group);
+
+/****************************************************************************
  * Name: netlink_tryget_response
  *
  * Description:
@@ -520,7 +543,40 @@ int nla_parse(FAR struct nlattr **tb, int maxtype,
               FAR const struct nlattr *head,
               int len, FAR const struct nla_policy *policy,
               FAR struct netlink_ext_ack *extack);
-#endif
+#endif /* CONFIG_NETLINK_ROUTE */
+
+/****************************************************************************
+ * Name: netlink_netfilter_sendto
+ *
+ * Description:
+ *   Perform the sendto() operation for the NETLINK_NETFILTER protocol.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_NETLINK_NETFILTER
+ssize_t netlink_netfilter_sendto(NETLINK_HANDLE handle,
+                                 FAR const struct nlmsghdr *nlmsg,
+                                 size_t len, int flags,
+                                 FAR const struct sockaddr_nl *to,
+                                 socklen_t tolen);
+
+/****************************************************************************
+ * Name: netlink_conntrack_notify
+ *
+ * Description:
+ *   Perform the conntrack broadcast for the NETLINK_NETFILTER protocol.
+ *
+ * Input Parameters:
+ *   type      - The type of the message, IPCTNL_MSG_CT_*
+ *   domain    - The domain of the message
+ *   nat_entry - The NAT entry
+ *
+ ****************************************************************************/
+
+void netlink_conntrack_notify(uint8_t type, uint8_t domain,
+                              FAR const void *nat_entry);
+
+#endif /* CONFIG_NETLINK_NETFILTER */
 
 #undef EXTERN
 #ifdef __cplusplus
