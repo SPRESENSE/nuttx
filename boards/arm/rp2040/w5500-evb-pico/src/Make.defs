@@ -1,5 +1,5 @@
 ############################################################################
-# mm/mm_gran/Make.defs
+# boards/arm/rp2040/w5500-evb-pico/src/Make.defs
 #
 # Licensed to the Apache Software Foundation (ASF) under one or more
 # contributor license agreements.  See the NOTICE file distributed with
@@ -18,21 +18,26 @@
 #
 ############################################################################
 
-# An optional granule allocator
+include $(TOPDIR)/Make.defs
 
-ifeq ($(CONFIG_GRAN),y)
+CSRCS = rp2040_boardinitialize.c
+CSRCS += rp2040_appinit.c
+CSRCS += rp2040_bringup.c
 
-CSRCS += mm_graninit.c mm_granrelease.c  mm_graninfo.c mm_grancritical.c
-CSRCS += mm_grantable.c mm_granfree.c mm_granalloc.c mm_granreserve.c
-
-# A page allocator based on the granule allocator
-
-ifeq ($(CONFIG_MM_PGALLOC),y)
-CSRCS += mm_pgalloc.c
+ifeq ($(CONFIG_DEV_GPIO),y)
+CSRCS += rp2040_gpio.c
 endif
 
-# Add the granule directory to the build
-
-DEPPATH += --dep-path mm_gran
-VPATH += :mm_gran
+ifeq ($(CONFIG_ARCH_LEDS),y)
+CSRCS += rp2040_autoleds.c
+else
+CSRCS += rp2040_userleds.c
 endif
+
+ifeq ($(CONFIG_ARCH_BUTTONS),y)
+  CSRCS += rp2040_buttons.c
+endif
+
+DEPPATH += --dep-path board
+VPATH += :board
+CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)board$(DELIM)board

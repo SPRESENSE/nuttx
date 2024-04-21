@@ -1,5 +1,5 @@
 /****************************************************************************
- * include/nuttx/sensors/bmi270.h
+ * boards/arm/rp2040/w5500-evb-pico/include/rp2040_spisd.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,53 +18,27 @@
  *
  ****************************************************************************/
 
-#ifndef __INCLUDE_NUTTX_SENSORS_BMI270_H
-#define __INCLUDE_NUTTX_SENSORS_BMI270_H
+#ifndef __BOARDS_ARM_RP2040_W5500_EVB_PICO_INCLUDE_RP2040_SPISD_H
+#define __BOARDS_ARM_RP2040_W5500_EVB_PICO_INCLUDE_RP2040_SPISD_H
 
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
-#include <nuttx/compiler.h>
 
 /****************************************************************************
  * Public Types
  ****************************************************************************/
 
-/****************************************************************************
- * struct 6-axis data
- ****************************************************************************/
-
-struct accel_t
-{
-  int16_t x;
-  int16_t y;
-  int16_t z;
-};
-
-struct gyro_t
-{
-  int16_t x;
-  int16_t y;
-  int16_t z;
-};
-
-struct accel_gyro_st_s
-{
-  struct accel_t accel;
-  struct gyro_t  gyro;
-  uint32_t sensor_time;
-};
-
-struct i2c_master_s;
-struct spi_dev_s;
+#ifndef __ASSEMBLY__
 
 /****************************************************************************
- * Public Function Prototypes
+ * Public Data
  ****************************************************************************/
 
-#ifdef __cplusplus
+#undef EXTERN
+#if defined(__cplusplus)
 #define EXTERN extern "C"
 extern "C"
 {
@@ -73,37 +47,37 @@ extern "C"
 #endif
 
 /****************************************************************************
- * Name: bmi270_register
+ * Public Function Prototypes
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: board_spisd_initialize
  *
  * Description:
- *   Register the BMI270 character device as 'devpath'
- *
- * Input Parameters:
- *   devpath - The full path to the driver to register. E.g., "/dev/accel0"
- *   dev     - An instance of the SPI or I2C interface to use to communicate
- *             with BMI270
- *   addr    - (I2C only) I2C address
- *
- * Returned Value:
- *   Zero (OK) on success; a negated errno value on failure.
+ *   Initialize the SPI-based SD card.
  *
  ****************************************************************************/
 
-#if defined(CONFIG_SENSORS_BMI270_I2C) && defined(CONFIG_SENSORS_BMI270_UORB)
-int bmi270_register_uorb(int devno, FAR struct i2c_master_s *dev,
-                         uint8_t addr);
-#elif defined(CONFIG_SENSORS_BMI270_I2C) && !defined(CONFIG_SENSORS_BMI270_UORB)
-int bmi270_register(FAR const char *devpath, FAR struct i2c_master_s *dev,
-                    uint8_t addr);
-#elif !defined(CONFIG_SENSORS_BMI270_I2C) && defined(CONFIG_SENSORS_BMI270_UORB)
-int bmi270_register_uorb(int devno, FAR struct spi_dev_s *dev);
-#elif !defined(CONFIG_SENSORS_BMI270_I2C) && !defined(CONFIG_SENSORS_BMI270_UORB)
-int bmi270_register(FAR const char *devpath, FAR struct spi_dev_s *dev);
+#ifdef CONFIG_RP2040_SPISD
+int board_spisd_initialize(int minor, int bus);
+#endif
+
+/****************************************************************************
+ * Name: board_spisd_status
+ *
+ * Description:
+ *   Get the status whether SD Card is present or not.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_RP2040_SPISD
+uint8_t board_spisd_status(struct spi_dev_s *dev, uint32_t devid);
 #endif
 
 #undef EXTERN
-#ifdef __cplusplus
+#if defined(__cplusplus)
 }
 #endif
 
-#endif /* __INCLUDE_NUTTX_SENSORS_BMI270_H */
+#endif /* __ASSEMBLY__ */
+#endif /* __BOARDS_ARM_RP2040_W5500_EVB_PICO_INCLUDE_RP2040_SPISD_H */

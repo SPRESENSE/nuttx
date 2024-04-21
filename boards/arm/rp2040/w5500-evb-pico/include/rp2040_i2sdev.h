@@ -1,5 +1,5 @@
 /****************************************************************************
- * mm/mm_gran/mm_granalloc.c
+ * boards/arm/rp2040/w5500-evb-pico/include/rp2040_i2sdev.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,65 +18,55 @@
  *
  ****************************************************************************/
 
+#ifndef __BOARDS_ARM_RP2040_W5500_EVB_PICO_INCLUDE_RP2040_I2SDEV_H
+#define __BOARDS_ARM_RP2040_W5500_EVB_PICO_INCLUDE_RP2040_I2SDEV_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
-
-#include <assert.h>
-#include <debug.h>
-
-#include <nuttx/mm/gran.h>
-
-#include "mm_gran/mm_gran.h"
-#include "mm_gran/mm_grantable.h"
-
-#ifdef CONFIG_GRAN
+#include <stdint.h>
 
 /****************************************************************************
- * Public Functions
+ * Public Types
  ****************************************************************************/
 
-FAR void *gran_alloc(GRAN_HANDLE handle, size_t size)
+#ifndef __ASSEMBLY__
+
+/****************************************************************************
+ * Public Data
+ ****************************************************************************/
+
+#undef EXTERN
+#if defined(__cplusplus)
+#define EXTERN extern "C"
+extern "C"
 {
-  FAR gran_t *gran = (FAR gran_t *)handle;
-  size_t ngran;
-  int posi;
-  int ret;
-  uintptr_t retp;
+#else
+#define EXTERN extern
+#endif
 
-  DEBUGASSERT(gran);
-  ngran = NGRANULE(gran, size);
-  if (!ngran || ngran > gran->ngranules)
-    {
-      return NULL;
-    }
+/****************************************************************************
+ * Public Function Prototypes
+ ****************************************************************************/
 
-  ret = gran_enter_critical(gran);
-  if (ret < 0)
-    {
-      return NULL;
-    }
+/****************************************************************************
+ * Name: board_i2sdev_initialize
+ *
+ * Description:
+ *   Initialize i2s driver and register the /dev/audio/pcm0 device.
+ *
+ ****************************************************************************/
 
-  posi = gran_search(gran, ngran);
-  if (posi >= 0)
-    {
-      gran_set(gran, posi, ngran);
-    }
+#ifdef CONFIG_RP2040_I2S
+int board_i2sdev_initialize(int bus);
+#endif
 
-  gran_leave_critical(gran);
-  if (posi < 0)
-    {
-      return NULL;
-    }
-
-  retp = gran->heapstart + (posi << gran->log2gran);
-  graninfo("heap=%"PRIxPTR" posi=%d retp=%"PRIxPTR" size=%zu n=%zu\n",
-           gran->heapstart, posi, retp, size, ngran);
-  DEBUGASSERT(retp >= gran->heapstart);
-  DEBUGASSERT(retp < gran->heapstart + GRANBYTE(gran));
-  return (FAR void *)retp;
+#undef EXTERN
+#if defined(__cplusplus)
 }
+#endif
 
-#endif /* CONFIG_GRAN */
+#endif /* __ASSEMBLY__ */
+#endif /* __BOARDS_ARM_RP2040_W5500_EVB_PICO_INCLUDE_RP2040_I2SDEV_H */

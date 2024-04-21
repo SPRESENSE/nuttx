@@ -65,7 +65,12 @@ if(CONFIG_SENSORS)
   endif()
 
   if(CONFIG_SENSORS_BMI270)
-    list(APPEND SRCS bmi270.c)
+    list(APPEND SRCS bmi270_base.c)
+    if(CONFIG_SENSORS_BMI270_UORB)
+      list(APPEND SRCS bmi270_uorb.c)
+    else()
+      list(APPEND SRCS bmi270.c)
+    endif()
   endif()
 
   # These drivers depend on I2C support
@@ -262,6 +267,10 @@ if(CONFIG_SENSORS)
       list(APPEND SRCS ltr308_uorb.c)
     endif()
 
+    if(CONFIG_SENSORS_BMM150)
+      list(APPEND SRCS bmm150_uorb.c)
+    endif()
+
   endif() # CONFIG_I2C
 
   # These drivers depend on SPI support
@@ -273,7 +282,11 @@ if(CONFIG_SENSORS)
     endif()
 
     if(CONFIG_SENSORS_ADXL372)
-      list(APPEND SRCS adxl372.c)
+      if(CONFIG_SENSORS_ADXL372_UORB)
+        list(APPEND SRCS adxl372_uorb.c)
+      else()
+        list(APPEND SRCS adxl372.c)
+      endif()
     endif()
 
     if(CONFIG_LIS3DSH)

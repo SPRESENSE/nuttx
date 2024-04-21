@@ -1,5 +1,5 @@
 /****************************************************************************
- * include/nuttx/sensors/bmi270.h
+ * boards/arm/rp2040/w5500-evb-pico/src/rp2040_boardinitialize.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,92 +18,70 @@
  *
  ****************************************************************************/
 
-#ifndef __INCLUDE_NUTTX_SENSORS_BMI270_H
-#define __INCLUDE_NUTTX_SENSORS_BMI270_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
-#include <nuttx/compiler.h>
+
+#include <debug.h>
+
+#include <nuttx/board.h>
+#include <arch/board/board.h>
+
+#include "arm_internal.h"
+#include "rp2040_gpio.h"
+
+#ifdef CONFIG_ARCH_BOARD_COMMON
+#include "rp2040_common_initialize.h"
+#endif /* CONFIG_ARCH_BOARD_COMMON */
 
 /****************************************************************************
- * Public Types
+ * Pre-processor Definitions
  ****************************************************************************/
 
 /****************************************************************************
- * struct 6-axis data
+ * Private Functions
  ****************************************************************************/
 
-struct accel_t
-{
-  int16_t x;
-  int16_t y;
-  int16_t z;
-};
-
-struct gyro_t
-{
-  int16_t x;
-  int16_t y;
-  int16_t z;
-};
-
-struct accel_gyro_st_s
-{
-  struct accel_t accel;
-  struct gyro_t  gyro;
-  uint32_t sensor_time;
-};
-
-struct i2c_master_s;
-struct spi_dev_s;
-
 /****************************************************************************
- * Public Function Prototypes
+ * Public Functions
  ****************************************************************************/
 
-#ifdef __cplusplus
-#define EXTERN extern "C"
-extern "C"
-{
-#else
-#define EXTERN extern
-#endif
-
 /****************************************************************************
- * Name: bmi270_register
+ * Name: rp2040_boardearlyinitialize
  *
  * Description:
- *   Register the BMI270 character device as 'devpath'
- *
- * Input Parameters:
- *   devpath - The full path to the driver to register. E.g., "/dev/accel0"
- *   dev     - An instance of the SPI or I2C interface to use to communicate
- *             with BMI270
- *   addr    - (I2C only) I2C address
- *
- * Returned Value:
- *   Zero (OK) on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
-#if defined(CONFIG_SENSORS_BMI270_I2C) && defined(CONFIG_SENSORS_BMI270_UORB)
-int bmi270_register_uorb(int devno, FAR struct i2c_master_s *dev,
-                         uint8_t addr);
-#elif defined(CONFIG_SENSORS_BMI270_I2C) && !defined(CONFIG_SENSORS_BMI270_UORB)
-int bmi270_register(FAR const char *devpath, FAR struct i2c_master_s *dev,
-                    uint8_t addr);
-#elif !defined(CONFIG_SENSORS_BMI270_I2C) && defined(CONFIG_SENSORS_BMI270_UORB)
-int bmi270_register_uorb(int devno, FAR struct spi_dev_s *dev);
-#elif !defined(CONFIG_SENSORS_BMI270_I2C) && !defined(CONFIG_SENSORS_BMI270_UORB)
-int bmi270_register(FAR const char *devpath, FAR struct spi_dev_s *dev);
-#endif
+void rp2040_boardearlyinitialize(void)
+{
+  #ifdef CONFIG_ARCH_BOARD_COMMON
+  rp2040_common_earlyinitialize();
+  #endif
 
-#undef EXTERN
-#ifdef __cplusplus
+  /* --- Place any board specific early initialization here --- */
+
+  /* Set board LED pin */
+
+  rp2040_gpio_init(BOARD_GPIO_LED_PIN);
+  rp2040_gpio_setdir(BOARD_GPIO_LED_PIN, true);
+  rp2040_gpio_put(BOARD_GPIO_LED_PIN, true);
 }
-#endif
 
-#endif /* __INCLUDE_NUTTX_SENSORS_BMI270_H */
+/****************************************************************************
+ * Name: rp2040_boardinitialize
+ *
+ * Description:
+ *
+ ****************************************************************************/
+
+void rp2040_boardinitialize(void)
+{
+  #ifdef CONFIG_ARCH_BOARD_COMMON
+  rp2040_common_initialize();
+  #endif
+
+  /* --- Place any board specific initialization here --- */
+}

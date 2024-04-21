@@ -1,5 +1,5 @@
 /****************************************************************************
- * mm/mm_gran/mm_granalloc.c
+ * include/nuttx/sensors/bmm150.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,65 +18,63 @@
  *
  ****************************************************************************/
 
+#ifndef __INCLUDE_NUTTX_SENSORS_BMM150_H
+#define __INCLUDE_NUTTX_SENSORS_BMM150_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
-#include <assert.h>
-#include <debug.h>
-
-#include <nuttx/mm/gran.h>
-
-#include "mm_gran/mm_gran.h"
-#include "mm_gran/mm_grantable.h"
-
-#ifdef CONFIG_GRAN
+#include <nuttx/i2c/i2c_master.h>
 
 /****************************************************************************
- * Public Functions
+ * Pre-processor Definitions
  ****************************************************************************/
 
-FAR void *gran_alloc(GRAN_HANDLE handle, size_t size)
+/****************************************************************************
+ * Public Types
+ ****************************************************************************/
+
+struct bmm150_config_s
 {
-  FAR gran_t *gran = (FAR gran_t *)handle;
-  size_t ngran;
-  int posi;
-  int ret;
-  uintptr_t retp;
+  FAR struct i2c_master_s *i2c;
+  uint8_t addr;
+};
 
-  DEBUGASSERT(gran);
-  ngran = NGRANULE(gran, size);
-  if (!ngran || ngran > gran->ngranules)
-    {
-      return NULL;
-    }
+/****************************************************************************
+ * Public Function Prototypes
+ ****************************************************************************/
 
-  ret = gran_enter_critical(gran);
-  if (ret < 0)
-    {
-      return NULL;
-    }
+#ifdef __cplusplus
+#define EXTERN extern "C"
+extern "C"
+{
+#else
+#define EXTERN extern
+#endif
 
-  posi = gran_search(gran, ngran);
-  if (posi >= 0)
-    {
-      gran_set(gran, posi, ngran);
-    }
+/****************************************************************************
+ * Name: bmm150_register
+ *
+ * Description:
+ *   Register the BMM150 character device as uorb
+ *
+ * Input Parameters:
+ *   devno  - device instance
+ *   config - device configuratio
+ *
+ * Returned Value:
+ *   Zero (OK) on success; a negated errno value on failure.
+ *
+ ****************************************************************************/
 
-  gran_leave_critical(gran);
-  if (posi < 0)
-    {
-      return NULL;
-    }
+int bmm150_register_uorb(int devno, FAR struct bmm150_config_s *config);
 
-  retp = gran->heapstart + (posi << gran->log2gran);
-  graninfo("heap=%"PRIxPTR" posi=%d retp=%"PRIxPTR" size=%zu n=%zu\n",
-           gran->heapstart, posi, retp, size, ngran);
-  DEBUGASSERT(retp >= gran->heapstart);
-  DEBUGASSERT(retp < gran->heapstart + GRANBYTE(gran));
-  return (FAR void *)retp;
+#undef EXTERN
+#ifdef __cplusplus
 }
+#endif
 
-#endif /* CONFIG_GRAN */
+#endif /* __INCLUDE_NUTTX_SENSORS_BMM150_H */

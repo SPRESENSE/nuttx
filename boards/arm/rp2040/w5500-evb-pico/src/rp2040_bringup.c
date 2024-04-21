@@ -1,5 +1,5 @@
 /****************************************************************************
- * mm/mm_gran/mm_granalloc.c
+ * boards/arm/rp2040/w5500-evb-pico/src/rp2040_bringup.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -24,59 +24,65 @@
 
 #include <nuttx/config.h>
 
-#include <assert.h>
 #include <debug.h>
+#include <stddef.h>
 
-#include <nuttx/mm/gran.h>
+#include <nuttx/fs/fs.h>
 
-#include "mm_gran/mm_gran.h"
-#include "mm_gran/mm_grantable.h"
+#include <arch/board/board.h>
 
-#ifdef CONFIG_GRAN
+#include "rp2040_pico.h"
+
+#ifdef CONFIG_ARCH_BOARD_COMMON
+#include "rp2040_common_bringup.h"
+#endif /* CONFIG_ARCH_BOARD_COMMON */
+
+#ifdef CONFIG_USERLED
+#  include <nuttx/leds/userled.h>
+#endif
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
-FAR void *gran_alloc(GRAN_HANDLE handle, size_t size)
+/****************************************************************************
+ * Name: rp2040_bringup
+ ****************************************************************************/
+
+int rp2040_bringup(void)
 {
-  FAR gran_t *gran = (FAR gran_t *)handle;
-  size_t ngran;
-  int posi;
-  int ret;
-  uintptr_t retp;
+#ifdef CONFIG_ARCH_BOARD_COMMON
 
-  DEBUGASSERT(gran);
-  ngran = NGRANULE(gran, size);
-  if (!ngran || ngran > gran->ngranules)
-    {
-      return NULL;
-    }
-
-  ret = gran_enter_critical(gran);
+  int ret = rp2040_common_bringup();
   if (ret < 0)
     {
-      return NULL;
+      return ret;
     }
 
-  posi = gran_search(gran, ngran);
-  if (posi >= 0)
+#endif /* CONFIG_ARCH_BOARD_COMMON */
+
+  /* --- Place any board specific bringup code here --- */
+
+#ifdef CONFIG_USERLED
+  /* Register the LED driver */
+
+  ret = userled_lower_initialize("/dev/userleds");
+  if (ret < 0)
     {
-      gran_set(gran, posi, ngran);
+      syslog(LOG_ERR, \
+      "ERROR: userled_lower_initialize() failed: %d\n", ret);
     }
+#endif
 
-  gran_leave_critical(gran);
-  if (posi < 0)
+#ifdef CONFIG_INPUT_BUTTONS
+  /* Register the BUTTON driver */
+
+  ret = btn_lower_initialize("/dev/buttons");
+  if (ret < 0)
     {
-      return NULL;
+      syslog(LOG_ERR, "ERROR: btn_lower_initialize() failed: %d\n", ret);
     }
+#endif
 
-  retp = gran->heapstart + (posi << gran->log2gran);
-  graninfo("heap=%"PRIxPTR" posi=%d retp=%"PRIxPTR" size=%zu n=%zu\n",
-           gran->heapstart, posi, retp, size, ngran);
-  DEBUGASSERT(retp >= gran->heapstart);
-  DEBUGASSERT(retp < gran->heapstart + GRANBYTE(gran));
-  return (FAR void *)retp;
+  return OK;
 }
-
-#endif /* CONFIG_GRAN */
