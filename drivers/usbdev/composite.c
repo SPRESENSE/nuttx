@@ -644,6 +644,20 @@ static int composite_setup(FAR struct usbdevclass_driver_s *driver,
                 {
                   ret = USB_SIZEOF_DEVDESC;
                   memcpy(ctrlreq->buf, priv->descs->devdesc, ret);
+#ifdef CONFIG_BOARD_USBDEV_PIDVID
+                  {
+                    uint16_t pid = board_usbdev_pid();
+                    uint16_t vid = board_usbdev_vid();
+                    FAR struct usb_devdesc_s *p_desc =
+                               (FAR struct usb_devdesc_s *)ctrlreq->buf;
+
+                    p_desc->vendor[0] = LSBYTE(vid);
+                    p_desc->vendor[1] = MSBYTE(vid);
+
+                    p_desc->product[0] = LSBYTE(pid);
+                    p_desc->product[1] = MSBYTE(pid);
+                  }
+#endif
                 }
                 break;
 
@@ -1115,24 +1129,15 @@ void composite_uninitialize(FAR void *handle)
 
   DEBUGASSERT(alloc != NULL);
 
-  /* First phase uninitialization each of the member classes */
-
   priv = &alloc->dev;
-
-  for (i = 0; i < priv->ndevices; i++)
-    {
-      priv->device[i].compdesc.uninitialize(priv->device[i].dev);
-    }
 
   /* Then unregister and destroy the composite class */
 
   usbdev_unregister(&alloc->drvr.drvr);
 
-  /* Free any resources used by the composite driver */
-
-  /* None */
-
-  /* Second phase uninitialization:  Clean up all memory resources */
+  /* Uninitialization each of the member classes and clean up
+   * all memory resources
+   */
 
   for (i = 0; i < priv->ndevices; i++)
     {
