@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/xtensa/src/esp32s3/hardware/esp32s3_system.h
+ * arch/xtensa/src/esp32s3/esp32s3_pminitialize.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,15 +18,32 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_XTENSA_SRC_ESP32S3_HARDWARE_ESP32S3_SYSTEM_H
-#define __ARCH_XTENSA_SRC_ESP32S3_HARDWARE_ESP32S3_SYSTEM_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#include "esp32s3_soc.h"
+#include <nuttx/config.h>
+#include <nuttx/power/pm.h>
 
-#include "soc/system_reg.h"
+#ifdef CONFIG_PM
 
-#endif /* __ARCH_XTENSA_SRC_ESP32S3_HARDWARE_ESP32S3_SYSTEM_H */
+/****************************************************************************
+ * Public Functions
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: xtensa_pminitialize
+ *
+ * Description:
+ *   Initialize the power management subsystem.
+ *
+ ****************************************************************************/
+
+void xtensa_pminitialize(void)
+{
+  /* Initialize the NuttX power management subsystem proper */
+
+  pm_initialize();
+}
+
+#endif /* CONFIG_PM */
