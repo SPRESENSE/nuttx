@@ -1,5 +1,5 @@
 /****************************************************************************
- * mm/iob/iob_tailroom.c
+ * mm/map/vm_map.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -22,31 +22,70 @@
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
+#include <debug.h>
 
-#include <nuttx/mm/iob.h>
-
-#include "iob.h"
+#include <nuttx/arch.h>
+#include <nuttx/mm/map.h>
+#include <nuttx/pgalloc.h>
+#include <nuttx/sched.h>
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
-/****************************************************************************
- * Name: iob_tailroom
- *
- * Description:
- *  Return the number of bytes at the tail of the I/O buffer chain which
- *  can be used to append data without additional allocations.
- *
- ****************************************************************************/
+#ifdef CONFIG_ARCH_VMA_MAPPING
 
-unsigned int iob_tailroom(FAR struct iob_s *iob)
+/* map physical region to userspace */
+
+FAR void *vm_map_region(uintptr_t paddr, size_t size)
 {
-  while (iob->io_flink != NULL)
+  FAR void *vaddr;
+  uintptr_t tvaddr;
+  uint      i      = 0;
+  int       ret    = OK;
+  size_t    npages = MM_NPAGES(size);
+
+  DEBUGASSERT(npages > 0);
+  DEBUGASSERT(MM_ISALIGNED(paddr));
+
+  vaddr = vm_alloc_region(get_current_mm(), 0, size);
+  if (vaddr)
     {
-      iob = iob->io_flink;
+      tvaddr = (uintptr_t)vaddr;
+      for (; i < npages; i++, tvaddr += MM_PGSIZE, paddr += MM_PGSIZE)
+        {
+          ret = up_shmat(&paddr, 1, tvaddr);
+          if (ret)
+            {
+              goto errorout;
+            }
+        }
     }
 
-  return IOB_BUFSIZE(iob) - (iob->io_offset + iob->io_len);
+  return vaddr;
+
+errorout:
+  if (i)   /* undo mapped pages */
+    {
+      up_shmdt((uintptr_t)vaddr, i);
+    }
+
+  vm_release_region(get_current_mm(), vaddr, size);
+  return 0;
 }
+
+/* unmap userspace device pointer */
+
+int vm_unmap_region(FAR void *vaddr, size_t size)
+{
+  size_t npages = MM_NPAGES(size);
+  int ret;
+
+  DEBUGASSERT(MM_ISALIGNED(vaddr));
+  DEBUGASSERT(npages);
+  ret = up_shmdt((uintptr_t)vaddr, npages);
+  vm_release_region(get_current_mm(), vaddr, size);
+  return ret;
+}
+
+#endif /* CONFIG_ARCH_VMA_MAPPING */
