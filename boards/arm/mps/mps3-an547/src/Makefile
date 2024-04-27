@@ -1,5 +1,5 @@
-#############################################################################
-# boards/arm/stm32f7/common/src/Make.defs
+############################################################################
+# boards/arm/mps/mps3-an547/src/Makefile
 #
 # Licensed to the Apache Software Foundation (ASF) under one or more
 # contributor license agreements.  See the NOTICE file distributed with
@@ -16,24 +16,10 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 #
-#############################################################################
+############################################################################
 
-ifeq ($(CONFIG_ARCH_BOARD_COMMON),y)
+include $(TOPDIR)/Make.defs
 
-ifeq ($(CONFIG_SENSORS_BH1750FVI),y)
-  CSRCS += stm32_bh1750.c
-endif
+CSRCS = mps3_bringup.c
 
-ifeq ($(CONFIG_SENSORS_BMI270_I2C),y)
-  CSRCS += stm32_bmi270.c
-endif
-
-ifeq ($(CONFIG_AUDIO_CS4344),y)
-  CSRCS += stm32_cs4344.c
-endif
-
-DEPPATH += --dep-path src
-VPATH += :src
-CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)board$(DELIM)src
-
-endif
+include $(TOPDIR)/boards/Board.mk
