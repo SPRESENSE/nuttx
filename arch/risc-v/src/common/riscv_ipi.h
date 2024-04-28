@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/risc-v/src/jh7110/jh7110_memorymap.h
+ * arch/risc-v/src/common/riscv_ipi.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,25 +18,35 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_RISCV_SRC_JH7110_JH7110_MEMORYMAP_H
-#define __ARCH_RISCV_SRC_JH7110_JH7110_MEMORYMAP_H
+#ifndef __ARCH_RISCV_SRC_COMMON_RISCV_IPI_H
+#define __ARCH_RISCV_SRC_COMMON_RISCV_IPI_H
 
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#include "riscv_common_memorymap.h"
+#include "riscv_internal.h"
+#include "chip.h"
 
 /****************************************************************************
- * Pre-processor Definitions
+ * Public Function Prototypes
  ****************************************************************************/
 
-/* Idle thread stack starts from _ebss */
-
-#ifndef __ASSEMBLY__
-#define JH7110_IDLESTACK_BASE  (uintptr_t)_ebss
+static inline void riscv_ipi_send(int cpu)
+{
+#if defined(RISCV_IPI)
+  putreg32(1, (uintptr_t)RISCV_IPI + (4 * cpu));
 #else
-#define JH7110_IDLESTACK_BASE  _ebss
+  PANIC();
 #endif
+}
 
-#endif /* __ARCH_RISCV_SRC_JH7110_JH7110_MEMORYMAP_H */
+static inline void riscv_ipi_clear(int cpu)
+{
+#if defined(RISCV_IPI)
+  putreg32(0, (uintptr_t)RISCV_IPI + (4 * cpu));
+#endif
+  CLEAR_CSR(CSR_IP, IP_SIP);
+}
+
+#endif /* __ARCH_RISCV_SRC_COMMON_RISCV_IPI_H */
