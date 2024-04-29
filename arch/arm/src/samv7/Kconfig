@@ -275,6 +275,10 @@ config SAMV7_DAC
 	bool
 	default n
 
+config SAMV7_QENCODER
+	bool
+	default n
+
 config SAMV7_HAVE_DAC1
 	bool
 	default n
@@ -671,8 +675,13 @@ config SAMV7_PWM0_CH0
 
 if SAMV7_PWM0_CH0
 
+config SAMV7_PWM0_CH0_LONLY
+	bool "Use only L output"
+	default n
+
 config SAMV7_PWM0_CH0_COMP
 	bool "Use complementary output"
+	depends on !SAMV7_PWM0_CH0_LONLY
 	default n
 
 endif
@@ -683,8 +692,13 @@ config SAMV7_PWM0_CH1
 
 if SAMV7_PWM0_CH1
 
+config SAMV7_PWM0_CH1_LONLY
+	bool "Use only L output"
+	default n
+
 config SAMV7_PWM0_CH1_COMP
 	bool "Use complementary output"
+	depends on !SAMV7_PWM0_CH1_LONLY
 	default n
 
 endif
@@ -695,8 +709,13 @@ config SAMV7_PWM0_CH2
 
 if SAMV7_PWM0_CH2
 
+config SAMV7_PWM0_CH2_LONLY
+	bool "Use only L output"
+	default n
+
 config SAMV7_PWM0_CH2_COMP
 	bool "Use complementary output"
+	depends on !SAMV7_PWM0_CH2_LONLY
 	default n
 
 endif
@@ -707,8 +726,13 @@ config SAMV7_PWM0_CH3
 
 if SAMV7_PWM0_CH3
 
+config SAMV7_PWM0_CH3_LONLY
+	bool "Use only L output"
+	default n
+
 config SAMV7_PWM0_CH3_COMP
 	bool "Use complementary output"
+	depends on !SAMV7_PWM0_CH3_LONLY
 	default n
 
 endif
@@ -887,8 +911,13 @@ config SAMV7_PWM1_CH0
 
 if SAMV7_PWM1_CH0
 
+config SAMV7_PWM1_CH0_LONLY
+	bool "Use only L output"
+	default n
+
 config SAMV7_PWM1_CH0_COMP
 	bool "Use complementary output"
+	depends on !SAMV7_PWM1_CH0_LONLY
 	default n
 
 endif
@@ -899,8 +928,13 @@ config SAMV7_PWM1_CH1
 
 if SAMV7_PWM1_CH1
 
+config SAMV7_PWM1_CH1_LONLY
+	bool "Use only L output"
+	default n
+
 config SAMV7_PWM1_CH1_COMP
 	bool "Use complementary output"
+	depends on !SAMV7_PWM1_CH1_LONLY
 	default n
 
 endif
@@ -911,8 +945,13 @@ config SAMV7_PWM1_CH2
 
 if SAMV7_PWM1_CH2
 
+config SAMV7_PWM1_CH2_LONLY
+	bool "Use only L output"
+	default n
+
 config SAMV7_PWM1_CH2_COMP
 	bool "Use complementary output"
+	depends on !SAMV7_PWM1_CH2_LONLY
 	default n
 
 endif
@@ -923,8 +962,13 @@ config SAMV7_PWM1_CH3
 
 if SAMV7_PWM1_CH3
 
+config SAMV7_PWM1_CH3_LONLY
+	bool "Use only L output"
+	default n
+
 config SAMV7_PWM1_CH3_COMP
 	bool "Use complementary output"
+	depends on !SAMV7_PWM1_CH3_LONLY
 	default n
 
 endif
@@ -3754,6 +3798,7 @@ config SAMV7_TC0_QE
 	bool "TC0"
 	default n
 	depends on SAMV7_TC0
+	select SAMV7_QENCODER
 	select SAMV7_TC0_TIOA0
 	select SAMV7_TC0_TIOB0
 	---help---
@@ -3763,6 +3808,7 @@ config SAMV7_TC1_QE
 	bool "TC1"
 	default n
 	depends on SAMV7_TC1
+	select SAMV7_QENCODER
 	select SAMV7_TC1_TIOA3
 	select SAMV7_TC1_TIOB3
 	---help---
@@ -3772,6 +3818,7 @@ config SAMV7_TC2_QE
 	bool "TC2"
 	default n
 	depends on SAMV7_TC2
+	select SAMV7_QENCODER
 	select SAMV7_TC2_TIOA6
 	select SAMV7_TC2_TIOB6
 	---help---
@@ -3781,6 +3828,7 @@ config SAMV7_TC3_QE
 	bool "TC3"
 	default n
 	depends on SAMV7_TC3
+	select SAMV7_QENCODER
 	select SAMV7_TC3_TIOA9
 	select SAMV7_TC3_TIOB9
 	---help---
