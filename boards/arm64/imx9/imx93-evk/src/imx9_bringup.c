@@ -99,6 +99,15 @@ int imx9_bringup(void)
     }
 #endif
 
+#ifdef CONFIG_MMCSD
+  ret = imx9_usdhc_init();
+
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "Failed to init MMCSD driver: %d\n", ret);
+    }
+#endif
+
   UNUSED(ret);
   return OK;
 }

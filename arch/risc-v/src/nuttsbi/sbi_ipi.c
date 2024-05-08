@@ -1,5 +1,5 @@
 /****************************************************************************
- * mm/map/vm_map.c
+ * arch/risc-v/src/nuttsbi/sbi_ipi.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -22,70 +22,35 @@
  * Included Files
  ****************************************************************************/
 
-#include <debug.h>
+#include <nuttx/config.h>
+#include <nuttx/compiler.h>
+#include <nuttx/irq.h>
 
-#include <nuttx/arch.h>
-#include <nuttx/mm/map.h>
-#include <nuttx/pgalloc.h>
-#include <nuttx/sched.h>
+#include <arch/barriers.h>
+
+#include <stdint.h>
+
+#include "riscv_internal.h"
+
+#include "sbi_internal.h"
+
+/****************************************************************************
+ * Pre-processor Definitions
+ ****************************************************************************/
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
-#ifdef CONFIG_ARCH_VMA_MAPPING
-
-/* map physical region to userspace */
-
-FAR void *vm_map_region(uintptr_t paddr, size_t size)
+void sbi_send_ipi(uintptr_t hmask, uintptr_t hbase)
 {
-  FAR void *vaddr;
-  uintptr_t tvaddr;
-  uint      i      = 0;
-  int       ret    = OK;
-  size_t    npages = MM_NPAGES(size);
+  uintptr_t i;
 
-  DEBUGASSERT(npages > 0);
-  DEBUGASSERT(MM_ISALIGNED(paddr));
-
-  vaddr = vm_alloc_region(get_current_mm(), 0, size);
-  if (vaddr)
+  for (i = hbase; hmask; i++, hmask >>= 1)
     {
-      tvaddr = (uintptr_t)vaddr;
-      for (; i < npages; i++, tvaddr += MM_PGSIZE, paddr += MM_PGSIZE)
+      if (hmask & 1)
         {
-          ret = up_shmat(&paddr, 1, tvaddr);
-          if (ret)
-            {
-              goto errorout;
-            }
+          putreg32(1, IPI_BASE + 4 * i);
         }
     }
-
-  return vaddr;
-
-errorout:
-  if (i)   /* undo mapped pages */
-    {
-      up_shmdt((uintptr_t)vaddr, i);
-    }
-
-  vm_release_region(get_current_mm(), vaddr, size);
-  return 0;
 }
-
-/* unmap userspace device pointer */
-
-int vm_unmap_region(FAR void *vaddr, size_t size)
-{
-  size_t npages = MM_NPAGES(size);
-  int ret;
-
-  DEBUGASSERT(MM_ISALIGNED(vaddr));
-  DEBUGASSERT(npages);
-  ret = up_shmdt((uintptr_t)vaddr, npages);
-  vm_release_region(get_current_mm(), vaddr, size);
-  return ret;
-}
-
-#endif /* CONFIG_ARCH_VMA_MAPPING */

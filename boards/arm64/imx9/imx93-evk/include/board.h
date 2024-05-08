@@ -26,6 +26,8 @@
  ****************************************************************************/
 
 #include <nuttx/config.h>
+#include <nuttx/net/mii.h>
+#include <nuttx/net/gmii.h>
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -88,6 +90,37 @@
 #define MUX_LPSPI6_CS        IOMUX_CFG(IOMUXC_PAD_GPIO_IO00_GPIO2_IO00,  IOMUX_GPIO_DEFAULT, IOMUXC_MUX_SION_ON)
 #define GPIO_LPSPI6_CS       (GPIO_PORT2 | GPIO_PIN0 | GPIO_OUTPUT | GPIO_OUTPUT_ONE)
 
+/* USDHC */
+
+/* Note: Need to set the SION for cmd and data pads (ERR052021) */
+
+#define PIN_USDHC2_D0_MUX IOMUX_CFG(IOMUXC_PAD_SD2_DATA0_USDHC2_DATA0, IOMUXC_PAD_DSE_X1 | IOMUXC_PAD_FSEL_FAST | IOMUXC_PAD_PU_ON | IOMUXC_PAD_HYS_ST_ON, IOMUXC_MUX_SION_ON)
+#define PIN_USDHC2_D1_MUX IOMUX_CFG(IOMUXC_PAD_SD2_DATA1_USDHC2_DATA1, IOMUXC_PAD_DSE_X1 | IOMUXC_PAD_FSEL_FAST | IOMUXC_PAD_PU_ON | IOMUXC_PAD_HYS_ST_ON, IOMUXC_MUX_SION_ON)
+#define PIN_USDHC2_D2_MUX IOMUX_CFG(IOMUXC_PAD_SD2_DATA2_USDHC2_DATA2, IOMUXC_PAD_DSE_X1 | IOMUXC_PAD_FSEL_FAST | IOMUXC_PAD_PU_ON | IOMUXC_PAD_HYS_ST_ON, IOMUXC_MUX_SION_ON)
+#define PIN_USDHC2_D3_MUX IOMUX_CFG(IOMUXC_PAD_SD2_DATA3_USDHC2_DATA3, IOMUXC_PAD_DSE_X1 | IOMUXC_PAD_FSEL_FAST | IOMUXC_PAD_PU_ON | IOMUXC_PAD_HYS_ST_ON, IOMUXC_MUX_SION_ON)
+#define PIN_USDHC2_DCLK_MUX IOMUX_CFG(IOMUXC_PAD_SD2_DATA1_USDHC2_DATA1, IOMUXC_PAD_DSE_X6 | IOMUXC_PAD_FSEL_FAST | IOMUXC_PAD_PD_ON | IOMUXC_PAD_HYS_ST_ON, 0)
+#define PIN_USDHC2_CMD_MUX IOMUX_CFG(IOMUXC_PAD_SD2_CMD_USDHC2_CMD, IOMUXC_PAD_DSE_X1 | IOMUXC_PAD_FSEL_FAST | IOMUXC_PAD_PU_ON | IOMUXC_PAD_HYS_ST_ON, IOMUXC_MUX_SION_ON)
+#define PIN_USDHC2_CD_MUX IOMUX_CFG(IOMUXC_PAD_SD2_DATA3_USDHC2_DATA3, IOMUXC_PAD_DSE_X4 | IOMUXC_PAD_FSEL_FAST, 0)
+#define PIN_USDHC2_VSELECT_MUX IOMUX_CFG(IOMUXC_PAD_SD2_VSELECT_USDHC2_VSELECT, IOMUXC_PAD_DSE_X5 | IOMUXC_PAD_FSEL_SFAST | IOMUXC_PAD_PD_ON, 0)
+
+/* 390 KHz for initial inquiry stuff */
+
+#define BOARD_USDHC_IDMODE_PRESCALER    USDHC_SYSCTL_SDCLKFS_DIV256
+#define BOARD_USDHC_IDMODE_DIVISOR      USDHC_SYSCTL_DVS_DIV(2)
+
+/* 25MHz for 1-bit wide bus */
+
+#define BOARD_USDHC_MMCMODE_PRESCALER   USDHC_SYSCTL_SDCLKFS_DIV8
+#define BOARD_USDHC_MMCMODE_DIVISOR     USDHC_SYSCTL_DVS_DIV(1)
+
+#define BOARD_USDHC_SD1MODE_PRESCALER   USDHC_SYSCTL_SDCLKFS_DIV8
+#define BOARD_USDHC_SD1MODE_DIVISOR     USDHC_SYSCTL_DVS_DIV(1)
+
+/* 50MHz for 4-bit wide bus */
+
+#define BOARD_USDHC_SD4MODE_PRESCALER   USDHC_SYSCTL_SDCLKFS_DIV4
+#define BOARD_USDHC_SD4MODE_DIVISOR     USDHC_SYSCTL_DVS_DIV(1)
+
 /* Set the PLL clocks as follows:
  *
  * - OSC24M       : 24   MHz
@@ -120,6 +153,85 @@
     PFD_CFG(IMX9_SYSPLL_BASE, 1, PFD_PARMS(5, 0, true)), \
     PFD_CFG(IMX9_SYSPLL_BASE, 2, PFD_PARMS(6, 2, true)), \
   }
+
+/* Ethernet configuration */
+
+#define BOARD_ENET1_PHY_LIST                             \
+{                                                        \
+  {                                                      \
+    .name = GMII_RTL8211F_NAME,                           \
+    .id1 = GMII_PHYID1_RTL8211F,                                \
+    .id2 = GMII_PHYID2_RTL8211F,                                \
+    .status = GMII_RTL8211F_PHYSR_A43,                             \
+    .address_lo = 2,                                                   \
+    .address_high = 0xffff,                                              \
+    .mbps10 = GMII_RTL8211F_PHYSR_10MBPS,                          \
+    .mbps100 = GMII_RTL8211F_PHYSR_100MBPS,                         \
+    .duplex = GMII_RTL8211F_PHYSR_DUPLEX,                          \
+    .clause = 22,                                                  \
+    .mbps1000 = GMII_RTL8211F_PHYSR_1000MBPS,                       \
+    .speed_mask = GMII_RTL8211F_PHYSR_SPEED_MASK,                    \
+  },                                                     \
+}
+
+#endif /* CONFIG_IMX9_ENET1 */
+
+#ifdef CONFIG_IMX9_ENET1
+
+#define MUX_ENET1_MDIO        IOMUX_CFG(IOMUXC_PAD_ENET2_MDIO_ENET1_MDIO, IOMUXC_PAD_FSEL_FAST | IOMUXC_PAD_DSE_X6, IOMUXC_MUX_SION_ON)
+#define MUX_ENET1_MDC         IOMUX_CFG(IOMUXC_PAD_ENET2_MDC_ENET1_MDC, IOMUXC_PAD_FSEL_FAST | IOMUXC_PAD_DSE_X6, 0)
+
+#define MUX_ENET1_RX_DATA00   IOMUX_CFG(IOMUXC_PAD_ENET2_RD0_ENET1_RGMII_RD0, 0, 0)
+#define MUX_ENET1_RX_DATA01   IOMUX_CFG(IOMUXC_PAD_ENET2_RD1_ENET1_RGMII_RD1, 0, 0)
+
+#define MUX_ENET1_TX_DATA00   IOMUX_CFG(IOMUXC_PAD_ENET2_TD0_ENET1_RGMII_TD0, IOMUXC_PAD_FSEL_FAST | IOMUXC_PAD_DSE_X6, 0)
+#define MUX_ENET1_TX_DATA01   IOMUX_CFG(IOMUXC_PAD_ENET2_TD1_ENET1_RGMII_TD1, IOMUXC_PAD_FSEL_FAST | IOMUXC_PAD_DSE_X6, 0)
+
+#if defined(CONFIG_IMX9_ENET1_RGMII)
+
+#  define MUX_ENET1_RX_DATA02 IOMUX_CFG(IOMUXC_PAD_ENET2_RD2_ENET1_RGMII_RD2, 0, 0)
+#  define MUX_ENET1_RX_DATA03 IOMUX_CFG(IOMUXC_PAD_ENET2_RD3_ENET1_RGMII_RD3, 0, 0)
+#  define MUX_ENET1_TX_DATA02 IOMUX_CFG(IOMUXC_PAD_ENET2_TD2_ENET1_RGMII_TD2, IOMUXC_PAD_FSEL_FAST | IOMUXC_PAD_DSE_X6, 0)
+#  define MUX_ENET1_TX_DATA03 IOMUX_CFG(IOMUXC_PAD_ENET2_TD3_ENET1_RGMII_TD3, IOMUXC_PAD_FSEL_FAST | IOMUXC_PAD_DSE_X6, 0)
+#  define MUX_ENET1_RXC       IOMUX_CFG(IOMUXC_PAD_ENET2_RXC_ENET1_RGMII_RXC, 0, 0)
+#  define MUX_ENET1_TX_CTL    IOMUX_CFG(IOMUXC_PAD_ENET2_TX_CTL_ENET1_RGMII_TX_CTL, IOMUXC_PAD_FSEL_FAST | IOMUXC_PAD_DSE_X6, 0)
+#  define MUX_ENET1_RX_CTL    IOMUX_CFG(IOMUXC_PAD_ENET2_RX_CTL_ENET1_RGMII_RX_CTL, 0, 0)
+
+#elif defined(CONFIG_IMX9_ENET1_RMII)
+
+/* Same pin as TX_CTL for RGMII */
+
+#  define MUX_ENET1_TX_EN     IOMUX_CFG(IOMUXC_PAD_ENET2_TX_CTL_ENET1_RGMII_TX_CTL, IOMUXC_PAD_FSEL_FAST | IOMUXC_PAD_DSE_X6, 0)
+
+/* Same pin as TX_DATA02 for RGMII */
+
+#  define MUX_ENET1_REF_CLK   IOMUX_CFG(IOMUXC_PAD_ENET2_TD2_ENET1_RGMII_TD2, IOMUXC_PAD_FSEL_FAST | IOMUXC_PAD_DSE_X6, 0)
+
+/* Same pin as RX_CTL for RGMII */
+
+#  define MUX_ENET1_CRS_DV    IOMUX_CFG(IOMUXC_PAD_ENET2_RX_CTL_ENET1_RGMII_RX_CTL, 0, 0)
+
+#else
+#error ENET1 supports only RMII and RGMII
+#endif
+
+#define BOARD_ENET1_PHY_LIST                             \
+{                                                        \
+  {                                                      \
+    GMII_RTL8211F_NAME,                                  \
+    GMII_PHYID1_RTL8211F,                                \
+    GMII_PHYID2_RTL8211F,                                \
+    GMII_RTL8211F_PHYSR_A43,                             \
+    2,                                                   \
+    0xffff,                                              \
+    GMII_RTL8211F_PHYSR_10MBPS,                          \
+    GMII_RTL8211F_PHYSR_100MBPS,                         \
+    GMII_RTL8211F_PHYSR_DUPLEX,                          \
+    22,                                                  \
+    GMII_RTL8211F_PHYSR_1000MBPS,                        \
+    GMII_RTL8211F_PHYSR_SPEED_MASK,                      \
+  },                                                     \
+}
 
 /****************************************************************************
  * Public Data
