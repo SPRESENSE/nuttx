@@ -58,13 +58,6 @@ extern void __trap_vec(void);
  * Public Data
  ****************************************************************************/
 
-/* NOTE: g_idle_topstack needs to point the top of the idle stack
- * for last CPU and this value is used in up_initial_state()
- */
-
-uintptr_t g_idle_topstack = BL808_IDLESTACK_BASE +
-                              SMP_STACK_SIZE * CONFIG_SMP_NCPUS;
-
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
@@ -273,10 +266,6 @@ void bl808_start(int mhartid)
       /* Clear the BSS */
 
       bl808_clear_bss();
-
-      /* Setup base stack */
-
-      riscv_set_basestack(BL808_IDLESTACK_BASE, SMP_STACK_SIZE);
 
       /* Copy the RAM Disk */
 

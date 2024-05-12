@@ -66,8 +66,6 @@ static struct boot2_partition_table_s g_boot2_partition_table used_data;
  * Public Data
  ****************************************************************************/
 
-uintptr_t g_idle_topstack = (uintptr_t)_ebss + SMP_STACK_SIZE;
-
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
@@ -149,10 +147,6 @@ void bfl_main(void)
   /* set interrupt vector */
 
   asm volatile("csrw mtvec, %0" ::"r"((uintptr_t)exception_common + 2));
-
-  /* Setup base stack */
-
-  riscv_set_basestack((uintptr_t)_ebss, SMP_STACK_SIZE);
 
   /* Configure the UART so we can get debug output */
 

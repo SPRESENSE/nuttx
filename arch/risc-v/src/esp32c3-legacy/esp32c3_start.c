@@ -127,8 +127,6 @@ HDR_ATTR static void (*_entry_point)(void) = __start;
  * Public Data
  ****************************************************************************/
 
-uintptr_t g_idle_topstack = (uintptr_t)_ebss + SMP_STACK_SIZE;
-
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
@@ -289,10 +287,6 @@ void __esp32c3_start(void)
     {
       *dest++ = 0;
     }
-
-  /* Setup base stack */
-
-  riscv_set_basestack((uintptr_t)_ebss, SMP_STACK_SIZE);
 
   /* Setup the syscall table needed by the ROM code */
 

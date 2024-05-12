@@ -48,13 +48,6 @@
  * Public Data
  ****************************************************************************/
 
-/* NOTE: g_idle_topstack needs to point the top of the idle stack
- * for CPU0 and this value is used in up_initial_state()
- */
-
-uintptr_t g_idle_topstack = K210_IDLESTACK_BASE +
-                              SMP_STACK_SIZE * CONFIG_SMP_NCPUS;
-
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
@@ -85,10 +78,6 @@ void __k210_start(uint32_t mhartid)
     {
       *dest++ = 0;
     }
-
-  /* Setup base stack */
-
-  riscv_set_basestack(K210_IDLESTACK_BASE, SMP_STACK_SIZE);
 
   /* Move the initialized data section from his temporary holding spot in
    * FLASH into the correct place in SRAM.  The correct place in SRAM is

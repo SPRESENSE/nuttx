@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/risc-v/src/hpm6000/hpm_start.c
+ * boards/arm/stm32h7/weact-stm32h743/src/stm32_appinitialize.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -24,22 +24,13 @@
 
 #include <nuttx/config.h>
 
-#include <stdint.h>
+#include <sys/types.h>
+#include <nuttx/board.h>
 
-#include <nuttx/init.h>
-#include <arch/board/board.h>
-
-#include "chip.h"
-#include "hpm.h"
-#include "hpm_clockconfig.h"
-#include "hpm_lowputc.h"
+#include "weact-stm32h743.h"
 
 /****************************************************************************
  * Pre-processor Definitions
- ****************************************************************************/
-
-/****************************************************************************
- * Public Data
  ****************************************************************************/
 
 /****************************************************************************
@@ -47,57 +38,39 @@
  ****************************************************************************/
 
 /****************************************************************************
- * Name: __hpm6750_start
+ * Name: board_app_initialize
+ *
+ * Description:
+ *   Perform application specific initialization.  This function is never
+ *   called directly from application code, but only indirectly via the
+ *   (non-standard) boardctl() interface using the command BOARDIOC_INIT.
+ *
+ * Input Parameters:
+ *   arg - The boardctl() argument is passed to the board_app_initialize()
+ *         implementation without modification.  The argument has no
+ *         meaning to NuttX; the meaning of the argument is a contract
+ *         between the board-specific initialization logic and the
+ *         matching application logic.  The value could be such things as a
+ *         mode enumeration value, a set of DIP switch switch settings, a
+ *         pointer to configuration data read from a file or serial FLASH,
+ *         or whatever you would like to do with it.  Every implementation
+ *         should accept zero/NULL as a default configuration.
+ *
+ * Returned Value:
+ *   Zero (OK) is returned on success; a negated errno value is returned on
+ *   any failure to indicate the nature of the failure.
+ *
  ****************************************************************************/
 
-void __hpm_start(void)
+int board_app_initialize(uintptr_t arg)
 {
-  const uint32_t *src;
-  uint32_t *dest;
+#ifdef CONFIG_BOARD_LATE_INITIALIZE
+  /* Board initialization already performed by board_late_initialize() */
 
-  /* Clear .bss.  We'll do this inline (vs. calling memset) just to be
-   * certain that there are no issues with the state of global variables.
-   */
+  return OK;
+#else
+  /* Perform board-specific initialization */
 
-  for (dest = (uint32_t *)_sbss; dest < (uint32_t *)_ebss; )
-    {
-      *dest++ = 0;
-    }
-
-  /* Move the initialized data section from his temporary holding spot in
-   * FLASH into the correct place in SRAM.  The correct place in SRAM is
-   * give by _sdata and _edata.  The temporary location is in FLASH at the
-   * end of all of the other read-only data (.text, .rodata) at _eronly.
-   */
-
-  for (src = (const uint32_t *)_eronly,
-       dest = (uint32_t *)_sdata; dest < (uint32_t *)_edata;
-      )
-    {
-      *dest++ = *src++;
-    }
-
-  /* Setup PLL */
-
-  hpm_clockconfig();
-
-  /* Configure the UART so we can get debug output */
-
-  hpm_lowsetup();
-
-#ifdef USE_EARLYSERIALINIT
-  riscv_earlyserialinit();
+  return stm32_bringup();
 #endif
-
-  /* Do board initialization */
-
-  hpm6360_boardinitialize();
-
-  /* Call nx_start() */
-
-  nx_start();
-
-  /* Shouldn't get here */
-
-  for (; ; );
 }

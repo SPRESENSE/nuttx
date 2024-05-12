@@ -50,18 +50,6 @@
  * Public Data
  ****************************************************************************/
 
-/* g_idle_topstack: _sbss is the start of the BSS region as defined by the
- * linker script. _ebss lies at the end of the BSS region. The idle task
- * stack starts at the end of BSS and is of size CONFIG_IDLETHREAD_STACKSIZE.
- * The IDLE thread is the thread that the system boots on and, eventually,
- * becomes the IDLE, do nothing task that runs only when there is nothing
- * else to run.  The heap continues from there until the end of memory.
- * g_idle_topstack is a read-only variable the provides this computed
- * address.
- */
-
-uintptr_t g_idle_topstack = RV32M1_IDLESTACK_TOP;
-
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
@@ -112,10 +100,6 @@ void __rv32m1_start(void)
     {
       *dest++ = 0;
     }
-
-  /* Setup base stack */
-
-  riscv_set_basestack(RV32M1_IDLESTACK_BASE, RV32M1_IDLESTACK_TOP);
 
   /* Move the initialized data section from his temporary holding spot in
    * FLASH into the correct place in SRAM.  The correct place in SRAM is

@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/risc-v/src/hpm6000/hpm_start.c
+ * boards/arm/stm32h7/weact-stm32h743/src/stm32_bringup.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -24,22 +24,20 @@
 
 #include <nuttx/config.h>
 
-#include <stdint.h>
+#include <sys/types.h>
+#include <syslog.h>
+#include <errno.h>
 
-#include <nuttx/init.h>
 #include <arch/board/board.h>
 
-#include "chip.h"
-#include "hpm.h"
-#include "hpm_clockconfig.h"
-#include "hpm_lowputc.h"
+#include <nuttx/fs/fs.h>
+
+#include "weact-stm32h743.h"
+
+#include "stm32_gpio.h"
 
 /****************************************************************************
- * Pre-processor Definitions
- ****************************************************************************/
-
-/****************************************************************************
- * Public Data
+ * Private Functions
  ****************************************************************************/
 
 /****************************************************************************
@@ -47,57 +45,36 @@
  ****************************************************************************/
 
 /****************************************************************************
- * Name: __hpm6750_start
+ * Name: stm32_bringup
+ *
+ * Description:
+ *   Perform architecture-specific initialization
+ *
+ *   CONFIG_BOARD_LATE_INITIALIZE=y :
+ *     Called from board_late_initialize().
+ *
+ *   CONFIG_BOARD_LATE_INITIALIZE=n && CONFIG_BOARDCTL=y &&
+ *   CONFIG_NSH_ARCHINIT:
+ *     Called from the NSH library
+ *
  ****************************************************************************/
 
-void __hpm_start(void)
+int stm32_bringup(void)
 {
-  const uint32_t *src;
-  uint32_t *dest;
+  int ret = OK;
 
-  /* Clear .bss.  We'll do this inline (vs. calling memset) just to be
-   * certain that there are no issues with the state of global variables.
-   */
+  UNUSED(ret);
 
-  for (dest = (uint32_t *)_sbss; dest < (uint32_t *)_ebss; )
+#ifdef CONFIG_FS_PROCFS
+  /* Mount the procfs file system */
+
+  ret = nx_mount(NULL, STM32_PROCFS_MOUNTPOINT, "procfs", 0, NULL);
+  if (ret < 0)
     {
-      *dest++ = 0;
+      syslog(LOG_ERR,
+             "ERROR: Failed to mount the PROC filesystem: %d\n",  ret);
     }
+#endif /* CONFIG_FS_PROCFS */
 
-  /* Move the initialized data section from his temporary holding spot in
-   * FLASH into the correct place in SRAM.  The correct place in SRAM is
-   * give by _sdata and _edata.  The temporary location is in FLASH at the
-   * end of all of the other read-only data (.text, .rodata) at _eronly.
-   */
-
-  for (src = (const uint32_t *)_eronly,
-       dest = (uint32_t *)_sdata; dest < (uint32_t *)_edata;
-      )
-    {
-      *dest++ = *src++;
-    }
-
-  /* Setup PLL */
-
-  hpm_clockconfig();
-
-  /* Configure the UART so we can get debug output */
-
-  hpm_lowsetup();
-
-#ifdef USE_EARLYSERIALINIT
-  riscv_earlyserialinit();
-#endif
-
-  /* Do board initialization */
-
-  hpm6360_boardinitialize();
-
-  /* Call nx_start() */
-
-  nx_start();
-
-  /* Shouldn't get here */
-
-  for (; ; );
+  return OK;
 }

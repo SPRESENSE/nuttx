@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/risc-v/src/hpm6000/hpm_start.c
+ * boards/arm/stm32h7/weact-stm32h743/src/stm32_autoleds.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -24,80 +24,88 @@
 
 #include <nuttx/config.h>
 
-#include <stdint.h>
+#include <stdbool.h>
+#include <debug.h>
 
-#include <nuttx/init.h>
+#include <sys/param.h>
+
+#include <nuttx/board.h>
 #include <arch/board/board.h>
 
-#include "chip.h"
-#include "hpm.h"
-#include "hpm_clockconfig.h"
-#include "hpm_lowputc.h"
+#include "stm32_gpio.h"
+#include "weact-stm32h743.h"
+
+#ifdef CONFIG_ARCH_LEDS
 
 /****************************************************************************
- * Pre-processor Definitions
+ * Private Functions
  ****************************************************************************/
 
-/****************************************************************************
- * Public Data
- ****************************************************************************/
+static inline void set_led(bool v)
+{
+  ledinfo("Turn LED %s\n", v? "on":"off");
+  stm32_gpiowrite(GPIO_LD1, !v);
+}
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: __hpm6750_start
+ * Name: board_autoled_initialize
  ****************************************************************************/
 
-void __hpm_start(void)
+void board_autoled_initialize(void)
 {
-  const uint32_t *src;
-  uint32_t *dest;
+  /* Configure LED GPIO for output */
 
-  /* Clear .bss.  We'll do this inline (vs. calling memset) just to be
-   * certain that there are no issues with the state of global variables.
-   */
-
-  for (dest = (uint32_t *)_sbss; dest < (uint32_t *)_ebss; )
-    {
-      *dest++ = 0;
-    }
-
-  /* Move the initialized data section from his temporary holding spot in
-   * FLASH into the correct place in SRAM.  The correct place in SRAM is
-   * give by _sdata and _edata.  The temporary location is in FLASH at the
-   * end of all of the other read-only data (.text, .rodata) at _eronly.
-   */
-
-  for (src = (const uint32_t *)_eronly,
-       dest = (uint32_t *)_sdata; dest < (uint32_t *)_edata;
-      )
-    {
-      *dest++ = *src++;
-    }
-
-  /* Setup PLL */
-
-  hpm_clockconfig();
-
-  /* Configure the UART so we can get debug output */
-
-  hpm_lowsetup();
-
-#ifdef USE_EARLYSERIALINIT
-  riscv_earlyserialinit();
-#endif
-
-  /* Do board initialization */
-
-  hpm6360_boardinitialize();
-
-  /* Call nx_start() */
-
-  nx_start();
-
-  /* Shouldn't get here */
-
-  for (; ; );
+  stm32_configgpio(GPIO_LD1);
 }
+
+/****************************************************************************
+ * Name: board_autoled_on
+ ****************************************************************************/
+
+void board_autoled_on(int led)
+{
+  ledinfo("board_autoled_on(%d)\n", led);
+
+  switch (led)
+    {
+    case LED_STARTED:
+    case LED_HEAPALLOCATE:
+
+      /* As the board provides only one soft controllable LED, we simply
+       * turn it on when the board boots.
+       */
+
+      set_led(true);
+      break;
+
+    case LED_PANIC:
+
+      /* For panic state, the LED is blinking */
+
+      set_led(true);
+      break;
+    }
+}
+
+/****************************************************************************
+ * Name: board_autoled_off
+ ****************************************************************************/
+
+void board_autoled_off(int led)
+{
+  switch (led)
+    {
+    case LED_PANIC:
+
+      /* For panic state, the LED is blinking */
+
+      set_led(false);
+      break;
+    }
+}
+
+#endif /* CONFIG_ARCH_LEDS */

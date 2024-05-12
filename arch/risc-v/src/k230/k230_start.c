@@ -101,13 +101,6 @@ static void k230_copy_init_data(void)
  * Public Data
  ****************************************************************************/
 
-/* NOTE: g_idle_topstack needs to point the top of the idle stack
- * for last CPU and this value is used in up_initial_state()
- */
-
-uintptr_t g_idle_topstack = K230_IDLESTACK_BASE +
-                              SMP_STACK_SIZE * CONFIG_SMP_NCPUS;
-
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
@@ -121,8 +114,6 @@ void k230_start(int mhartid, const char *dtb)
   if (0 == mhartid)
     {
       k230_clear_bss();
-
-      riscv_set_basestack(K230_IDLESTACK_BASE, SMP_STACK_SIZE);
 
 #ifdef CONFIG_RISCV_PERCPU_SCRATCH
       riscv_percpu_add_hart(mhartid);
