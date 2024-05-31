@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm64/include/imx9/chip.h
+ * arch/risc-v/src/litex/litex_arch_alarm.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,73 +18,39 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_ARM64_INCLUDE_IMX9_CHIP_H
-#define __ARCH_ARM64_INCLUDE_IMX9_CHIP_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
+#include <assert.h>
 #include <nuttx/config.h>
+#include <nuttx/timers/arch_alarm.h>
+
+#include "chip.h"
+#include "litex_clockconfig.h"
+#include "riscv_internal.h"
+#include "riscv_mtimer.h"
 
 /****************************************************************************
- * Pre-processor Definitions
+ * Public Functions
  ****************************************************************************/
-
-/* Cache line sizes (in bytes)for the i.MX9 (Cortex-A55) */
-
-#define ARMV8A_DCACHE_LINESIZE 64  /* 64 bytes (16 words) */
-#define ARMV8A_ICACHE_LINESIZE 64  /* 64 bytes (16 words) */
-
-/* Number of bytes in x kibibytes/mebibytes/gibibytes */
-
-#define KB(x)   ((x) << 10)
-#define MB(x)   (KB(x) << 10)
-#define GB(x)   (MB(UINT64_C(x)) << 10)
-
-#if defined(CONFIG_ARCH_CHIP_IMX93)
-
-#if CONFIG_ARM_GIC_VERSION == 3 || CONFIG_ARM_GIC_VERSION == 4
-
-#define CONFIG_GICD_BASE          0x48000000
-#define CONFIG_GICR_BASE          0x48040000
-#define CONFIG_GICR_OFFSET        0x20000
-
-#else
-
-#error CONFIG_ARM_GIC_VERSION should be 2, 3 or 4
-
-#endif /* CONFIG_ARM_GIC_VERSION */
-
-#define CONFIG_RAMBANK1_ADDR      0x80000000
-#define CONFIG_RAMBANK1_SIZE      MB(128)
-
-#define CONFIG_DEVICEIO_BASEADDR  0x40000000
-#define CONFIG_DEVICEIO_SIZE      MB(512)
-
-#define CONFIG_OCRAM_BASE_ADDR    0x20480000
-#define CONFIG_OCRAM_SIZE         KB(640)
-
-#define CONFIG_FSPI_PER_BASEADDR  0x28000000
-#define CONFIG_FSPI_PER_SIZE      MB(128)
-
-#define MPID_TO_CLUSTER_ID(mpid)  ((mpid) & ~0xff)
-
-#define IMX9_GPIO_NPORTS          4
-
-#endif
 
 /****************************************************************************
- * Assembly Macros
+ * Function:  up_timer_initialize
+ *
+ * Description:
+ *   This function is called during start-up to initialize
+ *   the timer interrupt.
+ *
  ****************************************************************************/
 
-#ifdef __ASSEMBLY__
+void up_timer_initialize(void)
+{
+  struct oneshot_lowerhalf_s *lower
+      = riscv_mtimer_initialize(LITEX_CLINT_MTIME, LITEX_CLINT_MTIMECMP,
+                                RISCV_IRQ_TIMER, litex_get_hfclk());
 
-.macro  get_cpu_id xreg0
-  mrs    \xreg0, mpidr_el1
-  ubfx   \xreg0, \xreg0, #0, #8
-.endm
+  DEBUGASSERT(lower);
 
-#endif /* __ASSEMBLY__ */
-
-#endif /* __ARCH_ARM64_INCLUDE_IMX9_CHIP_H */
+  up_alarm_set_lowerhalf(lower);
+}
