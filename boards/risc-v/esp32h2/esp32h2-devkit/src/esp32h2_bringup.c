@@ -65,6 +65,16 @@
 #  include "esp_board_rmt.h"
 #endif
 
+#ifdef CONFIG_ESPRESSIF_SPI
+#  include "espressif/esp_spi.h"
+#  include "esp_board_spidev.h"
+#endif
+
+#ifdef CONFIG_SPI_SLAVE_DRIVER
+#  include "espressif/esp_spi.h"
+#  include "esp_board_spislavedev.h"
+#endif
+
 #include "esp32h2-devkit.h"
 
 /****************************************************************************
@@ -192,6 +202,14 @@ int esp_bringup(void)
     }
 #endif
 
+#if defined(CONFIG_ESPRESSIF_SPI) && defined(CONFIG_SPI_DRIVER)
+  ret = board_spidev_initialize(ESPRESSIF_SPI2);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: Failed to init spidev 2: %d\n", ret);
+    }
+#endif
+
 #ifdef CONFIG_ESPRESSIF_SPIFLASH
   ret = board_spiflash_init();
   if (ret)
@@ -208,6 +226,15 @@ int esp_bringup(void)
   if (ret < 0)
     {
       syslog(LOG_ERR, "ERROR: board_twai_setup failed: %d\n", ret);
+    }
+#endif
+
+#if defined(CONFIG_SPI_SLAVE_DRIVER) && defined(CONFIG_ESPRESSIF_SPI2)
+  ret = board_spislavedev_initialize(ESPRESSIF_SPI2);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "Failed to initialize SPI%d Slave driver: %d\n",
+             ESPRESSIF_SPI2, ret);
     }
 #endif
 
