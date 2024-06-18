@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm64/src/common/arm64_fatal.h
+ * boards/risc-v/sg2000/milkv_duos/include/board.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,62 +18,61 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_ARM64_SRC_COMMON_ARM64_FATAL_H
-#define __ARCH_ARM64_SRC_COMMON_ARM64_FATAL_H
-
-/* Fatal error APIs */
-
-#define K_ERR_CPU_EXCEPTION     (0)
-#define K_ERR_CPU_MODE32        (1)
-#define K_ERR_SPURIOUS_IRQ      (2)
-
-#ifndef __ASSEMBLY__
+#ifndef __BOARDS_RISCV_SG2000_MILKV_DUOS_INCLUDE_BOARD_H
+#define __BOARDS_RISCV_SG2000_MILKV_DUOS_INCLUDE_BOARD_H
 
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
-#include <stdint.h>
-#include <stdbool.h>
-#include <debug.h>
-#include <assert.h>
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
-#define __builtin_unreachable()    \
-  do                               \
-    {                              \
-      serr("Unreachable code\n"); \
-      PANIC();                     \
-    } while (true)
+#define LED_STARTED       0  /* N/A */
+#define LED_HEAPALLOCATE  1  /* N/A */
+#define LED_IRQSENABLED   2  /* N/A */
+#define LED_STACKCREATED  3  /* N/A */
+#define LED_INIRQ         4  /* N/A */
+#define LED_SIGNAL        5  /* N/A */
+#define LED_ASSERTION     6  /* N/A */
+#define LED_PANIC         7  /* N/A */
+#define LED_CPU           8  /* LED */
+
+/****************************************************************************
+ * Public Types
+ ****************************************************************************/
+
+#ifndef __ASSEMBLY__
 
 /****************************************************************************
  * Public Data
  ****************************************************************************/
+
+#undef EXTERN
+#if defined(__cplusplus)
+#define EXTERN extern "C"
+extern "C"
+{
+#else
+#define EXTERN extern
+#endif
 
 /****************************************************************************
  * Public Function Prototypes
  ****************************************************************************/
 
 /****************************************************************************
- * Name: arm64_fatal_error
- *
- * Description:
- *       fatal error handle for arm64
- * Input Parameters:
- *   reason: error reason
- *   reg:    exception stack reg context
- *
- * Returned Value:
- *
+ * Name: sg2000_boardinitialize
  ****************************************************************************/
 
-void arm64_fatal_error(unsigned int reason, struct regs_context * reg);
-void arm64_dump_fatal(struct regs_context * reg);
+void sg2000_boardinitialize(void);
 
+#undef EXTERN
+#if defined(__cplusplus)
+}
+#endif
 #endif /* __ASSEMBLY__ */
-
-#endif /* __ARCH_ARM64_SRC_COMMON_ARM64_FATAL_H */
+#endif /* __BOARDS_RISCV_SG2000_MILKV_DUOS_INCLUDE_BOARD_H */
