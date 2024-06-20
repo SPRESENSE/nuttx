@@ -1,5 +1,5 @@
 ############################################################################
-# net/netfilter/Make.defs
+# net/ipfilter/Make.defs
 #
 # Licensed to the Apache Software Foundation (ASF) under one or more
 # contributor license agreements.  See the NOTICE file distributed with
@@ -18,29 +18,15 @@
 #
 ############################################################################
 
-# Netfilter source files
-
-ifeq ($(CONFIG_NET_IPTABLES),y)
-
-ifeq ($(CONFIG_NET_IPv4),y)
-NET_CSRCS += ipt_sockopt.c
-endif
-
-ifeq ($(CONFIG_NET_IPv6),y)
-NET_CSRCS += ip6t_sockopt.c
-endif
-
-ifeq ($(CONFIG_NET_NAT),y)
-NET_CSRCS += ipt_nat.c
-endif
+# IP filter source files
 
 ifeq ($(CONFIG_NET_IPFILTER),y)
-NET_CSRCS += ipt_filter.c
-endif
 
-# Include Netfilter build support
+NET_CSRCS += ipfilter.c
 
-DEPPATH += --dep-path netfilter
-VPATH += :netfilter
+# Include IP filter build support
+
+DEPPATH += --dep-path ipfilter
+VPATH += :ipfilter
 
 endif

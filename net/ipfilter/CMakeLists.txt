@@ -1,5 +1,5 @@
 # ##############################################################################
-# net/netfilter/CMakeLists.txt
+# net/ipfilter/CMakeLists.txt
 #
 # Licensed to the Apache Software Foundation (ASF) under one or more contributor
 # license agreements.  See the NOTICE file distributed with this work for
@@ -18,25 +18,10 @@
 #
 # ##############################################################################
 
-# Netfilter source files
+# IP filter source files
 
-if(CONFIG_NET_IPTABLES)
+if(CONFIG_NET_IPFILTER)
 
-  if(CONFIG_NET_IPv4)
-    list(APPEND SRCS ipt_sockopt.c)
-  endif()
+  target_sources(net PRIVATE ipfilter.c)
 
-  if(CONFIG_NET_IPv6)
-    list(APPEND SRCS ip6t_sockopt.c)
-  endif()
-
-  if(CONFIG_NET_NAT)
-    list(APPEND SRCS ipt_nat.c)
-  endif()
-
-  if(CONFIG_NET_IPFILTER)
-    list(APPEND SRCS ipt_filter.c)
-  endif()
-
-  target_sources(net PRIVATE ${SRCS})
 endif()
