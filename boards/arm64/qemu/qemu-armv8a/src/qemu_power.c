@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm64/src/common/arm64_systemreset.c
+ * boards/arm64/qemu/qemu-armv8a/src/qemu_power.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -24,40 +24,47 @@
 
 #include <nuttx/config.h>
 
-#include <stdint.h>
-#include <debug.h>
-
 #include <nuttx/arch.h>
 #include <nuttx/board.h>
-
-#include "arm64_internal.h"
-#include "arm64_cpu_psci.h"
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
+#ifdef CONFIG_BOARDCTL_POWEROFF
+int board_power_off(int status)
+{
+  up_systempoweroff();
+  return 0;
+}
+#endif
+
+#ifdef CONFIG_BOARDCTL_RESET
+
 /****************************************************************************
- * Name: up_systemreset
+ * Name: board_reset
  *
  * Description:
- *   Internal, arm64 reset logic.
+ *   Reset board.  Support for this function is required by board-level
+ *   logic if CONFIG_BOARDCTL_RESET is selected.
+ *
+ * Input Parameters:
+ *   status - Status information provided with the reset event.  This
+ *            meaning of this status information is board-specific.  If not
+ *            used by a board, the value zero may be provided in calls to
+ *            board_reset().
+ *
+ * Returned Value:
+ *   If this function returns, then it was not possible to power-off the
+ *   board due to some constraints.  The return value int this case is a
+ *   board-specific reason for the failure to shutdown.
  *
  ****************************************************************************/
 
-void up_systemreset(void)
+int board_reset(int status)
 {
-  int ret;
-
-  /* Set up for the system reset */
-
-  ret = psci_cpu_reset();
-  if (ret)
-    {
-      sinfo("Failed to reset CPU, error code: %d\n", ret);
-    }
-
-  /* Wait for the reset */
-
-  for (; ; );
+  up_systemreset();
+  return 0;
 }
+
+#endif /* CONFIG_BOARDCTL_RESET */

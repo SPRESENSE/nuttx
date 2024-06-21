@@ -328,6 +328,63 @@
 #define CSR_VTYPE           0xc21 /* Vector Data Type */
 #define CSR_VLENB           0xc22 /* Vector Length in Bytes (VLEN/8) */
 
+/* Indirect CSR Access CSRs */
+
+#define CSR_MISELECT        0x350 /* Machine indirect register select */
+#define CSR_MIREG           0x351 /* Machine indirect register alias */
+#define CSR_MIREG2          0x352 /* Machine indirect register alias 2 */
+#define CSR_MIREG3          0x353 /* Machine indirect register alias 3 */
+#define CSR_MIREG4          0x355 /* Machine indirect register alias 4 */
+#define CSR_MIREG5          0x356 /* Machine indirect register alias 5 */
+#define CSR_MIREG6          0x357 /* Machine indirect register alias 6 */
+
+#define CSR_SISELECT        0x150 /* Supervisor indirect register select */
+#define CSR_SIREG           0x151 /* Supervisor indirect register alias */
+#define CSR_SIREG2          0x152 /* Supervisor indirect register alias 2 */
+#define CSR_SIREG3          0x153 /* Supervisor indirect register alias 3 */
+#define CSR_SIREG4          0x155 /* Supervisor indirect register alias 4 */
+#define CSR_SIREG5          0x156 /* Supervisor indirect register alias 5 */
+#define CSR_SIREG6          0x157 /* Supervisor indirect register alias 6 */
+
+#define CSR_VSISELECT       0x250 /* Virtual supervisor indirect register select */
+#define CSR_VSIREG          0x251 /* Virtual supervisor indirect register alias */
+#define CSR_VSIREG2         0x252 /* Virtual supervisor indirect register alias 2 */
+#define CSR_VSIREG3         0x253 /* Virtual supervisor indirect register alias 3 */
+#define CSR_VSIREG4         0x255 /* Virtual supervisor indirect register alias 4 */
+#define CSR_VSIREG5         0x256 /* Virtual supervisor indirect register alias 5 */
+#define CSR_VSIREG6         0x257 /* Virtual supervisor indirect register alias 6 */
+
+/* CLIC CSRs */
+
+#define CSR_MTVT            0x307 /* Trap-handler vector table base address */
+#define CSR_MNXTI           0x345 /* Interrupt handler address and enable modifier */
+#define CSR_MINTSTATUS      0xfb1 /* Current interrupt levels */
+#define CSR_MINTTHRESH      0x347 /* Interrupt-level threshold */
+#define CSR_MSCRATCHCSW     0x348 /* Conditional scratch swap on priv mode change */
+#define CSR_MSCRATCHCSWL    0x349 /* Conditional scratch swap on level change */
+
+#define CSR_STVT            0x107 /* Trap-handler vector table base address */
+#define CSR_SNXTI           0x145 /* Interrupt handler address and enable modifier */
+#define CSR_SINTSTATUS      0xdb1 /* Current interrupt levels */
+#define CSR_SINTTHRESH      0x147 /* Interrupt-level threshold */
+#define CSR_SSCRATCHCSW     0x148 /* Conditional scratch swap on priv mode change */
+#define CSR_SSCRATCHCSWL    0x149 /* Conditional scratch swap on level change */
+
+#define CSR_UTVT            0x007 /* Trap-handler vector table base address */
+#define CSR_UNXTI           0x045 /* Interrupt handler address and enable modifier */
+#define CSR_UINTSTATUS      0xcb1 /* Current interrupt levels */
+#define CSR_UINTTHRESH      0x047 /* Interrupt-level threshold */
+#define CSR_USCRATCHCSWL    0x049 /* Conditional scratch swap on level change */
+
+/* CLIC Indirect CSRs */
+
+#define MISELECT_CLICCFG     0x14a0 /* MIREG */
+#define MISELECT_CLICINTCTL  0x1000 /* MIREG */
+#define MISELECT_CLICINTATTR 0x1000 /* MIREG2 */
+#define MISELECT_CLICINTIP   0x1400 /* MIREG */
+#define MISELECT_CLICINTIE   0x1400 /* MIREG2 */
+#define MISELECT_CLICINTTRIG 0x1480 /* MIREG */
+
 /* In mstatus register */
 
 #define MSTATUS_UIE         (0x1 << 0)  /* User Interrupt Enable */
