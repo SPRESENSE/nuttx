@@ -1,5 +1,5 @@
 /****************************************************************************
- * drivers/power/pm/pm_unregister.c
+ * arch/risc-v/src/bl808/bl808_courier.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,53 +18,49 @@
  *
  ****************************************************************************/
 
+#ifndef __ARCH_RISC_V_SRC_BL808_BL808_COURIER_H
+#define __ARCH_RISC_V_SRC_BL808_BL808_COURIER_H
+
 /****************************************************************************
- * Included Files
+ * Pre-processor Definitions
  ****************************************************************************/
 
-#include <nuttx/config.h>
-
-#include <assert.h>
-
-#include <nuttx/queue.h>
-#include <nuttx/power/pm.h>
-
-#include "pm.h"
-
-#ifdef CONFIG_PM
+#define BL808_COURIER_IRQN_MASK 0xff
+#define BL808_INT_SIG_SHIFT 8
+#define BL808_INT_EN_SHIFT 9
 
 /****************************************************************************
- * Public Functions
+ * Public Functions Prototypes
  ****************************************************************************/
 
 /****************************************************************************
- * Name: pm_domain_unregister
+ * Name: bl808_courier_req_irq_enable
  *
  * Description:
- *   This function is called by a device driver in order to unregister
- *   previously registered power management event callbacks.
- *
- * Input parameters:
- *   domain - Target unregister domain.
- *   cb     - An instance of struct pm_callback_s providing the driver
- *               callback functions.
- *
- * Returned Value:
- *    Zero (OK) on success; otherwise a negated errno value is returned.
+ *   Sends an IPC message to M0 core to enable m0_extirq.
  *
  ****************************************************************************/
 
-int pm_domain_unregister(int domain, FAR struct pm_callback_s *cb)
-{
-  irqstate_t flags;
-  struct pm_domain_s *pdom = &g_pmdomains[domain];
-  flags = spin_lock_irqsave(&pdom->lock);
+void bl808_courier_req_irq_enable(int m0_extirq);
 
-  /* Remove entry from the list of registered callbacks. */
+/****************************************************************************
+ * Name: bl808_courier_req_irq_disable
+ *
+ * Description:
+ *   Sends an IPC message to M0 core to disable m0_extirq.
+ *
+ ****************************************************************************/
 
-  dq_rem(&cb->entry, &pdom->registry);
-  spin_unlock_irqrestore(&pdom->lock, flags);
-  return OK;
-}
+void bl808_courier_req_irq_disable(int m0_extirq);
 
-#endif /* CONFIG_PM */
+/****************************************************************************
+ * Name: bl808_courier_init
+ *
+ * Description:
+ *   Enables the IPC interrupt on D0 core and attaches its handler.
+ *
+ ****************************************************************************/
+
+int bl808_courier_init(void);
+
+#endif /* __ARCH_RISC_V_SRC_BL808_BL808_COURIER_H */

@@ -1,5 +1,5 @@
 /****************************************************************************
- * mm/mm_heap/mm_malloc_size.c
+ * arch/risc-v/src/bl808/hardware/bl808_ipc.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,51 +18,23 @@
  *
  ****************************************************************************/
 
-/****************************************************************************
- * Included Files
- ****************************************************************************/
-
-#include <nuttx/config.h>
-
-#include <assert.h>
-#include <debug.h>
-
-#include <nuttx/mm/mm.h>
-
-#include "mm_heap/mm.h"
+#ifndef __ARCH_RISCV_SRC_BL808_HARDWARE_BL808_IPC_H
+#define __ARCH_RISCV_SRC_BL808_HARDWARE_BL808_IPC_H
 
 /****************************************************************************
- * Public Functions
+ * Pre-processor Definitions
  ****************************************************************************/
 
-size_t mm_malloc_size(FAR struct mm_heap_s *heap, FAR void *mem)
-{
-  FAR struct mm_freenode_s *node;
-#ifdef CONFIG_MM_HEAP_MEMPOOL
-  if (heap->mm_mpool)
-    {
-      ssize_t size = mempool_multiple_alloc_size(heap->mm_mpool, mem);
-      if (size >= 0)
-        {
-          return size;
-        }
-    }
-#endif
+#define IPC_MSG_SEND_OFFSET 0x0
+#define IPC0_MSG_SEND       (IPC0_BASE + IPC_MSG_SEND_OFFSET)
 
-  /* Protect against attempts to query a NULL reference */
+#define IPC_MSG_READ_OFFSET 0x24
+#define IPC2_MSG_READ       (IPC2_BASE + IPC_MSG_READ_OFFSET)
 
-  if (!mem)
-    {
-      return 0;
-    }
+#define IPC_MSG_ACK_OFFSET  0x28
+#define IPC2_MSG_ACK        (IPC2_BASE + IPC_MSG_ACK_OFFSET)
 
-  /* Map the memory chunk into a free node */
+#define IPC_INT_UNMASK_OFFSET 0x2c
+#define IPC2_INT_UNMASK       (IPC2_BASE + IPC_INT_UNMASK_OFFSET)
 
-  node = (FAR struct mm_freenode_s *)((FAR char *)mem - MM_SIZEOF_ALLOCNODE);
-
-  /* Sanity check against double-frees */
-
-  DEBUGASSERT(MM_NODE_IS_ALLOC(node));
-
-  return MM_SIZEOF_NODE(node) - MM_ALLOCNODE_OVERHEAD;
-}
+#endif /* __ARCH_RISCV_SRC_BL808_HARDWARE_BL808_IPC_H */

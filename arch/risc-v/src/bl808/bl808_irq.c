@@ -36,6 +36,8 @@
 #include "riscv_ipi.h"
 #include "chip.h"
 
+#include "bl808_courier.h"
+
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
@@ -130,12 +132,19 @@ void up_disable_irq(int irq)
     {
       extirq = irq - RISCV_IRQ_EXT;
 
-      /* Clear enable bit for the irq */
-
-      if (0 <= extirq && extirq <= 63)
+      if (0 <= extirq && extirq <= BL808_D0_MAX_EXTIRQ)
         {
+          /* Clear enable bit for the irq */
+
           modifyreg32(BL808_PLIC_ENABLE1 + (4 * (extirq / 32)),
                       1 << (extirq % 32), 0);
+        }
+      else if ((BL808_D0_MAX_EXTIRQ + 1) <= extirq
+               && extirq <= (BL808_M0_MAX_EXTIRQ
+                             + BL808_M0_IRQ_OFFSET))
+        {
+          int m0_extirq = extirq - BL808_M0_IRQ_OFFSET;
+          bl808_courier_req_irq_disable(m0_extirq);
         }
       else
         {
@@ -172,12 +181,19 @@ void up_enable_irq(int irq)
     {
       extirq = irq - RISCV_IRQ_EXT;
 
-      /* Set enable bit for the irq */
-
-      if (0 <= extirq && extirq <= 63)
+      if (0 <= extirq && extirq <= BL808_D0_MAX_EXTIRQ)
         {
+          /* Set enable bit for the irq */
+
           modifyreg32(BL808_PLIC_ENABLE1 + (4 * (extirq / 32)),
                       0, 1 << (extirq % 32));
+        }
+      else if ((BL808_D0_MAX_EXTIRQ + 1) <= extirq
+               && extirq <= (BL808_M0_MAX_EXTIRQ
+                             + BL808_M0_IRQ_OFFSET))
+        {
+          int m0_extirq = extirq - BL808_M0_IRQ_OFFSET;
+          bl808_courier_req_irq_enable(m0_extirq);
         }
       else
         {
