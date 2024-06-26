@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/risc-v/src/bl808/hardware/bl808_memorymap.h
+ * libs/libc/pthread/pthread_self.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,25 +18,31 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_RISCV_SRC_BL808_HARDWARE_BL808_MEMORYMAP_H
-#define __ARCH_RISCV_SRC_BL808_HARDWARE_BL808_MEMORYMAP_H
-
 /****************************************************************************
- * Pre-processor Definitions
+ * Included Files
  ****************************************************************************/
 
-/* Register Base Address ****************************************************/
+#include <pthread.h>
 
-#define BL808_GLB_BASE     0x20000000ul
+/****************************************************************************
+ * Public Functions
+ ****************************************************************************/
 
-#define BL808_UART0_BASE   0x2000a000ul
-#define BL808_UART1_BASE   0x2000a100ul
-#define BL808_UART2_BASE   0x2000aa00ul
-#define BL808_UART3_BASE   0x30002000ul
+/****************************************************************************
+ * Name: pthread_self
+ *
+ * Description:
+ *   Return the thread ID of the calling thread.
+ *
+ * Input Parameters:
+ *   None
+ *
+ * Returned Value:
+ *   ID of the calling thread.
+ *
+ ****************************************************************************/
 
-#define IPC0_BASE          0x2000a800ul
-#define IPC2_BASE          0x30005000ul          
-
-#define BL808_PLIC_BASE    0xe0000000ul 
-
-#endif /* __ARCH_RISCV_SRC_BL808_HARDWARE_BL808_MEMORYMAP_H */
+pthread_t pthread_self(void)
+{
+  return (pthread_t)gettid();
+}
