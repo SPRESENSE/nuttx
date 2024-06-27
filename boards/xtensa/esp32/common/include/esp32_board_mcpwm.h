@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/x86_64/src/intel64/intel64_freq.c
+ * boards/xtensa/esp32/common/include/esp32_board_mcpwm.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,82 +18,53 @@
  *
  ****************************************************************************/
 
+#ifndef __BOARDS_XTENSA_ESP32_COMMON_INCLUDE_ESP32_BOARD_MCPWM_H
+#define __BOARDS_XTENSA_ESP32_COMMON_INCLUDE_ESP32_BOARD_MCPWM_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
-#include <stdint.h>
-#include <stdbool.h>
-#include <time.h>
-
-#include <nuttx/arch.h>
-#include <nuttx/clock.h>
-
-#include <nuttx/board.h>
-#include <arch/board/board.h>
-
 /****************************************************************************
  * Public Data
  ****************************************************************************/
 
-extern unsigned long g_x86_64_timer_freq;
+#ifdef __cplusplus
+#define EXTERN extern "C"
+extern "C"
+{
+#else
+#define EXTERN extern
+#endif
 
 /****************************************************************************
- * Public Functions
+ * Public Function Prototypes
  ****************************************************************************/
 
+#ifdef CONFIG_ESP_MCPWM_CAPTURE
+
 /****************************************************************************
- * Name: x86_64_timer_initialize
+ * Name: esp32_capture_initialize
  *
  * Description:
- *   Initializes all platform-specific timer facilities.  This function is
- *   called early in the initialization sequence by up_initialize().
- *   On return, the current up-time should be available from
- *   up_timer_gettime() and the interval timer is ready for use (but not
- *   actively timing.
- *
- *   Provided by platform-specific code and called from the architecture-
- *   specific logic.
+ *   Initialize and register the capture driver using the MCPWM peripheral.
  *
  * Input Parameters:
- *   None
+ *   None.
  *
  * Returned Value:
- *   None
- *
- * Assumptions:
- *   Called early in the initialization sequence before any special
- *   concurrency protections are required.
+ *   Zero (OK) on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
-void x86_64_timer_calibrate_freq(void)
-{
-#ifdef CONFIG_ARCH_INTEL64_TSC_DEADLINE
-#  if CONFIG_ARCH_INTEL64_CORE_FREQ_KHZ == 0
-  unsigned long crystal_freq;
-  unsigned long numerator;
-  unsigned long denominator;
+int board_capture_initialize(void);
 
-  asm volatile("cpuid"
-      : "=c" (crystal_freq), "=b" (numerator), "=a" (denominator)
-      : "a" (X86_64_CPUID_TSC)
-      : "rdx", "memory");
-
-  if (numerator == 0 || denominator == 0 || crystal_freq == 0)
-    {
-      PANIC();
-    }
-  else
-    {
-      g_x86_64_timer_freq = crystal_freq / denominator * numerator;
-    }
-#  else
-  g_x86_64_timer_freq = CONFIG_ARCH_INTEL64_CORE_FREQ_KHZ * 1000L;
-#  endif
-#elif defined(CONFIG_ARCH_INTEL64_TSC)
-  g_x86_64_timer_freq = CONFIG_ARCH_INTEL64_APIC_FREQ_KHZ * 1000L;
-#endif
+#endif /* CONFIG_ESP_MCPWM_CAPTURE */
+#undef EXTERN
+#ifdef __cplusplus
 }
+#endif
+
+#endif /* __BOARDS_XTENSA_ESP32_COMMON_INCLUDE_ESP32_BOARD_MCPWM_H */

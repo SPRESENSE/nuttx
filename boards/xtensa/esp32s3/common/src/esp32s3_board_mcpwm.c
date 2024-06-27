@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/x86_64/src/intel64/intel64_freq.c
+ * boards/xtensa/esp32s3/common/src/esp32s3_board_mcpwm.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -24,76 +24,95 @@
 
 #include <nuttx/config.h>
 
-#include <stdint.h>
-#include <stdbool.h>
-#include <time.h>
-
-#include <nuttx/arch.h>
-#include <nuttx/clock.h>
+#include <sys/types.h>
+#include <errno.h>
+#include <debug.h>
 
 #include <nuttx/board.h>
+#include <nuttx/timers/capture.h>
+
 #include <arch/board/board.h>
 
-/****************************************************************************
- * Public Data
- ****************************************************************************/
+#include "espressif/esp_mcpwm.h"
 
-extern unsigned long g_x86_64_timer_freq;
+/****************************************************************************
+ * Pre-processor Definitions
+ ****************************************************************************/
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: x86_64_timer_initialize
+ * Name: board_capture_initialize
  *
  * Description:
- *   Initializes all platform-specific timer facilities.  This function is
- *   called early in the initialization sequence by up_initialize().
- *   On return, the current up-time should be available from
- *   up_timer_gettime() and the interval timer is ready for use (but not
- *   actively timing.
- *
- *   Provided by platform-specific code and called from the architecture-
- *   specific logic.
+ *   Initialize MCPWM Capture submodule and register the capture device.
  *
  * Input Parameters:
- *   None
+ *   None.
  *
  * Returned Value:
- *   None
- *
- * Assumptions:
- *   Called early in the initialization sequence before any special
- *   concurrency protections are required.
+ *   Zero (OK) on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
-void x86_64_timer_calibrate_freq(void)
+int board_capture_initialize(void)
 {
-#ifdef CONFIG_ARCH_INTEL64_TSC_DEADLINE
-#  if CONFIG_ARCH_INTEL64_CORE_FREQ_KHZ == 0
-  unsigned long crystal_freq;
-  unsigned long numerator;
-  unsigned long denominator;
+  int ret;
+  struct cap_lowerhalf_s *cap;
 
-  asm volatile("cpuid"
-      : "=c" (crystal_freq), "=b" (numerator), "=a" (denominator)
-      : "a" (X86_64_CPUID_TSC)
-      : "rdx", "memory");
+#ifdef CONFIG_ESP_MCPWM_CAPTURE_CH0
+  cap = esp_mcpwm_capture_initialize(0,
+                                     CONFIG_ESP_MCPWM_CAPTURE_CH0_GPIO);
 
-  if (numerator == 0 || denominator == 0 || crystal_freq == 0)
+  if (!cap)
     {
-      PANIC();
+      syslog(LOG_ERR, "ERROR: Failed to start MCPWM Capture: CH0\n");
+      return -ENODEV;
     }
-  else
+
+  ret = cap_register("/dev/capture0", cap);
+  if (ret < 0)
     {
-      g_x86_64_timer_freq = crystal_freq / denominator * numerator;
+      syslog(LOG_ERR, "ERROR: cap_register failed: %d\n", ret);
+      return ret;
     }
-#  else
-  g_x86_64_timer_freq = CONFIG_ARCH_INTEL64_CORE_FREQ_KHZ * 1000L;
-#  endif
-#elif defined(CONFIG_ARCH_INTEL64_TSC)
-  g_x86_64_timer_freq = CONFIG_ARCH_INTEL64_APIC_FREQ_KHZ * 1000L;
 #endif
+
+#ifdef CONFIG_ESP_MCPWM_CAPTURE_CH1
+  cap = esp_mcpwm_capture_initialize(1,
+                                     CONFIG_ESP_MCPWM_CAPTURE_CH1_GPIO);
+  if (!cap)
+    {
+      syslog(LOG_ERR, "ERROR: Failed to start MCPWM Capture: CH1\n");
+      return -ENODEV;
+    }
+
+  ret = cap_register("/dev/capture1", cap);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: cap_register failed: %d\n", ret);
+      return ret;
+    }
+#endif
+
+#ifdef CONFIG_ESP_MCPWM_CAPTURE_CH2
+  cap = esp_mcpwm_capture_initialize(2,
+                                     CONFIG_ESP_MCPWM_CAPTURE_CH2_GPIO);
+  if (!cap)
+    {
+      syslog(LOG_ERR, "ERROR: Failed to start MCPWM Capture: CH2\n");
+      return -ENODEV;
+    }
+
+  ret = cap_register("/dev/capture2", cap);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: cap_register failed: %d\n", ret);
+      return ret;
+    }
+#endif
+
+  return OK;
 }

@@ -1544,6 +1544,10 @@ config ESP32S3_WIFI_RXBA_AMPDU_WZ
 	int "Wi-Fi RX BA AMPDU windown size"
 	default 6
 
+config ESP32S3_WLAN_PKTBUF_NUM
+	int "WLAN netcard packet buffer number per netcard"
+	default 16
+
 config ESP_WIFI_GCMP_SUPPORT
 	bool "WiFi GCMP Support(GCMP128 and GCMP256)"
 	default n
@@ -2113,6 +2117,71 @@ config ESP32S3_LEDC_CHANNEL7_PIN
 
 endmenu # LEDC configuration
 
+menu "MCPWM Configuration"
+	depends on ESP_MCPWM
+
+config ESP_MCPWM_CAPTURE
+	bool "MCPWM Capture Submodule"
+	depends on ESP_MCPWM
+	select CAPTURE
+	default n
+	---help---
+		Enables the use of the MCPWM capture submodule.
+
+if ESP_MCPWM_CAPTURE
+
+config ESP_MCPWM_CAPTURE_CH0
+	bool "Capture Channel 0"
+	default n
+	---help---
+		Enables capture on channel 0.
+
+if ESP_MCPWM_CAPTURE_CH0
+
+config ESP_MCPWM_CAPTURE_CH0_GPIO
+	int "GPIO Pin"
+	default 12
+	---help---
+		GPIO pin assigned to capture channel 0.
+
+endif # ESP_MCPWM_CAPTURE_CH0
+
+config ESP_MCPWM_CAPTURE_CH1
+	bool "Capture Channel 1"
+	default n
+	---help---
+		Enables capture on channel 1.
+
+if ESP_MCPWM_CAPTURE_CH1
+
+config ESP_MCPWM_CAPTURE_CH1_GPIO
+	int "GPIO Pin"
+	default 15
+	---help---
+		GPIO pin assigned to capture channel 1.
+
+endif # ESP_MCPWM_CAPTURE_CH1
+
+config ESP_MCPWM_CAPTURE_CH2
+	bool "Capture Channel 2"
+	default n
+	---help---
+		Enables capture on channel 2.
+
+if ESP_MCPWM_CAPTURE_CH2
+
+config ESP_MCPWM_CAPTURE_CH2_GPIO
+	int "GPIO Pin"
+	default 16
+	---help---
+		GPIO pin assigned to capture channel 2.
+
+endif # ESP_MCPWM_CAPTURE_CH2
+
+endif # ESP_MCPWM_CAPTURE
+
+endmenu # MCPWM Configuration
+
 menu "USB OTG Configuration"
 	depends on ESP32S3_OTG
 
@@ -2398,7 +2467,7 @@ config ESP32S3_KERNEL_IMAGE_SIZE
 
 config ESP32S3_KERNEL_RAM_SIZE
 	hex "Kernel Allocated RAM"
-	default 0x29000
+	default 0x30000
 	range 0x10000 0x54700
 	depends on ESP32S3_APP_FORMAT_LEGACY
 	---help---
