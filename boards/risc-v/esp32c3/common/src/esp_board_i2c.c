@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/risc-v/src/bl808/bl808_courier.h
+ * boards/risc-v/esp32c3/common/src/esp_board_i2c.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,49 +18,65 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_RISC_V_SRC_BL808_BL808_COURIER_H
-#define __ARCH_RISC_V_SRC_BL808_BL808_COURIER_H
-
 /****************************************************************************
- * Pre-processor Definitions
+ * Included Files
  ****************************************************************************/
 
-#define BL808_COURIER_IRQN_MASK 0xff
-#define BL808_INT_SIG_SHIFT 8
-#define BL808_INT_EN_SHIFT 9
+#include <nuttx/config.h>
+
+#include <debug.h>
+#include <errno.h>
+#include <sys/types.h>
+
+#include <nuttx/i2c/i2c_master.h>
+
+#include "espressif/esp_i2c.h"
 
 /****************************************************************************
- * Public Functions Prototypes
+ * Public Functions
  ****************************************************************************/
 
+static int i2c_driver_init(int bus)
+{
+  struct i2c_master_s *i2c;
+  int ret;
+
+  i2c = esp_i2cbus_initialize(bus);
+  if (i2c == NULL)
+    {
+      i2cerr("Failed to get I2C%d interface\n", bus);
+      return -ENODEV;
+    }
+
+  ret = i2c_register(i2c, bus);
+  if (ret < 0)
+    {
+      i2cerr("Failed to register I2C%d driver: %d\n", bus, ret);
+      esp_i2cbus_uninitialize(i2c);
+    }
+
+  return ret;
+}
+
 /****************************************************************************
- * Name: bl808_courier_req_irq_enable
+ * Name: board_i2c_init
  *
  * Description:
- *   Sends an IPC message to M0 core to enable m0_extirq.
+ *   Configure the I2C driver.
+ *
+ * Returned Value:
+ *   Zero (OK) is returned on success; A negated errno value is returned
+ *   to indicate the nature of any failure.
  *
  ****************************************************************************/
 
-void bl808_courier_req_irq_enable(int m0_extirq);
+int board_i2c_init(void)
+{
+  int ret = OK;
 
-/****************************************************************************
- * Name: bl808_courier_req_irq_disable
- *
- * Description:
- *   Sends an IPC message to M0 core to disable m0_extirq.
- *
- ****************************************************************************/
+#ifdef CONFIG_ESPRESSIF_I2C0
+  ret = i2c_driver_init(ESPRESSIF_I2C0);
+#endif
 
-void bl808_courier_req_irq_disable(int m0_extirq);
-
-/****************************************************************************
- * Name: bl808_courier_init
- *
- * Description:
- *   Enables the IPC interrupt on D0 core and attaches its handler.
- *
- ****************************************************************************/
-
-int bl808_courier_init(void);
-
-#endif /* __ARCH_RISC_V_SRC_BL808_BL808_COURIER_H */
+  return ret;
+}

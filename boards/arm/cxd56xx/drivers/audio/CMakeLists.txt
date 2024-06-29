@@ -20,21 +20,21 @@
 
 if(CONFIG_CXD56_AUDIO)
   set(SRCS
-    cxd56_audio.c
-    cxd56_audio_config.c
-    cxd56_audio_analog.c
-    cxd56_audio_power.c
-    cxd56_audio_filter.c
-    cxd56_audio_mic.c
-    cxd56_audio_volume.c
-    cxd56_audio_digital.c
-    cxd56_audio_beep.c
-    cxd56_audio_irq.c
-    cxd56_audio_dma.c
-    cxd56_audio_ac_reg.c
-    cxd56_audio_bca_reg.c
-    cxd56_audio_aca.c
-    cxd56_audio_pin.c)
+      cxd56_audio.c
+      cxd56_audio_config.c
+      cxd56_audio_analog.c
+      cxd56_audio_power.c
+      cxd56_audio_filter.c
+      cxd56_audio_mic.c
+      cxd56_audio_volume.c
+      cxd56_audio_digital.c
+      cxd56_audio_beep.c
+      cxd56_audio_irq.c
+      cxd56_audio_dma.c
+      cxd56_audio_ac_reg.c
+      cxd56_audio_bca_reg.c
+      cxd56_audio_aca.c
+      cxd56_audio_pin.c)
 
   target_sources(drivers PRIVATE ${SRCS})
   target_include_directories(drivers PRIVATE ${NUTTX_CHIP_ABS_DIR})

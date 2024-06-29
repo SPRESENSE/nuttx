@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/risc-v/src/bl808/hardware/bl808_ipc.h
+ * arch/risc-v/src/bl808/hardware/bl808_m0ic.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,23 +18,30 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_RISCV_SRC_BL808_HARDWARE_BL808_IPC_H
-#define __ARCH_RISCV_SRC_BL808_HARDWARE_BL808_IPC_H
+#ifndef __ARCH_RISCV_SRC_BL808_HARDWARE_BL808_M0IC_H
+#define __ARCH_RISCV_SRC_BL808_HARDWARE_BL808_M0IC_H
+
+/****************************************************************************
+ * Included Files
+ ****************************************************************************/
+
+#include <nuttx/config.h>
+#include "hardware/bl808_memorymap.h"
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
-#define IPC_MSG_SEND_OFFSET 0x0
-#define IPC0_MSG_SEND       (IPC0_BASE + IPC_MSG_SEND_OFFSET)
+/* Register offsets */
 
-#define IPC_MSG_READ_OFFSET 0x24
-#define IPC2_MSG_READ       (IPC2_BASE + IPC_MSG_READ_OFFSET)
+#define BL808_M0IC_STATUS_OFFSET(n)		(0x00 + 4 * (n))
+#define BL808_M0IC_MASK_OFFSET(n)		(0x08 + 4 * (n))
+#define BL808_M0IC_CLEAR_OFFSET(n)		(0x10 + 4 * (n))
 
-#define IPC_MSG_ACK_OFFSET  0x28
-#define IPC2_MSG_ACK        (IPC2_BASE + IPC_MSG_ACK_OFFSET)
+/* Register locations */
 
-#define IPC_INT_UNMASK_OFFSET 0x2c
-#define IPC2_INT_UNMASK       (IPC2_BASE + IPC_INT_UNMASK_OFFSET)
+#define BL808_M0IC_STATUS(n) BL808_M0IC_BASE + BL808_M0IC_STATUS_OFFSET(n)
+#define BL808_M0IC_MASK(n)   BL808_M0IC_BASE + BL808_M0IC_MASK_OFFSET(n)
+#define BL808_M0IC_CLEAR(n)  BL808_M0IC_BASE + BL808_M0IC_CLEAR_OFFSET(n)
 
-#endif /* __ARCH_RISCV_SRC_BL808_HARDWARE_BL808_IPC_H */
+#endif /* __ARCH_RISCV_SRC_BL808_HARDWARE_BL808_M0IC_H */

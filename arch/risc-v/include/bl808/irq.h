@@ -53,6 +53,7 @@
 
 #define BL808_IRQ_UART3 (RISCV_IRQ_SEXT + BL808_IRQ_NUM_BASE + 4)
 #define BL808_IRQ_D0_IPC (RISCV_IRQ_SEXT + BL808_IRQ_NUM_BASE + 38)
+#define BL808_IRQ_M0IC (RISCV_IRQ_SEXT + BL808_IRQ_NUM_BASE + 65)
 
 /* M0 IRQs ******************************************************************/
 

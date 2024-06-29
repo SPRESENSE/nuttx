@@ -79,6 +79,8 @@
 #define X86_GDT_DATA_SEL_NUM    2
 #  define X86_GDT_DATA_SEL      (X86_GDT_DATA_SEL_NUM * X86_GDT_ENTRY_SIZE)
 
+/* The first TSS entry */
+
 #define X86_GDT_ISTL_SEL_NUM    6
 #define X86_GDT_ISTH_SEL_NUM    (X86_GDT_ISTL_SEL_NUM + 1)
 
@@ -224,8 +226,10 @@
 #  define MSR_X2APIC_ICR_DEASSERT      0x00000000
 #  define MSR_X2APIC_ICR_LEVEL         0x00008000  /* Level triggered */
 #  define MSR_X2APIC_ICR_BCAST         0x00080000  /* Send to all APICs, including self. */
+#  define MSR_X2APIC_ICR_OTHERS        0x000c0000  /* Send to all APICs, excluding self. */
 #  define MSR_X2APIC_ICR_BUSY          0x00001000
 #  define MSR_X2APIC_ICR_FIXED         0x00000000
+#  define MSR_X2APIC_DESTINATION(d)    ((d) << 32ul)
 #define MSR_X2APIC_LVTT         0x832
 #  define MSR_X2APIC_LVTT_X1           0x0000000B  /* divide counts by 1 */
 #  define MSR_X2APIC_LVTT_PERIODIC     0x00020000  /* Periodic */
@@ -263,7 +267,12 @@
 #define X86_PIC_8086           1
 #define X86_PIC_EOI            0x20
 
-#define BITS_PER_LONG    64
+#define BITS_PER_LONG          64
+
+/* Interrupt Stack Table size */
+
+#define X86_IST_SIZE           104
+#define X86_TSS_SIZE           (104 + 8)
 
 /* Reset Control Register (RST_CNT) */
 
@@ -370,9 +379,13 @@ begin_packed_struct struct ist_s
   uint16_t IOPB_OFFSET;          /* IOPB_offset */
 } end_packed_struct;
 
-/****************************************************************************
- * Public Types
- ****************************************************************************/
+/* TSS */
+
+begin_packed_struct struct tss_s
+{
+  struct ist_s  ist;    /* IST  */
+  void         *cpu;    /* CPU private data */
+} end_packed_struct;
 
 /****************************************************************************
  * Public Data
