@@ -40,6 +40,8 @@ if(NOT EXISTS ${CMAKE_CURRENT_LIST_DIR}/libmetal)
       ${CMAKE_CURRENT_LIST_DIR}/0002-libmetal-nuttx-io.c-align-access-when-read-write-siz.patch
       && patch -p0 -d ${CMAKE_CURRENT_LIST_DIR} <
       ${CMAKE_CURRENT_LIST_DIR}/0003-libmetal-nuttx-io.c-Fix-void-pointer-arithmetic-in-a.patch
+      && patch -p0 -d ${CMAKE_CURRENT_LIST_DIR} <
+      ${CMAKE_CURRENT_LIST_DIR}/0004-libmetal-atomic-enable-64-bit-atomic-by-toolchain-bu.patch
     DOWNLOAD_NO_PROGRESS true
     TIMEOUT 30)
 
@@ -65,27 +67,6 @@ set(CMAKE_SYSTEM_PROCESSOR ${LIBMETAL_ARCH})
 set(MACHINE ${CONFIG_ARCH})
 set(CMAKE_SYSTEM_NAME NuttX)
 set(WITH_DOC OFF)
-
-# cmake-format: off
-set(ATOMIC_TEST_CODE
-  [-[
-    #include <stdatomic.h>
-    int main() {
-        _Atomic long long x = 0;
-        return x;
-    }
-  ]-]
-)
-# cmake-format: on
-
-file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/test_atomic.c ${ATOMIC_TEST_CODE})
-
-try_compile(HAS_64BIT_ATOMIC_SUPPORT ${CMAKE_CURRENT_BINARY_DIR}
-            ${CMAKE_CURRENT_BINARY_DIR}/test_atomic.c)
-
-if(NOT HAS_64BIT_ATOMIC_SUPPORT)
-  add_compile_options(-DNO_ATOMIC_64_SUPPORT)
-endif()
 
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/libmetal
                  ${CMAKE_CURRENT_BINARY_DIR}/libmetal EXCLUDE_FROM_ALL)
