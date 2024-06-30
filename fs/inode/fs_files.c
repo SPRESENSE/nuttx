@@ -27,14 +27,17 @@
 #include <sys/types.h>
 #include <string.h>
 #include <assert.h>
+#include <execinfo.h>
 #include <sched.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <debug.h>
 #include <stdio.h>
 
 #include <nuttx/fs/fs.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/cancelpt.h>
+#include <nuttx/fs/ioctl.h>
 #include <nuttx/mutex.h>
 #include <nuttx/sched.h>
 #include <nuttx/spawn.h>
@@ -309,6 +312,67 @@ void files_initlist(FAR struct filelist *list)
 }
 
 /****************************************************************************
+ * Name: files_dumplist
+ *
+ * Description:
+ *   Dump the list of files.
+ *
+ ****************************************************************************/
+
+void files_dumplist(FAR struct filelist *list)
+{
+  int count = files_countlist(list);
+  int i;
+
+  syslog(LOG_INFO, "%-4s%-4s%-8s%-5s%-10s%-14s"
+#if CONFIG_FS_BACKTRACE > 0
+        " BACKTRACE"
+#endif
+        "\n",
+        "PID", "FD", "FLAGS", "TYPE", "POS", "PATH"
+        );
+
+  for (i = 0; i < count; i++)
+    {
+      FAR struct file *filep = files_fget(list, i);
+      char path[PATH_MAX];
+
+#if CONFIG_FS_BACKTRACE > 0
+      char buf[BACKTRACE_BUFFER_SIZE(CONFIG_FS_BACKTRACE)];
+#endif
+
+      /* Is there an inode associated with the file descriptor? */
+
+      if (filep == NULL || filep->f_inode == NULL)
+        {
+          continue;
+        }
+
+      if (file_ioctl(filep, FIOC_FILEPATH, path) < 0)
+        {
+          path[0] = '\0';
+        }
+
+#if CONFIG_FS_BACKTRACE > 0
+      backtrace_format(buf, sizeof(buf), filep->f_backtrace,
+                       CONFIG_FS_BACKTRACE);
+#endif
+
+      syslog(LOG_INFO, "%-4d%-4d%-8d%-5x%-10ld%-14s"
+#if CONFIG_FS_BACKTRACE > 0
+            " %s"
+#endif
+            "\n", getpid(), i, filep->f_oflags,
+            INODE_GET_TYPE(filep->f_inode),
+            (long)filep->f_pos, path
+#if CONFIG_FS_BACKTRACE > 0
+            , buf
+#endif
+            );
+    }
+}
+
+/****************************************************************************
  * Name: files_releaselist
  *
  * Description:
@@ -488,27 +552,6 @@ int file_allocate(FAR struct inode *inode, int oflags, off_t pos,
 {
   return file_allocate_from_tcb(nxsched_self(), inode, oflags,
                                 pos, priv, minfd, addref);
-}
-
-FAR char *file_dump_backtrace(FAR struct file *filep, FAR char *buffer,
-                              size_t len)
-{
-#if CONFIG_FS_BACKTRACE > 0
-  FAR const char *format = "%0*p ";
-  int k;
-
-  buffer[0] = '\0';
-  for (k = 0; k < CONFIG_FS_BACKTRACE && filep->f_backtrace[k]; k++)
-    {
-      snprintf(buffer + k * FS_BACKTRACE_WIDTH,
-               len - k * FS_BACKTRACE_WIDTH,
-               format, FS_BACKTRACE_WIDTH - 1,
-               filep->f_backtrace[k]);
-    }
-#else
-  buffer[0] = '\0';
-#endif
-  return buffer;
 }
 
 /****************************************************************************

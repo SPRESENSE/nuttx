@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm64/src/common/arm64_exit.c
+ * boards/arm/stm32/common/include/stm32_drv8266.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,74 +18,56 @@
  *
  ****************************************************************************/
 
+#ifndef __BOARDS_ARM_STM32_COMMON_INCLUDE_STM32_DRV8825_H
+#define __BOARDS_ARM_STM32_COMMON_INCLUDE_STM32_DRV8825_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
-#include <sched.h>
-#include <debug.h>
-
-#include <nuttx/arch.h>
-#include <nuttx/irq.h>
-
-#include "task/task.h"
-#include "sched/sched.h"
-#include "group/group.h"
-#include "irq/irq.h"
-#include "arm64_internal.h"
-
-#ifdef CONFIG_ARCH_FPU
-#include "arm64_fpu.h"
-#endif
-
 /****************************************************************************
- * Public Functions
+ * Pre-processor Definitions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: up_exit
+ * Public Types
+ ****************************************************************************/
+
+/****************************************************************************
+ * Public Data
+ ****************************************************************************/
+
+#ifdef __cplusplus
+#define EXTERN extern "C"
+extern "C"
+{
+#else
+#define EXTERN extern
+#endif
+
+/****************************************************************************
+ * Inline Functions
+ ****************************************************************************/
+
+/****************************************************************************
+ * Public Function Prototypes
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: board_drv8825_initialize
  *
  * Description:
- *   This function causes the currently executing task to cease
- *   to exist.  This is a special case of task_delete() where the task to
- *   be deleted is the currently executing task.  It is more complex because
- *   a context switch must be perform to the next ready to run task.
+ *   Initialize drv8825 and register the stepper motor driver.
  *
  ****************************************************************************/
 
-void up_exit(int status)
-{
-  struct tcb_s *tcb = this_task();
-  UNUSED(status);
+int board_drv8825_initialize(int devno);
 
-  /* Make sure that we are in a critical section with local interrupts.
-   * The IRQ state will be restored when the next task is started.
-   */
-
-  enter_critical_section();
-
-  /* Destroy the task at the head of the ready to run list. */
-#ifdef CONFIG_ARCH_FPU
-  arm64_destory_fpu(tcb);
+#undef EXTERN
+#ifdef __cplusplus
+}
 #endif
 
-  nxtask_exit();
-
-  /* Now, perform the context switch to the new ready-to-run task at the
-   * head of the list.
-   */
-
-  tcb = this_task();
-
-  /* Adjusts time slice for SCHED_RR & SCHED_SPORADIC cases
-   * NOTE: the API also adjusts the global IRQ control for SMP
-   */
-
-  nxsched_resume_scheduler(tcb);
-
-  /* Then switch contexts */
-
-  arm64_fullcontextrestore(tcb->xcp.regs);
-}
+#endif /* __BOARDS_ARM_STM32_COMMON_INCLUDE_STM32_DRV8825_H */
