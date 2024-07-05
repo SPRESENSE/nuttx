@@ -246,6 +246,15 @@ endmenu # LPUART Configuration
 
 endmenu # LPUART
 
+config IMX9_FLEXSPI
+	bool "ENABLE FLEXSPI interface"
+	default n
+
+config IMX9_FLEXSPI_NOR
+	bool "Enable NOR flash on FLEXSPI interface"
+	select IMX9_FLEXSPI
+	default n
+
 config IMX9_FLEXIO1_PWM
 	depends on PWM
 	bool "Enable FLEXIO1 based PWM generation"

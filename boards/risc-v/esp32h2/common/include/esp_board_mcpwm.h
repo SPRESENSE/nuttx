@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/xtensa/src/esp32s2/loader.h
+ * boards/risc-v/esp32h2/common/include/esp_board_mcpwm.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,30 +18,20 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_XTENSA_SRC_ESP32S2_LOADER_H
-#define __ARCH_XTENSA_SRC_ESP32S2_LOADER_H
+#ifndef __BOARDS_RISCV_ESP32H2_COMMON_INCLUDE_ESP_BOARD_MCPWM_H
+#define __BOARDS_RISCV_ESP32H2_COMMON_INCLUDE_ESP_BOARD_MCPWM_H
 
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
-#include <stdint.h>
-
-/****************************************************************************
- * Pre-processor Definitions
- ****************************************************************************/
-
-/****************************************************************************
- * Public Types
- ****************************************************************************/
 
 /****************************************************************************
  * Public Data
  ****************************************************************************/
 
-#ifndef __ASSEMBLY__
-#if defined(__cplusplus)
+#ifdef __cplusplus
 #define EXTERN extern "C"
 extern "C"
 {
@@ -50,31 +40,31 @@ extern "C"
 #endif
 
 /****************************************************************************
- * Public Functions Prototypes
+ * Public Function Prototypes
  ****************************************************************************/
 
+#ifdef CONFIG_ESP_MCPWM_CAPTURE
+
 /****************************************************************************
- * Name: map_rom_segments
+ * Name: board_capture_initialize
  *
  * Description:
- *   Configure the MMU and Cache peripherals for accessing ROM code and data.
+ *   Initialize and register the capture driver using the MCPWM peripheral.
  *
  * Input Parameters:
  *   None.
  *
  * Returned Value:
- *   None.
+ *   Zero (OK) on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
-int map_rom_segments(uint32_t app_drom_start, uint32_t app_drom_vaddr,
-                     uint32_t app_drom_size, uint32_t app_irom_start,
-                     uint32_t app_irom_vaddr, uint32_t app_irom_size);
+int board_capture_initialize(void);
 
+#endif /* CONFIG_ESP_MCPWM_CAPTURE */
 #undef EXTERN
-#if defined(__cplusplus)
+#ifdef __cplusplus
 }
 #endif
 
-#endif /* __ASSEMBLY__ */
-#endif /* __ARCH_XTENSA_SRC_ESP32S2_LOADER_H */
+#endif /* __BOARDS_RISCV_ESP32H2_COMMON_INCLUDE_ESP_BOARD_MCPWM_H */
