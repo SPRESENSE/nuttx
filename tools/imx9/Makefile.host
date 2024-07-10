@@ -1,5 +1,5 @@
 ############################################################################
-# boards/arm/stm32h7/linum-stm32h753bi/src/Makefile
+# tools/imx9/Makefile.host
 #
 # Licensed to the Apache Software Foundation (ASF) under one or more
 # contributor license agreements.  See the NOTICE file distributed with
@@ -18,52 +18,30 @@
 #
 ############################################################################
 
-include $(TOPDIR)/Make.defs
+-include $(TOPDIR)/Make.defs
+all: mkimage_imx9
+default: mkimage_imx9
+.PHONY: clean
 
-CSRCS = stm32_boot.c stm32_bringup.c
+# Add CFLAGS=-g on the make command line to build debug versions
 
-ifeq ($(CONFIG_ARCH_LEDS),y)
-CSRCS += stm32_autoleds.c
-else
-  ifeq ($(CONFIG_USERLED),y)
-  CSRCS += stm32_userleds.c
-  endif
+CFLAGS = -g -O2 -Wall -std=c99 -static
+
+# mkimage_imx9 - combine and sign a bootloader image for flashing
+
+mkimage_imx9: imx8qxb0.c mkimage_imx8.c
+	@gcc $(CFLAGS) -o mkimage_imx9 imx8qxb0.c mkimage_imx8.c
+
+clean:
+ifneq ($(CONFIG_WINDOWS_NATIVE),y)
+	$(Q) rm -rf *.dSYM
 endif
-
-ifeq ($(CONFIG_STM32H7_OTGFS),y)
-CSRCS += stm32_usb.c
-endif
-
-ifeq ($(CONFIG_STM32H7_SDMMC),y)
-CSRCS += stm32_sdmmc.c
-endif
-
-ifeq ($(CONFIG_FAT_DMAMEMORY),y)
-CSRCS += stm32_dma_alloc.c
-endif
-
-ifeq ($(CONFIG_I2C_EE_24XX),y)
-CSRCS += stm32_at24.c
-endif
-
-ifeq ($(CONFIG_PWM),y)
-CSRCS += stm32_pwm.c
-endif
-
-ifeq ($(CONFIG_MTD_W25QXXXJV),y)
-CSRCS += stm32_w25q.c
-endif
-
-ifeq ($(CONFIG_USBMSC),y)
-CSRCS += stm32_usbmsc.c
-endif
-
-ifeq ($(CONFIG_SENSORS_QENCODER),y)
-CSRCS += stm32_qencoder.c
-endif
-
-ifeq ($(CONFIG_BOARDCTL),y)
-CSRCS += stm32_appinitialize.c
-endif
-
-include $(TOPDIR)/boards/Board.mk
+	$(call DELFILE, mkimage_imx9)
+	$(call DELFILE, mkimage_imx9.exe)
+	$(call DELFILE, mkimage_imx8.c)
+	$(call DELFILE, imx8qxb0.c)
+	$(call DELFILE, mkimage_common.h)
+	$(call DELFILE, build_info.h)
+	$(call DELFILE, firmware-ele-imx-0.1.1.bin)
+	$(call DELDIR, firmware-ele-imx-0.1.1)
+	$(call CLEAN)
