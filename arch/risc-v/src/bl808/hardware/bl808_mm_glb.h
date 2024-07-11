@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/armv8-r/arm_arch_timer.h
+ * arch/risc-v/src/bl808/hardware/bl808_mm_glb.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,41 +18,41 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_ARM_SRC_ARMV8_R_ARM_ARCH_TIMER_H
-#define __ARCH_ARM_SRC_ARMV8_R_ARM_ARCH_TIMER_H
+#ifndef __ARCH_RISCV_SRC_BL808_HARDWARE_BL808_MM_GLB_H
+#define __ARCH_RISCV_SRC_BL808_HARDWARE_BL808_MM_GLB_H
 
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#include "arm_gic.h"
-#include "arm_internal.h"
+#include <nuttx/config.h>
+#include "bl808_memorymap.h"
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
-/* CNTV_CVAL, Counter-timer Virtual Timer CompareValue register
- * CNTV_CTL, Counter-timer Virtual Timer Control register
- */
+/* Register offsets *********************************************************/
 
-#define CNTV_CTL_ENABLE_BIT         BIT(0)
-#define CNTV_CTL_IMASK_BIT          BIT(1)
+#define BL808_MM_GLB_CLK_CTRL_PERI_OFFSET 0x10
 
-#define CONFIG_ARM_TIMER_SECURE_IRQ         (GIC_PPI_INT_BASE + 13)
-#define CONFIG_ARM_TIMER_NON_SECURE_IRQ     (GIC_PPI_INT_BASE + 14)
-#define CONFIG_ARM_TIMER_VIRTUAL_IRQ        (GIC_PPI_INT_BASE + 11)
-#define CONFIG_ARM_TIMER_HYP_IRQ            (GIC_PPI_INT_BASE + 10)
+/* Register definitions *****************************************************/
 
-#define ARM_ARCH_TIMER_IRQ    CONFIG_ARM_TIMER_VIRTUAL_IRQ
-#define ARM_ARCH_TIMER_PRIO   IRQ_DEFAULT_PRIORITY
-#define ARM_ARCH_TIMER_FLAGS  IRQ_TYPE_LEVEL
+#define BL808_MM_GLB_CLK_CTRL_PERI (BL808_MM_GLB_BASE \
+                                   + BL808_MM_GLB_CLK_CTRL_PERI_OFFSET)
 
-/****************************************************************************
- * Public Function Prototypes
- ****************************************************************************/
-#ifdef CONFIG_SMP
-void arm_arch_timer_secondary_init(void);
-#endif
+/* Register bit definitions *************************************************/
 
-#endif /* __ARCH_ARM_SRC_ARMV8_R_ARM_ARCH_TIMER_H */
+/* CLK_CTRL_PERI ************************************************************/
+
+#define CLK_CTRL_PERI_I2C0_DIV_SHIFT 0
+#define CLK_CTRL_PERI_I2C0_DIV_MASK (0xff << CLK_CTRL_PERI_I2C0_DIV_SHIFT)
+#define CLK_CTRL_PERI_I2C0_EN_SHIFT 9
+#define CLK_CTRL_PERI_UART_DIV_EN_SHIFT 16
+#define CLK_CTRL_PERI_UART_DIV_SHIFT 17
+#define CLK_CTRL_PERI_UART_DIV_MASK (0x07 << CLK_CTRL_PERI_UART_DIV_SHIFT)
+#define CLK_CTRL_PERI_SPI_DIV_EN_SHIFT 23
+#define CLK_CTRL_PERI_SPI_DIV_SHIFT 24
+#define CLK_CTRL_PERI_SPI_DIV_MASK (0xff << CLK_CTRL_PERI_SPI_DIV_SHIFT)
+
+#endif /* __ARCH_RISCV_SRC_BL808_HARDWARE_BL808_MM_GLB_H */
