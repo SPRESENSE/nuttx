@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/risc-v/espressif/common/scripts/esp32c3_simple_boot_sections.ld
+ * boards/risc-v/esp32c6/common/scripts/esp32c6_sections.ld
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,12 +18,47 @@
  *
  ****************************************************************************/
 
+#include "common.ld"
+
 /* Default entry point: */
 
 ENTRY(__start);
 
 SECTIONS
 {
+#ifdef CONFIG_ESPRESSIF_BOOTLOADER_MCUBOOT
+  .metadata :
+  {
+    /* Magic for load header */
+
+    LONG(0xace637d3)
+
+    /* Application entry point address */
+
+    KEEP(*(.entry_addr))
+
+    /* IRAM metadata:
+     * - Destination address (VMA) for IRAM region
+     * - Flash offset (LMA) for start of IRAM region
+     * - Size of IRAM region
+     */
+
+    LONG(ADDR(.iram0.text))
+    LONG(LOADADDR(.iram0.text))
+    LONG(SIZEOF(.iram0.text))
+
+    /* DRAM metadata:
+     * - Destination address (VMA) for DRAM region
+     * - Flash offset (LMA) for start of DRAM region
+     * - Size of DRAM region
+     */
+
+    LONG(ADDR(.dram0.data))
+    LONG(LOADADDR(.dram0.data))
+    LONG(SIZEOF(.dram0.data))
+  } >metadata
+#endif
+
   .iram0.text :
   {
     _iram_start = ABSOLUTE(.);
@@ -35,6 +70,7 @@ SECTIONS
 
     *(.iram1)
     *(.iram1.*)
+#ifdef CONFIG_ESPRESSIF_SIMPLE_BOOT
     *libsched.a:irq_dispatch.*(.text .text.* .literal .literal.*)
 
     *libarch.a:*brownout.*(.text .text.* .literal .literal.*)
@@ -46,12 +82,19 @@ SECTIONS
     *libarch.a:*esp_clk_tree.*(.text .text.* .literal .literal.*)
     *libarch.a:*esp_clk_tree_common.*(.text .text.* .literal .literal.*)
     *libarch.a:*clk_tree_hal.*(.text .text.* .literal .literal.*)
-    *libarch.a:*rtc_init.*(.text .text.* .literal .literal.*)
+    *libarch.a:*pmu_init.*(.text .text.* .literal .literal.*)
+    *libarch.a:*modem_clock.*(.text .text.* .literal .literal.*)
     *libarch.a:*regi2c_ctrl.*(.text .text.* .literal .literal.*)
     *libarch.a:*gpio_periph.*(.text .text.* .literal .literal.*)
+    *libarch.a:*modem_clock_hal.*(.text .text.* .literal .literal.*)
+    *libarch.a:*esp_rom_systimer.*(.text .text.* .literal .literal.*)
+    *libarch.a:*esp_rom_wdt.*(.text .text.* .literal .literal.*)
+    *libarch.a:*ocode_init.*(.text .text.* .literal .literal.*)
+    *libarch.a:*esp_rom_regi2c_esp32c6.*(.text .text.* .literal .literal.*)
     *libarch.a:*rtc_clk.*(.text .text.* .literal .literal.*)
     *libarch.a:*rtc_clk_init.*(.text .text.* .literal .literal.*)
-    *libarch.a:*rtc_sleep.*(.text .text.* .literal .literal.*)
+    *libarch.a:*pmu_sleep.*(.text .text.* .literal .literal.*)
+    *libarch.a:*pmu_param.*(.text .text.* .literal .literal.*)
     *libarch.a:*rtc_time.*(.text .text.* .literal .literal.*)
     *libarch.a:*systimer.*(.text .text.* .literal .literal.*)
     *libarch.a:*systimer_hal.*(.text .text.* .literal .literal.*)
@@ -63,16 +106,16 @@ SECTIONS
     *libarch.a:*bootloader_common_loader.*(.text .text.* .literal .literal.*)
     *libarch.a:*bootloader_console.*(.text .text.* .literal .literal.*)
     *libarch.a:*bootloader_console_loader.*(.text .text.* .literal .literal.*)
-    *libarch.a:*bootloader_esp32c3.*(.text .text.* .literal .literal.*)
+    *libarch.a:*bootloader_esp32c6.*(.text .text.* .literal .literal.*)
     *libarch.a:*bootloader_flash.*(.text .text.* .literal .literal.*)
-    *libarch.a:*bootloader_flash_config_esp32c3.*(.text .text.* .literal .literal.*)
+    *libarch.a:*bootloader_flash_config_esp32c6.*(.text .text.* .literal .literal.*)
     *libarch.a:*bootloader_clock_init.*(.text .text.* .literal .literal.*)
     *libarch.a:*bootloader_clock_loader.*(.text .text.* .literal .literal.*)
     *libarch.a:*bootloader_efuse.*(.text .text.* .literal .literal.*)
     *libarch.a:*bootloader_panic.*(.text .text.* .literal .literal.*)
     *libarch.a:*bootloader_mem.*(.text .text.* .literal .literal.*)
     *libarch.a:*bootloader_random.*(.text .text.* .literal .literal.*)
-    *libarch.a:*bootloader_random_esp32c3.*(.text .text.* .literal .literal.*)
+    *libarch.a:*bootloader_random_esp32c6.*(.text .text.* .literal .literal.*)
     *libarch.a:*esp_image_format.*(.text .text.* .literal .literal.*)
     *libarch.a:*bootloader_soc.*(.text .text.* .literal .literal.*)
     *libarch.a:*bootloader_sha.*(.text .text.* .literal .literal.*)
@@ -91,6 +134,12 @@ SECTIONS
     *libarch.a:*log.*(.text .text.* .literal .literal.*)
     *libarch.a:*log_noos.*(.text .text.* .literal .literal.*)
     *libarch.a:esp_spiflash.*(.literal .text .literal.* .text.*)
+#else
+    *libarch.a:*cache_hal.*(.text .text.* .literal .literal.*)
+    *libarch.a:*mpu_hal.*(.text .text.* .literal .literal.*)
+    *libarch.a:*mmu_hal.*(.text .text.* .literal .literal.*)
+    *libarch.a:esp_spiflash.*(.literal .text .literal.* .text.*)
+#endif
 
     esp_head.*(.literal .text .literal.* .text.*)
     esp_start.*(.literal .text .literal.* .text.*)
@@ -100,8 +149,31 @@ SECTIONS
     *(.wifislpiram.*)
     *(.wifiorslpiram.*)
     *(.wifislprxiram.*)
-
   } >iram0_0_seg AT > ROM
+
+  /* Marks the end of IRAM code segment */
+
+  .iram0.text_end (NOLOAD) :
+  {
+    . = ALIGN (16);
+  } >iram0_0_seg
+
+  .iram0.data :
+  {
+    . = ALIGN(16);
+    *(.iram.data)
+    *(.iram.data*)
+  } >iram0_0_seg
+
+  .iram0.bss (NOLOAD) :
+  {
+    . = ALIGN(16);
+    *(.iram.bss)
+    *(.iram.bss*)
+
+    . = ALIGN(16);
+    _iram_end = ABSOLUTE(.);
+  } >iram0_0_seg
 
   /* This section is required to skip .iram0.text area because iram0_0_seg
    * and dram0_0_seg reflect the same address space on different buses.
@@ -117,7 +189,7 @@ SECTIONS
     /* This section contains data that is not initialized during load,
      * or during the application's initialization sequence.
      */
-
+    . = ALIGN(8);
     *(.noinit)
     *(.noinit.*)
   } >dram0_0_seg
@@ -141,6 +213,7 @@ SECTIONS
     *(.jcr)
     *(.dram1)
     *(.dram1.*)
+#ifdef CONFIG_ESPRESSIF_SIMPLE_BOOT
     *libsched.a:irq_dispatch.*(.rodata .rodata.*)
 
     *libarch.a:*brownout.*(.rodata .rodata.*)
@@ -152,12 +225,19 @@ SECTIONS
     *libarch.a:*esp_clk_tree.*(.rodata .rodata.*)
     *libarch.a:*esp_clk_tree_common.*(.rodata .rodata.*)
     *libarch.a:*clk_tree_hal.*(.rodata .rodata.*)
-    *libarch.a:*rtc_init.*(.rodata .rodata.*)
+    *libarch.a:*pmu_init.*(.rodata .rodata.*)
+    *libarch.a:*modem_clock.*(.rodata .rodata.*)
     *libarch.a:*regi2c_ctrl.*(.rodata .rodata.*)
     *libarch.a:*gpio_periph.*(.rodata .rodata.*)
+    *libarch.a:*modem_clock_hal.*(.rodata .rodata.*)
+    *libarch.a:*esp_rom_systimer.*(.rodata .rodata.*)
+    *libarch.a:*esp_rom_wdt.*(.rodata .rodata.*)
+    *libarch.a:*ocode_init.*(.rodata .rodata.*)
+    *libarch.a:*esp_rom_regi2c_esp32c6.*(.rodata .rodata.*)
     *libarch.a:*rtc_clk.*(.rodata .rodata.*)
     *libarch.a:*rtc_clk_init.*(.rodata .rodata.*)
-    *libarch.a:*rtc_sleep.*(.rodata .rodata.*)
+    *libarch.a:*pmu_param.*(.rodata .rodata.*)
+    *libarch.a:*pmu_sleep.*(.rodata .rodata.*)
     *libarch.a:*rtc_time.*(.rodata .rodata.*)
     *libarch.a:*systimer.*(.rodata .rodata.*)
     *libarch.a:*systimer_hal.*(.rodata .rodata.*)
@@ -169,16 +249,16 @@ SECTIONS
     *libarch.a:*bootloader_common_loader.*(.rodata .rodata.*)
     *libarch.a:*bootloader_console.*(.rodata .rodata.*)
     *libarch.a:*bootloader_console_loader.*(.rodata .rodata.*)
-    *libarch.a:*bootloader_esp32c3.*(.rodata .rodata.*)
+    *libarch.a:*bootloader_esp32c6.*(.rodata .rodata.*)
     *libarch.a:*bootloader_flash.*(.rodata .rodata.*)
-    *libarch.a:*bootloader_flash_config_esp32c3.*(.rodata .rodata.*)
+    *libarch.a:*bootloader_flash_config_esp32c6.*(.rodata .rodata.*)
     *libarch.a:*bootloader_clock_init.*(.rodata .rodata.*)
     *libarch.a:*bootloader_clock_loader.*(.rodata .rodata.*)
     *libarch.a:*bootloader_efuse.*(.rodata .rodata.*)
     *libarch.a:*bootloader_panic.*(.rodata .rodata.*)
     *libarch.a:*bootloader_mem.*(.rodata .rodata.*)
     *libarch.a:*bootloader_random.*(.rodata .rodata.*)
-    *libarch.a:*bootloader_random_esp32c3.*(.rodata .rodata.*)
+    *libarch.a:*bootloader_random_esp32c6.*(.rodata .rodata.*)
     *libarch.a:*esp_image_format.*(.rodata .rodata.*)
     *libarch.a:*bootloader_soc.*(.rodata .rodata.*)
     *libarch.a:*bootloader_sha.*(.rodata .rodata.*)
@@ -197,6 +277,12 @@ SECTIONS
     *libarch.a:*log.*(.rodata .rodata.*)
     *libarch.a:*log_noos.*(.rodata .rodata.*)
     *libarch.a:esp_spiflash.*(.rodata .rodata.*)
+#else
+    *libarch.a:*cache_hal.*(.rodata .rodata.*)
+    *libarch.a:*mpu_hal.*(.rodata .rodata.*)
+    *libarch.a:*mmu_hal.*(.rodata .rodata.*)
+    *libarch.a:esp_spiflash.*(.rodata .rodata.*)
+#endif
 
     esp_head.*(.rodata .rodata.*)
     esp_start.*(.rodata .rodata.*)
@@ -228,14 +314,19 @@ SECTIONS
     *(.gnu.linkonce.b.*)
     *(COMMON)
 
-    . = ALIGN (8);
+    . = ALIGN (32);
     _ebss = ABSOLUTE(.);
     _bss_end = ABSOLUTE(.);
   } >dram0_0_seg
 
   _image_irom_vma = ADDR(.flash.text);
   _image_irom_lma = LOADADDR(.flash.text);
-  _image_irom_size = LOADADDR(.flash.text) + SIZEOF(.flash.text) - _image_irom_lma;
+  _image_irom_size = SIZEOF(.flash.text);
+
+  .flash.text_dummy (NOLOAD) :
+    {
+    . = ALIGN(0x10000);
+    } > ROM
 
   .flash.text : ALIGN(0xFFFF)
   {
@@ -261,26 +352,15 @@ SECTIONS
     _flash_cache_start = ABSOLUTE(0);
   } >default_code_seg AT > ROM
 
-  .flash_rodata_dummy (NOLOAD) : ALIGN(0xFFFF)
+  .flash_rodata_dummy (NOLOAD) :
   {
-    /* Start at the same alignment constraint than .flash.text */
-
-    /* . = ALIGN(ALIGNOF(.flash.text)); */
-
-    /* Create an empty gap as big as .flash.text section */
-
-    . = . + SIZEOF(.flash.text);
-
-    /* Prepare the alignment of the section above. Few bytes (0x20) must be
-     * added for the mapping header.
-     */
-
-    /*. = ALIGN(0x10000) + 0x20; */
-  } >default_rodata_seg
+    . += SIZEOF(.flash.text);
+    . = ALIGN(0x10000);
+  } >default_rodata_seg AT > ROM
 
   _image_drom_vma = ADDR(.flash.rodata);
   _image_drom_lma = LOADADDR(.flash.rodata);
-  _image_drom_size = LOADADDR(.flash.rodata) + SIZEOF(.flash.rodata) - _image_drom_lma;
+  _image_drom_size = SIZEOF(.flash.rodata);
 
   .flash.appdesc : ALIGN(0x10)
   {
@@ -296,8 +376,6 @@ SECTIONS
   .flash.rodata : ALIGN(0xFFFF)
   {
     _srodata = ABSOLUTE(.);
-    *(EXCLUDE_FILE (*libarch.a:esp_spiflash.* esp_head.* esp_start.*) .rodata)
-    *(EXCLUDE_FILE (*libarch.a:esp_spiflash.* esp_head.* esp_start.*) .rodata.*)
 
     *(.rodata)
     *(.rodata.*)
@@ -367,30 +445,6 @@ SECTIONS
     . = ALIGN (4);
   } > default_rodata_seg AT > ROM
 
-  /* Marks the end of IRAM code segment */
-
-  .iram0.text_end (NOLOAD) :
-  {
-    . = ALIGN (16);
-  } >iram0_0_seg
-
-  .iram0.data :
-  {
-    . = ALIGN(16);
-    *(.iram.data)
-    *(.iram.data*)
-  } >iram0_0_seg
-
-  .iram0.bss (NOLOAD) :
-  {
-    . = ALIGN(16);
-    *(.iram.bss)
-    *(.iram.bss*)
-
-    . = ALIGN(16);
-    _iram_end = ABSOLUTE(.);
-  } >iram0_0_seg
-
   /* RTC fast memory holds RTC wake stub code !*/
 
   .rtc.text :
@@ -437,3 +491,4 @@ SECTIONS
           "RTC reserved segment data does not fit.")
 
 }
+
