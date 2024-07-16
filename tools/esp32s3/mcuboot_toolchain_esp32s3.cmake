@@ -1,5 +1,5 @@
 # ##############################################################################
-# arch/arm/src/xmc4/CMakeLists.txt
+# tools/esp32s3/mcuboot_toolchain_esp32s3.cmake
 #
 # Licensed to the Apache Software Foundation (ASF) under one or more contributor
 # license agreements.  See the NOTICE file distributed with this work for
@@ -18,41 +18,23 @@
 #
 # ##############################################################################
 
-set(SRCS)
+set(CMAKE_SYSTEM_NAME Generic)
 
-list(
-  APPEND
-  SRCS
-  xmc4_allocateheap.c
-  xmc4_clockconfig.c
-  xmc4_clockutils.c
-  xmc4_clrpend.c
-  xmc4_gpio.c
-  xmc4_irq.c
-  xmc4_lowputc.c
-  xmc4_serial.c
-  xmc4_start.c
-  xmc4_usic.c
-  xmc4_timerisr.c)
+set(CMAKE_C_COMPILER xtensa-esp32s3-elf-gcc)
+set(CMAKE_CXX_COMPILER xtensa-esp32s3-elf-g++)
+set(CMAKE_ASM_COMPILER xtensa-esp32s3-elf-gcc)
+set(_CMAKE_TOOLCHAIN_PREFIX xtensa-esp32s3-elf-)
 
-if(CONFIG_BUILD_PROTECTED)
-  list(APPEND SRCS xmc4_userspace.c xmc4_mpuinit.c)
-endif()
+set(CMAKE_C_FLAGS
+    "-mlongcalls"
+    CACHE STRING "C Compiler Base Flags" FORCE)
+set(CMAKE_CXX_FLAGS
+    "-mlongcalls"
+    CACHE STRING "C++ Compiler Base Flags" FORCE)
+set(CMAKE_ASM_FLAGS
+    "${UNIQ_CMAKE_ASM_FLAGS}"
+    CACHE STRING "ASM Compiler Base Flags" FORCE)
 
-if(CONFIG_XMC4_ECAT)
-  list(APPEND SRCS xmc4_ecat.c)
-endif()
-
-if(NOT CONFIG_ARCH_IDLE_CUSTOM)
-  list(APPEND SRCS xmc4_idle.c)
-endif()
-
-if(CONFIG_XMC4_USCI_SPI)
-  list(APPEND SRCS xmc4_spi.c)
-endif()
-
-if(CONFIG_XMC4_PWM)
-  list(APPEND SRCS xmc4_pwm.c)
-endif()
-
-target_sources(arch PRIVATE ${SRCS})
+set(CMAKE_EXE_LINKER_FLAGS
+    "-Wl,--gc-sections"
+    CACHE STRING "Linker Base Flags")

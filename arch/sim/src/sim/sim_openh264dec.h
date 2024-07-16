@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/sim/src/sim/sim_hostencoder.h
+ * arch/sim/src/sim/sim_openh264dec.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,8 +18,8 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_SIM_SRC_SIM_SIM_HOSTENCODER_H
-#define __ARCH_SIM_SRC_SIM_SIM_HOSTENCODER_H
+#ifndef __ARCH_SIM_SRC_SIM_SIM_OPENH264DEC_H
+#define __ARCH_SIM_SRC_SIM_SIM_OPENH264DEC_H
 
 /****************************************************************************
  * Included Files
@@ -31,21 +31,20 @@
  * Public Types
  ****************************************************************************/
 
-struct host_encoder_s;
+struct openh264_decoder_s;
 
 /****************************************************************************
  * Public Function Prototypes
  ****************************************************************************/
 
-struct host_encoder_s *host_encoder_open(void);
-int host_encoder_close(struct host_encoder_s *encoder);
-int host_encoder_streamon(struct host_encoder_s *encoder,
-                          int width, int height, int fps, int bframe);
-int host_encoder_streamoff(struct host_encoder_s *encoder);
-int host_encoder_enqueue(struct host_encoder_s *encoder,
-                         uint8_t *data, uint32_t size, int64_t pts);
-int host_encoder_dequeue(struct host_encoder_s *encoder,
-                         uint8_t *data, uint32_t *size,
-                         int64_t *pts, uint32_t *flags);
+struct openh264_decoder_s *openh264_decoder_open(void);
+int openh264_decoder_close(struct openh264_decoder_s *decoder);
+int openh264_decoder_streamon(struct openh264_decoder_s *decoder);
+int openh264_decoder_streamoff(struct openh264_decoder_s *decoder);
+int openh264_decoder_enqueue(struct openh264_decoder_s *decoder,
+                             void *data, int64_t pts, int size);
+int openh264_decoder_dequeue(struct openh264_decoder_s *decoder,
+                             void *data, int64_t *pts, uint32_t *size);
 
-#endif /* __ARCH_SIM_SRC_SIM_SIM_HOSTENCODER_H */
+#endif /* __ARCH_SIM_SRC_SIM_SIM_OPENH264DEC_H */
+

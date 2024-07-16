@@ -21,10 +21,19 @@
 include $(TOPDIR)/tools/apps-or-nuttx-Make.defs
 
 ARCH_SRCDIR = $(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src
+APPSDIR     = $(TOPDIR)$(DELIM)$(CONFIG_APPS_DIR)
 
 INCLUDES += ${INCDIR_PREFIX}$(ARCH_SRCDIR)
 INCLUDES += ${INCDIR_PREFIX}$(ARCH_SRCDIR)$(DELIM)chip
 INCLUDES += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)sched
+
+ifeq ($(CONFIG_VIDEOUTILS_OPENH264),y)
+INCLUDES += ${INCDIR_PREFIX}$(APPSDIR)/videoutils/openh264/openh264/codec/api
+endif
+
+ifeq ($(CONFIG_VIDEOUTILS_LIBX264),y)
+INCLUDES += ${INCDIR_PREFIX}$(APPSDIR)/videoutils/x264/x264
+endif
 
 CPPFLAGS += $(INCLUDES)
 CFLAGS += $(INCLUDES)
@@ -251,15 +260,14 @@ ifeq ($(CONFIG_SIM_CAMERA_V4L2),y)
 endif
 
 ifeq ($(CONFIG_SIM_VIDEO_DECODER),y)
-  HOSTSRCS += sim_hostdecoder.c
   CSRCS += sim_decoder.c
-  STDLIBS += -lopenh264
+  CSRCS += sim_openh264dec.c
 endif
 
 ifeq ($(CONFIG_SIM_VIDEO_ENCODER),y)
-  HOSTSRCS += sim_hostencoder.c
   CSRCS += sim_encoder.c
-  STDLIBS += -lx264
+  CSRCS += sim_x264encoder.c
+  CFLAGS += -D_STDINT_H
 endif
 
 COBJS = $(CSRCS:.c=$(OBJEXT))
