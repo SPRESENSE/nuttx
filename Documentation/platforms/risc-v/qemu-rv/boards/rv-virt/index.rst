@@ -229,6 +229,16 @@ ksmp64
 
 Identical to the `knsh64`_ configuration but with SMP support.
 
+leds
+----
+
+Similar to the `nsh`_ configuration, but with User LEDs support for 32-bit RISC-V.
+
+leds64
+------
+
+Similar to the `nsh64`_ configuration, but with User LEDs support for 64-bit RISC-V.
+
 netnsh
 ------
 
@@ -348,6 +358,26 @@ flats64
 
 Similar to the `nsh`_ configuration, but running in S-mode.
 This configuration is used for 64-bit RISC-V
+
+virt_nsh
+--------
+
+Similar to `nsh`_ configuration, but uses virtio serial device as console.
+Use it below with QEMU::
+
+    $ qemu-system-riscv32 -M virt,aclint=on -nographic \
+    -chardev socket,id=aux,path=/tmp/aux,server=on,wait=on \
+    -device virtio-serial-device,bus=virtio-mmio-bus.0 \
+    -device virtconsole,chardev=aux \
+    -bios nuttx
+
+Then from another terminal, use below command to access the console::
+
+    $ socat UNIX-CLIENT:/tmp/aux -
+
+We can finish the session with ``quit`` command in NSH session.
+
+Note the above command line uses UNIX domain socket so please change the socket parameters on hosts without UNIX domain socket.
 
 RISC-V GDB Debugging
 ====================
