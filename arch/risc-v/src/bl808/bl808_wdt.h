@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/stm32f0l0g0/stm32_pwr.c
+ * arch/risc-v/src/bl808/bl808_wdt.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,23 +18,22 @@
  *
  ****************************************************************************/
 
-/****************************************************************************
- * Included Files
- ****************************************************************************/
-
-#include <nuttx/config.h>
-#include "chip.h"
-
-/* This file is only a thin shell that includes the proper PWR implementation
- * according to the selected MCU family.
- */
-
-#if defined(CONFIG_STM32F0L0G0_STM32G0)
-#  include "stm32g0_pwr.c"
-#else
-#  include "stm32f0l0_pwr.c"
-#endif
+#ifndef __ARCH_RISC_V_SRC_BL808_BL808_WDT_H
+#define __ARCH_RISC_V_SRC_BL808_BL808_WDT_H
 
 /****************************************************************************
- * Public Functions
+ * Public Functions Prototypes
  ****************************************************************************/
+
+/****************************************************************************
+ * Name: bl808_wdt_init
+ *
+ * Description:
+ *   Initialize timer hardware and register character drivers
+ *   for enabled timer channels.
+ *
+ ****************************************************************************/
+
+int bl808_wdt_init(void);
+
+#endif /* __ARCH_RISC_V_SRC_BL808_BL808_WDT_H */

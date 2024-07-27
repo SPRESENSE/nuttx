@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/stm32f0l0g0/stm32_pwr.c
+ * libs/libc/dlfcn/lib_dladdr.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -23,18 +23,20 @@
  ****************************************************************************/
 
 #include <nuttx/config.h>
-#include "chip.h"
 
-/* This file is only a thin shell that includes the proper PWR implementation
- * according to the selected MCU family.
- */
-
-#if defined(CONFIG_STM32F0L0G0_STM32G0)
-#  include "stm32g0_pwr.c"
-#else
-#  include "stm32f0l0_pwr.c"
-#endif
+#include <errno.h>
+#include <dlfcn.h>
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
+
+/****************************************************************************
+ * Name: dladdr
+ ****************************************************************************/
+
+int dladdr(const FAR void *addr, FAR Dl_info *info)
+{
+  set_errno(ENOTSUP);
+  return 0;
+}
