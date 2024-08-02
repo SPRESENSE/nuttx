@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/risc-v/src/qemu-rv/qemu_rv_head.S
+ * arch/risc-v/src/qemu-rv/qemu_rv_userspace.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,71 +18,32 @@
  *
  ****************************************************************************/
 
+#ifndef __ARCH_RISC_V_SRC_QEMURV_QEMURV_USERSPACE_H
+#define __ARCH_RISC_V_SRC_QEMURV_QEMURV_USERSPACE_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
-#include <arch/arch.h>
-#include <arch/irq.h>
-
-#include "chip.h"
-#include "riscv_internal.h"
-#include "riscv_macros.S"
-
 /****************************************************************************
- * Public Symbols
+ * Public Functions Prototypes
  ****************************************************************************/
 
-  /* Exported Symbols */
+/****************************************************************************
+ * Name: qemu_rv_userspace
+ *
+ * Description:
+ *   For the case of the separate user-/kernel-space build, perform whatever
+ *   platform specific initialization of the user memory is required.
+ *   Normally this just means initializing the user space .data and .bss
+ *   segments.
+ *
+ ****************************************************************************/
 
-  .section .text
-#ifndef CONFIG_NUTTSBI
-  .global __start
-
-__start:
-#else
-  .global __start_s
-
-__start_s:
+#ifdef CONFIG_BUILD_PROTECTED
+void qemu_rv_userspace(void);
 #endif
 
-  /* Preserve a1 as it contains the pointer to DTB */
-  /* Preserve a0 as it has mhartid */
-
-  /* Load the number of CPUs that the kernel supports */
-  li   t1, CONFIG_SMP_NCPUS
-
-  /* If a0 (mhartid) >= t1 (the number of CPUs), stop here */
-
-  blt  a0, t1, 2f
-  csrw CSR_IE, zero
-  wfi
-
-2:
-  /* Set stack pointer to the idle thread stack */
-  riscv_set_inital_sp QEMU_RV_IDLESTACK_BASE, SMP_STACK_SIZE, a0
-
-  /* Disable all interrupts (i.e. timer, external) in mie */
-
-  csrw CSR_IE, zero
-
-  la   t0, __trap_vec
-  csrw CSR_TVEC, t0
-
-  /* Jump to qemu_rv_start */
-
-  jal  x1, qemu_rv_start
-
-  /* We shouldn't return from _start */
-
-  .global _init
-  .global _fini
-
-_init:
-_fini:
-
-  /* These don't have to do anything since we use init_array/fini_array. */
-
-  ret
+#endif /* __ARCH_RISC_V_SRC_QEMURV_QEMURV_USERSPACE_H */

@@ -29,8 +29,11 @@
 #include <nuttx/serial/uart_16550.h>
 #include <arch/board/board.h>
 
+#include <debug.h>
 #include "riscv_internal.h"
 #include "chip.h"
+
+#include "qemu_rv_userspace.h"
 
 #ifdef CONFIG_BUILD_KERNEL
 #  include "qemu_rv_mm_init.h"
@@ -43,6 +46,12 @@
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
+
+#ifdef CONFIG_NUTTSBI_LATE_INIT
+#  define NAPOT_RWX     (PMPCFG_A_NAPOT | PMPCFG_RWX_MASK)
+#  define NAPOT_RW      (PMPCFG_A_NAPOT | PMPCFG_R | PMPCFG_W)
+#  define SIZE_HALF     (UINT32_C(1) << 31)
+#endif
 
 #ifdef CONFIG_DEBUG_FEATURES
 #define showprogress(c) up_putc(c)
@@ -92,7 +101,11 @@ static void qemu_boot_secondary(int mhartid, uintptr_t dtb)
           continue;
         }
 
+#ifndef CONFIG_NUTTSBI
       riscv_sbi_boot_secondary(i, (uintptr_t)&__start, dtb);
+#else
+      sinfo("TBD\n");
+#endif
     }
 }
 #endif
@@ -160,6 +173,17 @@ void qemu_rv_start(int mhartid, const char *dtb)
 
   showprogress('C');
 
+  /* For the case of the separate user-/kernel-space build, perform whatever
+   * platform specific initialization of the user memory is required.
+   * Normally this just means initializing the user space .data and .bss
+   * segments.
+   */
+
+#ifdef CONFIG_BUILD_PROTECTED
+  qemu_rv_userspace();
+  showprogress('D');
+#endif
+
 #ifdef CONFIG_BUILD_KERNEL
   /* Setup page tables for kernel and enable MMU */
 
@@ -195,3 +219,13 @@ void riscv_serialinit(void)
   u16550_serialinit();
 #endif
 }
+
+#ifdef CONFIG_NUTTSBI_LATE_INIT
+void sbi_late_initialize(void)
+{
+  /* QEMU 6.2 doesn't support 0 size, so we do it explicitly here */
+
+  riscv_append_pmp_region(NAPOT_RW, 0, SIZE_HALF);
+  riscv_append_pmp_region(NAPOT_RWX, SIZE_HALF, SIZE_HALF);
+}
+#endif
