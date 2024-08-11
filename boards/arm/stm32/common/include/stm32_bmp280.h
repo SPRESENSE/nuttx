@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/arm/stm32/stm32f103-minimum/src/stm32_mfrc522.c
+ * boards/arm/stm32/common/include/stm32_bmp280.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,69 +18,67 @@
  *
  ****************************************************************************/
 
+#ifndef __BOARDS_ARM_STM32_COMMON_INCLUDE_STM32_BMP280_H
+#define __BOARDS_ARM_STM32_COMMON_INCLUDE_STM32_BMP280_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
-#include <errno.h>
-#include <debug.h>
-
-#include <nuttx/spi/spi.h>
-#include <nuttx/contactless/mfrc522.h>
-
-#include "stm32.h"
-#include "stm32_spi.h"
-#include "stm32f103_minimum.h"
-
-#if defined(CONFIG_SPI) && defined(CONFIG_STM32_SPI1) && defined(CONFIG_CL_MFRC522)
-
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
-#define MFRC522_SPI_PORTNO 1   /* On SPI1 */
-
 /****************************************************************************
- * Public Functions
+ * Type Definitions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: stm32_mfrc522initialize
+ * Public Types
+ ****************************************************************************/
+
+/****************************************************************************
+ * Public Data
+ ****************************************************************************/
+
+#ifdef __cplusplus
+#define EXTERN extern "C"
+extern "C"
+{
+#else
+#define EXTERN extern
+#endif
+
+/****************************************************************************
+ * Inline Functions
+ ****************************************************************************/
+
+/****************************************************************************
+ * Public Function Prototypes
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: board_bmp280_initialize
  *
  * Description:
- *   Initialize and register the MFRC522 RFID driver.
+ *   Initialize and register the BMP280 Pressure Sensor driver.
  *
  * Input Parameters:
- *   devpath - The full path to the driver to register. E.g., "/dev/rfid0"
+ *   devno - The device number, used to build the device path as /dev/pressN
+ *   busno - The I2C bus number
  *
  * Returned Value:
  *   Zero (OK) on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
-int stm32_mfrc522initialize(const char *devpath)
-{
-  struct spi_dev_s *spi;
-  int ret;
+int board_bmp280_initialize(int devno, int busno);
 
-  spi = stm32_spibus_initialize(MFRC522_SPI_PORTNO);
-
-  if (!spi)
-    {
-      return -ENODEV;
-    }
-
-  /* Then register the MFRC522 */
-
-  ret = mfrc522_register(devpath, spi);
-  if (ret < 0)
-    {
-      snerr("ERROR: Error registering MFRC522\n");
-    }
-
-  return ret;
+#undef EXTERN
+#ifdef __cplusplus
 }
+#endif
 
-#endif /* CONFIG_SPI && CONFIG_MFRC522 */
+#endif /* __BOARDS_ARM_STM32_COMMON_INCLUDE_STM32_BMP280_H */
