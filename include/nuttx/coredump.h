@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/armv7-a/barriers.h
+ * include/nuttx/coredump.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,29 +18,52 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_ARM_SRC_ARMV7_A_BARRIERS_H
-#define __ARCH_ARM_SRC_ARMV7_A_BARRIERS_H
+#ifndef __INCLUDE_NUTTX_COREDUMP_H
+#define __INCLUDE_NUTTX_COREDUMP_H
 
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
+#include <nuttx/memoryregion.h>
+#include <unistd.h>
+
 /****************************************************************************
- * Pre-processor Definitions
+ * Public Function Prototypes
  ****************************************************************************/
 
-/* ARMv7-A memory barriers */
+/****************************************************************************
+ * Name: coredump_set_memory_region
+ *
+ * Description:
+ *   Set do coredump memory region.
+ *
+ ****************************************************************************/
 
-#define arm_dsb(n) __asm__ __volatile__ ("dsb " #n : : : "memory")
-#define arm_dmb(n) __asm__ __volatile__ ("dmb " #n : : : "memory")
-#define arm_isb()  __asm__ __volatile__ ("isb " : : : "memory")
-#define arm_nop()  __asm__ __volatile__ ("nop\n")
-#define arm_sev()  __asm__ __volatile__ ("sev\n")
+int coredump_set_memory_region(FAR struct memory_region_s *region);
 
-#define ARM_DSB()  arm_dsb(15)
-#define ARM_DMB()  arm_dmb(15)
-#define ARM_ISB()  arm_isb()
-#define ARM_NOP()  arm_nop()
-#define ARM_SEV()  arm_sev()
+/****************************************************************************
+ * Name: coredump_initialize
+ *
+ * Description:
+ *   Initialize the coredump facility.  Called once and only from
+ *   nx_start_application.
+ *
+ ****************************************************************************/
 
-#endif /* __ARCH_ARM_SRC_ARMV7_A_BARRIERS_H */
+int coredump_initialize(void);
+
+/****************************************************************************
+ * Name: coredump_dump
+ *
+ * Description:
+ *   Do coredump of the task specified by pid.
+ *
+ * Input Parameters:
+ *   pid - The task/thread ID of the thread to dump
+ *
+ ****************************************************************************/
+
+void coredump_dump(pid_t pid);
+
+#endif /* __INCLUDE_NUTTX_COREDUMP_H */
