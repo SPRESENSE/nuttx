@@ -1,5 +1,5 @@
 /****************************************************************************
- * sched/sched/sched_thistask.c
+ * include/nuttx/video/goldfish_gpu_fb.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,59 +18,46 @@
  *
  ****************************************************************************/
 
+#ifndef __INCLUDE_NUTTX_VIDEO_GOLDFISH_GPU_FB_H
+#define __INCLUDE_NUTTX_VIDEO_GOLDFISH_GPU_FB_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
-#include <sys/types.h>
-#include <arch/irq.h>
-
-#include <nuttx/irq.h>
-#include <nuttx/spinlock.h>
-
-#include "sched/sched.h"
-
-#ifdef CONFIG_SMP
-
 /****************************************************************************
- * Public Functions
+ * Pre-processor Definitions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: this_task
- *
- * Description:
- *   The functions will safely obtain the TCB that is currently running
- *   on the current CPU. In SMP, this must be done by disabling local
- *   interrupts to avoid CPU switching during access to current_task()
- *
- * Returned Value:
- *   the TCB that is currently running on the current CPU.
- *
+ * Public Types
  ****************************************************************************/
 
-FAR struct tcb_s *this_task(void)
+/****************************************************************************
+ * Public Data
+ ****************************************************************************/
+
+#ifdef __cplusplus
+#define EXTERN extern "C"
+extern "C"
 {
-  FAR struct tcb_s *tcb;
-  irqstate_t flags;
+#else
+#define EXTERN extern
+#endif
 
-  /* If the CPU supports suppression of interprocessor interrupts, then
-   * simple disabling interrupts will provide sufficient protection for
-   * the following operations.
-   */
+/****************************************************************************
+ * Public Function Prototypes
+ ****************************************************************************/
 
-  flags = up_irq_save();
+#ifdef CONFIG_GOLDFISH_GPU_FB
+int goldfish_gpu_fb_register(int display);
+#endif
 
-  /* Obtain the TCB which is currently running on this CPU */
-
-  tcb = current_task(this_cpu());
-
-  /* Enable local interrupts */
-
-  up_irq_restore(flags);
-  return tcb;
+#undef EXTERN
+#ifdef __cplusplus
 }
+#endif
 
-#endif /* CONFIG_SMP */
+#endif /* __INCLUDE_NUTTX_VIDEO_GOLDFISH_GPU_FB_H */

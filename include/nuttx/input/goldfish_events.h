@@ -1,5 +1,5 @@
 /****************************************************************************
- * fs/hostfs/hostfs.h
+ * include/nuttx/input/goldfish_events.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,8 +18,8 @@
  *
  ****************************************************************************/
 
-#ifndef __FS_HOSTFS_HOSTFS_H
-#define __FS_HOSTFS_HOSTFS_H
+#ifndef __INCLUDE_NUTTX_GOLDFISH_EVENTS_H
+#define __INCLUDE_NUTTX_GOLDFISH_EVENTS_H
 
 /****************************************************************************
  * Included Files
@@ -27,56 +27,42 @@
 
 #include <nuttx/config.h>
 
-#include <sys/types.h>
-#include <stdint.h>
-#include <stdbool.h>
-
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
-#define HOSTFS_MAX_PATH     256
-
 /****************************************************************************
- * Public Types
+ * Public Data
  ****************************************************************************/
 
-/* This structure describes the state of one open file.  This structure
- * is protected by the volume semaphore.
- */
-
-struct hostfs_ofile_s
+#ifdef __cplusplus
+#define EXTERN extern "C"
+extern "C"
 {
-  struct hostfs_ofile_s    *fnext;   /* Supports a singly linked list */
-  int16_t                   crefs;   /* Reference count */
-  mode_t                    oflags;  /* Open mode */
-  int                       fd;
-  char                      relpath[1];
-};
-
-/* This structure represents the overall mountpoint state.  An instance of
- * this structure is retained as inode private data on each mountpoint that
- * is mounted with a hostfs filesystem.
- */
-
-struct hostfs_mountpt_s
-{
-  FAR struct hostfs_ofile_s *fs_head;      /* A singly-linked list of open files */
-  char                       fs_root[HOSTFS_MAX_PATH];
-};
+#else
+#define EXTERN extern
+#endif
 
 /****************************************************************************
- * Internal function prototypes
+ * Public Function Prototypes
  ****************************************************************************/
 
-/* Forward references for utility functions */
+/****************************************************************************
+ * Name: goldfish_events_register
+ *
+ * Description:
+ *   register goldfish events.
+ *
+ * Returned Value:
+ *   None
+ *
+ ****************************************************************************/
 
-struct hostfs_mountpt_s;
+int goldfish_events_register(FAR void *base, int irq);
 
-struct file;        /* Forward references */
-struct inode;
-struct fs_dirent_s;
-struct statfs;
-struct stat;
+#undef EXTERN
+#ifdef __cplusplus
+}
+#endif
 
-#endif /* __FS_HOSTFS_HOSTFS_H */
+#endif /* __INCLUDE_NUTTX_GOLDFISH_EVENTS_H */

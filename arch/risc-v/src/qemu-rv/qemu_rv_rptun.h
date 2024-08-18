@@ -1,5 +1,5 @@
 /****************************************************************************
- * fs/hostfs/hostfs.h
+ * arch/risc-v/src/qemu-rv/qemu_rv_rptun.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,65 +18,50 @@
  *
  ****************************************************************************/
 
-#ifndef __FS_HOSTFS_HOSTFS_H
-#define __FS_HOSTFS_HOSTFS_H
+#ifndef __ARCH_RISCV_SRC_QEMU_RV_QEMU_RV_RPTUN_H
+#define __ARCH_RISCV_SRC_QEMU_RV_QEMU_RV_RPTUN_H
 
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
-
 #include <sys/types.h>
-#include <stdint.h>
-#include <stdbool.h>
 
 /****************************************************************************
- * Pre-processor Definitions
+ * Public Function Prototypes
  ****************************************************************************/
 
-#define HOSTFS_MAX_PATH     256
+#ifndef __ASSEMBLY__
 
-/****************************************************************************
- * Public Types
- ****************************************************************************/
-
-/* This structure describes the state of one open file.  This structure
- * is protected by the volume semaphore.
- */
-
-struct hostfs_ofile_s
+#undef EXTERN
+#if defined(__cplusplus)
+#define EXTERN extern "C"
+extern "C"
 {
-  struct hostfs_ofile_s    *fnext;   /* Supports a singly linked list */
-  int16_t                   crefs;   /* Reference count */
-  mode_t                    oflags;  /* Open mode */
-  int                       fd;
-  char                      relpath[1];
-};
-
-/* This structure represents the overall mountpoint state.  An instance of
- * this structure is retained as inode private data on each mountpoint that
- * is mounted with a hostfs filesystem.
- */
-
-struct hostfs_mountpt_s
-{
-  FAR struct hostfs_ofile_s *fs_head;      /* A singly-linked list of open files */
-  char                       fs_root[HOSTFS_MAX_PATH];
-};
+#else
+#define EXTERN extern
+#endif
 
 /****************************************************************************
- * Internal function prototypes
+ * Name: qemu_rptun_init
+ * Description: initializes QEMU-RV RPTUN devices.
+ * Returns: OK on success, or negated number on error
  ****************************************************************************/
 
-/* Forward references for utility functions */
+int qemu_rptun_init(void);
 
-struct hostfs_mountpt_s;
+/****************************************************************************
+ * Name: qemu_rptun_ipi
+ * Description: hook called from IRQ_SOFT handler.
+ ****************************************************************************/
 
-struct file;        /* Forward references */
-struct inode;
-struct fs_dirent_s;
-struct statfs;
-struct stat;
+void qemu_rptun_ipi(void);
 
-#endif /* __FS_HOSTFS_HOSTFS_H */
+#undef EXTERN
+#if defined(__cplusplus)
+}
+#endif
+
+#endif /* __ASSEMBLY__ */
+#endif /* __ARCH_RISCV_SRC_QEMU_RV_QEMU_RV_RPTUN_H */
