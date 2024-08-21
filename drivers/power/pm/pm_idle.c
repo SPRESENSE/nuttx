@@ -1,5 +1,5 @@
 /****************************************************************************
- * include/sys/sysinfo.h
+ * drivers/power/pm/pm_idle.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,62 +18,60 @@
  *
  ****************************************************************************/
 
-#ifndef __INCLUDE_SYS_SYSINFO_H
-#define __INCLUDE_SYS_SYSINFO_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/compiler.h>
+#include <nuttx/config.h>
+#include <nuttx/power/pm.h>
+#include <sched/sched.h>
 
 /****************************************************************************
- * Pre-processor Definitions
+ * Public Functions
  ****************************************************************************/
-
-#define SI_LOAD_SHIFT 16
 
 /****************************************************************************
- * Type Definitions
+ * Name: pm_idle
+ *
+ * Description:
+ *   Standard pm idle work flow for up_idle, for not smp case.
+ *
+ * Input Parameters:
+ *   handler - The execution after PM_IDLE_DOMAIN state changed.
+ *
+ * Returned Value:
+ *   None.
+ *
  ****************************************************************************/
 
-struct sysinfo
+void pm_idle(pm_idle_handler_t handler)
 {
-  unsigned long uptime;    /* Seconds since boot */
-  unsigned long loads[3];  /* 1, 5, and 15 minute load averages */
-  unsigned long totalram;  /* Total usable main memory size */
-  unsigned long freeram;   /* Available memory size */
-  unsigned long sharedram; /* Amount of shared memory */
-  unsigned long bufferram; /* Memory used by buffers */
-  unsigned long totalswap; /* Total swap space size */
-  unsigned long freeswap;  /* Swap space still available */
-  unsigned short procs;    /* Number of current processes */
-  unsigned short pad;      /* Padding for alignment */
-  unsigned long totalhigh; /* Total high memory size */
-  unsigned long freehigh;  /* Available high memory size */
-  unsigned mem_unit;       /* Memory unit size in bytes */
-};
+  enum pm_state_e newstate;
+  irqstate_t flags;
+  int ret;
 
-/****************************************************************************
- * Public Function Prototypes
- ****************************************************************************/
+  /* If sched lock before irq save, and irq handler do post, scheduler will
+   * be delayed after WFI until next sched unlock. which is not acceptable.
+   */
 
-#undef EXTERN
-#if defined(__cplusplus)
-#define EXTERN extern "C"
-extern "C"
-{
-#else
-#define EXTERN extern
-#endif
+  flags = up_irq_save();
+  sched_lock();
 
-int sysinfo(FAR struct sysinfo *info);
-int get_nprocs_conf(void);
-int get_nprocs(void);
+  newstate = pm_checkstate(PM_IDLE_DOMAIN);
+  ret      = pm_changestate(PM_IDLE_DOMAIN, newstate);
+  if (ret < 0)
+    {
+      newstate = PM_NORMAL;
+    }
 
-#undef EXTERN
-#if defined(__cplusplus)
+  handler(newstate);
+
+  pm_changestate(PM_IDLE_DOMAIN, PM_RESTORE);
+
+  /* If there is pending irq, enable irq make handlers finish all execution
+   * will be better decrease scheduler context switch times.
+   */
+
+  up_irq_restore(flags);
+  sched_unlock();
 }
-#endif
-
-#endif /* __INCLUDE_SYS_SYSINFO_H */

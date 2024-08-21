@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/risc-v/src/common/riscv_testset.S
+ * include/nuttx/usb/cdcncm.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,86 +18,88 @@
  *
  ****************************************************************************/
 
+#ifndef __INCLUDE_NUTTX_USB_CDCNCM_H
+#define __INCLUDE_NUTTX_USB_CDCNCM_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
-#include <arch/spinlock.h>
 
-  .file "riscv_testset.S"
-
-/****************************************************************************
- * Pre-processor Definitions
- ****************************************************************************/
-
-#ifdef CONFIG_ARCH_RV32
-#define AMOSWAP amoswap.w
-#else
-#define AMOSWAP amoswap.d
+#ifdef CONFIG_CDCNCM_COMPOSITE
+#  include <nuttx/usb/composite.h>
 #endif
 
 /****************************************************************************
- * Public Symbols
+ * Preprocessor definitions
  ****************************************************************************/
 
-  .globl up_testset
+#define CDCNCM_EP_INTIN_IDX      (0)
+#define CDCNCM_EP_BULKIN_IDX     (1)
+#define CDCNCM_EP_BULKOUT_IDX    (2)
 
 /****************************************************************************
- * Assembly Macros
+ * Public Data
+ ****************************************************************************/
+
+#undef EXTERN
+#if defined(__cplusplus)
+#  define EXTERN extern "C"
+extern "C"
+{
+#else
+#  define EXTERN extern
+#endif
+
+/****************************************************************************
+ * Public Functions Definitions
  ****************************************************************************/
 
 /****************************************************************************
- * Private Functions
- ****************************************************************************/
-
-  .text
-
-/****************************************************************************
- * Public Functions
- ****************************************************************************/
-
-/****************************************************************************
- * Name: up_testset
+ * Name: cdcncm_initialize
  *
  * Description:
- *   Perform an atomic test and set operation on the provided spinlock.
- *
- *   This function must be provided via the architecture-specific logic.
+ *   Register CDC/NCM USB device interface. Register the corresponding
+ *   network driver to NuttX and bring up the network.
  *
  * Input Parameters:
- *   lock  - A reference to the spinlock object (a0).
+ *   minor - Device minor number.
+ *   handle - An optional opaque reference to the CDC/NCM class object that
+ *     may subsequently be used with cdcncm_uninitialize().
  *
  * Returned Value:
- *   The spinlock is always locked upon return.  The previous value of the
- *   spinlock variable is returned, either SP_LOCKED if the spinlock was
- *   previously locked (meaning that the test-and-set operation failed to
- *   obtain the lock) or SP_UNLOCKED if the spinlock was previously unlocked
- *   (meaning that we successfully obtained the lock).
- *
- * Modifies: a1, a2
+ *   Zero (OK) means that the driver was successfully registered.  On any
+ *   failure, a negated errno value is returned.
  *
  ****************************************************************************/
 
-  .globl up_testset
-  .type  up_testset, %function
+#ifndef CONFIG_CDCNCM_COMPOSITE
+int cdcncm_initialize(int minor, FAR void **handle);
+#endif
 
-up_testset:
+/****************************************************************************
+ * Name: cdcncm_get_composite_devdesc
+ *
+ * Description:
+ *   Helper function to fill in some constants into the composite
+ *   configuration struct.
+ *
+ * Input Parameters:
+ *     dev - Pointer to the configuration struct we should fill
+ *
+ * Returned Value:
+ *   None
+ *
+ ****************************************************************************/
 
-  li        a1, SP_LOCKED
-  AMOSWAP   a2, a1, (a0)  /* Attempt to acquire spinlock atomically */
-  beq       a2, a1, locked /* Already locked? Go to locked: */
+#ifdef CONFIG_CDCNCM_COMPOSITE
+void cdcncm_get_composite_devdesc(FAR struct composite_devdesc_s *dev);
+#endif
 
-  /* Lock acquired -- return SP_UNLOCKED */
+#undef EXTERN
+#if defined(__cplusplus)
+}
+#endif
 
-  fence                   /* Required before accessing protected resource */
-  li        a0, SP_UNLOCKED
-  jr        ra
-
-  /* Lock not acquired -- return SP_LOCKED */
-
-locked:
-  li        a0, SP_LOCKED
-  jr        ra
-  .size	up_testset, . - up_testset
-  .end
+#endif /* __INCLUDE_NUTTX_USB_CDCNCM_H */

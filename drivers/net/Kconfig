@@ -38,6 +38,14 @@ config NETDEV_WORK_THREAD
 
 endchoice # Netdev poll worker
 
+config NETDEV_WORK_THREAD_POLLING_PERIOD
+	int "Polling period, the units are microseconds"
+	default 0
+	depends on NETDEV_WORK_THREAD
+	---help---
+		Disable the txdone and rxready interrupt and use polling
+		period to receive packets when the value is not 0.
+
 config NETDEV_WORK_THREAD_PRIORITY
 	int "Priority of work poll thread"
 	default 100
@@ -738,5 +746,12 @@ config WIFI_SIM_CONFDIR
 		Provides the full path to location in the file system where WiFi-SIM
 		BSS configuration will be accessed.  This is a string and should not
 		include any trailing '/'.
+
+config WIFI_SIM_NUMBER
+	int "Number of Simulated WiFi Device"
+	default 0
+	depends on DRIVERS_WIFI_SIM
+	---help---
+		The number of simulated wifi network devices.
 
 endif # NETDEVICES

@@ -264,7 +264,16 @@ netdev_upper_alloc(FAR struct netdev_lowerhalf_s *dev)
 
 static inline bool netdev_upper_can_tx(FAR struct netdev_upperhalf_s *upper)
 {
-  return netdev_lower_quota_load(upper->lower, NETPKT_TX) > 0;
+  FAR struct netdev_lowerhalf_s *lower = upper->lower;
+  int quota = netdev_lower_quota_load(lower, NETPKT_TX);
+
+  if (quota <= 0 && lower->ops->reclaim)
+    {
+      lower->ops->reclaim(lower);
+      quota = netdev_lower_quota_load(lower, NETPKT_TX);
+    }
+
+  return quota > 0;
 }
 
 /****************************************************************************
@@ -704,6 +713,27 @@ static void netdev_upper_work(FAR void *arg)
 }
 
 /****************************************************************************
+ * Name: netdev_upper_wait
+ *
+ * Description:
+ *   Wait for timeout or signal.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_NETDEV_WORK_THREAD
+static int netdev_upper_wait(FAR sem_t *sem)
+{
+#if CONFIG_NETDEV_WORK_THREAD_POLLING_PERIOD > 0
+  int ret =
+    nxsem_tickwait(sem, USEC2TICK(CONFIG_NETDEV_WORK_THREAD_POLLING_PERIOD));
+
+  return ret == -ETIMEDOUT ? OK : ret;
+#else
+  return nxsem_wait(sem);
+#endif
+}
+
+/****************************************************************************
  * Name: netdev_upper_loop
  *
  * Description:
@@ -711,13 +741,13 @@ static void netdev_upper_work(FAR void *arg)
  *
  ****************************************************************************/
 
-#ifdef CONFIG_NETDEV_WORK_THREAD
 static int netdev_upper_loop(int argc, FAR char *argv[])
 {
   FAR struct netdev_upperhalf_s *upper =
     (FAR struct netdev_upperhalf_s *)((uintptr_t)strtoul(argv[1], NULL, 16));
 
-  while (nxsem_wait(&upper->sem) == OK && upper->tid != INVALID_PROCESS_ID)
+  while (netdev_upper_wait(&upper->sem) == OK &&
+         upper->tid != INVALID_PROCESS_ID)
     {
       netdev_upper_work(upper);
     }
@@ -1306,7 +1336,9 @@ void netdev_lower_carrier_off(FAR struct netdev_lowerhalf_s *dev)
 
 void netdev_lower_rxready(FAR struct netdev_lowerhalf_s *dev)
 {
+#if CONFIG_NETDEV_WORK_THREAD_POLLING_PERIOD == 0
   netdev_upper_queue_work(&dev->netdev);
+#endif
 }
 
 /****************************************************************************
@@ -1323,7 +1355,9 @@ void netdev_lower_rxready(FAR struct netdev_lowerhalf_s *dev)
 void netdev_lower_txdone(FAR struct netdev_lowerhalf_s *dev)
 {
   NETDEV_TXDONE(&dev->netdev);
+#if CONFIG_NETDEV_WORK_THREAD_POLLING_PERIOD == 0
   netdev_upper_queue_work(&dev->netdev);
+#endif
 }
 
 /****************************************************************************

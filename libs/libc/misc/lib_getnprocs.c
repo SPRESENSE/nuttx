@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm64/src/common/arm64_testset.S
+ * libs/libc/misc/lib_getnprocs.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -23,72 +23,57 @@
  ****************************************************************************/
 
 #include <nuttx/config.h>
-#include <arch/spinlock.h>
-
-#include "arch/syscall.h"
-#include "arm64_macro.inc"
-
-/****************************************************************************
- * Pre-processor Definitions
- ****************************************************************************/
-
-/****************************************************************************
- * Public Symbols
- ****************************************************************************/
-
-    .file    "arm64_testset.S"
+#include <sys/sysinfo.h>
+#include <sys/types.h>
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: up_testset
+ * Name: get_nprocs_conf
  *
  * Description:
- *   Perform an atomic test and set operation on the provided spinlock.
- *
- *   This function must be provided via the architecture-specific logic.
+ *   Retrieve the number of configured processors in the system.
+ *   The get_nprocs_conf() function returns the number of processors (CPUs)
+ *   configured in the system, regardless of whether they are currently
+ *   enabled or available. This function is useful for determining the
+ *   processor configuration in multiprocessor systems.
  *
  * Input Parameters:
- *   lock  - A reference to the spinlock object.
+ *   None
  *
  * Returned Value:
- *   The spinlock is always locked upon return.  The previous value of the
- *   spinlock variable is returned, either SP_LOCKED if the spinlock was
- *   previously locked (meaning that the test-and-set operation failed to
- *   obtain the lock) or SP_UNLOCKED if the spinlock was previously unlocked
- *   (meaning that we successfully obtained the lock).
+ *   On success, the number of configured processors is returned.
+ *   If the system does not define a processor configuration, it returns 1.
  *
  ****************************************************************************/
 
-GTEXT(up_testset)
-SECTION_FUNC(text, up_testset)
+int get_nprocs_conf(void)
+{
+  return CONFIG_SMP_NCPUS;
+}
 
-up_testset:
+/****************************************************************************
+ * Name: get_nprocs
+ *
+ * Description:
+ *   Retrieve the number of online processors in the system.
+ *   The get_nprocs() function returns the number of processors (CPUs) that
+ *   are currently online and available for use in the system. This function
+ *   can be useful for determining the number of processors that can be used
+ *   by applications or the operating system for parallel processing.
+ *
+ * Input Parameters:
+ *   None
+ *
+ * Returned Value:
+ *   On success, the number of online processors is returned.
+ *   If the system does not define a processor configuration, it returns 1.
+ *
+ ****************************************************************************/
 
-    mov      x1, #SP_LOCKED
-
-    /* Test if the spinlock is locked or not */
-
-1:
-    ldaxr    x2, [x0]    /* Test if spinlock is locked or not */
-    cmp      x2, x1        /* Already locked? */
-    beq      2f            /* If already locked, return SP_LOCKED */
-
-    /* Not locked ... attempt to lock it */
-
-    stxr     w2, x1, [x0]    /* Attempt to set the locked state */
-    cbnz     w2, 1b            /* w2 will be 1 is stxr failed */
-
-    /* Lock acquired -- return SP_UNLOCKED */
-
-    mov      x0, #SP_UNLOCKED
-
-    ret
-
-    /* Lock not acquired -- return SP_LOCKED */
-
-2:
-    mov      x0, #SP_LOCKED
-    ret
+int get_nprocs(void)
+{
+  return CONFIG_SMP_NCPUS;
+}

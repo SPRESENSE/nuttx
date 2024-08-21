@@ -379,12 +379,31 @@ static inline irqstate_t up_irq_enable(void)
   __asm__ __volatile__
     (
       "\tmrs    %0, cpsr\n"
-#if defined(CONFIG_ARCH_TRUSTZONE_SECURE) || defined(CONFIG_ARCH_HIPRI_INTERRUPT)
+#if defined(CONFIG_ARCH_HIPRI_INTERRUPT)
+      "\tcpsie  if\n"
+#elif defined(CONFIG_ARCH_TRUSTZONE_SECURE)
       "\tcpsie  f\n"
-#endif
-#ifndef CONFIG_ARCH_TRUSTZONE_SECURE
+#else
       "\tcpsie  i\n"
 #endif
+      : "=r" (cpsr)
+      :
+      : "memory"
+    );
+
+  return cpsr;
+}
+
+/* Disable IRQs and return the previous IRQ state */
+
+static inline irqstate_t up_irq_disable(void)
+{
+  unsigned int cpsr;
+
+  __asm__ __volatile__
+    (
+      "\tmrs    %0, cpsr\n"
+      "\tcpsid  i\n"
       : "=r" (cpsr)
       :
       : "memory"
