@@ -2588,6 +2588,8 @@ static int cxd56_getcaps(struct audio_lowerhalf_s *lower, int type,
 {
   DEBUGASSERT(caps && caps->ac_len >= sizeof(struct audio_caps_s));
 
+  uint16_t *ptr;
+
   /* Fill in the caller's structure based on requested info */
 
   caps->ac_format.hw  = 0;
@@ -2632,8 +2634,8 @@ static int cxd56_getcaps(struct audio_lowerhalf_s *lower, int type,
 
               /* Report supported output sample rates */
 
-              caps->ac_controls.b[0] = CXD56_SUPP_RATES_L;
-              caps->ac_controls.b[1] = CXD56_SUPP_RATES_H;
+              ptr  = (uint16_t *)caps->ac_controls.b;
+              *ptr = CXD56_SUPP_RATES_L;
               break;
 
             default:
@@ -2653,8 +2655,8 @@ static int cxd56_getcaps(struct audio_lowerhalf_s *lower, int type,
 
               /* Report supported input sample rates */
 
-              caps->ac_controls.b[0] = CXD56_SUPP_RATES_L;
-              caps->ac_controls.b[1] = CXD56_SUPP_RATES_H;
+              ptr  = (uint16_t *)caps->ac_controls.b;
+              *ptr = CXD56_SUPP_RATES_L;
               break;
 
             default:

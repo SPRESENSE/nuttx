@@ -31,6 +31,7 @@
 #include <nuttx/net/netdev_lowerhalf.h>
 #include <netpacket/netlink.h>
 #include <nuttx/net/netlink.h>
+#include <sys/time.h>
 
 #include "sim_internal.h"
 
@@ -161,7 +162,7 @@ struct sim_netdev_s
   char bssid[ETH_ALEN];
   uint16_t channel;
   uint32_t freq;
-  uint8_t password[64];
+  char password[64];
   int key_mgmt;
   int proto;
   int auth_alg;
@@ -176,6 +177,7 @@ struct sim_netdev_s
   bool psk_flag;                /* for psk, 0: unset, 1: set */
   char host_ifname[IFNAMSIZ];   /* The wlan interface name on the host */
   uint8_t network_id;           /* for sta, default is 0 */
+  hrtime_t scantime;
 };
 
 /* for wireless event */
@@ -926,6 +928,23 @@ static bool get_wpa_bssid(struct sim_netdev_s *wifidev,
   return false;
 }
 
+static bool get_wpa_rssi(struct sim_netdev_s *wifidev, int32_t *rssi)
+{
+  int ret;
+  char rbuf[BUF_LEN];
+
+  ret = host_system(rbuf, BUF_LEN, "iwconfig wlan%d | grep level "
+                    "| awk '{print $4}'| awk -F'=' '{print $2}'",
+                    wifidev->devidx);
+  if (ret > 0)
+    {
+      *rssi = atoi(rbuf);
+      return true;
+    }
+
+  return false;
+}
+
 static void get_wpa_ssid(struct sim_netdev_s *wifidev,
                          struct iw_point *essid)
 {
@@ -1058,6 +1077,7 @@ static int wifidriver_start_scan(struct sim_netdev_s *wifidev,
 {
   int ret;
   uint8_t  mode = wifidev->mode;
+  hrtime_t curtime;
 
   if (mode == IW_MODE_MASTER)
     {
@@ -1065,6 +1085,13 @@ static int wifidriver_start_scan(struct sim_netdev_s *wifidev,
     }
   else if (mode == IW_MODE_INFRA)
     {
+      curtime = gethrtime();
+      if (wifidev->scantime && wifidev->scantime - curtime >= 5000000000)
+        {
+          return OK;
+        }
+
+      wifidev->scantime = curtime;
       ret = set_cmd(wifidev, "scan");
       if (ret == -EINVAL)
         {
@@ -1092,6 +1119,11 @@ static int wifidriver_scan_result(struct sim_netdev_s *wifidev,
     }
   else if (wifidev->mode == IW_MODE_INFRA)
     {
+      if (wifidev->scantime && wifidev->scantime - gethrtime() < 5000000000)
+        {
+          return -EAGAIN;
+        }
+
       scan_req.buf = pwrq->u.data.pointer;
       scan_req.total_len = pwrq->u.data.length;
       scan_req.cur_len = 0;
@@ -1192,16 +1224,16 @@ static int wifidriver_get_auth(struct sim_netdev_s *wifidev,
 static int wifidriver_set_psk(struct sim_netdev_s *wifidev,
                               struct iwreq *pwrq)
 {
-  char psk_buf[64];
   struct iw_encode_ext *ext;
   int ret = 0;
 
   ext = (struct iw_encode_ext *)pwrq->u.encoding.pointer;
 
-  memset(psk_buf, 0, sizeof(psk_buf));
-  memcpy(psk_buf, ext->key, ext->key_len);
+  memset(wifidev->password, 0, sizeof(wifidev->password));
+  memcpy(wifidev->password, ext->key, ext->key_len);
 
-  ninfo("psk=%s, key_len= %d, alg=%u\n", psk_buf, ext->key_len, ext->alg);
+  ninfo("psk=%s, key_len= %d, alg=%u\n", wifidev->password,
+        ext->key_len, ext->alg);
 
   /* set auth_alg */
 
@@ -1216,11 +1248,13 @@ static int wifidriver_set_psk(struct sim_netdev_s *wifidev,
       return -ENOSYS;
     }
 
+  wifidev->auth_alg = ext->alg;
+
   switch (wifidev->mode)
     {
     case IW_MODE_INFRA:
       WPA_SET_NETWORK(wifidev, "auth_alg %s", get_auth_algstr(ext->alg));
-      WPA_SET_NETWORK(wifidev, "psk \\\"%s\\\"", psk_buf);
+      WPA_SET_NETWORK(wifidev, "psk \\\"%s\\\"", wifidev->password);
       WPA_SET_NETWORK(wifidev, "key_mgmt %s", "WPA-PSK WPA-EAP");
 
       /* Set the psk flag for security ap. */
@@ -1231,8 +1265,44 @@ static int wifidriver_set_psk(struct sim_netdev_s *wifidev,
 
        /* set wpa_passphrase psk_buf */
 
-      ret = set_cmd(wifidev, "set wpa_passphrase %s", psk_buf);
+      ret = set_cmd(wifidev, "set wpa_passphrase %s", wifidev->password);
       wifidev->psk_flag = 1;
+      break;
+    default:
+      break;
+    }
+
+  return ret ;
+}
+
+static int wifidriver_get_psk(struct sim_netdev_s *wifidev,
+                              struct iwreq *pwrq)
+{
+  struct iw_encode_ext *ext;
+  int ret = 0;
+  int len;
+  int size;
+
+  ext = (struct iw_encode_ext *)pwrq->u.encoding.pointer;
+  len = pwrq->u.encoding.length - sizeof(*ext);
+
+  switch (wifidev->mode)
+    {
+    case IW_MODE_INFRA:
+      size = strnlen(wifidev->password, 64);
+      if (len < size)
+        {
+          return -EINVAL;
+        }
+      else
+        {
+          ext->key_len = size;
+          memcpy(ext->key, wifidev->password, ext->key_len);
+          ext->alg = wifidev->auth_alg;
+        }
+      break;
+
+    case IW_MODE_MASTER:
       break;
     default:
       break;
@@ -1494,12 +1564,15 @@ static int wifidriver_set_mode(struct sim_netdev_s *wifidev,
 {
   int ret;
 
-  /* IW_MODE_INFRA indicates station */
-
-  wifidev->mode = pwrq->u.mode;
-  switch (wifidev->mode)
+  switch (pwrq->u.mode)
     {
     case IW_MODE_INFRA:
+      if (wifidev->mode == IW_MODE_INFRA)
+        {
+          return OK;
+        }
+
+      wifidev->mode = pwrq->u.mode;
 
       /* Start the sta config, including wpa_supplicant and udhcpc. */
 
@@ -1513,22 +1586,30 @@ static int wifidriver_set_mode(struct sim_netdev_s *wifidev,
           */
 
           int num;
-          int network_id = 0;
 
           num = wpa_get_network_num(wifidev);
           if (num < 1)
             {
-              network_id = wpa_add_network(wifidev);
+              ret = wpa_add_network(wifidev);
             }
           else
             {
-              network_id = wpa_get_last_network_id(wifidev, num);
+              ret = wpa_get_last_network_id(wifidev, num);
             }
 
-          wifidev->network_id = network_id;
+          if (ret >= 0)
+            {
+              wifidev->network_id = ret;
+            }
         }
       break;
     case IW_MODE_MASTER:
+      if (wifidev->mode == IW_MODE_MASTER)
+        {
+          return OK;
+        }
+
+      wifidev->mode = pwrq->u.mode;
 
       /* Start the hostapd. */
 
@@ -1598,6 +1679,32 @@ static int wifidriver_get_country(struct sim_netdev_s *wifidev,
     {
       nerr("get country FAILED.");
       ret = -ENODATA;
+    }
+
+  return ret;
+}
+
+static int wifidriver_get_sensitivity(struct sim_netdev_s *wifidev,
+                                      struct iwreq *pwrq)
+{
+  int32_t rssi;
+  int ret;
+
+  if (wifidev->mode != IW_MODE_INFRA)
+    {
+      return OK;
+    }
+
+  if (get_wpa_state(wifidev) && get_wpa_rssi(wifidev, &rssi))
+    {
+      pwrq->u.sens.value = -rssi;
+      ret = OK;
+
+      ninfo("get rssi is %"PRId32 "\n", pwrq->u.sens.value);
+    }
+  else
+    {
+      ret = -ENOTTY;
     }
 
   return ret;
@@ -1751,7 +1858,7 @@ static int wifidriver_passwd(struct netdev_lowerhalf_s *dev,
     }
   else
     {
-      return -ENOTTY;
+      return wifidriver_get_psk((struct sim_netdev_s *)dev, iwr);
     }
 }
 
@@ -1830,7 +1937,16 @@ static int wifidriver_country(struct netdev_lowerhalf_s *dev,
 static int wifidriver_sensitivity(struct netdev_lowerhalf_s *dev,
                                   struct iwreq *iwr, bool set)
 {
-  return -ENOTTY;
+  struct sim_netdev_s *wifidev = (struct sim_netdev_s *)dev;
+
+  if (set)
+    {
+      return -ENOTTY;
+    }
+  else
+    {
+      return wifidriver_get_sensitivity(wifidev, iwr);
+    }
 }
 
 static int wifidriver_scan(struct netdev_lowerhalf_s *dev,
