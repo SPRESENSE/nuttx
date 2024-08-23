@@ -161,6 +161,7 @@
 #define AUDIO_FMT_MSBC              0x0e
 #define AUDIO_FMT_CVSD              0x0f
 #define AUDIO_FMT_AMR               0x10
+#define AUDIO_FMT_OPUS              0x11
 
 /* Audio Sub-Format Types ***************************************************/
 
@@ -463,6 +464,7 @@ struct ap_buffer_s
   apb_samp_t            nmaxbytes;  /* The maximum number of bytes */
   apb_samp_t            nbytes;     /* The number of bytes used */
   apb_samp_t            curbyte;    /* Next byte to be processed */
+  apb_samp_t            nsamples;   /* The number of samples in the buffer */
   mutex_t               lock;       /* Reference locking mutex */
   uint16_t              flags;      /* Buffer flags */
   uint16_t              crefs;      /* Number of reference counts */

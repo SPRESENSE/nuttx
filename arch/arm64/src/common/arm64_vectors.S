@@ -56,6 +56,22 @@
 
 .endm
 
+.macro enable_irq
+#ifdef CONFIG_ARM64_DECODEFIQ
+    msr daifclr, #3
+#else
+    msr daifclr, #2
+#endif
+.endm
+
+.macro disable_irq
+#ifdef CONFIG_ARM64_DECODEFIQ
+    msr daifset, #3
+#else
+    msr daifset, #2
+#endif
+.endm
+
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
@@ -132,7 +148,7 @@ SECTION_FUNC(text, arm64_context_switch)
     ldp    x0, x1, [sp], #16
 #endif
 
-    /* Save the current SP_EL0 */
+    /* Save the current SP_ELx */
     add    x4, sp, #8 * XCPTCONTEXT_GP_REGS
     str    x4, [x1, #8 * REG_SP_ELX]
 
@@ -187,18 +203,18 @@ SECTION_FUNC(text, arm64_sync_exc)
     /* checking the EC value to see which exception need to be handle */
 
 #if CONFIG_ARCH_ARM64_EXCEPTION_LEVEL == 3
-    mrs    x0, esr_el3
+    mrs    x9, esr_el3
 #else
-    mrs    x0, esr_el1
+    mrs    x9, esr_el1
 #endif
-    lsr    x1, x0, #26
+    lsr    x10, x9, #26
 
 #ifdef CONFIG_ARCH_FPU
     /* fpu trap */
 
-    cmp    x1, #0x07 /*Access to SIMD or floating-point */
+    cmp    x10, #0x07 /* Access to SIMD or floating-point */
     bne    1f
-    mov    x0, sp
+    mov    x0, sp     /* x0 = context */
     bl     arm64_fpu_trap
 
     /* when the fpu trap is handled */
@@ -208,11 +224,35 @@ SECTION_FUNC(text, arm64_sync_exc)
 #endif
     /* 0x15 = SVC system call */
 
-    cmp    x1, #0x15
+    cmp    x10, #0x15
 
     /* if this is a svc call ?*/
 
     bne    exc_handle
+
+#ifdef CONFIG_LIB_SYSCALL
+    /* Handle user system calls separately */
+
+    cmp    x0, #CONFIG_SYS_RESERVED
+    blt    reserved_syscall
+
+    /* Call dispatch_syscall() on the kernel stack with interrupts enabled */
+
+    enable_irq
+    mov    x7, sp /* x7 = context */
+    bl     dispatch_syscall
+    disable_irq
+
+    /* Save the return value into the user context */
+
+    str    x0, [sp, #8 * REG_X0]
+
+    /* Return from exception */
+
+    b      arm64_exit_exception
+
+reserved_syscall:
+#endif
 
     /* x0 = syscall_cmd
      * if ( x0 <= SYS_switch_context ) {
@@ -248,13 +288,10 @@ SECTION_FUNC(text, arm64_sync_exc)
      */
 
     mov    x0, sp /* x0 = reg frame */
+
     /* Call arm64_syscall() on the user stack */
 
     bl    arm64_syscall        /* Call the handler */
-
-    /* Save the return value into the */
-
-    str    x0, [sp, #8 * REG_X0]
 
     /* Return from exception */
 
