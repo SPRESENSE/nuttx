@@ -1,5 +1,5 @@
 /****************************************************************************
- * libs/libc/sched/sched_dumpstack.c
+ * boards/risc-v/esp32c6/common/include/esp_board_mfrc522.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,81 +18,54 @@
  *
  ****************************************************************************/
 
+#ifndef __BOARDS_RISCV_ESP32C6_COMMON_INCLUDE_ESP_BOARD_MFRC522_H
+#define __BOARDS_RISCV_ESP32C6_COMMON_INCLUDE_ESP_BOARD_MFRC522_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
-#include <nuttx/allsyms.h>
-
-#include <sys/types.h>
-
-#include <stdio.h>
-#include <debug.h>
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
-#define DUMP_DEPTH  16
-#define DUMP_NITEM  8
-#define DUMP_WIDTH  (int)(2 * sizeof(FAR void *) + 2)
-#define DUMP_LINESZ (DUMP_NITEM * (DUMP_WIDTH + 1))
+#ifndef __ASSEMBLY__
+
+#undef EXTERN
+#if defined(__cplusplus)
+#define EXTERN extern "C"
+extern "C"
+{
+#else
+#define EXTERN extern
+#endif
 
 /****************************************************************************
- * Public Functions
+ * Public Function Prototypes
  ****************************************************************************/
 
 /****************************************************************************
- * Name: sched_dumpstack
+ * Name: esp32_board_mfrc522i_initialize
  *
  * Description:
- *  Dump thread backtrace from specified tid.
+ *   Initialize and register the MFRC522 RFID driver.
+ *
+ * Input Parameters:
+ *   devpath - The full path to the driver to register. E.g., "/dev/rfid0"
+ *
+ * Returned Value:
+ *   Zero (OK) on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
-void sched_dumpstack(pid_t tid)
-{
-  int size = DUMP_DEPTH;
-  int skip;
+int board_mfrc522_initialize(const char *devpath);
 
-  for (skip = 0; size == DUMP_DEPTH; skip += size)
-    {
-      FAR void *address[DUMP_DEPTH];
-#ifndef CONFIG_ALLSYMS
-      const char *format = " %0*p";
-      char line[DUMP_LINESZ + 1];
-      int ret = 0;
-#endif
-      int i;
-
-      size = sched_backtrace(tid, address, DUMP_DEPTH, skip);
-      if (size <= 0)
-        {
-          break;
-        }
-
-#ifndef CONFIG_ALLSYMS
-      for (i = 0; i < size; i++)
-        {
-          ret += snprintf(line + ret, sizeof(line) - ret,
-                          format, DUMP_WIDTH, address[i]);
-          if (i == size - 1 || ret % DUMP_LINESZ == 0)
-            {
-              _alert("backtrace|%2d:%s\n", tid, line);
-              ret = 0;
-            }
-        }
-#else
-      if (skip == 0)
-        {
-          _alert("backtrace:\n");
-        }
-
-      for (i = 0; i < size; i++)
-        {
-          _alert("[%2d] [<%p>] %pS\n", tid, address[i], address[i]);
-        }
-#endif
-    }
+#undef EXTERN
+#if defined(__cplusplus)
 }
+#endif
+
+#endif /* __ASSEMBLY__ */
+#endif /* __BOARDS_RISCV_ESP32C6_COMMON_INCLUDE_ESP_BOARD_MFRC522_H */

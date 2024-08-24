@@ -27,6 +27,7 @@
 #include <nuttx/arch.h>
 #include <nuttx/board.h>
 #include <nuttx/coredump.h>
+#include <nuttx/fs/fs.h>
 #include <nuttx/irq.h>
 #include <nuttx/tls.h>
 #include <nuttx/signal.h>
@@ -103,6 +104,8 @@ static FAR const char * const g_ttypenames[4] =
   "Kthread",
   "Invalid"
 };
+
+static bool g_fatal_assert = false;
 
 /****************************************************************************
  * Private Functions
@@ -413,6 +416,18 @@ static void dump_backtrace(FAR struct tcb_s *tcb, FAR void *arg)
 #endif
 
 /****************************************************************************
+ * Name: dump_filelist
+ ****************************************************************************/
+
+#ifdef CONFIG_SCHED_DUMP_ON_EXIT
+static void dump_filelist(FAR struct tcb_s *tcb, FAR void *arg)
+{
+  FAR struct filelist *filelist = &tcb->group->tg_filelist;
+  files_dumplist(filelist);
+}
+#endif
+
+/****************************************************************************
  * Name: dump_tasks
  ****************************************************************************/
 
@@ -493,6 +508,10 @@ static void dump_tasks(void)
 #ifdef CONFIG_SCHED_BACKTRACE
   nxsched_foreach(dump_backtrace, NULL);
 #endif
+
+#ifdef CONFIG_SCHED_DUMP_ON_EXIT
+  nxsched_foreach(dump_filelist, NULL);
+#endif
 }
 
 /****************************************************************************
@@ -515,6 +534,25 @@ static void dump_deadlock(void)
 #else
           _alert("deadlock pid: %d\n", deadlock[i]);
 #endif
+        }
+    }
+}
+#endif
+
+/****************************************************************************
+ * Name: pause_all_cpu
+ ****************************************************************************/
+
+#ifdef CONFIG_SMP
+static void pause_all_cpu(void)
+{
+  int cpu;
+
+  for (cpu = 0; cpu < CONFIG_SMP_NCPUS; cpu++)
+    {
+      if (cpu != this_cpu())
+        {
+          up_cpu_pause(cpu);
         }
     }
 }
@@ -549,6 +587,18 @@ void _assert(FAR const char *filename, int linenum,
 
   flags = enter_critical_section();
 
+  if (g_fatal_assert)
+    {
+      goto reset;
+    }
+
+  if (fatal)
+    {
+#ifdef CONFIG_SMP
+      pause_all_cpu();
+#endif
+    }
+
   /* try to save current context if regs is null */
 
   if (regs == NULL)
@@ -567,7 +617,11 @@ void _assert(FAR const char *filename, int linenum,
     {
       fatal = false;
     }
+  else
 #endif
+    {
+      g_fatal_assert = true;
+    }
 
   notifier_data.rtcb = rtcb;
   notifier_data.regs = regs;
@@ -666,6 +720,7 @@ void _assert(FAR const char *filename, int linenum,
 
       reboot_notifier_call_chain(SYS_HALT, NULL);
 
+reset:
 #if CONFIG_BOARD_RESET_ON_ASSERT >= 1
       board_reset(CONFIG_BOARD_ASSERT_RESET_VALUE);
 #else

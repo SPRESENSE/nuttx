@@ -1,5 +1,5 @@
 /****************************************************************************
- * net/local/local_bind.c
+ * boards/risc-v/esp32c6/common/src/esp_board_mfrc522.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -24,80 +24,69 @@
 
 #include <nuttx/config.h>
 
-#include <sys/socket.h>
-#include <string.h>
-#include <assert.h>
+#include <errno.h>
+#include <debug.h>
 
-#include <nuttx/net/net.h>
+#include <nuttx/board.h>
+#include <nuttx/spi/spi.h>
+#include <nuttx/contactless/mfrc522.h>
 
-#include "local/local.h"
+#include "espressif/esp_spi.h"
+
+#include "esp_board_mfrc522.h"
+
+#if defined(CONFIG_ESPRESSIF_SPI2) && defined(CONFIG_CL_MFRC522)
+
+/****************************************************************************
+ * Pre-processor Definitions
+ ****************************************************************************/
+
+#define MFRC522_SPI_PORTNO 2   /* On SPI2 */
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: psock_local_bind
+ * Name: esp32_board_mfrc522_initialize
  *
  * Description:
- *   This function implements the low-level parts of the standard local
- *   bind()operation.
+ *   Initialize and register the MFRC522 RFID driver.
+ *
+ * Input Parameters:
+ *   devpath - The full path to the driver to register. E.g., "/dev/rfid0"
+ *
+ * Returned Value:
+ *   Zero (OK) on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
-int psock_local_bind(FAR struct socket *psock,
-                     FAR const struct sockaddr *addr, socklen_t addrlen)
+int board_mfrc522_initialize(const char *devpath)
 {
-  FAR struct local_conn_s *conn = psock->s_conn;
-  FAR const struct sockaddr_un *unaddr =
-    (FAR const struct sockaddr_un *)addr;
-  int index;
+  struct spi_dev_s *spi;
+  int ret;
 
-  DEBUGASSERT(unaddr->sun_family == AF_LOCAL);
+  syslog(LOG_INFO, "Initializing %s...\n", devpath);
 
-  if (addrlen <= sizeof(sa_family_t) + 1)
+  /* Initialize SPI device */
+
+  spi = esp_spibus_initialize(MFRC522_SPI_PORTNO);
+  if (spi == NULL)
     {
-      return -EINVAL;
+      syslog(LOG_ERR, "Failed to initialize %s.\n", devpath);
+      return -ENODEV;
     }
 
-  conn = psock->s_conn;
+  /* Then register the MFRC522 */
 
-  /* Check if local address is already in use */
-
-  net_lock();
-  if (local_findconn(conn, unaddr) != NULL)
+  ret = mfrc522_register(devpath, spi);
+  if (ret < 0)
     {
-      net_unlock();
-      return -EADDRINUSE;
+      syslog(LOG_ERR, "Failed to register %s: %d\n", devpath, ret);
+      esp_spibus_uninitialize(spi);
     }
 
-  net_unlock();
-
-  /* Save the address family */
-
-  conn->lc_instance_id = -1;
-
-  /* Now determine the type of the Unix domain socket by comparing the size
-   * of the address description.
-   */
-
-  if (unaddr->sun_path[0] == '\0')
-    {
-      /* Zero-length sun_path... This is an abstract Unix domain socket */
-
-      conn->lc_type = LOCAL_TYPE_ABSTRACT;
-      index = 1;
-    }
-  else
-    {
-      /* This is an normal, pathname Unix domain socket */
-
-      conn->lc_type = LOCAL_TYPE_PATHNAME;
-      index = 0;
-    }
-
-  strlcpy(conn->lc_path, &unaddr->sun_path[index], sizeof(conn->lc_path));
-
-  conn->lc_state = LOCAL_STATE_BOUND;
-  return OK;
+  return ret;
 }
+
+#endif /* CONFIG_SPI && CONFIG_MFRC522 */

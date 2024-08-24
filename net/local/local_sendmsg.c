@@ -210,8 +210,7 @@ static ssize_t local_send(FAR struct socket *psock,
               return ret;
             }
 
-          ret = local_send_packet(&conn->lc_outfile, buf, len,
-                                  psock->s_type == SOCK_DGRAM);
+          ret = local_send_packet(&conn->lc_outfile, buf, len);
           nxmutex_unlock(&conn->lc_sendlock);
         }
         break;
@@ -262,7 +261,7 @@ static ssize_t local_sendto(FAR struct socket *psock,
 {
 #ifdef CONFIG_NET_LOCAL_DGRAM
   FAR struct local_conn_s *conn = psock->s_conn;
-  FAR struct sockaddr_un *unaddr = (FAR struct sockaddr_un *)to;
+  FAR const struct sockaddr_un *unaddr = (FAR const struct sockaddr_un *)to;
   ssize_t ret;
 
   /* Verify that a valid address has been provided */
@@ -272,6 +271,17 @@ static ssize_t local_sendto(FAR struct socket *psock,
       nerr("ERROR: Unrecognized address family: %d\n",
            to->sa_family);
       return -EAFNOSUPPORT;
+    }
+
+  /* At present, only standard pathname type address are support */
+
+  if (tolen < sizeof(sa_family_t) + 2)
+    {
+      /* EFAULT
+       * - An invalid user space address was specified for a parameter
+       */
+
+      return -EFAULT;
     }
 
   /* If this is a connected socket, then return EISCONN */
@@ -296,20 +306,30 @@ static ssize_t local_sendto(FAR struct socket *psock,
       return -EISCONN;
     }
 
+  net_lock();
+  if (local_findconn(conn, unaddr) == NULL)
+    {
+      net_unlock();
+      nerr("ERROR: No such file or directory\n");
+      return -ENOENT;
+    }
+
+  net_unlock();
+
+  /* Make sure that dgram is sent safely */
+
+  ret = nxmutex_lock(&conn->lc_sendlock);
+  if (ret < 0)
+    {
+      /* May fail because the task was canceled. */
+
+      nerr("ERROR: Failed to get localsocket sendlock: %zd\n", ret);
+      return ret;
+    }
+
   /* The outgoing FIFO should not be open */
 
   DEBUGASSERT(conn->lc_outfile.f_inode == NULL);
-
-  /* At present, only standard pathname type address are support */
-
-  if (tolen < sizeof(sa_family_t) + 2)
-    {
-      /* EFAULT
-       * - An invalid user space address was specified for a parameter
-       */
-
-      return -EFAULT;
-    }
 
   /* Make sure that half duplex FIFO has been created.
    * REVISIT:  Or should be just make sure that it already exists?
@@ -319,8 +339,8 @@ static ssize_t local_sendto(FAR struct socket *psock,
   if (ret < 0)
     {
       nerr("ERROR: Failed to create FIFO for %s: %zd\n",
-           conn->lc_path, ret);
-      return ret;
+           unaddr->sun_path, ret);
+      goto errout_with_lock;
     }
 
   /* Open the sending side of the transfer */
@@ -336,25 +356,23 @@ static ssize_t local_sendto(FAR struct socket *psock,
       goto errout_with_halfduplex;
     }
 
-  /* Make sure that dgram is sent safely */
+  /* Send the preamble */
 
-  ret = nxmutex_lock(&conn->lc_sendlock);
+  ret = local_send_preamble(conn, &conn->lc_outfile, buf, len);
   if (ret < 0)
     {
-      /* May fail because the task was canceled. */
-
+      nerr("ERROR: Failed to send the preamble: %zd\n", ret);
       goto errout_with_sender;
     }
 
   /* Send the packet */
 
-  ret = local_send_packet(&conn->lc_outfile, buf, len, true);
+  ret = local_send_packet(&conn->lc_outfile, buf, len);
   if (ret < 0)
     {
       nerr("ERROR: Failed to send the packet: %zd\n", ret);
+      goto errout_with_sender;
     }
-
-  nxmutex_unlock(&conn->lc_sendlock);
 
 errout_with_sender:
 
@@ -368,6 +386,12 @@ errout_with_halfduplex:
   /* Release our reference to the half duplex FIFO */
 
   local_release_halfduplex(conn);
+
+errout_with_lock:
+
+  /* Release localsocket sendlock */
+
+  nxmutex_unlock(&conn->lc_sendlock);
   return ret;
 #else
   return -EISCONN;

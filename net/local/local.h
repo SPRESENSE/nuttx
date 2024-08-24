@@ -122,9 +122,6 @@ struct local_conn_s
   char lc_path[UNIX_PATH_MAX];   /* Path assigned by bind() */
   int32_t lc_instance_id;        /* Connection instance ID for stream
                                   * server<->client connection pair */
-#ifdef CONFIG_NET_LOCAL_DGRAM
-  uint16_t pktlen;                 /* Read-ahead packet length */
-#endif /* CONFIG_NET_LOCAL_DGRAM */
 
   FAR struct local_conn_s *
                         lc_peer; /* Peer connection instance */
@@ -282,6 +279,21 @@ void local_subref(FAR struct local_conn_s *conn);
 FAR struct local_conn_s *local_nextconn(FAR struct local_conn_s *conn);
 
 /****************************************************************************
+ * Name: local_findconn
+ *
+ * Description:
+ *   Traverse the connections list to find the server
+ *
+ * Assumptions:
+ *   This function must be called with the network locked.
+ *
+ ****************************************************************************/
+
+FAR struct local_conn_s *
+local_findconn(FAR const struct local_conn_s *conn,
+               FAR const struct sockaddr_un *unaddr);
+
+/****************************************************************************
  * Name: local_peerconn
  *
  * Description:
@@ -423,6 +435,30 @@ ssize_t local_sendmsg(FAR struct socket *psock, FAR struct msghdr *msg,
                       int flags);
 
 /****************************************************************************
+ * Name: local_send_preamble
+ *
+ * Description:
+ *   Send a packet on the write-only FIFO.
+ *
+ * Input Parameters:
+ * conn      A reference to local connection structure
+ * filep     File structure of write-only FIFO.
+ * buf       Data to send
+ * len       Length of data to send
+ * preamble  preamble Flag to indicate the preamble sync header assembly
+ *
+ * Returned Value:
+ *   Packet length is returned on success; a negated errno value is returned
+ *   on any failure.
+ *
+ ****************************************************************************/
+
+int local_send_preamble(FAR struct local_conn_s *conn,
+                        FAR struct file *filep,
+                        FAR const struct iovec *buf,
+                        size_t len);
+
+/****************************************************************************
  * Name: local_send_packet
  *
  * Description:
@@ -432,7 +468,6 @@ ssize_t local_sendmsg(FAR struct socket *psock, FAR struct msghdr *msg,
  *   filep    File structure of write-only FIFO.
  *   buf      Data to send
  *   len      Length of data to send
- *   preamble Flag to indicate the preamble sync header assembly
  *
  * Returned Value:
  *   Zero is returned on success; a negated errno value is returned on any
@@ -441,7 +476,7 @@ ssize_t local_sendmsg(FAR struct socket *psock, FAR struct msghdr *msg,
  ****************************************************************************/
 
 int local_send_packet(FAR struct file *filep, FAR const struct iovec *buf,
-                      size_t len, bool preamble);
+                      size_t len);
 
 /****************************************************************************
  * Name: local_recvmsg
@@ -514,23 +549,6 @@ int local_fifo_read(FAR struct file *filep, FAR uint8_t *buf,
 
 int local_getaddr(FAR struct local_conn_s *conn, FAR struct sockaddr *addr,
                   FAR socklen_t *addrlen);
-
-/****************************************************************************
- * Name: local_sync
- *
- * Description:
- *   Read a sync bytes until the start of the packet is found.
- *
- * Input Parameters:
- *   filep - File structure of write-only FIFO.
- *
- * Returned Value:
- *   The non-zero size of the following packet is returned on success; a
- *   negated errno value is returned on any failure.
- *
- ****************************************************************************/
-
-int local_sync(FAR struct file *filep);
 
 /****************************************************************************
  * Name: local_create_fifos
