@@ -1818,7 +1818,9 @@ static int cdcacm_setup(FAR struct usbdevclass_driver_s *driver,
                  * with the setup command.
                  */
 
-                if (dataout && len <= SIZEOF_CDC_LINECODING) /* REVISIT */
+                /* REVISIT */
+
+                if (dataout && len <= SIZEOF_CDC_LINECODING)
                   {
                     memcpy(&priv->linecoding,
                            dataout, SIZEOF_CDC_LINECODING);
@@ -2956,7 +2958,7 @@ int cdcacm_classobject(int minor, FAR struct usbdev_devinfo_s *devinfo,
 
   /* Register the CDC/ACM TTY device */
 
-  snprintf(devname, CDCACM_DEVNAME_SIZE, CDCACM_DEVNAME_FORMAT, minor);
+  snprintf(devname, sizeof(devname), CDCACM_DEVNAME_FORMAT, minor);
   ret = uart_register(devname, &priv->serdev);
   if (ret < 0)
     {
@@ -3087,7 +3089,7 @@ void cdcacm_uninitialize(FAR struct usbdevclass_driver_s *classdev)
 
   /* Un-register the CDC/ACM TTY device */
 
-  snprintf(devname, CDCACM_DEVNAME_SIZE, CDCACM_DEVNAME_FORMAT, priv->minor);
+  snprintf(devname, sizeof(devname), CDCACM_DEVNAME_FORMAT, priv->minor);
   ret = unregister_driver(devname);
   if (ret < 0)
     {

@@ -495,11 +495,11 @@ struct audio_msg_s
 #ifdef CONFIG_AUDIO_BUILTIN_SOUNDS
 struct audio_sound_s
 {
-  const char         *name;         /* Name of the sound */
+  FAR const char     *name;         /* Name of the sound */
   uint32_t            id;           /* ID of the sound */
   uint32_t            type;         /* Type of sound */
   uint32_t            size;         /* Number of bytes in the sound */
-  const uint8_t      *data;         /* Pointer to the data */
+  FAR const uint8_t  *data;         /* Pointer to the data */
 };
 
 #endif
@@ -526,10 +526,12 @@ struct audio_buf_desc_s
 
 #ifdef CONFIG_AUDIO_MULTI_SESSION
 typedef CODE void (*audio_callback_t)(FAR void *priv, uint16_t reason,
-        FAR struct ap_buffer_s *apb, uint16_t status, FAR void *session);
+                                      FAR struct ap_buffer_s *apb,
+                                      uint16_t status, FAR void *session);
 #else
 typedef CODE void (*audio_callback_t)(FAR void *priv, uint16_t reason,
-        FAR struct ap_buffer_s *apb, uint16_t status);
+                                      FAR struct ap_buffer_s *apb,
+                                      uint16_t status);
 #endif
 
 /* This structure is a set a callback functions used to call from the upper-
@@ -554,7 +556,7 @@ struct audio_ops_s
    */
 
   CODE int (*getcaps)(FAR struct audio_lowerhalf_s *dev, int type,
-      FAR struct audio_caps_s *caps);
+                      FAR struct audio_caps_s *caps);
 
   /* This method is called to bind the lower-level driver to the upper-level
    * driver and to configure the driver for a specific mode of
@@ -566,10 +568,11 @@ struct audio_ops_s
 
 #ifdef CONFIG_AUDIO_MULTI_SESSION
   CODE int (*configure)(FAR struct audio_lowerhalf_s *dev,
-      FAR void *session, FAR const struct audio_caps_s *caps);
+                        FAR void *session,
+                        FAR const struct audio_caps_s *caps);
 #else
   CODE int (*configure)(FAR struct audio_lowerhalf_s *dev,
-      FAR const struct audio_caps_s *caps);
+                        FAR const struct audio_caps_s *caps);
 #endif
 
   /* This method is called when the driver is closed.  The lower half driver
@@ -637,7 +640,7 @@ struct audio_ops_s
    */
 
   CODE int (*allocbuffer)(FAR struct audio_lowerhalf_s *dev,
-          FAR struct audio_buf_desc_s *apb);
+                          FAR struct audio_buf_desc_s *apb);
 
   /* Free an audio pipeline buffer.  If the lower-level driver
    * provides an allocbuffer routine, it should also provide the
@@ -645,7 +648,7 @@ struct audio_ops_s
    */
 
   CODE int (*freebuffer)(FAR struct audio_lowerhalf_s *dev,
-         FAR struct audio_buf_desc_s *apb);
+                         FAR struct audio_buf_desc_s *apb);
 
   /* Enqueue a buffer for processing.
    * This is a non-blocking enqueue operation.
@@ -662,12 +665,12 @@ struct audio_ops_s
    */
 
   CODE int (*enqueuebuffer)(FAR struct audio_lowerhalf_s *dev,
-          FAR struct ap_buffer_s *apb);
+                            FAR struct ap_buffer_s *apb);
 
   /* Cancel a previously enqueued buffer. */
 
   CODE int (*cancelbuffer)(FAR struct audio_lowerhalf_s *dev,
-          FAR struct ap_buffer_s *apb);
+                           FAR struct ap_buffer_s *apb);
 
   /* Lower-half logic may support platform-specific ioctl commands */
 
@@ -732,7 +735,7 @@ struct audio_lowerhalf_s
    * buffer, reporting asynchronous event, reporting errors, etc.
    */
 
-  FAR audio_callback_t  upper;
+  audio_callback_t upper;
 
   /* The private opaque pointer to be passed to upper-layer during
    * callbacks
