@@ -1463,3 +1463,29 @@ void mm_free_delaylist(FAR struct mm_heap_s *heap)
        free_delaylist(heap, true);
     }
 }
+
+/****************************************************************************
+ * Name: mm_heapfree
+ *
+ * Description:
+ *   Return the total free size (in bytes) in the heap
+ *
+ ****************************************************************************/
+
+size_t mm_heapfree(FAR struct mm_heap_s *heap)
+{
+  return heap->mm_heapsize - heap->mm_curused;
+}
+
+/****************************************************************************
+ * Name: mm_heapfree_largest
+ *
+ * Description:
+ *   Return the largest chunk of contiguous memory in the heap
+ *
+ ****************************************************************************/
+
+size_t mm_heapfree_largest(FAR struct mm_heap_s *heap)
+{
+  return SIZE_MAX;
+}
