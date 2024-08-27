@@ -70,10 +70,18 @@
 #include <crypto/cryptodev.h>
 #include <crypto/xform.h>
 #include <crypto/gmac.h>
+#include <crypto/cmac.h>
 #include <crypto/chachapoly.h>
 #include <crypto/poly1305.h>
+#include <nuttx/crc32.h>
 
 #include "des_locl.h"
+
+/****************************************************************************
+ * Pre-processor Definitions
+ ****************************************************************************/
+
+#define CRC32_XOR_VALUE 0xFFFFFFFFUL
 
 /****************************************************************************
  * Public Functions
@@ -129,6 +137,9 @@ int sha224update_int(FAR void *, FAR const uint8_t *, size_t);
 int sha256update_int(FAR void *, FAR const uint8_t *, size_t);
 int sha384update_int(FAR void *, FAR const uint8_t *, size_t);
 int sha512update_int(FAR void *, FAR const uint8_t *, size_t);
+void crc32setkey(FAR void *, FAR const uint8_t *, uint16_t);
+int crc32update(FAR void *, FAR const uint8_t *, size_t);
+void crc32final(FAR uint8_t *, FAR void *);
 
 struct aes_ctr_ctx
 {
@@ -227,6 +238,16 @@ const struct enc_xform enc_xform_aes_gmac =
   NULL,
   NULL,
   NULL,
+  NULL
+};
+
+const struct enc_xform enc_xform_aes_cmac =
+{
+  CRYPTO_AES_CMAC, "AES-CMAC",
+  1, 0, 16, 32, 0,
+  null_encrypt,
+  null_decrypt,
+  null_setkey,
   NULL
 };
 
@@ -385,6 +406,16 @@ const struct auth_hash auth_hash_chacha20_poly1305 =
   chacha20_poly1305_final
 };
 
+const struct auth_hash auth_hash_cmac_aes_128 =
+{
+  CRYPTO_AES_128_CMAC, "CMAC-AES-128",
+  16, AES_CMAC_KEY_LENGTH, AES_CMAC_DIGEST_LENGTH, sizeof(AES_CMAC_CTX),
+  AESCTR_BLOCKSIZE, (void (*)(FAR void *)) aes_cmac_init,
+  (void (*)(FAR void *, FAR const uint8_t *, uint16_t)) aes_cmac_setkey,
+  NULL, (int (*)(FAR void *, FAR const uint8_t *, size_t)) aes_cmac_update,
+  (void (*) (FAR uint8_t *, FAR void *)) aes_cmac_final
+};
+
 const struct auth_hash auth_hash_md5 =
 {
   CRYPTO_MD5, "MD5",
@@ -455,6 +486,13 @@ const struct auth_hash auth_hash_sha2_512 =
   (void (*)(FAR void *)) sha512init, NULL, NULL,
   sha512update_int,
   (void (*)(FAR uint8_t *, FAR void *)) sha512final
+};
+
+const struct auth_hash auth_hash_crc32 =
+{
+  CRYPTO_CRC32, "CRC32",
+  0, 32, 0, sizeof(uint32_t), 1,
+  null_init, crc32setkey, NULL, crc32update, crc32final
 };
 
 /* Encryption wrapper routines. */
@@ -878,4 +916,25 @@ int sha512update_int(FAR void *ctx, FAR const uint8_t *buf, size_t len)
 {
   sha512update(ctx, buf, len);
   return 0;
+}
+
+void crc32setkey(FAR void *ctx, FAR const uint8_t *key, uint16_t len)
+{
+  FAR uint32_t *val = (FAR uint32_t *)key;
+  uint32_t tmp = (*val) ^ CRC32_XOR_VALUE;
+  memcpy(ctx, &tmp, len);
+}
+
+int crc32update(FAR void *ctx, FAR const uint8_t *buf, size_t len)
+{
+  FAR uint32_t *startval = (FAR uint32_t *)ctx;
+  *startval = crc32part(buf, len, *startval);
+  return 0;
+}
+
+void crc32final(FAR uint8_t *digest, FAR void *ctx)
+{
+  FAR uint32_t *val = (FAR uint32_t *)ctx;
+  uint32_t result = (*val) ^ CRC32_XOR_VALUE;
+  memcpy(digest, &result, sizeof(uint32_t));
 }
