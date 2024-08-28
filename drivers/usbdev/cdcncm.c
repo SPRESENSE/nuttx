@@ -37,6 +37,7 @@
 #include <sys/poll.h>
 
 #include <nuttx/net/netdev_lowerhalf.h>
+#include <nuttx/usb/usbdev.h>
 #include <nuttx/usb/cdc.h>
 #include <nuttx/usb/cdcncm.h>
 #include <nuttx/usb/usbdev_trace.h>
@@ -424,9 +425,9 @@ static void cdcncm_rdcomplete(FAR struct usbdev_ep_s *ep,
 static void cdcncm_wrcomplete(FAR struct usbdev_ep_s *ep,
                               FAR struct usbdev_req_s *req);
 
-static void cdcncm_mkepdesc(int epidx, FAR struct usb_epdesc_s *epdesc,
-                            FAR struct usbdev_devinfo_s *devinfo,
-                            bool hispeed);
+static int cdcncm_mkepdesc(int epidx, FAR struct usb_epdesc_s *epdesc,
+                           FAR struct usbdev_devinfo_s *devinfo,
+                           uint8_t speed);
 
 /****************************************************************************
  * Private Data
@@ -579,7 +580,7 @@ static const struct netdev_ops_s g_netops =
 
 static inline uint32_t cdcncm_get(FAR uint8_t **address, size_t size)
 {
-  uint32_t value;
+  uint32_t value = 0;
 
   switch (size)
   {
@@ -1580,8 +1581,7 @@ static void cdcncm_resetconfig(FAR struct cdcncm_driver_s *self)
 
 static int cdcncm_setconfig(FAR struct cdcncm_driver_s *self, uint8_t config)
 {
-  struct usb_epdesc_s epdesc;
-  bool is_high_speed = self->usbdev.speed == USB_SPEED_HIGH;
+  struct usb_ss_epdesc_s epdesc;
   int ret;
 
   if (config == self->config)
@@ -1601,8 +1601,9 @@ static int cdcncm_setconfig(FAR struct cdcncm_driver_s *self, uint8_t config)
       return -EINVAL;
     }
 
-  cdcncm_mkepdesc(CDCNCM_EP_INTIN_IDX, &epdesc, &self->devinfo, false);
-  ret = EP_CONFIGURE(self->epint, &epdesc, false);
+  cdcncm_mkepdesc(CDCNCM_EP_INTIN_IDX,
+                  &epdesc.epdesc, &self->devinfo, self->usbdev.speed);
+  ret = EP_CONFIGURE(self->epint, &epdesc.epdesc, false);
 
   if (ret < 0)
     {
@@ -1611,8 +1612,8 @@ static int cdcncm_setconfig(FAR struct cdcncm_driver_s *self, uint8_t config)
 
   self->epint->priv = self;
   cdcncm_mkepdesc(CDCNCM_EP_BULKIN_IDX,
-                  &epdesc, &self->devinfo, is_high_speed);
-  ret = EP_CONFIGURE(self->epbulkin, &epdesc, false);
+                  &epdesc.epdesc, &self->devinfo, self->usbdev.speed);
+  ret = EP_CONFIGURE(self->epbulkin, &epdesc.epdesc, false);
 
   if (ret < 0)
     {
@@ -1622,8 +1623,8 @@ static int cdcncm_setconfig(FAR struct cdcncm_driver_s *self, uint8_t config)
   self->epbulkin->priv = self;
 
   cdcncm_mkepdesc(CDCNCM_EP_BULKOUT_IDX,
-                  &epdesc, &self->devinfo, is_high_speed);
-  ret = EP_CONFIGURE(self->epbulkout, &epdesc, true);
+                  &epdesc.epdesc, &self->devinfo, self->usbdev.speed);
+  ret = EP_CONFIGURE(self->epbulkout, &epdesc.epdesc, true);
 
   if (ret < 0)
     {
@@ -1901,6 +1902,104 @@ static int cdcmbim_mkstrdesc(uint8_t id, FAR struct usb_strdesc_s *strdesc)
 #endif
 
 /****************************************************************************
+ * Name: cdcecm_mkepcompdesc
+ *
+ * Description:
+ *   Construct the endpoint companion descriptor
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_USBDEV_SUPERSPEED
+static void cdcncm_mkepcompdesc(int epidx,
+                                FAR struct usb_ss_epcompdesc_s *epcompdesc)
+{
+    switch (epidx)
+    {
+    case CDCNCM_EP_INTIN_IDX: /* Interrupt IN endpoint */
+      {
+        epcompdesc->len  = USB_SIZEOF_SS_EPCOMPDESC;                      /* Descriptor length */
+        epcompdesc->type = USB_DESC_TYPE_ENDPOINT_COMPANION;              /* Descriptor type */
+
+        if (CONFIG_CDCNCM_EPINTIN_MAXBURST >= USB_SS_INT_EP_MAXBURST)
+          {
+            epcompdesc->mxburst = USB_SS_INT_EP_MAXBURST - 1;
+          }
+        else
+          {
+            epcompdesc->mxburst = CONFIG_CDCNCM_EPINTIN_MAXBURST;
+          }
+
+        epcompdesc->attr      = 0;
+        epcompdesc->wbytes[0] = LSBYTE((epcompdesc->mxburst + 1) *
+                                       CONFIG_CDCNCM_EPINTIN_SSSIZE);
+        epcompdesc->wbytes[1] = MSBYTE((epcompdesc->mxburst + 1) *
+                                       CONFIG_CDCNCM_EPINTIN_SSSIZE);
+      }
+      break;
+
+    case CDCNCM_EP_BULKOUT_IDX:
+      {
+        epcompdesc->len  = USB_SIZEOF_SS_EPCOMPDESC;                      /* Descriptor length */
+        epcompdesc->type = USB_DESC_TYPE_ENDPOINT_COMPANION;              /* Descriptor type */
+
+        if (CONFIG_CDCNCM_EPBULKOUT_MAXBURST >= USB_SS_BULK_EP_MAXBURST)
+          {
+            epcompdesc->mxburst = USB_SS_BULK_EP_MAXBURST - 1;
+          }
+        else
+          {
+            epcompdesc->mxburst = CONFIG_CDCNCM_EPBULKOUT_MAXBURST;
+          }
+
+        if (CONFIG_CDCNCM_EPBULKOUT_MAXSTREAM > USB_SS_BULK_EP_MAXSTREAM)
+          {
+            epcompdesc->attr = USB_SS_BULK_EP_MAXSTREAM;
+          }
+        else
+          {
+            epcompdesc->attr = CONFIG_CDCNCM_EPBULKOUT_MAXSTREAM;
+          }
+
+        epcompdesc->wbytes[0] = 0;
+        epcompdesc->wbytes[1] = 0;
+      }
+      break;
+
+    case CDCNCM_EP_BULKIN_IDX:
+      {
+        epcompdesc->len  = USB_SIZEOF_SS_EPCOMPDESC;                      /* Descriptor length */
+        epcompdesc->type = USB_DESC_TYPE_ENDPOINT_COMPANION;              /* Descriptor type */
+
+        if (CONFIG_CDCNCM_EPBULKIN_MAXBURST >= USB_SS_BULK_EP_MAXBURST)
+          {
+            epcompdesc->mxburst = USB_SS_BULK_EP_MAXBURST - 1;
+          }
+        else
+          {
+            epcompdesc->mxburst = CONFIG_CDCNCM_EPBULKIN_MAXBURST;
+          }
+
+        if (CONFIG_CDCNCM_EPBULKIN_MAXSTREAM > USB_SS_BULK_EP_MAXSTREAM)
+          {
+            epcompdesc->attr = USB_SS_BULK_EP_MAXSTREAM;
+          }
+        else
+          {
+            epcompdesc->attr = CONFIG_CDCNCM_EPBULKIN_MAXSTREAM;
+          }
+
+        epcompdesc->wbytes[0] = 0;
+        epcompdesc->wbytes[1] = 0;
+      }
+      break;
+
+    default:
+      break;
+    }
+}
+#endif
+
+/****************************************************************************
  * Name: cdcncm_mkepdesc
  *
  * Description:
@@ -1908,24 +2007,44 @@ static int cdcmbim_mkstrdesc(uint8_t id, FAR struct usb_strdesc_s *strdesc)
  *
  ****************************************************************************/
 
-static void cdcncm_mkepdesc(int epidx, FAR struct usb_epdesc_s *epdesc,
-                            FAR struct usbdev_devinfo_s *devinfo,
-                            bool hispeed)
+static int cdcncm_mkepdesc(int epidx, FAR struct usb_epdesc_s *epdesc,
+                           FAR struct usbdev_devinfo_s *devinfo,
+                           uint8_t speed)
 {
   uint16_t intin_mxpktsz   = CONFIG_CDCNCM_EPINTIN_FSSIZE;
   uint16_t bulkout_mxpktsz = CONFIG_CDCNCM_EPBULKOUT_FSSIZE;
   uint16_t bulkin_mxpktsz  = CONFIG_CDCNCM_EPBULKIN_FSSIZE;
+  int len = sizeof(struct usb_epdesc_s);
 
-#ifdef CONFIG_USBDEV_DUALSPEED
-  if (hispeed)
+#ifdef CONFIG_USBDEV_SUPERSPEED
+  if (speed == USB_SPEED_SUPER || speed == USB_SPEED_SUPER_PLUS)
     {
+      /* Maximum packet size (super speed) */
+
+      intin_mxpktsz   = CONFIG_CDCNCM_EPINTIN_SSSIZE;
+      bulkout_mxpktsz = CONFIG_CDCNCM_EPBULKOUT_SSSIZE;
+      bulkin_mxpktsz  = CONFIG_CDCNCM_EPBULKIN_SSSIZE;
+      len += sizeof(struct usb_ss_epcompdesc_s);
+    }
+  else
+#endif
+#ifdef CONFIG_USBDEV_DUALSPEED
+  if (speed == USB_SPEED_HIGH)
+    {
+      /* Maximum packet size (high speed) */
+
       intin_mxpktsz   = CONFIG_CDCNCM_EPINTIN_HSSIZE;
       bulkout_mxpktsz = CONFIG_CDCNCM_EPBULKOUT_HSSIZE;
       bulkin_mxpktsz  = CONFIG_CDCNCM_EPBULKIN_HSSIZE;
     }
 #else
-  UNUSED(hispeed);
+  UNUSED(speed);
 #endif
+
+  if (epdesc == NULL)
+    {
+      return len;
+    }
 
   epdesc->len  = USB_SIZEOF_EPDESC;      /* Descriptor length */
   epdesc->type = USB_DESC_TYPE_ENDPOINT; /* Descriptor type */
@@ -1968,6 +2087,16 @@ static void cdcncm_mkepdesc(int epidx, FAR struct usb_epdesc_s *epdesc,
       default:
         DEBUGPANIC();
     }
+
+#ifdef CONFIG_USBDEV_SUPERSPEED
+  if (speed == USB_SPEED_SUPER || speed == USB_SPEED_SUPER_PLUS)
+    {
+      epdesc++;
+      cdcncm_mkepcompdesc(epidx, (FAR struct usb_ss_epcompdesc_s *)epdesc);
+    }
+#endif
+
+  return len;
 }
 
 /****************************************************************************
@@ -1978,37 +2107,27 @@ static void cdcncm_mkepdesc(int epidx, FAR struct usb_epdesc_s *epdesc,
  *
  ****************************************************************************/
 
-#ifdef CONFIG_USBDEV_DUALSPEED
 static int16_t cdcnm_mkcfgdesc(FAR uint8_t *desc,
                                FAR struct usbdev_devinfo_s *devinfo,
                                uint8_t speed, uint8_t type, bool isncm)
-#else
-static int16_t cdcnm_mkcfgdesc(FAR uint8_t *desc,
-                               FAR struct usbdev_devinfo_s *devinfo,
-                               bool isncm)
-#endif
 {
   FAR struct usb_cfgdesc_s *cfgdesc = NULL;
   int16_t len = 0;
-  bool is_high_speed = false;
-
-#ifdef CONFIG_USBDEV_DUALSPEED
-  is_high_speed = (speed == USB_SPEED_HIGH);
+  int ret;
 
   /* Check for switches between high and full speed */
 
-  if (type == USB_DESC_TYPE_OTHERSPEEDCONFIG)
+  if (type == USB_DESC_TYPE_OTHERSPEEDCONFIG && speed < USB_SPEED_SUPER)
     {
-      is_high_speed = !is_high_speed;
+      speed = speed == USB_SPEED_HIGH ? USB_SPEED_FULL : USB_SPEED_HIGH;
     }
-#endif
 
 #ifndef CONFIG_CDCNCM_COMPOSITE
   if (desc)
     {
       cfgdesc = (FAR struct usb_cfgdesc_s *)desc;
       cfgdesc->len         = USB_SIZEOF_CFGDESC;
-      cfgdesc->type        = USB_DESC_TYPE_CONFIG;
+      cfgdesc->type        = type;
       cfgdesc->ninterfaces = CDCECM_NINTERFACES;
       cfgdesc->cfgvalue    = CDCECM_CONFIGID;
       cfgdesc->icfg        = devinfo->strbase + CDCECM_CONFIGSTRID;
@@ -2167,15 +2286,15 @@ static int16_t cdcnm_mkcfgdesc(FAR uint8_t *desc,
       len += SIZEOF_MBIM_FUNCDESC;
     }
 
+  ret = cdcncm_mkepdesc(CDCNCM_EP_INTIN_IDX,
+                        (FAR struct usb_epdesc_s *)desc,
+                        devinfo, speed);
   if (desc)
     {
-      FAR struct usb_epdesc_s *epdesc = (FAR struct usb_epdesc_s *)desc;
-
-      cdcncm_mkepdesc(CDCNCM_EP_INTIN_IDX, epdesc, devinfo, false);
-      desc += USB_SIZEOF_EPDESC;
+      desc += ret;
     }
 
-  len += USB_SIZEOF_EPDESC;
+  len += ret;
 
   /* Data Class Interface */
 
@@ -2221,25 +2340,25 @@ static int16_t cdcnm_mkcfgdesc(FAR uint8_t *desc,
 
   len += USB_SIZEOF_IFDESC;
 
+  ret = cdcncm_mkepdesc(CDCNCM_EP_BULKIN_IDX,
+                        (FAR struct usb_epdesc_s *)desc,
+                        devinfo, speed);
   if (desc)
     {
-      FAR struct usb_epdesc_s *epdesc = (FAR struct usb_epdesc_s *)desc;
-
-      cdcncm_mkepdesc(CDCNCM_EP_BULKIN_IDX, epdesc, devinfo, is_high_speed);
-      desc += USB_SIZEOF_EPDESC;
+      desc += ret;
     }
 
-  len += USB_SIZEOF_EPDESC;
+  len += ret;
 
+  ret = cdcncm_mkepdesc(CDCNCM_EP_BULKOUT_IDX,
+                        (FAR struct usb_epdesc_s *)desc,
+                        devinfo, speed);
   if (desc)
     {
-      FAR struct usb_epdesc_s *epdesc = (FAR struct usb_epdesc_s *)desc;
-
-      cdcncm_mkepdesc(CDCNCM_EP_BULKOUT_IDX, epdesc, devinfo, is_high_speed);
-      desc += USB_SIZEOF_EPDESC;
+      desc += ret;
     }
 
-  len += USB_SIZEOF_EPDESC;
+  len += ret;
 
   if (cfgdesc)
     {
@@ -2259,7 +2378,6 @@ static int16_t cdcnm_mkcfgdesc(FAR uint8_t *desc,
  *
  ****************************************************************************/
 
-#ifdef CONFIG_USBDEV_DUALSPEED
 static int16_t cdcncm_mkcfgdesc(FAR uint8_t *desc,
                                 FAR struct usbdev_devinfo_s *devinfo,
                                 uint8_t speed, uint8_t type)
@@ -2275,21 +2393,6 @@ static int16_t cdcmbim_mkcfgdesc(FAR uint8_t *desc,
   return cdcnm_mkcfgdesc(desc, devinfo, speed, type, false);
 }
 #  endif
-#else
-static int16_t cdcncm_mkcfgdesc(FAR uint8_t *desc,
-                                FAR struct usbdev_devinfo_s *devinfo)
-{
-  return cdcnm_mkcfgdesc(desc, devinfo, true);
-}
-
-#  ifdef CONFIG_NET_CDCMBIM
-static int16_t cdcmbim_mkcfgdesc(FAR uint8_t *desc,
-                                 FAR struct usbdev_devinfo_s *devinfo)
-{
-  return cdcnm_mkcfgdesc(desc, devinfo, false);
-}
-#  endif
-#endif
 
 /****************************************************************************
  * Name: cdcncm_getdescriptor
@@ -2320,8 +2423,9 @@ static int cdcncm_getdescriptor(FAR struct cdcncm_driver_s *self,
     case USB_DESC_TYPE_DEVICE:
       if (self->isncm)
         {
-          memcpy(desc, &g_ncmdevdesc, sizeof(g_ncmdevdesc));
-          return sizeof(g_ncmdevdesc);
+          return usbdev_copy_devdesc(desc,
+                                     &g_ncmdevdesc,
+                                     self->usbdev.speed);
         }
 #  ifdef CONFIG_NET_CDCMBIM
       else
@@ -2337,12 +2441,8 @@ static int cdcncm_getdescriptor(FAR struct cdcncm_driver_s *self,
     case USB_DESC_TYPE_OTHERSPEEDCONFIG:
 #endif /* CONFIG_USBDEV_DUALSPEED */
     case USB_DESC_TYPE_CONFIG:
-#ifdef CONFIG_USBDEV_DUALSPEED
       return cdcncm_mkcfgdesc((FAR uint8_t *)desc, &self->devinfo,
                               self->usbdev.speed, type);
-#else
-      return cdcncm_mkcfgdesc((FAR uint8_t *)desc, &self->devinfo);
-#endif
 
     case USB_DESC_TYPE_STRING:
       return cdcncm_mkstrdesc(index, (FAR struct usb_strdesc_s *)desc);
@@ -2582,6 +2682,7 @@ static int cdcncm_setup(FAR struct usbdevclass_driver_s *driver,
               uint8_t descindex = ctrl->value[0];
               uint8_t desctype  = ctrl->value[1];
 
+              self->usbdev.speed = dev->speed;
               ret = cdcncm_getdescriptor(self, desctype, descindex,
                                          self->ctrlreq->buf);
             }
@@ -2791,7 +2892,9 @@ static int cdcncm_classobject(int minor,
 
   /* USB device initialization */
 
-#ifdef CONFIG_USBDEV_DUALSPEED
+#if defined(CONFIG_USBDEV_SUPERSPEED)
+  self->usbdev.speed = USB_SPEED_SUPER;
+#elif defined(CONFIG_USBDEV_DUALSPEED)
   self->usbdev.speed = USB_SPEED_HIGH;
 #else
   self->usbdev.speed = USB_SPEED_FULL;
@@ -2866,7 +2969,9 @@ static int cdcmbim_classobject(int minor,
 
   /* USB device initialization */
 
-#ifdef CONFIG_USBDEV_DUALSPEED
+#if defined(CONFIG_USBDEV_SUPERSPEED)
+  ncm->usbdev.speed = USB_SPEED_SUPER;
+#elif defined(CONFIG_USBDEV_DUALSPEED)
   ncm->usbdev.speed = USB_SPEED_HIGH;
 #else
   ncm->usbdev.speed = USB_SPEED_FULL;
@@ -3063,14 +3168,9 @@ static void cdcnm_get_composite_devdesc(FAR struct composite_devdesc_s *dev,
 
   /* Let the construction function calculate the size of config descriptor */
 
-#ifdef CONFIG_USBDEV_DUALSPEED
   dev->cfgdescsize  = isncm ?
                       cdcncm_mkcfgdesc(NULL, NULL, USB_SPEED_UNKNOWN, 0) :
                       cdcmbim_mkcfgdesc(NULL, NULL, USB_SPEED_UNKNOWN, 0);
-#else
-  dev->cfgdescsize  = isncm ? cdcncm_mkcfgdesc(NULL, NULL) :
-                              cdcmbim_mkcfgdesc(NULL, NULL);
-#endif
 
   /* Board-specific logic must provide the device minor */
 
