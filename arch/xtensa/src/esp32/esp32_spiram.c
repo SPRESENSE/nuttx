@@ -69,13 +69,6 @@
 #endif
 
 /****************************************************************************
- * ROM Function Prototypes
- ****************************************************************************/
-
-extern void cache_flush(int cpu);
-extern void cache_read_enable(int cpu);
-
-/****************************************************************************
  * Private Data
  ****************************************************************************/
 
@@ -93,8 +86,8 @@ unsigned int IRAM_ATTR cache_sram_mmu_set(int cpu_no, int pid,
   uint32_t regval;
 #ifdef CONFIG_SMP
   int cpu_to_stop = 0;
-  bool smp_start = OSINIT_OS_READY();
 #endif
+  const bool os_ready = OSINIT_OS_READY();
   unsigned int i;
   unsigned int shift;
   unsigned int mask_s;
@@ -176,14 +169,18 @@ unsigned int IRAM_ATTR cache_sram_mmu_set(int cpu_no, int pid,
    * the flash guards to make sure the cache is disabled.
    */
 
-  flags = enter_critical_section();
+  flags = 0; /* suppress GCC warning */
+  if (os_ready)
+    {
+      flags = enter_critical_section();
+    }
 
 #ifdef CONFIG_SMP
   /* The other CPU might be accessing the cache at the same time, just by
    * using variables in external RAM.
    */
 
-  if (smp_start)
+  if (os_ready)
     {
       cpu_to_stop = up_cpu_index() == 1 ? 0 : 1;
       up_cpu_pause(cpu_to_stop);
@@ -222,13 +219,17 @@ unsigned int IRAM_ATTR cache_sram_mmu_set(int cpu_no, int pid,
 #ifdef CONFIG_SMP
   spi_enable_cache(1);
 
-  if (smp_start)
+  if (os_ready)
     {
       up_cpu_resume(cpu_to_stop);
     }
 #endif
 
-  leave_critical_section(flags);
+  if (os_ready)
+    {
+      leave_critical_section(flags);
+    }
+
   return 0;
 }
 
@@ -245,8 +246,6 @@ void IRAM_ATTR esp_spiram_init_cache(void)
   /* Flush and enable icache for APP CPU */
 
 #ifdef CONFIG_SMP
-  cache_flush(APP_CPU_NUM);
-  cache_read_enable(APP_CPU_NUM);
   regval  = getreg32(DPORT_APP_CACHE_CTRL1_REG);
   regval &= ~(1 << DPORT_APP_CACHE_MASK_DRAM1);
   putreg32(regval, DPORT_APP_CACHE_CTRL1_REG);
