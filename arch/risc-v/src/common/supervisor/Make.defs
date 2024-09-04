@@ -1,5 +1,5 @@
 ############################################################################
-# arch/xtensa/src/common/espressif/Make.defs
+# arch/risc-v/src/common/supervisor/Make.defs
 #
 # Licensed to the Apache Software Foundation (ASF) under one or more
 # contributor license agreements.  See the NOTICE file distributed with
@@ -18,33 +18,11 @@
 #
 ############################################################################
 
-ifeq ($(CONFIG_ESP_RMT),y)
-CHIP_CSRCS += esp_rmt.c
-ifeq ($(CONFIG_WS2812_NON_SPI_DRIVER),y)
-CHIP_CSRCS += esp_ws2812.c
-endif
-endif
+# If the NuttX kernel runs in S-mode
 
-ifeq ($(CONFIG_ESP_MCPWM),y)
-CHIP_CSRCS += esp_mcpwm.c
-endif
+CMN_ASRCS += riscv_syscall.S
+CMN_CSRCS += riscv_perform_syscall.c
+CMN_CSRCS += riscv_sbi.c
 
-ifeq ($(filter $(CONFIG_ESPRESSIF_SIMPLE_BOOT) \
-      $(CONFIG_ESP32_APP_FORMAT_MCUBOOT) \
-      $(CONFIG_ESP32S2_APP_FORMAT_MCUBOOT) \
-      $(CONFIG_ESP32S3_APP_FORMAT_MCUBOOT),y),y)
-CHIP_CSRCS += esp_loader.c
-endif
-
-ifeq ($(CONFIG_ESPRESSIF_TEMP),y)
-CHIP_CSRCS += esp_temperature_sensor.c
-endif
-
-ifeq ($(CONFIG_ESPRESSIF_SPIFLASH),y)
-CHIP_CSRCS += esp_spiflash.c
-ifeq ($(CONFIG_ESPRESSIF_MTD),y)
-CHIP_CSRCS += esp_spiflash_mtd.c
-endif
-endif
-
-INCLUDES += ${INCDIR_PREFIX}$(ARCH_SRCDIR)$(DELIM)common$(DELIM)espressif$(DELIM)platform_include
+INCLUDES += ${INCDIR_PREFIX}$(ARCH_SRCDIR)$(DELIM)common$(DELIM)supervisor
+VPATH += common$(DELIM)supervisor
