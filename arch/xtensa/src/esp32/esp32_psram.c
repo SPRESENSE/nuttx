@@ -594,7 +594,7 @@ static void IRAM_ATTR
         }
     }
 
-  /* use Dram1 to visit ext sram. */
+  /* use DRAM1 to visit ext sram. */
 
   modifyreg32(DPORT_PRO_CACHE_CTRL1_REG,
               DPORT_PRO_CACHE_MASK_DRAM1 | DPORT_PRO_CACHE_MASK_OPSDRAM, 0);
@@ -602,10 +602,8 @@ static void IRAM_ATTR
   /* cache page mode :
    * 1 -->16k
    * 4 -->2k
-   * 0 -->32k,(accord with the settings in cache_sram_mmu_set)
+   * 0 -->32k, (accord with the settings in cache_sram_mmu_set)
    */
-
-  /* get into unknown exception if not comment */
 
   regval  = getreg32(DPORT_PRO_CACHE_CTRL1_REG);
   regval &= ~(DPORT_PRO_CMMU_SRAM_PAGE_MODE <<
@@ -615,8 +613,7 @@ static void IRAM_ATTR
   /* use DRAM1 to visit ext sram. */
 
   modifyreg32(DPORT_APP_CACHE_CTRL1_REG,
-              DPORT_APP_CACHE_MASK_DRAM1 |
-              DPORT_APP_CACHE_MASK_OPSDRAM, 0);
+              DPORT_APP_CACHE_MASK_DRAM1 | DPORT_APP_CACHE_MASK_OPSDRAM, 0);
 
   /* cache page mode :
    * 1 -->16k

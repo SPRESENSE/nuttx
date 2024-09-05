@@ -40,6 +40,7 @@ RUN apt-get update -qq && DEBIAN_FRONTEND="noninteractive" apt-get install -y -q
   ninja-build \
   nodejs \
   npm \
+  subversion \
   unzip
 
 RUN mkdir -p /tools
@@ -431,7 +432,7 @@ ENV PATH="/tools/ldc2/ldc2-1.39.0-linux-x86_64/bin:$PATH"
 
 # Pull in the swift 6.0 toolchain
 # COPY --from=nuttx-tools /tools/swift/ /tools/swift/
-# ENV PATH="/tools/swift/swift-6.0-DEVELOPMENT-SNAPSHOT-2024-08-22-a/bin:$PATH"
+# ENV PATH="/tools/swift/swift-6.0-DEVELOPMENT-SNAPSHOT-2024-08-22-a/usr/bin:$PATH"
 
 # ARM clang toolchain
 COPY --from=nuttx-toolchain-arm /tools/clang-arm-none-eabi/ clang-arm-none-eabi/
@@ -498,7 +499,10 @@ ENV ZAP_INSTALL_PATH=/tools/zap_release
 ENV ZAP_DEVELOPMENT_PATH=/tools/zap
 
 # Configure ccache
-RUN mkdir -p /tools/ccache/bin && \
+# use `/ccache` as cachedir for all users
+RUN mkdir -p /ccache && \
+  chmod 666 /ccache && \
+  mkdir -p /tools/ccache/bin && \
   ln -sf `which ccache` /tools/ccache/bin/aarch64-none-elf-gcc && \
   ln -sf `which ccache` /tools/ccache/bin/aarch64-none-elf-g++ && \
   ln -sf `which ccache` /tools/ccache/bin/arm-none-eabi-gcc && \
@@ -527,5 +531,6 @@ RUN mkdir -p /tools/ccache/bin && \
   ln -sf `which ccache` /tools/ccache/bin/xtensa-esp32s3-elf-g++
 
 ENV PATH="/tools/ccache/bin:$PATH"
+ENV CCACHE_DIR="/ccache"
 
 CMD [ "/bin/bash" ]
