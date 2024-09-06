@@ -55,16 +55,8 @@
 int pthread_mutex_init(FAR pthread_mutex_t *mutex,
                        FAR const pthread_mutexattr_t *attr)
 {
-  int pshared = 0;
 #ifdef CONFIG_PTHREAD_MUTEX_TYPES
   uint8_t type = PTHREAD_MUTEX_DEFAULT;
-#endif
-#ifdef CONFIG_PRIORITY_INHERITANCE
-#  ifdef CONFIG_PTHREAD_MUTEX_DEFAULT_PRIO_INHERIT
-  uint8_t proto = PTHREAD_PRIO_INHERIT;
-#  else
-  uint8_t proto = PTHREAD_PRIO_NONE;
-#  endif
 #endif
 #ifndef CONFIG_PTHREAD_MUTEX_UNSAFE
 #ifdef CONFIG_PTHREAD_MUTEX_DEFAULT_UNSAFE
@@ -88,10 +80,6 @@ int pthread_mutex_init(FAR pthread_mutex_t *mutex,
 
       if (attr)
         {
-          pshared = attr->pshared;
-#ifdef CONFIG_PRIORITY_INHERITANCE
-          proto   = attr->proto;
-#endif
 #ifdef CONFIG_PTHREAD_MUTEX_TYPES
           type    = attr->type;
 #endif
@@ -101,41 +89,25 @@ int pthread_mutex_init(FAR pthread_mutex_t *mutex,
 #endif
         }
 
-      /* Indicate that the semaphore is not held by any thread. */
-
-      mutex->pid = INVALID_PROCESS_ID;
-
       /* Initialize the mutex like a semaphore with initial count = 1 */
 
-      status = nxsem_init(&mutex->sem, pshared, 1);
-      if (status < 0)
-        {
-          ret = -ret;
-        }
-
-#ifdef CONFIG_PRIORITY_INHERITANCE
-      /* Initialize the semaphore protocol */
-
-      status = nxsem_set_protocol(&mutex->sem, proto);
+      status = mutex_init(&mutex->mutex);
       if (status < 0)
         {
           ret = -status;
         }
-#endif
 
 #ifndef CONFIG_PTHREAD_MUTEX_UNSAFE
       /* Initial internal fields of the mutex */
 
-      mutex->flink  = NULL;
-
-      mutex->flags  = flags;
+      mutex->flink = NULL;
+      mutex->flags = flags;
 #endif
 
 #ifdef CONFIG_PTHREAD_MUTEX_TYPES
       /* Set up attributes unique to the mutex type */
 
-      mutex->type   = type;
-      mutex->nlocks = 0;
+      mutex->type  = type;
 #endif
     }
 

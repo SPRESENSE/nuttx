@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/armv7-a/arm_cpuindex.c
+ * boards/xtensa/esp32s2/common/include/esp32s2_board_wlan.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,54 +18,56 @@
  *
  ****************************************************************************/
 
+#ifndef __BOARDS_XTENSA_ESP32S2_COMMON_INCLUDE_ESP32S2_BOARD_WLAN_H
+#define __BOARDS_XTENSA_ESP32S2_COMMON_INCLUDE_ESP32S2_BOARD_WLAN_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
-#include <stdint.h>
-
-#include <nuttx/arch.h>
-
-#include "cp15.h"
-#include "sctlr.h"
-
-#ifdef CONFIG_SMP
-
 /****************************************************************************
- * Public Functions
+ * Pre-processor Definitions
  ****************************************************************************/
 
+#ifndef __ASSEMBLY__
+
+#undef EXTERN
+#if defined(__cplusplus)
+#define EXTERN extern "C"
+extern "C"
+{
+#else
+#define EXTERN extern
+#endif
+
 /****************************************************************************
- * Name: up_cpu_index
+ * Public Function Prototypes
+ ****************************************************************************/
+
+#ifdef CONFIG_ESPRESSIF_WIFI
+
+/****************************************************************************
+ * Name: board_wlan_init
  *
  * Description:
- *   Return an index in the range of 0 through (CONFIG_SMP_NCPUS-1) that
- *   corresponds to the currently executing CPU.
- *
- *   If TLS is enabled, then the RTOS can get this information from the TLS
- *   info structure.  Otherwise, the MCU-specific logic must provide some
- *   mechanism to provide the CPU index.
- *
- * Input Parameters:
- *   None
+ *   Configure the wireless subsystem.
  *
  * Returned Value:
- *   An integer index in the range of 0 through (CONFIG_SMP_NCPUS-1) that
- *   corresponds to the currently executing CPU.
+ *   Zero (OK) is returned on success; A negated errno value is returned
+ *   to indicate the nature of any failure.
  *
  ****************************************************************************/
 
-int up_cpu_index(void)
-{
-  /* Read the Multiprocessor Affinity Register (MPIDR) */
+int board_wlan_init(void);
 
-  uint32_t mpidr = cp15_rdmpidr();
+#endif /* CONFIG_ESPRESSIF_WIFI */
 
-  /* And return the CPU ID field */
-
-  return (mpidr & MPIDR_CPUID_MASK) >> MPIDR_CPUID_SHIFT;
+#undef EXTERN
+#if defined(__cplusplus)
 }
+#endif
 
-#endif /* CONFIG_SMP */
+#endif /* __ASSEMBLY__ */
+#endif /* __BOARDS_XTENSA_ESP32S2_COMMON_INCLUDE_ESP32S2_BOARD_WLAN_H */

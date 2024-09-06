@@ -340,6 +340,18 @@ config PREALLOC_IRQCHAIN
 
 endif # IRQCHAIN
 
+config IRQ_NWORKS
+	int "Max num of active irq wqueue"
+	default 8
+	---help---
+		The max num of active irq wqueue.
+
+config IRQ_WORK_STACKSIZE
+	int "The default stack size for isr wqueue"
+	default DEFAULT_TASK_STACKSIZE
+	---help---
+		The default stack size for isr wqueue.
+
 config IRQCOUNT
 	bool
 	default n
@@ -388,12 +400,6 @@ config SMP_DEFAULT_CPUSET
 	---help---
 		Set the Default CPU bits. The way to use the unset CPU is to call the
 		sched_setaffinity function to bind a task to the CPU. bit0 means CPU0.
-
-config SMP_CALL
-	bool "Support SMP function call"
-	default n
-	---help---
-		Enable to support SMP function call.
 
 endif # SMP
 

@@ -170,7 +170,7 @@ int irq_attach_thread(int irq, xcpt_t isr, xcpt_t isrthread, FAR void *arg,
 
   if (isrthread == NULL)
     {
-      irq_attach(irq, NULL, arg);
+      irq_detach(irq);
       DEBUGASSERT(g_irq_thread_pid[ndx] != 0);
       kthread_delete(g_irq_thread_pid[ndx]);
       g_irq_thread_pid[ndx] = 0;

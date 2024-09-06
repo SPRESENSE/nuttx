@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/armv7-r/arm_cpuindex.c
+ * include/sys/pciio.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,54 +18,60 @@
  *
  ****************************************************************************/
 
+#ifndef __INCLUDE_SYS_PCIIO_H
+#define __INCLUDE_SYS_PCIIO_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
-
+#include <nuttx/fs/ioctl.h>
 #include <stdint.h>
 
-#include <nuttx/arch.h>
-
-#include "cp15.h"
-#include "sctlr.h"
-
-#ifdef CONFIG_SMP
-
 /****************************************************************************
- * Public Functions
+ * Pre-processor Definitions
  ****************************************************************************/
 
+#define PCIOCREAD      _PCIIOC(1)
+#define PCIOCWRITE     _PCIIOC(2)
+#define PCIOCGETROMLEN _PCIIOC(3)
+#define PCIOCGETROM    _PCIIOC(4)
+#define PCIOCREADMASK  _PCIIOC(5)
+#define PCIOCGETVPD    _PCIIOC(6)
+
 /****************************************************************************
- * Name: up_cpu_index
- *
- * Description:
- *   Return an index in the range of 0 through (CONFIG_SMP_NCPUS-1) that
- *   corresponds to the currently executing CPU.
- *
- *   If TLS is enabled, then the RTOS can get this information from the TLS
- *   info structure.  Otherwise, the MCU-specific logic must provide some
- *   mechanism to provide the CPU index.
- *
- * Input Parameters:
- *   None
- *
- * Returned Value:
- *   An integer index in the range of 0 through (CONFIG_SMP_NCPUS-1) that
- *   corresponds to the currently executing CPU.
- *
+ * Public Type Declarations
  ****************************************************************************/
 
-int up_cpu_index(void)
+struct pcisel
 {
-  /* Read the Multiprocessor Affinity Register (MPIDR) */
+  uint8_t pc_domain;
+  uint8_t pc_bus;
+  uint8_t pc_dev;
+  uint8_t pc_func;
+};
 
-  uint32_t mpidr = cp15_rdmpidr();
+struct pci_io
+{
+  struct pcisel pi_sel;
+  int pi_reg;
+  int pi_width;
+  uint32_t pi_data;
+};
 
-  /* And return the CPU ID field */
+struct pci_rom
+{
+  struct pcisel pr_sel;
+  int pr_romlen;
+  FAR char *pr_rom;
+};
 
-  return (mpidr & MPIDR_CPUID_MASK) >> MPIDR_CPUID_SHIFT;
-}
+struct pci_vpd_req
+{
+  struct pcisel pv_sel;
+  int pv_offset;
+  int pv_count;
+  FAR uint32_t *pv_data;
+};
 
-#endif /* CONFIG_SMP */
+#endif /* __INCLUDE_SYS_PCIIO_H */
