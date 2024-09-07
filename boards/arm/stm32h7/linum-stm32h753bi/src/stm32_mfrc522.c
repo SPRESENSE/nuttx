@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/x86_64/src/intel64/intel64_idle.c
+ * boards/arm/stm32h7/linum-stm32h753bi/src/stm32_mfrc522.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -24,49 +24,61 @@
 
 #include <nuttx/config.h>
 
-#include <nuttx/arch.h>
-#include "x86_64_internal.h"
+#include <errno.h>
+#include <debug.h>
+
+#include <nuttx/board.h>
+#include <nuttx/spi/spi.h>
+#include <nuttx/contactless/mfrc522.h>
+
+#include "linum-stm32h753bi.h"
+#include "stm32_spi.h"
+
+#if defined(CONFIG_SPI) && defined(CONFIG_STM32H7_SPI4) && defined(CONFIG_CL_MFRC522)
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
-/****************************************************************************
- * Private Data
- ****************************************************************************/
-
-/****************************************************************************
- * Private Functions
- ****************************************************************************/
+#define MFRC522_SPI_PORTNO 4   /* On SPI4 */
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: up_idle
+ * Name: stm32_mfrc522initialize
  *
  * Description:
- *   up_idle() is the logic that will be executed when there is no other
- *   ready-to-run task.  This is processor idle time and will continue until
- *   some interrupt occurs to cause a context switch from the idle task.
+ *   Initialize and register the MFRC522 RFID driver.
  *
- *   Processing in this state may be processor-specific. e.g., this is where
- *   power management operations might be performed.
+ * Input Parameters:
+ *   devpath - The full path to the driver to register. E.g., "/dev/rfid0"
+ *
+ * Returned Value:
+ *   Zero (OK) on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
-#ifndef CONFIG_ARCH_IDLE_CUSTOM
-void up_idle(void)
+int stm32_mfrc522initialize(const char *devpath)
 {
-#if defined(CONFIG_SUPPRESS_INTERRUPTS) || defined(CONFIG_SUPPRESS_TIMER_INTS)
-  /* If the system is idle and there are no timer interrupts, then process
-   * "fake" timer interrupts. Hopefully, something will wake up.
-   */
+  struct spi_dev_s *spi;
+  int ret;
+  spi = stm32_spibus_initialize(MFRC522_SPI_PORTNO);
+  if (!spi)
+    {
+      return -ENODEV;
+    }
 
-  sched_process_timer();
-#else
-  __asm__ volatile("hlt");
-#endif
+  /* Then register the MFRC522 */
+
+  ret = mfrc522_register(devpath, spi);
+  if (ret < 0)
+    {
+      snerr("ERROR: Error registering MFRC522\n");
+    }
+
+  return ret;
 }
-#endif
+
+#endif /* CONFIG_SPI && CONFIG_STM32H7_SPI4 && CONFIG_MFRC522 */

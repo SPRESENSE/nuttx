@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/x86_64/src/intel64/intel64_idle.c
+ * boards/arm/stm32/common/src/stm32_amg88xx.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -24,16 +24,51 @@
 
 #include <nuttx/config.h>
 
-#include <nuttx/arch.h>
-#include "x86_64_internal.h"
+#include <errno.h>
+#include <debug.h>
+
+#include <nuttx/i2c/i2c_master.h>
+#include <nuttx/sensors/amg88xx.h>
+#include <arch/board/board.h>
+
+#include "stm32.h"
+#include "stm32_i2c.h"
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
+/* What is the point of passing devno if only
+ * a single config struct is defined
+ * irm = infrared map / infrared matrix
+ */
+
+#define AMG88XX_DEVNO_PATH_0                  "/dev/irm0"
+
+/****************************************************************************
+ * Private Function Prototypes
+ ****************************************************************************/
+
 /****************************************************************************
  * Private Data
  ****************************************************************************/
+
+/* One sensor connected to the board */
+
+/* During device registration OS allocates an pointer to an amg88xx_config_s
+ * not the actual struct, that implies that for each sensor there is the
+ * need for a config struct at a valid memory location which will be passed
+ * to the pointer mentioned above.  So there can be only one sensor,
+ * as there is one global config struct instantiated here.
+ * Is this the intended behaviour to minimize the memory allocated through
+ * malloc?
+ */
+
+static struct amg88xx_config_s g_amg88xx_config_0 =
+{
+  .addr = CONFIG_SENSOR_AMG88XX_ADDR,
+  .speed = I2C_SPEED_STANDARD
+};
 
 /****************************************************************************
  * Private Functions
@@ -44,29 +79,42 @@
  ****************************************************************************/
 
 /****************************************************************************
- * Name: up_idle
+ * Name: board_amg88xx_initialize()
  *
  * Description:
- *   up_idle() is the logic that will be executed when there is no other
- *   ready-to-run task.  This is processor idle time and will continue until
- *   some interrupt occurs to cause a context switch from the idle task.
+ *   Initialize and register the AMG88xx infrared matrix sensor driver.
  *
- *   Processing in this state may be processor-specific. e.g., this is where
- *   power management operations might be performed.
+ * Input Parameters:
+ *   busno - The I2C bus number
+ *
+ * Returned Value:
+ *   Zero (OK) on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
-#ifndef CONFIG_ARCH_IDLE_CUSTOM
-void up_idle(void)
+int board_amg88xx_initialize(int busno)
 {
-#if defined(CONFIG_SUPPRESS_INTERRUPTS) || defined(CONFIG_SUPPRESS_TIMER_INTS)
-  /* If the system is idle and there are no timer interrupts, then process
-   * "fake" timer interrupts. Hopefully, something will wake up.
-   */
+  struct i2c_master_s *i2c;
+  int ret;
 
-  sched_process_timer();
-#else
-  __asm__ volatile("hlt");
-#endif
+  sninfo("Initializing AMG88xx!\n");
+
+  /* Initialize I2C */
+
+  i2c = stm32_i2cbus_initialize(busno);
+
+  if (!i2c)
+    {
+      return -ENODEV;
+    }
+
+  /* Then register the sensor */
+
+  ret = amg88xx_register(AMG88XX_DEVNO_PATH_0, i2c, &g_amg88xx_config_0);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: Error registering AMG88xx\n");
+    }
+
+  return ret;
 }
-#endif

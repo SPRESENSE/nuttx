@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/x86_64/src/intel64/intel64_idle.c
+ * boards/arm/stm32/common/include/stm32_amg88xx.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,55 +18,62 @@
  *
  ****************************************************************************/
 
+#ifndef __BOARDS_ARM_STM32_COMMON_INCLUDE_STM32_AMG88XX_H
+#define __BOARDS_ARM_STM32_COMMON_INCLUDE_STM32_AMG88XX_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
-#include <nuttx/arch.h>
-#include "x86_64_internal.h"
-
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
 /****************************************************************************
- * Private Data
+ * Public Types
  ****************************************************************************/
 
 /****************************************************************************
- * Private Functions
+ * Public Data
+ ****************************************************************************/
+
+#ifdef __cplusplus
+#define EXTERN extern "C"
+extern "C"
+{
+#else
+#define EXTERN extern
+#endif
+
+/****************************************************************************
+ * Inline Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Public Functions
+ * Public Function Prototypes
  ****************************************************************************/
 
 /****************************************************************************
- * Name: up_idle
+ * Name: board_amg88xx_initialize()
  *
  * Description:
- *   up_idle() is the logic that will be executed when there is no other
- *   ready-to-run task.  This is processor idle time and will continue until
- *   some interrupt occurs to cause a context switch from the idle task.
+ *   Initialize and register the AMG88xx infrared matrix sensor driver.
  *
- *   Processing in this state may be processor-specific. e.g., this is where
- *   power management operations might be performed.
+ * Input Parameters:
+ *   busno - The I2C bus number
+ *
+ * Returned Value:
+ *   Zero (OK) on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
-#ifndef CONFIG_ARCH_IDLE_CUSTOM
-void up_idle(void)
-{
-#if defined(CONFIG_SUPPRESS_INTERRUPTS) || defined(CONFIG_SUPPRESS_TIMER_INTS)
-  /* If the system is idle and there are no timer interrupts, then process
-   * "fake" timer interrupts. Hopefully, something will wake up.
-   */
+int board_amg88xx_initialize(int busno);
 
-  sched_process_timer();
-#else
-  __asm__ volatile("hlt");
-#endif
+#undef EXTERN
+#ifdef __cplusplus
 }
 #endif
+
+#endif /* __BOARDS_ARM_STM32_COMMON_INCLUDE_STM32_AMG88XX_H */
