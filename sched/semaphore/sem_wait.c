@@ -94,6 +94,13 @@ int nxsem_wait(FAR sem_t *sem)
     {
       /* It is, let the task take the semaphore. */
 
+      ret = nxsem_protect_wait(sem);
+      if (ret < 0)
+        {
+          leave_critical_section_nonirq(flags);
+          return ret;
+        }
+
       sem->semcount--;
       nxsem_add_holder(sem);
       rtcb->waitobj = NULL;

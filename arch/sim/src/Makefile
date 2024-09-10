@@ -35,6 +35,14 @@ ifeq ($(CONFIG_VIDEOUTILS_LIBX264),y)
 INCLUDES += ${INCDIR_PREFIX}$(APPSDIR)/videoutils/x264/x264
 endif
 
+ifeq ($(CONFIG_VIDEOUTILS_LIBMAD),y)
+INCLUDES += ${INCDIR_PREFIX}$(APPSDIR)/audioutils/libmad/libmad
+endif
+
+ifeq ($(CONFIG_VIDEOUTILS_LAME),y)
+INCLUDES += ${INCDIR_PREFIX}$(APPSDIR)/audioutils/lame/lame
+endif
+
 CPPFLAGS += $(INCLUDES)
 CFLAGS += $(INCLUDES)
 CXXFLAGS += $(INCLUDES)
@@ -249,8 +257,6 @@ ifeq ($(CONFIG_SIM_SOUND_ALSA),y)
   CSRCS += sim_alsa.c
   CSRCS += sim_offload.c
   STDLIBS += -lasound
-  STDLIBS += -lmad
-  STDLIBS += -lmp3lame
 endif
 
 ifeq ($(CONFIG_SIM_CAMERA_V4L2),y)

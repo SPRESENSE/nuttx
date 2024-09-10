@@ -27,6 +27,9 @@
 #include <nuttx/pci/pci.h>
 #include <nuttx/pci/pci_qemu_edu.h>
 #include <nuttx/pci/pci_qemu_test.h>
+#include <nuttx/rptun/rptun_ivshmem.h>
+
+#include "pci_drivers.h"
 
 /****************************************************************************
  * Public Functions
@@ -43,6 +46,22 @@
 int pci_register_drivers(void)
 {
   int ret;
+
+#ifdef CONFIG_PCI_IVSHMEM
+  ret = pci_ivshmem_register();
+  if (ret < 0)
+    {
+      pcierr("pci_ivshemem_register failed ret=%d\n", ret);
+    }
+#endif
+
+#ifdef CONFIG_PCI_UIO_IVSHMEM
+  ret = pci_register_uio_ivshmem_driver();
+  if (ret < 0)
+    {
+      pcierr("pci_register_uio_ivshmem_driver failed, ret=%d\n", ret);
+    }
+#endif
 
   /* Initialization pci qemu test driver */
 
@@ -61,6 +80,16 @@ int pci_register_drivers(void)
   if (ret < 0)
     {
       pcierr("pci_register_qemu_edu_driver failed, ret=%d\n", ret);
+    }
+#endif
+
+  /* Initialization rptun ivshmem driver */
+
+#ifdef CONFIG_RPTUN_IVSHMEM
+  ret = pci_register_rptun_ivshmem_driver();
+  if (ret < 0)
+    {
+      pcierr("pci_register_rptun_ivshmem_driver failed, ret=%d\n", ret);
     }
 #endif
 

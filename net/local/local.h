@@ -49,7 +49,13 @@
 #define LOCAL_NPOLLWAITERS 2
 #define LOCAL_NCONTROLFDS  4
 
-#define LOCAL_SEND_LIMIT   (CONFIG_DEV_FIFO_SIZE - sizeof(uint16_t))
+#if CONFIG_DEV_PIPE_MAXSIZE > 65535
+typedef uint32_t lc_size_t;  /* 32-bit index */
+#elif CONFIG_DEV_PIPE_MAXSIZE > 255
+typedef uint16_t lc_size_t;  /* 16-bit index */
+#else
+typedef uint8_t lc_size_t;   /*  8-bit index */
+#endif
 
 /****************************************************************************
  * Public Type Definitions
@@ -122,6 +128,7 @@ struct local_conn_s
   char lc_path[UNIX_PATH_MAX];   /* Path assigned by bind() */
   int32_t lc_instance_id;        /* Connection instance ID for stream
                                   * server<->client connection pair */
+  lc_size_t lc_rcvsize;          /* Receive buffer size */
 
   FAR struct local_conn_s *
                         lc_peer; /* Peer connection instance */
@@ -456,7 +463,7 @@ ssize_t local_sendmsg(FAR struct socket *psock, FAR struct msghdr *msg,
 int local_send_preamble(FAR struct local_conn_s *conn,
                         FAR struct file *filep,
                         FAR const struct iovec *buf,
-                        size_t len);
+                        size_t len, size_t rcvsize);
 
 /****************************************************************************
  * Name: local_send_packet
@@ -558,7 +565,8 @@ int local_getaddr(FAR struct local_conn_s *conn, FAR struct sockaddr *addr,
  *
  ****************************************************************************/
 
-int local_create_fifos(FAR struct local_conn_s *conn);
+int local_create_fifos(FAR struct local_conn_s *conn,
+                       uint32_t cssize, uint32_t scsize);
 
 /****************************************************************************
  * Name: local_create_halfduplex
@@ -570,7 +578,7 @@ int local_create_fifos(FAR struct local_conn_s *conn);
 
 #ifdef CONFIG_NET_LOCAL_DGRAM
 int local_create_halfduplex(FAR struct local_conn_s *conn,
-                            FAR const char *path);
+                            FAR const char *path, uint32_t bufsize);
 #endif
 
 /****************************************************************************

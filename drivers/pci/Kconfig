@@ -31,4 +31,19 @@ config PCI_QEMU_EDU
 	---help---
 		Driver for QEMU EDU test device
 
+config PCI_IVSHMEM
+	bool "PCI ivshmem driver"
+	default n
+	---help---
+		Enable Inter-VM share memory device driver.
+
+config PCI_UIO_IVSHMEM
+	bool "Enable uio ivshmem driver support"
+	default n
+	---help---
+		When this option is enabled, char ivshmem driver will register
+		char device with name: "/dev/uioX" to the VFS, then
+		application can open this device and use `mmap()` to get the
+		share memory provided by ivshmem device.
+
 endif # PCI

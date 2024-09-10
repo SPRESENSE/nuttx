@@ -153,6 +153,7 @@ FAR struct local_conn_s *local_alloc(void)
        */
 
       conn->lc_crefs = 1;
+      conn->lc_rcvsize = CONFIG_DEV_FIFO_SIZE;
 
 #ifdef CONFIG_NET_LOCAL_STREAM
       nxsem_init(&conn->lc_waitsem, 0, 0);

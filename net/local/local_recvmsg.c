@@ -369,16 +369,10 @@ psock_dgram_recvfrom(FAR struct socket *psock, FAR void *buf, size_t len,
   size_t readlen;
   size_t pathlen;
   bool bclose = false;
-  uint16_t addrlen;
-  uint16_t pktlen;
+  lc_size_t addrlen;
+  lc_size_t pktlen;
   int offset = 0;
   int ret;
-
-  /* We keep packet sizes in a uint16_t, so there is a upper limit to the
-   * 'len' that can be supported.
-   */
-
-  DEBUGASSERT(len <= UINT16_MAX);
 
   /* Verify that this is a bound, un-connected peer socket */
 
@@ -397,7 +391,7 @@ psock_dgram_recvfrom(FAR struct socket *psock, FAR void *buf, size_t len,
 
       /* Make sure that half duplex FIFO has been created */
 
-      ret = local_create_halfduplex(conn, conn->lc_path);
+      ret = local_create_halfduplex(conn, conn->lc_path, conn->lc_rcvsize);
       if (ret < 0)
         {
           nerr("ERROR: Failed to create FIFO for %s: %d\n",
