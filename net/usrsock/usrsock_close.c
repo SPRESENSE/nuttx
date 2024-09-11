@@ -183,7 +183,7 @@ int usrsock_close(FAR struct usrsock_conn_s *conn)
 
 close_out:
   conn->state = USRSOCK_CONN_STATE_UNINITIALIZED;
-  conn->usockid = -1;
+  conn->usockid = USRSOCK_USOCKID_INVALID;
 
 errout:
   net_unlock();
