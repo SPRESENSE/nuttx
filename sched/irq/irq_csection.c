@@ -186,7 +186,7 @@ irqstate_t enter_critical_section(void)
    * lists are valid.
    */
 
-  DEBUGASSERT(g_nx_initstate >= OSINIT_TASKLISTS);
+  DEBUGASSERT(OSINIT_TASK_READY());
 
   /* If called from an interrupt handler, then just take the spinlock.
    * If we are already in a critical section, this will lock the CPU
@@ -335,7 +335,7 @@ try_again:
    * lists are valid.
    */
 
-  DEBUGASSERT(g_nx_initstate >= OSINIT_TASKLISTS);
+  DEBUGASSERT(OSINIT_TASK_READY());
   DEBUGASSERT(!up_interrupt_context());
 
   /* Normal tasking environment.
@@ -424,7 +424,7 @@ irqstate_t enter_critical_section(void)
    * lists are valid.
    */
 
-  DEBUGASSERT(g_nx_initstate >= OSINIT_TASKLISTS);
+  DEBUGASSERT(OSINIT_TASK_READY());
 
   /* Check if we were called from an interrupt handler */
 
@@ -451,7 +451,7 @@ inline_function irqstate_t enter_critical_section_nonirq(void)
    * lists are valid.
    */
 
-  DEBUGASSERT(g_nx_initstate >= OSINIT_TASKLISTS);
+  DEBUGASSERT(OSINIT_TASK_READY());
   DEBUGASSERT(!up_interrupt_context());
 
   rtcb = this_task();
@@ -546,7 +546,7 @@ inline_function void leave_critical_section_nonirq(irqstate_t flags)
   FAR struct tcb_s *rtcb;
   int cpu;
 
-  DEBUGASSERT(g_nx_initstate >= OSINIT_TASKLISTS);
+  DEBUGASSERT(OSINIT_TASK_READY());
   DEBUGASSERT(!up_interrupt_context());
 
   /* Get the TCB of the currently executing task on this CPU (avoid
@@ -620,7 +620,7 @@ inline_function void leave_critical_section_nonirq(irqstate_t flags)
 {
   FAR struct tcb_s *rtcb = this_task();
 
-  DEBUGASSERT(g_nx_initstate >= OSINIT_TASKLISTS);
+  DEBUGASSERT(OSINIT_TASK_READY());
   DEBUGASSERT(!up_interrupt_context());
   DEBUGASSERT(rtcb != NULL);
 
@@ -644,47 +644,4 @@ inline_function void leave_critical_section_nonirq(irqstate_t flags)
   up_irq_restore(flags);
 }
 #endif
-
-/****************************************************************************
- * Name: restore_critical_section
- *
- * Description:
- *   Restore the critical_section
- *
- * Input Parameters:
- *   None
- *
- * Returned Value:
- *   None
- *
- ****************************************************************************/
-
-#ifdef CONFIG_SMP
-void restore_critical_section(void)
-{
-  /* NOTE: The following logic for adjusting global IRQ controls were
-   * derived from nxsched_add_readytorun() and sched_removedreadytorun()
-   * Here, we only handles clearing logic to defer unlocking IRQ lock
-   * followed by context switching.
-   */
-
-  FAR struct tcb_s *tcb;
-  int me = this_cpu();
-
-  /* Adjust global IRQ controls.  If irqcount is greater than zero,
-   * then this task/this CPU holds the IRQ lock
-   */
-
-  tcb = current_task(me);
-  DEBUGASSERT(g_cpu_nestcount[me] <= 0);
-  if (tcb->irqcount <= 0)
-    {
-      if ((g_cpu_irqset & (1 << me)) != 0)
-        {
-          cpu_irqlock_clear();
-        }
-    }
-}
-#endif /* CONFIG_SMP */
-
 #endif /* CONFIG_IRQCOUNT */

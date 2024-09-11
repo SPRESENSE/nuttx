@@ -94,7 +94,7 @@ static void  arm64_dump_syscall(const char *tag, uint64_t cmd,
 uintptr_t dispatch_syscall(unsigned int nbr, uintptr_t parm1,
                            uintptr_t parm2, uintptr_t parm3,
                            uintptr_t parm4, uintptr_t parm5,
-                           uintptr_t parm6, void *context)
+                           uintptr_t parm6)
 {
   struct tcb_s *rtcb         = this_task();
   register long x0 asm("x0") = (long)(nbr);
@@ -115,10 +115,6 @@ uintptr_t dispatch_syscall(unsigned int nbr, uintptr_t parm1,
 
       return -ENOSYS;
     }
-
-  /* Set the user register context to TCB */
-
-  rtcb->xcp.regs = context;
 
   /* Indicate that we are in a syscall handler */
 
@@ -161,6 +157,8 @@ uint64_t *arm64_syscall_switch(uint64_t * regs)
   uint64_t             cmd;
   struct regs_context *f_regs;
   uint64_t            *ret_regs;
+  struct tcb_s        *tcb;
+  int cpu;
 
   /* Nested interrupts are not supported */
 
@@ -252,11 +250,13 @@ uint64_t *arm64_syscall_switch(uint64_t * regs)
        * assertion logic for reporting crashes.
        */
 
-      g_running_tasks[this_cpu()] = this_task();
+      cpu = this_cpu();
+      tcb = current_task(cpu);
+      g_running_tasks[cpu] = tcb;
 
       /* Restore the cpu lock */
 
-      restore_critical_section();
+      restore_critical_section(tcb, cpu);
     }
 
   return ret_regs;

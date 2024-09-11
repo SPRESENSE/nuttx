@@ -131,6 +131,14 @@
 #define NUM_BASE_LEVEL_ENTRIES  GET_NUM_BASE_LEVEL_ENTRIES( \
     CONFIG_ARM64_VA_BITS)
 
+#ifdef CONFIG_BUILD_KERNEL
+#define BASE_XLAT_TABLE_SIZE  XLAT_TABLE_ENTRIES
+#define BASE_XLAT_TABLE_ALIGN PAGE_SIZE
+#else
+#define BASE_XLAT_TABLE_SIZE  NUM_BASE_LEVEL_ENTRIES
+#define BASE_XLAT_TABLE_ALIGN NUM_BASE_LEVEL_ENTRIES * sizeof(uint64_t)
+#endif
+
 #if (CONFIG_ARM64_PA_BITS == 48)
 #define TCR_PS_BITS             TCR_PS_BITS_256TB
 #elif (CONFIG_ARM64_PA_BITS == 44)
@@ -149,8 +157,8 @@
  * Private Data
  ****************************************************************************/
 
-static uint64_t base_xlat_table[NUM_BASE_LEVEL_ENTRIES] aligned_data(
-  NUM_BASE_LEVEL_ENTRIES * sizeof(uint64_t));
+static uint64_t base_xlat_table[BASE_XLAT_TABLE_SIZE]
+aligned_data(BASE_XLAT_TABLE_ALIGN);
 
 static uint64_t xlat_tables[CONFIG_MAX_XLAT_TABLES][XLAT_TABLE_ENTRIES]
 aligned_data(XLAT_TABLE_ENTRIES * sizeof(uint64_t));
@@ -706,10 +714,6 @@ void mmu_ln_setentry(uint32_t ptlevel, uintptr_t lnvaddr, uintptr_t paddr,
   /* Calculate index for lntable */
 
   index = XLAT_TABLE_VA_IDX(vaddr, ptlevel);
-
-  /* Setup the page descriptor and access flag */
-
-  mmuflags |= PTE_PAGE_DESC | PTE_BLOCK_DESC_AF;
 
   /* Save it */
 

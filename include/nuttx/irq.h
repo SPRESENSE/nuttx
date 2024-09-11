@@ -312,9 +312,18 @@ void leave_critical_section(irqstate_t flags) noinstrument_function;
  ****************************************************************************/
 
 #ifdef CONFIG_SMP
-void restore_critical_section(void);
+#  define restore_critical_section(tcb, cpu) \
+   do { \
+       if (tcb->irqcount <= 0) \
+         {\
+           if ((g_cpu_irqset & (1 << cpu)) != 0) \
+             { \
+               cpu_irqlock_clear(); \
+             } \
+         } \
+    } while (0)
 #else
-#  define restore_critical_section()
+#  define restore_critical_section(tcb, cpu)
 #endif
 
 #undef EXTERN

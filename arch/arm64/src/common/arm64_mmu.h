@@ -186,6 +186,26 @@
 #define TTBR_ASID_WIDTH             (16)
 #define TTBR_ASID_MASK              (((1UL << TTBR_ASID_WIDTH) - 1) << TTBR_ASID_SHIFT)
 
+/* TLBI instruction */
+
+#define TLBI_VADDR_SHIFT            (0)
+#define TLBI_VADDR_INPUT_SHIFT      (12) /* From input vaddr to TLBI vaddr field */
+#define TLBI_VADDR_WIDTH            (43)
+#define TLBI_VADDR_MASK             (((1UL << TLBI_VADDR_WIDTH) - 1) << TLBI_VADDR_SHIFT)
+#define TLBI_ASID_SHIFT             (48)
+#define TLBI_ASID_WIDTH             (16)
+#define TLBI_ASID_MASK              (((1UL << TLBI_ASID_WIDTH) - 1) << TLBI_ASID_SHIFT)
+
+/* Create an argument suitable for TLBI, with vaddr and asid as inputs */
+
+#define TLBI_ARG(vaddr, asid)                                       \
+  ({                                                                \
+    uintptr_t __arg;                                                \
+    __arg  = ((vaddr) >> TLBI_VADDR_INPUT_SHIFT) & TLBI_VADDR_MASK; \
+    __arg |= (uintptr_t)(asid) << TLBI_ASID_SHIFT;                  \
+    __arg;                                                          \
+  })
+
 /* Convenience macros to represent the ARMv8-A-specific
  * configuration for memory access permission and
  * cache-ability attribution.
@@ -223,16 +243,16 @@
 
 /* Flags for user page tables */
 
-#define MMU_UPGT_FLAGS              (0)
+#define MMU_UPGT_FLAGS              (PTE_TABLE_DESC)
 
 /* Flags for normal memory region */
 
-#define MMU_MT_NORMAL_FLAGS         (PTE_BLOCK_DESC_INNER_SHARE | PTE_BLOCK_DESC_MEMTYPE(MT_NORMAL))
+#define MMU_MT_NORMAL_FLAGS         (PTE_PAGE_DESC | PTE_BLOCK_DESC_AF | PTE_BLOCK_DESC_INNER_SHARE | PTE_BLOCK_DESC_MEMTYPE(MT_NORMAL))
 
 /* Flags for user FLASH (RX) and user RAM (RW) */
 
 #define MMU_UTEXT_FLAGS             (PTE_BLOCK_DESC_AP_RO | PTE_BLOCK_DESC_PXN | PTE_BLOCK_DESC_AP_USER | PTE_BLOCK_DESC_NG | MMU_MT_NORMAL_FLAGS)
-#define MMU_UDATA_FLAGS             (PTE_BLOCK_DESC_AP_RW | PTE_BLOCK_DESC_PXN | PTE_BLOCK_DESC_UXN | PTE_BLOCK_DESC_AP_USER | PTE_BLOCK_DESC_NG | MMU_MT_NORMAL_FLAGS)
+#define MMU_UDATA_FLAGS             (PTE_BLOCK_DESC_AP_RW | PTE_BLOCK_DESC_PXN | PTE_BLOCK_DESC_AP_USER | PTE_BLOCK_DESC_NG | PTE_BLOCK_DESC_UXN | MMU_MT_NORMAL_FLAGS)
 
 /* I/O region flags */
 
@@ -240,7 +260,7 @@
 
 /* Flags for kernel page tables */
 
-#define MMU_KPGT_FLAGS              (0)
+#define MMU_KPGT_FLAGS              (PTE_TABLE_DESC)
 
 /* Kernel FLASH and RAM are mapped globally */
 
@@ -358,7 +378,7 @@ static inline void mmu_invalidate_tlb_by_vaddr(uintptr_t vaddr)
       "dsb ish\n"
       "isb"
       :
-      : "r" (vaddr)
+      : "r" (TLBI_ARG(vaddr, 0))
       : "memory"
     );
 }
