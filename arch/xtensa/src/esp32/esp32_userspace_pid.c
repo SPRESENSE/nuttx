@@ -1,5 +1,5 @@
 /****************************************************************************
- * libs/libc/sched/clock_timespec_add.c
+ * arch/xtensa/src/esp32/esp32_userspace_pid.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -24,43 +24,57 @@
 
 #include <nuttx/config.h>
 
-#include <stdint.h>
-#include <time.h>
+#include "esp_attr.h"
 
-#include <nuttx/clock.h>
+#include "hal/mmu_hal.h"
+#include "hal/mmu_ll.h"
+#include "hal/cache_ll.h"
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name:  clock_timespec_add
+ * Name: esp32_userspace_init_for_pid
  *
  * Description:
- *   Add timespec ts1 to to2 and return the result in ts3
+ *   A helper for esp32_userspace.
+ *   Separated to avoid conflicts between esp hal vs nuttx.
  *
  * Input Parameters:
- *   ts1 and ts2: The two timespecs to be added
- *   ts3: The location to return the result (may be ts1 or ts2)
+ *   None.
  *
  * Returned Value:
- *   None
+ *   None.
  *
  ****************************************************************************/
 
-void clock_timespec_add(FAR const struct timespec *ts1,
-                        FAR const struct timespec *ts2,
-                        FAR struct timespec *ts3)
+IRAM_ATTR void
+esp32_userspace_init_for_pid(void)
 {
-  time_t sec = ts1->tv_sec + ts2->tv_sec;
-  long nsec  = ts1->tv_nsec + ts2->tv_nsec;
+  int i;
 
-  if (nsec >= NSEC_PER_SEC)
+  /* Xtensa CPU does speculative load/store on VAddr1/2/3 when connected
+   * to cache. Hence it requires all the pages of VAddr2/3 to be set valid
+   * to any physical page.
+   * Marking any page invalid would stall the CPU.
+   */
+
+  for (i = 64; i < 256; i++)
     {
-      nsec -= NSEC_PER_SEC;
-      sec++;
+      if (!mmu_ll_check_entry_valid(0, i))
+        {
+          mmu_ll_write_entry(0, i, 0, MMU_TARGET_FLASH0);
+        }
+
+      if (!mmu_ll_check_entry_valid(1, i))
+        {
+          mmu_ll_write_entry(1, i, 0, MMU_TARGET_FLASH0);
+        }
     }
 
-  ts3->tv_sec  = sec;
-  ts3->tv_nsec = nsec;
+  cache_ll_l1_enable_bus(0, CACHE_BUS_IBUS1);
+#ifdef CONFIG_SMP
+  cache_ll_l1_enable_bus(1, CACHE_BUS_IBUS1);
+#endif
 }

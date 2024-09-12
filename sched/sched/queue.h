@@ -1,5 +1,5 @@
 /****************************************************************************
- * libs/libc/sched/clock_ticks2time.c
+ * sched/sched/queue.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,42 +18,49 @@
  *
  ****************************************************************************/
 
+#ifndef __INCLUDE_SCHED_SCHED_NUTTX_QUEUE_H
+#define __INCLUDE_SCHED_SCHED_NUTTX_QUEUE_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
-
-#include <time.h>
-#include <nuttx/clock.h>
+#include <nuttx/queue.h>
 
 /****************************************************************************
- * Public Functions
+ * Pre-processor Definitions
  ****************************************************************************/
 
-/****************************************************************************
- * Name: clock_ticks2time
- *
- * Description:
- *   Convert the system time tick value to a relative time.
- *
- * Input Parameters:
- *   ticks - The number of system time ticks to convert.
- *   reltime - Return the converted system time here.
- *
- * Returned Value:
- *   Always returns OK
- *
- * Assumptions:
- *
- ****************************************************************************/
+#define dq_addfirst_nonempty(p, q) \
+  do \
+    { \
+      FAR dq_entry_t *tmp_node = (p); \
+      tmp_node->blink = NULL; \
+      tmp_node->flink = (q)->head; \
+      (q)->head->blink = tmp_node; \
+      (q)->head = tmp_node; \
+    } \
+  while (0)
 
-int clock_ticks2time(sclock_t ticks, FAR struct timespec *reltime)
-{
-  sclock_t remainder;
+#define dq_rem_head(p, q) \
+  do \
+    { \
+      FAR dq_entry_t *tmp_node = (p); \
+      FAR dq_entry_t *tmp_next = tmp_node->flink; \
+      (q)->head = tmp_next; \
+      tmp_next->blink = NULL; \
+      tmp_node->flink = NULL; \
+    } \
+  while (0)
 
-  reltime->tv_sec  = ticks / TICK_PER_SEC;
-  remainder        = ticks - TICK_PER_SEC * reltime->tv_sec;
-  reltime->tv_nsec = remainder * NSEC_PER_TICK;
-  return OK;
-}
+#define dq_rem_mid(p) \
+  do \
+    { \
+      FAR dq_entry_t *tmp_prev = (FAR dq_entry_t *)p->blink; \
+      FAR dq_entry_t *tmp_next = (FAR dq_entry_t *)p->flink; \
+      tmp_prev->flink = tmp_next; \
+      tmp_next->blink = tmp_prev; \
+    } \
+  while (0)
+
+#endif /* __INCLUDE_NUTTX_QUEUE_H_ */
