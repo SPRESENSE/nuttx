@@ -1040,6 +1040,24 @@ static ssize_t proc_stack(FAR struct proc_file_s *procfile,
   buffer    += copysize;
   remaining -= copysize;
 
+#ifdef CONFIG_STACK_COLORATION
+  if (totalsize >= buflen)
+    {
+      return totalsize;
+    }
+
+  /* Show the stack size */
+
+  linesize   = procfs_snprintf(procfile->line, STATUS_LINELEN, "%-12s%ld\n",
+                               "StackUsed:", (long)up_check_tcbstack(tcb));
+  copysize   = procfs_memcpy(procfile->line, linesize, buffer, remaining,
+                             &offset);
+
+  totalsize += copysize;
+  buffer    += copysize;
+  remaining -= copysize;
+#endif
+
 #if CONFIG_SCHED_STACK_RECORD > 0
   linesize   = procfs_snprintf(procfile->line, STATUS_LINELEN, "%-12s%zu\n",
                               "StackMax: ",
@@ -1061,12 +1079,13 @@ static ssize_t proc_stack(FAR struct proc_file_s *procfile,
   buffer    += copysize;
   remaining -= copysize;
 
-  for (i = tcb->level_deepest - 1; i > 0; i--)
+  for (i = tcb->level_deepest - 1; i >= 0; i--)
     {
       linesize = procfs_snprintf(procfile->line, STATUS_LINELEN,
                                  "%-12zu%-pS\n",
-                                 tcb->stackrecord_sp_deepest[i - 1] -
-                                 tcb->stackrecord_sp_deepest[i],
+                                 (i ? tcb->stackrecord_sp_deepest[i - 1] :
+                                  tcb->stack_base_ptr + tcb->adj_stack_size)
+                                 - tcb->stackrecord_sp_deepest[i],
                                  tcb->stackrecord_pc_deepest[i]);
       copysize = procfs_memcpy(procfile->line, linesize, buffer, remaining,
                                &offset);
@@ -1088,24 +1107,6 @@ static ssize_t proc_stack(FAR struct proc_file_s *procfile,
       buffer    += copysize;
       remaining -= copysize;
     }
-#endif
-
-#ifdef CONFIG_STACK_COLORATION
-  if (totalsize >= buflen)
-    {
-      return totalsize;
-    }
-
-  /* Show the stack size */
-
-  linesize   = procfs_snprintf(procfile->line, STATUS_LINELEN, "%-12s%ld\n",
-                               "StackUsed:", (long)up_check_tcbstack(tcb));
-  copysize   = procfs_memcpy(procfile->line, linesize, buffer, remaining,
-                             &offset);
-
-  totalsize += copysize;
-  buffer    += copysize;
-  remaining -= copysize;
 #endif
 
   return totalsize;

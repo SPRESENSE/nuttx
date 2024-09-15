@@ -640,14 +640,15 @@ if(CONFIG_BUILD_FLAT)
   get_property(nuttx_apps_libs GLOBAL PROPERTY NUTTX_APPS_LIBRARIES)
 endif()
 
-set(nuttx_libs ${nuttx_kernel_libs} ${nuttx_system_libs} ${nuttx_apps_libs})
+set(nuttx_libs ${nuttx_kernel_libs} ${nuttx_system_libs} ${nuttx_apps_libs}
+               ${nuttx_extra_libs})
 
 if(NOT CONFIG_ARCH_SIM)
 
   # TODO: nostart/nodefault not applicable to nuttx toolchain
   target_link_libraries(
     nuttx PRIVATE ${NUTTX_EXTRA_FLAGS} -T${ldscript} -Wl,--start-group
-                  ${nuttx_libs} ${nuttx_extra_libs} -Wl,--end-group)
+                  ${nuttx_libs} -Wl,--end-group)
 
   # generate binary outputs in different formats (.bin, .hex, etc)
   nuttx_generate_outputs(nuttx)
@@ -680,52 +681,25 @@ elseif(WIN32)
   add_custom_command(
     OUTPUT ${CMAKE_BINARY_DIR}/nuttx_all.lib
     COMMAND ${CMAKE_AR} /OUT:${CMAKE_BINARY_DIR}/nuttx_all.lib
-            ${nuttx_libs_paths} ${nuttx_extra_libs}
-    DEPENDS ${nuttx_libs} ${nuttx_extra_libs}
+            ${nuttx_libs_paths}
+    DEPENDS ${nuttx_libs}
     VERBATIM)
   add_custom_target(nuttx_all-lib DEPENDS ${CMAKE_BINARY_DIR}/nuttx_all.lib)
   add_dependencies(nuttx nuttx_all-lib)
   target_link_libraries(nuttx PRIVATE $<TARGET_OBJECTS:sim_head>
                                       ${CMAKE_BINARY_DIR}/nuttx_all.lib)
 else()
+
+  if(NOT APPLE)
+    # generate SIM ld.script for cheat C++ global construction
+    include(nuttx_generate_sim_ld)
+  endif()
+
   # On sim platform the link step is a little different. NuttX is first built
   # into a partially linked relocatable object nuttx.rel with no interface to
   # host OS. Then, the names of symbols that conflict with libc symbols are
   # renamed. The final nuttx binary is built by linking the host-specific
   # objects with the relocatable binary.
-
-  # C++ global objects are constructed before main get executed, but it isn't a
-  # good point for simulator because NuttX doesn't finish the kernel
-  # initialization yet. So we have to skip the standard facilities and do the
-  # construction by ourself. But how to achieve the goal? 1.Command linker
-  # generate the default script(-verbose) 2.Replace
-  # __init_array_start/__init_array_end with _sinit/_einit 3.Append
-  # __init_array_start = .; __init_array_end = .; Step 2 let nxtask_startup find
-  # objects need to construct Step 3 cheat the host there is no object to
-  # construct Note: the destructor can be fixed in the same way.
-
-  if(NOT APPLE)
-    add_custom_command(
-      OUTPUT nuttx.ld
-      COMMAND
-        ${CMAKE_C_COMPILER} ${CMAKE_EXE_LINKER_FLAGS}
-        $<$<BOOL:${CONFIG_SIM_M32}>:-m32> -Wl,-verbose 2> /dev/null >
-        nuttx-orig.ld || true
-      COMMAND
-        cat nuttx-orig.ld | sed -e '/====/,/====/!d\;//d' -e
-        's/__executable_start/_stext/g' -e 's/__init_array_start/_sinit/g' -e
-        's/__init_array_end/_einit/g' -e 's/__fini_array_start/_sfini/g' -e
-        's/__fini_array_end/_efini/g' > nuttx.ld
-      COMMAND
-        echo ARGS
-        '__init_array_start = .\; __init_array_end = .\; __fini_array_start = .\; __fini_array_end = .\;'
-        >> nuttx.ld
-      COMMAND sed -i '/\\.data *:/i " ${CONFIG_SIM_CUSTOM_DATA_SECTION} " '
-              nuttx.ld)
-  endif()
-
-  # conflicting symbols to rename
-
   include(nuttx_redefine_symbols)
 
   # TODO: do with single function call?
@@ -740,9 +714,9 @@ else()
       COMMAND
         ${CMAKE_LINKER} ARGS -r $<$<BOOL:${CONFIG_SIM_M32}>:-m32>
         $<TARGET_OBJECTS:sim_head> $<$<NOT:$<BOOL:${APPLE}>>:-Wl,--start-group>
-        ${nuttx_libs_paths} ${nuttx_extra_libs}
-        $<$<NOT:$<BOOL:${APPLE}>>:-Wl,--end-group> -o nuttx.rel
-      DEPENDS ${nuttx_libs} ${nuttx_extra_libs} sim_head
+        ${nuttx_libs_paths} $<$<NOT:$<BOOL:${APPLE}>>:-Wl,--end-group> -o
+        nuttx.rel
+      DEPENDS ${nuttx_libs} sim_head
       COMMAND_EXPAND_LISTS)
   else()
     add_custom_command(
@@ -750,10 +724,10 @@ else()
       COMMAND
         ${CMAKE_C_COMPILER} ARGS -r $<$<BOOL:${CONFIG_SIM_M32}>:-m32>
         $<TARGET_OBJECTS:sim_head> $<$<NOT:$<BOOL:${APPLE}>>:-Wl,--start-group>
-        ${nuttx_libs_paths} ${nuttx_extra_libs}
-        $<$<NOT:$<BOOL:${APPLE}>>:-Wl,--end-group> -o nuttx.rel
+        ${nuttx_libs_paths} $<$<NOT:$<BOOL:${APPLE}>>:-Wl,--end-group> -o
+        nuttx.rel
       COMMAND ${CMAKE_OBJCOPY} --redefine-syms=nuttx-names.dat nuttx.rel
-      DEPENDS ${nuttx_libs} ${nuttx_extra_libs} sim_head sim_redefine_symbols
+      DEPENDS ${nuttx_libs} sim_head sim_redefine_symbols
       COMMAND_EXPAND_LISTS)
   endif()
   add_custom_target(nuttx-rel DEPENDS nuttx.rel

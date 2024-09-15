@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/or1k/src/common/or1k_uart.c
+ * include/nuttx/virtio/virtio-pci.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,28 +18,47 @@
  *
  ****************************************************************************/
 
+#ifndef __INCLUDE_NUTTX_VIRTIO_VIRTIO_PCI_H
+#define __INCLUDE_NUTTX_VIRTIO_VIRTIO_PCI_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
-#include <nuttx/arch.h>
+#include <stdint.h>
 
-#include <nuttx/serial/uart_16550.h>
-
-#include "or1k_internal.h"
+#ifdef CONFIG_DRIVERS_VIRTIO_PCI
 
 /****************************************************************************
- * Public Functions
+ * Pre-processor Definitions
  ****************************************************************************/
 
-uart_datawidth_t uart_getreg(uart_addrwidth_t base, unsigned int offset)
-{
-  return *(uint8_t *)(base + offset);
-}
+/****************************************************************************
+ * Public Type Definitions
+ ****************************************************************************/
 
-void uart_putreg(uart_addrwidth_t base, unsigned int offset,
-                 uart_datawidth_t value)
+/****************************************************************************
+ * Public Function Prototypes
+ ****************************************************************************/
+
+#ifdef __cplusplus
+#define EXTERN extern "C"
+extern "C"
 {
-  *(uint8_t *)(base + offset) = value;
+#else
+#define EXTERN extern
+#endif
+
+/****************************************************************************
+ * Name: register_virtio_pci_driver
+ ****************************************************************************/
+
+int register_virtio_pci_driver(void);
+
+#undef EXTERN
+#ifdef __cplusplus
 }
+#endif
+
+#endif /* CONFIG_DRIVERS_VIRTIO_PCI */
+#endif /* __INCLUDE_NUTTX_VIRTIO_VIRTIO_PCI_H */
