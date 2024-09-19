@@ -249,7 +249,6 @@ struct xcpt_syscall_s
  * For a total of 17 (XCPTCONTEXT_REGS)
  */
 
-#ifndef __ASSEMBLY__
 struct xcptcontext
 {
   /* The following function pointer is non-zero if there are pending signals
@@ -325,15 +324,10 @@ struct xcptcontext
 #endif
 #endif
 };
-#endif
-
-#endif /* __ASSEMBLY__ */
 
 /****************************************************************************
  * Inline functions
  ****************************************************************************/
-
-#ifndef __ASSEMBLY__
 
 /* Name: up_irq_save, up_irq_restore, and friends.
  *
@@ -485,13 +479,38 @@ static inline_function uint32_t up_getsp(void)
   return sp;
 }
 
-#endif /* __ASSEMBLY__ */
+noinstrument_function
+static inline_function uint32_t *up_current_regs(void)
+{
+  uint32_t *regs;
+  __asm__ __volatile__
+  (
+    "mrc " "p15, " "0" ", %0, " "c13" ", " "c0" ", " "4" "\n"
+    : "=r"(regs)
+  );
+  return regs;
+}
+
+noinstrument_function
+static inline_function void up_set_current_regs(uint32_t *regs)
+{
+  __asm__ __volatile__
+  (
+    "mcr " "p15, " "0" ", %0, " "c13" ", " "c0" ", " "4" "\n"
+    :: "r"(regs)
+  );
+}
+
+noinstrument_function
+static inline_function bool up_interrupt_context(void)
+{
+  return up_current_regs() != NULL;
+}
 
 /****************************************************************************
  * Public Data
  ****************************************************************************/
 
-#ifndef __ASSEMBLY__
 #ifdef __cplusplus
 #define EXTERN extern "C"
 extern "C"
@@ -508,6 +527,6 @@ extern "C"
 #ifdef __cplusplus
 }
 #endif
-#endif
+#endif /* __ASSEMBLY__ */
 
 #endif /* __ARCH_ARM_INCLUDE_ARMV8_R_IRQ_H */

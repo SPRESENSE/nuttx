@@ -225,10 +225,11 @@ struct file_operations
                        FAR struct mm_map_entry_s *map);
   CODE int     (*truncate)(FAR struct file *filep, off_t length);
 
-  /* The two structures need not be common after this point */
-
   CODE int     (*poll)(FAR struct file *filep, FAR struct pollfd *fds,
                        bool setup);
+
+  /* The two structures need not be common after this point */
+
 #ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
   CODE int     (*unlink)(FAR struct inode *inode);
 #endif
@@ -465,6 +466,9 @@ typedef struct cookie_io_functions_t
 struct file
 {
   int               f_oflags;   /* Open mode flags */
+#ifdef CONFIG_FS_REFCOUNT
+  int               f_refs;     /* Reference count */
+#endif
   off_t             f_pos;      /* File position */
   FAR struct inode *f_inode;    /* Driver or file system interface */
   FAR void         *f_priv;     /* Per file driver private data */
@@ -873,7 +877,11 @@ void files_initlist(FAR struct filelist *list);
  *
  ****************************************************************************/
 
+#ifdef CONFIG_DUMP_ON_EXIT
 void files_dumplist(FAR struct filelist *list);
+#else
+#  define files_dumplist(l)
+#endif
 
 /****************************************************************************
  * Name: files_getlist
@@ -1150,6 +1158,41 @@ int nx_open(FAR const char *path, int oflags, ...);
  ****************************************************************************/
 
 int fs_getfilep(int fd, FAR struct file **filep);
+
+/****************************************************************************
+ * Name: fs_reffilep
+ *
+ * Description:
+ *   To specify filep increase the reference count.
+ *
+ * Input Parameters:
+ *   None.
+ *
+ * Returned Value:
+ *   None.
+ *
+ ****************************************************************************/
+
+void fs_reffilep(FAR struct file *filep);
+
+/****************************************************************************
+ * Name: fs_putfilep
+ *
+ * Description:
+ *   Release reference counts for files, less than or equal to 0 and close
+ *   the file
+ *
+ * Input Parameters:
+ *   filep  - The caller provided location in which to return the 'struct
+ *            file' instance.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_FS_REFCOUNT
+int fs_putfilep(FAR struct file *filep);
+#else
+#  define fs_putfilep(f)
+#endif
 
 /****************************************************************************
  * Name: file_close

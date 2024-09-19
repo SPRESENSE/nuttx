@@ -793,6 +793,12 @@ config SCHED_DUMP_LEAK
 		are printed using syslog. This helps catch any memory allocated by the
 		task that remains unreleased when the task exits.
 
+config SCHED_DUMP_ON_EXIT
+	bool "Dump all tasks state on exit"
+	default n
+	---help---
+		Dump all tasks state on exit()
+
 config SCHED_USER_IDENTITY
 	bool "Support per-task User Identity"
 	default n
@@ -941,7 +947,7 @@ config SCHED_CRITMONITOR_MAXTIME_THREAD
 
 config SCHED_CRITMONITOR_MAXTIME_WQUEUE
 	int "WORK queue max execution time"
-	default SCHED_CRITMONITOR_MAXTIME_THREAD
+	default -1
 	---help---
 		Worker execution time should be smaller than
 		SCHED_CRITMONITOR_MAXTIME_WQUEUE, or system will give a warning.
@@ -1062,7 +1068,7 @@ config SCHED_CPULOAD_EXTCLK
 
 config SCHED_CPULOAD_CRITMONITOR
 	bool "Use critical monitor"
-	depends on SCHED_CRITMONITOR
+	depends on SCHED_CRITMONITOR_MAXTIME_THREAD >= 0
 	---help---
 		Use the perfcounter in the core of the chip as a counter, no need to
 		use an external timer. Need to depend on SCHED_CRITMONITOR.
@@ -1979,7 +1985,7 @@ config PID_INITIAL_COUNT
 config SCHED_EVENTS
 	bool "Schedule Event objects"
 	default n
-	help
-	  This option enables event objects. Threads may wait on event
-	  objects for specific events, but both threads and ISRs may deliver
-	  events to event objects.
+	---help---
+		This option enables event objects. Threads may wait on event
+		objects for specific events, but both threads and ISRs may deliver
+		events to event objects.
