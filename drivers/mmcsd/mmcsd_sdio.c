@@ -164,8 +164,10 @@ static int     mmcsd_stoptransmission(FAR struct mmcsd_state_s *priv);
 #endif
 static int     mmcsd_setblocklen(FAR struct mmcsd_state_s *priv,
                                  uint32_t blocklen);
+#if MMCSD_MULTIBLOCK_LIMIT != 1
 static int     mmcsd_setblockcount(FAR struct mmcsd_state_s *priv,
                                    uint32_t nblocks);
+#endif
 static ssize_t mmcsd_readsingle(FAR struct mmcsd_state_s *priv,
                                 FAR uint8_t *buffer, off_t startblock);
 #if MMCSD_MULTIBLOCK_LIMIT != 1
@@ -981,10 +983,10 @@ static void mmcsd_decode_scr(FAR struct mmcsd_state_s *priv, uint32_t scr[2])
 
 #ifdef CONFIG_ENDIAN_BIG  /* Card transfers SCR in big-endian order */
   priv->buswidth     = (scr[0] >> 16) & 15;
-  priv->cmd23support =  scr[0]        & 2;
+  priv->cmd23support = (scr[0] >> 1)  & 1;
 #else
   priv->buswidth     = (scr[0] >> 8)  & 15;
-  priv->cmd23support = (scr[0] >> 24) & 2;
+  priv->cmd23support = (scr[0] >> 25) & 1;
 #endif
 
 #ifdef CONFIG_DEBUG_FS_INFO
@@ -1408,6 +1410,7 @@ static int mmcsd_setblocklen(FAR struct mmcsd_state_s *priv,
   return ret;
 }
 
+#if MMCSD_MULTIBLOCK_LIMIT != 1
 /****************************************************************************
  * Name: mmcsd_setblockcount
  *
@@ -1430,6 +1433,7 @@ static int mmcsd_setblockcount(FAR struct mmcsd_state_s *priv,
 
   return ret;
 }
+#endif
 
 /****************************************************************************
  * Name: mmcsd_readsingle
