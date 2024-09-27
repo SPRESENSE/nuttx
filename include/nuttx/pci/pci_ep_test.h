@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/risc-v/src/common/supervisor/riscv_perform_syscall.c
+ * include/nuttx/pci/pci_ep_test.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,62 +18,28 @@
  *
  ****************************************************************************/
 
+#ifndef __INCLUDE_NUTTX_PCI_EP_TEST_H
+#define __INCLUDE_NUTTX_PCI_EP_TEST_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
-
-#include <stdint.h>
-
-#include <nuttx/addrenv.h>
-
-#include "sched/sched.h"
-#include "riscv_internal.h"
-
 /****************************************************************************
- * Public Functions
+ * Public Types
  ****************************************************************************/
 
-void *riscv_perform_syscall(uintreg_t *regs)
-{
-  struct tcb_s **running_task = &g_running_tasks[this_cpu()];
-  struct tcb_s *tcb;
+#ifdef CONFIG_PCI_EPF_TEST
 
-  if (*running_task != NULL)
-    {
-      (*running_task)->xcp.regs = regs;
-    }
+/****************************************************************************
+ * Name: pci_register_epf_test_device
+ *
+ * Description:
+ *  Init a epf device test
+ *
+ ****************************************************************************/
 
-  /* Set up the interrupt register set needed by swint() */
-
-  up_set_current_regs(regs);
-
-  /* Run the system call handler (swint) */
-
-  riscv_swint(0, regs, NULL);
-  tcb = this_task();
-
-  if ((*running_task) != tcb)
-    {
-#ifdef CONFIG_ARCH_ADDRENV
-      /* Make sure that the address environment for the previously
-       * running task is closed down gracefully (data caches dump,
-       * MMU flushed) and set up the address environment for the new
-       * thread at the head of the ready-to-run list.
-       */
-
-      addrenv_switch(NULL);
+int pci_register_epf_test_device(FAR const char *epc_name);
 #endif
 
-      /* Record the new "running" task.  g_running_tasks[] is only used by
-       * assertion logic for reporting crashes.
-       */
-
-      *running_task = tcb;
-    }
-
-  up_set_current_regs(NULL);
-
-  return tcb->xcp.regs;
-}
+#endif /* __INCLUDE_NUTTX_PCI_EP_TEST_H */
