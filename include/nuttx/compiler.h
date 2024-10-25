@@ -110,7 +110,7 @@
 
 #  if CONFIG_FORTIFY_SOURCE > 0
 #    if !defined(__OPTIMIZE__) || (__OPTIMIZE__) <= 0
-#      warning requires compiling with optimization (-O2 or higher)
+#      error requires compiling with optimization (-O2 or higher)
 #    endif
 #    if CONFIG_FORTIFY_SOURCE == 3
 #      if __GNUC__ < 12 || (defined(__clang__) && __clang_major__ < 12)
@@ -733,7 +733,7 @@
 /* At present, only the following Zilog compilers are recognized */
 
 #  if !defined(__ZNEO__) && !defined(__EZ8__) && !defined(__EZ80__)
-#    warning "Unrecognized Zilog compiler"
+#    error "Unrecognized Zilog compiler"
 #  endif
 
 /* Pre-processor */

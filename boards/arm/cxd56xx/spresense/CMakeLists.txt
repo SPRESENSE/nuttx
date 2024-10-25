@@ -37,9 +37,18 @@ ExternalProject_Add(
   USES_TERMINAL_INSTALL true
   DEPENDS nuttx)
 
+if(CONFIG_ARCH_TOOLCHAIN_IAR)
+add_custom_command(
+  TARGET nuttx_post_build
+  POST_BUILD
+  BYPRODUCTS nuttx.spk
+  COMMAND ${CMAKE_BINARY_DIR}/bin/mkspk -c2 nuttx.elf nuttx nuttx.spk
+  WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+else()
 add_custom_command(
   TARGET nuttx_post_build
   POST_BUILD
   BYPRODUCTS nuttx.spk
   COMMAND ${CMAKE_BINARY_DIR}/bin/mkspk -c2 nuttx nuttx nuttx.spk
   WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+endif()

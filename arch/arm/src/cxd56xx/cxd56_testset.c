@@ -47,7 +47,11 @@
 
 spinlock_t up_testset2(volatile spinlock_t *lock)
 {
+#if defined(__ghs__) || defined(__ICCARM__)
+  register uintptr_t ret = (uintptr_t)(lock);
+#else
   register uintptr_t ret asm("r0") = (uintptr_t)(lock);
+#endif
 
   asm volatile (
     "mov r1, #1 \n"

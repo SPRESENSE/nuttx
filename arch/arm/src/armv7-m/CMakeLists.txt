@@ -20,9 +20,15 @@
 
 # TODO: do not use config to detect this
 
+if(CONFIG_ARCH_TOOLCHAIN_IAR)
+  set(ARCH_TOOLCHAIN_PATH iar)
+else()
+  set(ARCH_TOOLCHAIN_PATH gnu)
+endif()
+
 set(SRCS
-    arm_exception.S
-    arm_saveusercontext.S
+    ${ARCH_TOOLCHAIN_PATH}/arm_exception.S
+    ${ARCH_TOOLCHAIN_PATH}/arm_saveusercontext.S
     arm_busfault.c
     arm_dbgmonitor.c
     arm_cache.c

@@ -278,7 +278,14 @@ void up_irqinitialize(void)
    * external FLASH.
    */
 
+#if defined(__ICCARM__)
+/* _vectors replaced on __vector_table for IAR C-SPY Simulator */
+
+  putreg32((uint32_t)__vector_table, NVIC_VECTAB);
   putreg32((uint32_t)_vectors, NVIC_VECTAB);
+#else
+  putreg32((uint32_t)_vectors, NVIC_VECTAB);
+#endif
 
 #ifdef CONFIG_ARCH_RAMVECTORS
   /* If CONFIG_ARCH_RAMVECTORS is defined, then we are using a RAM-based

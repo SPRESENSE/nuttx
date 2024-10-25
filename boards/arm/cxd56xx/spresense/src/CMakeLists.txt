@@ -77,6 +77,10 @@ endif()
 
 target_sources(board PRIVATE ${SRCS})
 
+if(CONFIG_ARCH_TOOLCHAIN_IAR)
+  set(ICFSCRIPT ramconfig.icf)
+endif()
+
 if(CONFIG_CXD56_USE_SYSBUS)
   set(LDSCRIPT ramconfig-new.ld)
 else()
@@ -85,3 +89,4 @@ endif()
 
 # TODO: make this the default and then allow boards to redefine
 set_property(GLOBAL PROPERTY LD_SCRIPT "${NUTTX_BOARD_DIR}/scripts/${LDSCRIPT}")
+set_property(GLOBAL PROPERTY ICF_SCRIPT "${NUTTX_BOARD_DIR}/scripts/${ICFSCRIPT}")

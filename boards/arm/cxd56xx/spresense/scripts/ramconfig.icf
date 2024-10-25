@@ -1,0 +1,26 @@
+/*###ICF### Section handled by ICF editor, don't touch! ****/
+/*-Editor annotation file-*/
+/* IcfEditorFile="$TOOLKIT_DIR$\config\ide\IcfEditor\cortex_v1_0.xml" */
+/*-Specials-*/
+define symbol __ICFEDIT_intvec_start__ = 0x0D000000;
+/*-Memory Regions-*/
+define symbol Region_RAM_start        = 0x0D000000;
+define symbol Region_RAM_end          = 0x0D17FFFF;
+define symbol Region_GNSSRAM_start    = 0x09000000;
+define symbol Region_GNSSRAM_end      = 0x0909FFFF;
+
+/**** End of ICF editor section. ###ICF###*/
+
+define memory mem with size = 4G;
+define region RAM_region = mem:[from Region_RAM_start to Region_RAM_end];
+define region GNSSRAM_region = mem:[from Region_GNSSRAM_start to Region_GNSSRAM_start];
+
+//place at address mem:__ICFEDIT_intvec_start__ { readonly section .intvec };
+place at start of RAM_region { section .vectors };
+place in RAM_region  { readonly, section .modulelist };
+place in RAM_region  { readwrite };
+
+place in GNSSRAM_region { section .gnssram.text, section .gnssram.data, section .gnssram.bss };
+
+define symbol __stack = 0x0d180000;
+export symbol __stack;

@@ -119,9 +119,9 @@ void __start(void)
   /* Set MSP/PSP to IDLE stack */
 
   __asm__ __volatile__("\tmsr msp, %0\n" :
-                       : "r" (_ebss + CONFIG_IDLETHREAD_STACKSIZE));
+                       : "r" ((uint8_t *)_END_BSS + CONFIG_IDLETHREAD_STACKSIZE));
   __asm__ __volatile__("\tmsr psp, %0\n" :
-                       : "r" (_ebss + CONFIG_IDLETHREAD_STACKSIZE));
+                       : "r" ((uint8_t *)_END_BSS + CONFIG_IDLETHREAD_STACKSIZE));
 
 #ifndef CONFIG_CXD56_SUBCORE
   cpuid = getreg32(CPU_ID);
@@ -159,7 +159,7 @@ void __start(void)
    * certain that there are no issues with the state of global variables.
    */
 
-  for (dest = (uint32_t *)_sbss; dest < (uint32_t *)_ebss; )
+  for (dest = (uint32_t *)_START_BSS; dest < (uint32_t *)_END_BSS; )
     {
       *dest++ = 0;
     }
@@ -167,8 +167,14 @@ void __start(void)
 #ifdef CONFIG_CXD56_GNSS_RAM
   /* Clear .gnssram.bss section. */
 
+#ifdef __ICCARM__
+#pragma section=".gnssram.bss"
+  uint8_t *_gnssramsbss = (uint8_t *)__sfb(".gnssram.bss");
+  uint8_t *_gnssramebss = (uint8_t *)__sfe(".gnssram.bss");
+#else
   extern uint8_t _gnssramsbss[];
   extern uint8_t _gnssramebss[];
+#endif
 
   for (dest = (uint32_t *)_gnssramsbss; dest < (uint32_t *)_gnssramebss; )
     {

@@ -916,7 +916,7 @@
  ****************************************************************************/
 
 #define SDIO_GOTEXTCSD(dev,buffer) \
-    ((dev)->gotextcsd?(dev)->gotextcsd(dev,buffer):OK)
+    ((dev)->gotextcsd?(dev)->gotextcsd(dev,buffer):(void)OK)
 
 /****************************************************************************
  * Public Types

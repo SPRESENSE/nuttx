@@ -1,7 +1,5 @@
 /****************************************************************************
- * libs/libc/assert/lib_stackchk.c
- *
- * SPDX-License-Identifier: Apache-2.0
+ * arch/arm/src/armv7-m/gnu/arm_saveusercontext.S
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -24,14 +22,17 @@
  * Included Files
  ****************************************************************************/
 
-#include <assert.h>
+#include <nuttx/config.h>
+#include <nuttx/irq.h>
 
-/****************************************************************************
- * Public Data
- ****************************************************************************/
+	.file	"arm_saveusercontext.S"
 
-#ifndef __ICCARM__
-FAR const void *const __stack_chk_guard = &__stack_chk_guard;
+	.text
+#ifdef __ghs__
+	.thumb2
+#else
+	.syntax	unified
+	.thumb
 #endif
 
 /****************************************************************************
@@ -39,22 +40,73 @@ FAR const void *const __stack_chk_guard = &__stack_chk_guard;
  ****************************************************************************/
 
 /****************************************************************************
- * Name: __stack_chk_fail
+ * Name: up_saveusercontext
  *
  * Description:
- *   The interface __stack_chk_fail() shall abort the function that called
- *   it with a message that a stack overflow has been detected. The program
- *   that called the function shall then exit.
+ *   Save the current context.  Full prototype is:
  *
- * Input Parameters:
- *   None
+ *   int up_saveusercontext(void *saveregs);
+ *
+ *   R0 = saveregs = pinter saved array
  *
  * Returned Value:
- *   None.
+ *   None
  *
  ****************************************************************************/
 
-void __stack_chk_fail(void)
-{
-  PANIC();
-}
+	.globl	up_saveusercontext
+	.globl	up_saveusercontext
+#ifdef __ghs__
+	.type	up_saveusercontext, $function
+#else
+	.type	up_saveusercontext, %function
+#endif
+
+up_saveusercontext:
+
+	/* Save r0~r3, r12, r14, pc */
+
+	str		r0, [r0, #(4*REG_R0)]
+	str		r1, [r0, #(4*REG_R1)]
+	str		r2, [r0, #(4*REG_R2)]
+	str		r3, [r0, #(4*REG_R3)]
+	str		r12, [r0, #(4*REG_R12)]
+	str		r14, [r0, #(4*REG_R14)]
+	str		r14, [r0, #(4*REG_R15)]
+
+	/* Save xpsr */
+
+	mrs		r1, XPSR
+	str		r1, [r0, #(4*REG_XPSR)]
+
+#ifdef CONFIG_ARCH_FPU
+	add		r1, r0, #(4*REG_S0)
+	vstmia		r1!, {s0-s15}
+	vmrs		r2, fpscr
+	str		r2, [r1]
+#endif
+
+	/* Save r13, primask, r4~r11 */
+
+	mov		r2, sp
+#ifdef CONFIG_ARMV7M_USEBASEPRI
+	mrs		r3, basepri
+#else
+	mrs		r3, primask
+#endif
+	stmia		r0!, {r2-r11}
+
+	/* Save EXC_RETURN to 0xffffffff */
+
+	mov		r1, #-1
+	stmia		r0!, {r1}
+
+#ifdef CONFIG_ARCH_FPU
+	vstmia		r0!, {s16-s31}
+#endif
+
+	mov		r0, #0
+	bx		lr
+
+	.size	up_saveusercontext, . - up_saveusercontext
+	.end

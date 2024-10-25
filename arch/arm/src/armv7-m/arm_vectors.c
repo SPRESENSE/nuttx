@@ -47,7 +47,7 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-#define IDLE_STACK      (_ebss + CONFIG_IDLETHREAD_STACKSIZE)
+#define IDLE_STACK      ((uint8_t *)_END_BSS + CONFIG_IDLETHREAD_STACKSIZE)
 
 /****************************************************************************
  * Private Functions
@@ -57,6 +57,18 @@
 
 extern void __start(void);
 
+#ifdef __ICCARM__
+static void start(void)
+{
+    void (*start_ptr)(void) = __start;
+    asm volatile (
+        "mov lr, #0\n\t"
+        "bx %0\n\t"
+        :
+        : "r"(start_ptr)
+    );
+}
+#else
 static void start(void)
 {
   /* Zero lr to mark the end of backtrace */
@@ -64,6 +76,7 @@ static void start(void)
   asm volatile ("mov lr, #0\n\t"
                 "b  __start\n\t");
 }
+#endif
 
 /****************************************************************************
  * Public Functions
@@ -87,8 +100,13 @@ extern void exception_direct(void);
  * Note that the [ ... ] designated initializer is a GCC extension.
  */
 
+#ifdef __ICCARM__
+#pragma location = ".vectors"
+const void * const _vectors[] =
+#else
 const void * const _vectors[] locate_data(".vectors")
                               aligned_data(VECTAB_ALIGN) =
+#endif
 {
   /* Initial stack */
 
@@ -96,11 +114,11 @@ const void * const _vectors[] locate_data(".vectors")
 
   /* Reset exception handler */
 
-  start,
+  (void *)start,
 
   /* Vectors 2 - n point directly at the generic handler */
 
-  [2 ... NVIC_IRQ_PENDSV] = &exception_common,
+  [2 ... NVIC_IRQ_PENDSV] = (void *)&exception_common,
   [(NVIC_IRQ_PENDSV + 1) ... (15 + ARMV7M_PERIPHERAL_INTERRUPTS)]
-                          = &exception_direct
+                          = (void *)&exception_direct
 };

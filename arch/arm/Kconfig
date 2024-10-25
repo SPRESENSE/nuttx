@@ -13,6 +13,7 @@ choice
 config ARM_TOOLCHAIN_IAR
 	bool "IAR ANSI C/C++ toolchain"
 	select CYGWIN_WINTOOL if WINDOWS_CYGWIN
+	select ARCH_TOOLCHAIN_IAR
 
 config ARM_TOOLCHAIN_BUILDROOT
 	bool "Buildroot (Cygwin or Linux)"

@@ -46,7 +46,11 @@
  * Public Data
  ****************************************************************************/
 
+#ifdef __ICCARM__
+weak_data extern FAR void *__dso_handle;
+#else
 extern FAR void *__dso_handle weak_data;
+#endif
 
 #ifndef CONFIG_HOST_WINDOWS
 FAR void *__dso_handle = &__dso_handle;

@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/armv7-m/arm_saveusercontext.S
+ * arch/arm/src/armv7-m/iar/arm_saveusercontext.S
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -25,15 +25,7 @@
 #include <nuttx/config.h>
 #include <nuttx/irq.h>
 
-	.file	"arm_saveusercontext.S"
-
-	.text
-#ifdef __ghs__
-	.thumb2
-#else
-	.syntax	unified
-	.thumb
-#endif
+//	.file	"arm_saveusercontext.S"
 
 /****************************************************************************
  * Public Functions
@@ -54,13 +46,9 @@
  *
  ****************************************************************************/
 
-	.globl	up_saveusercontext
-	.globl	up_saveusercontext
-#ifdef __ghs__
-	.type	up_saveusercontext, $function
-#else
-	.type	up_saveusercontext, %function
-#endif
+	SECTION    `.text`:CODE
+
+	PUBLIC	up_saveusercontext
 
 up_saveusercontext:
 
@@ -108,5 +96,6 @@ up_saveusercontext:
 	mov		r0, #0
 	bx		lr
 
-	.size	up_saveusercontext, . - up_saveusercontext
-	.end
+//	.size	up_saveusercontext, . - up_saveusercontext
+
+	END

@@ -35,13 +35,19 @@
 
 int nsh_main(int argc, char *argv[]);
 
-int weak_function spresense_main(int argc, char *argv[])
+#ifdef __ICCARM__
+weak_function void main(void)
+{
+}
+#endif
+
+weak_function int spresense_main(int argc, char *argv[])
 {
   return nsh_main(argc, argv);
 }
 
 #ifdef CONFIG_SYSTEMTICK_HOOK
-void weak_function board_timerhook(void)
+weak_function void board_timerhook(void)
 {
 }
 #endif

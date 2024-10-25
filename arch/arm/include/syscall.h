@@ -134,7 +134,7 @@
 
 /* SVC with SYS_ call number and no parameters */
 
-#ifdef __ghs__
+#if defined(__ghs__) || defined(__ICCARM__)
 #  define sys_call0(nbr)                    \
 ({                                          \
   uintptr_t ret;                            \
@@ -166,7 +166,7 @@
 
 /* SVC with SYS_ call number and one parameter */
 
-#ifdef __ghs__
+#if defined(__ghs__) || defined(__ICCARM__)
 #  define sys_call1(nbr, parm1)              \
 ({                                           \
   uintptr_t ret;                             \
@@ -201,7 +201,7 @@
 
 /* SVC with SYS_ call number and two parameters */
 
-#ifdef __ghs__
+#if defined(__ghs__) || defined(__ICCARM__)
 #  define sys_call2(nbr, parm1, parm2)             \
 ({                                                 \
   uintptr_t ret;                                   \
@@ -238,7 +238,7 @@
 
 /* SVC with SYS_ call number and three parameters */
 
-#ifdef __ghs__
+#if defined(__ghs__) || defined(__ICCARM__)
 #  define sys_call3(nbr, parm1, parm2, parm3)                       \
 ({                                                                  \
   uintptr_t ret;                                                    \
@@ -277,7 +277,7 @@
 
 /* SVC with SYS_ call number and four parameters */
 
-#ifdef __ghs__
+#if defined(__ghs__) || defined(__ICCARM__)
 #  define sys_call4(nbr, parm1, parm2, parm3, parm4)                      \
 ({                                                                        \
   uintptr_t ret;                                                          \
@@ -321,7 +321,7 @@
 
 /* SVC with SYS_ call number and five parameters */
 
-#ifdef __ghs__
+#if defined(__ghs__) || defined(__ICCARM__)
 #  define sys_call5(nbr, parm1, parm2, parm3, parm4, parm5)                \
 ({                                                                         \
   uintptr_t ret;                                                           \
@@ -369,7 +369,7 @@
 
 /* SVC with SYS_ call number and six parameters */
 
-#ifdef __ghs__
+#if defined(__ghs__) || defined(__ICCARM__)
 #  define sys_call6(nbr, parm1, parm2, parm3, parm4, parm5, parm6)         \
 ({                                                                         \
   uintptr_t ret;                                                           \
@@ -419,7 +419,7 @@
 
 /* semihosting(SMH) call with call number and one parameter */
 
-#ifdef __ghs__
+#if defined(__ghs__) || defined(__ICCARM__)
 #  if defined(CONFIG_ARCH_ARMV6M) || \
       defined(CONFIG_ARCH_ARMV7M) || \
       defined(CONFIG_ARCH_ARMV8M)

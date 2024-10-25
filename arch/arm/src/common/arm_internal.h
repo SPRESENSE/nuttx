@@ -358,6 +358,7 @@ uint32_t *arm_doirq(int irq, uint32_t *regs);
 /* _vectors replaced on __vector_table for IAR C-SPY Simulator */
 
 EXTERN const void *__vector_table[];
+EXTERN const void * const _vectors[];
 #else
 EXTERN const void * const _vectors[];
 #endif

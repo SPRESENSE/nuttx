@@ -49,6 +49,8 @@ if(CONFIG_ARCH_TOOLCHAIN_CLANG) # clang
   set(TOOLCHAIN_FILE clang)
 elseif(CONFIG_ARCH_TOOLCHAIN_GHS) # greenhills
   set(TOOLCHAIN_FILE ghs)
+elseif(CONFIG_ARCH_TOOLCHAIN_IAR) # iar
+  set(TOOLCHAIN_FILE iar)
 else() # gcc
   set(TOOLCHAIN_FILE gcc)
 endif()

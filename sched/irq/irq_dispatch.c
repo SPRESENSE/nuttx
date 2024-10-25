@@ -136,7 +136,7 @@ void irq_dispatch(int irq, FAR void *context)
 #ifdef CONFIG_SCHED_INSTRUMENTATION_IRQHANDLER
   /* Notify that we are entering into the interrupt handler */
 
-  sched_note_irqhandler(irq, vector, true);
+  sched_note_irqhandler(irq, (FAR void *)vector, true);
 #endif
 
   /* Then dispatch to the interrupt handler */
@@ -147,7 +147,7 @@ void irq_dispatch(int irq, FAR void *context)
 #ifdef CONFIG_SCHED_INSTRUMENTATION_IRQHANDLER
   /* Notify that we are leaving from the interrupt handler */
 
-  sched_note_irqhandler(irq, vector, false);
+  sched_note_irqhandler(irq, (FAR void *)vector, false);
 #endif
 
 #ifdef CONFIG_DEBUG_MM

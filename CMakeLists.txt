@@ -484,7 +484,7 @@ if(MSVC)
             # data
     -wd4305 # 'context' : truncation from 'type1' to 'type2'
   )
-elseif(NOT CONFIG_ARCH_TOOLCHAIN_TASKING)
+elseif(NOT CONFIG_ARCH_TOOLCHAIN_TASKING AND NOT CONFIG_ARCH_TOOLCHAIN_IAR)
   add_compile_options(
     # system wide warnings
     -Wall $<$<COMPILE_LANGUAGE:C>:-Wstrict-prototypes> -Wshadow -Wundef
@@ -577,6 +577,7 @@ endif()
 
 # Get linker script to use
 get_property(ldscript GLOBAL PROPERTY LD_SCRIPT)
+get_property(icfscript GLOBAL PROPERTY ICF_SCRIPT)
 
 # Pre-compile linker script
 if(NOT CONFIG_ARCH_SIM)
@@ -623,6 +624,8 @@ if(NOT CONFIG_ARCH_SIM)
   # TODO: nostart/nodefault not applicable to nuttx toolchain
   if(CONFIG_ARCH_TOOLCHAIN_TASKING)
     target_link_libraries(nuttx PRIVATE --lsl-file=${ldscript} ${nuttx_libs})
+  elseif(CONFIG_ARCH_TOOLCHAIN_IAR)
+    target_link_libraries(nuttx PRIVATE --config=${icfscript} ${nuttx_libs})
   else()
     target_link_libraries(
       nuttx

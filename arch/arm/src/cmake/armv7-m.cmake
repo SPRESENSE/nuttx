@@ -30,6 +30,8 @@ if(CONFIG_ARCH_TOOLCHAIN_CLANG) # clang
   set(TOOLCHAIN_ARCH_FILE armv7-m_clang)
 elseif(CONFIG_ARCH_TOOLCHAIN_GHS) # greenhills
   set(TOOLCHAIN_ARCH_FILE armv7-m_ghs)
+elseif(CONFIG_ARCH_TOOLCHAIN_IAR) # iar
+  set(TOOLCHAIN_ARCH_FILE armv7-m_iar)
 else() # gcc
   set(TOOLCHAIN_ARCH_FILE armv7-m_gcc)
 endif()

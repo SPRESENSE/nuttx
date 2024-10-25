@@ -51,7 +51,7 @@
  * aligned).
  */
 
-const uintptr_t g_idle_topstack = (uintptr_t)_ebss +
+const uintptr_t g_idle_topstack = (uintptr_t)_END_BSS +
   CONFIG_IDLETHREAD_STACKSIZE;
 
 /****************************************************************************

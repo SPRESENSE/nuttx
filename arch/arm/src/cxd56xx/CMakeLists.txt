@@ -18,8 +18,14 @@
 #
 # ##############################################################################
 
+if(CONFIG_ARCH_TOOLCHAIN_IAR)
+  set(ARCH_TOOLCHAIN_PATH iar)
+else()
+  set(ARCH_TOOLCHAIN_PATH gnu)
+endif()
+
 set(SRCS
-    cxd56_farapistub.S
+    ${ARCH_TOOLCHAIN_PATH}/cxd56_farapistub.S
     cxd56_allocateheap.c
     cxd56_idle.c
     cxd56_uid.c

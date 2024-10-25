@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/armv7-m/arm_exception.S
+ * arch/arm/src/armv7-m/iar/arm_exception.S
  *
  *   Copyright (C) 2009-2013, 2015-2016, 2018 Gregory Nutt.
  *   All rights reserved.
@@ -86,14 +86,11 @@
  * Public Symbols
  ****************************************************************************/
 
-	.globl		exception_common
-#ifdef __ghs__
-	.thumb2
-#else
-	.syntax		unified
-	.thumb
-#endif
-	.file		"arm_exception.S"
+	EXTERN arm_doirq
+
+	PUBLIC		exception_common
+//	THUMB
+//	.file		"arm_exception.S"
 
 /****************************************************************************
  * .text
@@ -120,14 +117,7 @@
  * return stack immediately above REG_XPSR.
  */
 
-	.text
-	.section    .text.exception_common
-#ifdef __ghs__
-	.type	exception_common, $function
-#else
-	.thumb_func
-	.type	exception_common, function
-#endif
+	SECTION    `.text.exception_common`:CODE
 exception_common:
 
 	mrs		r0, ipsr				/* R0=exception number */
@@ -138,16 +128,16 @@ exception_common:
 	/* The EXC_RETURN value tells us whether the context is on the MSP or PSP */
 
 	tst		r14, #EXC_RETURN_PROCESS_STACK		/* nonzero if context on process stack */
-	beq		1f					/* Branch if context already on the MSP */
+	beq		L1					/* Branch if context already on the MSP */
 	mrs		r1, psp					/* R1=The process stack pointer (PSP) */
-	b		2f
-1:
+	b		L2
+L1:
 	mrs		r1, msp					/* R1=The main stack pointer (MSP) */
 	sub		r2, r1, #SW_XCPT_SIZE			/* Reserved stack space */
 	msr		msp, r2
 	isb		sy
 
-2:
+L2:
 	mov		r2, r1					/* R2=Copy of the main/process stack pointer */
 	add		r2, #HW_XCPT_SIZE			/* R2=MSP/PSP before the interrupt was taken */
 								/* (ignoring the xPSR[9] alignment bit) */
@@ -204,11 +194,11 @@ exception_common:
 	 */
 
 	tst		r14, #EXC_RETURN_THREAD_MODE		/* Nonzero if context on thread mode */
-	beq		3f					/* Branch if context already on the handle mode */
+	beq		L3					/* Branch if context already on the handle mode */
 	sub		r2, r1, #XCPTCONTEXT_SIZE		/* Reserve signal context */
 	bic		r2, r2, #7				/* Get the stack pointer with 8-byte alignment */
 	mov		sp, r2					/* Instantiate the aligned stack */
-3:
+L3:
 #endif
 
 	bl		arm_doirq				/* R0=IRQ, R1=register save (msp) */
@@ -251,7 +241,7 @@ exception_common:
 
 	bx		r14					/* And return */
 
-	.size	exception_common, .-exception_common
+//	.size	exception_common, .-exception_common
 
 /****************************************************************************
  *  Name: g_intstackalloc/g_intstacktop
@@ -262,14 +252,14 @@ exception_common:
  ****************************************************************************/
 
 #if !defined(CONFIG_SMP) && CONFIG_ARCH_INTERRUPTSTACK > 7
-	.bss
-	.global	g_intstackalloc
-	.global	g_intstacktop
-	.balign	8
+	SECTION .bss:DATA:NOROOT
+	PUBLIC	g_intstackalloc
+	PUBLIC	g_intstacktop
+	ALIGNRAM	8
 g_intstackalloc:
-	.skip	((CONFIG_ARCH_INTERRUPTSTACK + 4) & ~7)
+	DS8 ((CONFIG_ARCH_INTERRUPTSTACK + 4) & ~7)
 g_intstacktop:
-	.size	g_intstackalloc, .-g_intstackalloc
+	EQU g_intstackalloc + ((CONFIG_ARCH_INTERRUPTSTACK + 4) & ~7)
 #endif
 
-	.end
+	END

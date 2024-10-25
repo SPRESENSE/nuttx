@@ -97,18 +97,18 @@
 
 #ifdef CONFIG_SERIAL_TXDMA
 #define uart_dmasend(dev)      \
-  ((dev)->ops->dmasend ? (dev)->ops->dmasend(dev) : -ENOSYS)
+  ((dev)->ops->dmasend ? (dev)->ops->dmasend(dev) : (void)-ENOSYS)
 
 #define uart_dmatxavail(dev)   \
-  ((dev)->ops->dmatxavail ? (dev)->ops->dmatxavail(dev) : -ENOSYS)
+  ((dev)->ops->dmatxavail ? (dev)->ops->dmatxavail(dev) : (void)-ENOSYS)
 #endif
 
 #ifdef CONFIG_SERIAL_RXDMA
 #define uart_dmareceive(dev)   \
-  ((dev)->ops->dmareceive ? (dev)->ops->dmareceive(dev) : -ENOSYS)
+  ((dev)->ops->dmareceive ? (dev)->ops->dmareceive(dev) : (void)-ENOSYS)
 
 #define uart_dmarxfree(dev)    \
-  ((dev)->ops->dmarxfree ? (dev)->ops->dmarxfree(dev) : -ENOSYS)
+  ((dev)->ops->dmarxfree ? (dev)->ops->dmarxfree(dev) : (void)-ENOSYS)
 #endif
 
 #ifdef CONFIG_SERIAL_IFLOWCONTROL

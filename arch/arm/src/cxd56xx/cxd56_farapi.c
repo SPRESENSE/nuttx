@@ -107,7 +107,12 @@ struct farmsg_s
  * Public Data
  ****************************************************************************/
 
+#ifdef __ICCARM__
+#pragma section=".modulelist"
+#define _image_modlist_base (struct modulelist_s *)__sfb(".modulelist")
+#else
 extern struct modulelist_s _image_modlist_base[];
+#endif
 
 /****************************************************************************
  * Private Data
