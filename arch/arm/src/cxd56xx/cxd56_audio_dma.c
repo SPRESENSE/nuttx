@@ -159,6 +159,7 @@ static struct cxd56_dmachannel_s mic_dma =
   dma_mic_chassign,         /* chassign */
   cxd56_audio_irq_en,       /* irqen */
   NULL,                     /* irq_arg */
+  {{{{0}}}},                /* delay_work */
   NULL,                     /* setvolumme */
   NULL,                     /* maxch */
   AUDIO_TYPE_INPUT | AUDIO_TYPE_FEATURE, /* caps */
@@ -202,6 +203,7 @@ static struct cxd56_i2sdmachannel_s i2s0out_dma =
     dma_i2s_chassign,              /* chassign */
     cxd56_audio_i2sirq_en,         /* irqen */
     NULL,                          /* irq_arg */
+    {{{{0}}}},                     /* delay_work */
     NULL,                          /* setvolumme */
     NULL,                          /* maxch */
     AUDIO_TYPE_OUTPUT | AUDIO_TYPE_FEATURE,     /* caps */
@@ -247,6 +249,7 @@ static struct cxd56_i2sdmachannel_s i2s1out_dma =
     dma_i2s_chassign,              /* chassign */
     cxd56_audio_i2sirq_en,         /* irqen */
     NULL,                          /* irq_arg */
+    {{{{0}}}},                     /* delay_work */
     NULL,                          /* setvolumme */
     NULL,                          /* maxch */
     AUDIO_TYPE_OUTPUT | AUDIO_TYPE_FEATURE,     /* caps */
@@ -292,6 +295,7 @@ static struct cxd56_i2sdmachannel_s i2s1in_dma =
     dma_i2s_chassign,              /* chassign */
     cxd56_audio_i2sirq_en,         /* irqen */
     NULL,                          /* irq_arg */
+    {{{{0}}}},                     /* delay_work */
     NULL,                          /* setvolumme */
     NULL,                          /* maxch */
     AUDIO_TYPE_INPUT | AUDIO_TYPE_FEATURE,      /* caps */
@@ -383,6 +387,49 @@ static void send_message_underrun(FAR struct cxd56_dmachannel_s *dmach)
                      (FAR struct ap_buffer_s *)&msg, OK);
 }
 
+static void release_all_apb_for_stopping(FAR void *arg)
+{
+  FAR struct cxd56_dmachannel_s *dmach =
+    (FAR struct cxd56_dmachannel_s *)arg;
+
+  FAR struct ap_buffer_s *apb;
+  irqstate_t flags;
+
+  flags = spin_lock_irqsave(&dmach->dma_lock);
+  if (AUDSTATE_IS_STOPPING(dmach) || AUDSTATE_IS_COMPLETING(dmach))
+    {
+      while ((apb = dq_get(dmach->dma_pendq)) != NULL)
+        {
+          spin_unlock_irqrestore(&dmach->dma_lock, flags);
+          dequeue_apb_to_app(dmach, apb);
+          flags = spin_lock_irqsave(&dmach->dma_lock);
+        }
+    }
+
+  AUDSTATECHG_CONFIGURED(dmach);
+  spin_unlock_irqrestore(&dmach->dma_lock, flags);
+}
+
+static void release_all_apb_for_shutdown(FAR void *arg)
+{
+  FAR struct cxd56_dmachannel_s *dmach =
+    (FAR struct cxd56_dmachannel_s *)arg;
+
+  FAR struct ap_buffer_s *apb;
+  irqstate_t flags;
+
+  flags = spin_lock_irqsave(&dmach->dma_lock);
+  while ((apb = dq_get(dmach->dma_pendq)) != NULL)
+    {
+      spin_unlock_irqrestore(&dmach->dma_lock, flags);
+      dequeue_apb_to_app(dmach, apb);
+      flags = spin_lock_irqsave(&dmach->dma_lock);
+    }
+
+  AUDSTATECHG_SHUTDOWN(dmach);
+  spin_unlock_irqrestore(&dmach->dma_lock, flags);
+}
+
 static void handle_actual_dmaaction(FAR struct cxd56_dmachannel_s *dmach,
                                     uint32_t intbit)
 {
@@ -423,21 +470,15 @@ static void handle_actual_dmaaction(FAR struct cxd56_dmachannel_s *dmach,
           dmach->hwresource_irq(dmach, false);
           leave_critical_section(flags);
 
-          flags = spin_lock_irqsave(&dmach->dma_lock);
-
-          if (AUDSTATE_IS_STOPPING(dmach))
+          if (work_available(&dmach->delay_work))
             {
-              /* Release buffers not processed */
+              /* Set delay worker for releasing all apb in pendq */
 
-              while ((apb = dq_get(dmach->dma_pendq)) != NULL)
-                {
-                  spin_unlock_irqrestore(&dmach->dma_lock, flags);
-                  dequeue_apb_to_app(dmach, apb);
-                  flags = spin_lock_irqsave(&dmach->dma_lock);
-                }
+              work_queue(LPWORK, &dmach->delay_work, release_all_apb_for_stopping,
+                        (FAR void *)dmach, 0);
             }
 
-          AUDSTATECHG_CONFIGURED(dmach);
+          flags = spin_lock_irqsave(&dmach->dma_lock);
         }
       else if (AUDSTATE_IS_PAUSING(dmach))
         {
@@ -445,20 +486,23 @@ static void handle_actual_dmaaction(FAR struct cxd56_dmachannel_s *dmach,
         }
       else
         {
+          spin_unlock_irqrestore(&dmach->dma_lock, flags);
+
           flags = enter_critical_section();
           dmach->hwresource_irq(dmach, false);
           leave_critical_section(flags);
 
           /* Release buffers not processed */
 
-          while ((apb = dq_get(dmach->dma_pendq)) != NULL)
+          if (work_available(&dmach->delay_work))
             {
-              spin_unlock_irqrestore(&dmach->dma_lock, flags);
-              dequeue_apb_to_app(dmach, apb);
-              flags = spin_lock_irqsave(&dmach->dma_lock);
+              /* Set delay worker for releasing all apb in pendq */
+
+              work_queue(LPWORK, &dmach->delay_work, release_all_apb_for_shutdown,
+                        (FAR void *)dmach, 0);
             }
 
-          AUDSTATECHG_SHUTDOWN(dmach);
+          flags = spin_lock_irqsave(&dmach->dma_lock);
         }
     }
   else if (intbit & dmach->intrbit_err || intbit & dmach->intrbit_cmb)
