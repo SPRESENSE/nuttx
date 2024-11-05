@@ -29,6 +29,7 @@
 #include <stdint.h>
 #include <nuttx/audio/audio.h>
 #include <nuttx/queue.h>
+#include <nuttx/wqueue.h>
 #include "arch/chip/cxd56_audio_lower.h"
 #include "cxd56_audio_reg.h"
 
@@ -147,6 +148,7 @@ struct cxd56_dmachannel_s
   CODE void (*chassign)(FAR struct cxd56_dmachannel_s *dma_ch);
   CODE int (*irqen)(FAR struct cxd56_dmachannel_s *dmach, bool en);
   void *irq_arg;
+  struct work_s delay_work;
 
   /* Related on NuttX audio framework */
 
