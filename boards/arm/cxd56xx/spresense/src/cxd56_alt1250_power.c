@@ -39,6 +39,12 @@
 #include "cxd56_pinconfig.h"
 
 /****************************************************************************
+ * Private Data
+ ****************************************************************************/
+
+static int s_lte_power = POWER_LTE;
+
+/****************************************************************************
  * Public Functions
  ****************************************************************************/
 
@@ -52,7 +58,7 @@
 
 void board_alt1250_poweron(void)
 {
-  board_power_control(POWER_LTE, true);
+  board_power_control(s_lte_power, true);
 }
 
 /****************************************************************************
@@ -65,7 +71,7 @@ void board_alt1250_poweron(void)
 
 void board_alt1250_poweroff(void)
 {
-  board_power_control(POWER_LTE, false);
+  board_power_control(s_lte_power, false);
 }
 
 /****************************************************************************
@@ -78,7 +84,7 @@ void board_alt1250_poweroff(void)
 
 bool board_alt1250_powerstatus(void)
 {
-  return board_power_monitor(POWER_LTE);
+  return board_power_monitor(s_lte_power);
 }
 
 /****************************************************************************
@@ -93,12 +99,17 @@ int board_alt1250_powerkeep(bool enable)
 {
   if (enable)
     {
-      return board_unset_reset_gpo(POWER_LTE);
+      return board_unset_reset_gpo(s_lte_power);
     }
   else
     {
-      return board_set_reset_gpo(POWER_LTE);
+      return board_set_reset_gpo(s_lte_power);
     }
 }
-#endif
 
+void board_alt1250_powergpo_control(int p)
+{
+  s_lte_power = p;
+}
+
+#endif
