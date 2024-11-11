@@ -1,6 +1,8 @@
 /****************************************************************************
  * drivers/rpmsg/rpmsg.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -205,18 +207,6 @@ FAR const char *rpmsg_get_cpuname(FAR struct rpmsg_device *rdev)
 {
   FAR struct rpmsg_s *rpmsg = rpmsg_get_by_rdev(rdev);
   return rpmsg ? rpmsg->ops->get_cpuname(rpmsg) : NULL;
-}
-
-int rpmsg_get_tx_buffer_size(FAR struct rpmsg_device *rdev)
-{
-  FAR struct rpmsg_s *rpmsg = rpmsg_get_by_rdev(rdev);
-  return rpmsg ? rpmsg->ops->get_tx_buffer_size(rpmsg) : -EINVAL;
-}
-
-int rpmsg_get_rx_buffer_size(FAR struct rpmsg_device *rdev)
-{
-  FAR struct rpmsg_s *rpmsg = rpmsg_get_by_rdev(rdev);
-  return rpmsg ? rpmsg->ops->get_rx_buffer_size(rpmsg) : -EINVAL;
 }
 
 int rpmsg_register_callback(FAR void *priv,

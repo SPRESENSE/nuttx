@@ -43,7 +43,7 @@ config SERIAL_CONSOLE
 
 config SERIAL_GDBSTUB
 	bool "GDBSTUB Serial support"
-	depends on ARCH_HAVE_DEBUG
+	depends on LIB_GDBSTUB
 	default n
 
 config SERIAL_GDBSTUB_PATH
@@ -52,6 +52,23 @@ config SERIAL_GDBSTUB_PATH
 	default "/dev/ttyS1"
 	---help---
 		The path to the serial device that will be used for GDB stub.
+
+config SERIAL_GDBSTUB_AUTO_ATTACH
+	bool "GDBSTUB Serial Auto attach"
+	depends on SERIAL_GDBSTUB
+	default n
+	---help---
+		Attach the serial port to gdbstub by default.
+		Will cover the GDBSTUB_SERIAL_PATH, that port will only
+		be used for GDB stub.
+
+config SERIAL_GDBSTUB_PANIC_TIMEOUT
+	int "GDBSTUB Serial panic timeout"
+	depends on SERIAL_GDBSTUB
+	default 10
+	---help---
+		Delay the panic timeout for gdbstub to connect.
+		0 will disable the timeout.
 
 config UART_HOSTFS
 	bool "Use hostfs read/write on UART_HOSTFS_DEVPATH as uart console"
@@ -315,6 +332,13 @@ config TTY_FORCE_PANIC_CHAR
 	depends on TTY_FORCE_PANIC
 	---help---
 		Use Ctrl-? 0x1F inputs to determine whether panic system
+
+config TTY_FORCE_PANIC_REPEAT_COUNT
+	int "TTY force crash repeat count"
+	default 1
+	depends on TTY_FORCE_PANIC
+	---help---
+		Repeat how many times the panic char to determine whether panic system
 
 config TTY_SIGINT
 	bool "Support SIGINT"

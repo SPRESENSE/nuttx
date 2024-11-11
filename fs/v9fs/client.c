@@ -1,6 +1,8 @@
 /****************************************************************************
  * fs/v9fs/client.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -31,6 +33,7 @@
 #include <nuttx/lib/lib.h>
 
 #include "client.h"
+#include "fs_heap.h"
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -490,7 +493,7 @@ static int v9fs_fid_create(FAR struct v9fs_client_s *client,
   int ret;
 
   len = strlen(relpath);
-  fid = kmm_zalloc(sizeof(struct v9fs_fid_s) + len);
+  fid = fs_heap_zalloc(sizeof(struct v9fs_fid_s) + len);
   if (fid == NULL)
     {
       return -ENOMEM;
@@ -508,7 +511,7 @@ static int v9fs_fid_create(FAR struct v9fs_client_s *client,
 
   /* Failed to initialize fid */
 
-  kmm_free(fid);
+  fs_heap_free(fid);
   return ret;
 }
 
@@ -531,7 +534,7 @@ static void v9fs_fid_destroy(FAR struct v9fs_client_s *client,
 
   idr_remove(client->fids, fid);
   nxmutex_unlock(&client->lock);
-  kmm_free(fidp);
+  fs_heap_free(fidp);
 }
 
 /****************************************************************************

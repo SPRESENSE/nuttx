@@ -39,19 +39,61 @@
  * Name: up_cpu_index
  *
  * Description:
- *   Return an index in the range of 0 through (CONFIG_SMP_NCPUS-1) that
- *   corresponds to the currently executing CPU.
- *
- * Input Parameters:
- *   None
- *
- * Returned Value:
- *   An integer index in the range of 0 through (CONFIG_SMP_NCPUS-1) that
- *   corresponds to the currently executing CPU.
+ *   Return the real core number regardless CONFIG_SMP setting
  *
  ****************************************************************************/
 
 int up_cpu_index(void)
 {
   return (int)riscv_mhartid();
+}
+
+/****************************************************************************
+ * Name: up_this_cpu
+ *
+ * Description:
+ *   Return the logical core number. Default implementation is 1:1 mapping,
+ *   i.e. physical=logical.
+ *
+ ****************************************************************************/
+
+int up_this_cpu(void)
+{
+  return riscv_hartid_to_cpuid((int)riscv_mhartid());
+}
+
+/****************************************************************************
+ * Name: riscv_hartid_to_cpuid
+ *
+ * Description:
+ *   Convert physical core number to logical core number. Default
+ *   implementation is 1:1 mapping, i.e. physical=logical.
+ *
+ ****************************************************************************/
+
+int weak_function riscv_hartid_to_cpuid(int hart)
+{
+#ifdef CONFIG_SMP
+  return hart - CONFIG_ARCH_RV_HARTID_BASE;
+#else
+  return 0;
+#endif
+}
+
+/****************************************************************************
+ * Name: riscv_cpuid_to_hartid
+ *
+ * Description:
+ *   Convert logical core number to physical core number. Default
+ *   implementation is 1:1 mapping, i.e. physical=logical.
+ *
+ ****************************************************************************/
+
+int weak_function riscv_cpuid_to_hartid(int cpu)
+{
+#ifdef CONFIG_SMP
+  return cpu + CONFIG_ARCH_RV_HARTID_BASE;
+#else
+  return (int)riscv_mhartid();
+#endif
 }

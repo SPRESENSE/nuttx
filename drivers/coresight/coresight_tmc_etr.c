@@ -1,6 +1,8 @@
 /****************************************************************************
  * drivers/coresight/coresight_tmc_etr.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -30,6 +32,7 @@
 #include <nuttx/fs/fs.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/cache.h>
+#include <nuttx/irq.h>
 
 #include <nuttx/coresight/coresight_tmc.h>
 
@@ -125,11 +128,11 @@ static int tmc_etr_hw_enable(FAR struct coresight_tmc_dev_s *tmcdev)
 
   if (tmcdev->caps & TMC_ETR_SAVE_RESTORE)
     {
-      coresight_put32((uint32_t)tmcdev->buf, tmcdev->csdev.addr + TMC_RRP);
+      coresight_put32((uintptr_t)tmcdev->buf, tmcdev->csdev.addr + TMC_RRP);
       coresight_put32(((uint64_t)(uintptr_t)tmcdev->buf >> 32),
                       tmcdev->csdev.addr + TMC_RRPHI);
 
-      coresight_put32((uint32_t)tmcdev->buf, tmcdev->csdev.addr + TMC_RWP);
+      coresight_put32((uintptr_t)tmcdev->buf, tmcdev->csdev.addr + TMC_RWP);
       coresight_put32(((uint64_t)(uintptr_t)tmcdev->buf >> 32),
                       tmcdev->csdev.addr + TMC_RWPHI);
 

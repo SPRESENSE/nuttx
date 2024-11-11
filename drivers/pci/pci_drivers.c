@@ -1,6 +1,8 @@
 /****************************************************************************
  * drivers/pci/pci_drivers.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -25,8 +27,6 @@
 #include <debug.h>
 
 #include <nuttx/pci/pci.h>
-#include <nuttx/pci/pci_qemu_edu.h>
-#include <nuttx/pci/pci_qemu_test.h>
 #include <nuttx/rptun/rptun_ivshmem.h>
 #include <nuttx/rpmsg/rpmsg_virtio_ivshmem.h>
 #include <nuttx/virtio/virtio-pci.h>

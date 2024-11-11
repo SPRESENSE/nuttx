@@ -34,3 +34,24 @@ Guides
   stackrecord.rst
   etcromfs.rst
   thread_local_storage.rst
+  devicetree.rst
+  debuggingflash_nuttxonarm.rst
+  changing_systemclockconfig.rst
+  usingkernelthreads.rst
+  armv7m_runtimestackcheck.rst
+  disabling_stackdumpdebug.rst
+  include_files_board_h.rst
+  specialstuff_in_nuttxheaderfiles.rst
+  kernel_threads_with_custom_stacks.rst
+  versioning_and_task_names.rst
+  logging_rambuffer.rst
+  ipv6.rst
+  integrate_newlib.rst
+  protected_build.rst
+  platform_directories.rst
+  port_drivers_to_stm32f7.rst
+  semihosting.rst
+  renode.rst
+  signal_events_interrupt_handlers.rst  
+  signaling_sem_priority_inheritance.rst
+  smaller_vector_tables.rst

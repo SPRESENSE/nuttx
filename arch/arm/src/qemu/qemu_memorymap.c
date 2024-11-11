@@ -25,6 +25,8 @@
 #include <sys/param.h>
 
 #include "mmu.h"
+
+#include "hardware/qemu_memorymap.h"
 #include "qemu_memorymap.h"
 
 /****************************************************************************
@@ -54,6 +56,10 @@ static const struct section_mapping_s g_section_mapping[] =
   {
     VIRT_PCIE_PSECTION, VIRT_PCIE_VSECTION,
     MMU_IOFLAGS, _NSECTIONS(VIRT_PCIE_SECSIZE)
+  },
+  {
+    VIRT_DDR_PSECTION, VIRT_DDR_VSECTION,
+    MMU_MEMFLAGS, _NSECTIONS(VIRT_DDR_SECSIZE)
   },
 };
 

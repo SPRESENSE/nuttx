@@ -1,6 +1,8 @@
 /****************************************************************************
  * fs/procfs/fs_procfsproc.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -44,6 +46,7 @@
 #  include <time.h>
 #endif
 
+#include <nuttx/arch.h>
 #include <nuttx/nuttx.h>
 #include <nuttx/irq.h>
 #include <nuttx/tls.h>
@@ -56,6 +59,8 @@
 #include <nuttx/fs/ioctl.h>
 #include <nuttx/mm/mm.h>
 #include <nuttx/queue.h>
+
+#include "fs_heap.h"
 
 #if !defined(CONFIG_SCHED_CPULOAD_NONE) || defined(CONFIG_SCHED_CRITMONITOR)
 #  include <nuttx/clock.h>
@@ -484,11 +489,7 @@ static ssize_t proc_status(FAR struct proc_file_s *procfile,
 
   /* Show the task name */
 
-#if CONFIG_TASK_NAME_SIZE > 0
-  name       = tcb->name;
-#else
-  name       = "<noname>";
-#endif
+  name       = get_task_name(tcb);
   linesize   = procfs_snprintf(procfile->line, STATUS_LINELEN,
                                "%-12s%.18s\n", "Name:", name);
   copysize   = procfs_memcpy(procfile->line, linesize, buffer, remaining,
@@ -668,11 +669,7 @@ static ssize_t proc_cmdline(FAR struct proc_file_s *procfile,
 
   /* Show the task name */
 
-#if CONFIG_TASK_NAME_SIZE > 0
-  name       = tcb->name;
-#else
-  name       = "<noname>";
-#endif
+  name       = get_task_name(tcb);
   linesize   = strlen(name);
   memcpy(procfile->line, name, linesize);
   copysize   = procfs_memcpy(procfile->line, linesize, buffer, remaining,
@@ -689,7 +686,7 @@ static ssize_t proc_cmdline(FAR struct proc_file_s *procfile,
 
   /* Show the task / thread argument list (skipping over the name) */
 
-  linesize   = group_argvstr(tcb, procfile->line, remaining);
+  linesize   = nxtask_argvstr(tcb, procfile->line, remaining);
   copysize   = procfs_memcpy(procfile->line, linesize, buffer,
                              remaining, &offset);
   totalsize += copysize;
@@ -904,7 +901,7 @@ static ssize_t proc_heap(FAR struct proc_file_s *procfile,
 #ifdef CONFIG_MM_KERNEL_HEAP
   if ((tcb->flags & TCB_FLAG_TTYPE_MASK) == TCB_FLAG_TTYPE_KERNEL)
     {
-      info = kmm_mallinfo_task(&task);
+      info = fs_heap_mallinfo_task(&task);
     }
   else
 #endif
@@ -1530,7 +1527,7 @@ static int proc_open(FAR struct file *filep, FAR const char *relpath,
   /* Allocate a container to hold the task and node selection */
 
   procfile = (FAR struct proc_file_s *)
-    kmm_zalloc(sizeof(struct proc_file_s));
+    fs_heap_zalloc(sizeof(struct proc_file_s));
   if (procfile == NULL)
     {
       ferr("ERROR: Failed to allocate file container\n");
@@ -1563,7 +1560,7 @@ static int proc_close(FAR struct file *filep)
 
   /* Release the file container structure */
 
-  kmm_free(procfile);
+  fs_heap_free(procfile);
   filep->f_priv = NULL;
   return OK;
 }
@@ -1577,6 +1574,7 @@ static ssize_t proc_read(FAR struct file *filep, FAR char *buffer,
 {
   FAR struct proc_file_s *procfile;
   FAR struct tcb_s *tcb;
+  irqstate_t flags;
   ssize_t ret;
 
   finfo("buffer=%p buflen=%d\n", buffer, (int)buflen);
@@ -1588,9 +1586,11 @@ static ssize_t proc_read(FAR struct file *filep, FAR char *buffer,
 
   /* Verify that the thread is still valid */
 
+  flags = enter_critical_section();
   tcb = nxsched_get_tcb(procfile->pid);
   if (tcb == NULL)
     {
+      leave_critical_section(flags);
       ferr("ERROR: PID %d is not valid\n", procfile->pid);
       return -ENODEV;
     }
@@ -1649,6 +1649,8 @@ static ssize_t proc_read(FAR struct file *filep, FAR char *buffer,
       ret = -EINVAL;
       break;
     }
+
+  leave_critical_section(flags);
 
   /* Update the file offset */
 
@@ -1726,7 +1728,7 @@ static int proc_dup(FAR const struct file *oldp, FAR struct file *newp)
 
   /* Allocate a new container to hold the task and node selection */
 
-  newfile = kmm_malloc(sizeof(struct proc_file_s));
+  newfile = fs_heap_malloc(sizeof(struct proc_file_s));
   if (newfile == NULL)
     {
       ferr("ERROR: Failed to allocate file container\n");
@@ -1815,11 +1817,11 @@ static int proc_opendir(FAR const char *relpath,
     }
 
   /* Allocate the directory structure.  Note that the index and procentry
-   * pointer are implicitly nullified by kmm_zalloc().  Only the remaining,
-   * non-zero entries will need be initialized.
+   * pointer are implicitly nullified by fs_heap_zalloc().
+   * Only the remaining, non-zero entries will need be initialized.
    */
 
-  procdir = kmm_zalloc(sizeof(struct proc_dir_s));
+  procdir = fs_heap_zalloc(sizeof(struct proc_dir_s));
   if (procdir == NULL)
     {
       ferr("ERROR: Failed to allocate the directory structure\n");
@@ -1839,7 +1841,7 @@ static int proc_opendir(FAR const char *relpath,
       if (node == NULL)
         {
           ferr("ERROR: Invalid path \"%s\"\n", relpath);
-          kmm_free(procdir);
+          fs_heap_free(procdir);
           return -ENOENT;
         }
 
@@ -1848,7 +1850,7 @@ static int proc_opendir(FAR const char *relpath,
       if (!DIRENT_ISDIRECTORY(node->dtype))
         {
           ferr("ERROR: Path \"%s\" is not a directory\n", relpath);
-          kmm_free(procdir);
+          fs_heap_free(procdir);
           return -ENOTDIR;
         }
 
@@ -1882,7 +1884,7 @@ static int proc_opendir(FAR const char *relpath,
 static int proc_closedir(FAR struct fs_dirent_s *dir)
 {
   DEBUGASSERT(dir != NULL);
-  kmm_free(dir);
+  fs_heap_free(dir);
   return OK;
 }
 

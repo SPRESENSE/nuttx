@@ -1,8 +1,8 @@
 /****************************************************************************
  * libs/libc/machine/arm/armv8-m/gnu/arch_memcpy.S
  *
- * Copyright (c) 2013 ARM Ltd
- * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ * SPDX-FileCopyrightText: 2013 ARM Ltd
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -105,11 +105,11 @@
 	.syntax unified
 	.text
 	.align	2
-	.global	memcpy
+	.global	ARCH_LIBCFUN(memcpy)
 	.thumb
 	.thumb_func
-	.type	memcpy, %function
-memcpy:
+	.type	ARCH_LIBCFUN(memcpy), %function
+ARCH_LIBCFUN(memcpy):
 	@ r0: dst
 	@ r1: src
 	@ r2: len
@@ -395,6 +395,6 @@ memcpy:
 #endif /* __ARM_FEATURE_PAC_DEFAULT */
 	bx	lr
 #endif
-	.size	memcpy, .-memcpy
+	.size	ARCH_LIBCFUN(memcpy), .-ARCH_LIBCFUN(memcpy)
 
 #endif

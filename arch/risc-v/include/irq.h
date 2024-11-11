@@ -567,12 +567,6 @@
 
 struct xcptcontext
 {
-  /* The following function pointer is non-NULL if there are pending signals
-   * to be processed.
-   */
-
-  void *sigdeliver; /* Actual type is sig_deliver_t */
-
   /* These additional register save locations are used to implement the
    * signal delivery trampoline.
    *
@@ -612,6 +606,9 @@ struct xcptcontext
   /* Integer register save area */
 
   uintreg_t *regs;
+#ifndef CONFIG_BUILD_FLAT
+  uintreg_t *initregs;
+#endif
 
 #ifdef CONFIG_LIB_SYSCALL
   /* User integer registers upon system call entry */
@@ -704,23 +701,24 @@ irqstate_t up_irq_enable(void);
  * Name: up_cpu_index
  *
  * Description:
- *   Return an index in the range of 0 through (CONFIG_SMP_NCPUS-1) that
- *   corresponds to the currently executing CPU.
- *
- * Input Parameters:
- *   None
- *
- * Returned Value:
- *   An integer index in the range of 0 through (CONFIG_SMP_NCPUS-1) that
- *   corresponds to the currently executing CPU.
+ *   Return the real core number regardless CONFIG_SMP setting
  *
  ****************************************************************************/
 
-#ifdef CONFIG_SMP
-int up_cpu_index(void);
-#else
-#  define up_cpu_index() (0)
-#endif
+#ifdef CONFIG_ARCH_HAVE_MULTICPU
+int up_cpu_index(void) noinstrument_function;
+#endif /* CONFIG_ARCH_HAVE_MULTICPU */
+
+/****************************************************************************
+ * Name: up_this_cpu
+ *
+ * Description:
+ *   Return the logical core number. Default implementation is 1:1 mapping,
+ *   i.e. physical=logical.
+ *
+ ****************************************************************************/
+
+int up_this_cpu(void);
 
 /****************************************************************************
  * Inline Functions
@@ -728,12 +726,20 @@ int up_cpu_index(void);
 
 static inline_function uintreg_t *up_current_regs(void)
 {
-  return (uintreg_t *)g_current_regs[up_cpu_index()];
+#ifdef CONFIG_SMP
+  return (uintreg_t *)g_current_regs[up_this_cpu()];
+#else
+  return (uintreg_t *)g_current_regs[0];
+#endif
 }
 
 static inline_function void up_set_current_regs(uintreg_t *regs)
 {
-  g_current_regs[up_cpu_index()] = regs;
+#ifdef CONFIG_SMP
+  g_current_regs[up_this_cpu()] = regs;
+#else
+  g_current_regs[0] = regs;
+#endif
 }
 
 /****************************************************************************
@@ -793,7 +799,7 @@ noinstrument_function static inline void up_irq_restore(irqstate_t flags)
  *
  ****************************************************************************/
 
-noinstrument_function static inline bool up_interrupt_context(void)
+noinstrument_function static inline_function bool up_interrupt_context(void)
 {
 #ifdef CONFIG_SMP
   irqstate_t flags = up_irq_save();
@@ -807,6 +813,13 @@ noinstrument_function static inline bool up_interrupt_context(void)
 
   return ret;
 }
+
+/****************************************************************************
+ * Name: up_getusrpc
+ ****************************************************************************/
+
+#define up_getusrpc(regs) \
+    (((uintptr_t *)((regs) ? (regs) : up_current_regs()))[REG_EPC])
 
 #undef EXTERN
 #if defined(__cplusplus)

@@ -1,6 +1,7 @@
 /****************************************************************************
  * include/nuttx/syslog/syslog.h
- * The NuttX SYSLOGing interface
+ *
+ * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -87,7 +88,10 @@
 
 #define SYSLOGIOC_SETFILTER _SYSLOGIOC(0x0002)
 
-#define SYSLOG_CHANNEL_NAME_LEN 32
+#define SYSLOG_CHANNEL_NAME_LEN       32
+
+#define SYSLOG_CHANNEL_DISABLE        0x01
+#define SYSLOG_CHANNEL_DISABLE_CRLF   0x02
 
 /****************************************************************************
  * Public Types
@@ -143,10 +147,14 @@ struct syslog_channel_s
   /* Syslog channel name */
 
   char sc_name[SYSLOG_CHANNEL_NAME_LEN];
+#endif
+  /* Syslog channel state:
+   * bit0: the channel is disabled
+   * bit1: the channel disable CRLF conversion
+   */
 
-  /* Syslog channel enable status, true is disable */
-
-  bool sc_disable;
+#if defined(CONFIG_SYSLOG_IOCTL) || defined(CONFIG_SYSLOG_CRLF)
+  uint8_t sc_state;
 #endif
 };
 
@@ -231,7 +239,7 @@ int syslog_channel_unregister(FAR syslog_channel_t *channel);
  *
  ****************************************************************************/
 
-#ifndef CONFIG_ARCH_SYSLOG
+#ifdef CONFIG_SYSLOG
 int syslog_initialize(void);
 #else
 #  define syslog_initialize()
@@ -364,7 +372,11 @@ ssize_t syslog_write(FAR const char *buffer, size_t buflen);
  *
  ****************************************************************************/
 
+#ifdef CONFIG_SYSLOG
 int syslog_flush(void);
+#else
+#  define syslog_flush()
+#endif
 
 /****************************************************************************
  * Name: nx_vsyslog
@@ -379,7 +391,9 @@ int syslog_flush(void);
  *
  ****************************************************************************/
 
+#ifdef CONFIG_SYSLOG
 int nx_vsyslog(int priority, FAR const IPTR char *src, FAR va_list *ap);
+#endif
 
 #undef EXTERN
 #ifdef __cplusplus

@@ -82,24 +82,9 @@ function(nuttx_add_romfs)
       board_rcraws
       TARGET board
       PROPERTY BOARD_RCRAWS)
-    list(APPEND RCSRCS ${board_rcsrcs})
-    list(APPEND RCRAWS ${board_rcraws})
+    list(PREPEND RCSRCS ${board_rcsrcs})
+    list(PREPEND RCRAWS ${board_rcraws})
   endif()
-
-  get_directory_property(TOOLCHAIN_DIR_FLAGS DIRECTORY ${CMAKE_SOURCE_DIR}
-                                                       COMPILE_OPTIONS)
-
-  set(ROMFS_CMAKE_C_FLAGS "")
-  foreach(FLAG ${TOOLCHAIN_DIR_FLAGS})
-    if(NOT FLAG MATCHES "^\\$<.*>$")
-      list(APPEND ROMFS_CMAKE_C_FLAGS ${FLAG})
-    else()
-      string(REGEX MATCH "\\$<\\$<COMPILE_LANGUAGE:C>:(.*)>" matched ${FLAG})
-      if(matched)
-        list(APPEND ROMFS_CMAKE_C_FLAGS ${CMAKE_MATCH_1})
-      endif()
-    endif()
-  endforeach()
 
   foreach(rcsrc ${RCSRCS})
     if(IS_ABSOLUTE ${rcsrc})
@@ -113,14 +98,12 @@ function(nuttx_add_romfs)
     endif()
 
     get_filename_component(rcpath ${SOURCE_ETC_SUFFIX} DIRECTORY)
-    add_custom_command(
-      OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${SOURCE_ETC_SUFFIX}
-      COMMAND ${CMAKE_COMMAND} -E make_directory ${rcpath}
-      COMMAND
-        ${CMAKE_C_COMPILER} ${ROMFS_CMAKE_C_FLAGS} -E -P -x c
-        -I${CMAKE_BINARY_DIR}/include ${SOURCE_ETC_PREFIX}/${SOURCE_ETC_SUFFIX}
-        > ${CMAKE_CURRENT_BINARY_DIR}/${SOURCE_ETC_SUFFIX}
-      DEPENDS nuttx_context ${SOURCE_ETC_PREFIX}/${SOURCE_ETC_SUFFIX})
+    if(NOT EXISTS ${CMAKE_CURRENT_BINARY_DIR}/${rcpath})
+      file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/${rcpath})
+    endif()
+    nuttx_generate_preprocess_target(
+      SOURCE_FILE ${SOURCE_ETC_PREFIX}/${SOURCE_ETC_SUFFIX} TARGET_FILE
+      ${CMAKE_CURRENT_BINARY_DIR}/${SOURCE_ETC_SUFFIX} DEPENDS nuttx_context)
     list(APPEND DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${SOURCE_ETC_SUFFIX})
   endforeach()
 
@@ -137,16 +120,15 @@ function(nuttx_add_romfs)
     endif()
 
     if(IS_DIRECTORY ${SOURCE_ETC_PREFIX}/${SOURCE_ETC_SUFFIX})
-      file(
-        GLOB subraws
-        LIST_DIRECTORIES false
-        RELATIVE ${SOURCE_ETC_PREFIX}
-        ${SOURCE_ETC_PREFIX}/${SOURCE_ETC_SUFFIX})
-      foreach(subraw ${subraws})
-        list(APPEND DEPENDS ${SOURCE_ETC_PREFIX}/${subraw})
-        configure_file(${SOURCE_ETC_PREFIX}/${subraw}
-                       ${CMAKE_CURRENT_BINARY_DIR}/${subraw} COPYONLY)
-      endforeach()
+      add_custom_command(
+        OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${SOURCE_ETC_SUFFIX}
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+                ${CMAKE_CURRENT_BINARY_DIR}/${SOURCE_ETC_SUFFIX}
+        COMMAND
+          ${CMAKE_COMMAND} -E copy_directory
+          ${SOURCE_ETC_PREFIX}/${SOURCE_ETC_SUFFIX}
+          ${CMAKE_CURRENT_BINARY_DIR}/${SOURCE_ETC_SUFFIX})
+      list(APPEND DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${SOURCE_ETC_SUFFIX})
     else()
       list(APPEND DEPENDS ${SOURCE_ETC_PREFIX}/${SOURCE_ETC_SUFFIX})
       configure_file(${SOURCE_ETC_PREFIX}/${SOURCE_ETC_SUFFIX}

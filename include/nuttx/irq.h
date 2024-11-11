@@ -1,6 +1,8 @@
 /****************************************************************************
  * include/nuttx/irq.h
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -78,9 +80,7 @@
   do \
     { \
       g_cpu_irqset = 0; \
-      SP_DMB(); \
-      g_cpu_irqlock = SP_UNLOCKED; \
-      SP_DSB(); \
+      spin_unlock_wo_note(&g_cpu_irqlock); \
     } \
   while (0)
 #endif

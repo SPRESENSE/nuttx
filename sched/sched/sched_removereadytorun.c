@@ -47,7 +47,6 @@
  *
  * Input Parameters:
  *   rtcb - Points to the TCB that is ready-to-run
- *   merge - Merge pending list or not
  *
  * Returned Value:
  *   true if the currently active task (the head of the ready-to-run list)
@@ -63,7 +62,7 @@
  ****************************************************************************/
 
 #ifndef CONFIG_SMP
-bool nxsched_remove_readytorun(FAR struct tcb_s *rtcb, bool merge)
+bool nxsched_remove_readytorun(FAR struct tcb_s *rtcb)
 {
   FAR dq_queue_t *tasklist;
   bool doswitch = false;
@@ -86,6 +85,7 @@ bool nxsched_remove_readytorun(FAR struct tcb_s *rtcb, bool merge)
       DEBUGASSERT(nxttcb != NULL);
 
       nxttcb->task_state = TSTATE_TASK_RUNNING;
+      up_update_task(nxttcb);
       doswitch = true;
     }
 
@@ -99,17 +99,16 @@ bool nxsched_remove_readytorun(FAR struct tcb_s *rtcb, bool merge)
 
   rtcb->task_state = TSTATE_TASK_INVALID;
 
-  if (list_pendingtasks()->head && merge)
-    {
-      doswitch |= nxsched_merge_pending();
-    }
-
   return doswitch;
 }
 
 void nxsched_remove_self(FAR struct tcb_s *tcb)
 {
-  nxsched_remove_readytorun(tcb, true);
+  nxsched_remove_readytorun(tcb);
+  if (list_pendingtasks()->head)
+    {
+      nxsched_merge_pending();
+    }
 }
 #endif /* !CONFIG_SMP */
 
@@ -121,7 +120,6 @@ void nxsched_remove_self(FAR struct tcb_s *tcb)
  *
  * Input Parameters:
  *   rtcb - Points to the TCB that is ready-to-run
- *   merge - Merge pending list or not
  *
  * Returned Value:
  *   true if the currently active task (the head of the ready-to-run list)
@@ -262,23 +260,6 @@ void nxsched_remove_running(FAR struct tcb_s *tcb)
       nxttcb = rtrtcb;
     }
 
-  /* Will pre-emption be disabled after the switch?  If the lockcount is
-   * greater than zero, then this task/this CPU holds the scheduler lock.
-   */
-
-  if (nxttcb->lockcount > 0)
-    {
-      /* Yes... make sure that scheduling logic knows about this */
-
-      g_cpu_lockset |= (1 << cpu);
-    }
-  else
-    {
-      /* No.. we may need to perform release our hold on the lock. */
-
-      g_cpu_lockset &= ~(1 << cpu);
-    }
-
   /* NOTE: If the task runs on another CPU(cpu), adjusting global IRQ
    * controls will be done in the pause handler on the new CPU(cpu).
    * If the task is scheduled on this CPU(me), do nothing because
@@ -290,6 +271,8 @@ void nxsched_remove_running(FAR struct tcb_s *tcb)
   /* Since the TCB is no longer in any list, it is now invalid */
 
   tcb->task_state = TSTATE_TASK_INVALID;
+
+  up_update_task(nxttcb);
 }
 
 void nxsched_remove_self(FAR struct tcb_s *tcb)
@@ -301,25 +284,13 @@ void nxsched_remove_self(FAR struct tcb_s *tcb)
     }
 }
 
-bool nxsched_remove_readytorun(FAR struct tcb_s *tcb, bool merge)
+bool nxsched_remove_readytorun(FAR struct tcb_s *tcb)
 {
-  bool doswitch = false;
-
   if (tcb->task_state == TSTATE_TASK_RUNNING)
     {
-      int me = this_cpu();
-      int cpu = tcb->cpu;
-      if (cpu != me)
-        {
-          up_cpu_pause(tcb->cpu);
-          nxsched_remove_running(tcb);
-          up_cpu_resume(tcb->cpu);
-        }
-      else
-        {
-          nxsched_remove_running(tcb);
-          doswitch = true;
-        }
+      DEBUGASSERT(tcb->cpu == this_cpu());
+      nxsched_remove_running(tcb);
+      return true;
     }
   else
     {
@@ -334,7 +305,7 @@ bool nxsched_remove_readytorun(FAR struct tcb_s *tcb, bool merge)
             {
               g_delivertasks[i] = NULL;
               tcb->task_state = TSTATE_TASK_INVALID;
-              goto finish;
+              return false;
             }
         }
 
@@ -354,12 +325,6 @@ bool nxsched_remove_readytorun(FAR struct tcb_s *tcb, bool merge)
       tcb->task_state = TSTATE_TASK_INVALID;
     }
 
-finish:
-  if (list_pendingtasks()->head && merge)
-    {
-      doswitch |= nxsched_merge_pending();
-    }
-
-  return doswitch;
+  return false;
 }
 #endif /* CONFIG_SMP */

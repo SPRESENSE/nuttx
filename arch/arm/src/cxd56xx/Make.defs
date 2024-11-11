@@ -37,16 +37,20 @@ CHIP_CSRCS += cxd56_icc.c
 CHIP_CSRCS += cxd56_powermgr.c
 CHIP_CSRCS += cxd56_farapi.c
 CHIP_CSRCS += cxd56_sysctl.c
+CHIP_CSRCS += cxd56_vectors.c
 
 ifeq ($(CONFIG_SMP), y)
 CHIP_CSRCS += cxd56_cpuidlestack.c
-CHIP_CSRCS += cxd56_cpuindex.c
-CHIP_CSRCS += cxd56_cpupause.c
+CHIP_CSRCS += cxd56_smpcall.c
 CHIP_CSRCS += cxd56_cpustart.c
 ifeq ($(CONFIG_CXD56_TESTSET),y)
 CHIP_CSRCS += cxd56_testset.c
 CMN_ASRCS  := $(filter-out arm_testset.S,$(CMN_ASRCS))
 endif
+endif
+
+ifeq ($(CONFIG_ARCH_HAVE_MULTICPU), y)
+CHIP_CSRCS += cxd56_cpuindex.c
 endif
 
 ifeq ($(CONFIG_ARCH_USE_TEXT_HEAP), y)

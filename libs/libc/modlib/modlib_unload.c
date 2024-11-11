@@ -1,6 +1,8 @@
 /****************************************************************************
  * libs/libc/modlib/modlib_unload.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -27,6 +29,7 @@
 #include <stdlib.h>
 #include <debug.h>
 
+#include <nuttx/arch.h>
 #include <nuttx/lib/modlib.h>
 
 #include "libc.h"
@@ -56,6 +59,13 @@ int modlib_unload(FAR struct mod_loadinfo_s *loadinfo)
 
   modlib_freebuffers(loadinfo);
 
+#ifdef CONFIG_ARCH_ADDRENV
+  if (loadinfo->addrenv != NULL)
+    {
+      modlib_addrenv_free(loadinfo);
+    }
+  else
+#endif
   /* Release memory holding the relocated ELF image */
 
   /* ET_DYN has a single allocation so we only free textalloc */
@@ -90,7 +100,7 @@ int modlib_unload(FAR struct mod_loadinfo_s *loadinfo)
 
       lib_free(loadinfo->sectalloc);
 #else
-      if (loadinfo->textalloc != 0)
+      if (loadinfo->textalloc != 0 && loadinfo->xipbase == 0)
         {
 #  if defined(CONFIG_ARCH_USE_TEXT_HEAP)
           up_textheap_free((FAR void *)loadinfo->textalloc);

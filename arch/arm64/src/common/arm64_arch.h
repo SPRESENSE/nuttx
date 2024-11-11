@@ -26,6 +26,7 @@
  ****************************************************************************/
 
 #include <nuttx/config.h>
+#include <arch/arch.h>
 
 /* Unsigned integer with bit position n set (signed in
  * assembly language).
@@ -94,6 +95,17 @@
 #define SCTLR_C_BIT         BIT(2)
 #define SCTLR_SA_BIT        BIT(3)
 #define SCTLR_I_BIT         BIT(12)
+
+#define ACTLR_AUX_BIT        BIT(9)
+#define ACTLR_CLPORTS_BIT    BIT(8)
+#define ACTLR_CLPMU_BIT      BIT(7)
+#define ACTLR_TESTR1_BIT     BIT(6)
+#define ACTLR_CDBG_BIT       BIT(5)
+#define ACTLR_PATCH_BIT      BIT(4)
+#define ACTLR_BPRED_BIT      BIT(3)
+#define ACTLR_POWER_BIT      BIT(2)
+#define ACTLR_DIAGNOSTIC_BIT BIT(1)
+#define ACTLR_REGIONS_BIT    BIT(0)
 
 /* SPSR M[3:0] define
  *
@@ -262,39 +274,6 @@
 #define L1_CACHE_BYTES              BIT(L1_CACHE_SHIFT)
 
 /****************************************************************************
- * Type Declarations
- ****************************************************************************/
-
-#ifdef CONFIG_ARCH_FPU
-
-/****************************************************************************
- * armv8 fpu registers and context
- ****************************************************************************/
-
-struct fpu_reg
-{
-  __int128 q[32];
-  uint32_t fpsr;
-  uint32_t fpcr;
-};
-
-#endif
-
-/****************************************************************************
- * Registers and exception context
- ****************************************************************************/
-
-struct regs_context
-{
-  uint64_t  regs[31];  /* x0~x30 */
-  uint64_t  sp_elx;
-  uint64_t  elr;
-  uint64_t  spsr;
-  uint64_t  sp_el0;
-  uint64_t  exe_depth;
-};
-
-/****************************************************************************
  * Public Function Prototypes
  ****************************************************************************/
 
@@ -404,49 +383,6 @@ static inline void arch_nop(void)
     __ret;                                \
   })
 
-/****************************************************************************
- * Name:
- *   read_/write_/zero_ sysreg
- *
- * Description:
- *
- *   ARMv8 Architecture Registers access method
- *   All the macros need a memory clobber
- *
- ****************************************************************************/
-
-#define read_sysreg(reg)                         \
-  ({                                             \
-    uint64_t __val;                              \
-    __asm__ volatile ("mrs %0, " STRINGIFY(reg)  \
-                    : "=r" (__val) :: "memory"); \
-    __val;                                       \
-  })
-
-#define read_sysreg_dump(reg)                    \
-  ({                                             \
-    uint64_t __val;                              \
-    __asm__ volatile ("mrs %0, " STRINGIFY(reg)  \
-                    : "=r" (__val) :: "memory"); \
-    sinfo("%s, regval=0x%llx\n",                 \
-          STRINGIFY(reg), __val);                \
-    __val;                                       \
-  })
-
-#define write_sysreg(__val, reg)                   \
-  ({                                               \
-    __asm__ volatile ("msr " STRINGIFY(reg) ", %0" \
-                      : : "r" (__val) : "memory"); \
-  })
-
-#define zero_sysreg(reg)                            \
-  ({                                                \
-    __asm__ volatile ("msr " STRINGIFY(reg) ", xzr" \
-                      ::: "memory");                \
-  })
-
-/* Non-atomic modification of registers */
-
 #define modreg8(v,m,a)  putreg8((getreg8(a) & ~(m)) | ((v) & (m)), (a))
 #define modreg16(v,m,a) putreg16((getreg16(a) & ~(m)) | ((v) & (m)), (a))
 #define modreg32(v,m,a) putreg32((getreg32(a) & ~(m)) | ((v) & (m)), (a))
@@ -534,7 +470,7 @@ void arm64_cpu_enable(void);
 #ifdef CONFIG_SMP
 uint64_t arm64_get_mpid(int cpu);
 #else
-#  define arm64_get_mpid(cpu) GET_MPIDR()
+#  define arm64_get_mpid(cpu) (GET_MPIDR() & MPIDR_ID_MASK)
 #endif /* CONFIG_SMP */
 
 /****************************************************************************

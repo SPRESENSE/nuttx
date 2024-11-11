@@ -31,10 +31,14 @@ CMN_CSRCS += riscv_initialize.c riscv_swint.c riscv_mtimer.c
 CMN_CSRCS += riscv_allocateheap.c riscv_createstack.c riscv_cpuinfo.c
 CMN_CSRCS += riscv_cpuidlestack.c riscv_doirq.c riscv_exit.c riscv_exception.c
 CMN_CSRCS += riscv_getnewintctx.c riscv_getintstack.c riscv_initialstate.c
-CMN_CSRCS += riscv_idle.c riscv_modifyreg32.c riscv_nputs.c riscv_releasestack.c
+CMN_CSRCS += riscv_modifyreg32.c riscv_nputs.c riscv_releasestack.c
 CMN_CSRCS += riscv_registerdump.c riscv_stackframe.c riscv_schedulesigaction.c
 CMN_CSRCS += riscv_sigdeliver.c riscv_switchcontext.c
 CMN_CSRCS += riscv_usestack.c riscv_tcbinfo.c
+
+ifneq ($(CONFIG_ARCH_IDLE_CUSTOM),y)
+  CMN_CSRCS += riscv_idle.c
+endif
 
 ifneq ($(CONFIG_ALARM_ARCH),y)
   ifneq ($(CONFIG_TIMER_ARCH),y)
@@ -43,7 +47,11 @@ ifneq ($(CONFIG_ALARM_ARCH),y)
 endif
 
 ifeq ($(CONFIG_SMP),y)
-CMN_CSRCS += riscv_cpuindex.c riscv_cpupause.c riscv_cpustart.c
+CMN_CSRCS += riscv_smpcall.c riscv_cpustart.c
+endif
+
+ifeq ($(CONFIG_ARCH_HAVE_MULTICPU),y)
+CMN_CSRCS += riscv_cpuindex.c
 endif
 
 ifeq ($(CONFIG_RISCV_MISALIGNED_HANDLER),y)
@@ -105,7 +113,7 @@ CMN_CSRCS += riscv_mmu.c
 endif
 
 ifeq ($(CONFIG_ARCH_KERNEL_STACK),y)
-CMN_CSRCS += riscv_addrenv_kstack.c riscv_ksp.c
+CMN_CSRCS += riscv_addrenv_kstack.c
 endif
 
 ifeq ($(CONFIG_ARCH_ADDRENV),y)

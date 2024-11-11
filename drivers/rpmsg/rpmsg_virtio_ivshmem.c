@@ -1,6 +1,8 @@
 /****************************************************************************
  * drivers/rpmsg/rpmsg_virtio_ivshmem.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -127,8 +129,10 @@ rpmsg_virtio_ivshmem_get_resource(FAR struct rpmsg_virtio_s *dev)
   FAR struct rpmsg_virtio_ivshmem_dev_s *priv =
     (FAR struct rpmsg_virtio_ivshmem_dev_s *)dev;
   FAR struct rpmsg_virtio_rsc_s *rsc;
+  FAR struct rpmsg_virtio_cmd_s *cmd;
 
   rsc = &priv->shmem->rsc;
+  cmd = RPMSG_VIRTIO_RSC2CMD(rsc);
 
   if (priv->master)
     {
@@ -146,8 +150,7 @@ rpmsg_virtio_ivshmem_get_resource(FAR struct rpmsg_virtio_s *dev)
       rsc->rpmsg_vring1.num         = CONFIG_RPMSG_VIRTIO_IVSHMEM_BUFFNUM;
       rsc->config.r2h_buf_size      = CONFIG_RPMSG_VIRTIO_IVSHMEM_BUFFSIZE;
       rsc->config.h2r_buf_size      = CONFIG_RPMSG_VIRTIO_IVSHMEM_BUFFSIZE;
-      rsc->cmd_master               = 0;
-      rsc->cmd_slave                = 0;
+      cmd->cmd_slave                = 0;
 
       priv->shmem->basem = (uint64_t)(uintptr_t)priv->shmem;
     }
@@ -162,6 +165,7 @@ rpmsg_virtio_ivshmem_get_resource(FAR struct rpmsg_virtio_s *dev)
           usleep(1000);
         }
 
+      cmd->cmd_master       = 0;
       priv->addrenv[0].va   = (uint64_t)(uintptr_t)priv->shmem;
       priv->addrenv[0].pa   = priv->shmem->basem;
       priv->addrenv[0].size = priv->shmem_size;
@@ -287,7 +291,7 @@ static int rpmsg_virtio_ivshmem_probe(FAR struct ivshmem_device_s *ivdev)
   ret = rpmsg_virtio_initialize(&priv->dev);
   if (ret < 0)
     {
-      pcierr("Rpmsg virtio intialize failed, ret=%d\n", ret);
+      rpmsgerr("Rpmsg virtio intialize failed, ret=%d\n", ret);
       goto err;
     }
 
@@ -297,14 +301,14 @@ static int rpmsg_virtio_ivshmem_probe(FAR struct ivshmem_device_s *ivdev)
                      rpmsg_virtio_ivshmem_wdog, (wdparm_t)priv);
       if (ret < 0)
         {
-          pcierr("ERROR: wd_start failed: %d\n", ret);
+          rpmsgerr("ERROR: wd_start failed: %d\n", ret);
+          goto err;
         }
     }
 
   return ret;
 
 err:
-  ivshmem_unregister_driver(&priv->drv);
   ivshmem_control_irq(ivdev, false);
   ivshmem_detach_irq(ivdev);
   return ret;
@@ -326,7 +330,6 @@ static void rpmsg_virtio_ivshmem_remove(FAR struct ivshmem_device_s *ivdev)
 
   ivshmem_control_irq(ivdev, false);
   ivshmem_detach_irq(ivdev);
-  kmm_free(priv);
 }
 
 /****************************************************************************

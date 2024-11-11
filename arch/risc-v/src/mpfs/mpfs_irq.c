@@ -33,6 +33,8 @@
 #include <nuttx/irq.h>
 
 #include "riscv_internal.h"
+#include "riscv_ipi.h"
+
 #include "mpfs.h"
 #include "mpfs_plic.h"
 
@@ -50,28 +52,9 @@ void up_irqinitialize(void)
 
   up_irq_save();
 
-  /* Complete possibly claimed IRQs in PLIC (for current hart) in case
-   * of warm reboot, e.g. after a crash in the middle of IRQ handler.
-   * This has no effect on non-claimed or disabled interrupts.
-   */
+  /* Initialize PLIC for current hart */
 
-  uintptr_t claim_address = mpfs_plic_get_claimbase();
-
-  for (int irq = MPFS_IRQ_EXT_START; irq < NR_IRQS; irq++)
-    {
-      putreg32(irq - MPFS_IRQ_EXT_START, claim_address);
-    }
-
-  /* Disable all global interrupts for current hart */
-
-  uintptr_t iebase = mpfs_plic_get_iebase();
-
-  putreg32(0x0, iebase + 0);
-  putreg32(0x0, iebase + 4);
-  putreg32(0x0, iebase + 8);
-  putreg32(0x0, iebase + 12);
-  putreg32(0x0, iebase + 16);
-  putreg32(0x0, iebase + 20);
+  mpfs_plic_init_hart(riscv_mhartid());
 
   /* Colorize the interrupt stack for debug purposes */
 
@@ -80,21 +63,17 @@ void up_irqinitialize(void)
   riscv_stack_color(g_intstackalloc, intstack_size);
 #endif
 
-  /* Set priority for all global interrupts to 1 (lowest) */
-
-  for (int id = 1; id <= NR_IRQS; id++)
-    {
-      putreg32(1, (uintptr_t)(MPFS_PLIC_PRIORITY + (4 * id)));
-    }
-
-  /* Set irq threshold to 0 (permits all global interrupts) */
-
-  uintptr_t threshold_address = mpfs_plic_get_thresholdbase();
-  putreg32(0, threshold_address);
-
   /* Attach the common interrupt handler */
 
   riscv_exception_attach();
+
+#ifdef CONFIG_SMP
+  /* Clear IPI for CPU0 */
+
+  riscv_ipi_clear(0);
+
+  up_enable_irq(RISCV_IRQ_SOFT);
+#endif
 
 #ifndef CONFIG_SUPPRESS_INTERRUPTS
 

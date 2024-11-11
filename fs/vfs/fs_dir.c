@@ -1,6 +1,8 @@
 /****************************************************************************
  * fs/vfs/fs_dir.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -34,6 +36,7 @@
 #include <nuttx/fs/ioctl.h>
 
 #include "inode/inode.h"
+#include "fs_heap.h"
 
 /****************************************************************************
  * Private Types
@@ -154,7 +157,7 @@ static int open_pseudodir(FAR struct inode *inode,
 {
   FAR struct fs_pseudodir_s *pdir;
 
-  pdir = kmm_zalloc(sizeof(*pdir));
+  pdir = fs_heap_zalloc(sizeof(*pdir));
   if (pdir == NULL)
     {
       return -ENOMEM;
@@ -447,13 +450,13 @@ static int dir_close(FAR struct file *filep)
 
       /* Then release the container */
 
-      kmm_free(dir);
+      fs_heap_free(dir);
     }
 
   /* Release our references on the contained 'root' inode */
 
   inode_release(inode);
-  lib_free(relpath);
+  fs_heap_free(relpath);
   return ret;
 }
 
@@ -607,7 +610,7 @@ int dir_allocate(FAR struct file *filep, FAR const char *relpath)
     }
 
   inode_getpath(inode, path_prefix, sizeof(path_prefix));
-  ret = asprintf(&dir->fd_path, "%s%s/", path_prefix, relpath);
+  ret = fs_heap_asprintf(&dir->fd_path, "%s%s/", path_prefix, relpath);
   if (ret < 0)
     {
       dir->fd_path = NULL;

@@ -261,7 +261,7 @@ EXTERN uint8_t g_idle_topstack[];   /* End+1 of heap */
 
 void arm64_new_task(struct tcb_s *tak_new);
 void arm64_jump_to_user(uint64_t entry, uint64_t x0, uint64_t x1,
-                        uint64_t *regs) noreturn_function;
+                        uint64_t sp_el0, uint64_t *regs) noreturn_function;
 
 /* Low level initialization provided by chip logic */
 
@@ -302,8 +302,7 @@ void arm64_pginitialize(void);
 #  define arm64_pginitialize()
 #endif /* CONFIG_LEGACY_PAGING */
 
-uint64_t * arm64_syscall_switch(uint64_t *regs);
-int arm64_syscall(uint64_t *regs);
+uint64_t *arm64_syscall(uint64_t *regs);
 
 /* Low level serial output **************************************************/
 

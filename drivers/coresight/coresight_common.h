@@ -1,6 +1,8 @@
 /****************************************************************************
  * drivers/coresight/coresight_common.h
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -47,6 +49,8 @@
 #define CORESIGHT_AUTHSTATUS           0xfb8
 #define CORESIGHT_DEVID                0xfc8
 #define CORESIGHT_DEVTYPE              0xfcc
+
+#define CORESIGHT_CLAIM_SELF_HOSTED    BIT(1)
 
 /* Register operations */
 

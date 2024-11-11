@@ -1,6 +1,8 @@
 /****************************************************************************
  * fs/vfs/fs_signalfd.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -37,6 +39,7 @@
 #include <sys/signalfd.h>
 
 #include "inode/inode.h"
+#include "fs_heap.h"
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -154,7 +157,7 @@ static int signalfd_file_close(FAR struct file *filep)
 
   nxmutex_unlock(&dev->mutex);
   nxmutex_destroy(&dev->mutex);
-  kmm_free(dev);
+  fs_heap_free(dev);
 
   return OK;
 }
@@ -340,7 +343,7 @@ int signalfd(int fd, FAR const sigset_t *mask, int flags)
 
   if (fd == -1)
     {
-      dev = kmm_zalloc(sizeof(*dev));
+      dev = fs_heap_zalloc(sizeof(*dev));
       if (dev == NULL)
         {
           ret = ENOMEM;
@@ -406,7 +409,7 @@ int signalfd(int fd, FAR const sigset_t *mask, int flags)
 
 errout_with_dev:
   nxmutex_destroy(&dev->mutex);
-  kmm_free(dev);
+  fs_heap_free(dev);
 
 errout:
   set_errno(ret);

@@ -1,6 +1,8 @@
 /****************************************************************************
  * drivers/misc/rpmsgblk.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -39,7 +41,7 @@
 #include <nuttx/mtd/smart.h>
 #include <nuttx/mutex.h>
 #include <nuttx/mmcsd.h>
-#include <nuttx/rptun/openamp.h>
+#include <nuttx/rpmsg/rpmsg.h>
 
 #include "rpmsgblk.h"
 
@@ -395,6 +397,7 @@ static ssize_t rpmsgblk_write(FAR struct inode *inode,
                               sizeof(*msg) - 1 + msg->nsectors * sectorsize);
       if (ret < 0)
         {
+          rpmsg_release_tx_buffer(&priv->ept, msg);
           goto out;
         }
     }
@@ -613,7 +616,7 @@ static int rpmsgblk_mmc_multi_cmd_ioctl(FAR struct inode *inode,
 
   msglen = sizeof(*msg) + arglen - 1;
   rsplen += sizeof(*msg) - 1;
-  if (MAX(msglen, rsplen) > rpmsg_virtio_get_buffer_size(priv->ept.rdev))
+  if (MAX(msglen, rsplen) > rpmsg_get_tx_buffer_size(&priv->ept))
     {
       int ret = 0;
 
@@ -859,6 +862,11 @@ static int rpmsgblk_send_recv(FAR struct rpmsgblk_s *priv,
 
   if (ret < 0)
     {
+      if (copy == false)
+        {
+          rpmsg_release_tx_buffer(&priv->ept, msg);
+        }
+
       goto fail;
     }
 

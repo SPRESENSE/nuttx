@@ -1,6 +1,8 @@
 /****************************************************************************
  * include/sys/syscall_lookup.h
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -34,6 +36,7 @@ SYSCALL_LOOKUP(prctl,                      2)
   SYSCALL_LOOKUP(getppid,                  0)
 #endif
 
+SYSCALL_LOOKUP(sched_getcpu,               0)
 SYSCALL_LOOKUP(sched_getparam,             2)
 SYSCALL_LOOKUP(sched_getscheduler,         1)
 SYSCALL_LOOKUP(sched_lock,                 0)
@@ -51,7 +54,6 @@ SYSCALL_LOOKUP(nxsched_get_stackinfo,      2)
 
 #ifdef CONFIG_SMP
   SYSCALL_LOOKUP(sched_getaffinity,        3)
-  SYSCALL_LOOKUP(sched_getcpu,             0)
   SYSCALL_LOOKUP(sched_setaffinity,        3)
 #endif
 
@@ -84,6 +86,11 @@ SYSCALL_LOOKUP(nxsem_wait,                 1)
 
 #ifdef CONFIG_PRIORITY_INHERITANCE
   SYSCALL_LOOKUP(nxsem_set_protocol,       2)
+#endif
+
+#ifdef CONFIG_PRIORITY_PROTECT
+  SYSCALL_LOOKUP(nxsem_setprioceiling,     3)
+  SYSCALL_LOOKUP(nxsem_getprioceiling,     2)
 #endif
 
 /* Named semaphores */
@@ -181,7 +188,9 @@ SYSCALL_LOOKUP(clock_settime,              2)
 
 /* System logging */
 
+#ifdef CONFIG_SYSLOG
 SYSCALL_LOOKUP(nx_vsyslog,                 3)
+#endif
 
 /* The following are defined if either file or socket descriptor are
  * enabled.
@@ -191,6 +200,8 @@ SYSCALL_LOOKUP(close,                      1)
 SYSCALL_LOOKUP(ioctl,                      3)
 SYSCALL_LOOKUP(read,                       3)
 SYSCALL_LOOKUP(write,                      3)
+SYSCALL_LOOKUP(readv,                      3)
+SYSCALL_LOOKUP(writev,                     3)
 SYSCALL_LOOKUP(pread,                      4)
 SYSCALL_LOOKUP(pwrite,                     4)
 #ifdef CONFIG_FS_AIO
@@ -373,14 +384,6 @@ SYSCALL_LOOKUP(munmap,                     2)
   SYSCALL_LOOKUP(shutdown,                 2)
   SYSCALL_LOOKUP(socket,                   3)
   SYSCALL_LOOKUP(socketpair,               4)
-#endif
-
-/* The following is defined only if entropy pool random number generator
- * is enabled.
- */
-
-#ifdef CONFIG_CRYPTO_RANDOM_POOL
-  SYSCALL_LOOKUP(arc4random_buf,           2)
 #endif
 
 SYSCALL_LOOKUP(nanosleep,                  2)

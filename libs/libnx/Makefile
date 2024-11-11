@@ -1,6 +1,8 @@
 ############################################################################
 # libs/libnx/Makefile
 #
+# SPDX-License-Identifier: Apache-2.0
+#
 # Licensed to the Apache Software Foundation (ASF) under one or more
 # contributor license agreements.  See the NOTICE file distributed with
 # this work for additional information regarding copyright ownership.  The
@@ -239,13 +241,17 @@ depend: .depend
 
 # Generate configuration context
 
-context: gensources
+bin:
+	$(Q) mkdir $@
+
+kbin:
+	$(Q) mkdir $@
+
+context:: gensources bin kbin
 
 # Clean most derived files, retaining the configuration
 
 clean:
-	$(Q) $(MAKE) -C bin  clean
-	$(Q) $(MAKE) -C kbin clean
 	$(Q) $(MAKE) -C nxfonts -f Makefile.sources clean EXTRAFLAGS="$(EXTRAFLAGS)"
 	$(call DELFILE, $(BIN))
 	$(call DELFILE, $(KBIN))
@@ -254,12 +260,10 @@ clean:
 # Deep clean -- removes all traces of the configuration
 
 distclean: clean
-	$(Q) $(MAKE) -C bin  distclean
-	$(Q) $(MAKE) -C kbin distclean
-	$(Q) $(MAKE) -C nxfonts -f Makefile.sources distclean EXTRAFLAGS="$(EXTRAFLAGS)"
-	$(call DELFILE, bin/Make.dep)
-	$(call DELFILE, kbin/Make.dep)
+	$(call DELDIR, bin)
+	$(call DELDIR, kbin)
 	$(call DELFILE, .depend)
+	$(Q) $(MAKE) -C nxfonts -f Makefile.sources distclean EXTRAFLAGS="$(EXTRAFLAGS)"
 
 -include bin/Make.dep
 -include kbin/Make.dep

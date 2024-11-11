@@ -1,6 +1,8 @@
 /*****************************************************************************
  * drivers/serial/uart_pci_16550.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -760,7 +762,7 @@ static int pci_u16550_probe(FAR struct pci_device_s *dev)
  *****************************************************************************/
 
 #ifdef CONFIG_16550_PCI_CONSOLE
-int up_putc(int ch)
+void up_putc(int ch)
 {
   irqstate_t flags;
 
@@ -768,7 +770,7 @@ int up_putc(int ch)
 
   if (CONSOLE_DEV.ops == NULL)
     {
-      return ch;
+      return;
     }
 
   /* All interrupts must be disabled to prevent re-entrancy and to prevent
@@ -776,20 +778,8 @@ int up_putc(int ch)
    */
 
   flags = spin_lock_irqsave(NULL);
-
-  /* Check for LF */
-
-  if (ch == '\n')
-    {
-      /* Add CR */
-
-      u16550_putc(CONSOLE_DEV.priv, '\r');
-    }
-
   u16550_putc(CONSOLE_DEV.priv, ch);
   spin_unlock_irqrestore(NULL, flags);
-
-  return ch;
 }
 #endif
 

@@ -1,6 +1,8 @@
 /****************************************************************************
  * include/nuttx/lib/math32.h
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -112,7 +114,6 @@ extern "C"
  * Public Function Prototypes
  ****************************************************************************/
 
-#define is_power_of_2(n) IS_POWER_OF_2(n)
 #define flsx(n) ((sizeof(n) <= sizeof(long)) ? flsl(n) : flsll(n))
 
 /****************************************************************************
@@ -129,7 +130,7 @@ extern "C"
  *
  ****************************************************************************/
 
-#define log2ceil(n) (is_power_of_2(n) ? (flsx(n) - 1) : flsx(n))
+#define log2ceil(n) (IS_POWER_OF_2(n) ? (flsx(n) - 1) : flsx(n))
 
 /****************************************************************************
  * Name: log2floor

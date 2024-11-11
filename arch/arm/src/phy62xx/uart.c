@@ -46,7 +46,7 @@
 #include <nuttx/arch.h>
 #include <nuttx/fs/ioctl.h>
 #include <nuttx/serial/serial.h>
-#include <nuttx/mm/circbuf.h>
+#include <nuttx/circbuf.h>
 
 #define UART_TX_BUFFER_SIZE   64
 #define UART_RX_BUFFER_SIZE   64
@@ -1127,10 +1127,9 @@ void arm_serialinit(void)
  *
  ****************************************************************************/
 
-int up_putc(int ch)
+void up_putc(int ch)
 {
   hal_uart_send_byte(UART0, (char)ch);
-  return ch;
 }
 
 struct h4uart_param_s

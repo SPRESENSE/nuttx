@@ -195,7 +195,7 @@ struct tasklist_s g_tasklisttable[NUM_TASK_STATES];
  * hardware resources may not yet be available to the kernel logic.
  */
 
-uint8_t g_nx_initstate;  /* See enum nx_initstate_e */
+volatile uint8_t g_nx_initstate;  /* See enum nx_initstate_e */
 
 /****************************************************************************
  * Private Data
@@ -209,7 +209,7 @@ uint8_t g_nx_initstate;  /* See enum nx_initstate_e */
  * bringing up the rest of the system.
  */
 
-struct tcb_s g_idletcb[CONFIG_SMP_NCPUS];
+static struct tcb_s g_idletcb[CONFIG_SMP_NCPUS];
 
 /* This is the name of the idle task */
 
@@ -361,6 +361,7 @@ static void idle_task_initialize(void)
 
       tcb->pid        = i;
       tcb->task_state = TSTATE_TASK_RUNNING;
+      tcb->lockcount  = 1;
 
       /* Set the entry point.  This is only for debug purposes.  NOTE: that
        * the start_t entry point is not saved.  That is acceptable, however,
@@ -428,6 +429,11 @@ static void idle_task_initialize(void)
       /* Mark the idle task as the running task */
 
       g_running_tasks[i] = tcb;
+
+      if (i == 0)
+        {
+          up_update_task(&g_idletcb[0]); /* Init idle task to percpu reg */
+        }
     }
 }
 
@@ -605,14 +611,16 @@ void nx_start(void)
 
   /* Initialize the logic that determine unique process IDs. */
 
-  g_npidhash = 1 << LOG2_CEIL(CONFIG_PID_INITIAL_COUNT);
-  while (g_npidhash <= CONFIG_SMP_NCPUS)
+  i = 1 << LOG2_CEIL(CONFIG_PID_INITIAL_COUNT);
+  while (i <= CONFIG_SMP_NCPUS)
     {
-      g_npidhash <<= 1;
+      i <<= 1;
     }
 
-  g_pidhash = kmm_zalloc(sizeof(*g_pidhash) * g_npidhash);
+  g_pidhash = kmm_zalloc(sizeof(*g_pidhash) * i);
   DEBUGASSERT(g_pidhash);
+
+  g_npidhash = i;
 
   /* IDLE Group Initialization **********************************************/
 
@@ -627,13 +635,6 @@ void nx_start(void)
   /* Initialize tasking data structures */
 
   task_initialize();
-
-  /* Disables context switching because we need take the memory manager
-   * semaphore on this CPU so that it will not be available on the other
-   * CPUs until we have finished initialization.
-   */
-
-  sched_lock();
 
   /* Initialize the instrument function */
 

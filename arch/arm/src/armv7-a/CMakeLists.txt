@@ -46,11 +46,8 @@ list(
   arm_syscall.c
   arm_tcbinfo.c
   arm_undefinedinsn.c
+  arm_perf.c
   cp15_cacheops.c)
-
-if(CONFIG_ARCH_PERF_EVENTS)
-  list(APPEND SRCS arm_perf.c)
-endif()
 
 if(CONFIG_ARMV7A_GICv2M)
   list(APPEND SRCS arm_gicv2m.c)
@@ -109,10 +106,10 @@ if(CONFIG_ARCH_FPU)
 endif()
 
 if(CONFIG_SMP)
-  list(APPEND SRCS arm_cpustart.c arm_cpupause.c arm_cpuidlestack.c arm_scu.c)
+  list(APPEND SRCS arm_cpustart.c arm_smpcall.c arm_cpuidlestack.c arm_scu.c)
 endif()
 
-if(CONFIG_ARCH_HAVE_PSCI)
+if(CONFIG_ARM_PSCI)
   list(APPEND SRCS arm_cpu_psci.c arm_smccc.S)
 endif()
 

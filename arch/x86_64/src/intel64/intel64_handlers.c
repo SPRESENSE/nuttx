@@ -80,9 +80,8 @@ static uint64_t *common_handler(int irq, uint64_t *regs)
 
   /* Check for a context switch.  If a context switch occurred, then
    * g_current_regs will have a different value than it did on entry.  If an
-   * interrupt level context switch has occurred, then restore the floating
-   * point state and the establish the correct address environment before
-   * returning from the interrupt.
+   * interrupt level context switch has occurred, then the establish the
+   * correct address environment before returning from the interrupt.
    */
 
   if (regs != up_current_regs())
@@ -99,6 +98,7 @@ static uint64_t *common_handler(int irq, uint64_t *regs)
 
       /* Update scheduler parameters */
 
+      cpu = this_cpu();
       nxsched_suspend_scheduler(g_running_tasks[cpu]);
       nxsched_resume_scheduler(this_task());
 
@@ -107,7 +107,6 @@ static uint64_t *common_handler(int irq, uint64_t *regs)
        * crashes.
        */
 
-      cpu = this_cpu();
       tcb = current_task(cpu);
       g_running_tasks[cpu] = tcb;
 
@@ -237,4 +236,28 @@ uint64_t *irq_handler(uint64_t *regs, uint64_t irq_no)
   board_autoled_off(LED_INIRQ);
   return ret;
 #endif
+}
+
+/****************************************************************************
+ * Name: irq_xcp_regs
+ *
+ * Description:
+ *   Return current task XCP registers area.
+ *
+ * ASSUMPTION:
+ *   Interrupts are disabled.
+ *
+ *   This function should be called only form intel64_vector.S file !
+ *   Any other use must be carefully considered.
+ *
+ ****************************************************************************/
+
+uint64_t *irq_xcp_regs(void)
+{
+  /* This must be the simplest as possible, so we not use too much registers.
+   * Now this function corrupts only RAX and RDX registers regardless of
+   * the compiler optimization.
+   */
+
+  return (current_task(this_cpu()))->xcp.regs;
 }

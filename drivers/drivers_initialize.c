@@ -1,6 +1,8 @@
 /****************************************************************************
  * drivers/drivers_initialize.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -50,6 +52,7 @@
 #include <nuttx/thermal.h>
 #include <nuttx/trace.h>
 #include <nuttx/usrsock/usrsock_rpmsg.h>
+#include <nuttx/vhost/vhost.h>
 #include <nuttx/virtio/virtio.h>
 #include <nuttx/drivers/optee.h>
 
@@ -271,6 +274,10 @@ void drivers_initialize(void)
 
 #ifdef CONFIG_DRIVERS_VIRTIO
   virtio_register_drivers();
+#endif
+
+#ifdef CONFIG_DRIVERS_VHOST
+  vhost_register_drivers();
 #endif
 
 #ifndef CONFIG_DEV_OPTEE_NONE

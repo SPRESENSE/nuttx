@@ -1,6 +1,8 @@
 /****************************************************************************
  * libs/libc/stream/lib_stdoutstream.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -84,7 +86,7 @@ static int stdoutstream_puts(FAR struct lib_outstream_s *self,
 
   do
     {
-      result = fwrite(buffer, len, 1, stream->handle);
+      result = fwrite(buffer, 1, len, stream->handle);
       if (result >= 0)
         {
           self->nput += result;

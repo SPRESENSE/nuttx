@@ -1,6 +1,8 @@
 /****************************************************************************
  * drivers/timers/arch_timer.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -195,17 +197,17 @@ static bool timer_callback(FAR uint32_t *next_interval, FAR void *arg)
 
 void up_timer_set_lowerhalf(FAR struct timer_lowerhalf_s *lower)
 {
-  g_timer.lower = lower;
-
 #ifdef CONFIG_SCHED_TICKLESS
   TIMER_TICK_MAXTIMEOUT(lower, &g_oneshot_maxticks);
-  TIMER_TICK_SETTIMEOUT(g_timer.lower, g_oneshot_maxticks);
+  TIMER_TICK_SETTIMEOUT(lower, g_oneshot_maxticks);
 #else
-  TIMER_TICK_SETTIMEOUT(g_timer.lower, 1);
+  TIMER_TICK_SETTIMEOUT(lower, 1);
 #endif
 
-  TIMER_SETCALLBACK(g_timer.lower, timer_callback, NULL);
-  TIMER_START(g_timer.lower);
+  TIMER_SETCALLBACK(lower, timer_callback, NULL);
+  TIMER_START(lower);
+
+  g_timer.lower = lower;
 }
 
 /****************************************************************************
@@ -407,9 +409,9 @@ void up_perf_init(FAR void *arg)
   UNUSED(arg);
 }
 
-unsigned long up_perf_gettime(void)
+clock_t up_perf_gettime(void)
 {
-  unsigned long ret = 0;
+  clock_t ret = 0;
 
   if (g_timer.lower != NULL)
     {
@@ -424,8 +426,7 @@ unsigned long up_perf_getfreq(void)
   return USEC_PER_SEC;
 }
 
-void up_perf_convert(unsigned long elapsed,
-                     FAR struct timespec *ts)
+void up_perf_convert(clock_t elapsed, FAR struct timespec *ts)
 {
   clock_usec2time(ts, elapsed);
 }
@@ -465,4 +466,19 @@ void weak_function up_udelay(useconds_t microseconds)
     {
       udelay_coarse(microseconds);
     }
+}
+
+/****************************************************************************
+ * Name: up_ndelay
+ *
+ * Description:
+ *   Delay inline for the requested number of nanoseconds.
+ *
+ *   *** NOT multi-tasking friendly ***
+ *
+ ****************************************************************************/
+
+void weak_function up_ndelay(unsigned long nanoseconds)
+{
+  up_udelay((nanoseconds + NSEC_PER_USEC - 1) / NSEC_PER_USEC);
 }

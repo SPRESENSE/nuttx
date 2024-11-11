@@ -1,6 +1,8 @@
 /****************************************************************************
  * fs/mount/fs_mount.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -69,8 +71,8 @@
     defined(CONFIG_FS_PROCFS) || defined(CONFIG_NFS) || \
     defined(CONFIG_FS_TMPFS) || defined(CONFIG_FS_USERFS) || \
     defined(CONFIG_FS_CROMFS) || defined(CONFIG_FS_UNIONFS) || \
-    defined(CONFIG_FS_HOSTFS) || defined(CONFIG_FS_RPMSGFS) || \
-    defined(CONFIG_FS_V9FS)
+    defined(CONFIG_FS_HOSTFS) || defined(CONFIG_FS_ZIPFS) || \
+    defined(CONFIG_FS_RPMSGFS) || defined(CONFIG_FS_V9FS)
 #  define NODFS_SUPPORT
 #endif
 
@@ -367,12 +369,7 @@ int nx_mount(FAR const char *source, FAR const char *target,
       goto errout;
     }
 
-  ret = inode_lock();
-  if (ret < 0)
-    {
-      goto errout_with_inode;
-    }
-
+  inode_lock();
 #ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
   /* Check if the inode already exists */
 
@@ -400,33 +397,7 @@ int nx_mount(FAR const char *source, FAR const char *target,
           goto errout_with_lock;
         }
     }
-  else
 #endif
-
-  /* Insert a dummy node -- we need to hold the inode semaphore
-   * to do this because we will have a momentarily bad structure.
-   * NOTE that the new inode will be created with an initial reference
-   * count of zero.
-   */
-
-    {
-      ret = inode_reserve(target, 0777, &mountpt_inode);
-      if (ret < 0)
-        {
-          /* inode_reserve can fail for a couple of reasons, but the most
-           * likely one is that the inode already exists. inode_reserve may
-           * return:
-           *
-           *  -EINVAL - 'path' is invalid for this operation
-           *  -EEXIST - An inode already exists at 'path'
-           *  -ENOMEM - Failed to allocate in-memory resources for the
-           *            operation
-           */
-
-          ferr("ERROR: Failed to reserve inode for target %s\n", target);
-          goto errout_with_lock;
-        }
-    }
 
   /* Bind the block driver to an instance of the file system.  The file
    * system returns a reference to some opaque, fs-dependent structure
@@ -439,7 +410,7 @@ int nx_mount(FAR const char *source, FAR const char *target,
 
       ferr("ERROR: Filesystem does not support bind\n");
       ret = -EINVAL;
-      goto errout_with_mountpt;
+      goto errout_with_lock;
     }
 
   /* Increment reference count for the reference we pass to the file system */
@@ -462,7 +433,7 @@ int nx_mount(FAR const char *source, FAR const char *target,
 #else
   ret = mops->bind(NULL, data, &fshandle);
 #endif
-  DEBUGVERIFY(inode_lock() >= 0);
+  inode_lock();
   if (ret < 0)
     {
       /* The inode is unhappy with the driver for some reason.  Back out
@@ -481,7 +452,33 @@ int nx_mount(FAR const char *source, FAR const char *target,
         }
 #endif
 
-      goto errout_with_mountpt;
+      goto errout_with_lock;
+    }
+
+  /* Insert a dummy node -- we need to hold the inode semaphore
+   * to do this because we will have a momentarily bad structure.
+   * NOTE that the new inode will be created with an initial reference
+   * count of zero.
+   */
+
+  if (mountpt_inode == NULL)
+    {
+      ret = inode_reserve(target, 0777, &mountpt_inode);
+      if (ret < 0)
+        {
+          /* inode_reserve can fail for a couple of reasons, but the most
+           * likely one is that the inode already exists. inode_reserve may
+           * return:
+           *
+           *  -EINVAL - 'path' is invalid for this operation
+           *  -EEXIST - An inode already exists at 'path'
+           *  -ENOMEM - Failed to allocate in-memory resources for the
+           *            operation
+           */
+
+          ferr("ERROR: Failed to reserve inode for target %s\n", target);
+          goto errout_with_bind;
+        }
     }
 
   /* We have it, now populate it with driver specific information. */
@@ -517,8 +514,12 @@ int nx_mount(FAR const char *source, FAR const char *target,
 
   /* A lot of goto's!  But they make the error handling much simpler */
 
-errout_with_mountpt:
-  inode_remove(target);
+errout_with_bind:
+  if (mops->unbind != NULL)
+    {
+      mops->unbind(fshandle, &drvr_inode, 0);
+    }
+
 errout_with_lock:
   inode_unlock();
 #ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS

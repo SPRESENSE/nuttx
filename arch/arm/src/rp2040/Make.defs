@@ -33,14 +33,18 @@ CHIP_CSRCS += rp2040_pio.c
 CHIP_CSRCS += rp2040_clock.c
 CHIP_CSRCS += rp2040_xosc.c
 CHIP_CSRCS += rp2040_pll.c
+CHIP_CSRCS += rp2040_vectors.c
 
 ifeq ($(CONFIG_SMP),y)
-CHIP_CSRCS += rp2040_cpuindex.c
 CHIP_CSRCS += rp2040_cpustart.c
-CHIP_CSRCS += rp2040_cpupause.c
+CHIP_CSRCS += rp2040_smpcall.c
 CHIP_CSRCS += rp2040_cpuidlestack.c
 CHIP_CSRCS += rp2040_testset.c
 CMN_ASRCS  := $(filter-out arm_testset.S,$(CMN_ASRCS))
+endif
+
+ifeq ($(CONFIG_ARCH_HAVE_MULTICPU),y)
+CHIP_CSRCS += rp2040_cpuindex.c
 endif
 
 ifeq ($(CONFIG_RP2040_DMAC),y)

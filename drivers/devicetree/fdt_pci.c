@@ -1,6 +1,8 @@
 /****************************************************************************
  * drivers/devicetree/fdt_pci.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -97,7 +99,7 @@ int fdt_pci_ecam_register(FAR const void *fdt)
 
   /* Get the reg address, 64 or 32 */
 
-  cfg.start = fdt_get_reg_base(fdt, offset);
+  cfg.start = fdt_get_reg_base(fdt, offset, 0);
   cfg.end = cfg.start + fdt_get_reg_size(fdt, offset);
 
   /* Get the ranges address */

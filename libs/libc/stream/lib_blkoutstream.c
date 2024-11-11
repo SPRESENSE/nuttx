@@ -1,6 +1,8 @@
 /****************************************************************************
  * libs/libc/stream/lib_blkoutstream.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -76,7 +78,7 @@ static int blkoutstream_puts(FAR struct lib_outstream_s *self,
 
   while (remain > 0)
     {
-      size_t sblock = self->nput / sectorsize;
+      size_t sector = self->nput / sectorsize;
       size_t offset = self->nput % sectorsize;
 
       if (offset > 0)
@@ -91,28 +93,32 @@ static int blkoutstream_puts(FAR struct lib_outstream_s *self,
           self->nput += copyin;
           remain     -= copyin;
 
-          if (offset == stream->geo.geo_sectorsize)
+          if (offset == sectorsize)
             {
-              ret = inode->u.i_bops->write(inode, stream->cache, sblock, 1);
+              ret = inode->u.i_bops->write(inode, stream->cache, sector, 1);
               if (ret < 0)
                 {
                   return ret;
                 }
             }
         }
-      else if (remain < stream->geo.geo_sectorsize)
+      else if (remain < sectorsize)
         {
+          /* Set content to all 0 before caching,
+           * so no random content will be flushed
+           */
+
+          memset(stream->cache, 0, sectorsize);
           memcpy(stream->cache, ptr, remain);
           self->nput += remain;
           remain      = 0;
         }
-      else if (remain >= stream->geo.geo_sectorsize)
+      else
         {
-          size_t copyin = (remain / stream->geo.geo_sectorsize) *
-                                    stream->geo.geo_sectorsize;
+          size_t nsector = remain / sectorsize;
+          size_t copyin = nsector * sectorsize;
 
-          ret = inode->u.i_bops->write(inode, ptr, sblock,
-                                       remain / stream->geo.geo_sectorsize);
+          ret = inode->u.i_bops->write(inode, ptr, sector, nsector);
           if (ret < 0)
             {
               return ret;

@@ -1,6 +1,8 @@
 /****************************************************************************
  * include/pthread.h
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -267,6 +269,7 @@ struct pthread_cond_s
 {
   sem_t sem;
   clockid_t clockid;
+  volatile int16_t lock_count;
 };
 
 #ifndef __PTHREAD_COND_T_DEFINED

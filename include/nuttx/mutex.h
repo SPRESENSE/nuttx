@@ -1,6 +1,8 @@
 /****************************************************************************
  * include/nuttx/mutex.h
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -47,6 +49,9 @@ struct mutex_s
 {
   sem_t sem;
   pid_t holder;
+#if CONFIG_LIBC_MUTEX_BACKTRACE > 0
+  FAR void *backtrace[CONFIG_LIBC_MUTEX_BACKTRACE];
+#endif
 };
 
 typedef struct mutex_s mutex_t;

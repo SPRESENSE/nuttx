@@ -1,6 +1,8 @@
 /****************************************************************************
  * libs/libc/stdio/lib_libbsprintf.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -192,12 +194,6 @@ int lib_bsprintf(FAR struct lib_outstream_s *s, FAR const IPTR char *fmt,
         {
           prec = fmt;
         }
-    }
-
-  if (*(fmt - 2) != '\n')
-    {
-      lib_stream_putc(s, '\n');
-      ret++;
     }
 
   return ret;

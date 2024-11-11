@@ -28,6 +28,7 @@ config ARCH_ARM64
 	select ALARM_ARCH
 	select ARCH_HAVE_BACKTRACE
 	select ARCH_HAVE_INTERRUPTSTACK
+	select ARCH_HAVE_FORK if !BUILD_KERNEL
 	select ARCH_HAVE_STACKCHECK
 	select ARCH_HAVE_CUSTOMOPT
 	select ARCH_HAVE_STDARG_H
@@ -95,13 +96,14 @@ config ARCH_RISCV
 	select ARCH_HAVE_THREAD_LOCAL
 	select ARCH_HAVE_POWEROFF
 	select ARCH_HAVE_LAZYFPU if ARCH_HAVE_FPU
+	select ARCH_HAVE_CPUID_MAPPING if ARCH_HAVE_MULTICPU
 	---help---
 		RISC-V 32 and 64-bit RV32 / RV64 architectures.
 
 config ARCH_SIM
 	bool "Simulation"
 	select ARCH_HAVE_BACKTRACE
-	select ARCH_HAVE_MULTICPU
+	select ARCH_HAVE_MULTICPU if !CONFIG_WINDOWS_NATIVE
 	select ARCH_HAVE_RTC_SUBSECONDS
 	select ARCH_HAVE_SERIAL_TERMIOS
 	select ARCH_HAVE_SYSCALL_HOOKS
@@ -138,10 +140,14 @@ config ARCH_X86_64
 	select ARCH_HAVE_TESTSET
 	select ARCH_HAVE_INTERRUPTSTACK
 	select ARCH_HAVE_CUSTOMOPT
+	select ARCH_HAVE_THREAD_LOCAL
 	select PCI_LATE_DRIVERS_REGISTER if PCI
 	select LIBC_ARCH_ELF_64BIT if LIBC_ARCH_ELF
 	select ARCH_TOOLCHAIN_GNU
 	select ARCH_HAVE_BACKTRACE
+	select ARCH_HAVE_FORK
+	select ARCH_HAVE_SETJMP
+	select ARCH_HAVE_PERF_EVENTS
 	---help---
 		x86-64 architectures.
 
@@ -309,25 +315,6 @@ config ARCH_SIZET_LONG
 		C++ library routines because the NuttX size_t might not have
 		the same underlying type as your toolchain's size_t.
 
-config ARCH_COVERAGE
-	bool "Enable code coverage analysis"
-	select HAVE_CXXINITIALIZE
-	default n
-	---help---
-		Generate code coverage
-
-config ARCH_COVERAGE_ALL
-	bool "Enable code coverage for the entire image"
-	depends on ARCH_COVERAGE
-	default n
-	---help---
-		This option activates code coverage instrumentation for the
-		entire image. If you don't enable this option, you have to
-		explicitly specify "-fprofile-generate -ftest-coverage" for
-		the files/directories you want to check. Enabling this option
-		will get image size increased and performance decreased
-		significantly.
-
 config ARCH_INSTRUMENT_ALL
 	bool "Instrument All"
 	default n
@@ -431,6 +418,11 @@ config ARCH_HAVE_COPY_SECTION
 config ARCH_HAVE_MULTICPU
 	bool
 	default n
+
+config ARCH_HAVE_CPUID_MAPPING
+	bool
+	default n
+	depends on ARCH_HAVE_MULTICPU
 
 config ARCH_HAVE_FORK
 	bool
@@ -542,6 +534,13 @@ config ARCH_HAVE_BOOTLOADER
 config ARCH_HAVE_CPUINFO
 	bool
 	default n
+
+config ARCH_CPUINFO_FREQ_KHZ
+	int "Default CPU frequency"
+	default 0
+	depends on ARCH_HAVE_CPUINFO
+	---help---
+		Defines the CPU's default maximum frequency. Frequency unit KHZ.
 
 config ARCH_HAVE_TCBINFO
 	bool
@@ -1120,6 +1119,13 @@ config ARCH_RAMFUNCS
 		architectures to improve performance.  In other cases, it is done
 		so that FLASH can be reconfigured while the MCU executes out of
 		SRAM.
+
+config ARCH_HAVE_CUSTOM_VECTORS
+	bool
+	default n
+	---help---
+		If ARCH_HAVE_CUSTOM_VECTORS is defined, Chip should provide vectors
+		table as an optimization.
 
 config ARCH_HAVE_RAMVECTORS
 	bool

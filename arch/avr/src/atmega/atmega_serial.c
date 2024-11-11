@@ -889,7 +889,7 @@ void avr_serialinit(void)
  *
  ****************************************************************************/
 
-int up_putc(int ch)
+void up_putc(int ch)
 {
 #ifdef HAVE_SERIAL_CONSOLE
   uint8_t imr;
@@ -900,15 +900,6 @@ int up_putc(int ch)
   usart1_disableusartint(&imr);
 #endif
 
-  /* Check for LF */
-
-  if (ch == '\n')
-    {
-      /* Add CR */
-
-      avr_lowputc('\r');
-    }
-
   avr_lowputc(ch);
 
 #if defined(CONFIG_USART0_SERIAL_CONSOLE)
@@ -917,8 +908,6 @@ int up_putc(int ch)
   usart1_restoreusartint(imr);
 #endif
 #endif
-
-  return ch;
 }
 
 #else /* USE_SERIALDRIVER */
@@ -931,21 +920,11 @@ int up_putc(int ch)
  *
  ****************************************************************************/
 
-int up_putc(int ch)
+void up_putc(int ch)
 {
 #ifdef HAVE_SERIAL_CONSOLE
-  /* Check for LF */
-
-  if (ch == '\n')
-    {
-      /* Add CR */
-
-      avr_lowputc('\r');
-    }
-
   avr_lowputc(ch);
 #endif
-  return ch;
 }
 
 #endif /* USE_SERIALDRIVER */

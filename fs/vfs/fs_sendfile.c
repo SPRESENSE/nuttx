@@ -1,6 +1,8 @@
 /****************************************************************************
  * fs/vfs/fs_sendfile.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -29,8 +31,10 @@
 #include <errno.h>
 #include <debug.h>
 
+#include <nuttx/fs/fs.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/net/net.h>
+#include "fs_heap.h"
 
 /****************************************************************************
  * Private Functions
@@ -72,7 +76,7 @@ static ssize_t copyfile(FAR struct file *outfile, FAR struct file *infile,
 
   /* Allocate an I/O buffer */
 
-  iobuffer = kmm_malloc(CONFIG_SENDFILE_BUFSIZE);
+  iobuffer = fs_heap_malloc(CONFIG_SENDFILE_BUFSIZE);
   if (!iobuffer)
     {
       return -ENOMEM;
@@ -195,7 +199,7 @@ static ssize_t copyfile(FAR struct file *outfile, FAR struct file *infile,
 
   /* Release the I/O buffer */
 
-  kmm_free(iobuffer);
+  fs_heap_free(iobuffer);
 
   /* Return the current file position */
 

@@ -28,7 +28,6 @@
 #include <stdint.h>
 #include <string.h>
 #include <debug.h>
-#include <sched.h>
 
 #include <nuttx/irq.h>
 #include <nuttx/arch.h>
@@ -48,7 +47,6 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-#define IRQ_MSI_START        IRQ32
 #define X86_64_MAR_DEST      0xfee00000
 #define X86_64_MDR_TYPE      0x4000
 
@@ -70,10 +68,6 @@ static void up_apic_init(void);
 static void up_idtentry(unsigned int index, uint64_t base, uint16_t sel,
                         uint8_t flags, uint8_t ist);
 static inline void up_idtinit(void);
-
-/****************************************************************************
- * Public Data
- ****************************************************************************/
 
 /****************************************************************************
  * Private Data
@@ -324,8 +318,8 @@ static void up_ioapic_init(void)
 
   for (i = 0; i < maxintr; i++)
     {
-      up_ioapic_pin_set_vector(i, TRIGGER_RISING_EDGE, IRQ0 + i);
-      up_ioapic_mask_pin(i);
+      up_ioapic_pin_set_vector(i, TRIGGER_RISING_EDGE |
+                               IOAPIC_PIN_DISABLE, IRQ0 + i);
     }
 }
 #endif
@@ -431,6 +425,29 @@ static inline void up_idtinit(void)
 }
 
 /****************************************************************************
+ * Private Functions
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: arm_color_intstack
+ *
+ * Description:
+ *   Set the interrupt stack to a value so that later we can determine how
+ *   much stack space was used by interrupt handling logic
+ *
+ ****************************************************************************/
+
+#if defined(CONFIG_STACK_COLORATION) && CONFIG_ARCH_INTERRUPTSTACK > 3
+static inline void x86_64_color_intstack(void)
+{
+  x86_64_stack_color((void *)up_get_intstackbase(up_cpu_index()),
+                     IRQ_STACK_SIZE);
+}
+#else
+#  define x86_64_color_intstack()
+#endif
+
+/****************************************************************************
  * Public Functions
  ****************************************************************************/
 
@@ -445,6 +462,10 @@ void up_irqinitialize(void)
   /* Initialize the TSS */
 
   x86_64_cpu_tss_init(cpu);
+
+  /* Colorize the interrupt stack */
+
+  x86_64_color_intstack();
 
   /* Initialize the APIC */
 
@@ -504,11 +525,6 @@ void up_disable_irq(int irq)
     {
       spin_unlock_irqrestore(&g_irq_spinlock, flags);
       return;
-    }
-
-  if (g_irq_priv[irq].busy > 0)
-    {
-      g_irq_priv[irq].busy -= 1;
     }
 
   CPU_CLR(this_cpu(), &g_irq_priv[irq].busy);
@@ -648,22 +664,22 @@ int up_get_legacy_irq(uint32_t devfn, uint8_t line, uint8_t pin)
  *
  ****************************************************************************/
 
-int up_alloc_irq_msi(int *num)
+int up_alloc_irq_msi(uint8_t busno, uint32_t devfn, int *pirq, int num)
 {
-  irqstate_t flags = spin_lock_irqsave(&g_irq_spin);
+  irqstate_t flags = spin_lock_irqsave(&g_irq_spinlock);
   int        irq   = 0;
   int        i     = 0;
 
   /* Limit requested number of vectors */
 
-  if (g_msi_now + *num > IRQ255)
+  if (g_msi_now + num > IRQ255)
     {
-      *num = IRQ255 - g_msi_now;
+      num = IRQ255 - g_msi_now;
     }
 
-  if (*num <= 0)
+  if (num <= 0)
     {
-      spin_unlock_irqrestore(&g_irq_spin, flags);
+      spin_unlock_irqrestore(&g_irq_spinlock, flags);
 
       /* No IRQs available */
 
@@ -671,19 +687,20 @@ int up_alloc_irq_msi(int *num)
     }
 
   irq = g_msi_now;
-  g_msi_now += *num;
+  g_msi_now += num;
 
   /* Mark IRQs as MSI/MSI-X */
 
-  for (i = 0; i < *num; i++)
+  for (i = 0; i < num; i++)
     {
-      ASSERT(g_irq_priv[irq + i].busy == 0);
+      ASSERT(CPU_COUNT(&g_irq_priv[irq + i].busy) == 0);
       g_irq_priv[irq + i].msi = true;
+      pirq[i] = irq + i;
     }
 
-  spin_unlock_irqrestore(&g_irq_spin, flags);
+  spin_unlock_irqrestore(&g_irq_spinlock, flags);
 
-  return irq;
+  return num;
 }
 
 /****************************************************************************
@@ -696,7 +713,7 @@ int up_alloc_irq_msi(int *num)
 
 void up_release_irq_msi(int *irq, int num)
 {
-  irqstate_t flags = spin_lock_irqsave(&g_irq_spin);
+  irqstate_t flags = spin_lock_irqsave(&g_irq_spinlock);
   int        i     = 0;
 
   /* Mark IRQ as MSI/MSI-X */
@@ -706,7 +723,7 @@ void up_release_irq_msi(int *irq, int num)
       g_irq_priv[irq[i]].msi = false;
     }
 
-  spin_unlock_irqrestore(&g_irq_spin, flags);
+  spin_unlock_irqrestore(&g_irq_spinlock, flags);
 }
 
 /****************************************************************************
@@ -717,8 +734,7 @@ void up_release_irq_msi(int *irq, int num)
  *
  ****************************************************************************/
 
-int up_connect_irq(FAR int *irq, int num,
-                   FAR uintptr_t *mar, FAR uint32_t *mdr)
+int up_connect_irq(const int *irq, int num, uintptr_t *mar, uint32_t *mdr)
 {
   UNUSED(num);
 
@@ -735,4 +751,3 @@ int up_connect_irq(FAR int *irq, int num,
 
   return OK;
 }
-

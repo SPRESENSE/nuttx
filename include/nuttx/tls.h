@@ -1,6 +1,8 @@
 /****************************************************************************
  * include/nuttx/tls.h
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -37,7 +39,10 @@
 #include <nuttx/cache.h>
 #include <nuttx/atexit.h>
 #include <nuttx/fs/fs.h>
-#include <nuttx/list.h>
+
+#ifdef CONFIG_PTHREAD_ATFORK
+#  include <nuttx/list.h>
+#endif
 
 #include <sys/types.h>
 

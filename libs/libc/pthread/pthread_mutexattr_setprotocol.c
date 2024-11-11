@@ -1,6 +1,8 @@
 /****************************************************************************
  * libs/libc/pthread/pthread_mutexattr_setprotocol.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -58,7 +60,7 @@ int pthread_mutexattr_setprotocol(FAR pthread_mutexattr_t *attr,
     {
       case PTHREAD_PRIO_NONE:
 #if defined(CONFIG_PRIORITY_INHERITANCE) || defined(CONFIG_PRIORITY_PROTECT)
-        attr->proto = PTHREAD_PRIO_INHERIT;
+        attr->proto = PTHREAD_PRIO_NONE;
 #endif
         break;
 

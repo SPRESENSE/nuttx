@@ -30,6 +30,7 @@ import socket
 import struct
 import subprocess
 import sys
+import traceback
 
 import elftools
 from elftools.elf.elffile import ELFFile
@@ -230,6 +231,9 @@ reg_fix_value = {
     },
     "riscv": {
         "ZERO": 0,
+        "WINDOWBASE": (0, 584),
+        "WINDOWSTART": (1, 585),
+        "PS": (0x40000, 742),
     },
 }
 
@@ -260,7 +264,7 @@ class DumpELFFile:
         self.__xlen = None
         self.__text = 0
 
-    def parse(self):
+    def parse(self, load_symbol: bool):
         self.__memories = []
         elf = ELFFile.load_from_path(self.elffile)
         self.__arch = elf.get_machine_arch().lower().replace("-", "")
@@ -310,26 +314,27 @@ class DumpELFFile:
             if segment.header.p_flags & 1 and not self.__text:
                 self.__text = segment.header.p_vaddr
 
-        symtab = elf.get_section_by_name(".symtab")
-        self.symbol = {}
-        for symbol in symtab.iter_symbols():
-            if symbol["st_info"]["type"] != "STT_OBJECT":
-                continue
+        self.load_symbol = load_symbol
+        if load_symbol:
+            symtab = elf.get_section_by_name(".symtab")
+            self.symbol = {}
+            for symbol in symtab.iter_symbols():
+                if symbol["st_info"]["type"] != "STT_OBJECT":
+                    continue
 
-            if symbol.name in (
-                "g_tcbinfo",
-                "g_pidhash",
-                "g_npidhash",
-                "g_last_regs",
-                "g_running_tasks",
-            ):
-                self.symbol[symbol.name] = symbol
-                logger.debug(
-                    f"name:{symbol.name} size:{symbol['st_size']} value:{hex(symbol['st_value'])}"
-                )
+                    if symbol.name in (
+                        "g_tcbinfo",
+                        "g_pidhash",
+                        "g_npidhash",
+                        "g_last_regs",
+                        "g_running_tasks",
+                    ):
+                        self.symbol[symbol.name] = symbol
+                        logger.debug(
+                            f"name:{symbol.name} size:{symbol['st_size']} value:{hex(symbol['st_value'])}"
+                        )
 
         elf.close()
-
         return True
 
     def merge(self, other):
@@ -498,7 +503,7 @@ class CoreDumpFile:
                 data = f.read(segment["p_filesz"])
                 self.__memories.append(
                     pack_memory(
-                        segment["p_paddr"], segment["p_paddr"] + len(data), data
+                        segment["p_vaddr"], segment["p_vaddr"] + len(data), data
                     )
                 )
 
@@ -534,25 +539,30 @@ class GDBStub:
 
         self.threadinfo = []
         self.current_thread = 0
-        try:
-            self.parse_thread()
-            logger.debug(f"Have {len(self.threadinfo)} threads to debug.")
-            if len(self.threadinfo) == 0:
-                logger.critical(
-                    "Check if your coredump or raw file matches the ELF file"
-                )
-                sys.exit(1)
+        if elffile.load_symbol:
+            try:
+                self.parse_thread()
+                logger.debug(f"Have {len(self.threadinfo)} threads to debug.")
+                if len(self.threadinfo) == 0:
+                    logger.critical(
+                        "Check if your coredump or raw file matches the ELF file"
+                    )
+                    sys.exit(1)
 
-            if arch in reg_fix_value.keys():
-                self.regfix = True
-                logger.info(f"Current arch is {arch}, need reg index fix.")
+                if arch in reg_fix_value.keys():
+                    self.regfix = True
+                    logger.info(f"Current arch is {arch}, need reg index fix.")
 
-        except TypeError:
-            if not self.registers:
-                logger.critical(
-                    "Logfile, coredump, or rawfile do not contain register. Please check if the files are correct."
-                )
-                sys.exit(1)
+            except TypeError:
+                if not self.registers:
+                    logger.critical(
+                        "Logfile, coredump, or rawfile do not contain register,"
+                        "Please check if the files are correct."
+                    )
+
+                    stack_trace = traceback.format_exc()
+                    logger.debug(stack_trace)
+                    sys.exit(1)
 
     def get_gdb_packet(self):
         socket = self.socket
@@ -653,8 +663,9 @@ class GDBStub:
 
         def put_one_register_packet(regs):
 
-            regval = None
             reg = int(pkt[1:].decode("utf8"), 16)
+            regval = None
+
             if self.regfix:
                 for reg_name, reg_vals in reg_fix_value[self.arch].items():
                     if reg == reg_vals[1]:
@@ -1014,6 +1025,15 @@ def arg_parser():
     )
 
     parser.add_argument(
+        "-s",
+        "--symbol",
+        action="store_true",
+        help="Analyze the symbol table in the ELF file, use in thread awareness"
+        "if use logfile input, this option will is false by default"
+        "if use rawfile or coredump input, this option will is true by default",
+    )
+
+    parser.add_argument(
         "--debug",
         action="store_true",
         default=False,
@@ -1097,7 +1117,11 @@ def main(args):
 
     config_log(args.debug)
     elf = DumpELFFile(args.elffile[0])
-    elf.parse()
+    if args.symbol is False:
+        if args.rawfile or args.coredump:
+            args.symbol = True
+
+    elf.parse(args.symbol)
     elf_texts = [elf.text()]
     for name in args.elffile[1:]:
         other = DumpELFFile(name)
@@ -1119,7 +1143,6 @@ def main(args):
         else:
             logger.error("Architecture unknown, exiting...")
             sys.exit(2)
-        elf.parse_addr2line(args.arch, args.addr2line, log.stack_data)
 
     raw = RawMemoryFile(args.rawfile)
     coredump = CoreDumpFile(args.coredump)

@@ -93,12 +93,6 @@
 #ifndef __ASSEMBLY__
 struct xcptcontext
 {
-  /* The following function pointer is non-zero if there are pending signals
-   * to be processed.
-   */
-
-  void *sigdeliver; /* Actual type is sig_deliver_t */
-
   /* These are saved copies of PC and SR used during signal processing.
    *
    * REVISIT:  Because there is only one copy of these save areas,
@@ -208,6 +202,28 @@ static inline void up_irq_restore(irqstate_t flags)
 /****************************************************************************
  * Public Function Prototypes
  ****************************************************************************/
+
+/****************************************************************************
+ * Name: up_getusrpc
+ ****************************************************************************/
+
+#if defined(REG_PC2)
+#  define up_getusrpc(regs) \
+    ((regs) ? \
+     ((((uint8_t *)(regs))[REG_PC0] << 16) | \
+      (((uint8_t *)(regs))[REG_PC1] <<  8) | \
+      (((uint8_t *)(regs))[REG_PC2] <<  0)) : \
+     (((uint8_t *)up_current_regs())[REG_PC0] << 16) | \
+     (((uint8_t *)up_current_regs())[REG_PC1] <<  8) | \
+     (((uint8_t *)up_current_regs())[REG_PC2] <<  0))
+#else
+#  define up_getusrpc(regs) \
+    ((regs) ? \
+     ((((uint8_t *)(regs))[REG_PC0] << 8) | \
+      (((uint8_t *)(regs))[REG_PC1] << 0)) : \
+     (((uint8_t *)up_current_regs())[REG_PC0] << 8) | \
+     (((uint8_t *)up_current_regs())[REG_PC1] << 0))
+#endif
 
 #ifndef __ASSEMBLY__
 #ifdef __cplusplus

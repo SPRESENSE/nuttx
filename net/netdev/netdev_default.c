@@ -75,9 +75,10 @@ FAR struct net_driver_s *netdev_default(void)
            * device).
            */
 
-          ret = dev;
-          if (dev->d_lltype != NET_LL_LOOPBACK)
+          if (dev->d_lltype != NET_LL_LOOPBACK &&
+              dev->d_lltype != NET_LL_CAN)
             {
+              ret = dev;
               break;
             }
         }

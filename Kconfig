@@ -329,6 +329,13 @@ config BUILD_KERNEL
 
 endchoice # Build configuration
 
+config BUILD_PIC
+	bool "NuttX PIC build"
+	default n
+	---help---
+		Builds NuttX with position-independent code (PIC).  This will allow
+		load NuttX into memory at any address and run it.
+
 config BUILD_2PASS
 	bool "Two pass build"
 	default n
@@ -566,6 +573,14 @@ config ARCH_FLOAT_H
 		float.h header file will provided if this option is selected.  However
 		there is no assurance that the settings in this float.h are actually
 		correct for your platform!
+
+config DISABLE_FLOAT
+	bool "Disable floating point"
+	default n
+	---help---
+		Disable floating point support in the compiler. This will reduce
+		code size and increase performance. This option is only available
+		on some architectures.
 
 config ARCH_HAVE_STDARG_H
 	bool
@@ -2228,6 +2243,38 @@ config DEBUG_VIRTIO_INFO
 
 endif # DEBUG_VIDEO
 
+config DEBUG_VHOST
+	bool "Vhost Debug Features"
+	default n
+	depends on DRIVERS_VHOST
+	---help---
+		Enable vhost debug features.
+
+if DEBUG_VHOST
+
+config DEBUG_VHOST_ERROR
+	bool "Vhost Error Output"
+	default n
+	depends on DEBUG_ERROR
+	---help---
+		Enable vhost error output to SYSLOG.
+
+config DEBUG_VHOST_WARN
+	bool "Vhost Warnings Output"
+	default n
+	depends on DEBUG_WARN
+	---help---
+		Enable vhost warning output to SYSLOG.
+
+config DEBUG_VHOST_INFO
+	bool "Vhost Informational Output"
+	default n
+	depends on DEBUG_INFO
+	---help---
+		Enable vhost informational output to SYSLOG.
+
+endif # DEBUG_VHOST
+
 config DEBUG_RESET
 	bool "RESET Debug Features"
 	default n
@@ -2472,12 +2519,16 @@ menuconfig TRACE
 		the kernel will be enabled.
 
 if TRACE
-config TRACE_AUDIO
-	bool "Enable tracepoints in audio"
+config TRACE_APP
+	bool "Enable tracepoints in app"
 	default n
 
 config TRACE_ARCH
 	bool "Enable tracepoints in arch"
+	default n
+
+config TRACE_AUDIO
+	bool "Enable tracepoints in audio"
 	default n
 
 config TRACE_BOARDS
@@ -2518,8 +2569,16 @@ config TRACE_GRAPHICS
 	bool "Enable tracepoints in graphics"
 	default n
 
+config TRACE_INPUT
+	bool "Enable tracepoints in input"
+	default n
+
 config TRACE_LIBS
 	bool "Enable tracepoints in libs"
+	default n
+
+config TRACE_MM
+	bool "Enable tracepoints in mm"
 	default n
 
 config TRACE_NET
@@ -2715,6 +2774,7 @@ source "libs/libc/Kconfig"
 source "libs/libm/Kconfig"
 source "libs/libxx/Kconfig"
 source "libs/libdsp/Kconfig"
+source "libs/libbuiltin/Kconfig"
 endmenu
 
 menu "Open Asymmetric Multi Processing"

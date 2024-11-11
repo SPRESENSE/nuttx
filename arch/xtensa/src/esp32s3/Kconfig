@@ -615,6 +615,7 @@ config ESP32S3_SPI2
 	select ESP32S3_SPI
 	select SPI
 	select ESP32S3_GPIO_IRQ if SPI_SLAVE
+	select ESPRESSIF_SPI_PERIPH
 
 config ESP32S3_SPI3
 	bool "SPI 3"
@@ -622,6 +623,7 @@ config ESP32S3_SPI3
 	select ESP32S3_SPI
 	select SPI
 	select ESP32S3_GPIO_IRQ if SPI_SLAVE
+	select ESPRESSIF_SPI_PERIPH
 
 config ESP32S3_DMA
 	bool "General DMA (GDMA)"
@@ -683,12 +685,14 @@ config ESP32S3_I2C0
 	default n
 	select ESP32S3_I2C
 	select I2C
+	select ESPRESSIF_I2C_PERIPH
 
 config ESP32S3_I2C1
 	bool "I2C 1"
 	default n
 	select ESP32S3_I2C
 	select I2C
+	select ESPRESSIF_I2C_PERIPH
 
 config ESP32S3_TWAI
 	bool "TWAI (CAN)"
@@ -1430,10 +1434,12 @@ endif # ESP32S3_I2C1
 config ESP32S3_I2CTIMEOSEC
 	int "Timeout seconds"
 	default 0
+	depends on ESPRESSIF_I2C_PERIPH
 
 config ESP32S3_I2CTIMEOMS
 	int "Timeout milliseconds"
 	default 500
+	depends on ESPRESSIF_I2C_PERIPH
 
 endmenu # I2C Configuration
 
@@ -1658,13 +1664,29 @@ config ESP32S3_WIFI_LISTEN_INTERVAL
 
 endmenu # ESP32S3_WIFI
 
+config ESP32S3_OPENETH
+	bool "Opencores Ethernet MAC"
+	default n
+	depends on !ESP32S3_WIFI
+	select NET
+	select SCHED_WORKQUEUE
+	---help---
+		Enable ESP32S3 ethernet opencores support for use with QEMU.
+		Disable this if you are using the real device.
+
+if ESP32S3_OPENETH
+
+config ESP32S3_OPENETH_DMA_RX_BUFFER_NUM
+	int "Number of Ethernet DMA Rx buffers"
+	range 1 64
+	default 4
+	---help---
+		Number of DMA receive buffers, each buffer is 1600 bytes.
+
+endif # ESP32S3_OPENETH
+
 menu "BLE Configuration"
 	depends on ESP32S3_BLE
-
-config ESP32S3_BLE_TTY_NAME
-	string "BLE TTY device name"
-	default "/dev/ttyHCI0"
-	depends on UART_BTH4
 
 config ESP32S3_BLE_TASK_STACK_SIZE
 	int "Controller task stack size"

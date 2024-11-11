@@ -1,6 +1,8 @@
 /****************************************************************************
  * drivers/coresight/coresight_tmc_core.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -143,6 +145,7 @@ tmc_register(FAR const struct coresight_desc_s *desc)
     }
 
   tmc_init_arch_data(tmcdev, desc);
+  tmcdev->caps = desc->caps;
 
   switch (tmcdev->config_type)
     {

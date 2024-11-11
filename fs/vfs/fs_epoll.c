@@ -1,6 +1,8 @@
 /****************************************************************************
  * fs/vfs/fs_epoll.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -42,6 +44,7 @@
 #include <nuttx/signal.h>
 
 #include "inode/inode.h"
+#include "fs_heap.h"
 
 /****************************************************************************
  * Private Types
@@ -201,10 +204,10 @@ static int epoll_do_close(FAR struct file *filep)
       list_for_every_entry_safe(&eph->extend, epn, tmp, epoll_node_t, node)
         {
           list_delete(&epn->node);
-          kmm_free(epn);
+          fs_heap_free(epn);
         }
 
-      kmm_free(eph);
+      fs_heap_free(eph);
     }
 
   return ret;
@@ -224,7 +227,7 @@ static int epoll_do_create(int size, int flags)
   int i;
 
   size = size <= 0 ? 1 : size;
-  eph = kmm_zalloc(sizeof(epoll_head_t) + sizeof(epoll_node_t) * size);
+  eph = fs_heap_zalloc(sizeof(epoll_head_t) + sizeof(epoll_node_t) * size);
   if (eph == NULL)
     {
       set_errno(ENOMEM);
@@ -257,7 +260,7 @@ static int epoll_do_create(int size, int flags)
   if (fd < 0)
     {
       nxmutex_destroy(&eph->lock);
-      kmm_free(eph);
+      fs_heap_free(eph);
       set_errno(-fd);
       return ERROR;
     }
@@ -535,7 +538,7 @@ int epoll_ctl(int epfd, int op, int fd, FAR struct epoll_event *ev)
              * list.
              */
 
-            extend = kmm_zalloc(sizeof(*extend) +
+            extend = fs_heap_zalloc(sizeof(*extend) +
                                 2 * sizeof(epoll_node_t) * eph->size);
             if (extend == NULL)
               {

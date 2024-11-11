@@ -1,6 +1,8 @@
 /****************************************************************************
  * include/nuttx/queue.h
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -170,6 +172,9 @@
   for((p) = (q)->head, (tmp) = (p) ? (p)->flink : NULL; \
       (p) != NULL; (p) = (tmp), (tmp) = (p) ? (p)->flink : NULL)
 
+#define dq_for_every(q, p) sq_for_every(q, p)
+#define dq_for_every_safe(q, p, tmp) sq_for_every_safe(q, p, tmp)
+
 #define sq_rem(p, q) \
   do \
     { \
@@ -182,6 +187,10 @@
               if (tmp_node == (q)->tail) \
                 { \
                   (q)->tail = NULL; \
+                } \
+              else \
+                { \
+                  tmp_node->flink = NULL; \
                 } \
             } \
           else \

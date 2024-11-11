@@ -31,16 +31,22 @@
 #include <nuttx/lib/lib.h>
 #include <nuttx/lib/modlib.h>
 
+#include "modlib.h"
+
 /****************************************************************************
- * Private Functions
+ * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
  * Name: modlib_dumploadinfo
+ *
+ * Description:
+ *  Dump the load information to debug output.
+ *
  ****************************************************************************/
 
 #ifdef CONFIG_DEBUG_BINFMT_INFO
-static void modlib_dumploadinfo(FAR struct mod_loadinfo_s *loadinfo)
+void modlib_dumploadinfo(FAR struct mod_loadinfo_s *loadinfo)
 {
   int i;
 
@@ -101,28 +107,156 @@ static void modlib_dumploadinfo(FAR struct mod_loadinfo_s *loadinfo)
         }
     }
 }
-#else
-#  define modlib_dumploadinfo(i)
-#endif
 
 /****************************************************************************
- * Name: modlib_dumpinitializer
+ * Name: modlib_dumpmodule
+ ****************************************************************************/
+
+void modlib_dumpmodule(FAR struct module_s *modp)
+{
+  binfo("Module:\n");
+  binfo("  modname:      %s\n", modp->modname);
+  binfo("  textalloc:    %08lx\n", (long)modp->textalloc);
+#if defined(CONFIG_FS_PROCFS) && !defined(CONFIG_FS_PROCFS_EXCLUDE_MODULE)
+  binfo("  dataalloc:    %08lx\n", (long)modp->dataalloc);
+  binfo("  textsize:     %ld\n",   (long)modp->textsize);
+#endif
+
+#ifdef CONFIG_ARCH_USE_SEPARATED_SECTION
+  binfo("  sectalloc:    %p\n", modp->sectalloc);
+  binfo("  nsect:          %ld\n", (long)modp->nsect);
+  for (int i = 0; i < modp->nsect; i++)
+    {
+      binfo("    sectalloc[%d]:    %p\n", i, modp->sectalloc[i]);
+    }
+
+#endif
+
+#if CONFIG_MODLIB_MAXDEPEND > 0
+  binfo("  dependents:   %d\n",    modp->dependents);
+  for (int i = 0; i < modp->dependents; i++)
+    {
+      binfo("%d    %s\n", i, modp->dependencies[i]->modname);
+      modlib_dumpmodule(modp->dependencies[i]);
+    }
+#endif
+
+  binfo("  finiarr:      %08lx\n", (long)modp->finiarr);
+  binfo("  nfini:        %d\n",    modp->nfini);
+}
+
+#endif
+/****************************************************************************
+ * Name: elf_dumpentrypt
  ****************************************************************************/
 
 #ifdef CONFIG_MODLIB_DUMPBUFFER
-static void modlib_dumpinitializer(mod_initializer_t initializer,
-                                   FAR struct mod_loadinfo_s *loadinfo)
+void modlib_dumpentrypt(FAR struct mod_loadinfo_s *loadinfo)
 {
-  modlib_dumpbuffer("Initializer code", (FAR const uint8_t *)initializer,
+  FAR const uint8_t *entry;
+#ifdef CONFIG_ARCH_ADDRENV
+  int ret;
+
+  /* If CONFIG_ARCH_ADDRENV=y, then the loaded ELF lies in a virtual address
+   * space that may not be in place now.  modlib_addrenv_select() will
+   * temporarily instantiate that address space.
+   */
+
+  if (loadinfo->addrenv != NULL)
+    {
+      ret = modlib_addrenv_select(loadinfo);
+      if (ret < 0)
+        {
+          berr("ERROR: modlib_addrenv_select() failed: %d\n", ret);
+          return;
+        }
+    }
+#endif
+
+  if (loadinfo->ehdr.e_type == ET_REL)
+    {
+      entry = (FAR const uint8_t *)
+        ((uintptr_t)loadinfo->textalloc + loadinfo->ehdr.e_entry);
+    }
+  else if (loadinfo->ehdr.e_type == ET_EXEC)
+    {
+      entry = (FAR const uint8_t *)loadinfo->ehdr.e_entry;
+    }
+  else
+    {
+      entry = (FAR const uint8_t *)loadinfo->textalloc;
+    }
+
+  modlib_dumpbuffer("Entry code", entry,
                     MIN(loadinfo->textsize - loadinfo->ehdr.e_entry, 512));
+
+#ifdef CONFIG_ARCH_ADDRENV
+  /* Restore the original address environment */
+
+  if (loadinfo->addrenv != NULL)
+    {
+      ret = modlib_addrenv_restore(loadinfo);
+      if (ret < 0)
+        {
+          berr("ERROR: modlib_addrenv_restore() failed: %d\n", ret);
+        }
+    }
+#endif
 }
-#else
-#  define modlib_dumpinitializer(b,l)
 #endif
 
 /****************************************************************************
- * Public Functions
+ * Name: modlib_loadsymtab
+ *
+ * Description:
+ *   Load the symbol table into memory.
+ *
  ****************************************************************************/
+
+static int modlib_loadsymtab(FAR struct module_s *modp,
+                             FAR struct mod_loadinfo_s *loadinfo)
+{
+  FAR Elf_Shdr *symhdr = &loadinfo->shdr[loadinfo->symtabidx];
+  FAR Elf_Sym *sym = lib_malloc(symhdr->sh_size);
+  int ret;
+  int i;
+
+  if (sym == NULL)
+    {
+      return -ENOMEM;
+    }
+
+  ret = modlib_read(loadinfo, (FAR uint8_t *)sym, symhdr->sh_size,
+                    symhdr->sh_offset);
+
+  if (ret < 0)
+    {
+      berr("Failed to read symbol table\n");
+      lib_free(sym);
+      return ret;
+    }
+
+  for (i = 0; i < symhdr->sh_size / sizeof(Elf_Sym); i++)
+    {
+      if (sym[i].st_shndx != SHN_UNDEF &&
+          sym[i].st_shndx < loadinfo->ehdr.e_shnum)
+        {
+          FAR Elf_Shdr *s = &loadinfo->shdr[sym[i].st_shndx];
+
+          sym[i].st_value = sym[i].st_value + s->sh_addr;
+        }
+    }
+
+  ret = modlib_insertsymtab(modp, loadinfo, symhdr, sym);
+  lib_free(sym);
+  if (ret != 0)
+    {
+      binfo("Failed to export symbols program binary: %d\n", ret);
+      return ret;
+    }
+
+  return ret;
+}
 
 /****************************************************************************
  * Name: modlib_insert
@@ -152,10 +286,11 @@ static void modlib_dumpinitializer(mod_initializer_t initializer,
 
 FAR void *modlib_insert(FAR const char *filename, FAR const char *modname)
 {
+  FAR const struct symtab_s *exports;
   struct mod_loadinfo_s loadinfo;
   FAR struct module_s *modp;
-  mod_initializer_t initializer;
   FAR void (**array)(void);
+  int nexports;
   int ret;
   int i;
 
@@ -213,12 +348,23 @@ FAR void *modlib_insert(FAR const char *filename, FAR const char *modname)
       goto errout_with_registry_entry;
     }
 
+  /* Get the symbol table */
+
+  modlib_getsymtab(&exports, &nexports);
+
   /* Bind the program to the kernel symbol table */
 
-  ret = modlib_bind(modp, &loadinfo);
+  ret = modlib_bind(modp, &loadinfo, exports, nexports);
   if (ret != 0)
     {
       binfo("Failed to bind symbols program binary: %d\n", ret);
+      goto errout_with_load;
+    }
+
+  ret = modlib_loadsymtab(modp, &loadinfo);
+  if (ret != 0)
+    {
+      binfo("Failed to load symbol table: %d\n", ret);
       goto errout_with_load;
     }
 
@@ -226,32 +372,21 @@ FAR void *modlib_insert(FAR const char *filename, FAR const char *modname)
 
   modp->textalloc = (FAR void *)loadinfo.textalloc;
   modp->dataalloc = (FAR void *)loadinfo.datastart;
+#ifdef CONFIG_ARCH_USE_SEPARATED_SECTION
+  modp->sectalloc = (FAR void **)loadinfo.sectalloc;
+  modp->nsect = loadinfo.ehdr.e_shnum;
+#endif
+
 #if defined(CONFIG_FS_PROCFS) && !defined(CONFIG_FS_PROCFS_EXCLUDE_MODULE)
   modp->textsize  = loadinfo.textsize;
   modp->datasize  = loadinfo.datasize;
 #endif
-
-  /* Get the module initializer entry point */
-
-  initializer = (mod_initializer_t)(loadinfo.textalloc +
-                                    loadinfo.ehdr.e_entry);
-#if defined(CONFIG_FS_PROCFS) && !defined(CONFIG_FS_PROCFS_EXCLUDE_MODULE)
-  modp->initializer = initializer;
-#endif
-  modlib_dumpinitializer(initializer, &loadinfo);
 
   /* Call the module initializer */
 
   switch (loadinfo.ehdr.e_type)
     {
       case ET_REL :
-          ret = initializer(&modp->modinfo);
-          if (ret < 0)
-            {
-              binfo("Failed to initialize the module: %d\n", ret);
-              goto errout_with_load;
-            }
-          break;
       case ET_DYN :
 
           /* Process any preinit_array entries */
@@ -270,6 +405,8 @@ FAR void *modlib_insert(FAR const char *filename, FAR const char *modname)
               array[i]();
             }
 
+          modp->initarr = loadinfo.initarr;
+          modp->ninit = loadinfo.ninit;
           modp->finiarr = loadinfo.finiarr;
           modp->nfini = loadinfo.nfini;
           break;
@@ -296,4 +433,3 @@ errout_with_loadinfo:
   set_errno(-ret);
   return NULL;
 }
-

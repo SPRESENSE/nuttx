@@ -1,6 +1,8 @@
 /****************************************************************************
  * libs/libc/misc/lib_bitmap.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -45,7 +47,7 @@
  *   offset - Offset of start to finding
  *
  * Returned Value:
- *   Return index position（0 ~ size-1）if finded, otherwise return size
+ *   Return index position (0 ~ size-1) if finded, otherwise return size
  ****************************************************************************/
 
 unsigned long find_next_bit(FAR const unsigned long *addr,
@@ -127,7 +129,7 @@ found_middle:
  *   offset - Offset of start to finding
  *
  * Returned Value:
- *   Return index position（0 ~ size-1）if Finded, otherwise return size
+ *   Return index position (0 ~ size-1) if Finded, otherwise return size
  ****************************************************************************/
 
 unsigned long find_next_zero_bit(FAR const unsigned long *addr,

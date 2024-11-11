@@ -1,6 +1,8 @@
 /****************************************************************************
  * include/nuttx/pci/pci.h
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -190,22 +192,38 @@
   while (0)
 
 #define pci_write_mmio_byte(dev, addr, val)  \
-  (*((FAR volatile uint8_t *)(addr))) = val
+  *((FAR volatile uint8_t *)(addr)) = val
 
 #define pci_write_mmio_word(dev, addr, val)  \
-  (*((FAR volatile uint16_t *)(addr))) = val
+  *((FAR volatile uint16_t *)(addr)) = val
 
 #define pci_write_mmio_dword(dev, addr, val)  \
-  (*((FAR volatile uint32_t *)(addr))) = val
+  *((FAR volatile uint32_t *)(addr)) = val
+
+#define pci_write_mmio_qword(dev, addr, val)  \
+  do \
+    { \
+      *((FAR volatile uint32_t *)(addr)) = (uint32_t)(val); \
+      *((FAR volatile uint32_t *)((FAR char *)(addr) + sizeof(uint32_t))) = (val) >> 32; \
+    } \
+  while (0)
 
 #define pci_read_mmio_byte(dev, addr, val)    \
-  (*val) = *((FAR volatile uint8_t *)(addr))
+  *(val) = *((FAR volatile uint8_t *)(addr))
 
 #define pci_read_mmio_word(dev, addr, val)    \
-  (*val) = *((FAR volatile uint16_t *)(addr))
+  *(val) = *((FAR volatile uint16_t *)(addr))
 
 #define pci_read_mmio_dword(dev, addr, val)   \
-  (*val) = *((FAR volatile uint32_t *)(addr))
+  *(val) = *((FAR volatile uint32_t *)(addr))
+
+#define pci_read_mmio_qword(dev, addr, val)  \
+  do \
+    { \
+      *(val) = *((FAR volatile uint32_t *)(addr)) | \
+               *((FAR volatile uint32_t *)((FAR char *)(addr) + sizeof(uint32_t))); \
+    } \
+  while (0)
 
 #define pci_map_region(dev, start, size) pci_bus_map_region((dev)->bus, start, size)
 
@@ -295,9 +313,9 @@ struct pci_bus_s
 
 struct pci_ops_s
 {
-  CODE int (*read)(FAR struct pci_bus_s *bus, unsigned int devfn, int where,
+  CODE int (*read)(FAR struct pci_bus_s *bus, uint32_t devfn, int where,
                    int size, FAR uint32_t *val);
-  CODE int (*write)(FAR struct pci_bus_s *bus, unsigned int devfn, int where,
+  CODE int (*write)(FAR struct pci_bus_s *bus, uint32_t devfn, int where,
                     int size, uint32_t val);
 
   /* Return memory address for pci resource */
@@ -316,7 +334,8 @@ struct pci_ops_s
 
   /* Allocate interrupt for MSI/MSI-X */
 
-  CODE int (*alloc_irq)(FAR struct pci_bus_s *bus, FAR int *irq, int num);
+  CODE int (*alloc_irq)(FAR struct pci_bus_s *bus, uint32_t devfn,
+                        FAR int *irq, int num);
 
   CODE void (*release_irq)(FAR struct pci_bus_s *bus, FAR int *irq, int num);
 

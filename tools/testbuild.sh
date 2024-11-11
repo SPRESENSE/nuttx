@@ -450,8 +450,8 @@ function refresh_cmake {
     kconfig-tweak --file $nuttx/build/.config -d $toolchain
   fi
 
-  if ! cmake --build build -t savedefconfig 1>/dev/null; then
-    cmake --build build -t savedefconfig
+  if ! cmake --build build -t refreshsilent 1>/dev/null; then
+    cmake --build build -t refreshsilent
     fail=1
   fi
 
@@ -566,12 +566,14 @@ function dotest {
   echo $(date '+%Y-%m-%d %H:%M:%S')
   echo "------------------------------------------------------------------------------------"
   distclean
-  configure
   if [ ${skip} -ne 1 ]; then
+    configure
     build
     run
+    refresh
+  else
+    echo "  Skipping: $1"
   fi
-  refresh
 }
 
 # Perform the build test for each entry in the test list file

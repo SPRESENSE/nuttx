@@ -1,6 +1,8 @@
 /****************************************************************************
  * include/nuttx/ioexpander/gpio.h
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -100,6 +102,12 @@ enum gpio_pintype_e
   GPIO_INTERRUPT_RISING_PIN,
   GPIO_INTERRUPT_FALLING_PIN,
   GPIO_INTERRUPT_BOTH_PIN,
+  GPIO_INTERRUPT_PIN_WAKEUP,
+  GPIO_INTERRUPT_HIGH_PIN_WAKEUP,
+  GPIO_INTERRUPT_LOW_PIN_WAKEUP,
+  GPIO_INTERRUPT_RISING_PIN_WAKEUP,
+  GPIO_INTERRUPT_FALLING_PIN_WAKEUP,
+  GPIO_INTERRUPT_BOTH_PIN_WAKEUP,
   GPIO_NPINTYPES
 };
 

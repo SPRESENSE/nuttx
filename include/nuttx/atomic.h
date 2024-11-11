@@ -1,6 +1,8 @@
 /****************************************************************************
  * include/nuttx/atomic.h
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -74,7 +76,8 @@ extern "C++"
 }
 #  elif __has_include(<stdatomic.h>) && \
         ((defined(__cplusplus) && __cplusplus >= 201103L) || \
-         (defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L))
+         (defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L)) && \
+         !defined(__STDC_NO_ATOMICS__)
 #    if !(__clang__) && defined(__cplusplus)
 #      define _Atomic
 #    endif

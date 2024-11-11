@@ -630,7 +630,7 @@ static int netdev_wifr_ioctl(FAR struct socket *psock, int cmd,
       dev = netdev_findbyname(req->ifr_name);
       if (cmd == SIOCGIWNAME)
         {
-          if (dev == NULL)
+          if (dev == NULL || dev->d_lltype != NET_LL_IEEE80211)
             {
               ret = -ENODEV;
             }
@@ -726,6 +726,8 @@ static ssize_t net_ioctl_ifreq_arglen(uint8_t domain, int cmd)
       case SIOCACANSTDFILTER:
       case SIOCDCANSTDFILTER:
       case SIOCCANRECOVERY:
+      case SIOCGCANSTATE:
+      case SIOCSCANSTATE:
       case SIOCSIFNAME:
       case SIOCGIFNAME:
       case SIOCGIFINDEX:
@@ -990,10 +992,7 @@ static int netdev_ifr_ioctl(FAR struct socket *psock, int cmd,
             arp_acd_setup(dev);
 #endif /* CONFIG_NET_ARP_ACD */
           }
-
-        /* Is this a request to take the interface down? */
-
-        else if ((req->ifr_flags & IFF_DOWN) != 0)
+        else
           {
             /* Yes.. take the interface down */
 
@@ -1205,6 +1204,23 @@ static int netdev_ifr_ioctl(FAR struct socket *psock, int cmd,
               &req->ifr_ifru.ifru_can_filter;
             ret = dev->d_ioctl(dev, cmd,
                           (unsigned long)(uintptr_t)can_filter);
+          }
+        else
+          {
+            ret = -ENOSYS;
+          }
+        break;
+#endif
+
+#if defined(CONFIG_NETDEV_IOCTL) && defined(CONFIG_NETDEV_CAN_STATE_IOCTL)
+      case SIOCGCANSTATE:  /* Get state from a CAN/LIN controller */
+      case SIOCSCANSTATE:  /* Set the LIN/CAN controller state */
+        if (dev->d_ioctl)
+          {
+            FAR struct can_ioctl_state_s *can_state =
+              &req->ifr_ifru.ifru_can_state;
+            ret = dev->d_ioctl(dev, cmd,
+                          (unsigned long)(uintptr_t)can_state);
           }
         else
           {

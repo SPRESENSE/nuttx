@@ -1,6 +1,8 @@
 /****************************************************************************
  * drivers/virtio/virtio-pci.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -45,6 +47,11 @@
  * Private Function Prototypes
  ****************************************************************************/
 
+static FAR void *virtio_pci_alloc_buf(FAR struct virtio_device *vdev,
+                                      size_t size, size_t align);
+static void virtio_pci_free_buf(FAR struct virtio_device *vdev,
+                                FAR void *buf);
+
 static int virtio_pci_probe(FAR struct pci_device_s *dev);
 static void virtio_pci_remove(FAR struct pci_device_s *dev);
 
@@ -67,6 +74,12 @@ static struct pci_driver_s g_virtio_pci_drv =
   g_virtio_pci_id_table,
   virtio_pci_probe,
   virtio_pci_remove
+};
+
+static const struct virtio_memory_ops g_virtio_pci_mmops =
+{
+  virtio_pci_alloc_buf, /* Alloc */
+  virtio_pci_free_buf,  /* Free */
 };
 
 /****************************************************************************
@@ -136,6 +149,26 @@ static void virtio_pci_wdog(wdparm_t arg)
 #endif
 
 /****************************************************************************
+ * Name: virtio_pci_alloc_buf
+ ****************************************************************************/
+
+static FAR void *virtio_pci_alloc_buf(FAR struct virtio_device *vdev,
+                                      size_t size, size_t align)
+{
+  return kmm_memalign(align, size);
+}
+
+/****************************************************************************
+ * Name: virtio_pci_free_buf
+ ****************************************************************************/
+
+static void virtio_pci_free_buf(FAR struct virtio_device *vdev,
+                                FAR void *buf)
+{
+  return kmm_free(buf);
+}
+
+/****************************************************************************
  * Name: virtio_pci_probe
  ****************************************************************************/
 
@@ -163,6 +196,7 @@ static int virtio_pci_probe(FAR struct pci_device_s *dev)
   dev->priv = vpdev;
   vpdev->dev = dev;
   vdev = &vpdev->vdev;
+  vdev->mmops = &g_virtio_pci_mmops;
 
   /* Virtio device initialize */
 
@@ -343,7 +377,8 @@ int virtio_pci_create_virtqueues(FAR struct virtio_device *vdev,
                                  unsigned int flags,
                                  unsigned int nvqs,
                                  FAR const char *names[],
-                                 vq_callback callbacks[])
+                                 vq_callback callbacks[],
+                                 FAR void *callback_args[])
 {
   FAR struct virtio_pci_device_s *vpdev =
     (FAR struct virtio_pci_device_s *)vdev;
@@ -447,9 +482,9 @@ void virtio_pci_delete_virtqueues(FAR struct virtio_device *vdev)
  * Name: virtio_pci_negotiate_features
  ****************************************************************************/
 
-uint32_t
+uint64_t
 virtio_pci_negotiate_features(FAR struct virtio_device *vdev,
-                                     uint32_t features)
+                              uint64_t features)
 {
   features = features & vdev->func->get_features(vdev);
   vdev->func->set_features(vdev, features);

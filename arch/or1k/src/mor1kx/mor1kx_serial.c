@@ -106,7 +106,7 @@ void or1k_serialinit(void)
  *
  ****************************************************************************/
 
-int up_putc(int ch)
+void up_putc(int ch)
 {
 #ifdef HAVE_SERIAL_CONSOLE
   irqstate_t flags;
@@ -117,18 +117,8 @@ int up_putc(int ch)
 
   flags = spin_lock_irqsave(NULL);
 
-  /* Check for LF */
-
-  if (ch == '\n')
-    {
-      /* Add CR */
-
-      /* or1k_lowputc('\r'); */
-    }
-
   /* or1k_lowputc(ch); */
 
   spin_unlock_irqrestore(NULL, flags);
 #endif
-  return ch;
 }

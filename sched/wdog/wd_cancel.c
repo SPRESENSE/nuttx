@@ -33,6 +33,7 @@
 #include <nuttx/irq.h>
 #include <nuttx/arch.h>
 #include <nuttx/wdog.h>
+#include <nuttx/sched_note.h>
 
 #include "sched/sched.h"
 #include "wdog/wdog.h"
@@ -90,38 +91,40 @@ int wd_cancel(FAR struct wdog_s *wdog)
 
 int wd_cancel_irq(FAR struct wdog_s *wdog)
 {
-  if (wdog == NULL)
+  bool head;
+
+  /* Make sure that the watchdog is valid and still active. */
+
+  if (wdog == NULL || !WDOG_ISACTIVE(wdog))
     {
       return -EINVAL;
     }
+
+  sched_note_wdog(NOTE_WDOG_CANCEL, (FAR void *)wdog->func,
+                  (FAR void *)(uintptr_t)wdog->expired);
 
   /* Prohibit timer interactions with the timer queue until the
    * cancellation is complete
    */
 
-  /* Make sure that the watchdog is still active. */
+  head = list_is_head(&g_wdactivelist, &wdog->node);
 
-  if (WDOG_ISACTIVE(wdog))
+  /* Now, remove the watchdog from the timer queue */
+
+  list_delete(&wdog->node);
+
+  /* Mark the watchdog inactive */
+
+  wdog->func = NULL;
+
+  if (head)
     {
-      bool head = list_is_head(&g_wdactivelist, &wdog->node);
+      /* If the watchdog is at the head of the timer queue, then
+       * we will need to re-adjust the interval timer that will
+       * generate the next interval event.
+       */
 
-      /* Now, remove the watchdog from the timer queue */
-
-      list_delete(&wdog->node);
-
-      /* Mark the watchdog inactive */
-
-      wdog->func = NULL;
-
-      if (head)
-        {
-          /* If the watchdog is at the head of the timer queue, then
-           * we will need to re-adjust the interval timer that will
-           * generate the next interval event.
-           */
-
-          nxsched_reassess_timer();
-        }
+      nxsched_reassess_timer();
     }
 
   return OK;

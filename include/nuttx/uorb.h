@@ -1,6 +1,8 @@
 /****************************************************************************
  * include/nuttx/uorb.h
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -869,6 +871,7 @@ struct sensor_gnss          /* Type: GNSS */
   float course;
 
   uint32_t satellites_used; /* Number of satellites used */
+  uint32_t firmware_ver;    /* Version of GNSS firmware */
 };
 
 /* Ref: android14-release/hardware/libhardware/include_all/hardware/\

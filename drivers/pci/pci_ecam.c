@@ -1,6 +1,8 @@
 /****************************************************************************
  * drivers/pci/pci_ecam.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -42,18 +44,16 @@
 #define readl(a)     (*(FAR volatile uint32_t *)(a))
 #define writel(v,a)  (*(FAR volatile uint32_t *)(a) = (v))
 
-#define IS_ALIGNED(x, a) (((x) & ((a) - 1)) == 0)
-
 /****************************************************************************
  * Private Function Prototypes
  ****************************************************************************/
 
 static int pci_ecam_read_config(FAR struct pci_bus_s *bus,
-                                unsigned int devfn, int where, int size,
+                                uint32_t devfn, int where, int size,
                                 FAR uint32_t *val);
 
 static int pci_ecam_write_config(FAR struct pci_bus_s *bus,
-                                 unsigned int devfn, int where, int size,
+                                 uint32_t devfn, int where, int size,
                                  uint32_t val);
 
 static int pci_ecam_read_io(FAR struct pci_bus_s *bus, uintptr_t addr,
@@ -66,8 +66,8 @@ static int pci_ecam_get_irq(FAR struct pci_bus_s *bus, uint32_t devfn,
                             uint8_t line, uint8_t pin);
 
 #ifdef CONFIG_PCI_MSIX
-static int pci_ecam_alloc_irq(FAR struct pci_bus_s *bus, FAR int *irq,
-                              int num);
+static int pci_ecam_alloc_irq(FAR struct pci_bus_s *bus, uint32_t devfn,
+                              FAR int *irq, int num);
 
 static void pci_ecam_release_irq(FAR struct pci_bus_s *bus, FAR int *irq,
                                  int num);
@@ -201,7 +201,7 @@ static bool pci_ecam_addr_valid(FAR const struct pci_bus_s *bus,
  ****************************************************************************/
 
 static int pci_ecam_read_config(FAR struct pci_bus_s *bus,
-                                unsigned int devfn, int where, int size,
+                                uint32_t devfn, int where, int size,
                                 FAR uint32_t *val)
 {
   FAR void *addr;
@@ -259,7 +259,7 @@ static int pci_ecam_read_config(FAR struct pci_bus_s *bus,
  ****************************************************************************/
 
 static int pci_ecam_write_config(FAR struct pci_bus_s *bus,
-                                 unsigned int devfn, int where, int size,
+                                 uint32_t devfn, int where, int size,
                                  uint32_t val)
 {
   FAR void *addr;
@@ -391,11 +391,10 @@ static int pci_ecam_write_io(FAR struct pci_bus_s *bus, uintptr_t addr,
 }
 
 #ifdef CONFIG_PCI_MSIX
-static int pci_ecam_alloc_irq(FAR struct pci_bus_s *bus, FAR int *irq,
-                              int num)
+static int pci_ecam_alloc_irq(FAR struct pci_bus_s *bus, uint32_t devfn,
+                              FAR int *irq, int num)
 {
-  *irq = up_alloc_irq_msi(&num);
-  return num;
+  return up_alloc_irq_msi(bus->ctrl->busno, devfn, irq, num);
 }
 
 static void pci_ecam_release_irq(FAR struct pci_bus_s *bus, FAR int *irq,

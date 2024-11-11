@@ -1,6 +1,8 @@
 /****************************************************************************
  * drivers/rpmsg/rpmsg_router_hub.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -322,10 +324,10 @@ static void rpmsg_router_bound(FAR struct rpmsg_endpoint *ept)
   for (i = 0; i < 2; i++)
     {
       msg.cmd = RPMSG_ROUTER_CREATE;
-      msg.tx_len = MIN(rpmsg_get_rx_buffer_size(hub->ept[i].rdev),
-                       rpmsg_get_tx_buffer_size(hub->ept[1 - i].rdev));
-      msg.rx_len = MIN(rpmsg_get_tx_buffer_size(hub->ept[i].rdev),
-                       rpmsg_get_rx_buffer_size(hub->ept[1 - i].rdev));
+      msg.tx_len = MIN(rpmsg_get_rx_buffer_size(&hub->ept[i]),
+                       rpmsg_get_tx_buffer_size(&hub->ept[1 - i]));
+      msg.rx_len = MIN(rpmsg_get_tx_buffer_size(&hub->ept[i]),
+                       rpmsg_get_rx_buffer_size(&hub->ept[1 - i]));
       strlcpy(msg.cpuname, hub->cpuname[i], sizeof(msg.cpuname));
       ret = rpmsg_send(&hub->ept[i], &msg, sizeof(msg));
       DEBUGASSERT(ret >= 0);

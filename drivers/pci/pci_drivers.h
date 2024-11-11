@@ -1,6 +1,8 @@
 /****************************************************************************
  * drivers/pci/pci_drivers.h
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -26,10 +28,24 @@
  ****************************************************************************/
 
 #include <nuttx/config.h>
+#include <nuttx/arch.h>
 
 /****************************************************************************
  * Public Function Prototypes
  ****************************************************************************/
+
+/****************************************************************************
+ * Name: pci_dev_register
+ *
+ * Description:
+ *   Create an pci dev driver.
+ *
+ * Returned Value:
+ *   Zero (OK) on success; A negated errno value on failure.
+ *
+ ****************************************************************************/
+
+int pci_dev_register(void);
 
 /****************************************************************************
  * Name: pci_ivshmem_register
@@ -89,6 +105,30 @@ int pci_register_epf_test_driver(void);
 
 #ifdef CONFIG_PCI_EP_TEST
 int pci_register_ep_test_driver(void);
+#endif
+
+/****************************************************************************
+ * Name: pci_register_qemu_test_driver
+ *
+ * Description:
+ *   Register qemu test device pci driver
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_PCI_QEMU_TEST
+int pci_register_qemu_test_driver(void);
+#endif
+
+/****************************************************************************
+ * Name: pci_register_qemu_edu_driver
+ *
+ * Description:
+ *   Register qemu edu device pci driver
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_PCI_QEMU_EDU
+int pci_register_qemu_edu_driver(void);
 #endif
 
 #endif /* __DRIVERS_PCI_PCI_DRIVERS_H */

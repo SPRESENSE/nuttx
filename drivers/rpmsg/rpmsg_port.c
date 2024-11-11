@@ -1,6 +1,8 @@
 /****************************************************************************
  * drivers/rpmsg/rpmsg_port.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -28,6 +30,7 @@
 #include <nuttx/kmalloc.h>
 
 #include <metal/mutex.h>
+#include <metal/sys.h>
 
 #include <rpmsg/rpmsg_internal.h>
 
@@ -47,8 +50,7 @@
 static FAR const char *
 rpmsg_port_get_local_cpuname(FAR struct rpmsg_s *rpmsg);
 static FAR const char *rpmsg_port_get_cpuname(FAR struct rpmsg_s *rpmsg);
-static int rpmsg_port_get_tx_buffer_size(FAR struct rpmsg_s *rpmsg);
-static int rpmsg_port_get_rx_buffer_size(FAR struct rpmsg_s *rpmsg);
+static void rpmsg_port_dump(FAR struct rpmsg_s *rpmsg);
 
 /****************************************************************************
  * Private Data
@@ -60,11 +62,9 @@ static const struct rpmsg_ops_s g_rpmsg_port_ops =
   NULL,
   NULL,
   NULL,
-  NULL,
+  rpmsg_port_dump,
   rpmsg_port_get_local_cpuname,
   rpmsg_port_get_cpuname,
-  rpmsg_port_get_tx_buffer_size,
-  rpmsg_port_get_rx_buffer_size,
 };
 
 /****************************************************************************
@@ -371,6 +371,32 @@ static int rpmsg_port_release_tx_buffer(FAR struct rpmsg_device *rdev,
 }
 
 /****************************************************************************
+ * Name: rpmsg_port_get_tx_buffer_size
+ ****************************************************************************/
+
+static int rpmsg_port_get_tx_buffer_size(FAR struct rpmsg_device *rdev)
+{
+  FAR struct rpmsg_port_s *port =
+    metal_container_of(rdev, struct rpmsg_port_s, rdev);
+
+  return port->txq.len - sizeof(struct rpmsg_port_header_s) -
+         sizeof(struct rpmsg_hdr);
+}
+
+/****************************************************************************
+ * Name: rpmsg_port_get_rx_buffer_size
+ ****************************************************************************/
+
+static int rpmsg_port_get_rx_buffer_size(FAR struct rpmsg_device *rdev)
+{
+  FAR struct rpmsg_port_s *port =
+    metal_container_of(rdev, struct rpmsg_port_s, rdev);
+
+  return port->rxq.len - sizeof(struct rpmsg_port_header_s) -
+         sizeof(struct rpmsg_hdr);
+}
+
+/****************************************************************************
  * Name: rpmsg_port_rx_callback
  ****************************************************************************/
 
@@ -539,30 +565,6 @@ static FAR const char *rpmsg_port_get_cpuname(FAR struct rpmsg_s *rpmsg)
 }
 
 /****************************************************************************
- * Name: rpmsg_port_get_tx_buffer_size
- ****************************************************************************/
-
-static int rpmsg_port_get_tx_buffer_size(FAR struct rpmsg_s *rpmsg)
-{
-  FAR struct rpmsg_port_s *port = (FAR struct rpmsg_port_s *)rpmsg;
-
-  return port->txq.len - sizeof(struct rpmsg_port_header_s) -
-         sizeof(struct rpmsg_hdr);
-}
-
-/****************************************************************************
- * Name: rpmsg_port_get_rx_buffer_size
- ****************************************************************************/
-
-static int rpmsg_port_get_rx_buffer_size(FAR struct rpmsg_s *rpmsg)
-{
-  FAR struct rpmsg_port_s *port = (FAR struct rpmsg_port_s *)rpmsg;
-
-  return port->rxq.len - sizeof(struct rpmsg_port_header_s) -
-         sizeof(struct rpmsg_hdr);
-}
-
-/****************************************************************************
  * Public Functions
  ****************************************************************************/
 
@@ -602,6 +604,8 @@ int rpmsg_port_initialize(FAR struct rpmsg_port_s *port,
   rdev->ops.get_tx_payload_buffer = rpmsg_port_get_tx_payload_buffer;
   rdev->ops.send_offchannel_nocopy = rpmsg_port_send_offchannel_nocopy;
   rdev->ops.release_tx_buffer = rpmsg_port_release_tx_buffer;
+  rdev->ops.get_rx_buffer_size = rpmsg_port_get_rx_buffer_size;
+  rdev->ops.get_tx_buffer_size = rpmsg_port_get_tx_buffer_size;
 
   metal_list_init(&rdev->endpoints);
 
@@ -609,7 +613,8 @@ int rpmsg_port_initialize(FAR struct rpmsg_port_s *port,
   rdev->support_ns = true;
 
   rpmsg_register_endpoint(rdev, &rdev->ns_ept, "NS", RPMSG_NS_EPT_ADDR,
-                          RPMSG_NS_EPT_ADDR, rpmsg_port_ns_callback, NULL);
+                          RPMSG_NS_EPT_ADDR, rpmsg_port_ns_callback, NULL,
+                          port);
   port->ops->register_callback(port, rpmsg_port_rx_callback);
 
   return 0;
@@ -758,4 +763,75 @@ void rpmsg_port_unregister(FAR struct rpmsg_port_s *port)
   rpmsg_unregister(name, &port->rpmsg);
 
   rpmsg_device_destory(&port->rpmsg);
+}
+
+/****************************************************************************
+ * Name: rpmsg_port_dump_buffer
+ ****************************************************************************/
+
+static void rpmsg_port_dump_buffer(FAR struct rpmsg_device *rdev,
+                                   FAR struct rpmsg_port_queue_s *queue,
+                                   bool rx)
+{
+  FAR struct list_node *node;
+  irqstate_t flags = spin_lock_irqsave(&queue->ready.lock);
+
+  metal_log(METAL_LOG_EMERGENCY,
+            "rpmsg_port queue %s: {used: %u, avail: %u}\n",
+            rx ? "RX" : "TX",
+            rpmsg_port_queue_nused(queue),
+            rpmsg_port_queue_navail(queue));
+  metal_log(METAL_LOG_EMERGENCY, "rpmsg buffer list:\n");
+  list_for_every(&queue->ready.head, node)
+    {
+      FAR struct rpmsg_port_header_s *hdr =
+        RPMSG_PORT_NODE_TO_BUF(queue, node);
+      FAR struct rpmsg_hdr *rphdr = (FAR struct rpmsg_hdr *)hdr->buf;
+      FAR struct rpmsg_endpoint *ept;
+
+      ept = rpmsg_get_ept_from_addr(rdev, rx ? rphdr->dst : rphdr->src);
+      if (ept)
+        {
+          metal_log(METAL_LOG_EMERGENCY, " %s buffer %p hold by %s\n",
+                    rx ? "RX" : "TX", rphdr, ept->name);
+        }
+    }
+
+  spin_unlock_irqrestore(&queue->ready.lock, flags);
+}
+
+/****************************************************************************
+ * Name: rpmsg_port_dump
+ ****************************************************************************/
+
+static void rpmsg_port_dump(FAR struct rpmsg_s *rpmsg)
+{
+  FAR struct rpmsg_port_s *port = (FAR struct rpmsg_port_s *)rpmsg;
+  FAR struct rpmsg_device *rdev = rpmsg->rdev;
+  FAR struct rpmsg_endpoint *ept;
+  FAR struct metal_list *node;
+  bool needunlock = false;
+
+  if (!up_interrupt_context() && !sched_idletask() &&
+      !nxmutex_is_hold(&rdev->lock))
+    {
+      metal_mutex_acquire(&rdev->lock);
+      needunlock = true;
+    }
+
+  metal_log(METAL_LOG_EMERGENCY, "Remote: %s\n", port->cpuname);
+
+  metal_list_for_each(&rdev->endpoints, node)
+    {
+      ept = metal_container_of(node, struct rpmsg_endpoint, node);
+      metal_log(METAL_LOG_EMERGENCY, "ept %s\n", ept->name);
+    }
+
+  rpmsg_port_dump_buffer(rdev, &port->rxq, true);
+  rpmsg_port_dump_buffer(rdev, &port->txq, false);
+
+  if (needunlock)
+    {
+      metal_mutex_release(&rdev->lock);
+    }
 }

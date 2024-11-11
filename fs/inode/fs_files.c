@@ -1,6 +1,8 @@
 /****************************************************************************
  * fs/inode/fs_files.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -53,6 +55,7 @@
 
 #include "sched/sched.h"
 #include "inode/inode.h"
+#include "fs_heap.h"
 
 /****************************************************************************
  * Private Functions
@@ -136,7 +139,7 @@ static int files_extend(FAR struct filelist *list, size_t row)
       return -EMFILE;
     }
 
-  files = kmm_malloc(sizeof(FAR struct file *) * row);
+  files = fs_heap_malloc(sizeof(FAR struct file *) * row);
   DEBUGASSERT(files);
   if (files == NULL)
     {
@@ -146,16 +149,16 @@ static int files_extend(FAR struct filelist *list, size_t row)
   i = orig_rows;
   do
     {
-      files[i] = kmm_zalloc(sizeof(struct file) *
+      files[i] = fs_heap_zalloc(sizeof(struct file) *
                             CONFIG_NFILE_DESCRIPTORS_PER_BLOCK);
       if (files[i] == NULL)
         {
           while (--i >= orig_rows)
             {
-              kmm_free(files[i]);
+              fs_heap_free(files[i]);
             }
 
-          kmm_free(files);
+          fs_heap_free(files);
           return -ENFILE;
         }
     }
@@ -174,10 +177,10 @@ static int files_extend(FAR struct filelist *list, size_t row)
 
       for (j = orig_rows; j < i; j++)
         {
-          kmm_free(files[j]);
+          fs_heap_free(files[j]);
         }
 
-      kmm_free(files);
+      fs_heap_free(files);
 
       return OK;
     }
@@ -196,7 +199,7 @@ static int files_extend(FAR struct filelist *list, size_t row)
 
   if (tmp != NULL && tmp != &list->fl_prefile)
     {
-      kmm_free(tmp);
+      fs_heap_free(tmp);
     }
 
   return OK;
@@ -209,6 +212,11 @@ static void task_fssync(FAR struct tcb_s *tcb, FAR void *arg)
   int j;
 
   list = files_getlist(tcb);
+  if (list == NULL)
+    {
+      return;
+    }
+
   for (i = 0; i < list->fl_rows; i++)
     {
       for (j = 0; j < CONFIG_NFILE_DESCRIPTORS_PER_BLOCK; j++)
@@ -372,7 +380,7 @@ void files_initlist(FAR struct filelist *list)
  *
  ****************************************************************************/
 
-#ifdef CONFIG_DUMP_ON_EXIT
+#ifdef CONFIG_SCHED_DUMP_ON_EXIT
 void files_dumplist(FAR struct filelist *list)
 {
   int count = files_countlist(list);
@@ -441,12 +449,19 @@ void files_dumplist(FAR struct filelist *list)
 
 FAR struct filelist *files_getlist(FAR struct tcb_s *tcb)
 {
-  FAR struct filelist *list = &tcb->group->tg_filelist;
+  FAR struct filelist *list;
 
-  DEBUGASSERT(list->fl_crefs >= 1);
-  list->fl_crefs++;
+  if (tcb->group != NULL)
+    {
+      list = &tcb->group->tg_filelist;
+      if (list->fl_crefs > 0)
+        {
+          list->fl_crefs++;
+          return list;
+        }
+    }
 
-  return list;
+  return NULL;
 }
 
 /****************************************************************************
@@ -485,13 +500,13 @@ void files_putlist(FAR struct filelist *list)
 
       if (i != 0)
         {
-          kmm_free(list->fl_files[i]);
+          fs_heap_free(list->fl_files[i]);
         }
     }
 
   if (list->fl_files != &list->fl_prefile)
     {
-      kmm_free(list->fl_files);
+      fs_heap_free(list->fl_files);
     }
 }
 
@@ -499,16 +514,13 @@ void files_putlist(FAR struct filelist *list)
  * Name: files_countlist
  *
  * Description:
- *   Given a file descriptor, return the corresponding instance of struct
- *   file.
+ *   Get file count from file list.
  *
  * Input Parameters:
- *   fd    - The file descriptor
- *   filep - The location to return the struct file instance
+ *   list - Pointer to the file list structure.
  *
  * Returned Value:
- *   Zero (OK) is returned on success; a negated errno value is returned on
- *   any failure.
+ *   file count of file list.
  *
  ****************************************************************************/
 
@@ -590,12 +602,18 @@ int file_allocate_from_tcb(FAR struct tcb_s *tcb, FAR struct inode *inode,
           filep = &list->fl_files[i][j];
           if (filep->f_inode == NULL)
             {
-              filep->f_oflags = oflags;
-              filep->f_pos    = pos;
-              filep->f_inode  = inode;
-              filep->f_priv   = priv;
+              filep->f_oflags      = oflags;
+              filep->f_pos         = pos;
+              filep->f_inode       = inode;
+              filep->f_priv        = priv;
 #ifdef CONFIG_FS_REFCOUNT
-              filep->f_refs   = 1;
+              filep->f_refs        = 1;
+#endif
+#ifdef CONFIG_FDSAN
+              filep->f_tag_fdsan   = 0;
+#endif
+#ifdef CONFIG_FDCHECK
+              filep->f_tag_fdcheck = 0;
 #endif
 
               goto found;

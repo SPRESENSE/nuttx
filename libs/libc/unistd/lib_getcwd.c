@@ -1,6 +1,8 @@
 /****************************************************************************
  * libs/libc/unistd/lib_getcwd.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -31,8 +33,6 @@
 #include <errno.h>
 
 #include "libc.h"
-
-#ifndef CONFIG_DISABLE_ENVIRON
 
 /****************************************************************************
  * Public Functions
@@ -93,10 +93,13 @@ FAR char *getcwd(FAR char *buf, size_t size)
       size = PATH_MAX + 1;
     }
 
+#ifndef CONFIG_DISABLE_ENVIRON
+
   /* If no working directory is defined, then default to the home directory */
 
   pwd = getenv("PWD");
   if (pwd == NULL)
+#endif /* !CONFIG_DISABLE_ENVIRON */
     {
       pwd = CONFIG_LIBC_HOMEDIR;
     }
@@ -124,4 +127,3 @@ FAR char *getcwd(FAR char *buf, size_t size)
   strlcpy(buf, pwd, size);
   return buf;
 }
-#endif /* !CONFIG_DISABLE_ENVIRON */

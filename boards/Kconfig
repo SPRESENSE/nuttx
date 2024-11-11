@@ -1524,36 +1524,35 @@ config ARCH_BOARD_NUCLEO_F429ZI
 	---help---
 		STMicro Nucleo-F429zi board based on the STMicro STM32F429ZIT6 MCU.
 
-config ARCH_BOARD_NUCLEO_144
-	bool "STMicro NUCLEO-144"
-	depends on ARCH_CHIP_STM32F722ZE || ARCH_CHIP_STM32F746ZG || ARCH_CHIP_STM32F767ZI
+config ARCH_BOARD_NUCLEO_F722ZE
+	bool "STMicro NUCLEO-F722ZE"
+	depends on ARCH_CHIP_STM32F722ZE
 	select ARCH_HAVE_LEDS
 	select ARCH_HAVE_BUTTONS
 	select ARCH_HAVE_IRQBUTTONS
 	---help---
-		STMicro Nucleo-144 development board featuring STMicroelectronics
-		F2, F3, F4, F7 and L4 MCU families.  The board is a "Hardware pattern"
-		that can be populated with the 144 pin package of the following MCUs:
+		STMicro Nucleo F722ZE board based on STM32F722ZET6,
+		a 216MHz Cortex-M7, w/FPU, 512KiB Flash memory and 256KiB SRAM.
 
-			Target STM32    Order code
-			STM32F207ZGT6   NUCLEO-F207ZG
-			STM32F303ZET6   NUCLEO-F303ZE
-			STM32F429ZIT6   NUCLEO-F429ZI
-			STM32F446ZET6   NUCLEO-F446ZE
-			STM32F722ZET6   NUCLEO-F722ZE
-			STM32F746ZGT6   NUCLEO-F746ZG
-			STM32F767ZIT6   NUCLEO-F767ZI
-			STM32L496ZGT6   NUCLEO-L496ZG
-			STM32L496ZGT6P  NUCLEO-L496ZG-P
+config ARCH_BOARD_NUCLEO_F746ZG
+	bool "STMicro NUCLEO-F746ZG"
+	depends on ARCH_CHIP_STM32F746ZG
+	select ARCH_HAVE_LEDS
+	select ARCH_HAVE_BUTTONS
+	select ARCH_HAVE_IRQBUTTONS
+	---help---
+		STMicro Nucleo F746ZG board based on STM32F746ZGT6
+		a 216MHz Cortex-M7, w/FPU, 1024KiB Flash memory and 320KiB SRAM.
 
-		Supported in this configuration are:
-
-			NUCLEO-F722ZE - STM32F722ZET6 a 216MHz Cortex-M7, w/FPU -
-				512KiB Flash memory and 256KiB SRAM.
-			NUCLEO-F746ZG - STM32F746ZGT6 a 216MHz Cortex-M7, w/FPU -
-				1024KiB Flash memory and 320KiB SRAM.
-			NUCLEO-F767ZI - STM32F767ZIT6 a 216MHz Cortex-M7, w/DPFPU -
-				2048KiB Flash memory and 512KiB SRAM.
+config ARCH_BOARD_NUCLEO_F767ZI
+	bool "STMicro NUCLEO-F767ZI"
+	depends on ARCH_CHIP_STM32F767ZI
+	select ARCH_HAVE_LEDS
+	select ARCH_HAVE_BUTTONS
+	select ARCH_HAVE_IRQBUTTONS
+	---help---
+		STMicro Nucleo F767ZI board based on STM32F767ZIT6,
+		a 216MHz Cortex-M7, w/DPFPU 2048KiB Flash memory and 512KiB SRAM.
 
 config ARCH_BOARD_NUCLEO_L073RZ
 	bool "STM32L073RZU6 Nucleo L073RZ"
@@ -2135,6 +2134,14 @@ config ARCH_BOARD_MPS2_AN500
 		This options selects support for NuttX on the MPS2 AN500
 		board featuring the Cortex-M7.
 
+config ARCH_BOARD_MPS2_AN521
+	bool "Arm MPS2 AN521"
+	depends on ARCH_CHIP_MPS2_AN521
+	select ARCH_HAVE_IRQBUTTONS
+	---help---
+		This options selects support for NuttX on the MPS2 AN521
+		board featuring the Cortex-M33.
+
 config ARCH_BOARD_MPS3_AN547
 	bool "Arm MPS3 AN547"
 	depends on ARCH_CHIP_MPS3_AN547
@@ -2320,6 +2327,15 @@ config ARCH_BOARD_SAMD21_XPLAINED
 		The port of NuttX to the Atmel SAMD21-Xplained Pro development board.
 		This board features the ATSAMD21J18A MCU (Cortex-M0+ with 256KB of FLASH
 		and 32KB of SRAM).
+
+config ARCH_BOARD_XIAO_SEEEDUINO
+	bool "Seeed Studio XIAO SAMD21"
+	depends on ARCH_CHIP_SAMD21J18A
+	select ARCH_HAVE_LEDS
+	---help---
+		The port of NuttX to the Seeed Studio XIAO SAMD21 board.
+		This board features the ATSAMD21J18A MCU (Cortex-M0+ with 256KB of FLASH
+		and 32KB of SRAM) in a tiny footprint.
 
 config ARCH_BOARD_SAME54_XPLAINED_PRO
 	bool "Atmel SAME54-Xplained Pro development board"
@@ -2787,6 +2803,15 @@ config ARCH_BOARD_STM32L476_MDK
 		Motorola Mods Development Board (MDK) features  STM32L476ME MCU.
 		The STM32L476ME is a Cortex-M4 optimised for low-power operation
 		at up to 80MHz operation with 1024Kb Flash memory and 96+32Kb SRAM.
+
+config ARCH_BOARD_NUCLEO_H563ZI
+	bool "NUCLEO_H563ZI"
+	depends on ARCH_CHIP_STM32H563ZI
+	select ARCH_HAVE_LEDS
+	select ARCH_HAVE_BUTTONS
+	select ARCH_HAVE_IRQBUTTONS
+	---help---
+		STMicro Nucleo-H563ZI board based on the STMicro STM32H563ZI MCU.
 
 config ARCH_BOARD_STM32L562E_DK
 	bool "STM32L562E-DK"
@@ -3348,7 +3373,9 @@ config ARCH_BOARD
 	default "thingy91-nrf52"            if ARCH_BOARD_THINGY91_NRF52
 	default "nrf9160-dk-nrf52"          if ARCH_BOARD_NRF9160_DK_NRF52
 	default "ntosd-dm320"               if ARCH_BOARD_NTOSD_DM320
-	default "nucleo-144"                if ARCH_BOARD_NUCLEO_144
+	default "nucleo-f722ze"             if ARCH_BOARD_NUCLEO_F722ZE
+	default "nucleo-f746zg"             if ARCH_BOARD_NUCLEO_F746ZG
+	default "nucleo-f767zi"             if ARCH_BOARD_NUCLEO_F767ZI
 	default "nucleo-f072rb"             if ARCH_BOARD_NUCLEO_F072RB
 	default "nucleo-f091rc"             if ARCH_BOARD_NUCLEO_F091RC
 	default "nucleo-f103rb"             if ARCH_BOARD_NUCLEO_F103RB
@@ -3431,6 +3458,7 @@ config ARCH_BOARD
 	default "s32k344evb"                if ARCH_BOARD_S32K344EVB
 	default "mr-canhubk3"               if ARCH_BOARD_MR_CANHUBK3
 	default "mps2-an500"                if ARCH_BOARD_MPS2_AN500
+	default "mps2-an521"                if ARCH_BOARD_MPS2_AN521
 	default "mps3-an547"                if ARCH_BOARD_MPS3_AN547
 	default "rv32m1-vega"               if ARCH_BOARD_RV32M1_VEGA
 	default "rv-virt"                   if ARCH_BOARD_QEMU_RV_VIRT
@@ -3458,6 +3486,7 @@ config ARCH_BOARD
 	default "sama5d4-ek"                if ARCH_BOARD_SAMA5D4_EK
 	default "samd20-xplained"           if ARCH_BOARD_SAMD20_XPLAINED
 	default "samd21-xplained"           if ARCH_BOARD_SAMD21_XPLAINED
+	default "xiao-seeeduino"            if ARCH_BOARD_XIAO_SEEEDUINO
 	default "same54-xplained-pro"       if ARCH_BOARD_SAME54_XPLAINED_PRO
 	default "saml21-xplained"           if ARCH_BOARD_SAML21_XPLAINED
 	default "sam3u-ek"                  if ARCH_BOARD_SAM3UEK
@@ -3502,6 +3531,7 @@ config ARCH_BOARD
 	default "b-l072z-lrwan1"            if ARCH_BOARD_B_L072Z_LRWAN1
 	default "b-l475e-iot01a"            if ARCH_BOARD_B_L475E_IOT01A
 	default "b-u585i-iot02a"            if ARCH_BOARD_B_U585I_IOT02A
+	default "nucleo-h563zi"             if ARCH_BOARD_NUCLEO_H563ZI
 	default "nucleo-u5a5zj-q"           if ARCH_BOARD_NUCLEO_U5A5ZJ_Q
 	default "stm32l476vg-disco"         if ARCH_BOARD_STM32L476VG_DISCO
 	default "stm32l476-mdk"             if ARCH_BOARD_STM32L476_MDK
@@ -3650,6 +3680,9 @@ source "boards/tricore/tc3xx/tc397/Kconfig"
 endif
 if ARCH_BOARD_MPS2_AN500
 source "boards/arm/mps/mps2-an500/Kconfig"
+endif
+if ARCH_BOARD_MPS2_AN521
+source "boards/arm/mps/mps2-an521/Kconfig"
 endif
 if ARCH_BOARD_MPS3_AN547
 source "boards/arm/mps/mps3-an547/Kconfig"
@@ -3933,6 +3966,9 @@ endif
 if ARCH_BOARD_SAMD21_XPLAINED
 source "boards/arm/samd2l2/samd21-xplained/Kconfig"
 endif
+if ARCH_BOARD_XIAO_SEEEDUINO
+source "boards/arm/samd2l2/xiao-seeeduino/Kconfig"
+endif
 if ARCH_BOARD_SAME54_XPLAINED_PRO
 source "boards/arm/samd5e5/same54-xplained-pro/Kconfig"
 endif
@@ -3990,8 +4026,14 @@ endif
 if ARCH_BOARD_STM32F072_DISCOVERY
 source "boards/arm/stm32f0l0g0/stm32f072-discovery/Kconfig"
 endif
-if ARCH_BOARD_NUCLEO_144
-source "boards/arm/stm32f7/nucleo-144/Kconfig"
+if ARCH_BOARD_NUCLEO_F722ZE
+source "boards/arm/stm32f7/nucleo-f722ze/Kconfig"
+endif
+if ARCH_BOARD_NUCLEO_F746ZG
+source "boards/arm/stm32f7/nucleo-f746zg/Kconfig"
+endif
+if ARCH_BOARD_NUCLEO_F767ZI
+source "boards/arm/stm32f7/nucleo-f767zi/Kconfig"
 endif
 if ARCH_BOARD_STM32F746_WS
 source "boards/arm/stm32f7/stm32f746-ws/Kconfig"
@@ -4070,6 +4112,9 @@ source "boards/arm/stm32l4/stm32l476vg-disco/Kconfig"
 endif
 if ARCH_BOARD_STM32L4R9AI_DISCO
 source "boards/arm/stm32l4/stm32l4r9ai-disco/Kconfig"
+endif
+if ARCH_BOARD_NUCLEO_H563ZI
+source "boards/arm/stm32h5/nucleo-h563zi/Kconfig"
 endif
 if ARCH_BOARD_STM32L562E_DK
 source "boards/arm/stm32l5/stm32l562e-dk/Kconfig"
@@ -4585,6 +4630,9 @@ endif
 if ARCH_CHIP_STM32
 source "boards/arm/stm32/common/Kconfig"
 endif
+if ARCH_CHIP_STM32F7
+source "boards/arm/stm32f7/common/Kconfig"
+endif
 if ARCH_CHIP_STM32F0L0G0
 source "boards/arm/stm32f0l0g0/common/Kconfig"
 endif
@@ -4622,14 +4670,14 @@ config BOARD_CRASHDUMP
 config BOARD_COREDUMP_SYSLOG
 	bool "Enable Core dump to syslog"
 	default n
-	depends on ELF_COREDUMP
+	depends on COREDUMP
 	---help---
 		Enable put coredump to syslog when crash.
 
 config BOARD_COREDUMP_BLKDEV
 	bool "Enable Core Dump to block device"
 	default n
-	depends on ELF_COREDUMP
+	depends on COREDUMP
 	---help---
 		Enable save coredump at block device when crash.
 
@@ -4653,6 +4701,13 @@ config BOARD_COREDUMP_COMPRESSION
 	depends on BOARD_COREDUMP_SYSLOG || BOARD_COREDUMP_BLKDEV
 	---help---
 		Enable LZF compression algorithm for core dump content
+
+config BOARD_COREDUMP_BASE64STREAM
+	bool "Enable base64 encoding for output stream"
+	default n
+	depends on BOARD_COREDUMP_SYSLOG
+	---help---
+		Enable based64 encoded stream instead of default hexstream.
 
 config BOARD_ENTROPY_POOL
 	bool "Enable Board level storing of entropy pool structure"
@@ -4876,6 +4931,5 @@ config BOARD_MEMORY_RANGE
 		Memory range of board. format: <start>,<end>,<flags>,....
 		start: start address of memory range
 		end: end address of memory range
-		flags: Readable 0x1, writable 0x2, executable 0x4
-		example:0x1000,0x2000,0x1,0x2000,0x3000,0x3,0x3000,0x4000,0x7
-
+		flags: Executable 0x1, Writable 0x2, Readable 0x4
+		example:{0x1000,0x2000,0x4},{0x2000,0x3000,0x6},{0x3000,0x4000,0x7} ... {0x0,0x0,0x0}

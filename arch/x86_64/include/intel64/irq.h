@@ -346,10 +346,18 @@
 #define HPET0_IRQ    IRQ2
 #define HPET1_IRQ    IRQ8
 
-/* Use IRQ15 IRQ16 for SMP */
+/* NuttX custom interrupts configuration starts from here.
+ * IRQ16-IRQ23 are reserved for GOLDFISH so we start from IRQ24.
+ */
 
-#define SMP_IPI_IRQ  IRQ15
-#define SMP_IPI_ASYNC_IRQ  IRQ16
+/* Use IRQ24 IRQ25 for SMP */
+
+#define SMP_IPI_CALL_IRQ   IRQ24
+#define SMP_IPI_SCHED_IRQ  IRQ25
+
+/* Use IRQ32 and above for MSI */
+
+#define IRQ_MSI_START      IRQ32
 
 /* Common register save structure created by up_saveusercontext() and by
  * ISR/IRQ interrupt processing.
@@ -453,6 +461,10 @@
 
 #define XMMAREA_REGS     (25)
 
+/* Aux register used by implementation */
+
+#define REG_AUX          (26 + XMMAREA_REG_OFFSET)
+
 /* NOTE 2: This is not really state data.  Rather, this is just a convenient
  *   way to pass parameters from the interrupt handler to C code.
  */
@@ -469,6 +481,10 @@
 #define XCP_ALIGN_MASK    (XCPTCONTEXT_ALIGN - 1)
 #define XCP_ALIGN_DOWN(a) ((a) & ~XCP_ALIGN_MASK)
 #define XCP_ALIGN_UP(a)   (((a) + XCP_ALIGN_MASK) & ~XCP_ALIGN_MASK)
+
+/* Aux register flags */
+
+#define REG_AUX_FULLCONTEXT (1 << 0) /* Force full context switch */
 
 /****************************************************************************
  * Public Types
@@ -487,12 +503,6 @@ enum ioapic_trigger_mode
 
 struct xcptcontext
 {
-  /* The following function pointer is non-zero if there are pending signals
-   * to be processed.
-   */
-
-  void *sigdeliver; /* Actual type is sig_deliver_t */
-
   /* These are saved copies of instruction pointer and EFLAGS used during
    * signal processing.
    */

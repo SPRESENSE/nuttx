@@ -1,6 +1,8 @@
 /****************************************************************************
  * fs/rpmsgfs/rpmsgfs.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -43,6 +45,7 @@
 #include <nuttx/signal.h>
 
 #include "rpmsgfs.h"
+#include "fs_heap.h"
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -164,6 +167,8 @@ const struct mountpt_operations g_rpmsgfs_operations =
   NULL,                  /* mmap */
   rpmsgfs_truncate,      /* truncate */
   NULL,                  /* poll */
+  NULL,                  /* readv */
+  NULL,                  /* writev */
 
   rpmsgfs_sync,          /* sync */
   rpmsgfs_dup,           /* dup */
@@ -303,7 +308,7 @@ static int rpmsgfs_open(FAR struct file *filep, FAR const char *relpath,
 
   /* Allocate memory for the open file */
 
-  hf = kmm_malloc(sizeof *hf);
+  hf = fs_heap_malloc(sizeof *hf);
   if (hf == NULL)
     {
       ret = -ENOMEM;
@@ -321,7 +326,7 @@ static int rpmsgfs_open(FAR struct file *filep, FAR const char *relpath,
     {
       /* Error opening file */
 
-      ret = -EBADF;
+      ret = hf->fd;
       goto errout_with_buffer;
     }
 
@@ -361,7 +366,7 @@ static int rpmsgfs_open(FAR struct file *filep, FAR const char *relpath,
   goto errout_with_lock;
 
 errout_with_buffer:
-  kmm_free(hf);
+  fs_heap_free(hf);
 
 errout_with_lock:
   nxmutex_unlock(&fs->fs_lock);
@@ -455,7 +460,7 @@ static int rpmsgfs_close(FAR struct file *filep)
   /* Now free the pointer */
 
   filep->f_priv = NULL;
-  kmm_free(hf);
+  fs_heap_free(hf);
 
 okout:
   nxmutex_unlock(&fs->fs_lock);
@@ -872,7 +877,7 @@ static int rpmsgfs_opendir(FAR struct inode *mountpt,
   /* Recover our private data from the inode instance */
 
   fs = mountpt->i_private;
-  rdir = kmm_zalloc(sizeof(struct rpmsgfs_dir_s));
+  rdir = fs_heap_zalloc(sizeof(struct rpmsgfs_dir_s));
   if (rdir == NULL)
     {
       return -ENOMEM;
@@ -907,7 +912,7 @@ errout_with_lock:
   nxmutex_unlock(&fs->fs_lock);
 
 errout_with_rdir:
-  kmm_free(rdir);
+  fs_heap_free(rdir);
   return ret;
 }
 
@@ -947,7 +952,7 @@ static int rpmsgfs_closedir(FAR struct inode *mountpt,
   rpmsgfs_client_closedir(fs->handle, rdir->dir);
 
   nxmutex_unlock(&fs->fs_lock);
-  kmm_free(rdir);
+  fs_heap_free(rdir);
   return OK;
 }
 
@@ -1062,7 +1067,7 @@ static int rpmsgfs_bind(FAR struct inode *blkdriver, FAR const void *data,
   /* Create an instance of the mountpt state structure */
 
   fs = (FAR struct rpmsgfs_mountpt_s *)
-    kmm_zalloc(sizeof(struct rpmsgfs_mountpt_s));
+    fs_heap_zalloc(sizeof(struct rpmsgfs_mountpt_s));
 
   if (fs == NULL)
     {
@@ -1074,10 +1079,10 @@ static int rpmsgfs_bind(FAR struct inode *blkdriver, FAR const void *data,
    *  "timeout=xx", connect timeout, unit (ms)
    */
 
-  options = strdup(data);
+  options = fs_heap_strdup(data);
   if (!options)
     {
-      kmm_free(fs);
+      fs_heap_free(fs);
       return -ENOMEM;
     }
 
@@ -1105,10 +1110,10 @@ static int rpmsgfs_bind(FAR struct inode *blkdriver, FAR const void *data,
     }
 
   ret = rpmsgfs_client_bind(&fs->handle, cpuname);
-  lib_free(options);
+  fs_heap_free(options);
   if (ret < 0)
     {
-      kmm_free(fs);
+      fs_heap_free(fs);
       return ret;
     }
 
@@ -1192,7 +1197,7 @@ static int rpmsgfs_unbind(FAR void *handle, FAR struct inode **blkdriver,
     }
 
   nxmutex_destroy(&fs->fs_lock);
-  kmm_free(fs);
+  fs_heap_free(fs);
   return 0;
 }
 

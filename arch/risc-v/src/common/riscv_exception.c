@@ -103,11 +103,8 @@ int riscv_exception(int mcause, void *regs, void *args)
 #ifdef CONFIG_ARCH_KERNEL_STACK
   if ((tcb->flags & TCB_FLAG_TTYPE_MASK) != TCB_FLAG_TTYPE_KERNEL)
     {
-#  if CONFIG_TASK_NAME_SIZE > 0
-      _alert("Segmentation fault in PID %d: %s\n", tcb->pid, tcb->name);
-#  else
-      _alert("Segmentation fault in PID %d\n", tcb->pid);
-#  endif
+      _alert("Segmentation fault in PID %d: %s\n",
+             tcb->pid, get_task_name(tcb));
 
       tcb->flags |= TCB_FLAG_FORCED_CANCEL;
 
@@ -301,7 +298,7 @@ void riscv_exception_attach(void)
   irq_attach(RISCV_IRQ_RESERVED14, riscv_exception, NULL);
 
 #ifdef CONFIG_SMP
-  irq_attach(RISCV_IRQ_SOFT, riscv_pause_handler, NULL);
+  irq_attach(RISCV_IRQ_SOFT, riscv_smp_call_handler, NULL);
 #else
   irq_attach(RISCV_IRQ_SOFT, riscv_exception, NULL);
 #endif

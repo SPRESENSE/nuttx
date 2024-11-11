@@ -1,6 +1,8 @@
 /****************************************************************************
  * drivers/misc/rpmsgblk_server.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -29,7 +31,7 @@
 #include <nuttx/kmalloc.h>
 #include <nuttx/mmcsd.h>
 #include <nuttx/fs/fs.h>
-#include <nuttx/rptun/openamp.h>
+#include <nuttx/rpmsg/rpmsg.h>
 
 #include "inode.h"
 #include "rpmsgblk.h"
@@ -82,7 +84,6 @@ static bool rpmsgblk_ns_match(FAR struct rpmsg_device *rdev,
 static void rpmsgblk_ns_bind(FAR struct rpmsg_device *rdev,
                              FAR void *priv, FAR const char *name,
                              uint32_t dest);
-static void rpmsgblk_ns_unbind(FAR struct rpmsg_endpoint *ept);
 static int  rpmsgblk_ept_cb(FAR struct rpmsg_endpoint *ept,
                             FAR void *data, size_t len, uint32_t src,
                             FAR void *priv);
@@ -224,8 +225,12 @@ static int rpmsgblk_read_handler(FAR struct rpmsg_endpoint *ept,
                                (FAR unsigned char *)rsp->buf,
                                msg->startsector, nsectors);
       rsp->header.result = ret;
-      rpmsg_send_nocopy(ept, rsp, (ret < 0 ? 0 : ret * msg->sectorsize) +
-                        sizeof(*rsp) - 1);
+      if (rpmsg_send_nocopy(ept, rsp, (ret < 0 ? 0 : ret * msg->sectorsize) +
+                                      sizeof(*rsp) - 1) < 0)
+        {
+          rpmsg_release_tx_buffer(ept, rsp);
+        }
+
       if (ret <= 0)
         {
           ferr("mtd block read failed\n");
@@ -327,6 +332,7 @@ static int rpmsgblk_mmc_cmd_handler(FAR struct rpmsg_endpoint *ept,
   size_t rsplen;
   size_t arglen;
   uint32_t space;
+  int ret;
 
   arglen = sizeof(struct mmc_ioc_cmd);
   if (!ioc->write_flag)
@@ -358,8 +364,13 @@ static int rpmsgblk_mmc_cmd_handler(FAR struct rpmsg_endpoint *ept,
 
   rsp->header.result = server->bops->ioctl(server->blknode, rsp->request,
                                            (unsigned long)rsp->buf);
+  ret = rpmsg_send_nocopy(ept, rsp, rsplen);
+  if (ret < 0)
+    {
+      rpmsg_release_tx_buffer(ept, rsp);
+    }
 
-  return rpmsg_send_nocopy(ept, rsp, rsplen);
+  return ret;
 }
 
 /****************************************************************************
@@ -380,6 +391,7 @@ static int rpmsgblk_mmc_multi_cmd_handler(FAR struct rpmsg_endpoint *ept,
   size_t rsp_off;
   uint32_t space;
   uint64_t i;
+  int ret;
 
   arglen = sizeof(struct mmc_ioc_multi_cmd) +
            mioc->num_of_cmds * sizeof(struct mmc_ioc_cmd);
@@ -427,8 +439,13 @@ static int rpmsgblk_mmc_multi_cmd_handler(FAR struct rpmsg_endpoint *ept,
 
   rsp->header.result = server->bops->ioctl(server->blknode, rsp->request,
                                            (unsigned long)rsp->buf);
+  ret = rpmsg_send_nocopy(ept, rsp, rsplen);
+  if (ret < 0)
+    {
+      rpmsg_release_tx_buffer(ept, rsp);
+    }
 
-  return rpmsg_send_nocopy(ept, rsp, rsplen);
+  return ret;
 }
 
 /****************************************************************************
@@ -482,6 +499,18 @@ static bool rpmsgblk_ns_match(FAR struct rpmsg_device *rdev,
 }
 
 /****************************************************************************
+ * Name: rpmsgblk_ept_release
+ ****************************************************************************/
+
+static void rpmsgblk_ept_release(FAR struct rpmsg_endpoint *ept)
+{
+  FAR struct rpmsgblk_server_s *server = ept->priv;
+
+  inode_release(server->blknode);
+  kmm_free(server);
+}
+
+/****************************************************************************
  * Name: rpmsgblk_ns_bind
  ****************************************************************************/
 
@@ -510,30 +539,18 @@ static void rpmsgblk_ns_bind(FAR struct rpmsg_device *rdev,
     }
 
   server->ept.priv = server;
+  server->ept.release_cb = rpmsgblk_ept_release;
   server->bops = server->blknode->u.i_bops;
 
   ret = rpmsg_create_ept(&server->ept, rdev, name,
                          RPMSG_ADDR_ANY, dest,
-                         rpmsgblk_ept_cb, rpmsgblk_ns_unbind);
+                         rpmsgblk_ept_cb, rpmsg_destroy_ept);
   if (ret < 0)
     {
       ferr("endpoint create failed, ret=%d\n", ret);
       inode_release(server->blknode);
       kmm_free(server);
     }
-}
-
-/****************************************************************************
- * Name: rpmsgblk_ns_unbind
- ****************************************************************************/
-
-static void rpmsgblk_ns_unbind(FAR struct rpmsg_endpoint *ept)
-{
-  FAR struct rpmsgblk_server_s *server = ept->priv;
-
-  rpmsg_destroy_ept(&server->ept);
-  inode_release(server->blknode);
-  kmm_free(server);
 }
 
 /****************************************************************************

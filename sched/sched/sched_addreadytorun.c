@@ -100,6 +100,7 @@ bool nxsched_add_readytorun(FAR struct tcb_s *btcb)
 
       btcb->task_state = TSTATE_TASK_RUNNING;
       btcb->flink->task_state = TSTATE_TASK_READYTORUN;
+      up_update_task(btcb);
       ret = true;
     }
   else
@@ -194,7 +195,7 @@ bool nxsched_add_readytorun(FAR struct tcb_s *btcb)
    * situation.
    */
 
-  if (nxsched_islocked_global())
+  if (nxsched_islocked_tcb(this_task()))
     {
       /* Add the new ready-to-run task to the g_pendingtasks task list for
        * now.
@@ -233,7 +234,7 @@ bool nxsched_add_readytorun(FAR struct tcb_s *btcb)
               g_delivertasks[cpu] = btcb;
               btcb->cpu = cpu;
               btcb->task_state = TSTATE_TASK_ASSIGNED;
-              up_cpu_pause_async(cpu);
+              up_send_smp_sched(cpu);
             }
           else
             {
@@ -261,7 +262,7 @@ bool nxsched_add_readytorun(FAR struct tcb_s *btcb)
       /* Change "head" from TSTATE_TASK_RUNNING to TSTATE_TASK_ASSIGNED */
 
       headtcb = (FAR struct tcb_s *)tasklist->head;
-      DEBUGASSERT(headtcb->task_state = TSTATE_TASK_RUNNING);
+      DEBUGASSERT(headtcb->task_state == TSTATE_TASK_RUNNING);
       headtcb->task_state = TSTATE_TASK_ASSIGNED;
 
       /* Add btcb to the head of the g_assignedtasks
@@ -269,20 +270,13 @@ bool nxsched_add_readytorun(FAR struct tcb_s *btcb)
        */
 
       dq_addfirst_nonempty((FAR dq_entry_t *)btcb, tasklist);
+      up_update_task(btcb);
 
       DEBUGASSERT(task_state == TSTATE_TASK_RUNNING);
       btcb->cpu        = cpu;
       btcb->task_state = TSTATE_TASK_RUNNING;
 
       doswitch = true;
-
-      /* Resume scheduling lock */
-
-      DEBUGASSERT(g_cpu_lockset == 0);
-      if (btcb->lockcount > 0)
-        {
-          g_cpu_lockset |= (1 << cpu);
-        }
     }
 
   return doswitch;

@@ -1692,7 +1692,7 @@ void renesas_serialinit(void)
  *
  ****************************************************************************/
 
-int up_putc(int ch)
+void up_putc(int ch)
 {
 #ifdef HAVE_CONSOLE
   struct up_dev_s *priv;
@@ -1700,22 +1700,11 @@ int up_putc(int ch)
   priv = (struct up_dev_s *)CONSOLE_DEV.priv;
   up_disablesciint(priv, &scr);
 
-  /* Check for LF */
-
-  if (ch == '\n')
-    {
-      /* Add CR */
-
-      up_waittxready(priv);
-      up_serialout(priv, RX_SCI_TDR_OFFSET, '\r');
-    }
-
   up_waittxready(priv);
   up_serialout(priv, RX_SCI_TDR_OFFSET, (uint8_t)ch);
   up_waittxready(priv);
   up_restoresciint(priv, scr);
 #endif
-  return ch;
 }
 #else /* USE_SERIALDRIVER */
 
@@ -1727,22 +1716,11 @@ int up_putc(int ch)
  *
  ****************************************************************************/
 
-int up_putc(int ch)
+void up_putc(int ch)
 {
 #ifdef HAVE_CONSOLE
-
-  /* Check for LF */
-
-  if (ch == '\n')
-    {
-      /* Add CR */
-
-      renesas_lowputc('\r');
-    }
-
   renesas_lowputc(ch);
 #endif
-  return ch;
 }
 
 #endif /* USE_SERIALDRIVER */

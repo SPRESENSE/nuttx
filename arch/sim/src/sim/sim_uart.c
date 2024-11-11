@@ -279,6 +279,29 @@ static struct uart_dev_s g_tty3_dev =
 
 #if defined(USE_DEVCONSOLE) || CONFIG_SIM_UART_NUMBER > 0
 /****************************************************************************
+ * Name: uart_nputs
+ *
+ * Description:
+ *   Loop to write data to the UART until all the data is sent
+ *
+ ****************************************************************************/
+
+static void uart_nputs(int fd, const char *buf, size_t size)
+{
+  while (size > 0)
+    {
+      int ret = host_uart_puts(fd, buf, size);
+      if (ret < 0)
+        {
+          continue;
+        }
+
+      buf += ret;
+      size -= ret;
+    }
+}
+
+/****************************************************************************
  * Name: tty_setup
  *
  * Description:
@@ -617,7 +640,7 @@ static void tty_send(struct uart_dev_s *dev, int ch)
   struct tty_priv_s *priv = dev->priv;
   char c = ch;
 
-  host_uart_puts(dev->isconsole ? 1 : priv->fd, &c, 1);
+  uart_nputs(dev->isconsole ? 1 : priv->fd, &c, 1);
 }
 
 /****************************************************************************
@@ -755,15 +778,7 @@ void sim_uartinit(void)
 void up_nputs(const char *str, size_t len)
 {
 #ifdef USE_DEVCONSOLE
-  if (str[len - 1] == '\n')
-    {
-      host_uart_puts(1, str, len - 1);
-      host_uart_puts(1, "\r\n", 2);
-    }
-  else
-    {
-      host_uart_puts(1, str, len);
-    }
+  uart_nputs(1, str, len);
 #endif
 }
 
@@ -771,11 +786,10 @@ void up_nputs(const char *str, size_t len)
  * Name: up_putc
  ****************************************************************************/
 
-int up_putc(int ch)
+void up_putc(int ch)
 {
 #ifdef USE_DEVCONSOLE
   char c = ch;
   up_nputs(&c, 1);
 #endif
-  return 0;
 }

@@ -60,7 +60,6 @@ int pthread_cond_wait(FAR pthread_cond_t *cond, FAR pthread_mutex_t *mutex)
 {
   int status;
   int ret;
-  irqstate_t flags;
 
   sinfo("cond=%p mutex=%p\n", cond, mutex);
 
@@ -89,24 +88,16 @@ int pthread_cond_wait(FAR pthread_cond_t *cond, FAR pthread_mutex_t *mutex)
 
       sinfo("Give up mutex / take cond\n");
 
-      flags = enter_critical_section();
-      sched_lock();
+      cond->lock_count--;
       ret = pthread_mutex_breaklock(mutex, &nlocks);
 
-      /* Take the semaphore.  This may be awakened only be a signal (EINTR)
-       * or if the thread is canceled (ECANCELED)
-       */
-
-      status = pthread_sem_take(&cond->sem, NULL);
+      status = -nxsem_wait_uninterruptible(&cond->sem);
       if (ret == OK)
         {
           /* Report the first failure that occurs */
 
           ret = status;
         }
-
-      sched_unlock();
-      leave_critical_section(flags);
 
       /* Reacquire the mutex.
        *

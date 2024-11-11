@@ -1,6 +1,8 @@
 # ##############################################################################
 # libs/libc/pthread/CMakeLists.txt
 #
+# SPDX-License-Identifier: Apache-2.0
+#
 # Licensed to the Apache Software Foundation (ASF) under one or more contributor
 # license agreements.  See the NOTICE file distributed with this work for
 # additional information regarding copyright ownership.  The ASF licenses this
@@ -47,6 +49,8 @@ if(NOT CONFIG_DISABLE_PTHREAD)
     pthread_attr_getstack.c
     pthread_attr_setschedparam.c
     pthread_attr_getschedparam.c
+    pthread_attr_setscope.c
+    pthread_attr_getscope.c
     pthread_barrierattr_init.c
     pthread_barrierattr_destroy.c
     pthread_barrierattr_getpshared.c

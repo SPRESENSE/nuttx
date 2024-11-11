@@ -1,6 +1,8 @@
 # ##############################################################################
 # fs/romfs/CMakeLists.txt
 #
+# SPDX-License-Identifier: Apache-2.0
+#
 # Licensed to the Apache Software Foundation (ASF) under one or more contributor
 # license agreements.  See the NOTICE file distributed with this work for
 # additional information regarding copyright ownership.  The ASF licenses this
@@ -23,8 +25,8 @@ if(CONFIG_FS_ROMFS)
   target_sources(fs PRIVATE fs_romfs.c fs_romfsutil.c)
 
   if(CONFIG_TRACE_ROMFS_FS)
-    set_source_files_properties(fs_romfs.c PROPERTIES COMPILE_FLAGS
-                                                      -finstrument-functions)
+    set_source_files_properties(fs_romfs.c DIRECTORY ..
+                                PROPERTIES COMPILE_FLAGS -finstrument-functions)
   endif()
 
 endif()

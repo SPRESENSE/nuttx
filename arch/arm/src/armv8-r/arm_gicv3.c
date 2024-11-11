@@ -148,7 +148,13 @@ static inline void arm_gic_write_irouter(uint64_t val, unsigned int intid)
 {
   unsigned long addr = IROUTER(GET_DIST_BASE(intid), intid);
 
-  putreg64(val, addr);
+  /* Use two putreg32 instead of one putreg64, because when the neon option
+   * is enabled, the compiler may optimize putreg64 to the neon vstr
+   * instruction, which will cause a data abort.
+   */
+
+  putreg32((uint32_t)val, addr);
+  putreg32((uint32_t)(val >> 32) , addr + 4);
 }
 
 void arm_gic_irq_set_priority(unsigned int intid, unsigned int prio,
@@ -567,11 +573,8 @@ static void gicv3_dist_init(void)
 #ifdef CONFIG_SMP
   /* Attach SGI interrupt handlers. This attaches the handler to all CPUs. */
 
-  DEBUGVERIFY(irq_attach(GIC_SMP_CPUPAUSE, arm64_pause_handler, NULL));
-  DEBUGVERIFY(irq_attach(GIC_SMP_CPUPAUSE_ASYNC,
-                         arm64_pause_async_handler, NULL));
-  DEBUGVERIFY(irq_attach(GIC_SMP_CPUCALL,
-                         nxsched_smp_call_handler, NULL));
+  DEBUGVERIFY(irq_attach(GIC_SMP_SCHED, arm64_smp_sched_handler, NULL));
+  DEBUGVERIFY(irq_attach(GIC_SMP_CALL, nxsched_smp_call_handler, NULL));
 #endif
 }
 
@@ -776,7 +779,13 @@ static int gic_validate_redist_version(void)
       return -ENODEV;
     }
 
-  typer           = getreg64(redist_base + GICR_TYPER);
+  /* In AArch32, use 32bits accesses GICR_TYPER, in case that nuttx
+   * run as vm, and hypervisor doesn't emulation strd.
+   * Just like linux and zephyr.
+   */
+
+  typer           = getreg32(redist_base + GICR_TYPER);
+  typer          |= (uint64_t)getreg32(redist_base + GICR_TYPER + 4) << 32;
   has_vlpis      &= !!(typer & GICR_TYPER_VLPIS);
   has_direct_lpi &= !!(typer & GICR_TYPER_DIRECTLPIS);
   ppi_nr          = MIN(GICR_TYPER_NR_PPIS(typer), ppi_nr);
@@ -815,8 +824,8 @@ static void arm_gic_init(void)
   gicv3_cpuif_init();
 
 #ifdef CONFIG_SMP
-  up_enable_irq(GIC_SMP_CPUPAUSE);
-  up_enable_irq(GIC_SMP_CPUPAUSE_ASYNC);
+  up_enable_irq(GIC_SMP_CALL);
+  up_enable_irq(GIC_SMP_SCHED);
 #endif
 }
 
@@ -844,24 +853,4 @@ void arm_gic_secondary_init(void)
   arm_gic_init();
 }
 
-#  ifdef CONFIG_SMP
-/***************************************************************************
- * Name: up_send_smp_call
- *
- * Description:
- *   Send smp call to target cpu.
- *
- * Input Parameters:
- *   cpuset - The set of CPUs to receive the SGI.
- *
- * Returned Value:
- *   None.
- *
- ***************************************************************************/
-
-void up_send_smp_call(cpu_set_t cpuset)
-{
-  up_trigger_irq(GIC_SMP_CPUCALL, cpuset);
-}
-#  endif
 #endif

@@ -1,6 +1,8 @@
 # ##############################################################################
 # libs/libm/libm/CMakeLists.txt
 #
+# SPDX-License-Identifier: Apache-2.0
+#
 # Licensed to the Apache Software Foundation (ASF) under one or more contributor
 # license agreements.  See the NOTICE file distributed with this work for
 # additional information regarding copyright ownership.  The ASF licenses this
@@ -33,6 +35,10 @@ if(CONFIG_LIBM)
       lib_coshf.c
       lib_expf.c
       lib_fmodf.c
+      lib_fmax.c
+      lib_fmin.c
+      lib_fminf.c
+      lib_fmaxf.c
       lib_frexpf.c
       lib_ldexpf.c
       lib_logf.c

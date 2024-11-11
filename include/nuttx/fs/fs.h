@@ -1,6 +1,8 @@
 /****************************************************************************
  * include/nuttx/fs/fs.h
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -26,9 +28,14 @@
  ****************************************************************************/
 
 #include <nuttx/config.h>
-#include <nuttx/compiler.h>
 
+#include <nuttx/compiler.h>
+#include <nuttx/fs/ioctl.h>
+#include <nuttx/fs/uio.h>
+
+#include <sys/uio.h>
 #include <sys/types.h>
+
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -107,33 +114,35 @@
  *   Bit 4:   Set if inode has been unlinked and is pending removal.
  */
 
-#define FSNODEFLAG_TYPE_MASK        0x0000000f /* Isolates type field      */
-#define   FSNODEFLAG_TYPE_PSEUDODIR 0x00000000 /*   Pseudo dir (default)   */
-#define   FSNODEFLAG_TYPE_DRIVER    0x00000001 /*   Character driver       */
-#define   FSNODEFLAG_TYPE_BLOCK     0x00000002 /*   Block driver           */
-#define   FSNODEFLAG_TYPE_MOUNTPT   0x00000003 /*   Mount point            */
-#define   FSNODEFLAG_TYPE_NAMEDSEM  0x00000004 /*   Named semaphore        */
-#define   FSNODEFLAG_TYPE_MQUEUE    0x00000005 /*   Message Queue          */
-#define   FSNODEFLAG_TYPE_SHM       0x00000006 /*   Shared memory region   */
-#define   FSNODEFLAG_TYPE_MTD       0x00000007 /*   Named MTD driver       */
-#define   FSNODEFLAG_TYPE_SOFTLINK  0x00000008 /*   Soft link              */
-#define   FSNODEFLAG_TYPE_SOCKET    0x00000009 /*   Socket                 */
-#define   FSNODEFLAG_TYPE_PIPE      0x0000000a /*   Pipe                   */
+#define FSNODEFLAG_TYPE_MASK         0x0000000f /* Isolates type field      */
+#define   FSNODEFLAG_TYPE_PSEUDODIR  0x00000000 /*   Pseudo dir (default)   */
+#define   FSNODEFLAG_TYPE_DRIVER     0x00000001 /*   Character driver       */
+#define   FSNODEFLAG_TYPE_BLOCK      0x00000002 /*   Block driver           */
+#define   FSNODEFLAG_TYPE_MOUNTPT    0x00000003 /*   Mount point            */
+#define   FSNODEFLAG_TYPE_NAMEDSEM   0x00000004 /*   Named semaphore        */
+#define   FSNODEFLAG_TYPE_MQUEUE     0x00000005 /*   Message Queue          */
+#define   FSNODEFLAG_TYPE_SHM        0x00000006 /*   Shared memory region   */
+#define   FSNODEFLAG_TYPE_MTD        0x00000007 /*   Named MTD driver       */
+#define   FSNODEFLAG_TYPE_SOFTLINK   0x00000008 /*   Soft link              */
+#define   FSNODEFLAG_TYPE_SOCKET     0x00000009 /*   Socket                 */
+#define   FSNODEFLAG_TYPE_PIPE       0x0000000a /*   Pipe                   */
+#define   FSNODEFLAG_TYPE_NAMEDEVENT 0x0000000b /*   Named event group      */
 
 #define INODE_IS_TYPE(i,t) \
   (((i)->i_flags & FSNODEFLAG_TYPE_MASK) == (t))
 
-#define INODE_IS_PSEUDODIR(i) INODE_IS_TYPE(i,FSNODEFLAG_TYPE_PSEUDODIR)
-#define INODE_IS_DRIVER(i)    INODE_IS_TYPE(i,FSNODEFLAG_TYPE_DRIVER)
-#define INODE_IS_BLOCK(i)     INODE_IS_TYPE(i,FSNODEFLAG_TYPE_BLOCK)
-#define INODE_IS_MOUNTPT(i)   INODE_IS_TYPE(i,FSNODEFLAG_TYPE_MOUNTPT)
-#define INODE_IS_NAMEDSEM(i)  INODE_IS_TYPE(i,FSNODEFLAG_TYPE_NAMEDSEM)
-#define INODE_IS_MQUEUE(i)    INODE_IS_TYPE(i,FSNODEFLAG_TYPE_MQUEUE)
-#define INODE_IS_SHM(i)       INODE_IS_TYPE(i,FSNODEFLAG_TYPE_SHM)
-#define INODE_IS_MTD(i)       INODE_IS_TYPE(i,FSNODEFLAG_TYPE_MTD)
-#define INODE_IS_SOFTLINK(i)  INODE_IS_TYPE(i,FSNODEFLAG_TYPE_SOFTLINK)
-#define INODE_IS_SOCKET(i)    INODE_IS_TYPE(i,FSNODEFLAG_TYPE_SOCKET)
-#define INODE_IS_PIPE(i)      INODE_IS_TYPE(i,FSNODEFLAG_TYPE_PIPE)
+#define INODE_IS_PSEUDODIR(i)  INODE_IS_TYPE(i,FSNODEFLAG_TYPE_PSEUDODIR)
+#define INODE_IS_DRIVER(i)     INODE_IS_TYPE(i,FSNODEFLAG_TYPE_DRIVER)
+#define INODE_IS_BLOCK(i)      INODE_IS_TYPE(i,FSNODEFLAG_TYPE_BLOCK)
+#define INODE_IS_MOUNTPT(i)    INODE_IS_TYPE(i,FSNODEFLAG_TYPE_MOUNTPT)
+#define INODE_IS_NAMEDSEM(i)   INODE_IS_TYPE(i,FSNODEFLAG_TYPE_NAMEDSEM)
+#define INODE_IS_MQUEUE(i)     INODE_IS_TYPE(i,FSNODEFLAG_TYPE_MQUEUE)
+#define INODE_IS_SHM(i)        INODE_IS_TYPE(i,FSNODEFLAG_TYPE_SHM)
+#define INODE_IS_MTD(i)        INODE_IS_TYPE(i,FSNODEFLAG_TYPE_MTD)
+#define INODE_IS_SOFTLINK(i)   INODE_IS_TYPE(i,FSNODEFLAG_TYPE_SOFTLINK)
+#define INODE_IS_SOCKET(i)     INODE_IS_TYPE(i,FSNODEFLAG_TYPE_SOCKET)
+#define INODE_IS_PIPE(i)       INODE_IS_TYPE(i,FSNODEFLAG_TYPE_PIPE)
+#define INODE_IS_NAMEDEVENT(i) INODE_IS_TYPE(i,FSNODEFLAG_TYPE_NAMEDEVENT)
 
 #define INODE_GET_TYPE(i)     ((i)->i_flags & FSNODEFLAG_TYPE_MASK)
 #define INODE_SET_TYPE(i,t) \
@@ -143,16 +152,17 @@
     } \
   while (0)
 
-#define INODE_SET_DRIVER(i)   INODE_SET_TYPE(i,FSNODEFLAG_TYPE_DRIVER)
-#define INODE_SET_BLOCK(i)    INODE_SET_TYPE(i,FSNODEFLAG_TYPE_BLOCK)
-#define INODE_SET_MOUNTPT(i)  INODE_SET_TYPE(i,FSNODEFLAG_TYPE_MOUNTPT)
-#define INODE_SET_NAMEDSEM(i) INODE_SET_TYPE(i,FSNODEFLAG_TYPE_NAMEDSEM)
-#define INODE_SET_MQUEUE(i)   INODE_SET_TYPE(i,FSNODEFLAG_TYPE_MQUEUE)
-#define INODE_SET_SHM(i)      INODE_SET_TYPE(i,FSNODEFLAG_TYPE_SHM)
-#define INODE_SET_MTD(i)      INODE_SET_TYPE(i,FSNODEFLAG_TYPE_MTD)
-#define INODE_SET_SOFTLINK(i) INODE_SET_TYPE(i,FSNODEFLAG_TYPE_SOFTLINK)
-#define INODE_SET_SOCKET(i)   INODE_SET_TYPE(i,FSNODEFLAG_TYPE_SOCKET)
-#define INODE_SET_PIPE(i)     INODE_SET_TYPE(i,FSNODEFLAG_TYPE_PIPE)
+#define INODE_SET_DRIVER(i)     INODE_SET_TYPE(i,FSNODEFLAG_TYPE_DRIVER)
+#define INODE_SET_BLOCK(i)      INODE_SET_TYPE(i,FSNODEFLAG_TYPE_BLOCK)
+#define INODE_SET_MOUNTPT(i)    INODE_SET_TYPE(i,FSNODEFLAG_TYPE_MOUNTPT)
+#define INODE_SET_NAMEDSEM(i)   INODE_SET_TYPE(i,FSNODEFLAG_TYPE_NAMEDSEM)
+#define INODE_SET_MQUEUE(i)     INODE_SET_TYPE(i,FSNODEFLAG_TYPE_MQUEUE)
+#define INODE_SET_SHM(i)        INODE_SET_TYPE(i,FSNODEFLAG_TYPE_SHM)
+#define INODE_SET_MTD(i)        INODE_SET_TYPE(i,FSNODEFLAG_TYPE_MTD)
+#define INODE_SET_SOFTLINK(i)   INODE_SET_TYPE(i,FSNODEFLAG_TYPE_SOFTLINK)
+#define INODE_SET_SOCKET(i)     INODE_SET_TYPE(i,FSNODEFLAG_TYPE_SOCKET)
+#define INODE_SET_PIPE(i)       INODE_SET_TYPE(i,FSNODEFLAG_TYPE_PIPE)
+#define INODE_SET_NAMEDEVENT(i) INODE_SET_TYPE(i,FSNODEFLAG_TYPE_NAMEDEVENT)
 
 /* The status change flags.
  * These should be or-ed together to figure out what want to change.
@@ -178,6 +188,7 @@ struct statfs;
 struct pollfd;
 struct mtd_dev_s;
 struct tcb_s;
+struct uio;
 
 /* The internal representation of type DIR is just a container for an inode
  * reference, and the path of directory.
@@ -228,6 +239,8 @@ struct file_operations
 
   CODE int     (*poll)(FAR struct file *filep, FAR struct pollfd *fds,
                        bool setup);
+  CODE ssize_t (*readv)(FAR struct file *filep, FAR const struct uio *uio);
+  CODE ssize_t (*writev)(FAR struct file *filep, FAR const struct uio *uio);
 
   /* The two structures need not be common after this point */
 
@@ -239,33 +252,6 @@ struct file_operations
 /* This structure provides information about the state of a block driver */
 
 #ifndef CONFIG_DISABLE_MOUNTPOINT
-struct geometry
-{
-  bool      geo_available;    /* true: The device is available */
-  bool      geo_mediachanged; /* true: The media has changed since last query */
-  bool      geo_writeenabled; /* true: It is okay to write to this device */
-  blkcnt_t  geo_nsectors;     /* Number of sectors on the device */
-  blksize_t geo_sectorsize;   /* Size of one sector */
-
-  /* NULL-terminated string representing the device model */
-
-  char      geo_model[NAME_MAX + 1];
-};
-
-struct partition_info_s
-{
-  size_t    numsectors;   /* Number of sectors in the partition */
-  size_t    sectorsize;   /* Size in bytes of a single sector */
-  off_t     startsector;  /* Offset to the first section/block of the
-                           * managed sub-region */
-
-  /* NULL-terminated string representing the name of the parent node of the
-   * partition.
-   */
-
-  char      parent[NAME_MAX + 1];
-};
-
 /* This structure is provided by block devices when they register with the
  * system.  It is used by file systems to perform filesystem transfers.  It
  * differs from the normal driver vtable in several ways -- most notably in
@@ -324,6 +310,9 @@ struct mountpt_operations
   CODE int     (*truncate)(FAR struct file *filep, off_t length);
   CODE int     (*poll)(FAR struct file *filep, FAR struct pollfd *fds,
                        bool setup);
+  CODE ssize_t (*readv)(FAR struct file *filep, FAR const struct uio *uio);
+  CODE ssize_t (*writev)(FAR struct file *filep, FAR const struct uio *uio);
+
   /* The two structures need not be common after this point. The following
    * are extended methods needed to deal with the unique needs of mounted
    * file systems.
@@ -398,6 +387,9 @@ union inode_ops_u
 #endif
 #ifdef CONFIG_FS_NAMED_SEMAPHORES
   FAR struct nsem_inode_s              *i_nsem;   /* Named semaphore */
+#endif
+#ifdef CONFIG_FS_NAMED_EVENTS
+  FAR struct nevent_inode_s            *i_nevent; /* Named event */
 #endif
 #ifdef CONFIG_PSEUDOFS_SOFTLINKS
   FAR char                             *i_link;   /* Full path to link target */
@@ -662,6 +654,34 @@ int register_blockdriver(FAR const char *path,
 #endif
 
 /****************************************************************************
+ * Name: register_merge_blockdriver
+ *
+ * Description:
+ *   This function registers a block driver that presents a contiguous block
+ * device composed of multiple, non-contiguous partitions.  The partitions
+ * are specified by the variable argument list which has 'nparts' elements.
+ *
+ * Input Parameters:
+ *   merge - The partition name to be merged.
+ *   ...   - The variable argument list for partition names.
+ *
+ *  Usage example for merging the factory partition and reserve partition
+ *  into the merge partition:
+ *
+ * register_merge_blockdriver("/dev/merge", "/dev/factory",
+ *                            "/dev/reserve", NULL);
+ *
+ * Returned Value:
+ *   Zero on success;
+ *   Negated errno value is returned on a failure
+ *
+ ****************************************************************************/
+
+#ifndef CONFIG_DISABLE_MOUNTPOINT
+int register_merge_blockdriver(FAR const char *merge, ...);
+#endif
+
+/****************************************************************************
  * Name: register_blockpartition
  *
  * Description:
@@ -878,7 +898,7 @@ void files_initlist(FAR struct filelist *list);
  *
  ****************************************************************************/
 
-#ifdef CONFIG_DUMP_ON_EXIT
+#ifdef CONFIG_SCHED_DUMP_ON_EXIT
 void files_dumplist(FAR struct filelist *list);
 #else
 #  define files_dumplist(l)
@@ -1408,6 +1428,7 @@ int close_mtddriver(FAR struct inode *pinode);
  ****************************************************************************/
 
 ssize_t file_read(FAR struct file *filep, FAR void *buf, size_t nbytes);
+ssize_t file_readv(FAR struct file *filep, FAR const struct uio *uio);
 
 /****************************************************************************
  * Name: nx_read
@@ -1431,6 +1452,7 @@ ssize_t file_read(FAR struct file *filep, FAR void *buf, size_t nbytes);
  ****************************************************************************/
 
 ssize_t nx_read(int fd, FAR void *buf, size_t nbytes);
+ssize_t nx_readv(int fd, FAR const struct iovec *iov, int iovcnt);
 
 /****************************************************************************
  * Name: file_write
@@ -1460,6 +1482,7 @@ ssize_t nx_read(int fd, FAR void *buf, size_t nbytes);
 
 ssize_t file_write(FAR struct file *filep, FAR const void *buf,
                    size_t nbytes);
+ssize_t file_writev(FAR struct file *filep, FAR const struct uio *uio);
 
 /****************************************************************************
  * Name: nx_write
@@ -1487,6 +1510,7 @@ ssize_t file_write(FAR struct file *filep, FAR const void *buf,
  ****************************************************************************/
 
 ssize_t nx_write(int fd, FAR const void *buf, size_t nbytes);
+ssize_t nx_writev(int fd, FAR const struct iovec *iov, int iovcnt);
 
 /****************************************************************************
  * Name: file_pread

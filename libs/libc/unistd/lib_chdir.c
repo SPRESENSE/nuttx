@@ -1,6 +1,8 @@
 /****************************************************************************
  * libs/libc/unistd/lib_chdir.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -107,7 +109,6 @@ int chdir(FAR const char *path)
    * support 'cd -' in NSH)
    */
 
-  sched_lock();
   oldpwd = getenv("PWD");
   if (!oldpwd)
     {
@@ -120,7 +121,6 @@ int chdir(FAR const char *path)
 
   ret = setenv("PWD", abspath, TRUE);
   lib_free(abspath);
-  sched_unlock();
 
   return ret;
 }

@@ -77,12 +77,16 @@ void riscv_cpu_boot(int cpu)
 
   /* Wait interrupt */
 
-  asm("WFI");
+  do
+    {
+      asm("WFI");
+    }
+  while (!(READ_CSR(CSR_IP) & IP_SIP));
 
 #ifdef CONFIG_RISCV_PERCPU_SCRATCH
   /* Initialize the per CPU areas */
 
-  riscv_percpu_add_hart((uintptr_t)cpu);
+  riscv_percpu_add_hart(riscv_cpuid_to_hartid(cpu));
 #endif
 
 #ifdef CONFIG_BUILD_KERNEL

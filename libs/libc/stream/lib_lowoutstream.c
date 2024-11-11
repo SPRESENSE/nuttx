@@ -1,6 +1,8 @@
 /****************************************************************************
  * libs/libc/stream/lib_lowoutstream.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -65,7 +67,9 @@ static void lowoutstream_putc(FAR struct lib_outstream_s *self, int ch)
 {
   DEBUGASSERT(self);
 
-  if (up_putc(ch) != EOF)
+  up_putc(ch);
+
+  if (ch != EOF)
     {
       self->nput++;
     }

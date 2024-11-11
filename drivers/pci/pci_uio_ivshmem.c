@@ -1,6 +1,8 @@
 /****************************************************************************
  * drivers/pci/pci_uio_ivshmem.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -120,7 +122,9 @@ static const struct file_operations g_uio_ivshmem_fops =
   NULL,              /* ioctl */
   uio_ivshmem_mmap,  /* mmap */
   NULL,              /* truncate */
-  uio_ivshmem_poll   /* poll */
+  uio_ivshmem_poll,  /* poll */
+  NULL,              /* readv */
+  NULL               /* writev */
 #ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
   , NULL             /* unlink */
 #endif
@@ -483,13 +487,8 @@ static int uio_ivshmem_probe(FAR struct ivshmem_device_s *dev)
   if (ret < 0)
     {
       pcierr("ERROR: Ivshmem register_driver failed, ret=%d\n", ret);
-      goto err;
     }
 
-  return ret;
-
-err:
-  ivshmem_unregister_driver(&udev->drv);
   return ret;
 }
 
@@ -503,7 +502,6 @@ static void uio_ivshmem_remove(FAR struct ivshmem_device_s *dev)
 
   unregister_driver(udev->name);
   ivshmem_detach_irq(dev);
-  kmm_free(udev);
 }
 
 /****************************************************************************

@@ -1,6 +1,8 @@
 /****************************************************************************
  * include/semaphore.h
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -48,6 +50,10 @@
 /* Value returned by sem_open() in the event of a failure. */
 
 #define SEM_FAILED                NULL
+
+#ifndef CONFIG_SEM_PREALLOCHOLDERS
+#  define CONFIG_SEM_PREALLOCHOLDERS 0
+#endif
 
 /****************************************************************************
  * Public Type Declarations

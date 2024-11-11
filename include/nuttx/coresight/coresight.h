@@ -1,6 +1,8 @@
 /****************************************************************************
  * include/nuttx/coresight/coresight.h
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -149,6 +151,7 @@ struct coresight_desc_s
 
   uint32_t buffer_size;
   uint32_t burst_size;
+  uint32_t caps;
 
   /* Description of outports of current device. */
 

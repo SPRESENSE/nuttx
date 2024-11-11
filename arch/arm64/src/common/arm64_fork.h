@@ -66,7 +66,7 @@
 #define FORK_REG_SP          (31) /* Stack pointer*/
 
 #ifdef CONFIG_ARCH_FPU
-#define FORK_REGS_SIZE       (32 + XCPTCONTEXT_FPU_REGS)
+#define FORK_REGS_SIZE       (32 + FPU_CONTEXT_REGS)
 #else
 #define FORK_REGS_SIZE       (32)
 #endif
@@ -80,7 +80,7 @@ struct fork_s
   uint64_t lr;
   uint64_t sp;
 #ifdef CONFIG_ARCH_FPU
-  struct fpu_reg fpu;
+  uint64_t fpu[FPU_CONTEXT_REGS];
 #endif
 };
 

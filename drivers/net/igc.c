@@ -1,6 +1,8 @@
 /*****************************************************************************
  * drivers/net/igc.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -28,6 +30,7 @@
 #include <debug.h>
 #include <errno.h>
 
+#include <nuttx/arch.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/wqueue.h>
 #include <nuttx/addrenv.h>
@@ -212,12 +215,28 @@ static const struct igc_type_s g_igc_i225lm =
 };
 #endif
 
+#ifdef CONFIG_NET_IGC_I226V
+/* Intel I226V */
+
+static const struct igc_type_s g_igc_i226v =
+{
+  .desc_align = 128,
+  .mta_regs   = 128
+};
+#endif
+
 static const struct pci_device_id_s g_igc_id_table[] =
 {
 #ifdef CONFIG_NET_IGC_I225LM
   {
     PCI_DEVICE(0x8086, 0x15f2),
     .driver_data = (uintptr_t)&g_igc_i225lm
+  },
+#endif
+#ifdef CONFIG_NET_IGC_I226V
+  {
+    PCI_DEVICE(0x8086, 0x125c),
+    .driver_data = (uintptr_t)&g_igc_i226v
   },
 #endif
   { }

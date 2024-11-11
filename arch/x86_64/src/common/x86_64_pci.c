@@ -60,9 +60,9 @@
  * Private Functions Definitions
  ****************************************************************************/
 
-static int x86_64_pci_write(struct pci_bus_s *bus, unsigned int devfn,
+static int x86_64_pci_write(struct pci_bus_s *bus, uint32_t devfn,
                             int where, int size, uint32_t val);
-static int x86_64_pci_read(struct pci_bus_s *bus, unsigned int devfn,
+static int x86_64_pci_read(struct pci_bus_s *bus, uint32_t devfn,
                            int where, int size, uint32_t *val);
 static uintptr_t x86_64_pci_map(struct pci_bus_s *bus, uintptr_t start,
                                 uintptr_t end);
@@ -74,7 +74,7 @@ static int x86_64_pci_write_io(struct pci_bus_s *bus, uintptr_t addr,
 static int x86_64_pci_get_irq(struct pci_bus_s *bus, uint32_t devfn,
                               uint8_t line, uint8_t pin);
 
-static int x86_64_pci_alloc_irq(struct pci_bus_s *bus,
+static int x86_64_pci_alloc_irq(struct pci_bus_s *bus, uint32_t devfn,
                                 int *irq, int num);
 static void x86_64_pci_release_irq(struct pci_bus_s *bus,
                                    int *irq, int num);
@@ -127,7 +127,7 @@ static struct pci_controller_s g_x86_64_pci =
  *
  ****************************************************************************/
 
-static int x86_64_pci_write(struct pci_bus_s *bus, unsigned int devfn,
+static int x86_64_pci_write(struct pci_bus_s *bus, uint32_t devfn,
                             int where, int size, uint32_t val)
 {
   uint8_t offset_mask = (4 - size);
@@ -173,7 +173,7 @@ static int x86_64_pci_write(struct pci_bus_s *bus, unsigned int devfn,
  *
  ****************************************************************************/
 
-static int x86_64_pci_read(struct pci_bus_s *bus, unsigned int devfn,
+static int x86_64_pci_read(struct pci_bus_s *bus, uint32_t devfn,
                            int where, int size, uint32_t *val)
 {
   uint8_t offset_mask = 4 - size;
@@ -344,6 +344,7 @@ static int x86_64_pci_get_irq(struct pci_bus_s *bus, uint32_t devfn,
  *   bus - Bus that PCI device resides
  *   irq - allocated vectors array
  *   num - number of vectors to allocate
+ *   devfn - The pci device and function number
  *
  * Returned Value:
  *   >0: success, return number of allocated vectors,
@@ -351,27 +352,10 @@ static int x86_64_pci_get_irq(struct pci_bus_s *bus, uint32_t devfn,
  *
  ****************************************************************************/
 
-static int x86_64_pci_alloc_irq(struct pci_bus_s *bus, int *irq, int num)
+static int x86_64_pci_alloc_irq(struct pci_bus_s *bus, uint32_t devfn,
+                                int *irq, int num)
 {
-  int tmp = 0;
-  int i   = 0;
-
-  /* Try to get irq */
-
-  tmp = up_alloc_irq_msi(&num);
-  if (tmp < 0)
-    {
-      return tmp;
-    }
-
-  /* Copy allocated interrupts */
-
-  for (i = 0; i < num; i++)
-    {
-      irq[i] = tmp++;
-    }
-
-  return num;
+  return up_alloc_irq_msi(bus->ctrl->busno, devfn, irq, num);
 }
 
 /****************************************************************************

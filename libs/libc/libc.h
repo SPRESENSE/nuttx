@@ -1,6 +1,8 @@
 /****************************************************************************
  * libs/libc/libc.h
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -151,6 +153,12 @@
 #if ((!defined(CONFIG_LIBC_PREVENT_STRRCHR_USER) && !defined(__KERNEL__))  || \
      (!defined(CONFIG_LIBC_PREVENT_STRRCHR_KERNEL) && defined(__KERNEL__)))
 #  define LIBC_BUILD_STRRCHR
+#endif
+
+#ifdef CONFIG_MM_KASAN
+#  define ARCH_LIBCFUN(x)  arch_##x
+#else
+#  define ARCH_LIBCFUN(x)  x
 #endif
 
 /****************************************************************************

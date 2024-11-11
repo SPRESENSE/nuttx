@@ -22,13 +22,15 @@
  * Included Files
  ****************************************************************************/
 
+#include <nuttx/arch.h>
 #include <nuttx/irq.h>
 #include <nuttx/kmalloc.h>
 
 #include <arch/barriers.h>
 
-#include "riscv_mtimer.h"
 #include "riscv_internal.h"
+#include "riscv_mtimer.h"
+#include "riscv_sbi.h"
 
 /****************************************************************************
  * Private Types

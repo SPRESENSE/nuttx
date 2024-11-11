@@ -724,15 +724,10 @@ static void esp_thread_semphr_free(void *semphr)
 
 static void esp_update_time(struct timespec *timespec, uint32_t ticks)
 {
-  uint32_t tmp;
+  struct timespec ts;
 
-  tmp = TICK2SEC(ticks);
-  timespec->tv_sec += tmp;
-
-  ticks -= SEC2TICK(tmp);
-  tmp = TICK2NSEC(ticks);
-
-  timespec->tv_nsec += tmp;
+  clock_ticks2time(&ts, ticks);
+  clock_timespec_add(timespec, &ts, timespec);
 }
 
 /****************************************************************************
@@ -5889,7 +5884,15 @@ int esp_wifi_sta_country(struct iwreq *iwr, bool set)
     }
   else
     {
-      return -ENOSYS;
+      memset(&country, 0x00, sizeof(wifi_country_t));
+      ret = esp_wifi_get_country(&country);
+      if (ret)
+        {
+          wlerr("Failed to get country info ret=%d\n", ret);
+          return wifi_errno_trans(ret);
+        }
+
+      memcpy(iwr->u.data.pointer, country.cc, 2);
     }
 
   return OK;

@@ -1049,21 +1049,11 @@ void arm64_earlyserialinit(void)
  *
  ****************************************************************************/
 
-int up_putc(int ch)
+void up_putc(int ch)
 {
   struct uart_dev_s *dev = &CONSOLE_DEV;
 
-  /* Check for LF */
-
-  if (ch == '\n')
-    {
-      /* Add CR */
-
-      imx8_send(dev, '\r');
-    }
-
   imx8_send(dev, (uint8_t)ch);
-  return ch;
 }
 
 /****************************************************************************

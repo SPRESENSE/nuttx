@@ -1,6 +1,8 @@
 /****************************************************************************
  * libs/libc/misc/lib_mutex.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -56,6 +58,35 @@ static bool nxmutex_is_reset(FAR mutex_t *mutex)
 {
   return mutex->holder == NXMUTEX_RESET;
 }
+
+/****************************************************************************
+ * Name: nxmutex_add_backtrace
+ *
+ * Description:
+ *   This function add the backtrace of the holder of the mutex.
+ *
+ * Parameters:
+ *   mutex - mutex descriptor.
+ *
+ * Return Value:
+ *
+ ****************************************************************************/
+
+#if CONFIG_LIBC_MUTEX_BACKTRACE > 0
+static void nxmutex_add_backtrace(FAR mutex_t *mutex)
+{
+  int n;
+
+  n = sched_backtrace(mutex->holder, mutex->backtrace,
+                      CONFIG_LIBC_MUTEX_BACKTRACE, 0);
+  if (n < CONFIG_LIBC_MUTEX_BACKTRACE)
+    {
+      mutex->backtrace[n] = NULL;
+    }
+}
+#else
+#  define nxmutex_add_backtrace(mutex)
+#endif
 
 /****************************************************************************
  * Public Functions
@@ -223,6 +254,7 @@ int nxmutex_lock(FAR mutex_t *mutex)
       if (ret >= 0)
         {
           mutex->holder = _SCHED_GETTID();
+          nxmutex_add_backtrace(mutex);
           break;
         }
       else if (ret != -EINTR && ret != -ECANCELED)
@@ -266,6 +298,8 @@ int nxmutex_trylock(FAR mutex_t *mutex)
     }
 
   mutex->holder = _SCHED_GETTID();
+  nxmutex_add_backtrace(mutex);
+
   return ret;
 }
 
@@ -317,6 +351,7 @@ int nxmutex_clocklock(FAR mutex_t *mutex, clockid_t clockid,
   if (ret >= 0)
     {
       mutex->holder = _SCHED_GETTID();
+      nxmutex_add_backtrace(mutex);
     }
 
   return ret;

@@ -254,10 +254,12 @@ void arm64_gic_irq_enable(unsigned int intid)
    * SPI's affinity, now set it to be the PE on which it is enabled.
    */
 
+#ifndef CONFIG_ARM64_GICV3_SPI_ROUTING_CPU0
   if (GIC_IS_SPI(intid))
     {
-      arm64_gic_write_irouter((GET_MPIDR() & MPIDR_ID_MASK), intid);
+      arm64_gic_write_irouter(up_cpu_index(), intid);
     }
+#endif
 
   putreg32(mask, ISENABLER(GET_DIST_BASE(intid), idx));
 }
@@ -376,9 +378,7 @@ static int arm64_gic_send_sgi(unsigned int sgi_id, uint64_t target_aff,
   uint32_t aff1;
   uint64_t sgi_val;
   uint32_t regval;
-  unsigned long base;
 
-  base = gic_get_rdist() + GICR_SGI_BASE_OFF;
   ASSERT(GIC_IS_SGI(sgi_id));
 
   /* Extract affinity fields from target */
@@ -392,7 +392,9 @@ static int arm64_gic_send_sgi(unsigned int sgi_id, uint64_t target_aff,
 
   ARM64_DSB();
 
-  regval = getreg32(IGROUPR(base, 0));
+  /* Read the IGROUPR0 value we set in `gicv3_cpuif_init` */
+
+  regval = IGROUPR_SGI_VAL;
 
   if (regval & BIT(sgi_id))
     {
@@ -607,8 +609,27 @@ static void gicv3_dist_init(void)
        intid += GIC_NUM_CFG_PER_REG)
     {
       idx = intid / GIC_NUM_CFG_PER_REG;
+#ifdef CONFIG_ARM64_GICV3_SPI_EDGE
+      /* Configure all SPIs as edge-triggered by default */
+
+      putreg32(0xaaaaaaaa, ICFGR(base, idx));
+#else
+      /* Configure all SPIs as level-sensitive by default */
+
       putreg32(0, ICFGR(base, idx));
+#endif
     }
+
+  /* Configure SPI interrupt affinity routing to CPU0 */
+
+#ifdef CONFIG_ARM64_GICV3_SPI_ROUTING_CPU0
+  uint64_t mpid = arm64_get_mpid(0);
+
+  for (intid = GIC_SPI_INT_BASE; intid < num_ints; intid++)
+    {
+      putreg64(mpid, IROUTER(base, intid));
+    }
+#endif
 
   /* TODO: Some arrch64 Cortex-A core maybe without security state
    * it has different GIC configure with standard arrch64 A or R core
@@ -649,11 +670,8 @@ static void gicv3_dist_init(void)
 #ifdef CONFIG_SMP
   /* Attach SGI interrupt handlers. This attaches the handler to all CPUs. */
 
-  DEBUGVERIFY(irq_attach(GIC_SMP_CPUPAUSE, arm64_pause_handler, NULL));
-  DEBUGVERIFY(irq_attach(GIC_SMP_CPUPAUSE_ASYNC,
-                         arm64_pause_async_handler, NULL));
-  DEBUGVERIFY(irq_attach(GIC_SMP_CPUCALL,
-                         nxsched_smp_call_handler, NULL));
+  DEBUGVERIFY(irq_attach(GIC_SMP_SCHED, arm64_smp_sched_handler, NULL));
+  DEBUGVERIFY(irq_attach(GIC_SMP_CALL, nxsched_smp_call_handler, NULL));
 #endif
 }
 
@@ -949,9 +967,8 @@ static void arm64_gic_init(void)
   gicv3_cpuif_init();
 
 #ifdef CONFIG_SMP
-  up_enable_irq(GIC_SMP_CPUPAUSE);
-  up_enable_irq(GIC_SMP_CPUPAUSE_ASYNC);
-  up_enable_irq(GIC_SMP_CPUCALL);
+  up_enable_irq(GIC_SMP_SCHED);
+  up_enable_irq(GIC_SMP_CALL);
 #endif
 }
 
@@ -978,27 +995,6 @@ void arm64_gic_secondary_init(void)
 {
   arm64_gic_init();
 }
-
-#  ifdef CONFIG_SMP
-/***************************************************************************
- * Name: up_send_smp_call
- *
- * Description:
- *   Send smp call to target cpu.
- *
- * Input Parameters:
- *   cpuset - The set of CPUs to receive the SGI.
- *
- * Returned Value:
- *   None.
- *
- ***************************************************************************/
-
-void up_send_smp_call(cpu_set_t cpuset)
-{
-  up_trigger_irq(GIC_SMP_CPUCALL, cpuset);
-}
-#  endif
 #endif
 
 /***************************************************************************

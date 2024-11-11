@@ -149,7 +149,7 @@ __reset_entry:
 	mov     %eax, %cr0
 
 	/* Long jump into protected mode. Hardcode the address. */
-	ljmpl   $0x8, $0x100000
+	ljmpl   $0x8, $start32_0
 
 	/* Loader GDT and GDTR */
 	.align(16)
@@ -187,7 +187,7 @@ __ap_entry:
 	mov     %eax, %cr0
 
 	/* Long jump into protected mode. Hardcode the address. */
-	ljmpl   $0x8, $0x100000
+	ljmpl   $0x8, $start32_0
 #endif
 
 /****************************************************************************
@@ -195,6 +195,34 @@ __ap_entry:
  ****************************************************************************/
 
 	.code32
+#ifdef CONFIG_ARCH_MULTIBOOT1
+	.section ".multiboot1", "a"
+.set MB_FLAG_ALIGNED,   1       /* All boot modules must be loaded aligned */
+.set MB_FLAG_MEMINFO,   2       /* Boot with memory maps passing  */
+.set MB_FLAG_VIDEO,     4       /* Enable video mode  */
+
+.set MB_FLAGS,          MB_FLAG_ALIGNED | MB_FLAG_MEMINFO
+.set MB_MAGIC,          0x1BADB002
+.set MB_CHECKSUM,       -(MB_MAGIC + MB_FLAGS)
+
+multiboot1_header:
+	.align 4
+	.long               MB_MAGIC
+	.long               MB_FLAGS
+	.long               MB_CHECKSUM
+
+	.long               0       /* header_addr  */
+	.long               0       /* load_addr */
+	.long               0       /* load_end_addr */
+	.long               0       /* bss_end_addr */
+	.long               0       /* entry_addr */
+
+	.long               0       /* Video mode type */
+	.long               1024    /* Video width */
+	.long               768     /* Video height */
+	.long               32      /* Video depth */
+#endif
+
 	.section ".loader.text", "ax"
 
 start32_0:
@@ -364,8 +392,19 @@ ap_start:
 	add     %rax, %rbx
 	mov     (%rbx),   %rsp
 
+	/* Move initial RSP below IDLE TCB regs */
+	sub     $XCPTCONTEXT_SIZE, %rsp
+	and     $(~XCPTCONTEXT_SIZE), %rsp
+
 	/* Jump to ap_start routine */
 	movabs  $x86_64_ap_boot,   %rbx
+
+	/* We need to simulate the behavior of the call instruction, which by
+	 * default pushes 8 bytes of the RIP. Otherwise, the function's stack
+	 * won't be 16-byte aligned.
+	 */
+
+	pushq   $0
 	jmp     *%rbx
 #endif
 

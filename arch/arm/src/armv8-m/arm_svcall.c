@@ -24,6 +24,7 @@
 
 #include <nuttx/config.h>
 
+#include <inttypes.h>
 #include <stdint.h>
 #include <string.h>
 #include <assert.h>
@@ -128,7 +129,6 @@ int arm_svcall(int irq, void *context, void *arg)
   uint32_t *regs = (uint32_t *)context;
   uint32_t cmd;
 
-  DEBUGASSERT(regs && regs == up_current_regs());
   cmd = regs[REG_R0];
 
   /* The SVCall software interrupt is called with R0 = system call command
@@ -398,7 +398,6 @@ int arm_svcall(int irq, void *context, void *arg)
           /* Return privileged mode */
 
           regs[REG_CONTROL]    = getcontrol() & ~CONTROL_NPRIV;
-
           rtcb->xcp.sigreturn  = 0;
         }
         break;
@@ -447,7 +446,7 @@ int arm_svcall(int irq, void *context, void *arg)
 
           rtcb->flags         |= TCB_FLAG_SYSCALL;
 #else
-          svcerr("ERROR: Bad SYS call: %d\n", (int)regs[REG_R0]);
+          svcerr("ERROR: Bad SYS call: %" PRId32 "\n", regs[REG_R0]);
 #endif
         }
         break;
@@ -457,13 +456,11 @@ int arm_svcall(int irq, void *context, void *arg)
    * switch.
    */
 
-#ifdef CONFIG_DEBUG_SYSCALL_INFO
-#  ifndef CONFIG_DEBUG_SVCALL
-  if (cmd > SYS_switch_context)
-#  else
   if (regs != tcb->xcp.regs)
-#  endif
     {
+      restore_critical_section(tcb, this_cpu());
+
+#ifdef CONFIG_DEBUG_SYSCALL_INFO
       regs = (uint32_t *)tcb->xcp.regs;
 
       svcinfo("SVCall Return:\n");
@@ -475,19 +472,14 @@ int arm_svcall(int irq, void *context, void *arg)
               regs[REG_R12], regs[REG_R13], regs[REG_R14], regs[REG_R15]);
       svcinfo(" PSR: %08x EXC_RETURN: %08x CONTROL: %08x\n",
               regs[REG_XPSR], regs[REG_EXC_RETURN], regs[REG_CONTROL]);
+#endif
     }
-#  ifdef CONFIG_DEBUG_SVCALL
+#ifdef CONFIG_DEBUG_SYSCALL_INFO
   else
     {
       svcinfo("SVCall Return: %d\n", regs[REG_R0]);
     }
-#  endif
 #endif
-
-  if (regs != tcb->xcp.regs)
-    {
-      restore_critical_section(this_task(), this_cpu());
-    }
 
   return OK;
 }

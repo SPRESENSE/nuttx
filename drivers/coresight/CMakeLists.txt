@@ -1,6 +1,8 @@
 # ##############################################################################
 # drivers/coresight/CMakeLists.txt
 #
+# SPDX-License-Identifier: Apache-2.0
+#
 # Licensed to the Apache Software Foundation (ASF) under one or more contributor
 # license agreements.  See the NOTICE file distributed with this work for
 # additional information regarding copyright ownership.  The ASF licenses this
@@ -27,6 +29,10 @@ if(CONFIG_CORESIGHT)
 
   if(CONFIG_CORESIGHT_ETM_VERSION STREQUAL "v3")
     list(APPEND SRCS coresight_etm3.c)
+  endif()
+
+  if(CONFIG_CORESIGHT_ETM_VERSION STREQUAL "v4")
+    list(APPEND SRCS coresight_etm4.c)
   endif()
 
   if(CONFIG_CORESIGHT_FUNNEL)

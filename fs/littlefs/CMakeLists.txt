@@ -1,6 +1,8 @@
 # ##############################################################################
 # fs/littlefs/CMakeLists.txt
 #
+# SPDX-License-Identifier: Apache-2.0
+#
 # Licensed to the Apache Software Foundation (ASF) under one or more contributor
 # license agreements.  See the NOTICE file distributed with this work for
 # additional information regarding copyright ownership.  The ASF licenses this
@@ -31,8 +33,10 @@ if(CONFIG_FS_LITTLEFS)
           ${CMAKE_BINARY_DIR}/fs/littlefs/littlefs
       PATCH_COMMAND
         patch -p2 -d ${CMAKE_CURRENT_LIST_DIR} <
-        ${CMAKE_CURRENT_LIST_DIR}/lfs_util.patch COMMAND patch -p2 -d
-        ${CMAKE_CURRENT_LIST_DIR} < ${CMAKE_CURRENT_LIST_DIR}/lfs_getpath.patch)
+        ${CMAKE_CURRENT_LIST_DIR}/lfs_util.patch && patch -p2 -d
+        ${CMAKE_CURRENT_LIST_DIR} < ${CMAKE_CURRENT_LIST_DIR}/lfs_getpath.patch
+        && patch -p2 -d ${CMAKE_CURRENT_LIST_DIR} <
+        ${CMAKE_CURRENT_LIST_DIR}/lfs_getsetattr.patch)
     FetchContent_MakeAvailable(littlefs)
   endif()
 
@@ -54,7 +58,7 @@ if(CONFIG_FS_LITTLEFS)
   target_include_directories(fs PRIVATE ${CMAKE_CURRENT_LIST_DIR})
 
   if(CONFIG_TRACE_LITTLEFS_FS)
-    set_source_files_properties(lfs_vfs.c PROPERTIES COMPILE_FLAGS
-                                                     -finstrument-functions)
+    set_source_files_properties(lfs_vfs.c DIRECTORY ..
+                                PROPERTIES COMPILE_FLAGS -finstrument-functions)
   endif()
 endif()

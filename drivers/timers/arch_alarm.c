@@ -1,6 +1,8 @@
 /****************************************************************************
  * drivers/timers/arch_alarm.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -49,22 +51,6 @@ static clock_t g_current_tick;
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
-
-static void udelay_accurate(useconds_t microseconds)
-{
-  struct timespec now;
-  struct timespec end;
-  struct timespec delta;
-
-  ONESHOT_CURRENT(g_oneshot_lower, &now);
-  clock_nsec2time(&delta, (uint64_t)microseconds * NSEC_PER_USEC);
-  clock_timespec_add(&now, &delta, &end);
-
-  while (clock_timespec_compare(&now, &end) < 0)
-    {
-      ONESHOT_CURRENT(g_oneshot_lower, &now);
-    }
-}
 
 static void udelay_coarse(useconds_t microseconds)
 {
@@ -116,26 +102,34 @@ static void udelay_coarse(useconds_t microseconds)
 static void oneshot_callback(FAR struct oneshot_lowerhalf_s *lower,
                              FAR void *arg)
 {
-  clock_t now = 0;
+  clock_t now;
+  ONESHOT_TICK_CURRENT(g_oneshot_lower, &now);
 
 #ifdef CONFIG_SCHED_TICKLESS
-  ONESHOT_TICK_CURRENT(g_oneshot_lower, &now);
   nxsched_alarm_tick_expiration(now);
 #else
-  clock_t delta;
+  /* Start the next tick first, in order to minimize latency. Ideally
+   * the ONESHOT_TICK_START would also return the current tick so that
+   * the retriving the current tick and starting the new one could be done
+   * atomically w. respect to a HW timer
+   */
 
-  do
+  ONESHOT_TICK_START(g_oneshot_lower, oneshot_callback, NULL, 1);
+
+  /* It is always an error if this progresses more than 1 tick at a time.
+   * That would break any timer based on wdog; such timers might timeout
+   * early. Add a DEBUGASSERT here to catch those errors. It is not added
+   * here by default, since it would break debugging. These errors
+   * would occur due to HW timers possibly running while CPU is being halted.
+   */
+
+  /* DEBUGASSERT(now - g_current_tick <= 1); */
+
+  while (now - g_current_tick > 0)
     {
-      clock_t next;
-
+      g_current_tick++;
       nxsched_process_timer();
-      next = ++g_current_tick;
-      ONESHOT_TICK_CURRENT(g_oneshot_lower, &now);
-      delta = next - now;
     }
-  while ((sclock_t)delta <= 0);
-
-  ONESHOT_TICK_START(g_oneshot_lower, oneshot_callback, NULL, delta);
 #endif
 }
 
@@ -367,9 +361,9 @@ void up_perf_init(FAR void *arg)
   UNUSED(arg);
 }
 
-unsigned long up_perf_gettime(void)
+clock_t up_perf_gettime(void)
 {
-  unsigned long ret = 0;
+  clock_t ret = 0;
 
   if (g_oneshot_lower != NULL)
     {
@@ -387,7 +381,7 @@ unsigned long up_perf_getfreq(void)
   return NSEC_PER_SEC;
 }
 
-void up_perf_convert(unsigned long elapsed, FAR struct timespec *ts)
+void up_perf_convert(clock_t elapsed, FAR struct timespec *ts)
 {
   clock_nsec2time(ts, elapsed);
 }
@@ -419,12 +413,20 @@ void weak_function up_mdelay(unsigned int milliseconds)
 
 void weak_function up_udelay(useconds_t microseconds)
 {
-  if (g_oneshot_lower != NULL)
-    {
-      udelay_accurate(microseconds);
-    }
-  else /* Oneshot timer hasn't been initialized yet */
-    {
-      udelay_coarse(microseconds);
-    }
+  up_ndelay(NSEC_PER_USEC * microseconds);
+}
+
+/****************************************************************************
+ * Name: up_ndelay
+ *
+ * Description:
+ *   Delay inline for the requested number of nanoseconds.
+ *
+ *   *** NOT multi-tasking friendly ***
+ *
+ ****************************************************************************/
+
+void weak_function up_ndelay(unsigned long nanoseconds)
+{
+  udelay_coarse((nanoseconds + NSEC_PER_USEC - 1) / NSEC_PER_USEC);
 }

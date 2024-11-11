@@ -346,6 +346,11 @@ config IRQ_NWORKS
 	---help---
 		The max num of active irq wqueue.
 
+config IRQ_WORK_SECTION
+	string "The section where irq stack is located"
+	---help---
+		The section where irq stack is located.
+
 config IRQ_WORK_STACKSIZE
 	int "The default stack size for isr wqueue"
 	default DEFAULT_TASK_STACKSIZE
@@ -1027,7 +1032,6 @@ config SCHED_CPULOAD_NONE
 
 config SCHED_CPULOAD_SYSCLK
 	bool "Use system clock"
-	depends on !SCHED_TICKLESS
 	---help---
 		If this option is enabled, the system clock is used for cpu load
 		measurement by default.
@@ -1077,18 +1081,17 @@ config SCHED_CPULOAD_CRITMONITOR
 
 endchoice
 
-if SCHED_CPULOAD_EXTCLK
-
 config SCHED_CPULOAD_TICKSPERSEC
-	int "External clock rate"
+	int "CPU load sampling clock frequency(HZ)"
 	default 100
 	---help---
-		If an external clock is used to drive the sampling for the CPU load
-		calculations, then this value must be provided.  This value provides
-		the rate of the external clock interrupts in units of ticks per
-		second.  The default value of 100 corresponds to a 100Hz clock.  NOTE:
+		CPU load sampling clock frequency, in HZ. Use sysclk clock source,
+		use wdt, EXTCLK clock source, use an external timer.
+		The default value of 100 corresponds to a 100Hz clock.  NOTE:
 		that 100Hz is the default frequency of the system time and, hence,
 		the worst possible choice in most cases.
+
+if SCHED_CPULOAD_EXTCLK
 
 choice
 	prompt "Select CPU load timer"
@@ -1161,6 +1164,13 @@ config SCHED_CPULOAD_TIMECONSTANT
 		The accumulated CPU count is divided by two when the accumulated
 		tick count exceeds this time constant.  This time constant is in
 		units of seconds.
+
+config SCHED_PROFILE_TICKSPERSEC
+	int "Profile sampling rate"
+	default 1000
+	---help---
+		This is the frequency at which the profil functon will sample the
+		running program. The default is 1000Hz.
 
 menuconfig SCHED_INSTRUMENTATION
 	bool "System performance monitor hooks"
@@ -1284,18 +1294,31 @@ config SCHED_INSTRUMENTATION_IRQHANDLER
 
 			void sched_note_irqhandler(int irq, FAR void *handler, bool enter);
 
+config SCHED_INSTRUMENTATION_HEAP
+	bool "Heap monitor hooks"
+	default n
+	---help---
+		Enables additional hooks for heap allocation.
+
+			void sched_note_heap(uint8_t event, FAR void* heap, FAR void *mem, size_t size, size_t curused);
+
+config SCHED_INSTRUMENTATION_WDOG
+	bool "Watchdog timer monitor hooks"
+	default n
+	---help---
+		Enables additional hooks for watchdog timer.
+
+			void sched_note_wdog(uint8_t event, FAR void *handler, FAR const void *arg);
+
 config SCHED_INSTRUMENTATION_DUMP
 	bool "Use note dump for instrumentation"
 	default n
 	---help---
 		Use note dump for instrumentation.
 
-			void sched_note_string(FAR const char *buf);
-			void sched_note_dump(uint32_t module, uint8_t event, FAR const void *buf, size_t len);
-			void sched_note_vprintf(FAR const char *fmt, va_list va);
-			void sched_note_vbprintf(uint32_t module, uint8_t event, FAR const char *fmt, va_list va);
-			void sched_note_printf(FAR const char *fmt, ...) printf_like(1, 2);
-			void sched_note_bprintf(uint32_t module, uint8_t event, FAR const char *fmt, ...);
+			void sched_note_event_ip(uint32_t tag, uintptr_t ip, uint8_t event, FAR const void *buf, size_t len);
+			void sched_note_vprintf_ip(uint32_t tag, uintptr_t ip, FAR const char *fmt, uint32_t type, va_list va) printf_like(3, 0);
+			void sched_note_printf_ip(uint32_t tag, uintptr_t ip, FAR const char *fmt, uint32_t type, ...) printf_like(3, 5);
 
 config SCHED_INSTRUMENTATION_FUNCTION
 	bool "Enable function auto-tracing"
@@ -1324,6 +1347,47 @@ config SCHED_STACK_RECORD
 		TCB.  Useful if scheduler instrumentation is selected.  Set to zero
 		to disable.Through instrumentation, record the backtrace at
 		the deepest point in the stack.
+
+config SCHED_GCOV
+	bool "Enable GCOV support"
+	select HAVE_CXXINITIALIZE
+	default n
+	---help---
+		Enable GCOV support for code coverage analysis.
+		After turning on this option, code coverage can be analyzed.
+		If this option is enabled, image size and performance will be
+		significantly reduced. Before use, you need to add the
+		"-fprofile-generate -ftest-coverage" compilation parameters
+		to the file to be analyzed.
+
+config SCHED_GCOV_ALL
+	bool "Enable gcov call graph for all modules"
+	depends on SCHED_GCOV
+	default n
+	---help---
+		Enable gcov profiling for all code, it will instrument
+		all code, which will cause a large performance penalty for the code.
+
+config SCHED_GPROF
+	bool "Enable gprof profiling"
+	default n
+	---help---
+		Enable gprof profiling support.  This will cause the compiler to
+		generate additional code to support profiling.  This will also
+		cause the linker to include the gmon.out file in the final
+		executable.
+		Add the "-pg" parameter to the Makefile when compiling to obtain
+		the function call graph of the specified module.
+
+config SCHED_GPROF_ALL
+	bool "Enable gprof call graph for all modules"
+	depends on SCHED_GPROF
+	default n
+	---help---
+		Enable gprof profiling for all code, it will instrument
+		all code, which will cause a large performance penalty for the code.
+		You can add the '-pg' parameter to the specified module in the
+		makefile to only analyze the content of the module.
 
 endmenu
 
@@ -1732,7 +1796,6 @@ config MODULE
 	bool "Enable loadable OS modules"
 	default n
 	select LIBC_MODLIB
-	select ARCH_USE_TEXT_HEAP if ARCH_HAVE_TEXT_HEAP
 	---help---
 		Enable support for loadable OS modules.  Default: n
 
@@ -1988,3 +2051,23 @@ config SCHED_EVENTS
 		This option enables event objects. Threads may wait on event
 		objects for specific events, but both threads and ISRs may deliver
 		events to event objects.
+
+config ASSERT_PAUSE_CPU_TIMEOUT
+	int "Timeout in milisecond to pause another CPU when assert"
+	default 2000
+	depends on SMP
+	---help---
+		Timeout in milisecond to pause another CPU when assert. Only available
+		when SMP is enabled.
+		Enable to support perf events.
+
+config COREDUMP
+	bool "Coredump support"
+	depends on ARCH_HAVE_TCBINFO
+	default n
+	---help---
+		Generate ELF core dump to provide information about the CPU state and the
+		memory state of program.
+		The memory state embeds a snapshot of all segments mapped in the
+		memory space of the program. The CPU state contains register values
+		when the core dump has been generated.

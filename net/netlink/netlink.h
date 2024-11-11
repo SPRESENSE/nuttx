@@ -110,10 +110,10 @@
  * remaining: number of bytes remaining in attribute stream
  */
 
-#define nla_ok(nla, remaining)        \
-  ((remaining) >= sizeof(*(nla)) &&   \
-  (nla)->nla_len >= sizeof(*(nla)) && \
-  (nla)->nla_len <= (remaining))
+#define nla_ok(nla, remaining)         \
+  ((remaining) >= sizeof(*(nla)) &&    \
+   (nla)->nla_len >= sizeof(*(nla)) && \
+   (nla)->nla_len <= (remaining))
 
 /* nlmsg_msg_size - length of netlink message not including padding
  * payload: length of message payload
@@ -385,7 +385,7 @@ int netlink_notifier_setup(worker_t worker, FAR struct netlink_conn_s *conn,
  *
  ****************************************************************************/
 
-void netlink_notifier_teardown(FAR struct netlink_conn_s *conn);
+void netlink_notifier_teardown(FAR void *conn);
 
 /****************************************************************************
  * Name: netlink_notifier_signal

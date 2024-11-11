@@ -1,6 +1,8 @@
 /****************************************************************************
  * include/nuttx/streams.h
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -28,14 +30,14 @@
 #include <nuttx/compiler.h>
 
 #ifdef CONFIG_LIBC_LZF
-#include <lzf.h>
+#  include <lzf.h>
 #endif
 #include <stdio.h>
 #ifndef CONFIG_DISABLE_MOUNTPOINT
-#include <nuttx/fs/fs.h>
-#ifdef CONFIG_MTD
-#include <nuttx/mtd/mtd.h>
-#endif
+#  include <nuttx/fs/fs.h>
+#  ifdef CONFIG_MTD
+#    include <nuttx/mtd/mtd.h>
+#  endif
 #endif
 
 /****************************************************************************
@@ -210,7 +212,7 @@ struct lib_rawoutstream_s
 struct lib_fileoutstream_s
 {
   struct lib_outstream_s common;
-  struct file            *file;
+  FAR struct file       *file;
 };
 
 struct lib_rawsistream_s
@@ -239,6 +241,16 @@ struct lib_hexdumpstream_s
   FAR struct lib_outstream_s *backend;
   int                         pending;
   char                        buffer[CONFIG_STREAM_HEXDUMP_BUFFER_SIZE + 1];
+};
+
+struct lib_base64outstream_s
+{
+  struct lib_outstream_s      common;
+  FAR struct lib_outstream_s *backend;
+  int                         pending;
+  unsigned char               bytes[3];
+  int                         nbytes;
+  char                        buffer[CONFIG_STREAM_BASE64_BUFFER_SIZE + 1];
 };
 
 /* This is a special stream that does buffered character I/O.  NOTE that is
@@ -443,6 +455,25 @@ void lib_bufferedoutstream(FAR struct lib_bufferedoutstream_s *stream,
 
 void lib_hexdumpstream(FAR struct lib_hexdumpstream_s *stream,
                        FAR struct lib_outstream_s *backend);
+
+/****************************************************************************
+ * Name: lib_base64stream
+ *
+ * Description:
+ *   Convert binary stream to base64 and redirect to syslog
+ *
+ * Input Parameters:
+ *   stream    - User allocated, uninitialized instance of struct
+ *               lib_base64stream_s to be initialized.
+ *   backend   - Stream backend port.
+ *
+ * Returned Value:
+ *   None (User allocated instance initialized).
+ *
+ ****************************************************************************/
+
+void lib_base64outstream(FAR struct lib_base64outstream_s *stream,
+                         FAR struct lib_outstream_s *backend);
 
 /****************************************************************************
  * Name: lib_lowoutstream

@@ -1,6 +1,8 @@
 /****************************************************************************
  * drivers/rptun/rptun.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -35,10 +37,10 @@
 #include <nuttx/kmalloc.h>
 #include <nuttx/kthread.h>
 #include <nuttx/mutex.h>
+#include <nuttx/nuttx.h>
 #include <nuttx/power/pm.h>
 #include <nuttx/rptun/rptun.h>
 #include <nuttx/semaphore.h>
-#include <nuttx/wqueue.h>
 #include <metal/utilities.h>
 #include <openamp/remoteproc_loader.h>
 #include <openamp/remoteproc_virtio.h>
@@ -47,10 +49,6 @@
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
-
-#ifndef ALIGN_UP
-#  define ALIGN_UP(s, a)            (((s) + (a) - 1) & ~((a) - 1))
-#endif
 
 #define RPTUN_TIMEOUT_MS            20
 
@@ -85,9 +83,10 @@ struct rptun_store_s
  * Private Function Prototypes
  ****************************************************************************/
 
-static FAR struct remoteproc *rptun_init(FAR struct remoteproc *rproc,
-                                        FAR const struct remoteproc_ops *ops,
-                                         FAR void *arg);
+static FAR struct remoteproc *
+rptun_init(FAR struct remoteproc *rproc,
+           FAR const struct remoteproc_ops *ops,
+           FAR void *arg);
 static void rptun_remove(FAR struct remoteproc *rproc);
 static int rptun_config(struct remoteproc *rproc, void *data);
 static int rptun_start(FAR struct remoteproc *rproc);
@@ -100,7 +99,7 @@ rptun_get_mem(FAR struct remoteproc *rproc,
               metal_phys_addr_t da,
               FAR void *va, size_t size,
               FAR struct remoteproc_mem *buf);
-static int rptun_notify_wait(FAR struct remoteproc *rproc, uint32_t id);
+static int rptun_notify_wait(FAR struct rpmsg_device *rdev, uint32_t id);
 
 static int rptun_dev_start(FAR struct remoteproc *rproc);
 static int rptun_dev_stop(FAR struct remoteproc *rproc, bool stop_ns);
@@ -129,8 +128,6 @@ static void rptun_panic(FAR struct rpmsg_s *rpmsg);
 static void rptun_dump(FAR struct rpmsg_s *rpmsg);
 static FAR const char *rptun_get_local_cpuname(FAR struct rpmsg_s *rpmsg);
 static FAR const char *rptun_get_cpuname(FAR struct rpmsg_s *rpmsg);
-static int rptun_get_tx_buffer_size(FAR struct rpmsg_s *rpmsg);
-static int rptun_get_rx_buffer_size(FAR struct rpmsg_s *rpmsg);
 
 /****************************************************************************
  * Private Data
@@ -145,7 +142,6 @@ static const struct remoteproc_ops g_rptun_ops =
   .stop        = rptun_stop,
   .notify      = rptun_notify,
   .get_mem     = rptun_get_mem,
-  .notify_wait = rptun_notify_wait,
 };
 
 #ifdef CONFIG_RPTUN_LOADER
@@ -167,8 +163,6 @@ static const struct rpmsg_ops_s g_rptun_rpmsg_ops =
   rptun_dump,
   rptun_get_local_cpuname,
   rptun_get_cpuname,
-  rptun_get_tx_buffer_size,
-  rptun_get_rx_buffer_size,
 };
 
 /****************************************************************************
@@ -424,9 +418,10 @@ static int rptun_callback(FAR void *arg, uint32_t vqid)
   return OK;
 }
 
-static FAR struct remoteproc *rptun_init(FAR struct remoteproc *rproc,
-                                        FAR const struct remoteproc_ops *ops,
-                                         FAR void *arg)
+static FAR struct remoteproc *
+rptun_init(FAR struct remoteproc *rproc,
+           FAR const struct remoteproc_ops *ops,
+           FAR void *arg)
 {
   rproc->ops = ops;
   rproc->priv = arg;
@@ -531,9 +526,10 @@ rptun_get_mem(FAR struct remoteproc *rproc,
   return buf;
 }
 
-static int rptun_notify_wait(FAR struct remoteproc *rproc, uint32_t id)
+static int rptun_notify_wait(FAR struct rpmsg_device *rdev, uint32_t id)
 {
-  FAR struct rptun_priv_s *priv = rproc->priv;
+  FAR struct rptun_priv_s *priv = (FAR struct rptun_priv_s *)
+    metal_container_of(rdev, struct rpmsg_s, rdev);
 
   if (!rptun_is_recursive(priv))
     {
@@ -769,16 +765,6 @@ static FAR const char *rptun_get_cpuname(FAR struct rpmsg_s *rpmsg)
   return RPTUN_GET_CPUNAME(priv->dev);
 }
 
-static int rptun_get_tx_buffer_size(FAR struct rpmsg_s *rpmsg)
-{
-  return rpmsg_virtio_get_buffer_size(rpmsg->rdev);
-}
-
-static int rptun_get_rx_buffer_size(FAR struct rpmsg_s *rpmsg)
-{
-  return rpmsg_virtio_get_rx_buffer_size(rpmsg->rdev);
-}
-
 static int rptun_dev_start(FAR struct remoteproc *rproc)
 {
   FAR struct rptun_priv_s *priv = rproc->priv;
@@ -933,6 +919,7 @@ static int rptun_dev_start(FAR struct remoteproc *rproc)
     }
 
   priv->rvdev.rdev.ns_unbind_cb = rpmsg_ns_unbind;
+  priv->rvdev.notify_wait_cb = rptun_notify_wait;
 
   /* Remote proc start */
 

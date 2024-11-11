@@ -128,7 +128,6 @@ config ARMV7M_STACKCHECK_BREAKPOINT
 config ARMV7M_ITMSYSLOG
 	bool "ITM SYSLOG support"
 	default n
-	select ARCH_SYSLOG
 	---help---
 		Enable hooks to support ITM syslog output.  This requires additional
 		MCU support in order to be used.  See arch/arm/src/armv7-m/itm_syslog.h
@@ -153,3 +152,21 @@ config ARMV7M_SYSTICK
 	depends on TIMER
 	---help---
 		Enable SysTick timer driver.
+
+config ARMV7M_SYSTICK_IRQ_WQUEUE
+	bool "attach irq by irq_attach_wqueue"
+	default n
+	depends on ARMV7M_SYSTICK
+
+if ARMV7M_SYSTICK_IRQ_WQUEUE
+
+config ARMV7M_SYSTICK_IRQ_WQUEUE_PRIORITY
+	int "SYSTICK IRQ WQUEUE PRIORITY"
+	default 255
+	range 0 255
+
+config ARMV7M_SYSTICK_IRQ_THREAD_STACK_SIZE
+	int "SYSTICK IRQ THREAD STACK SIZE"
+	default DEFAULT_TASK_STACKSIZE
+
+endif # ARMV7M_SYSTICK_IRQ_WQUEUE

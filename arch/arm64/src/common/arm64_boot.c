@@ -129,6 +129,12 @@ void arm64_boot_el2_init(void)
          SCTLR_SA_BIT);       /* Enable SP alignment check */
   write_sysreg(reg, sctlr_el2);
 
+#ifdef CONFIG_ARCH_CLUSTER_PMU
+  reg = read_sysreg(actlr_el2);
+  reg |= ACTLR_CLPMU_BIT;
+  write_sysreg(reg, actlr_el2);
+#endif
+
   reg = read_sysreg(hcr_el2);
   reg |= HCR_RW_BIT;      /* EL1 Execution state is AArch64 */
   write_sysreg(reg, hcr_el2);
@@ -202,6 +208,5 @@ void arm64_boot_el1_init(void)
 void arm64_boot_primary_c_routine(void)
 {
   arm64_chip_boot();
-  up_perf_init(NULL);
   nx_start();
 }

@@ -1,6 +1,8 @@
 /****************************************************************************
  * drivers/syslog/syslog.h
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -47,6 +49,7 @@ extern "C"
  * g_default_channel.
  */
 
+#ifdef CONFIG_SYSLOG
 EXTERN FAR syslog_channel_t *
 #ifndef CONFIG_SYSLOG_REGISTER
 const
@@ -227,6 +230,7 @@ int syslog_add_intbuffer(int ch);
 #ifdef CONFIG_SYSLOG_INTBUFFER
 int syslog_flush_intbuffer(bool force);
 #endif
+#endif /* CONFIG_SYSLOG */
 
 #undef EXTERN
 #ifdef __cplusplus

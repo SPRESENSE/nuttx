@@ -1,6 +1,8 @@
 /****************************************************************************
  * drivers/usbdev/usbdev_fs.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -29,6 +31,7 @@
 #include <poll.h>
 #include <stdio.h>
 
+#include <nuttx/irq.h>
 #include <nuttx/nuttx.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/queue.h>
@@ -1377,6 +1380,9 @@ static int usbdev_fs_classbind(FAR struct usbdevclass_driver_s *driver,
   ep0info.fssize = fs->cdev->cfgdescsize;
 #ifdef CONFIG_USBDEV_DUALSPEED
   ep0info.hssize = fs->cdev->cfgdescsize;
+#endif
+#ifdef CONFIG_USBDEV_SUPERSPEED
+  ep0info.sssize = fs->cdev->cfgdescsize;
 #endif
   ep0info.reqnum = CONFIG_USBDEV_FS_NEP0REQS;
   fs->eps[0].dev = fs;

@@ -38,57 +38,44 @@
 #include "irq/irq.h"
 #include "arm64_fatal.h"
 
-#ifdef CONFIG_ARCH_FPU
-#include "arm64_fpu.h"
-#endif
-
 /****************************************************************************
- * Public Functions
+ * Private Functions
  ****************************************************************************/
 
-void arm64_init_signal_process(struct tcb_s *tcb, struct regs_context *regs)
+static void arm64_init_signal_process(struct tcb_s *tcb, uint64_t *regs)
 {
 /****************************************************************************
  * if regs != NULL We are interrupting the context,
  * we should modify the regs
  ****************************************************************************/
 
-  struct regs_context  *pctx = (regs != NULL) ? regs :
-  (struct regs_context *)tcb->xcp.regs;
-  struct regs_context  *psigctx;
-  char *stack_ptr    = (char *)pctx->sp_elx - sizeof(struct regs_context);
+  regs = (regs != NULL) ? regs : tcb->xcp.regs;
 
-#ifdef CONFIG_ARCH_FPU
-  struct fpu_reg      *pfpuctx;
-  pfpuctx            = STACK_PTR_TO_FRAME(struct fpu_reg, stack_ptr);
-  tcb->xcp.fpu_regs  = (uint64_t *)pfpuctx;
+  tcb->xcp.regs = (uint64_t *)(regs[REG_SP_ELX] - XCPTCONTEXT_SIZE * 2);
+  memset(tcb->xcp.regs, 0, XCPTCONTEXT_SIZE);
 
-  /* set fpu context */
-
-  arm64_init_fpu(tcb);
-  stack_ptr          = (char *)pfpuctx;
-#endif
-  psigctx            = STACK_PTR_TO_FRAME(struct regs_context, stack_ptr);
-  memset(psigctx, 0, sizeof(struct regs_context));
-  psigctx->elr       = (uint64_t)arm64_sigdeliver;
+  tcb->xcp.regs[REG_ELR]    = (uint64_t)arm64_sigdeliver;
 
   /* Keep using SP_EL1 */
 
 #if CONFIG_ARCH_ARM64_EXCEPTION_LEVEL == 3
-  psigctx->spsr      = SPSR_MODE_EL3H | DAIF_FIQ_BIT | DAIF_IRQ_BIT;
+  tcb->xcp.regs[REG_SPSR]   = SPSR_MODE_EL3H | DAIF_FIQ_BIT | DAIF_IRQ_BIT;
 #else
-  psigctx->spsr      = SPSR_MODE_EL1H | DAIF_FIQ_BIT | DAIF_IRQ_BIT;
+  tcb->xcp.regs[REG_SPSR]   = SPSR_MODE_EL1H | DAIF_FIQ_BIT | DAIF_IRQ_BIT;
 #endif
-  psigctx->sp_elx    = (uint64_t)stack_ptr;
-#ifdef CONFIG_ARCH_KERNEL_STACK
-  psigctx->sp_el0    = (uint64_t)pctx->sp_el0;
-#else
-  psigctx->sp_el0    = (uint64_t)psigctx;
-#endif
-  psigctx->exe_depth = 1;
 
-  tcb->xcp.regs      = (uint64_t *)psigctx;
+#ifdef CONFIG_ARCH_KERNEL_STACK
+  tcb->xcp.regs[REG_SP_EL0] = regs[REG_SP_EL0];
+#else
+  tcb->xcp.regs[REG_SP_EL0] = regs[REG_SP_ELX] - XCPTCONTEXT_SIZE * 2;
+#endif
+  tcb->xcp.regs[REG_SP_ELX] = regs[REG_SP_ELX] - XCPTCONTEXT_SIZE;
+  tcb->xcp.regs[REG_EXE_DEPTH]  = 1;
 }
+
+/****************************************************************************
+ * Public Functions
+ ****************************************************************************/
 
 /****************************************************************************
  * Name: up_schedule_sigaction
@@ -126,65 +113,35 @@ void arm64_init_signal_process(struct tcb_s *tcb, struct regs_context *regs)
  *
  ****************************************************************************/
 
-void up_schedule_sigaction(struct tcb_s *tcb, sig_deliver_t sigdeliver)
+void up_schedule_sigaction(struct tcb_s *tcb)
 {
-  sinfo("tcb=%p sigdeliver=%p\n", tcb, sigdeliver);
+  sinfo("tcb=%p, rtcb=%p current_regs=%p\n", tcb, this_task(),
+        this_task()->xcp.regs);
 
-  /* Refuse to handle nested signal actions */
+  /* First, handle some special cases when the signal is
+   * being delivered to the currently executing task.
+   */
 
-  if (!tcb->xcp.sigdeliver)
+  if (tcb == this_task() && !up_interrupt_context())
     {
-      tcb->xcp.sigdeliver = sigdeliver;
-
-      /* First, handle some special cases when the signal is being delivered
-       * to task that is currently executing on any CPU.
+      /* In this case just deliver the signal now.
+       * REVISIT:  Signal handler will run in a critical section!
        */
 
-      if (tcb == this_task() && !up_interrupt_context())
-        {
-          /* In this case just deliver the signal now.
-           * REVISIT:  Signal handler will run in a critical section!
-           */
+      (tcb->sigdeliver)(tcb);
+      tcb->sigdeliver = NULL;
+    }
+  else
+    {
+      /* Save the return lr and cpsr and one scratch register.  These
+       * will be restored by the signal trampoline after the signals
+       * have been delivered.
+       */
 
-          sigdeliver(tcb);
-          tcb->xcp.sigdeliver = NULL;
-        }
-      else
-        {
-#ifdef CONFIG_SMP
-          int cpu = tcb->cpu;
-          int me  = this_cpu();
+      tcb->xcp.saved_reg = tcb->xcp.regs;
 
-          if (cpu != me)
-            {
-              /* Pause the CPU */
+      /* create signal process context */
 
-              up_cpu_pause(cpu);
-            }
-#endif
-
-          /* Save the return lr and cpsr and one scratch register.  These
-           * will be restored by the signal trampoline after the signals
-           * have been delivered.
-           */
-
-#ifdef CONFIG_ARCH_FPU
-          tcb->xcp.saved_fpu_regs = tcb->xcp.fpu_regs;
-#endif
-          tcb->xcp.saved_reg = tcb->xcp.regs;
-
-          /* create signal process context */
-
-          arm64_init_signal_process(tcb, NULL);
-
-#ifdef CONFIG_SMP
-          /* RESUME the other CPU if it was PAUSED */
-
-          if (cpu != me)
-            {
-              up_cpu_resume(cpu);
-            }
-#endif
-        }
+      arm64_init_signal_process(tcb, NULL);
     }
 }

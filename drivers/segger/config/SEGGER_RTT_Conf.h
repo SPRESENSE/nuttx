@@ -1,6 +1,8 @@
 /****************************************************************************
  * drivers/segger/config/SEGGER_RTT_Conf.h
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -111,5 +113,7 @@
         } \
     } \
   while (0)
+
+#define SEGGER_SYSVIEW_PRINTF_IMPLICIT_FORMAT 1
 
 #endif /* __DRIVERS_SEGGER_CONFIG_SEGGER_RTT_CONF_H */

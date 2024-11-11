@@ -3035,7 +3035,6 @@ static int mcan_send(struct can_dev_s *dev, struct can_msg_s *msg)
    * the MCAN device was opened O_NONBLOCK.
    */
 
-  sched_lock();
   mcan_buffer_reserve(priv);
 
   /* Get exclusive access to the MCAN peripheral */
@@ -3044,11 +3043,8 @@ static int mcan_send(struct can_dev_s *dev, struct can_msg_s *msg)
   if (ret < 0)
     {
       mcan_buffer_release(priv);
-      sched_unlock();
       return ret;
     }
-
-  sched_unlock();
 
   /* Get our reserved Tx FIFO/queue put index */
 
@@ -3459,14 +3455,14 @@ static void mcan_error(struct can_dev_s *dev, uint32_t status)
     {
       /* Format the CAN header for the error report. */
 
-      hdr.ch_id     = errbits;
-      hdr.ch_dlc    = CAN_ERROR_DLC;
-      hdr.ch_rtr    = 0;
-      hdr.ch_error  = 1;
+      hdr.ch_id    = errbits;
+      hdr.ch_dlc   = CAN_ERROR_DLC;
+      hdr.ch_rtr   = 0;
+      hdr.ch_error = 1;
 #ifdef CONFIG_CAN_EXTID
-      hdr.ch_extid  = 0;
+      hdr.ch_extid = 0;
 #endif
-      hdr.ch_unused = 0;
+      hdr.ch_tcf   = 0;
 
       /* And provide the error report to the upper half logic */
 
@@ -3628,7 +3624,7 @@ static void mcan_receive(struct can_dev_s *dev, uint32_t *rxbuffer,
 #ifdef CONFIG_CAN_ERRORS
   hdr.ch_error  = 0;
 #endif
-  hdr.ch_unused = 0;
+  hdr.ch_tcf    = 0;
 
   if ((regval & BUFFER_R0_RTR) != 0)
     {

@@ -37,7 +37,6 @@
 
 #include <nuttx/irq.h>
 
-#include "riscv_sbi.h"
 #include "riscv_common_memorymap.h"
 
 /****************************************************************************
@@ -412,14 +411,14 @@ void riscv_stack_color(void *stackbase, size_t nbytes);
 
 #ifdef CONFIG_SMP
 void riscv_cpu_boot(int cpu);
-int riscv_pause_handler(int irq, void *c, void *arg);
+int riscv_smp_call_handler(int irq, void *c, void *arg);
 #endif
 
 /****************************************************************************
  * Name: riscv_mhartid
  *
  * Description:
- *   Context aware way to query hart id
+ *   Context aware way to query hart id (physical core ID)
  *
  * Returned Value:
  *   Hart id
@@ -428,11 +427,37 @@ int riscv_pause_handler(int irq, void *c, void *arg);
 
 uintptr_t riscv_mhartid(void);
 
+/****************************************************************************
+ * Name: riscv_hartid_to_cpuid
+ *
+ * Description:
+ *   Convert physical core number to logical core number. Default
+ *   implementation is 1:1 mapping, i.e. physical=logical.
+ *
+ ****************************************************************************/
+
+int riscv_hartid_to_cpuid(int hart);
+
+/****************************************************************************
+ * Name: riscv_cpuid_to_hartid
+ *
+ * Description:
+ *   Convert logical core number to physical core number. Default
+ *   implementation is 1:1 mapping, i.e. physical=logical.
+ *
+ ****************************************************************************/
+
+int riscv_cpuid_to_hartid(int cpu);
+
 /* If kernel runs in Supervisor mode, a system call trampoline is needed */
 
 #ifdef CONFIG_ARCH_USE_S_MODE
 void *riscv_perform_syscall(uintreg_t *regs);
 #endif
+
+void riscv_jump_to_user(uintptr_t entry, uintreg_t a0, uintreg_t a1,
+                        uintreg_t a2, uintreg_t sp,
+                        uintreg_t *regs) noreturn_function;
 
 /* Context switching via system calls ***************************************/
 
