@@ -21,17 +21,17 @@
 #
 ############################################################################
 
-# Darwin
+# NuttX CI Job for macOS, runs on Apple Intel Mac
 
 # Prerequisites for macOS
 #  - Xcode (cc, etc)
 #  - homebrew
-#  - autoconf
+#  - curl
 #  - wget
+#  - cmake
 
 set -e
 set -o xtrace
-osarch=$(uname -m)
 
 add_path() {
   PATH=$1:${PATH}
@@ -97,13 +97,8 @@ binutils() {
     mkdir -p "${NUTTXTOOLS}"/bintools/bin
     # It is possible we cached prebuilt but did brew install so recreate
     # symlink if it exists
-    if [ "X$osarch" == "Xarm64" ]; then
-      rm -f "${NUTTXTOOLS}"/bintools/bin/objcopy
-      ln -s /opt/homebrew/opt/binutils/bin/objcopy "${NUTTXTOOLS}"/bintools/bin/objcopy
-    else
-      rm -f "${NUTTXTOOLS}"/bintools/bin/objcopy
-      ln -s /usr/local/opt/binutils/bin/objcopy "${NUTTXTOOLS}"/bintools/bin/objcopy
-    fi
+    rm -f "${NUTTXTOOLS}"/bintools/bin/objcopy
+    ln -s /usr/local/opt/binutils/bin/objcopy "${NUTTXTOOLS}"/bintools/bin/objcopy
   fi
 
   command objcopy --version
