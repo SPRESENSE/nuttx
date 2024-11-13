@@ -26,9 +26,9 @@ BINDIR ?= bin
 KBIN = libkbuiltin$(LIBEXT)
 KBINDIR = kbin
 
-ifeq ($(CONFIG_LIB_COMPILER_RT),y)
 include compiler-rt/Make.defs
-endif
+
+include libgcc/Make.defs
 
 AOBJS = $(addprefix $(BINDIR)$(DELIM), $(ASRCS:.S=$(OBJEXT)))
 COBJS = $(addprefix $(BINDIR)$(DELIM), $(CSRCS:.c=$(OBJEXT)))
