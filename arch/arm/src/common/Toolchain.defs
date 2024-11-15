@@ -72,6 +72,14 @@ ifneq ($(CONFIG_STACK_USAGE_WARNING),0)
   ARCHOPTIMIZATION += -Wstack-usage=$(CONFIG_STACK_USAGE_WARNING)
 endif
 
+ifeq ($(CONFIG_COVERAGE_ALL),y)
+  ifeq ($(CONFIG_ARCH_TOOLCHAIN_GCC),y)
+    ARCHOPTIMIZATION += -fprofile-generate -ftest-coverage
+  else ifeq ($(CONFIG_ARCH_TOOLCHAIN_CLANG),y)
+    ARCHOPTIMIZATION += -fprofile-instr-generate -fcoverage-mapping
+  endif
+endif
+
 ifeq ($(CONFIG_PROFILE_ALL),y)
   ARCHOPTIMIZATION += -pg
 endif
@@ -502,7 +510,7 @@ ifeq ($(CONFIG_LIBSUPCXX_TOOLCHAIN),y)
   EXTRA_LIBS += $(wildcard $(shell $(CC) $(ARCHCPUFLAGS) --print-file-name=libsupc++.a))
 endif
 
-ifeq ($(CONFIG_SCHED_GCOV),y)
+ifeq ($(CONFIG_COVERAGE_TOOLCHAIN),y)
   EXTRA_LIBS += $(wildcard $(shell $(CC) $(ARCHCPUFLAGS) --print-file-name=libgcov.a))
 endif
 
@@ -564,4 +572,8 @@ SHLDFLAGS = -shared -Bsymbolic -Bdynamic -G
 
 ifeq ($(CONFIG_SIM_M32),y)
   SHLDFLAGS += -melf_i386
+endif
+
+ifeq ($(CONFIG_LIBC_ARCH_ATOMIC),y)
+  ARCHCFLAGS += -D__STDC_NO_ATOMICS__
 endif
