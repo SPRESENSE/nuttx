@@ -650,7 +650,7 @@ int wiznet_set_net(FAR struct wiznet_dev_s *dev, wiznet_ipaddr_t *ip)
 
   /* Reset internal parameter */
 
-  dev->net_dev.d_flags |= IFF_DOWN;
+  dev->net_dev.d_flags = 0;
 
   /* Create mac_addr data */
 
