@@ -20,6 +20,7 @@
 #
 ############################################################################
 
+import argparse
 from enum import Enum, auto
 
 import gdb
@@ -36,7 +37,7 @@ def save_regs():
     global saved_regs
     tcbinfo = gdb.parse_and_eval("g_tcbinfo")
 
-    if saved_regs is not None:
+    if saved_regs:
         return
     arch = gdb.selected_frame().architecture()
     saved_regs = []
@@ -53,7 +54,7 @@ def restore_regs():
     tcbinfo = gdb.parse_and_eval("g_tcbinfo")
     global saved_regs
 
-    if saved_regs is None:
+    if not saved_regs:
         return
 
     arch = gdb.selected_frame().architecture()
@@ -68,60 +69,75 @@ def restore_regs():
     saved_regs = None
 
 
-class Nxsetregs(gdb.Command):
-    """
-    Set registers to the specified values.
-    Usage: nxsetregs [regs]
+class SetRegs(gdb.Command):
+    """Set registers to the specified values.
+    Usage: setregs [regs]
 
-    Etc: nxsetregs
-         nxsetregs g_current_regs[0]
-         nxsetregs tcb->xcp.regs
-         Nxsetregs g_pidhash[0].tcb->xcp.regs
+    Etc: setregs
+         setregs tcb->xcp.regs
+         setregs g_pidhash[0]->xcp.regs
 
-    Default regs is g_current_regs[0],if regs is NULL, it will not set registers.
-
+    Default regs is tcbinfo_current_regs(),if regs is NULL, it will not set registers.
     """
 
     def __init__(self):
-        super(Nxsetregs, self).__init__("nxsetregs", gdb.COMMAND_USER)
+        super(SetRegs, self).__init__("setregs", gdb.COMMAND_USER)
 
-    def invoke(self, args, from_tty):
-        gdb.execute("set $_current_regs=tcbinfo_running_regs()")
-        current_regs = gdb.parse_and_eval("$_current_regs")
-        tcbinfo = gdb.parse_and_eval("g_tcbinfo")
-        arg = args.split(" ")
+    def invoke(self, arg, from_tty):
+        parser = argparse.ArgumentParser(
+            description="Set registers to the specified values"
+        )
 
-        if arg[0] != "":
-            regs = gdb.parse_and_eval(f"{arg[0]}").cast(
-                gdb.lookup_type("char").pointer()
+        parser.add_argument(
+            "regs",
+            nargs="?",
+            default="",
+            help="The registers to set, use tcbinfo_current_regs() if not specified",
+        )
+
+        try:
+            args = parser.parse_args(gdb.string_to_argv(arg))
+        except SystemExit:
+            return
+
+        if args and args.regs:
+            regs = gdb.parse_and_eval(f"{args.regs}").cast(
+                utils.lookup_type("char").pointer()
             )
         else:
-            gdb.execute("set $_current_regs=tcbinfo_current_regs()")
-            current_regs = gdb.parse_and_eval("$_current_regs")
-            regs = current_regs.cast(gdb.lookup_type("char").pointer())
+            current_regs = gdb.parse_and_eval("tcbinfo_current_regs()")
+            regs = current_regs.cast(utils.lookup_type("char").pointer())
 
         if regs == 0:
             gdb.write("regs is NULL\n")
             return
 
+        tcbinfo = gdb.parse_and_eval("g_tcbinfo")
         save_regs()
         arch = gdb.selected_frame().architecture()
+
+        regoffset = [
+            int(tcbinfo["reg_off"]["p"][i])
+            for i in range(tcbinfo["regs_num"])
+            if tcbinfo["reg_off"]["p"][i] != UINT16_MAX
+        ]
+
         i = 0
         for reg in arch.registers():
-            if i >= tcbinfo["regs_num"]:
+            if i >= len(regoffset):
                 return
 
             gdb.execute("select-frame 0")
-            if tcbinfo["reg_off"]["p"][i] != UINT16_MAX:
-                value = gdb.Value(regs + tcbinfo["reg_off"]["p"][i]).cast(
-                    gdb.lookup_type("uintptr_t").pointer()
-                )[0]
-                gdb.execute(f"set ${reg.name} = {value}")
-
+            value = gdb.Value(regs + regoffset[i]).cast(
+                utils.lookup_type("uintptr_t").pointer()
+            )[0]
+            gdb.execute(f"set ${reg.name} = {value}")
             i += 1
 
 
 class Nxinfothreads(gdb.Command):
+    """Display information of all threads"""
+
     def __init__(self):
         super(Nxinfothreads, self).__init__("info threads", gdb.COMMAND_USER)
 
@@ -162,9 +178,9 @@ class Nxinfothreads(gdb.Command):
             statename = f'\x1b{"[32;1m" if statename == "Running" else "[33;1m"}{statename}\x1b[m'
 
             if tcb["task_state"] == gdb.parse_and_eval("TSTATE_WAIT_SEM"):
-                mutex = tcb["waitobj"].cast(gdb.lookup_type("sem_t").pointer())
+                mutex = tcb["waitobj"].cast(utils.lookup_type("sem_t").pointer())
                 if mutex["flags"] & SEM_TYPE_MUTEX:
-                    mutex = tcb["waitobj"].cast(gdb.lookup_type("mutex_t").pointer())
+                    mutex = tcb["waitobj"].cast(utils.lookup_type("mutex_t").pointer())
                     statename = f"Waiting,Mutex:{mutex['holder']}"
 
             try:
@@ -211,6 +227,8 @@ class Nxinfothreads(gdb.Command):
 
 
 class Nxthread(gdb.Command):
+    """Switch to a specified thread"""
+
     def __init__(self):
         super(Nxthread, self).__init__("thread", gdb.COMMAND_USER)
 
@@ -237,7 +255,7 @@ class Nxthread(gdb.Command):
                     except gdb.error and UnicodeDecodeError:
                         gdb.write(f"Thread {i}\n")
 
-                    gdb.execute(f"nxsetregs g_pidhash[{i}]->xcp.regs")
+                    gdb.execute(f"setregs g_pidhash[{i}]->xcp.regs")
                     cmd_arg = ""
                     for cmd in arg[2:]:
                         cmd_arg += cmd + " "
@@ -269,7 +287,7 @@ class Nxthread(gdb.Command):
                         except gdb.error and UnicodeDecodeError:
                             gdb.write(f"Thread {i}\n")
 
-                        gdb.execute(f"nxsetregs g_pidhash[{i}]->xcp.regs")
+                        gdb.execute(f"setregs g_pidhash[{i}]->xcp.regs")
                         gdb.execute(f"{cmd}\n")
                         restore_regs()
 
@@ -280,12 +298,14 @@ class Nxthread(gdb.Command):
                 ):
                     restore_regs()
                 else:
-                    gdb.execute("nxsetregs g_pidhash[%s]->xcp.regs" % arg[0])
+                    gdb.execute("setregs g_pidhash[%s]->xcp.regs" % arg[0])
             else:
                 gdb.write(f"Invalid thread id {arg[0]}\n")
 
 
 class Nxcontinue(gdb.Command):
+    """Restore the registers and continue the execution"""
+
     def __init__(self):
         super(Nxcontinue, self).__init__("nxcontinue", gdb.COMMAND_USER)
 
@@ -295,6 +315,8 @@ class Nxcontinue(gdb.Command):
 
 
 class Nxstep(gdb.Command):
+    """Restore the registers and step the execution"""
+
     def __init__(self):
         super(Nxstep, self).__init__("nxstep", gdb.COMMAND_USER)
 
@@ -390,10 +412,8 @@ class Ps(gdb.Command):
 
         sigmask = "{0:#0{1}x}".format(
             sum(
-                [
-                    int(tcb["sigprocmask"]["_elem"][i] << i)
-                    for i in range(get_macro("_SIGSET_NELEM"))
-                ]
+                int(tcb["sigprocmask"]["_elem"][i] << i)
+                for i in range(get_macro("_SIGSET_NELEM"))
             ),
             get_macro("_SIGSET_NELEM") * 8 + 2,
         )[
@@ -414,7 +434,7 @@ class Ps(gdb.Command):
         used = st.max_usage()
         filled = "{0:.2%}".format(st.max_usage() / st._stack_size)
 
-        cpu = tcb["cpu"] if get_macro("CONFIG_SMP") else 0
+        cpu = int(tcb["cpu"]) if get_macro("CONFIG_SMP") else 0
 
         # For a task we need to display its cmdline arguments, while for a thread we display
         # pointers to its entry and argument
@@ -499,20 +519,30 @@ class Ps(gdb.Command):
             self.parse_and_show_info(tcb)
 
 
-# We can't use a user command to rename continue it will recursion
+def register_commands():
+    SetRegs()
+    Ps()
 
-gdb.execute("define c\n nxcontinue \n end\n")
-gdb.execute("define s\n nxstep \n end\n")
-gdb.write(
-    "\n\x1b[31;1m if use thread command, please don't use 'continue', use 'c' instead !!!\x1b[m\n"
-)
-gdb.write(
-    "\x1b[31;1m if use thread command, please don't use 'step', use 's' instead !!!\x1b[m\n"
-)
+    # Disable thread commands for core dump and gdb-stub.
+    # In which case the recognized threads count is less or equal to the number of cpus
+    ncpus = utils.get_symbol_value("CONFIG_SMP_NCPUS") or 1
+    nthreads = len(gdb.selected_inferior().threads())
+    if nthreads <= ncpus:
+        SetRegs()
+        Nxinfothreads()
+        Nxthread()
+        Nxcontinue()
+        Nxstep()
 
-Nxsetregs()
-Nxinfothreads()
-Nxthread()
-Nxcontinue()
-Nxstep()
-Ps()
+        # We can't use a user command to rename continue it will recursion
+        gdb.execute("define c\n nxcontinue \n end\n")
+        gdb.execute("define s\n nxstep \n end\n")
+        gdb.write(
+            "\n\x1b[31;1m if use thread command, please don't use 'continue', use 'c' instead !!!\x1b[m\n"
+        )
+        gdb.write(
+            "\x1b[31;1m if use thread command, please don't use 'step', use 's' instead !!!\x1b[m\n"
+        )
+
+
+register_commands()

@@ -21,69 +21,47 @@
 ############################################################################
 
 import re
+from typing import List
 
 import gdb
-from macros import fetch_macro_info, try_expand
+
+g_symbol_cache = {}
+g_type_cache = {}
 
 
-class CachedType:
-    """Cache a type object, so that we can reconnect to the new_objfile event"""
+def backtrace(addresses: List[gdb.Value]) -> List[str]:
+    """Convert addresses to backtrace"""
+    backtrace = []
 
-    def __init__(self, name):
-        self._type = None
-        self._name = name
+    for addr in addresses:
+        if not addr:
+            break
 
-    def _new_objfile_handler(self, event):
-        self._type = None
-        gdb.events.new_objfile.disconnect(self._new_objfile_handler)
+        func = addr.format_string(symbols=True, address=False)
+        sym = gdb.find_pc_line(int(addr))
+        source = str(sym.symtab) + ":" + str(sym.line)
+        backtrace.append((int(addr), func, source))
 
-    def get_type(self):
-        if self._type is None:
-            self._type = gdb.lookup_type(self._name)
-            if self._type is None:
-                raise gdb.GdbError("cannot resolve type '{0}'".format(self._name))
-            if hasattr(gdb, "events") and hasattr(gdb.events, "new_objfile"):
-                gdb.events.new_objfile.connect(self._new_objfile_handler)
-        return self._type
+    return backtrace
 
 
-long_type = CachedType("long")
+def lookup_type(name, block=None) -> gdb.Type:
+    """Return the type object of a type name"""
+    global g_type_cache
+
+    key = (name, block)
+    if key not in g_type_cache:
+        try:
+            g_type_cache[key] = (
+                gdb.lookup_type(name, block=block) if block else gdb.lookup_type(name)
+            )
+        except gdb.error:
+            g_type_cache[key] = None
+
+    return g_type_cache[key]
 
 
-class MacroCtx:
-    """
-    This is a singleton class wich only initializes once to
-    cache a context of macro definition which can be queried later
-    TODO: we only deal with single ELF at the moment for simplicity
-    If you load more object files while debugging, only the first one gets loaded
-    will be used to retrieve macro information
-    """
-
-    def __new__(cls, *args, **kwargs):
-        if not hasattr(cls, "instance"):
-            cls.instance = super(MacroCtx, cls).__new__(cls)
-        return cls.instance
-
-    def __init__(self, filename):
-        self._macro_map = {}
-        self._file = filename
-
-        self._macro_map = fetch_macro_info(filename)
-
-    @property
-    def macro_map(self):
-        return self._macro_map
-
-    @property
-    def objfile(self):
-        return self._file
-
-
-if len(gdb.objfiles()) > 0:
-    macroctx = MacroCtx(gdb.objfiles()[0].filename)
-else:
-    raise gdb.GdbError("An executable file must be provided")
-
+long_type = lookup_type("long")
 
 # Common Helper Functions
 
@@ -91,7 +69,7 @@ else:
 def get_long_type():
     """Return the cached long type object"""
     global long_type
-    return long_type.get_type()
+    return long_type
 
 
 def offset_of(typeobj, field):
@@ -132,17 +110,91 @@ def gdb_eval_or_none(expresssion):
         return None
 
 
-def get_symbol_value(name):
+def get_symbol_value(name, locspec="nx_start", cacheable=True):
     """Return the value of a symbol value etc: Variable, Marco"""
+    global g_symbol_cache
 
-    expr = None
+    # If there is a current stack frame, GDB uses the macros in scope at that frame’s source code line.
+    # Otherwise, GDB uses the macros in scope at the current listing location.
+    # Reference: https://sourceware.org/gdb/current/onlinedocs/gdb.html/Macros.html#Macros
+    try:
+        if not gdb.selected_frame():
+            gdb.execute(f"list {locspec}", to_string=True)
+            return gdb_eval_or_none(name)
+    except gdb.error:
+        pass
+
+    # Try current frame
+    value = gdb_eval_or_none(name)
+    if value:
+        return value
+
+    # Check if the symbol is already cached
+    if cacheable and (name, locspec) in g_symbol_cache:
+        return g_symbol_cache[(name, locspec)]
+
+    # There's current frame and no definition found. We need second inferior without a valid frame
+    # in order to use the list command to set the scope.
+    if len(gdb.inferiors()) == 1:
+        gdb.execute(
+            f"add-inferior -exec {gdb.objfiles()[0].filename} -no-connection",
+            to_string=True,
+        )
+        g_symbol_cache = {}
 
     try:
-        gdb.execute("set $_%s = %s" % (name, name))
-        expr = "$_%s" % (name)
+        suppressed = "is on" in gdb.execute(
+            "show suppress-cli-notifications", to_string=True
+        )
     except gdb.error:
-        expr = try_expand(name, macroctx.macro_map)
-    return gdb_eval_or_none(expr)
+        # Treat as suppressed if the command is not available
+        suppressed = True
+
+    if not suppressed:
+        # Disable notifications
+        gdb.execute("set suppress-cli-notifications on")
+
+    # Switch to inferior 2 and set the scope firstly
+    gdb.execute("inferior 2", to_string=True)
+    gdb.execute(f"list {locspec}", to_string=True)
+    value = gdb_eval_or_none(name)
+    if cacheable:
+        g_symbol_cache[(name, locspec)] = value
+
+    # Switch back to inferior 1
+    gdb.execute("inferior 1", to_string=True)
+
+    if not suppressed:
+        gdb.execute("set suppress-cli-notifications off")
+    return value
+
+
+def get_field(val, key, default=None):
+    """Get a field from a gdb.Value, return default if key not found"""
+    try:
+        return val[key] if val else default
+    except gdb.error:
+        return default
+
+
+def get_bytes(val, size):
+    """Convert a gdb value to a bytes object"""
+    try:
+        return val.bytes[:size]
+    except AttributeError:  # Sometimes we don't have gdb.Value.bytes
+        inf = gdb.inferiors()[0]
+        mem = inf.read_memory(val.address, size)
+        return mem.tobytes()
+
+
+def import_check(module, name="", errmsg=""):
+    try:
+        module = __import__(module, fromlist=[name])
+    except ImportError:
+        gdb.write(errmsg if errmsg else f"Error to import {module}\n")
+        return None
+
+    return getattr(module, name) if name else module
 
 
 def hexdump(address, size):
@@ -198,6 +250,14 @@ class Hexdump(gdb.Command):
 Hexdump()
 
 
+def nitems(array):
+    array_type = array.type
+    element_type = array_type.target()
+    element_size = element_type.sizeof
+    array_size = array_type.sizeof // element_size
+    return array_size
+
+
 # Machine Specific Helper Functions
 
 
@@ -209,7 +269,7 @@ target_endianness = None
 def get_target_endianness():
     """Return the endianness of the target"""
     global target_endianness
-    if target_endianness is None:
+    if not target_endianness:
         endian = gdb.execute("show endian", to_string=True)
         if "little endian" in endian:
             target_endianness = LITTLE_ENDIAN
@@ -228,38 +288,63 @@ def read_memoryview(inf, start, length):
     return memoryview(m)
 
 
-def read_u16(buffer, offset):
-    """Read a 16-bit unsigned integer from a buffer"""
-    buffer_val = buffer[offset : offset + 2]
-    value = [0, 0]
+try:
+    # For some prebuilt GDB, the python builtin module `struct` is not available
+    import struct
 
-    if type(buffer_val[0]) is str:
-        value[0] = ord(buffer_val[0])
-        value[1] = ord(buffer_val[1])
-    else:
-        value[0] = buffer_val[0]
-        value[1] = buffer_val[1]
+    def read_u16(buffer, offset):
+        """Read a 16-bit unsigned integer from a buffer"""
+        if get_target_endianness() == LITTLE_ENDIAN:
+            return struct.unpack_from("<H", buffer, offset)[0]
+        else:
+            return struct.unpack_from(">H", buffer, offset)[0]
 
-    if get_target_endianness() == LITTLE_ENDIAN:
-        return value[0] + (value[1] << 8)
-    else:
-        return value[1] + (value[0] << 8)
+    def read_u32(buffer, offset):
+        """Read a 32-bit unsigned integer from a buffer"""
+        if get_target_endianness() == LITTLE_ENDIAN:
+            return struct.unpack_from("<I", buffer, offset)[0]
+        else:
+            return struct.unpack_from(">I", buffer, offset)[0]
 
+    def read_u64(buffer, offset):
+        """Read a 64-bit unsigned integer from a buffer"""
+        if get_target_endianness() == LITTLE_ENDIAN:
+            return struct.unpack_from("<Q", buffer, offset)[0]
+        else:
+            return struct.unpack_from(">Q", buffer, offset)[0]
 
-def read_u32(buffer, offset):
-    """Read a 32-bit unsigned integer from a buffer"""
-    if get_target_endianness() == LITTLE_ENDIAN:
-        return read_u16(buffer, offset) + (read_u16(buffer, offset + 2) << 16)
-    else:
-        return read_u16(buffer, offset + 2) + (read_u16(buffer, offset) << 16)
+except ModuleNotFoundError:
 
+    def read_u16(buffer, offset):
+        """Read a 16-bit unsigned integer from a buffer"""
+        buffer_val = buffer[offset : offset + 2]
+        value = [0, 0]
 
-def read_u64(buffer, offset):
-    """Read a 64-bit unsigned integer from a buffer"""
-    if get_target_endianness() == LITTLE_ENDIAN:
-        return read_u32(buffer, offset) + (read_u32(buffer, offset + 4) << 32)
-    else:
-        return read_u32(buffer, offset + 4) + (read_u32(buffer, offset) << 32)
+        if type(buffer_val[0]) is str:
+            value[0] = ord(buffer_val[0])
+            value[1] = ord(buffer_val[1])
+        else:
+            value[0] = buffer_val[0]
+            value[1] = buffer_val[1]
+
+        if get_target_endianness() == LITTLE_ENDIAN:
+            return value[0] + (value[1] << 8)
+        else:
+            return value[1] + (value[0] << 8)
+
+    def read_u32(buffer, offset):
+        """Read a 32-bit unsigned integer from a buffer"""
+        if get_target_endianness() == LITTLE_ENDIAN:
+            return read_u16(buffer, offset) + (read_u16(buffer, offset + 2) << 16)
+        else:
+            return read_u16(buffer, offset + 2) + (read_u16(buffer, offset) << 16)
+
+    def read_u64(buffer, offset):
+        """Read a 64-bit unsigned integer from a buffer"""
+        if get_target_endianness() == LITTLE_ENDIAN:
+            return read_u32(buffer, offset) + (read_u32(buffer, offset + 4) << 32)
+        else:
+            return read_u32(buffer, offset + 4) + (read_u32(buffer, offset) << 32)
 
 
 def read_ulong(buffer, offset):
@@ -270,12 +355,29 @@ def read_ulong(buffer, offset):
         return read_u32(buffer, offset)
 
 
+def bswap(val, size):
+    """Reverses the byte order in a gdb.Value or int value of size bytes"""
+    return int.from_bytes(int(val).to_bytes(size, byteorder="little"), byteorder="big")
+
+
+def swap16(val):
+    return bswap(val, 2)
+
+
+def swap32(val):
+    return bswap(val, 4)
+
+
+def swap64(val):
+    return bswap(val, 8)
+
+
 target_arch = None
 
 
 def is_target_arch(arch, exact=False):
     """
-    For non exactly match, this function will
+    For non extact match, this function will
     return True if the target architecture contains
     keywords of an ARCH family. For example, x86 is
     contained in i386:x86_64.
@@ -326,35 +428,43 @@ def in_interrupt_context(cpuid=0):
         # TODO: figure out a more proper way to detect if
         # we are in an interrupt context
         g_current_regs = gdb_eval_or_none("g_current_regs")
-        return not g_current_regs[cpuid]
+        return not g_current_regs or not g_current_regs[cpuid]
 
 
 def get_arch_sp_name():
-    if is_target_arch("arm", exact=True):
+    if is_target_arch("arm"):
+        # arm and arm variants
+        return "sp"
+    if is_target_arch("aarch64"):
         return "sp"
     elif is_target_arch("i386", exact=True):
         return "esp"
     elif is_target_arch("i386:x86-64", exact=True):
         return "rsp"
     else:
-        raise gdb.GdbError("Not implemented yet")
+        # Default to use sp, add more archs if needed
+        return "sp"
 
 
 def get_arch_pc_name():
-    if is_target_arch("arm", exact=True):
+    if is_target_arch("arm"):
+        # arm and arm variants
+        return "pc"
+    if is_target_arch("aarch64"):
         return "pc"
     elif is_target_arch("i386", exact=True):
         return "eip"
     elif is_target_arch("i386:x86-64", exact=True):
         return "rip"
     else:
-        raise gdb.GdbError("Not implemented yet")
+        # Default to use pc, add more archs if needed
+        return "pc"
 
 
 def get_register_byname(regname, tcb=None):
     frame = gdb.selected_frame()
 
-    # If no tcb is given then we can directly used the register from
+    # If no tcb is given then we can directly use the register from
     # the cached frame by GDB
     if not tcb:
         return int(frame.read_register(regname))
@@ -375,6 +485,14 @@ def get_register_byname(regname, tcb=None):
     )[0]
 
     return int(value)
+
+
+def get_sp(tcb=None):
+    return get_register_byname(get_arch_sp_name(), tcb)
+
+
+def get_pc(tcb=None):
+    return get_register_byname(get_arch_pc_name(), tcb)
 
 
 def get_tcbs():
