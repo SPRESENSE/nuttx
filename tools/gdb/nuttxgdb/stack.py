@@ -1,5 +1,5 @@
 ############################################################################
-# tools/gdb/stack.py
+# tools/gdb/nuttxgdb/stack.py
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -23,9 +23,12 @@
 import traceback
 
 import gdb
-import utils
 
-STACK_COLORATION_PATTERN = utils.get_symbol_value("STACK_COLOR")
+from . import utils
+
+STACK_COLORATION_PATTERN = utils.get_symbol_value(
+    "STACK_COLOR", locspec="up_create_stack"
+)
 
 
 class Stack(object):
@@ -45,7 +48,18 @@ class Stack(object):
 
     def _sanity_check(self):
         # do some basic sanity checking to make sure we have a sane stack object
-        if self._stack_base < self._stack_alloc or not self._stack_size:
+        if (
+            self._stack_base < self._stack_alloc
+            or not self._stack_size
+            or self._cur_sp <= self._stack_base
+            or self._cur_sp > self._stack_base + self._stack_size
+        ):
+
+            gdb.write(
+                f"base: {self._stack_base}, \
+                size: {self._stack_size}, sp: {self._cur_sp}\n"
+            )
+
             raise gdb.GdbError("Inconsistant stack size...Maybe memory corruption?")
 
         # TODO: check if stack ptr is located at a sane address range!
@@ -143,7 +157,10 @@ def fetch_stacks():
             )
 
         except gdb.GdbError as e:
-            gdb.write(f"Failed to construct stack object for tcb: {e}")
+            pid = tcb["pid"]
+            gdb.write(
+                f"Failed to construction stack object for tcb {pid} due to: {e}\n"
+            )
 
     return stacks
 
@@ -152,7 +169,7 @@ class StackUsage(gdb.Command):
     """Display the stack usage of each thread, similar to cat /proc/<pid>/stack"""
 
     def __init__(self):
-        super(StackUsage, self).__init__("stack-usage", gdb.COMMAND_USER)
+        super().__init__("stack-usage", gdb.COMMAND_USER)
         self._stacks = []
         # format template
         self._fmt = (
@@ -201,6 +218,3 @@ class StackUsage(gdb.Command):
                 continue
 
             self.format_print(pid, stack)
-
-
-StackUsage()

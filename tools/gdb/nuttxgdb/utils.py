@@ -1,5 +1,5 @@
 ############################################################################
-# tools/gdb/utils.py
+# tools/gdb/nuttxgdb/utils.py
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -20,22 +20,35 @@
 #
 ############################################################################
 
+import importlib
+import json
+import os
 import re
-from typing import List
+import shlex
+from typing import List, Tuple, Union
 
 import gdb
 
+from .macros import fetch_macro_info, try_expand
+
 g_symbol_cache = {}
 g_type_cache = {}
+g_macro_ctx = None
 
 
-def backtrace(addresses: List[gdb.Value]) -> List[str]:
+def backtrace(addresses: List[Union[gdb.Value, int]]) -> List[Tuple[int, str, str]]:
     """Convert addresses to backtrace"""
     backtrace = []
 
     for addr in addresses:
         if not addr:
             break
+
+        if type(addr) is int:
+            addr = gdb.Value(addr)
+
+        if addr.type.code is not gdb.TYPE_CODE_PTR:
+            addr = addr.cast(gdb.lookup_type("void").pointer())
 
         func = addr.format_string(symbols=True, address=False)
         sym = gdb.find_pc_line(int(addr))
@@ -72,15 +85,18 @@ def get_long_type():
     return long_type
 
 
-def offset_of(typeobj, field):
+def offset_of(typeobj: gdb.Type, field: str) -> Union[int, None]:
     """Return the offset of a field in a structure"""
-    element = gdb.Value(0).cast(typeobj)
-    return int(str(element[field].address).split()[0], 16)
+    for f in typeobj.fields():
+        if f.name == field:
+            return f.bitpos // 8 if f.bitpos is not None else None
+
+    return None
 
 
-def container_of(ptr, typeobj, member):
+def container_of(ptr: gdb.Value, typeobj: gdb.Type, member: str) -> gdb.Value:
     """Return pointer to containing data structure"""
-    return (ptr.cast(get_long_type()) - offset_of(typeobj, member)).cast(typeobj)
+    return gdb.Value(ptr.address - offset_of(typeobj, member)).cast(typeobj.pointer())
 
 
 class ContainerOf(gdb.Function):
@@ -91,7 +107,7 @@ class ContainerOf(gdb.Function):
     Note that TYPE and ELEMENT have to be quoted as strings."""
 
     def __init__(self):
-        super(ContainerOf, self).__init__("container_of")
+        super().__init__("container_of")
 
     def invoke(self, ptr, typename, elementname):
         return container_of(
@@ -102,12 +118,55 @@ class ContainerOf(gdb.Function):
 ContainerOf()
 
 
+class MacroCtx:
+    """
+    This is a singleton class which only initializes once to
+    cache a context of macro definition which can be queried later
+    TODO: we only deal with single ELF at the moment for simplicity
+    If you load more object files while debugging, only the first one gets loaded
+    will be used to retrieve macro information
+    """
+
+    def __new__(cls, *args, **kwargs):
+        if not hasattr(cls, "instance"):
+            cls.instance = super(MacroCtx, cls).__new__(cls)
+        return cls.instance
+
+    def __init__(self, filename):
+        self._macro_map = {}
+        self._file = filename
+
+        self._macro_map = fetch_macro_info(filename)
+
+    @property
+    def macro_map(self):
+        return self._macro_map
+
+    @property
+    def objfile(self):
+        return self._file
+
+
 def gdb_eval_or_none(expresssion):
     """Evaluate an expression and return None if it fails"""
     try:
         return gdb.parse_and_eval(expresssion)
     except gdb.error:
         return None
+
+
+def suppress_cli_notifications(suppress=True):
+    """Suppress(default behavior) or unsuppress GDB CLI notifications"""
+    try:
+        suppressed = "is on" in gdb.execute(
+            "show suppress-cli-notifications", to_string=True
+        )
+        if suppress != suppressed:
+            gdb.execute(f"set suppress-cli-notifications {'on' if suppress else 'off'}")
+
+        return suppressed
+    except gdb.error:
+        return True
 
 
 def get_symbol_value(name, locspec="nx_start", cacheable=True):
@@ -142,30 +201,31 @@ def get_symbol_value(name, locspec="nx_start", cacheable=True):
         )
         g_symbol_cache = {}
 
-    try:
-        suppressed = "is on" in gdb.execute(
-            "show suppress-cli-notifications", to_string=True
-        )
-    except gdb.error:
-        # Treat as suppressed if the command is not available
-        suppressed = True
-
-    if not suppressed:
-        # Disable notifications
-        gdb.execute("set suppress-cli-notifications on")
+    state = suppress_cli_notifications(True)
 
     # Switch to inferior 2 and set the scope firstly
     gdb.execute("inferior 2", to_string=True)
     gdb.execute(f"list {locspec}", to_string=True)
     value = gdb_eval_or_none(name)
+    if not value:
+        # Try to expand macro by reading elf
+        global g_macro_ctx
+        if not g_macro_ctx:
+            gdb.write("No macro context found, trying to load from ELF\n")
+            if len(gdb.objfiles()) > 0:
+                g_macro_ctx = MacroCtx(gdb.objfiles()[0].filename)
+            else:
+                raise gdb.GdbError("An executable file must be provided")
+
+        expr = try_expand(name, g_macro_ctx.macro_map)
+        value = gdb_eval_or_none(expr)
+
     if cacheable:
         g_symbol_cache[(name, locspec)] = value
 
     # Switch back to inferior 1
     gdb.execute("inferior 1", to_string=True)
-
-    if not suppressed:
-        gdb.execute("set suppress-cli-notifications off")
+    suppress_cli_notifications(state)
     return value
 
 
@@ -198,6 +258,7 @@ def import_check(module, name="", errmsg=""):
 
 
 def hexdump(address, size):
+    address = int(address)
     inf = gdb.inferiors()[0]
     mem = inf.read_memory(address, size)
     bytes = mem.tobytes()
@@ -221,33 +282,19 @@ def is_hexadecimal(s):
     return re.fullmatch(r"0[xX][0-9a-fA-F]+|[0-9a-fA-F]+", s) is not None
 
 
-class Hexdump(gdb.Command):
-    """hexdump address/symbol <size>"""
+def parse_arg(arg: str) -> Union[gdb.Value, int]:
+    """Parse an argument to a gdb.Value or int, return None if failed"""
 
-    def __init__(self):
-        super(Hexdump, self).__init__("hexdump", gdb.COMMAND_USER)
+    if is_decimal(arg):
+        return int(arg)
 
-    def invoke(self, args, from_tty):
-        argv = args.split(" ")
-        address = 0
-        size = 0
-        if argv[0] == "":
-            gdb.write("Usage: hexdump address/symbol <size>\n")
-            return
+    if is_hexadecimal(arg):
+        return int(arg, 16)
 
-        if is_decimal(argv[0]) or is_hexadecimal(argv[0]):
-            address = int(argv[0], 0)
-            size = int(argv[1], 0)
-        else:
-            var = gdb.parse_and_eval(f"{argv[0]}")
-            address = int(var.address)
-            size = int(var.type.sizeof)
-            gdb.write(f"{argv[0]} {hex(address)} {int(size)}\n")
-
-        hexdump(address, size)
-
-
-Hexdump()
+    try:
+        return gdb.parse_and_eval(f"{arg}")
+    except gdb.error:
+        return None
 
 
 def nitems(array):
@@ -432,10 +479,8 @@ def in_interrupt_context(cpuid=0):
 
 
 def get_arch_sp_name():
-    if is_target_arch("arm"):
+    if is_target_arch("arm") or is_target_arch("aarch64"):
         # arm and arm variants
-        return "sp"
-    if is_target_arch("aarch64"):
         return "sp"
     elif is_target_arch("i386", exact=True):
         return "esp"
@@ -447,10 +492,8 @@ def get_arch_sp_name():
 
 
 def get_arch_pc_name():
-    if is_target_arch("arm"):
+    if is_target_arch("arm") or is_target_arch("aarch64"):
         # arm and arm variants
-        return "pc"
-    if is_target_arch("aarch64"):
         return "pc"
     elif is_target_arch("i386", exact=True):
         return "eip"
@@ -502,3 +545,207 @@ def get_tcbs():
     npidhash = gdb.parse_and_eval("g_npidhash")
 
     return [pidhash[i] for i in range(0, npidhash) if pidhash[i]]
+
+
+def get_tcb(pid):
+    """get tcb from pid"""
+    g_pidhash = gdb.parse_and_eval("g_pidhash")
+    g_npidhash = gdb.parse_and_eval("g_npidhash")
+    tcb = g_pidhash[pid & (g_npidhash - 1)]
+    if not tcb or pid != tcb["pid"]:
+        return None
+
+    return tcb
+
+
+def get_task_name(tcb):
+    try:
+        name = tcb["name"].cast(gdb.lookup_type("char").pointer())
+        return name.string()
+    except gdb.error:
+        return ""
+
+
+def switch_inferior(inferior):
+    state = suppress_cli_notifications(True)
+
+    if len(gdb.inferiors()) == 1:
+        gdb.execute(
+            f"add-inferior -exec {gdb.objfiles()[0].filename} -no-connection",
+            to_string=True,
+        )
+
+    gdb.execute(f"inferior {inferior}", to_string=True)
+    return state
+
+
+def check_version():
+    """Check the elf and memory version"""
+    state = suppress_cli_notifications()
+    switch_inferior(1)
+    try:
+        mem_version = gdb.execute("p g_version", to_string=True).split("=")[1]
+    except gdb.error:
+        gdb.write("No symbol g_version found in memory, skipping version check\n")
+        suppress_cli_notifications(state)
+        return
+
+    switch_inferior(2)
+    elf_version = gdb.execute("p g_version", to_string=True).split("=")[1]
+    if mem_version != elf_version:
+        gdb.write(f"\x1b[31;1mMemory version:{mem_version}")
+        gdb.write(f"ELF version:   {elf_version}")
+        gdb.write("Warning version not matched, please check!\x1b[m\n")
+    else:
+        gdb.write(f"Build version: {mem_version}\n")
+
+    switch_inferior(1)  # Switch back
+    suppress_cli_notifications(state)
+
+
+def get_task_tls(tid, key):
+    """get task tls from tid and key"""
+    tcb = get_tcb(tid)
+    if not tcb:
+        return None
+
+    try:
+        stack_alloc_ptr = tcb["stack_alloc_ptr"].cast(
+            lookup_type("struct tls_info_s").pointer()
+        )
+        tls_value = stack_alloc_ptr["tl_task"]["ta_telem"][int(key)]
+        return tls_value.cast(lookup_type("uintptr_t").pointer())
+    except gdb.error:
+        return None
+
+
+def get_thread_tls(pid, key):
+    """get thread tls from pid and key"""
+    tcb = get_tcb(pid)
+    if not tcb:
+        return None
+
+    try:
+        stack_alloc_ptr = tcb["stack_alloc_ptr"].cast(
+            lookup_type("struct tls_info_s").pointer()
+        )
+        tls_value = stack_alloc_ptr["tl_elem"][int(key)]
+        return tls_value.cast(lookup_type("uintptr_t").pointer())
+    except gdb.error:
+        return None
+
+
+def gather_modules(dir=None) -> List[str]:
+    dir = os.path.normpath(dir) if dir else os.path.dirname(__file__)
+    return [
+        os.path.splitext(os.path.basename(f))[0]
+        for f in os.listdir(dir)
+        if f.endswith(".py")
+    ]
+
+
+def gather_gdbcommands(modules=None, path=None) -> List[gdb.Command]:
+    modules = modules or gather_modules(path)
+    commands = []
+    for m in modules:
+        module = importlib.import_module(f"{__package__}.{m}")
+        for c in module.__dict__.values():
+            if isinstance(c, type) and issubclass(c, gdb.Command):
+                commands.append(c)
+    return commands
+
+
+def jsonify(obj, indent=None):
+    if not obj:
+        return "{}"
+
+    def dumper(obj):
+        try:
+            return str(obj) if isinstance(obj, gdb.Value) else obj.toJSON()
+        except Exception:
+            return obj.__dict__
+
+    return json.dumps(obj, default=dumper, indent=indent)
+
+
+class Hexdump(gdb.Command):
+    """hexdump address/symbol <size>"""
+
+    def __init__(self):
+        super().__init__("hexdump", gdb.COMMAND_USER)
+
+    def invoke(self, args, from_tty):
+        argv = args.split(" ")
+        address = 0
+        size = 0
+        if argv[0] == "":
+            gdb.write("Usage: hexdump address/symbol <size>\n")
+            return
+
+        if is_decimal(argv[0]) or is_hexadecimal(argv[0]):
+            address = int(argv[0], 0)
+            size = int(argv[1], 0)
+        else:
+            var = gdb.parse_and_eval(f"{argv[0]}")
+            address = int(var.address)
+            size = int(var.type.sizeof)
+            gdb.write(f"{argv[0]} {hex(address)} {int(size)}\n")
+
+        hexdump(address, size)
+
+
+class Addr2Line(gdb.Command):
+    """Convert addresses or expressions
+
+    Usage: addr2line address1 address2 expression1
+    Example: addr2line 0x1234 0x5678
+             addr2line "0x1234 + pointer->abc" &var var->field function_name var
+             addr2line $pc $r1 "$r2 + var"
+             addr2line [24/08/29 20:51:02] [CPU1] [209] [ap] sched_dumpstack: backtrace| 0: 0x402cd484 0x4028357e
+    """
+
+    def __init__(self):
+        super().__init__("addr2line", gdb.COMMAND_USER)
+
+    def invoke(self, args, from_tty):
+        if not args:
+            gdb.write(Addr2Line.__doc__ + "\n")
+            return
+
+        addresses = []
+        for arg in shlex.split(args):
+            if is_decimal(arg):
+                addresses.append(int(arg))
+            elif is_hexadecimal(arg):
+                addresses.append(int(arg, 16))
+            else:
+                try:
+                    var = gdb.parse_and_eval(f"{arg}")
+                    addresses.append(var)
+                except gdb.error as e:
+                    gdb.write(f"Ignore {arg}: {e}\n")
+
+        backtraces = backtrace(addresses)
+        formatter = "{:<20} {:<32} {}\n"
+        gdb.write(formatter.format("Address", "Symbol", "Source"))
+        for addr, func, source in backtraces:
+            gdb.write(formatter.format(hex(addr), func, source))
+
+
+class Profile(gdb.Command):
+    """Profile a gdb command
+
+    Usage: profile <gdb command>
+    """
+
+    def __init__(self):
+        self.cProfile = import_check(
+            "cProfile", errmsg="cProfile module not found, try gdb-multiarch.\n"
+        )
+        if not self.cProfile:
+            return
+
+        super().__init__("profile", gdb.COMMAND_USER)
+
+    def invoke(self, args, from_tty):
+        self.cProfile.run(f"gdb.execute('{args}')", sort="cumulative")

@@ -438,7 +438,6 @@ static inline void up_irq_restore(irqstate_t flags)
  * interrupt context and 0 indicates being in a thread context.
  ****************************************************************************/
 
-#define up_current_regs()      (this_task()->xcp.regs)
 #define up_this_task()         ((struct tcb_s *)(read_sysreg(tpidr_el1) & ~1ul))
 #define up_update_task(t)      modify_sysreg(t, ~1ul, tpidr_el1)
 #define up_interrupt_context() (read_sysreg(tpidr_el1) & 1)
@@ -448,8 +447,9 @@ static inline void up_irq_restore(irqstate_t flags)
     {                                                                     \
       if (!up_interrupt_context())                                        \
         {                                                                 \
-          sys_call2(SYS_switch_context, (uintptr_t)rtcb, (uintptr_t)tcb); \
+          sys_call0(SYS_switch_context);                                  \
         }                                                                 \
+      UNUSED(rtcb);                                                       \
     }                                                                     \
   while (0)
 
@@ -458,7 +458,7 @@ static inline void up_irq_restore(irqstate_t flags)
  ****************************************************************************/
 
 #define up_getusrpc(regs) \
-    (((uintptr_t *)((regs) ? (regs) : up_current_regs()))[REG_ELR])
+    (((uintptr_t *)((regs) ? (regs) : running_regs()))[REG_ELR])
 
 #undef EXTERN
 #ifdef __cplusplus

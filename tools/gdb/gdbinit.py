@@ -1,5 +1,5 @@
 ############################################################################
-# boards/xtensa/esp32s3/esp32s3-devkit/src/Make.defs
+# tools/gdb/gdbinit.py
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -20,47 +20,16 @@
 #
 ############################################################################
 
-CSRCS = esp32s3_boot.c esp32s3_bringup.c
+import sys
+from os import path
 
-ifeq ($(CONFIG_BOARDCTL),y)
-CSRCS += esp32s3_appinit.c
-ifeq ($(CONFIG_BOARDCTL_RESET),y)
-CSRCS += esp32s3_reset.c
-endif
-endif
+here = path.dirname(path.abspath(__file__))
 
-ifeq ($(CONFIG_ARCH_BUTTONS),y)
-CSRCS += esp32s3_buttons.c
-endif
+if __name__ == "__main__":
+    if here not in sys.path:
+        sys.path.insert(0, here)
 
-ifeq ($(CONFIG_INPUT_DJOYSTICK),y)
-  CSRCS += esp32s3_djoystick.c
-endif
+    if "nuttxgdb" in sys.modules:
+        del sys.modules["nuttxgdb"]
 
-ifeq ($(CONFIG_ESP32S3_SPI),y)
-CSRCS += esp32s3_board_spi.c
-endif
-
-ifeq ($(CONFIG_ESP32S3_TWAI),y)
-CSRCS += esp32s3_twai.c
-endif
-
-ifeq ($(CONFIG_DEV_GPIO),y)
-CSRCS += esp32s3_gpio.c
-endif
-
-ifeq ($(CONFIG_PWM),y)
-CSRCS += esp32s3_ledc.c
-endif
-
-ifeq ($(CONFIG_LCD_ST7735),y)
-CSRCS += esp32s3_st7735.c
-endif
-
-DEPPATH += --dep-path board
-VPATH += :board
-CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)board$(DELIM)board
-
-ifeq ($(CONFIG_ETC_ROMFS),y)
-RCSRCS  = etc/init.d/rc.sysinit etc/init.d/rcS
-endif
+    import nuttxgdb  # noqa: F401

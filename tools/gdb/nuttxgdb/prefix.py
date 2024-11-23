@@ -1,5 +1,5 @@
 ############################################################################
-# tools/gdb/__init__.py
+# tools/gdb/nuttx_gdb/prefix.py
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -20,27 +20,11 @@
 #
 ############################################################################
 
-import glob
-import os
-import sys
-
 import gdb
 
-python_dir = os.path.abspath(__file__)
-python_dir = os.path.dirname(python_dir)
 
-sys.path.insert(1, python_dir)
-# Search the python dir for all .py files, and source each
-py_files = glob.glob(f"{python_dir}/*.py")
-py_files.remove(os.path.abspath(__file__))
+class ForeachPrefix(gdb.Command):
+    """foreach commands prefix."""
 
-gdb.execute("set pagination off")
-gdb.write("set pagination off\n")
-gdb.execute("set python print-stack full")
-gdb.write("set python print-stack full\n")
-for py_file in py_files:
-    gdb.execute(f"source {py_file}")
-    gdb.write(f"source {py_file}\n")
-
-gdb.execute('handle SIGUSR1 "nostop" "pass" "noprint"')
-gdb.write('"handle SIGUSR1 "nostop" "pass" "noprint"\n')
+    def __init__(self):
+        super(ForeachPrefix, self).__init__("foreach", gdb.COMMAND_USER, prefix=True)

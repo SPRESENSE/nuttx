@@ -1,5 +1,5 @@
 ############################################################################
-# tools/gdb/thread.py
+# tools/gdb/nuttxgdb/thread.py
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -21,52 +21,146 @@
 ############################################################################
 
 import argparse
+import re
 from enum import Enum, auto
 
 import gdb
-import utils
-from stack import Stack
+
+from . import utils
+from .stack import Stack
 
 UINT16_MAX = 0xFFFF
 SEM_TYPE_MUTEX = 4
-
-saved_regs = None
-
-
-def save_regs():
-    global saved_regs
-    tcbinfo = gdb.parse_and_eval("g_tcbinfo")
-
-    if saved_regs:
-        return
-    arch = gdb.selected_frame().architecture()
-    saved_regs = []
-    i = 0
-    for reg in arch.registers():
-        if i >= tcbinfo["regs_num"]:
-            break
-
-        saved_regs.append(gdb.parse_and_eval("$%s" % reg.name))
-        i += 1
+TSTATE_TASK_RUNNING = utils.get_symbol_value("TSTATE_TASK_RUNNING")
+CONFIG_SMP_NCPUS = utils.get_symbol_value("CONFIG_SMP_NCPUS") or 1
 
 
-def restore_regs():
-    tcbinfo = gdb.parse_and_eval("g_tcbinfo")
-    global saved_regs
+def is_thread_command_supported():
+    # Check if the native thread command is available by compare the number of threads.
+    # It should have at least CONFIG_SMP_NCPUS of idle threads.
+    return len(gdb.selected_inferior().threads()) > CONFIG_SMP_NCPUS
 
-    if not saved_regs:
-        return
 
-    arch = gdb.selected_frame().architecture()
-    i = 0
-    for reg in arch.registers():
-        if i >= tcbinfo["regs_num"]:
-            break
-
-        gdb.execute(f"set ${reg.name}={int(saved_regs[i])}")
-        i += 1
-
+class Registers:
     saved_regs = None
+    reginfo = None
+
+    def __init__(self):
+        if not Registers.reginfo:
+            reginfo = {}
+
+            # Switch to second inferior to get the original remote-register layout
+            state = utils.suppress_cli_notifications(True)
+            utils.switch_inferior(2)
+            arch = gdb.selected_inferior().architecture()
+            registers = arch.registers()
+
+            natural_size = gdb.lookup_type("long").sizeof
+            tcb_info = gdb.parse_and_eval("g_tcbinfo")
+            reg_off = tcb_info["reg_off"]["p"]  # Register offsets in tcbinfo
+            packet_size = tcb_info["regs_num"] * natural_size
+
+            lines = gdb.execute("maint print remote-registers", to_string=True)
+            for line in lines.splitlines()[1:]:
+                if not line:
+                    continue
+
+                # Name         Nr  Rel Offset    Size  Type            Rmt Nr  g/G Offset
+                match = re.match(
+                    r"\s(\S+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\S+)(?:\s+(\d+)\s+(\d+))?",
+                    line,
+                )
+                if not match:
+                    continue
+
+                name, _, _, _, size, _, rmt_nr, offset = match.groups()
+
+                # We only need those registers that have a remote register
+                if rmt_nr is None:
+                    continue
+
+                rmt_nr = int(rmt_nr)
+                offset = int(offset)
+                size = int(size)
+
+                # We only have limited number of registers in packet
+                if offset + size > packet_size:
+                    continue
+
+                index = offset // natural_size
+                tcb_reg_off = int(reg_off[index])
+                if tcb_reg_off == UINT16_MAX:
+                    # This register is not saved in tcb context
+                    continue
+
+                reginfo[name] = {
+                    "rmt_nr": rmt_nr,  # The register number in remote-registers, Aka the one we saved in g_tcbinfo.
+                    "tcb_reg_off": tcb_reg_off,
+                    "desc": registers.find(
+                        name
+                    ),  # Register descriptor. It's faster for frame.read_register
+                }
+
+            Registers.reginfo = reginfo
+            utils.switch_inferior(1)  # Switch back
+            utils.suppress_cli_notifications(state)
+
+    def load(self, regs):
+        """Load registers from context register address"""
+        regs = int(regs)
+        for name, info in Registers.reginfo.items():
+            addr = regs + info["tcb_reg_off"]
+            # value = *(uintptr_t *)addr
+            value = (
+                gdb.Value(addr)
+                .cast(utils.lookup_type("uintptr_t").pointer())
+                .dereference()
+            )
+            gdb.execute(f"set ${name}={int(value)}")
+
+    def switch(self, pid):
+        """Switch to the specified thread"""
+        tcb = utils.get_tcb(pid)
+        if not tcb:
+            gdb.write(f"Thread {pid} not found\n")
+            return
+
+        if tcb["task_state"] == TSTATE_TASK_RUNNING:
+            # If the thread is running, then register is not in context but saved temporarily
+            self.restore()
+            return
+
+        # Save current if this is the running thread, which is the case we never saved it before
+        if not self.saved_regs:
+            self.save()
+
+        self.load(tcb["xcp"]["regs"])
+
+    def save(self):
+        """Save current registers"""
+        if Registers.saved_regs:
+            # Already saved
+            return
+
+        registers = {}
+        frame = gdb.newest_frame()
+        for name, info in Registers.reginfo.items():
+            value = frame.read_register(info["desc"])
+            registers[name] = value
+
+        Registers.saved_regs = registers
+
+    def restore(self):
+        if not Registers.saved_regs:
+            return
+
+        for name, value in Registers.saved_regs.items():
+            gdb.execute(f"set ${name}={int(value)}")
+
+        Registers.saved_regs = None
+
+
+g_registers = Registers()
 
 
 class SetRegs(gdb.Command):
@@ -81,7 +175,7 @@ class SetRegs(gdb.Command):
     """
 
     def __init__(self):
-        super(SetRegs, self).__init__("setregs", gdb.COMMAND_USER)
+        super().__init__("setregs", gdb.COMMAND_USER)
 
     def invoke(self, arg, from_tty):
         parser = argparse.ArgumentParser(
@@ -112,34 +206,17 @@ class SetRegs(gdb.Command):
             gdb.write("regs is NULL\n")
             return
 
-        tcbinfo = gdb.parse_and_eval("g_tcbinfo")
-        save_regs()
-        arch = gdb.selected_frame().architecture()
-
-        regoffset = [
-            int(tcbinfo["reg_off"]["p"][i])
-            for i in range(tcbinfo["regs_num"])
-            if tcbinfo["reg_off"]["p"][i] != UINT16_MAX
-        ]
-
-        i = 0
-        for reg in arch.registers():
-            if i >= len(regoffset):
-                return
-
-            gdb.execute("select-frame 0")
-            value = gdb.Value(regs + regoffset[i]).cast(
-                utils.lookup_type("uintptr_t").pointer()
-            )[0]
-            gdb.execute(f"set ${reg.name} = {value}")
-            i += 1
+        g_registers.save()
+        g_registers.load(regs)
 
 
 class Nxinfothreads(gdb.Command):
     """Display information of all threads"""
 
     def __init__(self):
-        super(Nxinfothreads, self).__init__("info threads", gdb.COMMAND_USER)
+        super().__init__("info nxthreads", gdb.COMMAND_USER)
+        if not is_thread_command_supported():
+            gdb.execute("define info threads\n info nxthreads \n end\n")
 
     def invoke(self, args, from_tty):
         npidhash = gdb.parse_and_eval("g_npidhash")
@@ -230,7 +307,9 @@ class Nxthread(gdb.Command):
     """Switch to a specified thread"""
 
     def __init__(self):
-        super(Nxthread, self).__init__("thread", gdb.COMMAND_USER)
+        super().__init__("nxthread", gdb.COMMAND_USER)
+        if not is_thread_command_supported():
+            gdb.execute("define thread\n nxthread \n end\n")
 
     def invoke(self, args, from_tty):
         npidhash = gdb.parse_and_eval("g_npidhash")
@@ -261,7 +340,7 @@ class Nxthread(gdb.Command):
                         cmd_arg += cmd + " "
 
                     gdb.execute(f"{cmd_arg}\n")
-                    restore_regs()
+                    g_registers.restore()
             else:
                 threadlist = []
                 i = 0
@@ -289,14 +368,14 @@ class Nxthread(gdb.Command):
 
                         gdb.execute(f"setregs g_pidhash[{i}]->xcp.regs")
                         gdb.execute(f"{cmd}\n")
-                        restore_regs()
+                        g_registers.restore()
 
         else:
             if arg[0].isnumeric() and pidhash[int(arg[0])] != 0:
                 if pidhash[int(arg[0])]["task_state"] == gdb.parse_and_eval(
                     "TSTATE_TASK_RUNNING"
                 ):
-                    restore_regs()
+                    g_registers.restore()
                 else:
                     gdb.execute("setregs g_pidhash[%s]->xcp.regs" % arg[0])
             else:
@@ -307,10 +386,15 @@ class Nxcontinue(gdb.Command):
     """Restore the registers and continue the execution"""
 
     def __init__(self):
-        super(Nxcontinue, self).__init__("nxcontinue", gdb.COMMAND_USER)
+        super().__init__("nxcontinue", gdb.COMMAND_USER)
+        if not is_thread_command_supported():
+            gdb.execute("define c\n nxcontinue \n end\n")
+            gdb.write(
+                "\n\x1b[31;1m if use thread command, please don't use 'continue', use 'c' instead !!!\x1b[m\n"
+            )
 
     def invoke(self, args, from_tty):
-        restore_regs()
+        g_registers.restore()
         gdb.execute("continue")
 
 
@@ -318,10 +402,15 @@ class Nxstep(gdb.Command):
     """Restore the registers and step the execution"""
 
     def __init__(self):
-        super(Nxstep, self).__init__("nxstep", gdb.COMMAND_USER)
+        super().__init__("nxstep", gdb.COMMAND_USER)
+        if not is_thread_command_supported():
+            gdb.execute("define s\n nxstep \n end\n")
+            gdb.write(
+                "\x1b[31;1m if use thread command, please don't use 'step', use 's' instead !!!\x1b[m\n"
+            )
 
     def invoke(self, args, from_tty):
-        restore_regs()
+        g_registers.restore()
         gdb.execute("step")
 
 
@@ -360,7 +449,7 @@ class TaskState(Enum):
 
 class Ps(gdb.Command):
     def __init__(self):
-        super(Ps, self).__init__("ps", gdb.COMMAND_USER)
+        super().__init__("ps", gdb.COMMAND_USER)
         self._fmt_wxl = "{0: <{width}}"
         # By default we align to the right, whcih respects the nuttx foramt
         self._fmt_wx = "{0: >{width}}"
@@ -448,11 +537,18 @@ class Ps(gdb.Command):
             ptcb = cast2ptr(tcb, "struct pthread_tcb_s")
             arg = ptcb["arg"]
             cmd = " ".join((name, hex(entry), hex(arg)))
+        elif tcb["pid"] < get_macro("CONFIG_SMP_NCPUS"):
+            # This must be the Idle Tasks, hence we just get its name
+            cmd = name
         else:
-            argv = tcb["group"]["tg_info"]["ta_argv"] + 1
-
+            # For tasks other than pthreads, hence need to get its command line
+            # arguments from
+            argv = (
+                tcb["stack_alloc_ptr"]
+                + cast2ptr(tcb["stack_alloc_ptr"], "struct tls_info_s")["tl_size"]
+            )
             args = []
-            parg = argv
+            parg = argv.cast(gdb.lookup_type("char").pointer().pointer()) + 1
             while parg.dereference():
                 args.append(parg.dereference().string())
                 parg += 1
@@ -519,30 +615,67 @@ class Ps(gdb.Command):
             self.parse_and_show_info(tcb)
 
 
-def register_commands():
-    SetRegs()
-    Ps()
+class DeadLock(gdb.Command):
+    """Detect and report if threads have deadlock."""
 
-    # Disable thread commands for core dump and gdb-stub.
-    # In which case the recognized threads count is less or equal to the number of cpus
-    ncpus = utils.get_symbol_value("CONFIG_SMP_NCPUS") or 1
-    nthreads = len(gdb.selected_inferior().threads())
-    if nthreads <= ncpus:
-        SetRegs()
-        Nxinfothreads()
-        Nxthread()
-        Nxcontinue()
-        Nxstep()
+    def __init__(self):
+        super().__init__("deadlock", gdb.COMMAND_USER)
 
-        # We can't use a user command to rename continue it will recursion
-        gdb.execute("define c\n nxcontinue \n end\n")
-        gdb.execute("define s\n nxstep \n end\n")
-        gdb.write(
-            "\n\x1b[31;1m if use thread command, please don't use 'continue', use 'c' instead !!!\x1b[m\n"
-        )
-        gdb.write(
-            "\x1b[31;1m if use thread command, please don't use 'step', use 's' instead !!!\x1b[m\n"
-        )
+    def has_deadlock(self, pid):
+        """Check if the thread has a deadlock"""
+        tcb = utils.get_tcb(pid)
+        if not tcb or not tcb["waitobj"]:
+            return False
 
+        sem = tcb["waitobj"].cast(utils.lookup_type("sem_t").pointer())
+        if not sem["flags"] & SEM_TYPE_MUTEX:
+            return False
 
-register_commands()
+        # It's waiting on a mutex
+        mutex = tcb["waitobj"].cast(utils.lookup_type("mutex_t").pointer())
+        holder = mutex["holder"]
+        if holder in self.holders:
+            return True
+
+        self.holders.append(holder)
+        return self.has_deadlock(holder)
+
+    def collect(self, tcbs):
+        """Collect the deadlock information"""
+
+        detected = []
+        collected = []
+        for tcb in tcbs:
+            self.holders = []  # Holders for this tcb
+            pid = tcb["pid"]
+            if pid in detected or not self.has_deadlock(tcb["pid"]):
+                continue
+
+            # Deadlock detected
+            detected.append(pid)
+            detected.extend(self.holders)
+            collected.append((pid, self.holders))
+
+        return collected
+
+    def diagnose(self, *args, **kwargs):
+        collected = self.collect(utils.get_tcbs())
+
+        return {
+            "title": "Deadlock Report",
+            "summary": f"{'No' if not collected else len(collected)} deadlocks",
+            "command": "deadlock",
+            "deadlocks": {int(pid): [i for i in h] for pid, h in collected},
+        }
+
+    def invoke(self, args, from_tty):
+        collected = self.collect(utils.get_tcbs())
+        if not collected:
+            gdb.write("No deadlock detected.")
+            return
+
+        for pid, holders in collected:
+            gdb.write(f'Thread {pid} "{utils.get_task_name(pid)}" has deadlocked!\n')
+            gdb.write(f"  holders: {pid}->")
+            gdb.write("->".join(str(pid) for pid in holders))
+            gdb.write("\n")

@@ -1,5 +1,5 @@
 ############################################################################
-# tools/gdb/memdump.py
+# tools/gdb/nuttxgdb/memdump.py
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -25,9 +25,10 @@ import bisect
 import time
 
 import gdb
-import utils
-from lists import sq_for_every, sq_queue_type
-from utils import get_long_type, get_symbol_value, lookup_type, read_ulong
+
+from . import utils
+from .lists import NxSQueue
+from .utils import get_long_type, get_symbol_value, lookup_type, read_ulong
 
 MM_ALLOC_BIT = 0x1
 MM_PREVFREE_BIT = 0x2
@@ -83,6 +84,9 @@ def mm_foreach(heap):
             yield node
             next = int(node) + mm_nodesize(node["size"])
             next = gdb.Value(next).cast(mm_allocnode_type.pointer())
+            if node == next:
+                gdb.write(f"Error: maybe have memory fault on {hex(node)}\n")
+                break
             node = next
 
 
@@ -224,8 +228,7 @@ def mempool_foreach(pool):
             yield buf
             nblk -= 1
 
-    entry = sq_queue_type.pointer()
-    for entry in sq_for_every(pool["equeue"], entry):
+    for entry in NxSQueue(pool["equeue"]):
         nblk = (pool["expandsize"] - sq_entry_type.sizeof) / blocksize
         base = int(entry) - nblk * blocksize
         while nblk > 0:
@@ -295,14 +298,14 @@ class HeapNode:
 
         record_size = gdb_node["size"]
 
-        if hasattr(gdb_node, "seqno"):
+        try:
             seqno = gdb_node["seqno"]
-        else:
+        except gdb.error:
             seqno = 0
 
-        if hasattr(gdb_node, "pid"):
+        try:
             node_pid = gdb_node["pid"]
-        else:
+        except gdb.error:
             node_pid = 0
 
         self.size = mm_nodesize(record_size)
@@ -343,7 +346,7 @@ class Memdump(gdb.Command):
     """Dump the heap and mempool memory"""
 
     def __init__(self):
-        super(Memdump, self).__init__("memdump", gdb.COMMAND_USER)
+        super().__init__("memdump", gdb.COMMAND_USER)
 
     def check_alive(self, pid):
         return self.pidhash[pid & self.npidhash - 1] != 0
@@ -352,17 +355,15 @@ class Memdump(gdb.Command):
         """Dump the mempool memory"""
         for pool in mempool_multiple_foreach(mpool):
             if pid == PID_MM_FREE:
-                entry = sq_queue_type.pointer()
-
-                for entry in sq_for_every(pool["queue"], entry):
+                for entry in NxSQueue(pool["queue"]):
                     gdb.write("%12u%#*x\n" % (pool["blocksize"], self.align, entry))
                     self.aordblks += 1
-                    self.uordblks += pool["blocksize"]
+                    self.uordblks += mempool_realblocksize(pool)
 
-                for entry in sq_for_every(pool["iqueue"], entry):
+                for entry in NxSQueue(pool["iqueue"]):
                     gdb.write("%12u%#*x\n" % (pool["blocksize"], self.align, entry))
                     self.aordblks += 1
-                    self.uordblks += pool["blocksize"]
+                    self.uordblks += mempool_realblocksize(pool)
             else:
                 for buf in mempool_foreach(pool):
                     if (
@@ -410,7 +411,7 @@ class Memdump(gdb.Command):
                             gdb.execute(print_node)
                             return True
                         self.aordblks += 1
-                        self.uordblks += pool["blocksize"]
+                        self.uordblks += mempool_realblocksize(pool)
         return False
 
     def memnode_dump(self, node):
@@ -424,6 +425,34 @@ class Memdump(gdb.Command):
             backtrace_dict=self.backtrace_dict,
         )
 
+    def memdump_tail(self, detail, simple):
+        if not detail:
+            output = [v for v in self.backtrace_dict.values()]
+            output.sort(key=get_count, reverse=True)
+            for node in output:
+                if node["node"].type == mm_allocnode_type.pointer():
+                    mm_dumpnode(
+                        node["node"],
+                        node["count"],
+                        self.align,
+                        simple,
+                        detail,
+                        self.check_alive(node["pid"]),
+                    )
+                else:
+                    mempool_dumpbuf(
+                        node["node"],
+                        node["size"],
+                        node["count"],
+                        self.align,
+                        simple,
+                        detail,
+                        self.check_alive(node["pid"]),
+                    )
+
+        gdb.write("%12s%12s\n" % ("Total Blks", "Total Size"))
+        gdb.write("%12d%12d\n" % (self.aordblks, self.uordblks))
+
     def memdump(self, pid, seqmin, seqmax, address, simple, detail, biggest_top=30):
         """Dump the heap memory"""
 
@@ -432,8 +461,15 @@ class Memdump(gdb.Command):
 
         alloc_node = []
         free_node = []
+        mempool_node = []
 
         heap = gdb.parse_and_eval("g_mmheap")
+        if heap.type.has_key("mm_mpool"):
+            if self.mempool_dump(
+                heap["mm_mpool"], pid, seqmin, seqmax, address, simple, detail
+            ):
+                return
+
         prev_node = None
 
         for gdb_node in mm_foreach(heap):
@@ -459,19 +495,16 @@ class Memdump(gdb.Command):
                     gdb.execute(print_node)
                     return
 
-            if node.alloc:
+            if node.pid == PID_MM_MEMPOOL:
+                mempool_node.append(node)
+            elif node.alloc:
                 alloc_node.append(node)
             else:
                 free_node.append(node)
 
-        if heap.type.has_key("mm_mpool"):
-            if self.mempool_dump(
-                heap["mm_mpool"], pid, seqmin, seqmax, address, simple, detail
-            ):
-                return
-
         title_dict = {
             PID_MM_ALLOC: "Dump all used memory node info, use '\x1b[33;1m*\x1b[m' mark pid does not exist:\n",
+            PID_MM_MEMPOOL: "Dump mempool:\n",
             PID_MM_FREE: "Dump all free memory node info:\n",
             PID_MM_BIGGEST: f"Dump biggest allocated top {biggest_top}\n",
             PID_MM_ORPHAN: "Dump allocated orphan nodes\n",
@@ -505,45 +538,24 @@ class Memdump(gdb.Command):
                 self.memnode_dump(node)
         elif pid == PID_MM_ORPHAN:
             for node in alloc_node:
-                if node.is_orphan:
+                if node.is_orphan():
+                    self.memnode_dump(node)
+        elif pid == PID_MM_MEMPOOL:
+            for node in mempool_node:
+                self.memnode_dump(node)
+        elif pid >= 0:
+            for node in alloc_node:
+                if node.pid == pid:
                     self.memnode_dump(node)
 
-        if not detail:
-            output = []
-            for node in self.backtrace_dict.values():
-                output.append(node)
-
-            output.sort(key=get_count, reverse=True)
-            for node in output:
-                if node["node"].type == mm_allocnode_type.pointer():
-                    mm_dumpnode(
-                        node["node"],
-                        node["count"],
-                        self.align,
-                        simple,
-                        detail,
-                        self.check_alive(node["pid"]),
-                    )
-                else:
-                    mempool_dumpbuf(
-                        node["node"],
-                        node["size"],
-                        node["count"],
-                        self.align,
-                        simple,
-                        detail,
-                        self.check_alive(node["pid"]),
-                    )
-
-        gdb.write("%12s%12s\n" % ("Total Blks", "Total Size"))
-        gdb.write("%12d%12d\n" % (self.aordblks, self.uordblks))
+        self.memdump_tail(detail, simple)
 
     def complete(self, text, word):
         return gdb.COMPLETE_SYMBOL
 
     def parse_arguments(self, argv):
         parser = argparse.ArgumentParser(description="memdump command")
-        parser.add_argument("-p", "--pid", type=str, help="Thread PID")
+        parser.add_argument("-p", "--pid", type=str, help="Thread PID, -1 for mempool")
         parser.add_argument("-a", "--addr", type=str, help="Query memory address")
         parser.add_argument("-i", "--min", type=str, help="Minimum value")
         parser.add_argument("-x", "--max", type=str, help="Maximum value")
@@ -582,7 +594,7 @@ class Memdump(gdb.Command):
             "seqmax": int(args.max, 0) if args.max else 0xFFFFFFFF,
             "used": args.used,
             "free": args.free,
-            "addr": int(args.addr, 0) if args.addr else None,
+            "addr": int(utils.parse_arg(args.addr)) if args.addr else None,
             "simple": args.simple,
             "detail": args.detail,
             "biggest": args.biggest,
@@ -635,7 +647,13 @@ class Memleak(gdb.Command):
     """Memleak check"""
 
     def __init__(self):
-        super(Memleak, self).__init__("memleak", gdb.COMMAND_USER)
+        self.elf = utils.import_check(
+            "elftools.elf.elffile", "ELFFile", "Plase pip install pyelftools\n"
+        )
+        if not self.elf:
+            return
+
+        super().__init__("memleak", gdb.COMMAND_USER)
 
     def check_alive(self, pid):
         return self.pidhash[pid & self.npidhash - 1] != 0
@@ -744,13 +762,15 @@ class Memleak(gdb.Command):
 
         return {"simple": args.simple, "detail": args.detail}
 
-    def invoke(self, args, from_tty):
-        self.elf = utils.import_check(
-            "elftools.elf.elffile", "ELFFile", "Plase pip install pyelftools\n"
-        )
-        if not self.elf:
-            return
+    def diagnose(self, *args, **kwargs):
+        output = gdb.execute("memleak", to_string=True)
+        return {
+            "title": "Memory Leak Report",
+            "command": "memleak",
+            "details": output,
+        }
 
+    def invoke(self, args, from_tty):
         if sizeof_size_t == 4:
             align = 11
         else:
@@ -887,7 +907,15 @@ have {i} some backtrace leak, total leak memory is {int(leaksize)} bytes\n"
 
 class Memmap(gdb.Command):
     def __init__(self):
-        super(Memmap, self).__init__("memmap", gdb.COMMAND_USER)
+        self.np = utils.import_check("numpy", errmsg="Please pip install numpy\n")
+        self.plt = utils.import_check(
+            "matplotlib", "pyplot", errmsg="Please pip install matplotlib\n"
+        )
+        self.math = utils.import_check("math")
+        if not self.np or not self.plt or not self.math:
+            return
+
+        super().__init__("memmap", gdb.COMMAND_USER)
 
     def save_memory_map(self, mallinfo, output_file):
         mallinfo = sorted(mallinfo, key=lambda item: item["addr"])
@@ -935,14 +963,6 @@ class Memmap(gdb.Command):
         return args.output
 
     def invoke(self, args, from_tty):
-        self.np = utils.import_check("numpy", errmsg="Please pip install numpy\n")
-        self.plt = utils.import_check(
-            "matplotlib", "pyplot", errmsg="Please pip install matplotlib\n"
-        )
-        self.math = utils.import_check("math")
-        if not self.np or not self.plt or not self.math:
-            return
-
         output_file = self.parse_arguments(args.split(" "))
         meminfo = self.allocinfo()
         self.save_memory_map(meminfo, output_file + ".png")
@@ -950,7 +970,7 @@ class Memmap(gdb.Command):
 
 class Memfrag(gdb.Command):
     def __init__(self):
-        super(Memfrag, self).__init__("memfrag", gdb.COMMAND_USER)
+        super().__init__("memfrag", gdb.COMMAND_USER)
 
     def parse_arguments(self, argv):
         parser = argparse.ArgumentParser(description="memfrag command")
@@ -1003,9 +1023,3 @@ class Memfrag(gdb.Command):
             f"heap size: {heapsize}, free size: {freesize}, uordblks:"
             f"{info.__len__()} largest block: {info[0]['size']} \n"
         )
-
-
-Memfrag()
-Memdump()
-Memleak()
-Memmap()
