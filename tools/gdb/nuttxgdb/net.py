@@ -20,6 +20,8 @@
 #
 ############################################################################
 
+from enum import Enum
+
 import gdb
 
 from . import utils
@@ -60,7 +62,12 @@ def inet_ntop(domain, addr):
     """Convert a network address to a string"""
 
     addr_len = 16 if domain == AF_INET6 else 4
-    return socket.inet_ntop(domain, utils.get_bytes(addr, addr_len))
+    if socket:
+        return socket.inet_ntop(domain, utils.get_bytes(addr, addr_len))
+    else:
+        separator = "." if domain == AF_INET else ""
+        fmt = "%d" if domain == AF_INET else "%02x"
+        return separator.join([fmt % byte for byte in utils.get_bytes(addr, addr_len)])
 
 
 def socket_for_each_entry(proto):
@@ -95,8 +102,10 @@ def tcp_ofoseg_bufsize(conn):
 
     total = 0
     if utils.get_symbol_value("CONFIG_NET_TCP_OUT_OF_ORDER"):
-        for i in range(conn["nofosegs"]):
-            total += conn["ofosegs"][i]["data"]["io_pktlen"]
+        total = sum(
+            seg["data"]["io_pktlen"]
+            for seg in utils.ArrayIterator(conn["ofosegs"], conn["nofosegs"])
+        )
     return total
 
 
@@ -111,7 +120,7 @@ class NetStats(gdb.Command):
     """
 
     def __init__(self):
-        if utils.get_symbol_value("CONFIG_NET") and socket:
+        if utils.get_symbol_value("CONFIG_NET"):
             super().__init__("netstats", gdb.COMMAND_USER)
 
     def iob_stats(self):
@@ -246,3 +255,66 @@ class NetStats(gdb.Command):
         if utils.get_symbol_value("CONFIG_NET_UDP") and "udp" in args:
             self.udp_stats()
             gdb.write("\n")
+
+
+class NetCheckResult(Enum):
+    PASS = 0
+    WARN = 1
+    FAILED = 2
+
+    def __lt__(self, other):
+        return self.value < other.value
+
+
+class NetCheck(gdb.Command):
+    """Network check"""
+
+    def __init__(self):
+        if utils.get_symbol_value("CONFIG_NET"):
+            super().__init__("netcheck", gdb.COMMAND_USER)
+
+    def diagnose(self, *args, **kwargs):
+        result, message = NetCheckResult.PASS, []
+
+        if utils.get_symbol_value("CONFIG_MM_IOB"):
+            ret, msg = self.check_iob()
+            result = max(result, ret)
+            message.extend(msg)
+
+            return {
+                "title": "Netcheck Report",
+                "summary": "Net status check",
+                "result": "pass" if result else "fail",
+                "command": "netcheck",
+                "data": message,
+            }
+
+    def check_iob(self):
+        result = NetCheckResult.PASS
+        message = []
+        try:
+            nfree = gdb.parse_and_eval("g_iob_sem")["semcount"]
+            nthrottle = (
+                gdb.parse_and_eval("g_throttle_sem")["semcount"]
+                if utils.get_symbol_value("CONFIG_IOB_THROTTLE") > 0
+                else 0
+            )
+
+            if nfree < 0 or nthrottle < 0:
+                result = max(result, NetCheckResult.WARN)
+                message.append(
+                    "[WARNING] IOB used up: free %d throttle %d" % (nfree, nthrottle)
+                )
+
+        except gdb.error as e:
+            result = max(result, NetCheckResult.FAILED)
+            message.append("[FAILED] Failed to check IOB: %s" % e)
+
+        finally:
+            return result, message
+
+    def invoke(self, args, from_tty):
+        if utils.get_symbol_value("CONFIG_MM_IOB"):
+            result, message = self.check_iob()
+            gdb.write("IOB check: %s\n" % result.name)
+            gdb.write("\n".join(message))

@@ -28,6 +28,7 @@ from . import utils
 
 list_node_type = utils.lookup_type("struct list_node")
 sq_queue_type = utils.lookup_type("sq_queue_t")
+sq_entry_type = utils.lookup_type("sq_entry_t")
 dq_queue_type = utils.lookup_type("dq_queue_t")
 
 
@@ -201,29 +202,49 @@ def sq_is_empty(sq):
         return False
 
 
-def sq_check(sq):
+def sq_check(sq, verbose=True) -> int:
     """Check the consistency of a singly linked list"""
     nb = 0
     if sq.type == sq_queue_type.pointer():
         sq = sq.dereference()
     elif sq.type != sq_queue_type:
         gdb.write("Must be struct sq_queue not {}".format(sq.type))
-        return
+        return nb
 
     if sq["head"] == 0:
-        gdb.write("sq_queue head is empty {}\n".format(sq.address))
-        return
+        if verbose:
+            gdb.write("sq_queue head is empty {}\n".format(sq.address))
+        return nb
 
+    nodes = set()
     entry = sq["head"].dereference()
     try:
         while entry.address:
             nb += 1
+            if int(entry.address) in nodes:
+                gdb.write("sq_queue is circular: {}\n".format(entry.address))
+                return nb
+            nodes.add(int(entry.address))
             entry = entry["flink"].dereference()
     except gdb.MemoryError:
         gdb.write("entry address is unaccessible {}\n".format(entry.address))
-        return
+        return nb
 
-    gdb.write("sq_queue is consistent: {} node(s)\n".format(nb))
+    if int(sq["tail"]) not in nodes:
+        gdb.write("sq_queue tail is not in the list {}\n".format(sq["tail"]))
+        return nb
+    if sq["tail"]["flink"] != 0:
+        gdb.write("sq_queue tail->flink is not null {}\n".format(sq["tail"]))
+        return nb
+
+    if verbose:
+        gdb.write("sq_queue is consistent: {} node(s)\n".format(nb))
+    return nb
+
+
+def sq_count(sq) -> int:
+    """Count sq elements, abort if check failed"""
+    return sq_check(sq, verbose=False)
 
 
 def dq_for_every(dq, entry=None):
@@ -257,13 +278,26 @@ def dq_check(dq):
     if dq["head"] == 0:
         gdb.write("dq_queue head is empty {}\n".format(dq.address))
         return
+
+    nodes = set()
     entry = dq["head"].dereference()
     try:
         while entry.address:
             nb += 1
+            if int(entry.address) in nodes:
+                gdb.write("dq_queue is circular: {}\n".format(entry.address))
+                return
+            nodes.add(int(entry.address))
             entry = entry["flink"].dereference()
     except gdb.MemoryError:
         gdb.write("entry address is unaccessible {}\n".format(entry.address))
+        return
+
+    if int(dq["tail"]) not in nodes:
+        gdb.write("dq_queue tail is not in the list {}\n".format(dq["tail"]))
+        return
+    if dq["tail"]["flink"] != 0:
+        gdb.write("dq_queue tail->flink is not null {}\n".format(dq["tail"]))
         return
 
     gdb.write("dq_queue is consistent: {} node(s)\n".format(nb))
@@ -285,6 +319,8 @@ class ListCheck(gdb.Command):
             list_check(obj)
         elif obj.type == sq_queue_type.pointer():
             sq_check(obj)
+        elif obj.type == dq_queue_type.pointer():
+            dq_check(obj)
         else:
             raise gdb.GdbError("Invalid argument type: {}".format(obj.type))
 
@@ -300,8 +336,26 @@ class ForeachListEntry(gdb.Command):
 
         parser = argparse.ArgumentParser(description="Iterate the items in list")
         parser.add_argument("head", type=str, help="List head")
-        parser.add_argument("type", type=str, help="Container type")
-        parser.add_argument("member", type=str, help="Member name in container")
+        parser.add_argument(
+            "-n",
+            "--next",
+            type=str,
+            help="The name of the next pointer in the list node",
+            default="next",
+        )
+        parser.add_argument(
+            "-c", "--container", type=str, default=None, help="Optional container type"
+        )
+        parser.add_argument(
+            "-m", "--member", type=str, default=None, help="Member name in container"
+        )
+        parser.add_argument(
+            "-e",
+            "--element",
+            type=str,
+            help="Only dump this element in array member struct.",
+            default=None,
+        )
         try:
             args = parser.parse_args(argv)
         except SystemExit:
@@ -309,9 +363,59 @@ class ForeachListEntry(gdb.Command):
             return
 
         pointer = gdb.parse_and_eval(args.head)
-        container_type = gdb.lookup_type(args.type)
-        member = args.member
-        list = NxList(pointer, container_type, member)
-        for i, entry in enumerate(list):
+        node = pointer
+        i = 0
+        while node:
+            entry = (
+                utils.container_of(node, args.container, args.member)
+                if args.container
+                else node
+            )
             entry = entry.dereference()
+            entry = entry[args.element] if args.element else entry
+            gdb.write(
+                f"{i} *({entry.type} *){hex(entry.address)} {entry.format_string(styling=True)}\n"
+            )
+            i += 1
+            node = node[args.next]
+            if node == pointer:
+                break
+
+
+class ForeachArray(gdb.Command):
+    """Dump array members."""
+
+    def __init__(self):
+        super().__init__("foreach array", gdb.COMMAND_DATA, gdb.COMPLETE_EXPRESSION)
+
+    def invoke(self, arg, from_tty):
+        argv = gdb.string_to_argv(arg)
+
+        parser = argparse.ArgumentParser(description="Iterate the items in array")
+        parser.add_argument("head", type=str, help="List head")
+        parser.add_argument(
+            "-l",
+            "--length",
+            type=int,
+            help="The array length",
+            default=None,
+        )
+        parser.add_argument(
+            "-e",
+            "--element",
+            type=str,
+            help="Only dump this element in array member struct.",
+            default=None,
+        )
+        try:
+            args = parser.parse_args(argv)
+        except SystemExit:
+            gdb.write("Invalid arguments\n")
+            return
+
+        pointer = gdb.parse_and_eval(args.head)
+        node = pointer
+        len = args.length if args.length else utils.nitems(pointer)
+        for i in range(len):
+            entry = node[i][args.element] if args.element else node[i]
             gdb.write(f"{i}: {entry.format_string(styling=True)}\n")

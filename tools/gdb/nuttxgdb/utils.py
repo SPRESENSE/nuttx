@@ -20,29 +20,170 @@
 #
 ############################################################################
 
+from __future__ import annotations
+
+import argparse
 import importlib
 import json
 import os
 import re
 import shlex
-from typing import List, Tuple, Union
+from enum import Enum
+from typing import List, Optional, Tuple, Union
 
 import gdb
 
 from .macros import fetch_macro_info, try_expand
+from .protocols.thread import Tcb
 
 g_symbol_cache = {}
 g_type_cache = {}
 g_macro_ctx = None
+g_backtrace_cache = {}
 
 
-def backtrace(addresses: List[Union[gdb.Value, int]]) -> List[Tuple[int, str, str]]:
-    """Convert addresses to backtrace"""
-    backtrace = []
+class Value(gdb.Value):
+    def __init__(self, obj: Union[gdb.Value, Value]):
+        super().__init__(obj)
 
-    for addr in addresses:
+    def __isabstractmethod__(self):
+        # Added to avoid getting error using __getattr__
+        return False
+
+    def __getattr__(self, key):
+        if hasattr(super(), key):
+            value = super().__getattribute__(key)
+        else:
+            value = super().__getitem__(key)
+
+        return Value(value) if not isinstance(value, Value) else value
+
+    def __getitem__(self, key):
+        value = super().__getitem__(key)
+        return Value(value) if not isinstance(value, Value) else value
+
+    def __format__(self, format_spec: str) -> str:
+        try:
+            return super().__format__(format_spec)
+        except TypeError:
+            # Convert GDB value to python value, and then format it
+            type_code_map = {
+                gdb.TYPE_CODE_INT: int,
+                gdb.TYPE_CODE_PTR: int,
+                gdb.TYPE_CODE_ENUM: int,
+                gdb.TYPE_CODE_FUNC: hex,
+                gdb.TYPE_CODE_BOOL: bool,
+                gdb.TYPE_CODE_FLT: float,
+                gdb.TYPE_CODE_STRING: str,
+                gdb.TYPE_CODE_CHAR: lambda x: chr(int(x)),
+            }
+
+            t = self.type
+            while t.code == gdb.TYPE_CODE_TYPEDEF:
+                t = t.target()
+
+            type_code = t.code
+            try:
+                converter = type_code_map[type_code]
+                return f"{converter(self):{format_spec}}"
+            except KeyError:
+                raise TypeError(
+                    f"Unsupported type: {self.type}, {self.type.code} {self}"
+                )
+
+    @property
+    def address(self) -> Value:
+        value = super().address
+        return value and Value(value)
+
+    def cast(self, type: str | gdb.Type, ptr: bool = False) -> Optional["Value"]:
+        try:
+            gdb_type = lookup_type(type) if isinstance(type, str) else type
+            if ptr:
+                gdb_type = gdb_type.pointer()
+            return Value(super().cast(gdb_type))
+        except gdb.error:
+            return None
+
+    def dereference(self) -> Value:
+        return Value(super().dereference())
+
+    def reference_value(self) -> Value:
+        return Value(super().reference_value())
+
+    def referenced_value(self) -> Value:
+        return Value(super().referenced_value())
+
+    def rvalue_reference_value(self) -> Value:
+        return Value(super().rvalue_reference_value())
+
+    def const_value(self) -> Value:
+        return Value(super().const_value())
+
+    def dynamic_cast(self, type: gdb.Type) -> Value:
+        return Value(super().dynamic_cast(type))
+
+
+class Backtrace:
+    """
+    Convert addresses to backtrace
+    Usage:
+    backtrace = Backtrace(addresses=[0x4001, 0x4002, 0x4003])
+
+    # Access converted backtrace
+    addr, func, source = backtrace[0]
+    remaining = backtrace[1:]  # Return list of (addr, func, source)
+
+    # Iterate over backtrace
+    for addr, func, source in backtrace:
+        print(addr, func, source)
+
+    # Append more addresses to convert
+    backtrace.append(0x40001234)
+
+    # Print backtrace
+    print(str(backtrace))
+
+    # Format backtrace to string
+    print("\n".join(backtrace.formatted))
+
+    # Custom formatter
+    backtrace = Backtrace(addresses=[0x4001, 0x4002, 0x4003], formatter="{:<6} {:<20} {}")
+    """
+
+    def __init__(
+        self,
+        address: List[Union[gdb.Value, int]] = [],
+        formatter="{:<5} {:<36} {}\n",
+        break_null=True,
+    ):
+        self.formatter = formatter  # Address, Function, Source
+        self._formatted = None  # Cached formatted backtrace
+        self.backtrace = []
+        for addr in address:
+            if break_null and not addr:
+                break
+            self.append(addr)
+
+    def __eq__(self, value: Backtrace) -> bool:
+        return self.backtrace == value.backtrace
+
+    def __hash__(self) -> int:
+        return hash(tuple(self.backtrace))
+
+    def append(self, addr: Union[gdb.Value, int]) -> None:
+        """Append an address to the backtrace"""
+        if result := self.convert(addr):
+            self.backtrace.append(result)
+            self._formatted = None  # Clear cached result
+
+    def convert(self, addr: Union[gdb.Value, int]) -> Tuple[int, str, str]:
+        """Convert an address to function and source"""
         if not addr:
-            break
+            return None
+
+        if int(addr) in g_backtrace_cache:
+            return g_backtrace_cache[int(addr)]
 
         if type(addr) is int:
             addr = gdb.Value(addr)
@@ -53,9 +194,33 @@ def backtrace(addresses: List[Union[gdb.Value, int]]) -> List[Tuple[int, str, st
         func = addr.format_string(symbols=True, address=False)
         sym = gdb.find_pc_line(int(addr))
         source = str(sym.symtab) + ":" + str(sym.line)
-        backtrace.append((int(addr), func, source))
+        result = (int(addr), func, source)
+        g_backtrace_cache[int(addr)] = result
+        return result
 
-    return backtrace
+    @property
+    def formatted(self):
+        """Return the formatted backtrace string list"""
+        if not self._formatted:
+            self._formatted = [
+                self.formatter.format(hex(addr), func, source)
+                for addr, func, source in self.backtrace
+            ]
+
+        return self._formatted
+
+    def __repr__(self) -> str:
+        return f"Backtrace: {len(self.backtrace)} items"
+
+    def __str__(self) -> str:
+        return "".join(self.formatted)
+
+    def __iter__(self):
+        for item in self.backtrace:
+            yield item
+
+    def __getitem__(self, index):
+        return self.backtrace.__getitem__(index)
 
 
 def lookup_type(name, block=None) -> gdb.Type:
@@ -85,18 +250,53 @@ def get_long_type():
     return long_type
 
 
-def offset_of(typeobj: gdb.Type, field: str) -> Union[int, None]:
+def offset_of(typeobj: Union[gdb.Type, str], field: str) -> Union[int, None]:
     """Return the offset of a field in a structure"""
+    if type(typeobj) is str:
+        typeobj = gdb.lookup_type(typeobj)
+
+    if typeobj.code is gdb.TYPE_CODE_PTR:
+        typeobj = typeobj.target()
+
     for f in typeobj.fields():
         if f.name == field:
-            return f.bitpos // 8 if f.bitpos is not None else None
+            if f.bitpos is None:
+                break
+            return f.bitpos // 8
 
-    return None
+    raise gdb.GdbError(f"Field {field} not found in type {typeobj}")
 
 
-def container_of(ptr: gdb.Value, typeobj: gdb.Type, member: str) -> gdb.Value:
-    """Return pointer to containing data structure"""
-    return gdb.Value(ptr.address - offset_of(typeobj, member)).cast(typeobj.pointer())
+def container_of(
+    ptr: Union[gdb.Value, int], typeobj: Union[gdb.Type, str], member: str
+) -> gdb.Value:
+    """
+    Return a pointer to the containing data structure.
+
+    Args:
+        ptr: Pointer to the member.
+        t: Type of the container.
+        member: Name of the member in the container.
+
+    Returns:
+        gdb.Value of the container.
+
+    Example:
+        struct foo {
+            int a;
+            int b;
+        };
+        struct foo *ptr = container_of(&ptr->b, "struct foo", "b");
+    """
+
+    if isinstance(typeobj, str):
+        typeobj = gdb.lookup_type(typeobj).pointer()
+
+    if typeobj.code is not gdb.TYPE_CODE_PTR:
+        typeobj = typeobj.pointer()
+
+    addr = gdb.Value(ptr).cast(long_type)
+    return gdb.Value(addr - offset_of(typeobj, member)).cast(typeobj)
 
 
 class ContainerOf(gdb.Function):
@@ -110,9 +310,7 @@ class ContainerOf(gdb.Function):
         super().__init__("container_of")
 
     def invoke(self, ptr, typename, elementname):
-        return container_of(
-            ptr, gdb.lookup_type(typename.string()).pointer(), elementname.string()
-        )
+        return container_of(ptr, typename.string(), elementname.string())
 
 
 ContainerOf()
@@ -147,10 +345,16 @@ class MacroCtx:
         return self._file
 
 
+def parse_and_eval(expression: str, global_context: bool = False):
+    """Equivalent to gdb.parse_and_eval, but returns a Value object"""
+    gdb_value = gdb.parse_and_eval(expression)
+    return Value(gdb_value)
+
+
 def gdb_eval_or_none(expresssion):
     """Evaluate an expression and return None if it fails"""
     try:
-        return gdb.parse_and_eval(expresssion)
+        return parse_and_eval(expresssion)
     except gdb.error:
         return None
 
@@ -196,7 +400,7 @@ def get_symbol_value(name, locspec="nx_start", cacheable=True):
     # in order to use the list command to set the scope.
     if len(gdb.inferiors()) == 1:
         gdb.execute(
-            f"add-inferior -exec {gdb.objfiles()[0].filename} -no-connection",
+            f'add-inferior -exec "{gdb.objfiles()[0].filename}" -no-connection',
             to_string=True,
         )
         g_symbol_cache = {}
@@ -211,7 +415,6 @@ def get_symbol_value(name, locspec="nx_start", cacheable=True):
         # Try to expand macro by reading elf
         global g_macro_ctx
         if not g_macro_ctx:
-            gdb.write("No macro context found, trying to load from ELF\n")
             if len(gdb.objfiles()) > 0:
                 g_macro_ctx = MacroCtx(gdb.objfiles()[0].filename)
             else:
@@ -292,7 +495,7 @@ def parse_arg(arg: str) -> Union[gdb.Value, int]:
         return int(arg, 16)
 
     try:
-        return gdb.parse_and_eval(f"{arg}")
+        return parse_and_eval(f"{arg}")
     except gdb.error:
         return None
 
@@ -303,6 +506,13 @@ def nitems(array):
     element_size = element_type.sizeof
     array_size = array_type.sizeof // element_size
     return array_size
+
+
+def sizeof(t: Union[str, gdb.Type]):
+    if type(t) is str:
+        t = gdb.lookup_type(t)
+
+    return t.sizeof
 
 
 # Machine Specific Helper Functions
@@ -424,7 +634,7 @@ target_arch = None
 
 def is_target_arch(arch, exact=False):
     """
-    For non extact match, this function will
+    For non exact match, this function will
     return True if the target architecture contains
     keywords of an ARCH family. For example, x86 is
     contained in i386:x86_64.
@@ -478,32 +688,6 @@ def in_interrupt_context(cpuid=0):
         return not g_current_regs or not g_current_regs[cpuid]
 
 
-def get_arch_sp_name():
-    if is_target_arch("arm") or is_target_arch("aarch64"):
-        # arm and arm variants
-        return "sp"
-    elif is_target_arch("i386", exact=True):
-        return "esp"
-    elif is_target_arch("i386:x86-64", exact=True):
-        return "rsp"
-    else:
-        # Default to use sp, add more archs if needed
-        return "sp"
-
-
-def get_arch_pc_name():
-    if is_target_arch("arm") or is_target_arch("aarch64"):
-        # arm and arm variants
-        return "pc"
-    elif is_target_arch("i386", exact=True):
-        return "eip"
-    elif is_target_arch("i386:x86-64", exact=True):
-        return "rip"
-    else:
-        # Default to use pc, add more archs if needed
-        return "pc"
-
-
 def get_register_byname(regname, tcb=None):
     frame = gdb.selected_frame()
 
@@ -531,31 +715,41 @@ def get_register_byname(regname, tcb=None):
 
 
 def get_sp(tcb=None):
-    return get_register_byname(get_arch_sp_name(), tcb)
+    return get_register_byname("sp", tcb)
 
 
 def get_pc(tcb=None):
-    return get_register_byname(get_arch_pc_name(), tcb)
+    return get_register_byname("pc", tcb)
 
 
-def get_tcbs():
+def get_tcbs() -> List[Tcb]:
     # In case we have created/deleted tasks at runtime, the tcbs will change
     # so keep it as fresh as possible
-    pidhash = gdb.parse_and_eval("g_pidhash")
-    npidhash = gdb.parse_and_eval("g_npidhash")
+    pidhash = parse_and_eval("g_pidhash")
+    npidhash = parse_and_eval("g_npidhash")
 
     return [pidhash[i] for i in range(0, npidhash) if pidhash[i]]
 
 
-def get_tcb(pid):
+def get_tcb(pid) -> Tcb:
     """get tcb from pid"""
-    g_pidhash = gdb.parse_and_eval("g_pidhash")
-    g_npidhash = gdb.parse_and_eval("g_npidhash")
+    g_pidhash = parse_and_eval("g_pidhash")
+    g_npidhash = parse_and_eval("g_npidhash")
     tcb = g_pidhash[pid & (g_npidhash - 1)]
     if not tcb or pid != tcb["pid"]:
         return None
 
     return tcb
+
+
+def get_tid(tcb):
+    """get tid from tcb"""
+    if not tcb:
+        return None
+    try:
+        return tcb["group"]["tg_pid"]
+    except gdb.error:
+        return None
 
 
 def get_task_name(tcb):
@@ -668,6 +862,86 @@ def jsonify(obj, indent=None):
     return json.dumps(obj, default=dumper, indent=indent)
 
 
+def enum(t: Union[str, gdb.Type], name=None):
+    """Create python Enum class from C enum values
+    Usage:
+
+    in C:
+    enum color_e {
+        RED = 1,
+        GREEN = 2,
+    };
+
+    in python:
+    COLOR = utils.enum("enum color_e", "COLOR")
+    print(COLOR.GREEN.value) # --> 2
+    RED = COLOR(1)
+    """
+    if type(t) is str:
+        t = lookup_type(t) or lookup_type("enum " + t)
+
+    if t and t.code == gdb.TYPE_CODE_TYPEDEF:
+        t = t.strip_typedefs()
+
+    if not t or t.code != gdb.TYPE_CODE_ENUM:
+        raise gdb.error(f"{t} is not an enum type")
+
+    def commonprefix(m):
+        "Given a list of pathnames, returns the longest common leading component"
+        if not m:
+            return ""
+        s1 = min(m)
+        s2 = max(m)
+        for i, c in enumerate(s1):
+            if c != s2[i]:
+                return s1[:i]
+        return s1
+
+    # Remove the common prefix from names. This is a convention in python.
+    # E.g. COLOR.RED, COLOR.GREEN instead of COLOR.COLOR_RED, COLOR.COLOR_GREEN
+
+    prefix = commonprefix([f.name for f in t.fields()])
+
+    names = {f.name[len(prefix) :]: f.enumval for f in t.fields()}
+
+    name = name or prefix[:-1] if prefix[-1] == "_" else prefix
+    return Enum(name, names)
+
+
+class ArrayIterator:
+    """An iterator for gdb array or pointer."""
+
+    def __init__(self, array: gdb.Value, maxlen=None, reverse=False):
+        type_code = array.type.code
+        if type_code not in (gdb.TYPE_CODE_ARRAY, gdb.TYPE_CODE_PTR):
+            raise gdb.error(f"Not an array: {array}, type: {array.type}")
+
+        if type_code == gdb.TYPE_CODE_ARRAY:
+            if n := nitems(array) > 0:
+                maxlen = min(n, maxlen) if maxlen is not None else n
+
+        if maxlen is None:
+            raise gdb.error("Need to provide array length.")
+
+        self.array = array
+        self.maxlen = maxlen
+        self.reverse = reverse
+        self.index = maxlen - 1 if reverse else 0
+
+    def __iter__(self):
+        return self
+
+    def __next__(self) -> gdb.Value:
+        if (not self.reverse and self.index >= self.maxlen) or (
+            self.reverse and self.index < 0
+        ):
+            raise StopIteration
+
+        value = self.array[self.index]
+        self.index = self.index - 1 if self.reverse else self.index + 1
+        return value
+
+
 class Hexdump(gdb.Command):
     """hexdump address/symbol <size>"""
 
@@ -686,10 +960,13 @@ class Hexdump(gdb.Command):
             address = int(argv[0], 0)
             size = int(argv[1], 0)
         else:
-            var = gdb.parse_and_eval(f"{argv[0]}")
-            address = int(var.address)
-            size = int(var.type.sizeof)
-            gdb.write(f"{argv[0]} {hex(address)} {int(size)}\n")
+            try:
+                var = gdb.parse_and_eval(f"{argv[0]}")
+                address = int(var.cast(long_type))
+                size = int(argv[1]) if argv[1] else int(var.type.sizeof)
+                gdb.write(f"{argv[0]} {hex(address)} {int(size)}\n")
+            except Exception as e:
+                gdb.write(f"Invalid {argv[0]}: {e}\n")
 
         hexdump(address, size)
 
@@ -702,50 +979,78 @@ class Addr2Line(gdb.Command):
              addr2line "0x1234 + pointer->abc" &var var->field function_name var
              addr2line $pc $r1 "$r2 + var"
              addr2line [24/08/29 20:51:02] [CPU1] [209] [ap] sched_dumpstack: backtrace| 0: 0x402cd484 0x4028357e
+             addr2line -f crash.log
+             addr2line -f crash.log -p 123
     """
+
+    formatter = "{:<20} {:<32} {}\n"
 
     def __init__(self):
         super().__init__("addr2line", gdb.COMMAND_USER)
+
+    def print_backtrace(self, addresses, pid=None):
+        if pid:
+            gdb.write(f"\nBacktrace of {pid}\n")
+        backtraces = Backtrace(addresses, formatter=self.formatter, break_null=False)
+        gdb.write(str(backtraces))
 
     def invoke(self, args, from_tty):
         if not args:
             gdb.write(Addr2Line.__doc__ + "\n")
             return
 
-        addresses = []
-        for arg in shlex.split(args):
-            if is_decimal(arg):
-                addresses.append(int(arg))
-            elif is_hexadecimal(arg):
-                addresses.append(int(arg, 16))
-            else:
-                try:
-                    var = gdb.parse_and_eval(f"{arg}")
-                    addresses.append(var)
-                except gdb.error as e:
-                    gdb.write(f"Ignore {arg}: {e}\n")
-
-        backtraces = backtrace(addresses)
-        formatter = "{:<20} {:<32} {}\n"
-        gdb.write(formatter.format("Address", "Symbol", "Source"))
-        for addr, func, source in backtraces:
-            gdb.write(formatter.format(hex(addr), func, source))
-
-
-class Profile(gdb.Command):
-    """Profile a gdb command
-
-    Usage: profile <gdb command>
-    """
-
-    def __init__(self):
-        self.cProfile = import_check(
-            "cProfile", errmsg="cProfile module not found, try gdb-multiarch.\n"
+        parser = argparse.ArgumentParser(
+            description="Convert addresses or expressions to source code location"
         )
-        if not self.cProfile:
-            return
+        parser.add_argument("-f", "--file", type=str, help="Crash log to analyze.")
+        parser.add_argument(
+            "-p",
+            "--pid",
+            type=int,
+            help="Only dump specified task backtrace from crash file.",
+        )
 
-        super().__init__("profile", gdb.COMMAND_USER)
+        pargs = None
+        try:
+            pargs, _ = parser.parse_known_args(gdb.string_to_argv(args))
+        except SystemExit:
+            pass
 
-    def invoke(self, args, from_tty):
-        self.cProfile.run(f"gdb.execute('{args}')", sort="cumulative")
+        gdb.write(self.formatter.format("Address", "Symbol", "Source"))
+
+        if pargs and pargs.file:
+            pattern = re.compile(
+                r".*sched_dumpstack: backtrace\|\s*(\d+)\s*:\s*((?:(0x)?[0-9a-fA-F]+\s*)+)"
+            )
+            addresses = {}
+            with open(pargs.file, "r") as f:
+                for line in f:
+                    match = pattern.match(line)
+                    if not match:
+                        continue
+
+                    pid = match.group(1)
+                    if pargs.pid is not None and pargs.pid != int(pid):
+                        continue
+
+                    addresses.setdefault(pid, [])
+                    addresses[pid].extend(
+                        [int(addr, 16) for addr in match.group(2).split()]
+                    )
+
+            for pid, addr in addresses.items():
+                self.print_backtrace(addr, pid)
+        else:
+            addresses = []
+            for arg in shlex.split(args.replace(",", " ")):
+                if is_decimal(arg):
+                    addresses.append(int(arg))
+                elif is_hexadecimal(arg):
+                    addresses.append(int(arg, 16))
+                else:
+                    try:
+                        var = gdb.parse_and_eval(f"{arg}")
+                        addresses.append(var)
+                    except gdb.error as e:
+                        gdb.write(f"Ignore {arg}: {e}\n")
+            self.print_backtrace(addresses)

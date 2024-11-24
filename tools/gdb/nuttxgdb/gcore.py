@@ -43,6 +43,21 @@ def parse_args(args):
         help="Select the appropriate architecture for the objcopy tool",
         type=str,
     )
+
+    parser.add_argument(
+        "--trust-readonly",
+        help="Trust readonly section from elf, bypass read from device.",
+        action="store_true",
+        default=True,
+    )
+
+    parser.add_argument(
+        "--no-trust-readonly",
+        help="Do not trust readonly section from elf, read from device.",
+        action="store_false",
+        dest="trust_readonly",
+    )
+
     parser.add_argument(
         "-r",
         "--memrange",
@@ -129,8 +144,17 @@ class NXGcore(gdb.Command):
             os.remove(section)
 
         gdb.execute(f"file {tmpfile.name}")
+
+        if args.trust_readonly:
+            gdb.execute("set trust-readonly-sections on")
+
         gdb.execute(f"gcore {corefile}")
-        gdb.execute(f"file {elffile}")
+
+        if args.trust_readonly:
+            # Restore trust-readonly-sections to default off state
+            gdb.execute("set trust-readonly-sections off")
+
+        gdb.execute(f'file "{elffile}"')
         tmpfile.close()
 
         print(f"Please run gdbserver.py to parse {corefile}")
