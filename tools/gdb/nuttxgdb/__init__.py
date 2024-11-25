@@ -21,9 +21,16 @@
 ############################################################################
 
 import importlib
+import traceback
 from os import path
 
 import gdb
+
+if __name__ == "__main__":
+    import sys
+
+    gdb.write("Use nuttx/tools/gdb/gdbinit.py instead")
+    sys.exit(1)
 
 here = path.dirname(path.abspath(__file__))
 
@@ -43,10 +50,19 @@ def register_commands(event):
     gdb.write('"handle SIGUSR1 "nostop" "pass" "noprint"\n')
 
     def init_gdb_commands(m: str):
-        module = importlib.import_module(f"{__package__}.{m}")
+        try:
+            module = importlib.import_module(f"{__package__}.{m}")
+        except Exception as e:
+            gdb.write(f"\x1b[31;1mIgnore module: {m}, error: {e}\n\x1b[m")
+            traceback.print_exc()
+            return
+
         for c in module.__dict__.values():
             if isinstance(c, type) and issubclass(c, gdb.Command):
-                c()
+                try:
+                    c()
+                except Exception as e:
+                    gdb.write(f"\x1b[31;1mIgnore command: {c}, e: {e}\n\x1b[m")
 
     # import utils module
     utils = importlib.import_module(f"{__package__}.utils")
@@ -65,6 +81,7 @@ def register_commands(event):
 
 
 if len(gdb.objfiles()) == 0:
+    gdb.write("No objectfile, defer to register NuttX commands.\n")
     gdb.events.new_objfile.connect(register_commands)
 else:
     register_commands(None)

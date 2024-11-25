@@ -52,8 +52,6 @@ class Registers:
             # Switch to second inferior to get the original remote-register layout
             state = utils.suppress_cli_notifications(True)
             utils.switch_inferior(2)
-            arch = gdb.selected_inferior().architecture()
-            registers = arch.registers()
 
             natural_size = gdb.lookup_type("long").sizeof
             tcb_info = gdb.parse_and_eval("g_tcbinfo")
@@ -96,9 +94,6 @@ class Registers:
                 reginfo[name] = {
                     "rmt_nr": rmt_nr,  # The register number in remote-registers, Aka the one we saved in g_tcbinfo.
                     "tcb_reg_off": tcb_reg_off,
-                    "desc": registers.find(
-                        name
-                    ),  # Register descriptor. It's faster for frame.read_register
                 }
 
             Registers.reginfo = reginfo
@@ -144,8 +139,8 @@ class Registers:
 
         registers = {}
         frame = gdb.newest_frame()
-        for name, info in Registers.reginfo.items():
-            value = frame.read_register(info["desc"])
+        for name, _ in Registers.reginfo.items():
+            value = frame.read_register(name)
             registers[name] = value
 
         Registers.saved_regs = registers
@@ -264,7 +259,7 @@ class Nxinfothreads(gdb.Command):
                 info = (
                     "(Name: \x1b[31;1m%s\x1b[m, State: %s, Priority: %d, Stack: %d)"
                     % (
-                        tcb["name"].string(),
+                        utils.get_task_name(tcb),
                         statename,
                         tcb["sched_priority"],
                         tcb["adj_stack_size"],
@@ -306,9 +301,10 @@ class Nxthread(gdb.Command):
     """Switch to a specified thread"""
 
     def __init__(self):
-        super().__init__("nxthread", gdb.COMMAND_USER)
         if not is_thread_command_supported():
-            gdb.execute("define thread\n nxthread \n end\n")
+            super().__init__("thread", gdb.COMMAND_USER)
+        else:
+            super().__init__("nxthread", gdb.COMMAND_USER)
 
     def invoke(self, args, from_tty):
         npidhash = gdb.parse_and_eval("g_npidhash")
@@ -509,7 +505,7 @@ class Ps(gdb.Command):
         ]  # exclude "0x"
 
         st = Stack(
-            tcb["name"].string(),
+            utils.get_task_name(tcb),
             hex(tcb["entry"]["pthread"]),  # should use main?
             int(tcb["stack_base_ptr"]),
             int(tcb["stack_alloc_ptr"]),
@@ -527,7 +523,7 @@ class Ps(gdb.Command):
         # For a task we need to display its cmdline arguments, while for a thread we display
         # pointers to its entry and argument
         cmd = ""
-        name = tcb["name"].string()
+        name = utils.get_task_name(tcb)
 
         if int(tcb["flags"] & get_macro("TCB_FLAG_TTYPE_MASK")) == int(
             get_macro("TCB_FLAG_TTYPE_PTHREAD")
