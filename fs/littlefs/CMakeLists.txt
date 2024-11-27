@@ -22,20 +22,30 @@
 
 if(CONFIG_FS_LITTLEFS)
   if(NOT EXISTS ${CMAKE_CURRENT_LIST_DIR}/littlefs)
-
-    FetchContent_Declare(
-      littlefs
-      URL https://github.com/ARMmbed/littlefs/archive/${CONFIG_FS_LITTLEFS_VERSION}.tar.gz
-          SOURCE_DIR
-          ${CMAKE_CURRENT_LIST_DIR}/littlefs
-          BINARY_DIR
-          ${CMAKE_BINARY_DIR}/fs/littlefs/littlefs
-      PATCH_COMMAND
-        patch -p2 -d ${CMAKE_CURRENT_LIST_DIR} <
-        ${CMAKE_CURRENT_LIST_DIR}/lfs_util.patch && patch -p2 -d
-        ${CMAKE_CURRENT_LIST_DIR} < ${CMAKE_CURRENT_LIST_DIR}/lfs_getpath.patch
-        && patch -p2 -d ${CMAKE_CURRENT_LIST_DIR} <
-        ${CMAKE_CURRENT_LIST_DIR}/lfs_getsetattr.patch)
+    if(CONFIG_FS_LITTLEFS_LOCAL_PATCHES)
+      FetchContent_Declare(
+        littlefs
+        URL https://github.com/ARMmbed/littlefs/archive/${CONFIG_FS_LITTLEFS_VERSION}.tar.gz
+            SOURCE_DIR
+            ${CMAKE_CURRENT_LIST_DIR}/littlefs
+            BINARY_DIR
+            ${CMAKE_BINARY_DIR}/fs/littlefs/littlefs
+        PATCH_COMMAND
+          patch -p2 -d ${CMAKE_CURRENT_LIST_DIR} <
+          ${CMAKE_CURRENT_LIST_DIR}/lfs_util.patch && patch -p2 -d
+          ${CMAKE_CURRENT_LIST_DIR} <
+          ${CMAKE_CURRENT_LIST_DIR}/lfs_getpath.patch && patch -p2 -d
+          ${CMAKE_CURRENT_LIST_DIR} <
+          ${CMAKE_CURRENT_LIST_DIR}/lfs_getsetattr.patch)
+    else()
+      FetchContent_Declare(
+        littlefs
+        URL https://github.com/ARMmbed/littlefs/archive/${CONFIG_FS_LITTLEFS_VERSION}.tar.gz
+            SOURCE_DIR
+            ${CMAKE_CURRENT_LIST_DIR}/littlefs
+            BINARY_DIR
+            ${CMAKE_BINARY_DIR}/fs/littlefs/littlefs)
+    endif()
     FetchContent_MakeAvailable(littlefs)
   endif()
 
@@ -49,7 +59,12 @@ if(CONFIG_FS_LITTLEFS)
             -DLFS_CONFIG=${CMAKE_CURRENT_LIST_DIR}/lfs_vfs.h
             -DLFS_NAME_MAX=${CONFIG_FS_LITTLEFS_NAME_MAX}
             -DLFS_FILE_MAX=${CONFIG_FS_LITTLEFS_FILE_MAX}
-            -DLFS_ATTR_MAX=${CONFIG_FS_LITTLEFS_ATTR_MAX})
+            -DLFS_ATTR_MAX=${CONFIG_FS_LITTLEFS_ATTR_MAX}
+            $<$<BOOL:${CONFIG_FS_LITTLEFS_MULTI_VERSION}>:-DLFS_MULTIVERSION>)
+
+  # Note: the littlefs upstream doesn't seems to care -Wshadow cf.
+  # https://github.com/littlefs-project/littlefs/pull/873
+  target_compile_options(fs PRIVATE -Wno-shadow)
 
   target_sources(fs PRIVATE lfs_vfs.c ${CMAKE_CURRENT_LIST_DIR}/littlefs/lfs.c
                             ${CMAKE_CURRENT_LIST_DIR}/littlefs/lfs_util.c)
