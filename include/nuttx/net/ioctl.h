@@ -138,6 +138,15 @@
 #define SIOCGIFBR          _SIOC(0x003A)  /* Bridging support */
 #define SIOCSIFBR          _SIOC(0x003B)  /* Set bridging options */
 
+/* usrsock control  *********************************************************/
+
+#define SIOCUSRSOCKDTERM   _SIOC(0x003F) /* Terminate usrsock daemon */
+
+
+/* Device private ioctl calls ***********************************************/
+
+#define SIOCDEVPRIVATE     _SIOC(0x00F0)  /* Set bridging options */
+
 /****************************************************************************
  * Public Type Definitions
  ****************************************************************************/

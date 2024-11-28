@@ -76,6 +76,23 @@ config WL_GS2200M_LOGLEVEL
 
 endif
 
+config WL_NRC7292
+	bool "Newracom NRC7292 Wi-Fi Halow support"
+	default n
+	select SPI
+	select DRIVERS_IEEE80211
+	---help---
+		Enable support for Wi-fi Halow support
+
+if WL_NRC7292
+
+config WL_NRC7292_SPI_FREQUENCY
+	int "SPI frequency"
+	default 20000000
+	range 1000000 20000000
+
+endif
+
 source "drivers/wireless/spirit/Kconfig"
 
 menuconfig DRIVERS_IEEE802154
