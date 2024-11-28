@@ -124,6 +124,10 @@ ifeq ($(CONFIG_WL_GS2200M),y)
 CSRCS += cxd56_gs2200m.c
 endif
 
+ifeq ($(CONFIG_CXD56_NRC_HALOW),y)
+CSRCS += cxd56_nrc7292.c
+endif
+
 ifeq ($(CONFIG_NET_WIZNET),y)
 CSRCS += cxd56_wiznet.c
 endif

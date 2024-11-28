@@ -123,6 +123,10 @@ if(CONFIG_ARCH_BOARD_COMMON)
     list(APPEND SRCS src/cxd56_gs2200m.c)
   endif()
 
+  if(CONFIG_WL_NRC7292)
+    list(APPEND SRCS src/cxd56_nrc7292.c)
+  endif()
+
   if(CONFIG_LCD_ILI9340)
     list(APPEND SRCS src/cxd56_ili9340.c)
   endif()

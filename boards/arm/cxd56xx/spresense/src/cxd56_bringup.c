@@ -477,6 +477,14 @@ int cxd56_bringup(void)
     }
 #endif
 
+#if defined(CONFIG_CXD56_NRC_HALOW) && !defined(CONFIG_CXD56_NRC_HALOW_LATE_INITIALIZE)
+  ret = board_nrc7292_initialize("/dev/nrc7292");
+  if (ret < 0)
+    {
+      _err("ERROR: Failed to initialize NRC7292.\n");
+    }
+#endif
+
 #ifdef CONFIG_NET_WIZNET
   ret = board_wiznet_initialize("/dev/wiznet");
   if (ret < 0)
