@@ -145,7 +145,7 @@ config ARCH_X86_64
 	select LIBC_ARCH_ELF_64BIT if LIBC_ARCH_ELF
 	select ARCH_TOOLCHAIN_GNU
 	select ARCH_HAVE_BACKTRACE
-	select ARCH_HAVE_FORK
+	select ARCH_HAVE_FORK if !BUILD_KERNEL
 	select ARCH_HAVE_SETJMP
 	select ARCH_HAVE_PERF_EVENTS
 	---help---
@@ -488,6 +488,11 @@ config ARCH_HAVE_RESET
 config ARCH_HAVE_TESTSET
 	bool
 	default n
+
+config ARCH_HAVE_CUSTOM_TESTSET
+	bool
+	default n
+	select ARCH_HAVE_TESTSET
 
 config ARCH_HAVE_THREAD_LOCAL
 	bool
