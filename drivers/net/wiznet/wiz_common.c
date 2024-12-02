@@ -101,9 +101,11 @@ static FAR struct wiznet_dev_s      *g_wizdev;
 /****************************************************************************
  * Name: wiznet_cris_enter
  ****************************************************************************/
+static irqstate_t  flags;
 
 static void wiznet_cris_enter(void)
 {
+    flags = enter_critical_section();
 }
 
 /****************************************************************************
@@ -112,6 +114,7 @@ static void wiznet_cris_enter(void)
 
 static void wiznet_cris_exit(void)
 {
+    leave_critical_section(flags);
 }
 
 /****************************************************************************
