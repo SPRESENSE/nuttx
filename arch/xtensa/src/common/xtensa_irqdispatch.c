@@ -1,6 +1,8 @@
 /****************************************************************************
  * arch/xtensa/src/common/xtensa_irqdispatch.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -63,7 +65,11 @@ uint32_t *xtensa_irq_dispatch(int irq, uint32_t *regs)
 
   up_set_interrupt_context(true);
 
-  if (*running_task != NULL)
+  /* This judgment proves that (*running_task)->xcp.regs
+   * is invalid, and we can safely overwrite it.
+   */
+
+  if (!(XTENSA_IRQ_SWINT == irq && regs[REG_A2] == SYS_restore_context))
     {
       (*running_task)->xcp.regs = regs;
     }

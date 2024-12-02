@@ -1,6 +1,8 @@
 /****************************************************************************
  * arch/risc-v/include/syscall.h
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -65,14 +67,14 @@
 
 /* SYS call 1:
  *
- * void riscv_fullcontextrestore(uintptr_t *restoreregs) noreturn_function;
+ * void riscv_fullcontextrestore() noreturn_function;
  */
 
 #define SYS_restore_context       (1)
 
 /* SYS call 2:
  *
- * void riscv_switchcontext(uintptr_t **saveregs, uintptr_t *restoreregs);
+ * void riscv_switchcontext();
  */
 
 #define SYS_switch_context        (2)

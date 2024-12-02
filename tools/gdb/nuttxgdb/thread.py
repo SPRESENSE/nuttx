@@ -366,7 +366,11 @@ class Nxthread(gdb.Command):
                         g_registers.restore()
 
         else:
-            if arg[0].isnumeric() and pidhash[int(arg[0])] != 0:
+            if (
+                arg[0].isnumeric()
+                and int(arg[0]) < npidhash
+                and pidhash[int(arg[0])] != 0
+            ):
                 if pidhash[int(arg[0])]["task_state"] == gdb.parse_and_eval(
                     "TSTATE_TASK_RUNNING"
                 ):
@@ -510,7 +514,7 @@ class Ps(gdb.Command):
             int(tcb["stack_base_ptr"]),
             int(tcb["stack_alloc_ptr"]),
             int(tcb["adj_stack_size"]),
-            utils.get_sp(tcb),
+            utils.get_sp(tcb if tcb["task_state"] != TSTATE_TASK_RUNNING else None),
             4,
         )
 
