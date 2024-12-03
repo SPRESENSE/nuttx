@@ -158,6 +158,7 @@ retry:
   rtcb->irqcount--;
 #endif
 
-  g_running_tasks[this_cpu()] = NULL;
-  arm_fullcontextrestore(regs);
+  rtcb->xcp.regs = rtcb->xcp.saved_regs;
+  arm_fullcontextrestore();
+  UNUSED(regs);
 }
