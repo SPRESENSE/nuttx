@@ -34,6 +34,10 @@ if(CONFIG_DRIVERS_WIRELESS)
     list(APPEND SRCS gs2200m.c)
   endif()
 
+  if(CONFIG_WL_NRC7292)
+    list(APPEND SRCS nrc7292.c)
+  endif()
+
   if(CONFIG_WL_NRF24L01)
     list(APPEND SRCS nrf24l01.c)
   endif()

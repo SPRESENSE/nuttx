@@ -75,6 +75,10 @@
 #  include <nuttx/wireless/lte/lte_ioctl.h>
 #endif
 
+#ifdef CONFIG_WIRELESS_NRC7292
+#  include <nuttx/net/nrc7292.h>
+#endif
+
 #include "arp/arp.h"
 #include "socket/socket.h"
 #include "netdev/netdev.h"
@@ -714,6 +718,11 @@ static ssize_t net_ioctl_ifreq_arglen(int cmd)
       case SIOCSIFNAME:
       case SIOCGIFNAME:
       case SIOCGIFINDEX:
+      case SIOCUSRSOCKDTERM:
+#ifdef CONFIG_WIRELESS_NRC7292
+      case SIOCDHCPV4START:
+      case SIOCDHCPV4STOP:
+#endif /* CONFIG_WIRELESS_NRC7292 */
         return sizeof(struct ifreq);
 
       case SIOCGLIFADDR:

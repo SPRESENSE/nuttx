@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/cxd56xx/cxd56_farapistub.h
+ * include/nuttx/net/nrc7292.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,9 +18,26 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_ARM_SRC_CXD56XX_CXD56_FARAPISTUB_H
-#define __ARCH_ARM_SRC_CXD56XX_CXD56_FARAPISTUB_H
+#ifndef __INCLUDE_NUTTX_NET_NRC7292_H
+#define __INCLUDE_NUTTX_NET_NRC7292_H
 
-#define FARAPISTUB_VERSION 20596
+/****************************************************************************
+ * Included Files
+ ****************************************************************************/
 
-#endif /* __ARCH_ARM_SRC_CXD56XX_CXD56_FARAPISTUB_H */
+#include <nuttx/net/ioctl.h>
+
+/****************************************************************************
+ * Public Definitions
+ ****************************************************************************/
+
+#define SIOCSIFADDIFACE    _SIOC(SIOCDEVPRIVATE + 0)
+#define SIOCSIFDELIFACE    _SIOC(SIOCDEVPRIVATE + 1)
+#define SIOCDHCPV4START    _SIOC(SIOCDEVPRIVATE + 2)
+#define SIOCDHCPV4STOP     _SIOC(SIOCDEVPRIVATE + 3)
+
+/****************************************************************************
+ * Public Data Types
+ ****************************************************************************/
+
+#endif /* __INCLUDE_NUTTX_NET_NRC7292_H */

@@ -956,6 +956,56 @@ endif # NET_WIZNET
 
 endmenu # "WIZnet Ethernet on CXD5602"
 
+comment "Newracom Wi-Fi Halow Options"
+
+menuconfig CXD56_NRC_HALOW
+        bool "Newracom Wi-Fi Halow"
+        default n
+
+if CXD56_NRC_HALOW
+
+config CXD56_NRC_HALOW_LATE_INITIALIZE
+	bool "NRC7292(Wi-Fi Halow) driver late initialize"
+	default n
+	---help---
+		NRC7292 driver can be initialized on an application code after system booted up
+		by enabling this configuration switch.
+
+choice
+        prompt "Wi-Fi Halow SPI selection"
+        default CXD56_NRC_HALOW_SPI4
+
+config CXD56_NRC_HALOW_SPI4
+        bool "Use SPI4"
+        select CXD56_SPI4
+
+config CXD56_NRC_HALOW_SPI5
+        bool "Use SPI5"
+        select CXD56_SPI5
+endchoice
+
+if CXD56_NRC_HALOW_SPI4
+
+config CXD56_NRC_HALOW_SPI4_DMAC
+        bool "Use DMAC for SPI4"
+        default y
+        select CXD56_DMAC_SPI4_TX
+        select CXD56_DMAC_SPI4_RX
+
+endif # CXD56_NRC_HALOW_SPI4
+
+if CXD56_NRC_HALOW_SPI5
+
+config CXD56_NRC_HALOW_SPI5_DMAC
+        bool "Use DMAC for SPI5"
+        default y
+        select CXD56_DMAC_SPI5_TX
+        select CXD56_DMAC_SPI5_RX
+
+endif # CXD56_NRC_HALOW_SPI5
+
+endif # CXD56_NRC_HALOW
+
 config CXD56_CAMERA_LATE_INITIALIZE
 	bool "Camera drivers late initialization"
 	default n
@@ -1005,6 +1055,21 @@ config CXD56_EMMC_POWER_PIN_I2S0_BCK
 
 config CXD56_EMMC_POWER_PIN_UART2_CTS
 	bool "Use PIN UART2_CTS"
+
+endchoice
+
+choice
+	prompt "BLE1507 Add-on board Reset Pin selection"
+	default CXD56_BLE1507_RESET_PIN_NONE
+
+config CXD56_BLE1507_RESET_PIN_NONE
+	bool "None"
+
+config CXD56_BLE1507_RESET_PIN_I2S0_DATA_IN
+	bool "Use PIN I2S0_DATA_IN"
+
+config CXD56_BLE1507_RESET_PIN_EMMC_DATA2
+	bool "Use PIN EMMC_DATA2"
 
 endchoice
 

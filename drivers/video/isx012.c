@@ -195,8 +195,7 @@ struct isx012_dev_s
   struct imgsensor_s      sensor;
   mutex_t                 i2c_lock;
   FAR struct i2c_master_s *i2c;        /* I2C interface */
-  uint8_t                 i2c_addr;    /* I2C address */
-  int                     i2c_freq;    /* Frequency */
+  struct i2c_config_s     i2c_cfg;     /* I2C config */
   isx012_state_t          state;       /* ISX012 status */
   uint8_t                 mode;        /* ISX012 mode */
   isx012_rect_t           clip_video;  /* Clip information for VIDEO */
@@ -216,7 +215,7 @@ typedef struct isx012_dev_s isx012_dev_t;
 static uint16_t isx012_getreg(FAR isx012_dev_t *priv,
                               uint16_t regaddr, uint16_t regsize);
 static int     isx012_putreg(FAR isx012_dev_t *priv, uint16_t regaddr,
-                             uint16_t regval, uint16_t regsize);
+                             uint32_t regval, uint16_t regsize);
 static int     isx012_putreglist(FAR isx012_dev_t *priv,
                          FAR const isx012_reg_t *reglist, size_t nentries);
 #ifdef ISX012_CHECK_IN_DETAIL
@@ -236,8 +235,8 @@ static int isx012_change_device_state(FAR isx012_dev_t *priv,
                                       isx012_state_t state);
 static int isx012_replace_frameinterval_to_regval
                 (FAR imgsensor_interval_t *interval);
-static int8_t isx012_get_maximum_fps(uint8_t nr_datafmt,
-                                     FAR imgsensor_format_t *datafmt);
+static int8_t isx012_get_maximum_fpsid(uint8_t nr_datafmt,
+                                       FAR imgsensor_format_t *datafmt);
 static int isx012_set_shd(FAR isx012_dev_t *priv);
 static bool is_movie_needed(uint8_t fmt, uint8_t fps);
 
@@ -675,16 +674,10 @@ static isx012_dev_t g_isx012_private =
 static uint16_t isx012_getreg(FAR isx012_dev_t *priv,
                               uint16_t regaddr, uint16_t regsize)
 {
-  struct i2c_config_s config;
-  volatile uint16_t regval = 0;
-  volatile uint8_t buffer[2];
+  uint16_t regval = 0;
+  uint8_t buffer[2];
   int ret;
 
-  /* Set up the I2C configuration */
-
-  config.frequency = priv->i2c_freq;
-  config.address   = priv->i2c_addr;
-  config.addrlen   = 7;
   buffer[0] = regaddr >> 8;
   buffer[1] = regaddr & 0xff;
 
@@ -692,7 +685,7 @@ static uint16_t isx012_getreg(FAR isx012_dev_t *priv,
 
   /* Write the register address */
 
-  ret = i2c_write(priv->i2c, &config, (FAR uint8_t *)buffer, 2);
+  ret = i2c_write(priv->i2c, &priv->i2c_cfg, (FAR uint8_t *)buffer, 2);
   if (ret < 0)
     {
       verr("i2c_write failed: %d\n", ret);
@@ -701,7 +694,7 @@ static uint16_t isx012_getreg(FAR isx012_dev_t *priv,
     {
       /* Restart and read 16bits from the register */
 
-      ret = i2c_read(priv->i2c, &config, (FAR uint8_t *)buffer, regsize);
+      ret = i2c_read(priv->i2c, &priv->i2c_cfg, (FAR uint8_t *)buffer, regsize);
       if (ret < 0)
         {
           verr("i2c_read failed: %d\n", ret);
@@ -719,17 +712,12 @@ static uint16_t isx012_getreg(FAR isx012_dev_t *priv,
 }
 
 static int isx012_putreg(FAR isx012_dev_t *priv,
-                         uint16_t regaddr, uint16_t regval, uint16_t regsize)
+                         uint16_t regaddr, uint32_t regval, uint16_t regsize)
 {
-  struct i2c_config_s config;
-  volatile uint8_t buffer[4];
+  uint8_t buffer[6];
   int ret;
 
-  /* Set up the I2C configuration */
-
-  config.frequency = priv->i2c_freq;
-  config.address   = priv->i2c_addr;
-  config.addrlen   = 7;
+  DEBUGASSERT(regsize <= 4);
 
   /* Set up for the transfer */
 
@@ -742,7 +730,7 @@ static int isx012_putreg(FAR isx012_dev_t *priv,
 
   /* And do it */
 
-  ret = i2c_write(priv->i2c, &config,
+  ret = i2c_write(priv->i2c, &priv->i2c_cfg,
                  (FAR uint8_t *)buffer, regsize + 2);
   if (ret < 0)
     {
@@ -779,7 +767,7 @@ static int isx012_chk_int_state(FAR isx012_dev_t *priv,
                                 uint32_t wait_time, uint32_t timeout)
 {
   int ret = 0;
-  volatile uint8_t data;
+  uint8_t data;
   uint32_t time = 0;
 
   nxsig_usleep(delay_time * 1000);
@@ -1393,7 +1381,7 @@ int init_isx012(FAR isx012_dev_t *priv)
 #endif
 
   priv->state = STATE_ISX012_SLEEP;
-  priv->i2c_freq = I2CFREQ_FAST;
+  priv->i2c_cfg.frequency = I2CFREQ_FAST;
 
   /* initialize the isx012 hardware */
 
@@ -1441,9 +1429,10 @@ static int isx012_init(FAR struct imgsensor_s *sensor)
   FAR isx012_dev_t *priv = (FAR isx012_dev_t *)sensor;
   int ret = 0;
 
-  priv->i2c      = board_isx012_initialize();
-  priv->i2c_addr = ISX012_I2C_SLV_ADDR;
-  priv->i2c_freq = I2CFREQ_STANDARD;
+  priv->i2c               = board_isx012_initialize();
+  priv->i2c_cfg.address   = ISX012_I2C_SLV_ADDR;
+  priv->i2c_cfg.addrlen   = 7;
+  priv->i2c_cfg.frequency = I2CFREQ_STANDARD;
 
   ret = board_isx012_power_on();
   if (ret < 0)
@@ -1486,8 +1475,8 @@ static int isx012_uninit(FAR struct imgsensor_s *sensor)
 
   board_isx012_uninitialize(priv->i2c);
 
-  priv->i2c_freq = I2CFREQ_STANDARD;
-  priv->state    = STATE_ISX012_POWEROFF;
+  priv->i2c_cfg.frequency = I2CFREQ_STANDARD;
+  priv->state             = STATE_ISX012_POWEROFF;
 
   return ret;
 }
@@ -1497,8 +1486,8 @@ static FAR const char *isx012_get_driver_name(FAR struct imgsensor_s *sensor)
   return "ISX012";
 }
 
-static int8_t isx012_get_maximum_fps(uint8_t nr_fmt,
-                                     FAR imgsensor_format_t *fmt)
+static int8_t isx012_get_maximum_fpsid(uint8_t nr_fmt,
+                                       FAR imgsensor_format_t *fmt)
 {
   int8_t max_fps = REGVAL_FPSTYPE_120FPS;
   uint16_t main_w;
@@ -1678,14 +1667,67 @@ static int isx012_replace_frameinterval_to_regval
     }
 }
 
+static bool is_supported_fpsid(int value, int max)
+{
+  switch (max)
+    {
+      case REGVAL_FPSTYPE_120FPS:
+
+        /* In this case, any FPS is acceptable. */
+
+        return true;
+
+      case REGVAL_FPSTYPE_60FPS:
+        if (value == REGVAL_FPSTYPE_120FPS)
+          {
+            return false;
+          }
+
+        break;
+
+      case REGVAL_FPSTYPE_30FPS:
+        if ((value == REGVAL_FPSTYPE_120FPS) ||
+            (value == REGVAL_FPSTYPE_60FPS))
+          {
+            return false;
+          }
+
+        break;
+
+      case REGVAL_FPSTYPE_15FPS:
+        if ((value == REGVAL_FPSTYPE_120FPS) ||
+            (value == REGVAL_FPSTYPE_60FPS)  ||
+            (value == REGVAL_FPSTYPE_30FPS))
+          {
+            return false;
+          }
+
+        break;
+
+      default: /* REGVAL_FPSTYPE_10FPS
+                * REGVAL_FPSTYPE_7_5FPS
+                * REGVAL_FPSTYPE_6FPS
+                * REGVAL_FPSTYPE_5FPS
+                */
+
+        /* Never come here by HW specification.
+         * For any setting, at least 15FPS is supported.
+         */
+
+        return false;
+    }
+
+  return true;
+}
+
 static int isx012_validate_frame_setting(FAR struct imgsensor_s *sensor,
                                          imgsensor_stream_type_t type,
                                          uint8_t nr_fmt,
                                          FAR imgsensor_format_t *fmt,
                                          FAR imgsensor_interval_t *interval)
 {
-  int max_fps;
-  int arg_fps;
+  int max_fpsid;
+  int app_fpsid;
 
   if ((fmt == NULL) ||
       (interval == NULL))
@@ -1698,19 +1740,19 @@ static int isx012_validate_frame_setting(FAR struct imgsensor_s *sensor,
       return -EINVAL;
     }
 
-  max_fps = isx012_get_maximum_fps(nr_fmt, fmt);
-  if (max_fps == -EINVAL)
+  max_fpsid = isx012_get_maximum_fpsid(nr_fmt, fmt);
+  if (max_fpsid == -EINVAL)
     {
       return -EINVAL;
     }
 
-  arg_fps = isx012_replace_frameinterval_to_regval(interval);
-  if (arg_fps == -EINVAL)
+  app_fpsid = isx012_replace_frameinterval_to_regval(interval);
+  if (app_fpsid == -EINVAL)
     {
       return -EINVAL;
     }
 
-  if (max_fps > arg_fps)
+  if (!is_supported_fpsid(app_fpsid, max_fpsid))
     {
       return -EINVAL;
     }

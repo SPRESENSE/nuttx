@@ -196,15 +196,12 @@ struct isx019_default_value_s
   int32_t vflip_still;
   int32_t sharpness;
   int32_t ae;
-  int32_t exptime;
   int32_t wbmode;
   int32_t hdr;
-  int32_t iso;
   int32_t iso_auto;
   int32_t meter;
   int32_t spot_pos;
   int32_t threealock;
-  int32_t threeastatus;
   int32_t jpgquality;
 };
 
@@ -226,6 +223,7 @@ struct isx019_dev_s
   mutex_t fpga_lock;
   mutex_t i2c_lock;
   FAR struct i2c_master_s *i2c;
+  struct i2c_config_s i2c_cfg;
   float clock_ratio;
   isx019_default_value_t  default_value;
   imgsensor_stream_type_t stream;
@@ -934,30 +932,18 @@ static const int32_t g_isx019_ae[] =
 static int fpga_i2c_write(FAR isx019_dev_t *priv, uint8_t addr,
                           FAR const void *data, uint8_t size)
 {
-  struct i2c_config_s config;
   static uint8_t buf[FPGA_I2C_REGSIZE_MAX + FPGA_I2C_REGADDR_LEN];
   int ret;
 
   DEBUGASSERT(size <= FPGA_I2C_REGSIZE_MAX);
 
-  config.frequency = ISX019_I2C_FREQUENCY;
-  config.address   = ISX019_I2C_SLVADDR;
-  config.addrlen   = ISX019_I2C_SLVADDR_LEN;
+  priv->i2c_cfg.address = FPGA_I2C_SLVADDR;
 
   nxmutex_lock(&priv->i2c_lock);
-
-  /* ISX019 requires that send read command to ISX019 before FPGA access. */
-
-  send_read_cmd(priv, &config, CAT_VERSION, ROM_VERSION, 1);
-
-  config.frequency = FPGA_I2C_FREQUENCY;
-  config.address   = FPGA_I2C_SLVADDR;
-  config.addrlen   = FPGA_I2C_SLVADDR_LEN;
-
   buf[FPGA_I2C_OFFSET_ADDR] = addr;
   memcpy(&buf[FPGA_I2C_OFFSET_WRITEDATA], data, size);
   ret = i2c_write(priv->i2c,
-                  &config,
+                  &priv->i2c_cfg,
                   buf,
                   size + FPGA_I2C_REGADDR_LEN);
   nxmutex_unlock(&priv->i2c_lock);
@@ -969,31 +955,19 @@ static int fpga_i2c_read(FAR isx019_dev_t *priv, uint8_t addr,
                          FAR void *data, uint8_t size)
 {
   int ret;
-  struct i2c_config_s config;
 
   DEBUGASSERT(size <= FPGA_I2C_REGSIZE_MAX);
 
-  config.frequency = ISX019_I2C_FREQUENCY;
-  config.address   = ISX019_I2C_SLVADDR;
-  config.addrlen   = ISX019_I2C_SLVADDR_LEN;
+  priv->i2c_cfg.address   = FPGA_I2C_SLVADDR;
 
   nxmutex_lock(&priv->i2c_lock);
-
-  /* ISX019 requires that send read command to ISX019 before FPGA access. */
-
-  send_read_cmd(priv, &config, CAT_VERSION, ROM_VERSION, 1);
-
-  config.frequency = FPGA_I2C_FREQUENCY;
-  config.address   = FPGA_I2C_SLVADDR;
-  config.addrlen   = FPGA_I2C_SLVADDR_LEN;
-
   ret = i2c_write(priv->i2c,
-                  &config,
+                  &priv->i2c_cfg,
                   &addr,
                   FPGA_I2C_REGADDR_LEN);
   if (ret >= 0)
     {
-      ret = i2c_read(priv->i2c, &config, data, size);
+      ret = i2c_read(priv->i2c, &priv->i2c_cfg, data, size);
     }
 
   nxmutex_unlock(&priv->i2c_lock);
@@ -1138,20 +1112,17 @@ static int isx019_i2c_write(FAR isx019_dev_t *priv,
                             uint8_t size)
 {
   int ret;
-  struct i2c_config_s config;
 
   DEBUGASSERT(size <= ISX019_I2C_REGSIZE_MAX);
 
-  config.frequency = ISX019_I2C_FREQUENCY;
-  config.address   = ISX019_I2C_SLVADDR;
-  config.addrlen   = ISX019_I2C_SLVADDR_LEN;
+  priv->i2c_cfg.address   = ISX019_I2C_SLVADDR;
 
   nxmutex_lock(&priv->i2c_lock);
 
-  ret = send_write_cmd(priv, &config, cat, addr, data, size);
+  ret = send_write_cmd(priv, &priv->i2c_cfg, cat, addr, data, size);
   if (ret == OK)
     {
-      ret = recv_write_response(priv, &config);
+      ret = recv_write_response(priv, &priv->i2c_cfg);
     }
 
   nxmutex_unlock(&priv->i2c_lock);
@@ -1195,20 +1166,17 @@ static int isx019_i2c_read(FAR isx019_dev_t *priv,
                            uint8_t size)
 {
   int ret;
-  struct i2c_config_s config;
 
   DEBUGASSERT(size <= ISX019_I2C_REGSIZE_MAX);
 
-  config.frequency = ISX019_I2C_FREQUENCY;
-  config.address   = ISX019_I2C_SLVADDR;
-  config.addrlen   = ISX019_I2C_SLVADDR_LEN;
+  priv->i2c_cfg.address   = ISX019_I2C_SLVADDR;
 
   nxmutex_lock(&priv->i2c_lock);
 
-  ret = send_read_cmd(priv, &config, cat, addr, size);
+  ret = send_read_cmd(priv, &priv->i2c_cfg, cat, addr, size);
   if (ret == OK)
     {
-      ret = recv_read_response(priv, &config, data, size);
+      ret = recv_read_response(priv, &priv->i2c_cfg, data, size);
     }
 
   nxmutex_unlock(&priv->i2c_lock);
@@ -1309,6 +1277,8 @@ static int try_fpga_i2c(FAR isx019_dev_t *priv)
 static void power_on(FAR isx019_dev_t *priv)
 {
   priv->i2c = board_isx019_initialize();
+  priv->i2c_cfg.frequency = ISX019_I2C_FREQUENCY;
+  priv->i2c_cfg.addrlen   = ISX019_I2C_SLVADDR_LEN;
   board_isx019_power_on();
   board_isx019_release_reset();
 }
@@ -1373,15 +1343,12 @@ static void store_default_value(FAR isx019_dev_t *priv)
   def->vflip_still  = get_value32(priv, IMGSENSOR_ID_VFLIP_STILL);
   def->sharpness    = get_value32(priv, IMGSENSOR_ID_SHARPNESS);
   def->ae           = get_value32(priv, IMGSENSOR_ID_EXPOSURE_AUTO);
-  def->exptime      = get_value32(priv, IMGSENSOR_ID_EXPOSURE_ABSOLUTE);
   def->wbmode       = get_value32(priv, IMGSENSOR_ID_AUTO_N_PRESET_WB);
   def->hdr          = get_value32(priv, IMGSENSOR_ID_WIDE_DYNAMIC_RANGE);
-  def->iso          = get_value32(priv, IMGSENSOR_ID_ISO_SENSITIVITY);
   def->iso_auto     = get_value32(priv, IMGSENSOR_ID_ISO_SENSITIVITY_AUTO);
   def->meter        = get_value32(priv, IMGSENSOR_ID_EXPOSURE_METERING);
   def->spot_pos     = get_value32(priv, IMGSENSOR_ID_SPOT_POSITION);
   def->threealock   = get_value32(priv, IMGSENSOR_ID_3A_LOCK);
-  def->threeastatus = get_value32(priv, IMGSENSOR_ID_3A_STATUS);
   def->jpgquality   = get_value32(priv, IMGSENSOR_ID_JPEG_QUALITY);
 }
 
@@ -2001,7 +1968,7 @@ static int isx019_get_supported_value(FAR struct imgsensor_s *sensor,
       case IMGSENSOR_ID_EXPOSURE_ABSOLUTE:
         val->type = IMGSENSOR_CTRL_TYPE_INTEGER;
         SET_RANGE(val->u.range, MIN_EXPOSURETIME, MAX_EXPOSURETIME,
-                                STEP_EXPOSURETIME, def->exptime);
+                                STEP_EXPOSURETIME, 0); /* 0 means undefined */
         break;
 
       case IMGSENSOR_ID_AUTO_N_PRESET_WB:
@@ -2023,7 +1990,7 @@ static int isx019_get_supported_value(FAR struct imgsensor_s *sensor,
         SET_DISCRETE(val->u.discrete,
                      NR_ISO,
                      g_isx019_iso,
-                     def->iso);
+                     0); /* 0 means undefined */
         break;
 
       case IMGSENSOR_ID_ISO_SENSITIVITY_AUTO:
@@ -2062,8 +2029,10 @@ static int isx019_get_supported_value(FAR struct imgsensor_s *sensor,
 
       case IMGSENSOR_ID_3A_STATUS:
         val->type = IMGSENSOR_CTRL_TYPE_INTEGER;
-        SET_RANGE(val->u.range, MIN_3ASTATUS, MAX_3ASTATUS,
-                                STEP_3ASTATUS, def->threeastatus);
+        SET_RANGE(val->u.range, MIN_3ASTATUS,
+                                MAX_3ASTATUS, STEP_3ASTATUS,
+                                IMGSENSOR_3A_STATUS_AE_OPERATING
+                                | IMGSENSOR_3A_STATUS_AWB_OPERATING);
         break;
 
       case IMGSENSOR_ID_JPEG_QUALITY:

@@ -244,6 +244,7 @@
 #define IW_MODE_SECOND      5    /* Secondary master/repeater (backup) */
 #define IW_MODE_MONITOR     6    /* Passive monitor (listen only) */
 #define IW_MODE_MESH        7    /* Mesh (IEEE 802.11s) network */
+#define IW_MODE_RELAY       8    /* Relay Mode (IEEE802.11ah) */
 
 /* Statistics flags (bitmask in updated) */
 
@@ -370,6 +371,7 @@
 
 #define IW_AUTH_KEY_MGMT_802_1X      1
 #define IW_AUTH_KEY_MGMT_PSK         2
+#define IW_AUTH_KEY_MGMT_OWE         3
 
 /* IW_AUTH_80211_AUTH_ALG values (bit field) */
 
