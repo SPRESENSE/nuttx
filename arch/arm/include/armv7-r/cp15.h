@@ -1,6 +1,8 @@
 /****************************************************************************
  * arch/arm/include/armv7-r/cp15.h
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -215,5 +217,7 @@
      );                                 \
      value;                             \
   })                                    \
+
+#define CP15_MODIFY(v,m,a) CP15_SET(a, ((CP15_GET(a) & ~(m)) | ((uintptr_t)(v) & (m))))
 
 #endif /* __ARCH_ARM_SRC_ARMV7_R_CP15_H */

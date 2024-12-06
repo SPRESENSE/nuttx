@@ -1,6 +1,8 @@
 /****************************************************************************
  * arch/arm/src/armv7-r/arm_scu.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -27,6 +29,7 @@
 #include <stdint.h>
 
 #include <arch/irq.h>
+#include <sched/sched.h>
 
 #include "arm_internal.h"
 #include "cp15_cacheops.h"
@@ -54,6 +57,14 @@
 void arm_enable_smp(int cpu)
 {
   uint32_t regval;
+
+  /* We need to confirm that current_task has been initialized. */
+
+  while (!current_task(this_cpu()));
+
+  /* Init idle task to percpu reg */
+
+  up_update_task(current_task(cpu));
 
   /* Handle actions unique to CPU0 which comes up first */
 
