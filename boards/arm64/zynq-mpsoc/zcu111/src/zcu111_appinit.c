@@ -60,7 +60,13 @@
 
 int board_app_initialize(uintptr_t arg)
 {
-  /* Perform board initialization */
+#ifdef CONFIG_BOARD_LATE_INITIALIZE
+  /* Board initialization already performed by board_late_initialize() */
 
   return OK;
+#else
+  /* Perform board-specific initialization */
+
+  return zcu111_bringup();
+#endif
 }

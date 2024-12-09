@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/common/arm_exit.c
+ * boards/arm64/zynq-mpsoc/zcu111/src/zcu111_bringup.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -25,61 +25,39 @@
  ****************************************************************************/
 
 #include <nuttx/config.h>
+#include <sys/types.h>
+#include <syslog.h>
+#include "zcu111.h"
 
-#include <assert.h>
-#include <debug.h>
-#include <sched.h>
-
-#include <nuttx/arch.h>
-#include <nuttx/irq.h>
-
-#include "task/task.h"
-#include "sched/sched.h"
-#include "group/group.h"
-#include "irq/irq.h"
-#include "arm_internal.h"
+#ifdef CONFIG_USERLED
+#  include <nuttx/leds/userled.h>
+#endif
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: up_exit
+ * Name: zcu111_bringup
  *
  * Description:
- *   This function causes the currently executing task to cease
- *   to exist.  This is a special case of task_delete() where the task to
- *   be deleted is the currently executing task.  It is more complex because
- *   a context switch must be perform to the next ready to run task.
+ *   Bring up board features
  *
  ****************************************************************************/
 
-void up_exit(int status)
+int zcu111_bringup(void)
 {
-  /* Destroy the task at the head of the ready to run list. */
+  int ret = OK;
 
-  nxtask_exit();
+#ifdef CONFIG_USERLED
+  /* Register the LED driver */
 
-  /* Update g_running_tasks */
-
-#ifdef CONFIG_ARCH_ARMV6M
-  /* ARMV6M syscal may trigger hard fault， We use
-   * running_task != NULL to determine whether it is
-   * a context for restoration.
-   */
-
-  g_running_tasks[this_cpu()] = NULL;
-#else
-  g_running_tasks[this_cpu()] = this_task();
+  ret = userled_lower_initialize("/dev/userleds");
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: userled_lower_initialize() failed: %d\n", ret);
+    }
 #endif
 
-  /* Then switch contexts */
-
-  arm_fullcontextrestore();
-
-  /* arm_fullcontextrestore() should not return but could if the software
-   * interrupts are disabled.
-   */
-
-  PANIC();
+  return ret;
 }
