@@ -33,8 +33,6 @@
 
 #include "libc.h"
 
-#ifndef CONFIG_DISABLE_ENVIRON
-
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
@@ -74,9 +72,9 @@
 
 int chdir(FAR const char *path)
 {
-  struct stat buf;
-  FAR char *oldpwd;
+  FAR char *oldpwd = NULL;
   FAR char *abspath;
+  struct stat buf;
   int ret;
 
   /* Verify that 'path' refers to a directory */
@@ -99,11 +97,19 @@ int chdir(FAR const char *path)
    * Remove any trailing '/' characters from the path
    */
 
-  abspath = realpath(path, NULL);
-  if (abspath == NULL)
+  abspath = lib_get_pathbuffer();
+  if (abspath != NULL)
     {
+      oldpwd = realpath(path, abspath);
+    }
+
+  if (abspath == NULL || oldpwd == NULL)
+    {
+      lib_put_pathbuffer(abspath);
       return ERROR;
     }
+
+#ifndef CONFIG_DISABLE_ENVIRON
 
   /* Replace any preceding OLDPWD with the current PWD (this is to
    * support 'cd -' in NSH)
@@ -120,8 +126,9 @@ int chdir(FAR const char *path)
   /* Set the cwd to the input 'path' */
 
   ret = setenv("PWD", abspath, TRUE);
-  lib_free(abspath);
+#endif /* !CONFIG_DISABLE_ENVIRON */
+
+  lib_put_pathbuffer(abspath);
 
   return ret;
 }
-#endif /* !CONFIG_DISABLE_ENVIRON */
