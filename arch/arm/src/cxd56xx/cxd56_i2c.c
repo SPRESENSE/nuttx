@@ -665,6 +665,7 @@ static int cxd56_i2c_transfer(struct i2c_master_s *dev,
       if (priv->error != OK)
         {
           ret = priv->error;
+          wostop = 0;
           break;
         }
 
