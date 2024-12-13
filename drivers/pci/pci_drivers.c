@@ -32,6 +32,8 @@
 #include <nuttx/virtio/virtio-pci.h>
 #include <nuttx/net/e1000.h>
 #include <nuttx/net/igc.h>
+#include <nuttx/can/kvaser_pci.h>
+#include <nuttx/can/ctucanfd_pci.h>
 
 #include "pci_drivers.h"
 
@@ -157,6 +159,26 @@ int pci_register_drivers(void)
   if (ret < 0)
     {
       pcierr("pci_igc_init failed, ret=%d\n", ret);
+    }
+#endif
+
+  /* Initialzie Kvaser pci driver */
+
+#ifdef CONFIG_CAN_KVASER
+  ret = pci_kvaser_init();
+  if (ret < 0)
+    {
+      pcierr("pci_kvaser_init failed, ret=%d\n", ret);
+    }
+#endif
+
+  /* Initialzie CTU CAN FD pci driver */
+
+#ifdef CONFIG_CAN_CTUCANFD
+  ret = pci_ctucanfd_init();
+  if (ret < 0)
+    {
+      pcierr("pci_ctucanfd_init failed, ret=%d\n", ret);
     }
 #endif
 

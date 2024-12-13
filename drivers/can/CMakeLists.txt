@@ -20,12 +20,22 @@
 #
 # ##############################################################################
 
+set(SRCS)
+
 if(CONFIG_CAN)
   set(SRCS can.c can_sender.c)
-
-  if(CONFIG_CAN_MCP2515)
-    list(APPEND SRCS mcp2515.c)
-  endif()
-
-  target_sources(drivers PRIVATE ${SRCS})
 endif()
+
+if(CONFIG_CAN_MCP2515)
+  list(APPEND SRCS mcp2515.c)
+endif()
+
+if(CONFIG_CAN_KVASER)
+  list(APPEND SRCS kvaser_pci.c)
+endif()
+
+if(CONFIG_CAN_CTUCANFD)
+  list(APPEND SRCS ctucanfd_pci.c)
+endif()
+
+target_sources(drivers PRIVATE ${SRCS})

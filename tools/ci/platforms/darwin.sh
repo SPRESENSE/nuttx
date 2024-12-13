@@ -130,7 +130,8 @@ bloaty() {
     cd "${NUTTXTOOLS}"/bloaty-src
     # Due to issues with latest MacOS versions use pinned commit.
     # https://github.com/google/bloaty/pull/326
-    git checkout 52948c107c8f81045e7f9223ec02706b19cfa882
+    # https://github.com/google/bloaty/pull/347
+    git checkout 6b78e080efcb63fa4ef9d2c1f062e3d5bf158e94
     mkdir -p "${NUTTXTOOLS}"/bloaty
     cmake -B build/bloaty -GNinja -D BLOATY_PREFER_SYSTEM_CAPSTONE=NO -D CMAKE_INSTALL_PREFIX="${NUTTXTOOLS}"/bloaty
     cmake --build build/bloaty
@@ -226,12 +227,14 @@ ninja_brew() {
 }
 
 python_tools() {
-  # Python User Env
-  export PIP_USER=yes
-  export PYTHONUSERBASE=${NUTTXTOOLS}/pylocal
-  echo "export PIP_USER=yes" >> "${NUTTXTOOLS}"/env.sh
-  echo "export PYTHONUSERBASE=${NUTTXTOOLS}/pylocal" >> "${NUTTXTOOLS}"/env.sh
-  add_path "${PYTHONUSERBASE}"/bin
+  if [ -z "${VIRTUAL_ENV}" ]; then
+    # Python User Env
+    export PIP_USER=yes
+    export PYTHONUSERBASE=${NUTTXTOOLS}/pylocal
+    echo "export PIP_USER=yes" >> "${NUTTXTOOLS}"/env.sh
+    echo "export PYTHONUSERBASE=${NUTTXTOOLS}/pylocal" >> "${NUTTXTOOLS}"/env.sh
+    add_path "${PYTHONUSERBASE}"/bin
+  fi
   
   if [ "X$osarch" == "Xarm64" ]; then
     python3 -m venv --system-site-packages /opt/homebrew
