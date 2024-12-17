@@ -780,6 +780,16 @@ config ARCH_BOARD_IMXRT1170_EVK
 		This is the board configuration for the port of NuttX to the NXP i.MXRT
 		evaluation kit, MIMXRT1170-EVK.  This board features the MIMXRT1176DVMAA MCU.
 
+config ARCH_BOARD_IMX95_EVK
+	bool "NXP i.MX 95 EVK"
+	depends on ARCH_CHIP_IMX9_CORTEX_M
+	select ARCH_HAVE_LEDS
+	select ARCH_HAVE_BUTTONS
+	select ARCH_HAVE_IRQBUTTONS
+	---help---
+		This is the board configuration for the port of NuttX to the NXP i.MXRT
+		evaluation kit, IMX95-EVK.  This board features the IMX95 MCU.
+
 config ARCH_BOARD_LC823450_XGEVK
 	bool "ON Semiconductor LC823450-XGEVK development board"
 	depends on ARCH_CHIP_LC823450
@@ -1912,6 +1922,12 @@ config ARCH_BOARD_RASPBERRYPI_PICO_W
 	depends on ARCH_CHIP_RP2040
 	---help---
 		This is a port to the Raspberry Pi Pico W board.
+
+config ARCH_BOARD_RASPBERRYPI_4B
+	bool "Raspberry Pi Model 4B"
+	depends on ARCH_CHIP_BCM2711
+	---help---
+		This is a port to the Raspberry Pi Model 4B.
 
 config ARCH_BOARD_PIMORONI_TINY2040
 	bool "Pimoroni Tiny2040 board"
@@ -3345,6 +3361,7 @@ config ARCH_BOARD
 	default "imxrt1060-evk"             if ARCH_BOARD_IMXRT1060_EVK
 	default "imxrt1064-evk"             if ARCH_BOARD_IMXRT1064_EVK
 	default "imxrt1170-evk"             if ARCH_BOARD_IMXRT1170_EVK
+	default "imx95-evk"                 if ARCH_BOARD_IMX95_EVK
 	default "kwikstik-k40"              if ARCH_BOARD_KWIKSTIK_K40
 	default "launchxl-cc1310"           if ARCH_BOARD_LAUNCHXL_CC1310
 	default "launchxl-cc1312r1"         if ARCH_BOARD_LAUNCHXL_CC1312R1
@@ -3462,6 +3479,7 @@ config ARCH_BOARD
 	default "qemu-i486"                 if ARCH_BOARD_QEMU_I486
 	default "qemu-intel64"              if ARCH_BOARD_INTEL64_QEMU
 	default "raspberrypi-pico"          if ARCH_BOARD_RASPBERRYPI_PICO
+	default "raspberrypi-4b"            if ARCH_BOARD_RASPBERRYPI_4B
 	default "raspberrypi-pico-w"        if ARCH_BOARD_RASPBERRYPI_PICO_W
 	default "pimoroni-tiny2040"         if ARCH_BOARD_PIMORONI_TINY2040
 	default "adafruit-feather-rp2040"   if ARCH_BOARD_ADAFRUIT_FEATHER_RP2040
@@ -3757,6 +3775,9 @@ endif
 if ARCH_BOARD_IMXRT1170_EVK
 source "boards/arm/imxrt/imxrt1170-evk/Kconfig"
 endif
+if ARCH_BOARD_IMX95_EVK
+source "boards/arm/imx9/imx95-evk/Kconfig"
+endif
 if ARCH_BOARD_TEENSY_4X
 source "boards/arm/imxrt/teensy-4.x/Kconfig"
 endif
@@ -3915,6 +3936,9 @@ source "boards/arm/nuc1xx/nutiny-nuc120/Kconfig"
 endif
 if ARCH_BOARD_RASPBERRYPI_PICO
 source "boards/arm/rp2040/raspberrypi-pico/Kconfig"
+endif
+if ARCH_BOARD_RASPBERRYPI_4B
+source "boards/arm64/bcm2711/raspberrypi-4b/Kconfig"
 endif
 if ARCH_BOARD_RASPBERRYPI_PICO_W
 source "boards/arm/rp2040/raspberrypi-pico-w/Kconfig"
