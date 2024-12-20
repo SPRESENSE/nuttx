@@ -467,9 +467,18 @@
 
 #define SENSOR_TYPE_GNSS_GEOFENCE                   52
 
-/* The total number of sensor */
+/* Velocity Sensor
+ * A sensor of this type measures the velocity as it is moving.
+ * The default unit velocity is meter by seconds m/s (SI).
+ */
 
-#define SENSOR_TYPE_COUNT                           53
+#define SENSOR_TYPE_VELOCITY                        53
+
+/* The total number of sensor
+ * please increase it if you added a new sensor type!
+ */
+
+#define SENSOR_TYPE_COUNT                           54
 
 /* The additional sensor open flags */
 
@@ -747,6 +756,12 @@ struct sensor_force         /* Type: Force */
   int32_t event;            /* Force event */
 };
 
+struct sensor_velocity      /* Type: Velocity */
+{
+  uint64_t timestamp;       /* Unit is microseconds */
+  float velocity;           /* Velocity value, units is m/s (SI) */
+};
+
 struct sensor_hall          /* Type: HALL */
 {
   uint64_t timestamp;       /* Units is microseconds */
@@ -898,6 +913,8 @@ struct sensor_gnss_satellite
   /* Constellation of the given svid, see SENSOR_GNSS_CONSTELLATION_*. */
 
   uint32_t constellation;
+
+  float cf;                 /* Carrier Frequency(Hz), GSV.signal_id */
 
   struct satellite
   {

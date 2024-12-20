@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/common/arm_modifyreg16.c
+ * include/sys/fcntl.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,46 +20,25 @@
  *
  ****************************************************************************/
 
+#ifndef __INCLUDE_SYS_FCNTL_H
+#define __INCLUDE_SYS_FCNTL_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
-
-#include <stdint.h>
-#include <debug.h>
-
-#include <nuttx/spinlock.h>
-
-#include "arm_internal.h"
+#include <fcntl.h>
 
 /****************************************************************************
- * Private Data
- ****************************************************************************/
-
-static spinlock_t g_modifyreg_lock = SP_UNLOCKED;
-
-/****************************************************************************
- * Public Functions
+ * Pre-processor Definitions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: modifyreg16
- *
- * Description:
- *   Atomically modify the specified bits in a memory mapped register
- *
+ * Public Type Definitions
  ****************************************************************************/
 
-void modifyreg16(unsigned int addr, uint16_t clearbits, uint16_t setbits)
-{
-  irqstate_t flags;
-  uint16_t   regval;
+/****************************************************************************
+ * Public Function Prototypes
+ ****************************************************************************/
 
-  flags   = spin_lock_irqsave(&g_modifyreg_lock);
-  regval  = getreg16(addr);
-  regval &= ~clearbits;
-  regval |= setbits;
-  putreg16(regval, addr);
-  spin_unlock_irqrestore(&g_modifyreg_lock, flags);
-}
+#endif /* __INCLUDE_SYS_FCNTL_H */

@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/common/arm_modifyreg8.c
+ * include/wait.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,46 +20,25 @@
  *
  ****************************************************************************/
 
+#ifndef __INCLUDE_WAIT_H
+#define __INCLUDE_WAIT_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
-
-#include <stdint.h>
-#include <debug.h>
-
-#include <nuttx/spinlock.h>
-
-#include "arm_internal.h"
+#include <sys/wait.h>
 
 /****************************************************************************
- * Private Data
- ****************************************************************************/
-
-static spinlock_t g_modifyreg_lock = SP_UNLOCKED;
-
-/****************************************************************************
- * Public Functions
+ * Pre-processor Definitions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: modifyreg8
- *
- * Description:
- *   Atomically modify the specified bits in a memory mapped register
- *
+ * Public Type Definitions
  ****************************************************************************/
 
-void modifyreg8(unsigned int addr, uint8_t clearbits, uint8_t setbits)
-{
-  irqstate_t flags;
-  uint8_t    regval;
+/****************************************************************************
+ * Public Function Prototypes
+ ****************************************************************************/
 
-  flags   = spin_lock_irqsave(&g_modifyreg_lock);
-  regval  = getreg8(addr);
-  regval &= ~clearbits;
-  regval |= setbits;
-  putreg8(regval, addr);
-  spin_unlock_irqrestore(&g_modifyreg_lock, flags);
-}
+#endif /* __INCLUDE_WAIT_H */
