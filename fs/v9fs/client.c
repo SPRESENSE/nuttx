@@ -173,7 +173,7 @@ begin_packed_struct struct v9fs_attach_s
 {
   struct v9fs_header_s header;
   uint32_t fid;
-  uint16_t afid;
+  uint32_t afid;
   uint8_t buffer[2 * (V9FS_BIT16SZ + NAME_MAX) + V9FS_BIT32SZ];
 } end_packed_struct;
 
@@ -1098,13 +1098,13 @@ ssize_t v9fs_client_write(FAR struct v9fs_client_s *client, uint32_t fid,
 
   while (buflen > 0)
     {
+      request.count = buflen > fidp->iounit ? fidp->iounit : buflen;
       request.header.size = V9FS_HDRSZ + V9FS_BIT32SZ + V9FS_BIT64SZ +
                             V9FS_BIT32SZ + request.count;
       request.header.type = V9FS_TWRITE;
       request.header.tag = v9fs_get_tagid(client);
       request.fid = fid;
       request.offset = offset;
-      request.count = buflen > fidp->iounit ? fidp->iounit : buflen;
 
       wiov[0].iov_base = &request;
       wiov[0].iov_len = V9FS_HDRSZ + V9FS_BIT32SZ + V9FS_BIT64SZ +
@@ -1465,7 +1465,7 @@ int v9fs_client_walk(FAR struct v9fs_client_s *client, FAR const char *path,
   struct iovec wiov[2];
   struct iovec riov[2];
   uint16_t nwname = 0;
-  uint32_t newfid;
+  uint32_t newfid = V9FS_NOFID;
   size_t total_len = 0;
   size_t offset = 0;
   size_t name_len;
@@ -1526,12 +1526,13 @@ int v9fs_client_walk(FAR struct v9fs_client_s *client, FAR const char *path,
       return -ENOMEM;
     }
 
-  newfid = v9fs_fid_create(client, path);
-  if (newfid < 0)
+  ret = v9fs_fid_create(client, path);
+  if (ret < 0)
     {
       goto err;
     }
 
+  newfid = ret;
   request.header.size = V9FS_HDRSZ + V9FS_BIT32SZ * 2 + V9FS_BIT16SZ +
                         total_len;
   request.header.type = V9FS_TWALK;
@@ -1586,13 +1587,23 @@ int v9fs_client_walk(FAR struct v9fs_client_s *client, FAR const char *path,
   if (ret < 0)
     {
       v9fs_fid_destroy(client, newfid);
-      newfid = ret;
+      goto err;
+    }
+
+  /* There are differences in different server implementations, so it is
+   * necessary to check whether the returned nwqid satisfies the requested
+   * number.
+   */
+
+  if (response.nwqid != nwname)
+    {
+      ret = -ENOENT;
     }
 
 err:
   lib_put_pathbuffer(request_payload);
   lib_put_pathbuffer(response_payload);
-  return newfid;
+  return ret == 0 ? newfid : ret;
 }
 
 /****************************************************************************

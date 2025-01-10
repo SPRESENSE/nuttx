@@ -50,7 +50,6 @@
 #include <nuttx/timers/oneshot.h>
 #include <nuttx/video/fb.h>
 #include <nuttx/video/v4l2_cap.h>
-#include <nuttx/timers/oneshot.h>
 #include <nuttx/wireless/pktradio.h>
 #include <nuttx/wireless/bluetooth/bt_null.h>
 #include <nuttx/wireless/bluetooth/bt_uart_shim.h>
@@ -485,7 +484,7 @@ int sim_bringup(void)
 #  endif
 #endif
 
-#ifdef CONFIG_RPMSG_VIRTIO
+#ifdef CONFIG_RPMSG_VIRTIO_LITE
 #  ifdef CONFIG_SIM_RPMSG_MASTER
   sim_rpmsg_virtio_init("server-proxy", "proxy", true);
 #  else

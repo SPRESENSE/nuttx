@@ -30,21 +30,12 @@
 #include <debug.h>
 #include <nuttx/irq.h>
 
+#include "sched/sched.h"
 #include "x86_64_internal.h"
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
-
-/****************************************************************************
- * Name: up_getusrsp
- ****************************************************************************/
-
-uintptr_t up_getusrsp(void *regs)
-{
-  uint64_t *ptr = regs;
-  return ptr[REG_RSP];
-}
 
 /****************************************************************************
  * Name: x86_64_registerdump
@@ -113,7 +104,7 @@ void backtrace(uint64_t rbp)
 
 void up_dump_register(void *dumpregs)
 {
-  volatile uint64_t *regs = dumpregs ? dumpregs : up_current_regs();
+  volatile uint64_t *regs = dumpregs ? dumpregs : running_regs();
   uint64_t mxcsr;
   uint64_t cr2;
 

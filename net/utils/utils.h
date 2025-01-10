@@ -84,20 +84,21 @@
  *   maxalloc: The number of max allocations, 0 means no limit
  */
 
-#define NET_BUFPOOL_DECLARE(pool,nodesize,prealloc,dynalloc,maxalloc) \
+#define NET_BUFPOOL_MAX(prealloc, dynalloc, maxalloc) \
+  (dynalloc) <= 0 ? (prealloc) : ((maxalloc) > 0 ? (maxalloc) : INT16_MAX)
+
+#define NET_BUFPOOL_DECLARE(pool, nodesize, prealloc, dynalloc, maxalloc) \
   static char pool##_buffer[prealloc][nodesize]; \
   static struct net_bufpool_s pool = \
     { \
       pool##_buffer[0], \
       prealloc, \
       dynalloc, \
-      nodesize, \
-      { \
-        maxalloc \
-      } \
+      -(int)(nodesize), \
+      SEM_INITIALIZER(NET_BUFPOOL_MAX(prealloc, dynalloc, maxalloc)), \
+      { NULL, NULL } \
     };
 
-#define NET_BUFPOOL_INIT(p)         net_bufpool_init(&p)
 #define NET_BUFPOOL_TIMEDALLOC(p,t) net_bufpool_timedalloc(&p, t)
 #define NET_BUFPOOL_TRYALLOC(p)     net_bufpool_timedalloc(&p, 0)
 #define NET_BUFPOOL_ALLOC(p)        net_bufpool_timedalloc(&p, UINT_MAX)
@@ -124,15 +125,11 @@ struct net_bufpool_s
   /* Allocation configuration */
 
   FAR char  *pool;     /* The beginning of the pre-allocated buffer pool */
-  const int  prealloc; /* The number of pre-allocated buffers */
-  const int  dynalloc; /* The number per dynamic allocations */
-  const int  nodesize; /* The size of each node in the pool */
+  int        prealloc; /* The number of pre-allocated buffers */
+  int        dynalloc; /* The number per dynamic allocations */
+  int        nodesize; /* The size of each node in the pool */
 
-  union
-  {
-    int16_t  maxalloc; /* The number of max allocations, used before init */
-    sem_t    sem;      /* The semaphore for waiting for free buffers */
-  } u;
+  sem_t      sem;      /* The semaphore for waiting for free buffers */
 
   sq_queue_t freebuffers;
 };
@@ -369,19 +366,6 @@ FAR void *net_ipv6_payload(FAR struct ipv6_hdr_s *ipv6, FAR uint8_t *proto);
 #ifdef CONFIG_MM_IOB
 uint16_t net_iob_concat(FAR struct iob_s **iob1, FAR struct iob_s **iob2);
 #endif
-
-/****************************************************************************
- * Name: net_bufpool_init
- *
- * Description:
- *   Initialize a network buffer pool.
- *
- * Input Parameters:
- *   pool - The pool to be initialized
- *
- ****************************************************************************/
-
-void net_bufpool_init(FAR struct net_bufpool_s *pool);
 
 /****************************************************************************
  * Name: net_bufpool_timedalloc

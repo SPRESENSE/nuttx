@@ -649,7 +649,7 @@ struct xcptcontext
 
 /* Return the current value of the stack pointer */
 
-static inline uintptr_t up_getsp(void)
+static inline_function uintptr_t up_getsp(void)
 {
   register uintptr_t sp;
   __asm__
@@ -691,6 +691,7 @@ EXTERN volatile bool g_interrupt_context[CONFIG_SMP_NCPUS];
 
 irqstate_t up_irq_enable(void);
 
+#ifdef CONFIG_ARCH_RV_CPUID_MAP
 /****************************************************************************
  * Name: up_cpu_index
  *
@@ -699,9 +700,7 @@ irqstate_t up_irq_enable(void);
  *
  ****************************************************************************/
 
-#ifdef CONFIG_ARCH_HAVE_MULTICPU
 int up_cpu_index(void) noinstrument_function;
-#endif /* CONFIG_ARCH_HAVE_MULTICPU */
 
 /****************************************************************************
  * Name: up_this_cpu
@@ -713,6 +712,14 @@ int up_cpu_index(void) noinstrument_function;
  ****************************************************************************/
 
 int up_this_cpu(void);
+#else
+noinstrument_function static inline int up_cpu_index(void)
+{
+  return READ_CSR(CSR_MHARTID);
+}
+
+#define up_this_cpu() up_cpu_index()
+#endif /* CONFIG_ARCH_RV_CPUID_MAP */
 
 /****************************************************************************
  * Inline Functions
@@ -726,7 +733,7 @@ int up_this_cpu(void);
  *
  ****************************************************************************/
 
-noinstrument_function static inline irqstate_t up_irq_save(void)
+noinstrument_function static inline_function irqstate_t up_irq_save(void)
 {
   irqstate_t flags;
 
@@ -755,7 +762,8 @@ noinstrument_function static inline irqstate_t up_irq_save(void)
  *
  ****************************************************************************/
 
-noinstrument_function static inline void up_irq_restore(irqstate_t flags)
+noinstrument_function static inline_function
+void up_irq_restore(irqstate_t flags)
 {
   __asm__ __volatile__
     (
@@ -811,6 +819,13 @@ noinstrument_function static inline_function bool up_interrupt_context(void)
 
 #define up_getusrpc(regs) \
     (((uintptr_t *)((regs) ? (regs) : running_regs()))[REG_EPC])
+
+/****************************************************************************
+ * Name: up_getusrsp
+ ****************************************************************************/
+
+#define up_getusrsp(regs) \
+    (((uintptr_t*)(regs))[REG_SP])
 
 #undef EXTERN
 #if defined(__cplusplus)

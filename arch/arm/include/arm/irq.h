@@ -177,7 +177,7 @@ extern volatile bool g_interrupt_context[CONFIG_SMP_NCPUS];
 
 /* Save the current interrupt enable state & disable IRQs. */
 
-static inline irqstate_t up_irq_save(void)
+static inline_function irqstate_t up_irq_save(void)
 {
   unsigned int flags;
   unsigned int temp;
@@ -194,7 +194,7 @@ static inline irqstate_t up_irq_save(void)
 
 /* Restore saved IRQ & FIQ state */
 
-static inline void up_irq_restore(irqstate_t flags)
+static inline_function void up_irq_restore(irqstate_t flags)
 {
   __asm__ __volatile__
     (
@@ -206,7 +206,7 @@ static inline void up_irq_restore(irqstate_t flags)
 
 /* Enable IRQs and return the previous IRQ state */
 
-static inline irqstate_t up_irq_enable(void)
+static inline_function irqstate_t up_irq_enable(void)
 {
   unsigned int flags;
   unsigned int temp;
@@ -254,6 +254,25 @@ static inline_function void up_set_interrupt_context(bool flag)
 #else
   g_interrupt_context[0] = flag;
 #endif
+}
+
+static inline_function uint32_t up_getsp(void)
+{
+  register uint32_t sp;
+
+  __asm__ __volatile__
+  (
+    "mov %0, sp\n"
+    : "=r" (sp)
+  );
+
+  return sp;
+}
+
+static inline_function uintptr_t up_getusrsp(void *regs)
+{
+  uint32_t *ptr = (uint32_t *)regs;
+  return ptr[REG_SP];
 }
 
 /****************************************************************************

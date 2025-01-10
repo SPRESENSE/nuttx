@@ -168,9 +168,18 @@ static int gnss_activate(FAR struct sensor_lowerhalf_s *lower,
   int ret = OK;
 
   nxmutex_lock(&upper->lock);
-  if ((upper->crefs == 0 && enable) || (upper->crefs == 1 && !enable))
+  if ((upper->crefs == UINT8_MAX && enable) ||
+      (upper->crefs == 0 && !enable))
     {
-      ret = upper->lower->ops->activate(upper->lower, filep, enable);
+      ret = -EINVAL;
+    }
+  else
+    {
+      if ((upper->crefs == 0 && enable) || (upper->crefs == 1 && !enable))
+        {
+          ret = upper->lower->ops->activate(upper->lower, filep, enable);
+        }
+
       if (ret >= 0)
         {
           upper->crefs += enable ? 1 : -1;
@@ -225,7 +234,7 @@ static int gnss_open(FAR struct file *filep)
     }
 
   nxmutex_lock(&upper->lock);
-  if (upper->crefs >= 255)
+  if (upper->crefs >= UINT8_MAX)
     {
       ret = -EMFILE;
       kmm_free(user);

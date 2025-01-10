@@ -118,7 +118,7 @@ config ARCH_CHIP_BCM2711
 	select ARCH_NEED_ADDRENV_MAPPING
 	select ARCH_HAVE_MULTICPU
 	select ARCH_USE_MMU # Required for up_testset
-    select ARMV8A_HAVE_GICv2
+	select ARMV8A_HAVE_GICv2
 	---help---
 		Broadcom BCM2711 quad-core ARM Cortex A72
 
@@ -151,6 +151,7 @@ menu "ARMv8.5 architectural features"
 
 config ARM64_MTE
 	bool "Memory Tagging Extension support"
+	select ARM64_TBI
 	default y
 
 endmenu # "ARMv8.5 architectural features"
@@ -163,6 +164,10 @@ config ARCH_SINGLE_SECURITY_STATE
 		security state(eg. Cortex-R82). For these Processors,
 		GIC or other ARM architecture feature will with different
 		configure
+
+config ARM64_TBI
+	bool "Top Byte Ignore support"
+	default n
 
 config ARM64_SMP_BUSY_WAIT
 	bool "Busy wait when SMP boot"
