@@ -1043,7 +1043,7 @@ static int stm32l4_position(struct qe_lowerhalf_s *lower,
 
   /* Loop until we are certain that no interrupt occurred between samples */
 
-  spin_lock_irqsave(&priv->lock);
+  flags = spin_lock_irqsave(&priv->lock);
   do
     {
       position = priv->position;
@@ -1086,10 +1086,10 @@ static int stm32l4_reset(struct qe_lowerhalf_s *lower)
    * Interrupts are disabled to make this atomic (if possible)
    */
 
-  flags = enter_critical_section();
+  flags = spin_lock_irqsave(&priv->lock);
   stm32l4_putreg32(priv, STM32L4_GTIM_CNT_OFFSET, 0);
   priv->position = 0;
-  leave_critical_section(flags);
+  spin_unlock_irqrestore(&priv->lock, flags);
 #else
   sninfo("Resetting position to zero\n");
   DEBUGASSERT(lower && priv->inuse);

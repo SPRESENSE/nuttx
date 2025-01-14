@@ -22,7 +22,7 @@
 
 set(SRCS)
 
-list(APPEND SRCS riscv_exception_common.S riscv_mhartid.S riscv_vectors.S)
+list(APPEND SRCS riscv_exception_common.S riscv_vectors.S)
 list(APPEND SRCS riscv_saveusercontext.S)
 list(APPEND SRCS riscv_allocateheap.c riscv_cpuidlestack.c)
 list(APPEND SRCS riscv_cpuinfo.c riscv_createstack.c riscv_doirq.c
@@ -49,8 +49,14 @@ if(CONFIG_SMP)
   list(APPEND SRCS riscv_smpcall.c riscv_cpustart.c)
 endif()
 
+if(CONFIG_ARCH_HAVE_MULTICPU)
+  if(CONFIG_ARCH_USE_S_MODE)
+    list(APPEND SRCS riscv_cpuindex.c)
+  endif()
+endif()
+
 if(CONFIG_ARCH_RV_CPUID_MAP)
-  list(APPEND SRCS riscv_cpuindex.c)
+  list(APPEND SRCS riscv_cpuidmap.c)
 endif()
 
 if(CONFIG_RISCV_MISALIGNED_HANDLER)

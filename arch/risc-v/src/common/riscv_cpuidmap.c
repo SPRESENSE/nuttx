@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/risc-v/src/common/riscv_mhartid.S
+ * arch/risc-v/src/common/riscv_cpuidmap.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,36 +20,67 @@
  *
  ****************************************************************************/
 
-.file "riscv_mhartid.S"
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
-#include "riscv_macros.S"
+#include <nuttx/arch.h>
+#include <nuttx/irq.h>
+
+#include "riscv_internal.h"
 
 /****************************************************************************
- * Public Symbols
+ * Public Functions
  ****************************************************************************/
 
-    .globl  riscv_mhartid
-
 /****************************************************************************
- * Name: riscv_mhartid
+ * Name: up_this_cpu
  *
  * Description:
- *   Context aware way to query hart id (physical core ID)
- *
- * Returned Value:
- *   Hart id
+ *   Return the logical core number. Default implementation is 1:1 mapping,
+ *   i.e. physical=logical.
  *
  ****************************************************************************/
 
-.type riscv_mhartid, function
+int up_this_cpu(void)
+{
+  return riscv_hartid_to_cpuid(up_cpu_index());
+}
 
-riscv_mhartid:
+/****************************************************************************
+ * Name: riscv_hartid_to_cpuid
+ *
+ * Description:
+ *   Convert physical core number to logical core number. Default
+ *   implementation is 1:1 mapping, i.e. physical=logical.
+ *
+ ****************************************************************************/
 
-  riscv_mhartid a0
-  ret
+int weak_function riscv_hartid_to_cpuid(int hart)
+{
+#ifdef CONFIG_SMP
+  return hart - CONFIG_ARCH_RV_HARTID_BASE;
+#else
+  return 0;
+#endif
+}
+
+/****************************************************************************
+ * Name: riscv_cpuid_to_hartid
+ *
+ * Description:
+ *   Convert logical core number to physical core number. Default
+ *   implementation is 1:1 mapping, i.e. physical=logical.
+ *
+ ****************************************************************************/
+
+int weak_function riscv_cpuid_to_hartid(int cpu)
+{
+#ifdef CONFIG_SMP
+  return cpu + CONFIG_ARCH_RV_HARTID_BASE;
+#else
+  return up_cpu_index();
+#endif
+}
