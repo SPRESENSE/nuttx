@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/arm/rp2040/pimoroni-tiny2040/include/board.h
+ * boards/arm/qemu/qemu-armv7r/src/qemu_boardinit.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,105 +20,108 @@
  *
  ****************************************************************************/
 
-#ifndef __BOARDS_ARM_RP2040_PIMORONI_TINY2040_INCLUDE_BOARD_H
-#define __BOARDS_ARM_RP2040_PIMORONI_TINY2040_INCLUDE_BOARD_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
+#include <nuttx/arch.h>
 #include <nuttx/config.h>
-
-#include "rp2040_i2cdev.h"
-#include "rp2040_spidev.h"
-#include "rp2040_i2sdev.h"
-
-#include "rp2040_spisd.h"
-
-#ifndef __ASSEMBLY__
-#  include <stdint.h>
-#endif
+#include <stdint.h>
+#include <nuttx/board.h>
+#include "qemu-armv7r.h"
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
-/* Clocking *****************************************************************/
-
-#define MHZ                     1000000
-
-#define BOARD_XOSC_FREQ         (12 * MHZ)
-#define BOARD_XOSC_STARTUPDELAY 1
-#define BOARD_PLL_SYS_FREQ      (125 * MHZ)
-#define BOARD_PLL_USB_FREQ      (48 * MHZ)
-
-#define BOARD_REF_FREQ          (12 * MHZ)
-#define BOARD_SYS_FREQ          (125 * MHZ)
-#define BOARD_PERI_FREQ         (125 * MHZ)
-#define BOARD_USB_FREQ          (48 * MHZ)
-#define BOARD_ADC_FREQ          (48 * MHZ)
-#define BOARD_RTC_FREQ          46875
-
-#define BOARD_UART_BASEFREQ     BOARD_PERI_FREQ
-
-#define BOARD_TICK_CLOCK        (1 * MHZ)
-
-/* GPIO definitions *********************************************************/
-
-#define BOARD_GPIO_LED_PIN_R    18
-#define BOARD_GPIO_LED_PIN_G    19
-#define BOARD_GPIO_LED_PIN_B    20
-
-#define BOARD_GPIO_BOOT_PIN     23
-
-#define BOARD_NGPIOOUT          3
-#define BOARD_NGPIOIN           1
-#define BOARD_NGPIOINT          0
-
 /****************************************************************************
- * Public Types
+ * Private Functions
  ****************************************************************************/
 
-#ifndef __ASSEMBLY__
-
 /****************************************************************************
- * Public Data
+ * Public Functions
  ****************************************************************************/
 
-#undef EXTERN
-#if defined(__cplusplus)
-#define EXTERN extern "C"
-extern "C"
+/****************************************************************************
+ * Name: qemu_memory_initialize
+ *
+ * Description:
+ *   All qemu architectures must provide the following entry point.  This
+ *   entry point is called early in the initialization before memory has
+ *   been configured.  This board-specific function is responsible for
+ *   configuring any on-board memories.
+ *
+ *   Logic in qemu_memory_initialize must be careful to avoid using any
+ *   global variables because those will be uninitialized at the time this
+ *   function is called.
+ *
+ * Input Parameters:
+ *   None
+ *
+ * Returned Value:
+ *   None
+ *
+ ****************************************************************************/
+
+void qemu_memory_initialize(void)
 {
-#else
-#define EXTERN extern
+  /* SDRAM was initialized by a bootloader in the supported configurations. */
+}
+
+/****************************************************************************
+ * Name: qemu_board_initialize
+ *
+ * Description:
+ *   All qemu architectures must provide the following entry point.  This
+ *   entry point is called in the initialization phase -- after
+ *   qemu_memory_initialize and after all memory has been configured and
+ *   mapped but before any devices have been initialized.
+ *
+ * Input Parameters:
+ *   None
+ *
+ * Returned Value:
+ *   None
+ *
+ ****************************************************************************/
+
+void qemu_board_initialize(void)
+{
+#ifdef CONFIG_ARCH_LEDS
+  /* Configure on-board LEDs if LED support has been selected. */
+
 #endif
+}
 
 /****************************************************************************
- * Public Function Prototypes
- ****************************************************************************/
-
-/****************************************************************************
- * Name: rp2040_boardearlyinitialize
+ * Name: board_late_initialize
  *
  * Description:
+ *   If CONFIG_BOARD_LATE_INITIALIZE is selected, then an additional
+ *   initialization call will be performed in the boot-up sequence to a
+ *   function called board_late_initialize(). board_late_initialize() will be
+ *   called immediately after up_intitialize() is called and just before the
+ *   initial application is started.  This additional initialization phase
+ *   may be used, for example, to initialize board-specific device drivers.
  *
  ****************************************************************************/
 
-void rp2040_boardearlyinitialize(void);
+#ifdef CONFIG_BOARD_LATE_INITIALIZE
+void board_late_initialize(void)
+{
+  /* Perform board initialization */
 
-/****************************************************************************
- * Name: rp2040_boardinitialize
- *
- * Description:
- *
- ****************************************************************************/
+  qemu_bringup();
+}
+#endif /* CONFIG_BOARD_LATE_INITIALIZE */
 
-void rp2040_boardinitialize(void);
+#ifdef CONFIG_BOARDCTL_POWEROFF
+int board_power_off(int status)
+{
+  UNUSED(status);
 
-#undef EXTERN
-#if defined(__cplusplus)
+  /* TODO: find a solution */
+
+  return 0;
 }
 #endif
-#endif /* __ASSEMBLY__ */
-#endif /* __BOARDS_ARM_RP2040_PIMORONI_TINY2040_INCLUDE_BOARD_H */

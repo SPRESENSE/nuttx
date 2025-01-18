@@ -1,5 +1,5 @@
 ############################################################################
-# arch/arm/src/qemu/Make.defs
+# boards/arm/qemu/qemu-armv7r/scripts/Make.defs
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -20,25 +20,23 @@
 #
 ############################################################################
 
-ifeq ($(CONFIG_ARCH_ARMV7A),y)
-include armv7-a/Make.defs
-endif
+include $(TOPDIR)/.config
+include $(TOPDIR)/tools/Config.mk
+include $(TOPDIR)/arch/arm/src/armv7-r/Toolchain.defs
 
-ifeq ($(CONFIG_ARCH_ARMV7R),y)
-include armv7-r/Make.defs
-endif
+LDSCRIPT = dramboot.ld
 
-# qemu-specific C source files
-CHIP_CSRCS  = qemu_boot.c qemu_serial.c qemu_irq.c qemu_timer.c
+ARCHSCRIPT += $(BOARD_DIR)$(DELIM)scripts$(DELIM)$(LDSCRIPT)
 
-ifeq ($(CONFIG_ARCH_ARMV7A),y)
-CHIP_CSRCS += qemu_pgalloc.c qemu_memorymap.c
-endif
+CFLAGS := $(ARCHCFLAGS) $(ARCHOPTIMIZATION) $(ARCHCPUFLAGS) $(ARCHINCLUDES) $(ARCHDEFINES) $(EXTRAFLAGS)
+CPICFLAGS = $(ARCHPICFLAGS) $(CFLAGS)
+CXXFLAGS := $(ARCHCXXFLAGS) $(ARCHOPTIMIZATION) $(ARCHCPUFLAGS) $(ARCHXXINCLUDES) $(ARCHDEFINES) $(EXTRAFLAGS)
+CXXPICFLAGS = $(ARCHPICFLAGS) $(CXXFLAGS)
+CPPFLAGS := $(ARCHINCLUDES) $(ARCHDEFINES) $(EXTRAFLAGS)
+AFLAGS := $(CFLAGS) -D__ASSEMBLY__
 
-ifeq ($(CONFIG_SMP),y)
-  CHIP_CSRCS += qemu_cpuboot.c
-endif
+# NXFLAT module definitions
 
-ifeq ($(CONFIG_ARCH_IDLE_CUSTOM),y)
-CHIP_CSRCS += qemu_idle.c
-endif
+NXFLATLDFLAGS1 = -r -d -warn-common
+NXFLATLDFLAGS2 = $(NXFLATLDFLAGS1) -T$(TOPDIR)$(DELIM)binfmt$(DELIM)libnxflat$(DELIM)gnu-nxflat-pcrel.ld -no-check-sections
+LDNXFLATFLAGS = -e main -s 2048

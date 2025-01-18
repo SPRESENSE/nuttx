@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/risc-v/src/mpfs/mpfs_opensbi_utils.S
+ * boards/arm/qemu/qemu-armv7r/src/qemu_bringup.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -26,71 +26,110 @@
 
 #include <nuttx/config.h>
 
-#include <sbi/riscv_asm.h>
-#include <sbi/sbi_platform.h>
-#include <sbi/sbi_scratch.h>
-#include <sbi/sbi_trap.h>
-#include <sbi/riscv_encoding.h>
+#include <sys/types.h>
+#include <syslog.h>
+
+#include <nuttx/fs/fs.h>
+#include <nuttx/fdt.h>
+
+#ifdef CONFIG_LIBC_FDT
+#  include <libfdt.h>
+#endif
+
+#include "chip.h"
+#include "qemu-armv7r.h"
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
+#ifndef QEMU_SPI_IRQ_BASE
+#define QEMU_SPI_IRQ_BASE     32
+#endif
+
 /****************************************************************************
- * Public Symbols
+ * Private Functions
  ****************************************************************************/
 
-  .global mpfs_opensbi_prepare_hart
+#if defined(CONFIG_LIBC_FDT) && defined(CONFIG_DEVICE_TREE)
 
 /****************************************************************************
- * Private Data
+ * Name: register_devices_from_fdt
  ****************************************************************************/
 
-mpfs_global_pointer:
-  .dword __global_pointer$
+static void register_devices_from_fdt(void)
+{
+  const void *fdt = fdt_get();
+  int ret;
+
+  if (fdt == NULL)
+    {
+      return;
+    }
+
+#ifdef CONFIG_DRIVERS_VIRTIO_MMIO
+  ret = fdt_virtio_mmio_devices_register(fdt, QEMU_SPI_IRQ_BASE);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "fdt_virtio_mmio_devices_register failed, ret=%d\n",
+             ret);
+    }
+#endif
+
+#ifdef CONFIG_PCI
+  ret = fdt_pci_ecam_register(fdt);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "fdt_pci_ecam_register failed, ret=%d\n", ret);
+    }
+#endif
+
+  UNUSED(ret);
+}
+
+#endif
 
 /****************************************************************************
- * Name: mpfs_opensbi_prepare_hart
+ * Public Functions
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: imx_bringup
  *
  * Description:
- *   Prepares the hart for OpenSBI execution.  This installs the proper
- *   mtvec, global pointer and the stack (per hart) for the OpenSBI.
- *   mpfs_global_pointer is used to store the real __global_pointer$ as
- *   seen in the .map file.  Loading gp, _global_pointer$ would default to
- *   mv gp, gp -instruction which isn't what we want. External libraries seem
- *   to link relative to gp. When trapping from the kernel, the gp has been
- *   utilized for other purposes, so we need to save and restore gp at all
- *   times.
- *
- * Input Parameters:
- *   a0 - hartid
- *   a1 - next_addr
- *
- * Returned Value:
- *   None
+ *   Bring up board features
  *
  ****************************************************************************/
 
-  .align 3
-mpfs_opensbi_prepare_hart:
+int qemu_bringup(void)
+{
+  int ret;
 
-  /* Setup OpenSBI exception handler */
+#ifdef CONFIG_FS_TMPFS
+  /* Mount the tmpfs file system */
 
-  la   t0, mpfs_exception_opensbi
-  csrw CSR_MTVEC, t0
+  ret = nx_mount(NULL, CONFIG_LIBC_TMPDIR, "tmpfs", 0, NULL);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: Failed to mount tmpfs at %s: %d\n",
+             CONFIG_LIBC_TMPDIR, ret);
+    }
+#endif
 
-  /* la gp, __global_pointer$ will not work. We want to have the gp as seen
-   * in the .map file exactly. We need to restore gp in the trap handler.
-   */
+#ifdef CONFIG_FS_PROCFS
+  /* Mount the procfs file system */
 
-  la   t0, mpfs_global_pointer
-  ld   gp, 0(t0)
+  ret = nx_mount(NULL, "/proc", "procfs", 0, NULL);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: Failed to mount procfs at /proc: %d\n", ret);
+    }
+#endif
 
-  /* Setup stacks per hart, the stack top is the end of the hart's scratch */
+#if defined(CONFIG_LIBC_FDT) && defined(CONFIG_DEVICE_TREE)
+  register_devices_from_fdt();
+#endif
 
-  csrr t0, CSR_MHARTID
-  li   t1, SBI_SCRATCH_SIZE
-  mul  t0, t0, t1
-  la   sp, g_scratches
-  add  sp, sp, t0
-  tail mpfs_opensbi_setup
+  UNUSED(ret);
+  return OK;
+}

@@ -1,5 +1,5 @@
 ############################################################################
-# arch/arm/src/qemu/Make.defs
+# boards/arm/qemu/qemu-armv7r/src/Makefile
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -20,25 +20,16 @@
 #
 ############################################################################
 
-ifeq ($(CONFIG_ARCH_ARMV7A),y)
-include armv7-a/Make.defs
+include $(TOPDIR)/Make.defs
+
+CSRCS = qemu_boardinit.c qemu_bringup.c
+
+ifeq ($(CONFIG_BOARDCTL),y)
+CSRCS += qemu_appinit.c
 endif
 
-ifeq ($(CONFIG_ARCH_ARMV7R),y)
-include armv7-r/Make.defs
+ifeq ($(CONFIG_LIBC_FDT),y)
+CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)libs$(DELIM)libc$(DELIM)fdt$(DELIM)dtc$(DELIM)libfdt
 endif
 
-# qemu-specific C source files
-CHIP_CSRCS  = qemu_boot.c qemu_serial.c qemu_irq.c qemu_timer.c
-
-ifeq ($(CONFIG_ARCH_ARMV7A),y)
-CHIP_CSRCS += qemu_pgalloc.c qemu_memorymap.c
-endif
-
-ifeq ($(CONFIG_SMP),y)
-  CHIP_CSRCS += qemu_cpuboot.c
-endif
-
-ifeq ($(CONFIG_ARCH_IDLE_CUSTOM),y)
-CHIP_CSRCS += qemu_idle.c
-endif
+include $(TOPDIR)/boards/Board.mk

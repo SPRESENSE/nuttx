@@ -1,5 +1,5 @@
 # ##############################################################################
-# sched/mqueue/CMakeLists.txt
+# boards/arm/qemu/qemu-armv7r/CMakeLists.txt
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -20,40 +20,6 @@
 #
 # ##############################################################################
 
-set(SRCS)
+set_property(GLOBAL PROPERTY LD_SCRIPT "${NUTTX_BOARD_DIR}/scripts/dramboot.ld")
 
-if(NOT CONFIG_DISABLE_MQUEUE OR NOT CONFIG_DISABLE_MQUEUE_SYSV)
-  list(APPEND SRCS mq_initialize.c mq_waitirq.c mq_recover.c)
-endif()
-
-if(NOT CONFIG_DISABLE_MQUEUE)
-
-  list(
-    APPEND
-    SRCS
-    mq_send.c
-    mq_sndinternal.c
-    mq_receive.c
-    mq_rcvinternal.c
-    mq_msgfree.c
-    mq_msgqalloc.c
-    mq_msgqfree.c
-    mq_setattr.c
-    mq_notify.c
-    mq_getattr.c)
-
-endif()
-
-if(NOT CONFIG_DISABLE_MQUEUE_SYSV)
-
-  list(
-    APPEND
-    SRCS
-    msgctl.c
-    msgget.c
-    msginternal.c
-    msgrcv.c
-    msgsnd.c)
-
-endif()
-target_sources(sched PRIVATE ${SRCS})
+add_subdirectory(src)

@@ -1,5 +1,5 @@
 # ##############################################################################
-# sched/mqueue/CMakeLists.txt
+# boards/arm/qemu/qemu-armv7r/src/CMakeLists.txt
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -19,41 +19,15 @@
 # the License.
 #
 # ##############################################################################
+set(SRCS qemu_boardinit.c qemu_bringup.c)
 
-set(SRCS)
-
-if(NOT CONFIG_DISABLE_MQUEUE OR NOT CONFIG_DISABLE_MQUEUE_SYSV)
-  list(APPEND SRCS mq_initialize.c mq_waitirq.c mq_recover.c)
+if(CONFIG_BOARDCTL)
+  list(APPEND SRCS qemu_appinit.c)
 endif()
 
-if(NOT CONFIG_DISABLE_MQUEUE)
-
-  list(
-    APPEND
-    SRCS
-    mq_send.c
-    mq_sndinternal.c
-    mq_receive.c
-    mq_rcvinternal.c
-    mq_msgfree.c
-    mq_msgqalloc.c
-    mq_msgqfree.c
-    mq_setattr.c
-    mq_notify.c
-    mq_getattr.c)
-
+if(CONFIG_LIBC_FDT)
+  target_include_directories(board
+                             PRIVATE ${NUTTX_DIR}/libs/libc/fdt/dtc/libfdt)
 endif()
 
-if(NOT CONFIG_DISABLE_MQUEUE_SYSV)
-
-  list(
-    APPEND
-    SRCS
-    msgctl.c
-    msgget.c
-    msginternal.c
-    msgrcv.c
-    msgsnd.c)
-
-endif()
-target_sources(sched PRIVATE ${SRCS})
+target_sources(board PRIVATE ${SRCS})
