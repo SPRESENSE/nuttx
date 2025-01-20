@@ -1,7 +1,5 @@
 /****************************************************************************
- * arch/arm/src/armv7-a/barriers.h
- *
- * SPDX-License-Identifier: Apache-2.0
+ * arch/ceva/include/xc5/barriers.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -20,29 +18,25 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_ARM_SRC_ARMV7_A_BARRIERS_H
-#define __ARCH_ARM_SRC_ARMV7_A_BARRIERS_H
+#ifndef __ARCH_CEVA_INCLUDE_XC5_BARRIERS_H
+#define __ARCH_CEVA_INCLUDE_XC5_BARRIERS_H
 
 /****************************************************************************
- * Included Files
+ * Inline functions
  ****************************************************************************/
 
-/****************************************************************************
- * Pre-processor Definitions
- ****************************************************************************/
+#ifndef __ASSEMBLY__
 
-/* ARMv7-A memory barriers */
+/* Memory barrier doesn't need on tl4 */
 
-#define arm_dsb(n) __asm__ __volatile__ ("dsb " #n : : : "memory")
-#define arm_dmb(n) __asm__ __volatile__ ("dmb " #n : : : "memory")
-#define arm_isb()  __asm__ __volatile__ ("isb " : : : "memory")
-#define arm_nop()  __asm__ __volatile__ ("nop\n")
-#define arm_sev()  __asm__ __volatile__ ("sev\n")
+static inline void up_dsb(void)
+{
+}
 
-#define ARM_DSB()  arm_dsb(15)
-#define ARM_DMB()  arm_dmb(15)
-#define ARM_ISB()  arm_isb()
-#define ARM_NOP()  arm_nop()
-#define ARM_SEV()  arm_sev()
+static inline void up_dmb(void)
+{
+}
 
-#endif /* __ARCH_ARM_SRC_ARMV7_A_BARRIERS_H */
+#endif /* __ASSEMBLY__ */
+
+#endif /* __ARCH_CEVA_INCLUDE_XC5_BARRIERS_H */

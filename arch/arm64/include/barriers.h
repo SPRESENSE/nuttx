@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/armv7-m/barriers.h
+ * arch/arm64/include/barriers.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,25 +20,45 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_ARM_SRC_ARMV7_M_BARRIERS_H
-#define __ARCH_ARM_SRC_ARMV7_M_BARRIERS_H
+#ifndef ___ARCH_ARM64_INCLUDE_BARRIERS_H
+#define ___ARCH_ARM64_INCLUDE_BARRIERS_H
 
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
+#ifndef __ASSEMBLY__
+
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
-/* ARMv7-M memory barriers */
+/* See Arm® Architecture Reference Manual
+ * ARM DDI 0487E.a C6.2.81
+ */
 
-#define arm_dsb()  __asm__ __volatile__ ("dsb " : : : "memory")
-#define arm_isb()  __asm__ __volatile__ ("isb " : : : "memory")
-#define arm_dmb()  __asm__ __volatile__ ("dmb " : : : "memory")
+#define UP_DSB() __asm__ volatile ("dsb sy" : : : "memory");
 
-#define ARM_DSB()  arm_dsb()
-#define ARM_ISB()  arm_isb()
-#define ARM_DMB()  arm_dmb()
+/* See Arm® Architecture Reference Manual
+ * ARM DDI 0487E.a C6.2.79
+ */
 
-#endif /* __ARCH_ARM_SRC_ARMV7_M_BARRIERS_H */
+#define UP_DMB() __asm__ volatile ("dmb sy" : : : "memory");
+
+/* See Arm® Architecture Reference Manual
+ * ARM DDI 0487E.a C6.2.96
+ */
+
+#define UP_ISB() __asm__ volatile ("isb" : : : "memory");
+
+#define UP_MB() \
+  do            \
+    {           \
+      UP_DSB(); \
+      UP_ISB(); \
+    }           \
+  while (0)
+
+#endif /* __ASSEMBLY__ */
+
+#endif /* ___ARCH_ARM64_INCLUDE_BARRIERS_H */

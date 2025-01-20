@@ -40,6 +40,8 @@
 #include <nuttx/pci/pci.h>
 #include <nuttx/net/e1000.h>
 
+#include <arch/barriers.h>
+
 #include "e1000.h"
 
 /*****************************************************************************
@@ -596,7 +598,7 @@ static int e1000_transmit(FAR struct netdev_lowerhalf_s *dev,
   priv->tx[desc].cso    = 0;
   priv->tx[desc].status = 0;
 
-  SP_DSB();
+  UP_DSB();
 
   /* Update TX tail */
 

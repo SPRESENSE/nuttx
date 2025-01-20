@@ -1,7 +1,5 @@
 /****************************************************************************
- * arch/arm64/src/common/barriers.h
- *
- * SPDX-License-Identifier: Apache-2.0
+ * arch/x86_64/include/barriers.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -20,43 +18,14 @@
  *
  ****************************************************************************/
 
-#ifndef ___ARCH_ARM64_SRC_COMMON_BARRIERS_H
-#define ___ARCH_ARM64_SRC_COMMON_BARRIERS_H
-
-/****************************************************************************
- * Included Files
- ****************************************************************************/
-
-#ifndef __ASSEMBLY__
+#ifndef __ARCH_X86_64_INCLUDE_BARRIERS_H
+#define __ARCH_X86_64_INCLUDE_BARRIERS_H
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
-/* See Arm® Architecture Reference Manual
- * ARM DDI 0487E.a C6.2.81
- */
+#define UP_DSB() __asm__ __volatile__ ("mfence")
+#define UP_DMB() __asm__ __volatile__ ("mfence")
 
-#define __DSB(arg) __asm__ volatile ("dsb " #arg : : : "memory");
-
-/* See Arm® Architecture Reference Manual
- * ARM DDI 0487E.a C6.2.79
- */
-
-#define __DMB(arg) __asm__ volatile ("dmb " #arg : : : "memory");
-
-/* See Arm® Architecture Reference Manual
- * ARM DDI 0487E.a C6.2.96
- */
-
-#define __ISB()    __asm__ volatile ("isb" : : : "memory");
-
-/* THe most common barriers */
-
-#define ARM64_DSB()  __DSB(sy)
-#define ARM64_DMB()  __DMB(sy)
-#define ARM64_ISB()  __ISB()
-
-#endif /* __ASSEMBLY__ */
-
-#endif /* ___ARCH_ARM64_SRC_COMMON_BARRIERS_H */
+#endif /* __ARCH_X86_64_INCLUDE_BARRIERS_H */

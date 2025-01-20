@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/armv6-m/barriers.h
+ * arch/arm/include/armv6-m/barriers.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,8 +20,8 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_ARM_SRC_ARMV6_M_BARRIERS_H
-#define __ARCH_ARM_SRC_ARMV6_M_BARRIERS_H
+#ifndef __ARCH_ARM_INCLUDE_ARMV6_M_BARRIERS_H
+#define __ARCH_ARM_INCLUDE_ARMV6_M_BARRIERS_H
 
 /****************************************************************************
  * Included Files
@@ -37,8 +37,8 @@
 #define arm_isb()  __asm__ __volatile__ ("isb " : : : "memory")
 #define arm_dmb()  __asm__ __volatile__ ("dmb " : : : "memory")
 
-#define ARM_DSB()  arm_dsb()
-#define ARM_ISB()  arm_isb()
-#define ARM_DMB()  arm_dmb()
+#define UP_DSB()  arm_dsb()
+#define UP_ISB()  arm_isb()
+#define UP_DMB()  arm_dmb()
 
-#endif /* __ARCH_ARM_SRC_ARMV6_M_BARRIERS_H */
+#endif /* __ARCH_ARM_INCLUDE_ARMV6_M_BARRIERS_H */

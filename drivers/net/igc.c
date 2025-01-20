@@ -40,6 +40,8 @@
 #include <nuttx/pci/pci.h>
 #include <nuttx/net/igc.h>
 
+#include <arch/barriers.h>
+
 #include "igc.h"
 
 /*****************************************************************************
@@ -550,7 +552,7 @@ static int igc_transmit(FAR struct netdev_lowerhalf_s *dev,
   priv->tx[desc].cso    = 0;
   priv->tx[desc].status = 0;
 
-  SP_DSB();
+  UP_DSB();
 
   /* Update TX tail */
 

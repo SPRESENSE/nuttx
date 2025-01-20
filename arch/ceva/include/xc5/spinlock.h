@@ -27,18 +27,4 @@
  * Inline functions
  ****************************************************************************/
 
-#ifndef __ASSEMBLY__
-
-/* Memory barrier doesn't need on tl4 */
-
-static inline void up_dsb(void)
-{
-}
-
-static inline void up_dmb(void)
-{
-}
-
-#endif /* __ASSEMBLY__ */
-
 #endif /* __ARCH_CEVA_INCLUDE_XC5_SPINLOCK_H */
