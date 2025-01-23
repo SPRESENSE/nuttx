@@ -1,5 +1,7 @@
 /****************************************************************************
- * arch/xtensa/src/esp32s3/esp32s3_cpuindex.S
+ * arch/sim/src/sim/sim_rpmsg_port_uart.c
+ *
+ * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,35 +20,30 @@
  *
  ****************************************************************************/
 
-	.file	"esp32s3_cpuindex.S"
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#include <arch/xtensa/xtensa_abi.h>
-#include "chip_macros.h"
+#include <nuttx/rpmsg/rpmsg_port.h>
+
+#include "sim_internal.h"
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
-/****************************************************************************
- * Name: up_cpu_index
- *
- * Description:
- *   Return the real core number regardless CONFIG_SMP setting
- *
- ****************************************************************************/
+int sim_rpmsg_port_uart_init(const char *localcpu, const char *remotecpu,
+                             const char *uartpath)
+{
+  struct rpmsg_port_config_s config =
+    {
+      .remotecpu = remotecpu,
+      .txnum = 10,
+      .rxnum = 10,
+      .txlen = 2048,
+      .rxlen = 2048
+    };
 
-	.text
-	.align	4
-	.global	up_cpu_index
-	.type	up_cpu_index, @function
+  return rpmsg_port_uart_initialize(&config, uartpath, localcpu);
+}
 
-up_cpu_index:
-	ENTRY(16)
-	getcoreid	a2
-	RET(16)
-
-	.size	up_cpu_index, . - up_cpu_index

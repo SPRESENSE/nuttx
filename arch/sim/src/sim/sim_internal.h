@@ -287,6 +287,7 @@ bool host_uart_checkin(int fd);
 bool host_uart_checkout(int fd);
 int  host_uart_setcflag(int fd, unsigned int cflag);
 int  host_uart_getcflag(int fd, unsigned int *cflag);
+void host_printf(const char *fmt, ...);
 
 /* sim_deviceimage.c ********************************************************/
 
@@ -418,6 +419,13 @@ int sim_rptun_init(const char *shmemname, const char *cpuname, int master);
 #ifdef CONFIG_RPMSG_VIRTIO_LITE
 int sim_rpmsg_virtio_init(const char *shmemname, const char *cpuname,
                           bool master);
+#endif
+
+/* sim_rpmsg_port_uart.c ****************************************************/
+
+#ifdef CONFIG_RPMSG_PORT_UART
+int sim_rpmsg_port_uart_init(const char *localcpu, const char *remotecpu,
+                             const char *uartpath);
 #endif
 
 /* sim_hcisocket.c **********************************************************/
