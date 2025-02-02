@@ -1,5 +1,5 @@
 ############################################################################
-# arch/arm64/src/zynq-mpsoc/Make.defs
+# tools/pynuttx/gdbinit.py
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -20,15 +20,18 @@
 #
 ############################################################################
 
-include common/Make.defs
+import sys
+from os import path
 
-# Rockchip zynq mpsoc specific C source files
-CHIP_CSRCS  = zynq_boot.c zynq_serial.c zynq_mio.c zynq_timer.c zynq_pll.c
+here = path.dirname(path.abspath(__file__))
 
-ifeq ($(CONFIG_ARCH_EARLY_PRINT),y)
-CHIP_ASRCS  = zynq_lowputc.S
-endif
+if __name__ == "__main__":
+    if here not in sys.path:
+        sys.path.insert(0, here)
 
-ifeq ($(CONFIG_ZYNQ_ENET),y)
-CHIP_CSRCS += zynq_enet.c
-endif
+    if "nxgdb" in sys.modules:
+        for key in list(sys.modules.keys()):
+            if key.startswith("nxgdb"):
+                del sys.modules[key]
+
+    import nxgdb  # noqa: F401

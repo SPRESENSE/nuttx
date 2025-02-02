@@ -1,5 +1,5 @@
 ############################################################################
-# arch/arm64/src/zynq-mpsoc/Make.defs
+# tools/pynuttx/nxgdb/prefix.py
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -20,15 +20,18 @@
 #
 ############################################################################
 
-include common/Make.defs
+import gdb
 
-# Rockchip zynq mpsoc specific C source files
-CHIP_CSRCS  = zynq_boot.c zynq_serial.c zynq_mio.c zynq_timer.c zynq_pll.c
 
-ifeq ($(CONFIG_ARCH_EARLY_PRINT),y)
-CHIP_ASRCS  = zynq_lowputc.S
-endif
+class ForeachPrefix(gdb.Command):
+    """foreach commands prefix."""
 
-ifeq ($(CONFIG_ZYNQ_ENET),y)
-CHIP_CSRCS += zynq_enet.c
-endif
+    def __init__(self):
+        super(ForeachPrefix, self).__init__("foreach", gdb.COMMAND_USER, prefix=True)
+
+
+class MMPrefixCommand(gdb.Command):
+    """Memory manager related commands prefix."""
+
+    def __init__(self):
+        super().__init__("mm", gdb.COMMAND_USER, prefix=True)

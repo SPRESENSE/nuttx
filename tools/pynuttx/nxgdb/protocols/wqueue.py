@@ -1,5 +1,5 @@
 ############################################################################
-# arch/arm64/src/zynq-mpsoc/Make.defs
+# tools/pynuttx/nxgdb/protocols/wqueue.py
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -20,15 +20,52 @@
 #
 ############################################################################
 
-include common/Make.defs
+from __future__ import annotations
 
-# Rockchip zynq mpsoc specific C source files
-CHIP_CSRCS  = zynq_boot.c zynq_serial.c zynq_mio.c zynq_timer.c zynq_pll.c
+from typing import List
 
-ifeq ($(CONFIG_ARCH_EARLY_PRINT),y)
-CHIP_ASRCS  = zynq_lowputc.S
-endif
+from .value import Value
 
-ifeq ($(CONFIG_ZYNQ_ENET),y)
-CHIP_CSRCS += zynq_enet.c
-endif
+
+class Work(Value):
+    """struct work_s"""
+
+    class U(Value):
+        class S(Value):
+            dq: Value
+            qtime: Value
+
+        s: S
+        timer: Value  # wdog_s
+
+    u: U
+    worker: Value  # void (*worker_t)(FAR void *arg);
+    arg: Value
+    wq: KWorkQueue
+
+
+class KWorker(Value):
+    """struct kworker_s"""
+
+    pid: Value
+    work: Value
+    wait: Value
+
+
+class KWorkQueue(Value):
+    """struct kwork_wqueue_s"""
+
+    q: Value
+    sem: Value
+    exsem: Value
+    nthreads: int
+    exit: bool
+    worker: List[Value]
+
+
+class HPWorkQueue(KWorkQueue):
+    """struct hp_wqueue_s"""
+
+
+class LPWorkQueue(KWorkQueue):
+    """struct lp_wqueue_s"""

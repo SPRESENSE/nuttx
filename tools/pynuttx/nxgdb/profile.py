@@ -1,5 +1,5 @@
 ############################################################################
-# arch/arm64/src/zynq-mpsoc/Make.defs
+# tools/pynuttx/nxgdb/profile.py
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -20,15 +20,43 @@
 #
 ############################################################################
 
-include common/Make.defs
+import gdb
 
-# Rockchip zynq mpsoc specific C source files
-CHIP_CSRCS  = zynq_boot.c zynq_serial.c zynq_mio.c zynq_timer.c zynq_pll.c
+from .utils import import_check
 
-ifeq ($(CONFIG_ARCH_EARLY_PRINT),y)
-CHIP_ASRCS  = zynq_lowputc.S
-endif
 
-ifeq ($(CONFIG_ZYNQ_ENET),y)
-CHIP_CSRCS += zynq_enet.c
-endif
+class Profile(gdb.Command):
+    """Profile a gdb command
+
+    Usage: profile <gdb command>
+    """
+
+    def __init__(self):
+        self.cProfile = import_check(
+            "cProfile", errmsg="cProfile module not found, try gdb-multiarch.\n"
+        )
+        if not self.cProfile:
+            return
+
+        super().__init__("profile", gdb.COMMAND_USER)
+
+    def invoke(self, args, from_tty):
+        self.cProfile.run(f"gdb.execute('{args}')", sort="cumulative")
+
+
+class Time(gdb.Command):
+    """Time a gdb command
+
+    Usage: time <gdb command>
+    """
+
+    def __init__(self):
+        super().__init__("time", gdb.COMMAND_USER)
+
+    def invoke(self, args, from_tty):
+        import time
+
+        start = time.time()
+        gdb.execute(args)
+        end = time.time()
+        gdb.write(f"Time elapsed: {end - start:.6f}s\n")

@@ -1,5 +1,5 @@
 ############################################################################
-# arch/arm64/src/zynq-mpsoc/Make.defs
+# tools/pynuttx/nxgdb/protocols/fs.py
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -20,15 +20,46 @@
 #
 ############################################################################
 
-include common/Make.defs
+from .value import Value
 
-# Rockchip zynq mpsoc specific C source files
-CHIP_CSRCS  = zynq_boot.c zynq_serial.c zynq_mio.c zynq_timer.c zynq_pll.c
 
-ifeq ($(CONFIG_ARCH_EARLY_PRINT),y)
-CHIP_ASRCS  = zynq_lowputc.S
-endif
+class File(Value):
+    """struct file"""
 
-ifeq ($(CONFIG_ZYNQ_ENET),y)
-CHIP_CSRCS += zynq_enet.c
-endif
+    f_oflags: Value
+    f_refs: Value
+    f_pos: Value
+    f_inode: Value
+    f_priv: Value
+    f_tag_fdsan: Value
+    f_tag_fdcheck: Value
+    f_backtrace: Value
+    locked: Value
+
+
+class Inode(Value):
+    """struct inode"""
+
+    i_parent: Value
+    i_peer: Value
+    i_child: Value
+    i_crefs: Value
+    i_flags: Value
+    u: Value
+    i_ino: Value
+    i_size: Value
+    i_mode: Value
+    i_owner: Value
+    i_group: Value
+    i_atime: Value
+    i_mtime: Value
+    i_ctime: Value
+    i_private: Value
+    i_name: Value
+
+
+class FileList(Value):
+    """struct filelist_s"""
+
+    fl_rows: Value
+    fl_files: Value

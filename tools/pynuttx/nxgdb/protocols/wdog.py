@@ -1,5 +1,5 @@
 ############################################################################
-# arch/arm64/src/zynq-mpsoc/Make.defs
+# tools/pynuttx/nxgdb/protocols/wdog.py
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -20,15 +20,16 @@
 #
 ############################################################################
 
-include common/Make.defs
+from __future__ import annotations
 
-# Rockchip zynq mpsoc specific C source files
-CHIP_CSRCS  = zynq_boot.c zynq_serial.c zynq_mio.c zynq_timer.c zynq_pll.c
+from .value import Value
 
-ifeq ($(CONFIG_ARCH_EARLY_PRINT),y)
-CHIP_ASRCS  = zynq_lowputc.S
-endif
 
-ifeq ($(CONFIG_ZYNQ_ENET),y)
-CHIP_CSRCS += zynq_enet.c
-endif
+class WDog(Value):
+    """struct wdog_s"""
+
+    node: Value
+    arg: Value
+    func: Value
+    picbase: Value
+    expired: Value
