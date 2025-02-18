@@ -225,10 +225,9 @@ int board_cxd5602pwbimu_initialize(int bus)
   /* Initialize pins */
 
   SETUP_PIN_OUTPUT(PIN_POWER);
-  config->power(config, false);
 
   SETUP_PIN_OUTPUT(PIN_XRST);
-  board_gpio_write(PIN_XRST, true);
+  config->reset(config, true);
 
   SETUP_PIN_OUTPUT(PIN_SPI_CSX);
   config->csx(config, true);

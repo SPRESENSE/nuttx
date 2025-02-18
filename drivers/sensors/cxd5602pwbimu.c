@@ -1337,7 +1337,7 @@ static int cxd5602pwbimu_close(FAR struct file *filep)
 
   up_mdelay(100);
 
-  config->power(config, false);
+  config->reset(config, true);
 
   if (circbuf_is_init(&priv->buffer))
     {
