@@ -1175,13 +1175,13 @@ static int cxd5602pwbimu_updatefw(FAR struct cxd5602pwbimu_dev_s *priv,
   if (ret < 0)
     {
       kmm_free(buf);
-      return -errno;
+      return ret;
     }
 
   ret = file_fstat(&finfo, &stat);
   if (ret < 0)
     {
-      return -errno;
+      goto errout;
     }
 
   total = stat.st_size;
