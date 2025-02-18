@@ -486,8 +486,10 @@ static int cxd5602pwbimu_checkver(FAR struct cxd5602pwbimu_dev_s *priv)
       return 1;
     }
 
-  /* Read from 4 chip versions. 1 Add-on board has 2 chips, and this add-on
-   * board can stack up to 2 Add-on boards, so maximum chips are 4.
+  /* Read and verify 4 firmware versions.
+   *
+   * 1 add-on board has 2 chips, and this add-on board can stack up to
+   * 2 add-on boards, so maximum chips are 4.
    * They must have the same firmware version.
    */
 
@@ -504,7 +506,7 @@ static int cxd5602pwbimu_checkver(FAR struct cxd5602pwbimu_dev_s *priv)
 
   if (ver[0] == 0)
     {
-      /* If primary chip not found, the board not exist. */
+      /* If primary chip not found, the board not connected. */
 
       return -1;
     }
@@ -547,8 +549,8 @@ static int cxd5602pwbimu_checkver(FAR struct cxd5602pwbimu_dev_s *priv)
  *
  ****************************************************************************/
 
-static void cxd5602pwbimu_enable(FAR struct cxd5602pwbimu_dev_s *priv,
-                                 bool enable)
+static int cxd5602pwbimu_enable(FAR struct cxd5602pwbimu_dev_s *priv,
+                                bool enable)
 {
   /* XXX: change output status to restrict register access */
 
@@ -743,8 +745,6 @@ static int cxd5602pwbimu_open(FAR struct file *filep)
   up_udelay(20);
   config->reset(config, false);
   up_mdelay(100);
-
-  /* XXX: We must check the mode and firmware versions */
 
   ret = cxd5602pwbimu_checkver(priv);
   if (ret < 0)
