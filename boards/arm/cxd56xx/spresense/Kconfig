@@ -1149,6 +1149,13 @@ config CXD56_CXD5602PWBIMU_CSX_SEN_IRQ_IN
 
 endchoice
 
+config CXD56_CXD5602PWBIMU_LATE_INITIALIZE
+	bool "CXD5602PWBIMU driver late initialization"
+	default n
+	---help---
+		The CXD5602PWBIMU driver can be initialized on an application code
+		after system booted up by enabling this configuration switch.
+
 endmenu # CXD5602PWBIMU Add-on board
 
 endif
