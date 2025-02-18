@@ -121,20 +121,21 @@
 struct cxd5602pwbimu_dev_s
 {
   FAR struct spi_dev_s *spi;             /* SPI interface */
-  uint32_t spi_xfersize;                 /* SPI TransferSize */
+  uint32_t              spi_xfersize;    /* SPI TransferSize */
 
   FAR struct i2c_master_s *i2c;          /* I2C interface */
-  uint8_t i2caddr[4];                    /* I2C slave address 0-3 */
-  uint32_t i2cfreq;                      /* I2C clock frequency */
+  uint8_t                  i2caddr[4];   /* I2C slave addresses */
+  uint32_t                 i2cfreq;      /* I2C clock frequency */
 
   FAR cxd5602pwbimu_config_t *config;    /* Board control interface */
-  mutex_t devlock;                       /* Device exclusion control */
+
+  mutex_t            devlock;            /* Device exclusion control */
   FAR struct pollfd *fds[CONFIG_CXD5602PWBIMU_NPOLLWAITERS];
 
-  sem_t dataready;                       /* for notify data ready */
-  sem_t bufsem;                          /* lock for buffer is in use */
+  sem_t            dataready;            /* for notify data ready */
+  sem_t            bufsem;               /* lock for buffer is in use */
   struct circbuf_s buffer;               /* Store sensing data */
-  struct work_s work;                    /* Retrieve sensing data */
+  struct work_s    work;                 /* Retrieve sensing data */
 };
 
 /****************************************************************************
@@ -148,29 +149,22 @@ static void cxd5602pwbimu_spiputreg8(FAR struct cxd5602pwbimu_dev_s *priv,
 static void cxd5602pwbimu_recv(FAR struct cxd5602pwbimu_dev_s *priv,
                                FAR uint8_t *buffer, int len);
 
-static void cxd5602pwbimu_getregsn(FAR struct cxd5602pwbimu_dev_s *priv,
-                                   int slaveid, uint8_t regaddr,
-                                   FAR uint8_t *buffer, uint8_t len);
-static uint8_t cxd5602pwbimu_getreg8n(FAR struct cxd5602pwbimu_dev_s *priv,
-                                      int slaveid, uint8_t regaddr);
-static void cxd5602pwbimu_getregs(FAR struct cxd5602pwbimu_dev_s *priv,
-                                  uint8_t regaddr,
+static int cxd5602pwbimu_getregsn(FAR struct cxd5602pwbimu_dev_s *priv,
+                                  int slaveid, uint8_t regaddr,
                                   FAR uint8_t *buffer, uint8_t len);
-static uint8_t cxd5602pwbimu_getreg8(FAR struct cxd5602pwbimu_dev_s *priv,
-                                     uint8_t regaddr);
-static void cxd5602pwbimu_putregsn(FAR struct cxd5602pwbimu_dev_s *priv,
-                                   int slaveid, uint8_t regaddr,
-                                   FAR uint8_t *buffer, uint8_t len);
-static void cxd5602pwbimu_putregs(FAR struct cxd5602pwbimu_dev_s *priv,
-                                  uint8_t regaddr,
+static int cxd5602pwbimu_putregsn(FAR struct cxd5602pwbimu_dev_s *priv,
+                                  int slaveid, uint8_t regaddr,
                                   FAR uint8_t *buffer, uint8_t len);
-static void cxd5602pwbimu_putreg8(FAR struct cxd5602pwbimu_dev_s *priv,
-                                  uint8_t regaddr, uint8_t regval);
+static int cxd5602pwbimu_putregs(FAR struct cxd5602pwbimu_dev_s *priv,
+                                 uint8_t regaddr,
+                                 FAR uint8_t *buffer, uint8_t len);
+static int cxd5602pwbimu_putreg8(FAR struct cxd5602pwbimu_dev_s *priv,
+                                 uint8_t regaddr, uint8_t regval);
 
 /* Device control methods */
 
-static void cxd5602pwbimu_enable(FAR struct cxd5602pwbimu_dev_s *priv,
-                                 bool enable);
+static int cxd5602pwbimu_enable(FAR struct cxd5602pwbimu_dev_s *priv,
+                                bool enable);
 static int cxd5602pwbimu_setodr(FAR struct cxd5602pwbimu_dev_s *priv,
                                 uint32_t rate);
 static int cxd5602pwbimu_setcalib(FAR struct cxd5602pwbimu_dev_s *priv,
@@ -189,7 +183,7 @@ static int cxd5602pwbimu_ioctl(FAR struct file *filep, int cmd,
 static int cxd5602pwbimu_poll(FAR struct file *filep,
                               FAR struct pollfd *fds, bool setup);
 
-static int cxd5602pwbimu_checkid(FAR struct cxd5602pwbimu_dev_s *priv);
+static int cxd5602pwbimu_checkver(FAR struct cxd5602pwbimu_dev_s *priv);
 static int cxd5602pwbimu_int_handler(int irq, FAR void *context,
                                      FAR void *arg);
 
@@ -230,7 +224,7 @@ static inline void cxd5602pwbimu_configspi(FAR struct spi_dev_s *spi)
 }
 
 /****************************************************************************
- * Name: cxd5602pwbimu_getreg8
+ * Name: cxd5602pwbimu_spigetreg8
  *
  * Description:
  *   Read from an 8-bit CXD5602PWBIMU register
@@ -279,7 +273,7 @@ static uint8_t cxd5602pwbimu_spigetreg8(FAR struct cxd5602pwbimu_dev_s *priv,
 }
 
 /****************************************************************************
- * Name: cxd5602pwbimu_putreg8
+ * Name: cxd5602pwbimu_spiputreg8
  *
  * Description:
  *   Write a value to an 8-bit CXD5602PWBIMU register
@@ -372,9 +366,9 @@ static void cxd5602pwbimu_recv(FAR struct cxd5602pwbimu_dev_s *priv,
  *
  ****************************************************************************/
 
-static void cxd5602pwbimu_getregsn(FAR struct cxd5602pwbimu_dev_s *priv,
-                                   int slaveid, uint8_t regaddr,
-                                   FAR uint8_t *buffer, uint8_t len)
+static int cxd5602pwbimu_getregsn(FAR struct cxd5602pwbimu_dev_s *priv,
+                                  int slaveid, uint8_t regaddr,
+                                  FAR uint8_t *buffer, uint8_t len)
 {
   struct i2c_msg_s msg[2];
   int ret;
@@ -396,58 +390,8 @@ static void cxd5602pwbimu_getregsn(FAR struct cxd5602pwbimu_dev_s *priv,
     {
       snerr("I2C_TRANSFER failed: %d\n", ret);
     }
-}
 
-/****************************************************************************
- * Name: cxd5602pwbimu_getreg8n
- *
- * Description:
- *   Read value from CXD5602PWBIMU via I2C with primary slave
- *
- ****************************************************************************/
-
-static uint8_t cxd5602pwbimu_getreg8n(FAR struct cxd5602pwbimu_dev_s *priv,
-                                      int slaveid, uint8_t regaddr)
-{
-  uint8_t val;
-
-  cxd5602pwbimu_getregsn(priv, slaveid, regaddr, &val, 1);
-
-  return val;
-}
-
-/****************************************************************************
- * Name: cxd5602pwbimu_getregs
- *
- * Description:
- *   Read value from CXD5602PWBIMU via I2C with primary slave
- *
- ****************************************************************************/
-
-static void unused_code
-cxd5602pwbimu_getregs(FAR struct cxd5602pwbimu_dev_s *priv,
-                      uint8_t regaddr,
-                      FAR uint8_t *buffer, uint8_t len)
-{
-  cxd5602pwbimu_getregsn(priv, 0, regaddr, buffer, len);
-}
-
-/****************************************************************************
- * Name: cxd5602pwbimu_getreg8
- *
- * Description:
- *   Read value from CXD5602PWBIMU via I2C with primary slave
- *
- ****************************************************************************/
-
-static uint8_t cxd5602pwbimu_getreg8(FAR struct cxd5602pwbimu_dev_s *priv,
-                                     uint8_t regaddr)
-{
-  uint8_t val;
-
-  cxd5602pwbimu_getregsn(priv, 0, regaddr, &val, 1);
-
-  return val;
+  return ret;
 }
 
 /****************************************************************************
@@ -458,9 +402,9 @@ static uint8_t cxd5602pwbimu_getreg8(FAR struct cxd5602pwbimu_dev_s *priv,
  *
  ****************************************************************************/
 
-static void cxd5602pwbimu_putregsn(FAR struct cxd5602pwbimu_dev_s *priv,
-                                   int slaveid, uint8_t regaddr,
-                                   FAR uint8_t *buffer, uint8_t len)
+static int cxd5602pwbimu_putregsn(FAR struct cxd5602pwbimu_dev_s *priv,
+                                  int slaveid, uint8_t regaddr,
+                                  FAR uint8_t *buffer, uint8_t len)
 {
   struct i2c_msg_s msg[2];
   int ret;
@@ -482,6 +426,8 @@ static void cxd5602pwbimu_putregsn(FAR struct cxd5602pwbimu_dev_s *priv,
     {
       snerr("I2C_TRANSFER failed: %d\n", ret);
     }
+
+  return ret;
 }
 
 /****************************************************************************
@@ -492,11 +438,11 @@ static void cxd5602pwbimu_putregsn(FAR struct cxd5602pwbimu_dev_s *priv,
  *
  ****************************************************************************/
 
-static void cxd5602pwbimu_putregs(FAR struct cxd5602pwbimu_dev_s *priv,
-                                  uint8_t regaddr,
-                                  FAR uint8_t *buffer, uint8_t len)
+static int cxd5602pwbimu_putregs(FAR struct cxd5602pwbimu_dev_s *priv,
+                                 uint8_t regaddr,
+                                 FAR uint8_t *buffer, uint8_t len)
 {
-  cxd5602pwbimu_putregsn(priv, 0, regaddr, buffer, len);
+  return cxd5602pwbimu_putregsn(priv, 0, regaddr, buffer, len);
 }
 
 /****************************************************************************
@@ -507,48 +453,90 @@ static void cxd5602pwbimu_putregs(FAR struct cxd5602pwbimu_dev_s *priv,
  *
  ****************************************************************************/
 
-static void cxd5602pwbimu_putreg8(FAR struct cxd5602pwbimu_dev_s *priv,
-                                  uint8_t regaddr, uint8_t regval)
+static int cxd5602pwbimu_putreg8(FAR struct cxd5602pwbimu_dev_s *priv,
+                                 uint8_t regaddr, uint8_t regval)
 {
-  cxd5602pwbimu_putregsn(priv, 0, regaddr, &regval, 1);
+  return cxd5602pwbimu_putregsn(priv, 0, regaddr, &regval, 1);
 }
 
 /****************************************************************************
- * Name: cxd5602pwbimu_checkid
+ * Name: cxd5602pwbimu_checkver
  *
  * Description:
- *   Read and verify the CXD5602PWBIMU chip ID
+ *   Read and verify the CXD5602PWBIMU firmware versions
  *
  ****************************************************************************/
 
-static int cxd5602pwbimu_checkid(FAR struct cxd5602pwbimu_dev_s *priv)
+static int cxd5602pwbimu_checkver(FAR struct cxd5602pwbimu_dev_s *priv)
 {
-  uint8_t mode;
   uint8_t ver[4];
+  uint8_t val;
+  int ret;
   int i;
 
-  /* Read device ID for all of slaves */
-
-  mode = cxd5602pwbimu_getreg8(priv, CXD5602PWBIMU_MODE);
-  if (mode != 1)
+  ret = cxd5602pwbimu_getregsn(priv, 0, CXD5602PWBIMU_MODE, &val, 1);
+  if (ret != OK)
+    {
+      return -1;
+    }
+  if (val != 1)
     {
       /* T.B.D break updating mode */
 
       return 1;
     }
 
-  /* XXX: Currently version check is for only first Add-on.
-   * Because after accessing the second Add-on, read registers
-   * failed for a while.
+  /* Read from 4 chip versions. 1 Add-on board has 2 chips, and this add-on
+   * board can stack up to 2 Add-on boards, so maximum chips are 4.
+   * They must have the same firmware version.
    */
 
-  for (i = 0; i < 2; i++)
+  for (i = 0; i < 4; i++)
     {
-      ver[i] = cxd5602pwbimu_getreg8n(priv, i, CXD5602PWBIMU_FW_VER);
-      sninfo("[%d]  Version: %02x\n", i, ver[i]);
+      ver[i] = 0;
+      ret = cxd5602pwbimu_getregsn(priv, i, CXD5602PWBIMU_FW_VER, &val, 1);
+      if (ret == 0)
+        {
+          ver[i] = val;
+          sninfo("[%d]  Version: %02x\n", i, val);
+        }
     }
 
-  return OK;
+  if (ver[0] == 0)
+    {
+      /* If primary chip not found, the board not exist. */
+
+      return -1;
+    }
+  else
+    {
+      if (ver[0] != ver[1])
+        {
+          /* Primary and secondary firmwares are not matched, need to update */
+
+          return 1;
+        }
+      else if (ver[2] && ver[3])
+        {
+          /* 2nd board is found */
+
+          if (ver[0] != ver[2] || ver[0] != ver[3])
+            {
+              /* 2nd board firmware does not matched with primary firmware,
+               * need to update.
+               */
+
+              return 1;
+            }
+          sninfo("Found 2 addons\n");
+        }
+      else
+        {
+          sninfo("Found 1 addon\n");
+        }
+    }
+
+  return 0;
 }
 
 /****************************************************************************
@@ -574,6 +562,8 @@ static void cxd5602pwbimu_enable(FAR struct cxd5602pwbimu_dev_s *priv,
       cxd5602pwbimu_spiputreg8(priv, CXD5602PWBIMU_OUTPUT_ENABLE,
                                OUTPUT_DISABLE);
     }
+
+  return OK;
 }
 
 /****************************************************************************
@@ -643,13 +633,21 @@ static int cxd5602pwbimu_setodr(FAR struct cxd5602pwbimu_dev_s *priv,
 static int cxd5602pwbimu_setcalib(FAR struct cxd5602pwbimu_dev_s *priv,
                                   FAR cxd5602pwbimu_calib_t *calib)
 {
+  int ret;
+
   /* T.B.D */
 
-  cxd5602pwbimu_putregs(priv, CXD5602PWBIMU_USER_CALIB_COEF,
-                           (FAR uint8_t *)calib, sizeof(cxd5602pwbimu_calib_t));
-  cxd5602pwbimu_putreg8(priv, CXD5602PWBIMU_USER_CALIB_FLASH, 1);
+  ret = cxd5602pwbimu_putregs(priv, CXD5602PWBIMU_USER_CALIB_COEF,
+                              (FAR uint8_t *)calib,
+                              sizeof(cxd5602pwbimu_calib_t));
+  if (ret != OK)
+    {
+      return ret;
+    }
 
-  return OK;
+  ret = cxd5602pwbimu_putreg8(priv, CXD5602PWBIMU_USER_CALIB_FLASH, 1);
+
+  return ret;
 }
 
 /****************************************************************************
@@ -736,6 +734,7 @@ static int cxd5602pwbimu_open(FAR struct file *filep)
   FAR struct cxd5602pwbimu_dev_s *priv = inode->i_private;
   FAR cxd5602pwbimu_config_t *config = priv->config;
   size_t size;
+  int ret;
 
   /* Power on and reset device */
 
@@ -747,7 +746,22 @@ static int cxd5602pwbimu_open(FAR struct file *filep)
 
   /* XXX: We must check the mode and firmware versions */
 
-  cxd5602pwbimu_checkid(priv);
+  ret = cxd5602pwbimu_checkver(priv);
+  if (ret < 0)
+    {
+      return -ENODEV;
+    }
+  if (ret > 0)
+    {
+      /* If return value is positive, firmware mismatch has been detected.
+       * Return immediately but return code is OK, the driver can be used
+       * for only updating firmwares.
+       *
+       * TODO: Implement status change
+       */
+
+      return OK;
+    }
 
   size = CONFIG_CXD5602PWBIMU_NR_BUFFERS * priv->spi_xfersize;
   circbuf_init(&priv->buffer, NULL, size);
@@ -906,12 +920,12 @@ static int cxd5602pwbimu_ioctl(FAR struct file *filep, int cmd,
         {
           FAR cxd5602pwbimu_calib_t *c = (FAR cxd5602pwbimu_calib_t *)arg;
 
-          cxd5602pwbimu_setcalib(priv, c);
+          ret = cxd5602pwbimu_setcalib(priv, c);
         }
         break;
 
       case SNIOC_ENABLE:
-        cxd5602pwbimu_enable(priv, arg == 1);
+        ret = cxd5602pwbimu_enable(priv, arg == 1);
         break;
 
       case SNIOC_WREGSPI:
@@ -934,7 +948,8 @@ static int cxd5602pwbimu_ioctl(FAR struct file *filep, int cmd,
         {
           FAR cxd5602pwbimu_regs_t *p = (FAR cxd5602pwbimu_regs_t *)arg;
 
-          cxd5602pwbimu_putregsn(priv, p->slaveid, p->addr, p->value, p->len);
+          ret = cxd5602pwbimu_putregsn(priv, p->slaveid,
+                                       p->addr, p->value, p->len);
         }
         break;
 
@@ -942,7 +957,8 @@ static int cxd5602pwbimu_ioctl(FAR struct file *filep, int cmd,
         {
           FAR cxd5602pwbimu_regs_t *p = (FAR cxd5602pwbimu_regs_t *)arg;
 
-          cxd5602pwbimu_getregsn(priv, p->slaveid, p->addr, p->value, p->len);
+          ret = cxd5602pwbimu_getregsn(priv, p->slaveid,
+                                       p->addr, p->value, p->len);
         }
         break;
 
