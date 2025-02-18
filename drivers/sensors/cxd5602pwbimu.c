@@ -749,7 +749,7 @@ static int cxd5602pwbimu_checkver(FAR struct cxd5602pwbimu_dev_s *priv)
 static int cxd5602pwbimu_enable(FAR struct cxd5602pwbimu_dev_s *priv,
                                 bool enable)
 {
-  int ret;
+  int ret = OK;
 
   if (priv->state == STATE_UPDATE)
     {
