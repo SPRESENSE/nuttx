@@ -136,8 +136,6 @@
 #define I2C_SLAVE_ADDR3 I2C_PRIMARY_ADDR3
 #endif
 
-#define IS_VALID_SLAVE(priv, i) (priv->i2caddr[i] != I2C_ADDR_NOLOC)
-
 /****************************************************************************
  * Private Types
  ****************************************************************************/
@@ -217,7 +215,9 @@ static int cxd5602pwbimu_updatefw(FAR struct cxd5602pwbimu_dev_s *priv,
 
 /* Character driver methods */
 
+static int cxd5602pwbimu_open_priv(FAR struct cxd5602pwbimu_dev_s *priv);
 static int cxd5602pwbimu_open(FAR struct file *filep);
+static int cxd5602pwbimu_close_priv(FAR struct cxd5602pwbimu_dev_s *priv);
 static int cxd5602pwbimu_close(FAR struct file *filep);
 static ssize_t cxd5602pwbimu_read(FAR struct file *filep, FAR char *buffer,
                                   size_t len);
@@ -557,6 +557,11 @@ static int cxd5602pwbimu_detectaddrs(FAR struct cxd5602pwbimu_dev_s *priv)
   uint8_t val;
   int ret;
 
+  if (priv->nslaves)
+    {
+      return 0;
+    }
+
   /* First try to get regsiter from primary PSoC.
    * If an address is determined to be either primary or secondary, the
    * other addresses are set in the same series for now.
@@ -597,10 +602,12 @@ static int cxd5602pwbimu_checkaddrs(FAR struct cxd5602pwbimu_dev_s *priv)
 {
   int i;
   uint8_t val;
+  int nslaves;
   int ret;
 
   /* Counting available PSoCs */
 
+  nslaves = 0;
   for (i = 0; i < 4; i++)
     {
       ret = cxd5602pwbimu_getregsn(priv, i, CXD5602PWBIMU_FW_VER, &val, 1);
@@ -610,15 +617,16 @@ static int cxd5602pwbimu_checkaddrs(FAR struct cxd5602pwbimu_dev_s *priv)
         }
       else
         {
-          priv->nslaves++;
+          nslaves++;
         }
     }
-  if (priv->nslaves == 0)
+  if (nslaves == 0)
     {
       return -ENODEV;
     }
+  priv->nslaves = nslaves;
 
-  /* Check that the address dip switches are valid */
+  /* Check that the address dip switches are valid. */
 
   for (i = 2; i < 4; i++)
     {
@@ -626,11 +634,8 @@ static int cxd5602pwbimu_checkaddrs(FAR struct cxd5602pwbimu_dev_s *priv)
         {
           priv->i2caddr[i] = ((priv->i2caddr[i - 2] & 0x30) ^ 0x20) + i;
           ret = cxd5602pwbimu_getregsn(priv, i, CXD5602PWBIMU_FW_VER, &val, 1);
-          if (ret)
-            {
-              priv->i2caddr[i] = I2C_ADDR_NOLOC;
-            }
-          else
+          priv->i2caddr[i] = I2C_ADDR_NOLOC;
+          if (ret == 0)
             {
               snerr("Dip switch setting mismatch detected.\n");
               return -EFAULT;
@@ -654,7 +659,7 @@ static int cxd5602pwbimu_checkaddrs(FAR struct cxd5602pwbimu_dev_s *priv)
 static int cxd5602pwbimu_checkver(FAR struct cxd5602pwbimu_dev_s *priv)
 {
   uint8_t ver[4];
-  uint8_t val;
+  uint8_t val = 0;
   int ret;
   int i;
 
@@ -663,9 +668,9 @@ static int cxd5602pwbimu_checkver(FAR struct cxd5602pwbimu_dev_s *priv)
     {
       return -1;
     }
-  if (val != 1)
+  if (val == 0)
     {
-      /* T.B.D break updating mode */
+      /* Now in update mode */
 
       return 1;
     }
@@ -677,9 +682,9 @@ static int cxd5602pwbimu_checkver(FAR struct cxd5602pwbimu_dev_s *priv)
    * They must have the same firmware version.
    */
 
-  for (i = 0; i < 4; i++)
+  memset(ver, 0, sizeof(ver));
+  for (i = 0; i < priv->nslaves; i++)
     {
-      ver[i] = 0;
       ret = cxd5602pwbimu_getregsn(priv, i, CXD5602PWBIMU_FW_VER, &val, 1);
       if (ret == 0)
         {
@@ -694,31 +699,21 @@ static int cxd5602pwbimu_checkver(FAR struct cxd5602pwbimu_dev_s *priv)
 
       return -1;
     }
-  else
+  if (ver[0] != ver[1])
     {
-      if (ver[0] != ver[1])
+      /* Primary and secondary firmwares are not matched, need to update */
+
+      return 1;
+    }
+  if (priv->nslaves > 2)
+    {
+      if (ver[0] != ver[2] || ver[0] != ver[3])
         {
-          /* Primary and secondary firmwares are not matched, need to update */
+          /* 2nd board firmware does not matched with primary firmware,
+           * need to update.
+           */
 
           return 1;
-        }
-      else if (ver[2] && ver[3])
-        {
-          /* 2nd board is found */
-
-          if (ver[0] != ver[2] || ver[0] != ver[3])
-            {
-              /* 2nd board firmware does not matched with primary firmware,
-               * need to update.
-               */
-
-              return 1;
-            }
-          sninfo("Found 2 addons\n");
-        }
-      else
-        {
-          sninfo("Found 1 addon\n");
         }
     }
 
@@ -958,11 +953,6 @@ static int cxd5602pwbimu_waitforready(FAR struct cxd5602pwbimu_dev_s *priv,
   uint8_t val;
   int ret;
 
-  if (!IS_VALID_SLAVE(priv, slaveid))
-    {
-      return -EINVAL;
-    }
-
   val = 0;
   retry = 1000;
   do
@@ -1154,6 +1144,11 @@ static int cxd5602pwbimu_updatefw(FAR struct cxd5602pwbimu_dev_s *priv,
         }
     }
 
+  /* Reboot */
+
+  cxd5602pwbimu_close_priv(priv);
+  cxd5602pwbimu_open_priv(priv);
+
   sninfo("OK\n");
 
 errout:
@@ -1164,17 +1159,15 @@ errout:
 }
 
 /****************************************************************************
- * Name: cxd5602pwbimu_open
+ * Name: cxd5602pwbimu_open_priv
  *
  * Description:
- *   Standard character driver open method.
+ *   Standard character driver open method. (actual logic)
  *
  ****************************************************************************/
 
-static int cxd5602pwbimu_open(FAR struct file *filep)
+static int cxd5602pwbimu_open_priv(FAR struct cxd5602pwbimu_dev_s *priv)
 {
-  FAR struct inode *inode = filep->f_inode;
-  FAR struct cxd5602pwbimu_dev_s *priv = inode->i_private;
   FAR cxd5602pwbimu_config_t *config = priv->config;
   size_t size;
   int ret;
@@ -1214,6 +1207,8 @@ static int cxd5602pwbimu_open(FAR struct file *filep)
        * TODO: Implement status change
        */
 
+      cxd5602pwbimu_updatemode(priv);
+
       return OK;
     }
 
@@ -1230,17 +1225,31 @@ static int cxd5602pwbimu_open(FAR struct file *filep)
 }
 
 /****************************************************************************
- * Name: cxd5602pwbimu_close
+ * Name: cxd5602pwbimu_open
  *
  * Description:
- *   Standard character driver close method.
+ *   Standard character driver open method.
  *
  ****************************************************************************/
 
-static int cxd5602pwbimu_close(FAR struct file *filep)
+static int cxd5602pwbimu_open(FAR struct file *filep)
 {
-  FAR struct inode               *inode = filep->f_inode;
+  FAR struct inode *inode = filep->f_inode;
   FAR struct cxd5602pwbimu_dev_s *priv = inode->i_private;
+
+  return cxd5602pwbimu_open_priv(priv);
+}
+
+/****************************************************************************
+ * Name: cxd5602pwbimu_close_priv
+ *
+ * Description:
+ *   Standard character driver close method. (actual logic)
+ *
+ ****************************************************************************/
+
+static int cxd5602pwbimu_close_priv(FAR struct cxd5602pwbimu_dev_s *priv)
+{
   FAR cxd5602pwbimu_config_t *config = priv->config;
 
   /* Stop output 6axis data and power down */
@@ -1252,9 +1261,28 @@ static int cxd5602pwbimu_close(FAR struct file *filep)
   config->irq_enable(config, false);
   config->power(config, false);
 
-  circbuf_uninit(&priv->buffer);
+  if (circbuf_is_init(&priv->buffer))
+    {
+      circbuf_uninit(&priv->buffer);
+    }
 
   return OK;
+}
+
+/****************************************************************************
+ * Name: cxd5602pwbimu_close
+ *
+ * Description:
+ *   Standard character driver close method.
+ *
+ ****************************************************************************/
+
+static int cxd5602pwbimu_close(FAR struct file *filep)
+{
+  FAR struct inode               *inode = filep->f_inode;
+  FAR struct cxd5602pwbimu_dev_s *priv = inode->i_private;
+
+  return cxd5602pwbimu_close_priv(priv);
 }
 
 /****************************************************************************
