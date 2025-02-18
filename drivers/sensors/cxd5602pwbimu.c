@@ -49,6 +49,7 @@
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
+
 /* Register Address */
 
 /* Firmware update related registers */
@@ -78,6 +79,7 @@
 #define FSR_ACCEL_4_G       (0x01 << 4) /* Set ACCEL FullScale +/-4G */
 #define FSR_ACCEL_8_G       (0x02 << 4) /* Set ACCEL FullScale +/-8G */
 #define FSR_ACCEL_16_G      (0x03 << 4) /* Set ACCEL FullScale +/-16G */
+
 #define FSR_GYRO_125_DPS    (0x00) /* Set GYRO FullScale +/-125dps */
 #define FSR_GYRO_250_DPS    (0x01) /* Set GYRO FullScale +/-250dps */
 #define FSR_GYRO_500_DPS    (0x02) /* Set GYRO FullScale +/-500dps */
@@ -592,6 +594,7 @@ static int cxd5602pwbimu_detectaddrs(FAR struct cxd5602pwbimu_dev_s *priv)
 
           return -ENODEV;
         }
+
       priv->i2caddr[1] = I2C_SECONDARY_ADDR1;
       priv->i2caddr[2] = I2C_SECONDARY_ADDR2;
       priv->i2caddr[3] = I2C_SECONDARY_ADDR3;
@@ -631,10 +634,12 @@ static int cxd5602pwbimu_checkaddrs(FAR struct cxd5602pwbimu_dev_s *priv)
           nslaves++;
         }
     }
+
   if (nslaves == 0)
     {
       return -ENODEV;
     }
+
   priv->nslaves = nslaves;
 
   /* Check that the address dip switches are valid. */
@@ -644,7 +649,8 @@ static int cxd5602pwbimu_checkaddrs(FAR struct cxd5602pwbimu_dev_s *priv)
       if (priv->i2caddr[i] == I2C_ADDR_NOLOC)
         {
           priv->i2caddr[i] = ((priv->i2caddr[i - 2] & 0x30) ^ 0x20) + i;
-          ret = cxd5602pwbimu_getregsn(priv, i, CXD5602PWBIMU_FW_VER, &val, 1);
+          ret = cxd5602pwbimu_getregsn(priv, i, CXD5602PWBIMU_FW_VER,
+                                       &val, 1);
           priv->i2caddr[i] = I2C_ADDR_NOLOC;
           if (ret == 0)
             {
@@ -679,6 +685,7 @@ static int cxd5602pwbimu_checkver(FAR struct cxd5602pwbimu_dev_s *priv)
     {
       return -1;
     }
+
   if (val == 0)
     {
       /* Now in update mode */
@@ -710,12 +717,14 @@ static int cxd5602pwbimu_checkver(FAR struct cxd5602pwbimu_dev_s *priv)
 
       return -1;
     }
+
   if (ver[0] != ver[1])
     {
       /* Primary and secondary firmwares are not matched, need to update */
 
       return 1;
     }
+
   if (priv->nslaves > 2)
     {
       if (ver[0] != ver[2] || ver[0] != ver[3])
@@ -995,6 +1004,7 @@ static int cxd5602pwbimu_updatemode(FAR struct cxd5602pwbimu_dev_s *priv)
     {
       return ret;
     }
+
   if (val == 0)
     {
       /* Already in update mode */
@@ -1167,11 +1177,13 @@ static int cxd5602pwbimu_updatefw(FAR struct cxd5602pwbimu_dev_s *priv,
       kmm_free(buf);
       return -errno;
     }
+
   ret = file_fstat(&finfo, &stat);
   if (ret < 0)
     {
       return -errno;
     }
+
   total = stat.st_size;
 
   sninfo("Change update mode\n");
@@ -1183,7 +1195,7 @@ static int cxd5602pwbimu_updatefw(FAR struct cxd5602pwbimu_dev_s *priv,
 
   size = 0;
   sninfo("Updating");
-  for (;;)
+  for (; ; )
     {
       ret = file_read(&finfo, buf, 128);
       if (ret <= 0)
@@ -1192,6 +1204,7 @@ static int cxd5602pwbimu_updatefw(FAR struct cxd5602pwbimu_dev_s *priv,
 
           break;
         }
+
       len = ret;
 
       for (i = 0; i < priv->nslaves; i++)
@@ -1202,6 +1215,7 @@ static int cxd5602pwbimu_updatefw(FAR struct cxd5602pwbimu_dev_s *priv,
             {
               goto errout;
             }
+
           sninfo("OK\n");
         }
 
@@ -1267,6 +1281,7 @@ static int cxd5602pwbimu_open_priv(FAR struct cxd5602pwbimu_dev_s *priv)
       return ret;
     }
 #endif
+
   ret = cxd5602pwbimu_checkaddrs(priv);
   if (ret < 0)
     {
@@ -1278,6 +1293,7 @@ static int cxd5602pwbimu_open_priv(FAR struct cxd5602pwbimu_dev_s *priv)
     {
       return -ENODEV;
     }
+
   if (ret > 0)
     {
       /* If return value is positive, firmware mismatch has been detected.
@@ -1403,6 +1419,7 @@ static ssize_t cxd5602pwbimu_read(FAR struct file *filep, FAR char *buffer,
         {
           return ret;
         }
+
       nxmutex_lock(&priv->devlock);
     }
 
@@ -1412,6 +1429,7 @@ static ssize_t cxd5602pwbimu_read(FAR struct file *filep, FAR char *buffer,
       nxmutex_unlock(&priv->devlock);
       return ret;
     }
+
   ret = circbuf_read(&priv->buffer, buffer, len);
   nxsem_post(&priv->bufsem);
 
@@ -1495,7 +1513,9 @@ static int cxd5602pwbimu_ioctl(FAR struct file *filep, int cmd,
 
       case SNIOC_UPDATEFW:
         {
-          FAR cxd5602pwbimu_updatefw_t *p = (FAR cxd5602pwbimu_updatefw_t *)arg;
+          FAR cxd5602pwbimu_updatefw_t *p =
+            (FAR cxd5602pwbimu_updatefw_t *)arg;
+
           ret = cxd5602pwbimu_updatefw(priv, p);
         }
         break;
@@ -1538,7 +1558,8 @@ static int cxd5602pwbimu_ioctl(FAR struct file *filep, int cmd,
         {
           FAR cxd5602pwbimu_regs_t *p = (FAR cxd5602pwbimu_regs_t *)arg;
 
-          ret = cxd5602pwbimu_getregsn_woadr(priv, p->slaveid, p->value, p->len);
+          ret = cxd5602pwbimu_getregsn_woadr(priv, p->slaveid,
+                                             p->value, p->len);
         }
         break;
 
@@ -1656,7 +1677,8 @@ out:
 
 static void cxd5602pwbimu_worker(FAR void *arg)
 {
-  FAR struct cxd5602pwbimu_dev_s *priv = (FAR struct cxd5602pwbimu_dev_s *)arg;
+  FAR struct cxd5602pwbimu_dev_s *priv =
+    (FAR struct cxd5602pwbimu_dev_s *)arg;
   FAR cxd5602pwbimu_config_t *config = priv->config;
   FAR void *ptr;
   size_t size;
@@ -1699,6 +1721,7 @@ static void cxd5602pwbimu_worker(FAR void *arg)
           circbuf_readcommit(&priv->buffer, priv->spi_xfersize);
         }
 #endif
+
       ptr = circbuf_get_writeptr(&priv->buffer, &size);
       cxd5602pwbimu_recv(priv, ptr, priv->spi_xfersize);
       circbuf_writecommit(&priv->buffer, priv->spi_xfersize);
@@ -1741,6 +1764,7 @@ static int cxd5602pwbimu_int_handler(int irq, FAR void *context,
           return ret;
         }
     }
+
   return OK;
 }
 
