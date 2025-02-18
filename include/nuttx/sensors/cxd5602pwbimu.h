@@ -28,46 +28,58 @@
 #include <nuttx/config.h>
 #include <nuttx/fs/ioctl.h>
 
+#include <nuttx/spi/spi.h>
+#include <nuttx/i2c/i2c_master.h>
+
 #if defined(CONFIG_SENSORS_CXD5602PWBIMU)
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
+/* IOCTL Commands ***********************************************************/
+
+#define SNIOC_ENABLE        _SNIOC(0x0001)
+#define SNIOC_SSAMPRATE     _SNIOC(0x0002)
+#define SNIOC_SDRANGE       _SNIOC(0x0003)
+#define SNIOC_SCALIB        _SNIOC(0x0004)
+
+#define SNIOC_SETDATASIZE   _SNIOC(0x0010)
+
+#define SNIOC_WREGSPI       _SNIOC(0x0081)
+#define SNIOC_RREGSPI       _SNIOC(0x0082)
+#define SNIOC_WREGS         _SNIOC(0x0083)
+#define SNIOC_RREGS         _SNIOC(0x0084)
+#define SNIOC_SI2CADDRS     _SNIOC(0x0085) /* TENTATIVE */
+
 /****************************************************************************
  * Public Types
  ****************************************************************************/
 
-struct cxd5602pwbimu_intconfig_s;
-struct cxd5602pwbimu_csxconfig_s;
-
 /* Interrupt configuration data structure */
 
-typedef struct cxd5602pwbimu_intconfig_s
+typedef struct cxd5602pwbimu_config_s
 {
-  CODE int (*irq_attach)(FAR struct cxd5602pwbimu_intconfig_s *state,
-                         xcpt_t isr);
-  CODE void (*irq_enable)(FAR const struct cxd5602pwbimu_intconfig_s *state,
+  CODE int (*irq_attach)(FAR const struct cxd5602pwbimu_config_s *state,
+                         xcpt_t isr, FAR void *arg);
+  CODE void (*irq_enable)(FAR const struct cxd5602pwbimu_config_s *state,
                           bool enable);
-  CODE int (*irq_readlv)(FAR const struct cxd5602pwbimu_intconfig_s *state);
-} cxd5602pwbimu_intconfig_t;
-
-/* CSX pin configuration data structure */
-
-typedef struct cxd5602pwbimu_csxconfig_s
-{
-  CODE void (*csx_toggle)(FAR const struct cxd5602pwbimu_csxconfig_s *state,
-                          bool pol);
-} cxd5602pwbimu_csxconfig_t;
+  CODE int (*irq_readlv)(FAR const struct cxd5602pwbimu_config_s *state);
+  CODE void (*csx)(FAR const struct cxd5602pwbimu_config_s *state,
+                   bool pol);
+  CODE void (*power)(FAR const struct cxd5602pwbimu_config_s *state,
+                     bool pol);
+  CODE void (*reset)(FAR const struct cxd5602pwbimu_config_s *state,
+                     bool assert);
+} cxd5602pwbimu_config_t;
 
 /****************************************************************************
  * struct 6-axis data
  ****************************************************************************/
 
-typedef struct cxd5602pwbimu_packet_st_s
+struct cxd5602pwbimu_data_s
 {
-  uint8_t id;               /* id */
-  uint32_t sensor_time;     /* timestamp */
+  uint32_t timestamp;       /* timestamp */
   float temp;               /* temperature */
   float gx;                 /* gyro x */
   float gy;                 /* gyro y */
@@ -75,9 +87,34 @@ typedef struct cxd5602pwbimu_packet_st_s
   float ax;                 /* accel x */
   float ay;                 /* accel y */
   float az;                 /* accel z */
-} cxd5602pwbimu_packet_st_t;
+};
+typedef struct cxd5602pwbimu_data_s cxd5602pwbimu_data_t;
+
+begin_packed_struct struct cxd5602pwbimu_range_s
+{
+  int accel; /* 2, 4, 8, 16 */
+  int gyro;  /* 125, 250, 500, 1000, 2000, 4000 */
+} end_packed_struct;
+typedef struct cxd5602pwbimu_range_s cxd5602pwbimu_range_t;
+
+begin_packed_struct struct cxd5602pwbimu_calib_s
+{
+  uint16_t offset;
+  uint32_t coef;
+} end_packed_struct;
+typedef struct cxd5602pwbimu_calib_s cxd5602pwbimu_calib_t;
+
+struct cxd5602pwbimu_regs_s
+{
+  uint8_t addr;   /* Register address */
+  FAR uint8_t *value; /* Write value or read value */
+  uint8_t len;    /* Length of value */
+  int slaveid;    /* Target 0=master, 1,2,3=slave{1,2,3} */
+};
+typedef struct cxd5602pwbimu_regs_s cxd5602pwbimu_regs_t;
 
 struct spi_dev_s;
+struct i2c_master_s;
 
 /****************************************************************************
  * Public Function Prototypes
@@ -99,10 +136,11 @@ extern "C"
  *
  * Input Parameters:
  *   devpath   - The full path to the driver to register. E.g., "/dev/imu0"
- *   dev       - An instance of the SPI interface to use to communicate
+ *   dev_spi   - An instance of the SPI interface to use to communicate
  *               with CXD5602PWBIMU
- *   intconfig - An instance of the interrupt configuration data structure
- *   csxconfig - An instance of the csx pin configuration data structure
+ *   dev_i2c   - An instance of the I2C interface to use to communicate
+ *               with CXD5602PWBIMU
+ *   config    - An instance of the interrupt configuration data structure
  *
  * Returned Value:
  *   Zero (OK) on success; a negated errno value on failure.
@@ -110,9 +148,9 @@ extern "C"
  ****************************************************************************/
 
 int cxd5602pwbimu_register(FAR const char *devpath,
-                           FAR struct spi_dev_s *dev,
-                           FAR cxd5602pwbimu_intconfig_t *intconfig,
-                           FAR cxd5602pwbimu_csxconfig_t *csxconfig);
+                           FAR struct spi_dev_s *dev_spi,
+                           FAR struct i2c_master_s *dev_i2c,
+                           FAR cxd5602pwbimu_config_t *config);
 
 #undef EXTERN
 #ifdef __cplusplus

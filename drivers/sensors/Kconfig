@@ -254,11 +254,20 @@ config SENSORS_CXD5602PWBIMU
 	bool "SONY CXD5602PWBIMU Inertial Measurement Sensor support"
 	default n
 	select SPI
+	select I2C
 	---help---
 		Enable driver support for the SONY CXD5602PWBIMU Inertial
 		Measurement sensor
 
 if SENSORS_CXD5602PWBIMU
+
+config CXD5602PWBIMU_NR_BUFFERS
+	int "Number of buffers to retrieve sensing data"
+	default 16
+
+config CXD5602PWBIMU_OVERWRITE
+	bool "Overwrite circular buffer"
+	default y
 
 config CXD5602PWBIMU_NPOLLWAITERS
 	int "Number of waiters to poll"
