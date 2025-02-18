@@ -778,7 +778,7 @@ static int cxd5602pwbimu_open(FAR struct file *filep)
   config->reset(config, true);
   up_udelay(20);
   config->reset(config, false);
-  up_mdelay(100);
+  up_mdelay(150);
 
   ret = cxd5602pwbimu_checkver(priv);
   if (ret < 0)
