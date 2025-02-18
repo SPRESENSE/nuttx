@@ -778,7 +778,7 @@ static int cxd5602pwbimu_open(FAR struct file *filep)
   config->reset(config, true);
   up_udelay(20);
   config->reset(config, false);
-  up_mdelay(100);
+  up_mdelay(150);
 
   ret = cxd5602pwbimu_checkver(priv);
   if (ret < 0)
@@ -1150,6 +1150,16 @@ static void cxd5602pwbimu_worker(FAR void *arg)
   else
 #endif
     {
+#ifdef CONFIG_CXD5602PWBIMU_OVERWRITE
+      if (circbuf_is_full(&priv->buffer))
+        {
+          /* Advance the read pointer by the transfer size.
+           * We need to do it for overwrite feature in circbuf.
+           */
+
+          circbuf_readcommit(&priv->buffer, priv->spi_xfersize);
+        }
+#endif
       ptr = circbuf_get_writeptr(&priv->buffer, &size);
       cxd5602pwbimu_recv(priv, ptr, priv->spi_xfersize);
       circbuf_writecommit(&priv->buffer, priv->spi_xfersize);
