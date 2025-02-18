@@ -107,12 +107,16 @@
 
 #define I2C_CLK_FRERQ   (400000)
 
-/* Default I2C Slave Address */
+/* Default I2C Slave Addresses */
 
 #define I2C_SLAVE_ADDR0 (0x10)
 #define I2C_SLAVE_ADDR1 (0x11)
 #define I2C_SLAVE_ADDR2 (0x12)
 #define I2C_SLAVE_ADDR3 (0x13)
+
+#define I2C_ADDR_AUTO (0xff)
+
+#define IS_VALID_SLAVE(priv, i) (priv->i2caddr[i] != I2C_ADDR_AUTO)
 
 /****************************************************************************
  * Private Types
@@ -163,6 +167,9 @@ static int cxd5602pwbimu_putregs(FAR struct cxd5602pwbimu_dev_s *priv,
                                  FAR uint8_t *buffer, uint8_t len);
 static int cxd5602pwbimu_putreg8(FAR struct cxd5602pwbimu_dev_s *priv,
                                  uint8_t regaddr, uint8_t regval);
+static int cxd5602pwbimu_putreg8n(FAR struct cxd5602pwbimu_dev_s *priv,
+                                  int slaveid,
+                                  uint8_t regaddr, uint8_t regval);
 
 /* Device control methods */
 
@@ -174,6 +181,8 @@ static int cxd5602pwbimu_setcalib(FAR struct cxd5602pwbimu_dev_s *priv,
                                   FAR cxd5602pwbimu_calib_t *calib);
 static int cxd5602pwbimu_setdrange(FAR struct cxd5602pwbimu_dev_s *priv,
                                    int accel, int gyro);
+static int cxd5602pwbimu_updatefw(FAR struct cxd5602pwbimu_dev_s *priv,
+                                  FAR const char *filepath);
 
 /* Character driver methods */
 
@@ -494,6 +503,21 @@ static int cxd5602pwbimu_putreg8(FAR struct cxd5602pwbimu_dev_s *priv,
 }
 
 /****************************************************************************
+ * Name: cxd5602pwbimu_putreg8n
+ *
+ * Description:
+ *   Write value to CXD5602PWBIMU via i2c with specified slave address.
+ *
+ ****************************************************************************/
+
+static int cxd5602pwbimu_putreg8n(FAR struct cxd5602pwbimu_dev_s *priv,
+                                  int slaveid,
+                                  uint8_t regaddr, uint8_t regval)
+{
+  return cxd5602pwbimu_putregsn(priv, slaveid, regaddr, &regval, 1);
+}
+
+/****************************************************************************
  * Name: cxd5602pwbimu_checkver
  *
  * Description:
@@ -757,6 +781,190 @@ static int cxd5602pwbimu_setdrange(FAR struct cxd5602pwbimu_dev_s *priv,
 }
 
 /****************************************************************************
+ * Name: cxd5602pwbimu_waitforready
+ *
+ * Description:
+ *   Wait for ready to updater can take the firmware binary data.
+ *
+ ****************************************************************************/
+
+static int cxd5602pwbimu_waitforready(FAR struct cxd5602pwbimu_dev_s *priv,
+                                      int slaveid)
+{
+  int retry;
+  uint8_t val;
+  int ret;
+
+  if (!IS_VALID_SLAVE(priv, slaveid))
+    {
+      return -EINVAL;
+    }
+
+  val = 0;
+  retry = 100;
+  do
+    {
+      ret = cxd5602pwbimu_getregsn(priv, slaveid,
+                                   CXD5602PWBIMU_INJECTION_READY,
+                                   &val, 1);
+      if (ret)
+        {
+          return ret;
+        }
+    }
+  while (val == 0 && --retry);
+
+  return val == 1 ? OK : -ETIMEDOUT;
+}
+
+/****************************************************************************
+ * Name: cxd5602pwbimu_sendfwchunk
+ *
+ * Description:
+ *   Send chunk of CXD5602PWBIMU Add-on board firmware.
+ *
+ ****************************************************************************/
+
+static int cxd5602pwbimu_sendfwchunk(FAR struct cxd5602pwbimu_dev_s *priv,
+                                     int slaveid, FAR uint8_t *buf, int len)
+{
+  int ret;
+
+  ret = cxd5602pwbimu_waitforready(priv, slaveid);
+  if (ret == -ETIMEDOUT)
+    {
+      return ret;
+    }
+
+  ret = cxd5602pwbimu_putregsn(priv, slaveid, CXD5602PWBIMU_INJECT_BINARY,
+                               buf, len);
+
+  return ret;
+}
+
+/****************************************************************************
+ * Name: cxd5602pwbimu_verifyfw
+ *
+ * Description:
+ *   Verify updated CXD5602PWBIMU Add-on board firmwares.
+ *
+ ****************************************************************************/
+
+static int cxd5602pwbimu_verifyfw(FAR struct cxd5602pwbimu_dev_s *priv,
+                                  int slaveid)
+{
+  int retry;
+  uint8_t val;
+  int ret;
+
+  ret = cxd5602pwbimu_waitforready(priv, slaveid);
+  if (ret == -ETIMEDOUT)
+    {
+      return ret;
+    }
+
+  val = 1;
+  ret = cxd5602pwbimu_putregsn(priv, slaveid, CXD5602PWBIMU_VERIFY_BINARY,
+                               &val, 1);
+  if (ret)
+    {
+      return ret;
+    }
+
+  val = 0;
+  retry = 100;
+  do
+    {
+      ret = cxd5602pwbimu_getregsn(priv, slaveid,
+                                   CXD5602PWBIMU_UPDATE_RESULT,
+                                   &val, 1);
+      if (ret)
+        {
+          return ret;
+        }
+    }
+  while (val == 0 && --retry);
+
+  return val == 1 ? OK : -ETIMEDOUT;
+}
+
+/****************************************************************************
+ * Name: cxd5602pwbimu_updatefw
+ *
+ * Description:
+ *   Update CXD5602PWBIMU Add-on board firmwares.
+ *
+ ****************************************************************************/
+
+static int cxd5602pwbimu_updatefw(FAR struct cxd5602pwbimu_dev_s *priv,
+                                  FAR const char *path)
+{
+  struct file finfo;
+  FAR uint8_t *buf;
+  int i;
+  int len;
+  int ret;
+
+  buf = (FAR uint8_t *)kmm_malloc(128);
+  if (!buf)
+    {
+      return -ENOMEM;
+    }
+
+  ret = file_open(&finfo, path, O_RDONLY | O_CLOEXEC);
+  if (ret)
+    {
+      kmm_free(buf);
+      return -ENOENT;
+    }
+
+  for (i = 0; i < 4; i++)
+    {
+      if (!IS_VALID_SLAVE(priv, i))
+        {
+          continue;
+        }
+      cxd5602pwbimu_putreg8n(priv, i, CXD5602PWBIMU_CHANGE_TO_UPDATEMODE, 1);
+    }
+
+  for (;;)
+    {
+      ret = file_read(&finfo, buf, 128);
+      if (ret <= 0)
+        {
+          /* break loop when error or EOF */
+
+          break;
+        }
+      len = ret;
+
+      for (i = 0; i < 4; i++)
+        {
+          ret = cxd5602pwbimu_sendfwchunk(priv, i, buf, len);
+          if (ret)
+            {
+              goto errout;
+            }
+        }
+    }
+
+  for (i = 0; i < 4; i++)
+    {
+      ret = cxd5602pwbimu_verifyfw(priv, i);
+      if (ret)
+        {
+          break;
+        }
+    }
+
+errout:
+  kmm_free(buf);
+  file_close(&finfo);
+
+  return ret;
+}
+
+/****************************************************************************
  * Name: cxd5602pwbimu_open
  *
  * Description:
@@ -960,6 +1168,16 @@ static int cxd5602pwbimu_ioctl(FAR struct file *filep, int cmd,
 
       case SNIOC_ENABLE:
         ret = cxd5602pwbimu_enable(priv, arg == 1);
+        break;
+
+      case SNIOC_SFIFOTHRESH:
+        break;
+
+      case SNIOC_UPDATEFW:
+        {
+          FAR const char *path = (FAR const char *)arg;
+          ret = cxd5602pwbimu_updatefw(priv, path);
+        }
         break;
 
       case SNIOC_WREGSPI:

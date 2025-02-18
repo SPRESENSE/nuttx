@@ -43,15 +43,15 @@
 #define SNIOC_SSAMPRATE     _SNIOC(0x0002)
 #define SNIOC_SDRANGE       _SNIOC(0x0003)
 #define SNIOC_SCALIB        _SNIOC(0x0004)
+#define SNIOC_SFIFOTHRESH   _SNIOC(0x0005)
+#define SNIOC_UPDATEFW      _SNIOC(0x0010)
 
-#define SNIOC_SETDATASIZE   _SNIOC(0x0010)
-
+#define SNIOC_SETDATASIZE   _SNIOC(0x0080)
 #define SNIOC_WREGSPI       _SNIOC(0x0081)
 #define SNIOC_RREGSPI       _SNIOC(0x0082)
 #define SNIOC_WREGS         _SNIOC(0x0083)
 #define SNIOC_RREGS         _SNIOC(0x0084)
-#define SNIOC_SI2CADDRS     _SNIOC(0x0085) /* TENTATIVE */
-#define SNIOC_RREGS_WOADR   _SNIOC(0x0086)
+#define SNIOC_RREGS_WOADR   _SNIOC(0x0085)
 
 /****************************************************************************
  * Public Types
@@ -90,11 +90,11 @@ struct cxd5602pwbimu_data_s
 };
 typedef struct cxd5602pwbimu_data_s cxd5602pwbimu_data_t;
 
-begin_packed_struct struct cxd5602pwbimu_range_s
+struct cxd5602pwbimu_range_s
 {
   int accel; /* 2, 4, 8, 16 */
   int gyro;  /* 125, 250, 500, 1000, 2000, 4000 */
-} end_packed_struct;
+};
 typedef struct cxd5602pwbimu_range_s cxd5602pwbimu_range_t;
 
 begin_packed_struct struct cxd5602pwbimu_calib_s
