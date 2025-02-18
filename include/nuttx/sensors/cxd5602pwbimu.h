@@ -64,7 +64,6 @@ typedef struct cxd5602pwbimu_config_s
                          xcpt_t isr, FAR void *arg);
   CODE void (*irq_enable)(FAR const struct cxd5602pwbimu_config_s *state,
                           bool enable);
-  CODE int (*irq_readlv)(FAR const struct cxd5602pwbimu_config_s *state);
   CODE void (*csx)(FAR const struct cxd5602pwbimu_config_s *state,
                    bool pol);
   CODE void (*power)(FAR const struct cxd5602pwbimu_config_s *state,
