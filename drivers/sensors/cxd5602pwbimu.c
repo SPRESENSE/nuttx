@@ -109,10 +109,10 @@
 
 /* Default I2C Slave Address */
 
-#define I2C_SLAVE_ADDR0 (0x0a)
-#define I2C_SLAVE_ADDR1 (0x08)
-#define I2C_SLAVE_ADDR2 (0x0c)
-#define I2C_SLAVE_ADDR3 (0x0e)
+#define I2C_SLAVE_ADDR0 (0x10)
+#define I2C_SLAVE_ADDR1 (0x11)
+#define I2C_SLAVE_ADDR2 (0x12)
+#define I2C_SLAVE_ADDR3 (0x13)
 
 /****************************************************************************
  * Private Types
@@ -757,11 +757,6 @@ static int cxd5602pwbimu_open(FAR struct file *filep)
   cxd5602pwbimu_setdrange(priv, 2, 125);
   cxd5602pwbimu_putreg8(priv, CXD5602PWBIMU_FIFO_MODE, FIFO_MODE_MULTI);
   cxd5602pwbimu_putreg8(priv, CXD5602PWBIMU_INTR_ENABLE, 1);
-
-  /* WORKAROUND */
-
-  cxd5602pwbimu_putreg8(priv, 0x42, 0);
-  cxd5602pwbimu_putreg8(priv, 0x60, 1);
 
   /* Enable data ready interrupt */
 
