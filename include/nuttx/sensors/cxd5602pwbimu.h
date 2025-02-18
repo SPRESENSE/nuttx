@@ -53,6 +53,7 @@
 #define SNIOC_WREGS         _SNIOC(0x0083)
 #define SNIOC_RREGS         _SNIOC(0x0084)
 #define SNIOC_RREGS_WOADR   _SNIOC(0x0085)
+#define SNIOC_GETBNUM       _SNIOC(0x0086)
 
 /****************************************************************************
  * Public Types
