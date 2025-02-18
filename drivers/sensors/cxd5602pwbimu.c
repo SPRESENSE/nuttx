@@ -1351,11 +1351,11 @@ static int cxd5602pwbimu_close_priv(FAR struct cxd5602pwbimu_dev_s *priv)
 
   /* Stop output 6axis data and power down */
 
+  config->irq_enable(config, false);
   cxd5602pwbimu_enable(priv, false);
 
   up_mdelay(100);
 
-  config->irq_enable(config, false);
   config->power(config, false);
 
   if (circbuf_is_init(&priv->buffer))
