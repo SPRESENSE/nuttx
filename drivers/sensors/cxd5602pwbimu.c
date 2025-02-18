@@ -228,9 +228,7 @@ static int cxd5602pwbimu_updatefw(FAR struct cxd5602pwbimu_dev_s *priv,
 
 /* Character driver methods */
 
-static int cxd5602pwbimu_open_priv(FAR struct cxd5602pwbimu_dev_s *priv);
 static int cxd5602pwbimu_open(FAR struct file *filep);
-static int cxd5602pwbimu_close_priv(FAR struct cxd5602pwbimu_dev_s *priv);
 static int cxd5602pwbimu_close(FAR struct file *filep);
 static ssize_t cxd5602pwbimu_read(FAR struct file *filep, FAR char *buffer,
                                   size_t len);
@@ -382,7 +380,7 @@ static void cxd5602pwbimu_recv(FAR struct cxd5602pwbimu_dev_s *priv,
 {
   FAR cxd5602pwbimu_config_t *config = priv->config;
 
-  /* Clear recieve buffer and set 1 to first byte MSB */
+  /* Clear receive buffer and set 1 to first byte MSB */
 
   memset(buffer, 0, len);
   buffer[0] = 0x80;
@@ -575,7 +573,7 @@ static int cxd5602pwbimu_detectaddrs(FAR struct cxd5602pwbimu_dev_s *priv)
       return 0;
     }
 
-  /* First try to get regsiter from primary PSoC.
+  /* First try to get register from primary PSoC.
    * If an address is determined to be either primary or secondary, the
    * other addresses are set in the same series for now.
    */
@@ -1175,13 +1173,13 @@ static int cxd5602pwbimu_updatefw(FAR struct cxd5602pwbimu_dev_s *priv,
   if (ret < 0)
     {
       kmm_free(buf);
-      return -errno;
+      return ret;
     }
 
   ret = file_fstat(&finfo, &stat);
   if (ret < 0)
     {
-      return -errno;
+      goto errout;
     }
 
   total = stat.st_size;
@@ -1239,11 +1237,6 @@ static int cxd5602pwbimu_updatefw(FAR struct cxd5602pwbimu_dev_s *priv,
         }
     }
 
-  /* Reboot */
-
-  cxd5602pwbimu_close_priv(priv);
-  cxd5602pwbimu_open_priv(priv);
-
   sninfo("OK\n");
 
 errout:
@@ -1254,15 +1247,17 @@ errout:
 }
 
 /****************************************************************************
- * Name: cxd5602pwbimu_open_priv
+ * Name: cxd5602pwbimu_open
  *
  * Description:
- *   Standard character driver open method. (actual logic)
+ *   Standard character driver open method.
  *
  ****************************************************************************/
 
-static int cxd5602pwbimu_open_priv(FAR struct cxd5602pwbimu_dev_s *priv)
+static int cxd5602pwbimu_open(FAR struct file *filep)
 {
+  FAR struct inode *inode = filep->f_inode;
+  FAR struct cxd5602pwbimu_dev_s *priv = inode->i_private;
   FAR cxd5602pwbimu_config_t *config = priv->config;
   int ret;
 
@@ -1322,31 +1317,17 @@ static int cxd5602pwbimu_open_priv(FAR struct cxd5602pwbimu_dev_s *priv)
 }
 
 /****************************************************************************
- * Name: cxd5602pwbimu_open
+ * Name: cxd5602pwbimu_close
  *
  * Description:
- *   Standard character driver open method.
+ *   Standard character driver close method.
  *
  ****************************************************************************/
 
-static int cxd5602pwbimu_open(FAR struct file *filep)
+static int cxd5602pwbimu_close(FAR struct file *filep)
 {
   FAR struct inode *inode = filep->f_inode;
   FAR struct cxd5602pwbimu_dev_s *priv = inode->i_private;
-
-  return cxd5602pwbimu_open_priv(priv);
-}
-
-/****************************************************************************
- * Name: cxd5602pwbimu_close_priv
- *
- * Description:
- *   Standard character driver close method. (actual logic)
- *
- ****************************************************************************/
-
-static int cxd5602pwbimu_close_priv(FAR struct cxd5602pwbimu_dev_s *priv)
-{
   FAR cxd5602pwbimu_config_t *config = priv->config;
 
   /* Stop output 6axis data and power down */
@@ -1369,22 +1350,6 @@ static int cxd5602pwbimu_close_priv(FAR struct cxd5602pwbimu_dev_s *priv)
 }
 
 /****************************************************************************
- * Name: cxd5602pwbimu_close
- *
- * Description:
- *   Standard character driver close method.
- *
- ****************************************************************************/
-
-static int cxd5602pwbimu_close(FAR struct file *filep)
-{
-  FAR struct inode               *inode = filep->f_inode;
-  FAR struct cxd5602pwbimu_dev_s *priv = inode->i_private;
-
-  return cxd5602pwbimu_close_priv(priv);
-}
-
-/****************************************************************************
  * Name: cxd5602pwbimu_read
  *
  * Description:
@@ -1395,7 +1360,7 @@ static int cxd5602pwbimu_close(FAR struct file *filep)
 static ssize_t cxd5602pwbimu_read(FAR struct file *filep, FAR char *buffer,
                                   size_t len)
 {
-  FAR struct inode               *inode = filep->f_inode;
+  FAR struct inode *inode = filep->f_inode;
   FAR struct cxd5602pwbimu_dev_s *priv = inode->i_private;
   int ret;
 
@@ -1449,7 +1414,7 @@ static ssize_t cxd5602pwbimu_read(FAR struct file *filep, FAR char *buffer,
 static int cxd5602pwbimu_ioctl(FAR struct file *filep, int cmd,
                                unsigned long arg)
 {
-  FAR struct inode               *inode = filep->f_inode;
+  FAR struct inode *inode = filep->f_inode;
   FAR struct cxd5602pwbimu_dev_s *priv  = inode->i_private;
   int ret = OK;
 
