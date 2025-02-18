@@ -152,6 +152,9 @@ static void cxd5602pwbimu_recv(FAR struct cxd5602pwbimu_dev_s *priv,
 static int cxd5602pwbimu_getregsn(FAR struct cxd5602pwbimu_dev_s *priv,
                                   int slaveid, uint8_t regaddr,
                                   FAR uint8_t *buffer, uint8_t len);
+static int cxd5602pwbimu_getregsn_woadr(FAR struct cxd5602pwbimu_dev_s *priv,
+                                        int slaveid,
+                                        FAR uint8_t *buffer, uint8_t len);
 static int cxd5602pwbimu_putregsn(FAR struct cxd5602pwbimu_dev_s *priv,
                                   int slaveid, uint8_t regaddr,
                                   FAR uint8_t *buffer, uint8_t len);
@@ -386,6 +389,37 @@ static int cxd5602pwbimu_getregsn(FAR struct cxd5602pwbimu_dev_s *priv,
   msg[1].length    = len;
 
   ret = I2C_TRANSFER(priv->i2c, msg, 2);
+  if (ret < 0)
+    {
+      snerr("I2C_TRANSFER failed: %d\n", ret);
+    }
+
+  return ret;
+}
+
+/****************************************************************************
+ * Name: cxd5602pwbimu_getregsn_woadr
+ *
+ * Description:
+ *   Read value from CXD5602PWBIMU via I2C with primary slave
+ *   This function performs a read operation without a preceding
+ *   write operation to the register address.
+ ****************************************************************************/
+
+static int cxd5602pwbimu_getregsn_woadr(FAR struct cxd5602pwbimu_dev_s *priv,
+                                         int slaveid,
+                                         FAR uint8_t *buffer, uint8_t len)
+{
+  struct i2c_msg_s msg;
+  int ret;
+
+  msg.frequency = priv->i2cfreq;
+  msg.addr      = priv->i2caddr[slaveid];
+  msg.flags     = I2C_M_READ;
+  msg.buffer    = buffer;
+  msg.length    = len;
+
+  ret = I2C_TRANSFER(priv->i2c, &msg, 1);
   if (ret < 0)
     {
       snerr("I2C_TRANSFER failed: %d\n", ret);
@@ -959,6 +993,14 @@ static int cxd5602pwbimu_ioctl(FAR struct file *filep, int cmd,
 
           ret = cxd5602pwbimu_getregsn(priv, p->slaveid,
                                        p->addr, p->value, p->len);
+        }
+        break;
+
+      case SNIOC_RREGS_WOADR:
+        {
+          FAR cxd5602pwbimu_regs_t *p = (FAR cxd5602pwbimu_regs_t *)arg;
+
+          ret = cxd5602pwbimu_getregsn_woadr(priv, p->slaveid, p->value, p->len);
         }
         break;
 
