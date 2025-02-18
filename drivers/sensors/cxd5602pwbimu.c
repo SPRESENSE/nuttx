@@ -143,8 +143,8 @@
 #define STATE_RUNNING (2)
 #define STATE_UPDATE  (3)
 
-#define CIRCBUFSZ(priv) (CONFIG_SENSORS_CXD5602PWBIMU_NR_BUFFERS * \
-                         (priv)->spi_xfersize)
+#define NR_BUFFERS CONFIG_SENSORS_CXD5602PWBIMU_NR_BUFFERS
+#define CIRCBUFSZ(priv) (NR_BUFFERS * (priv)->spi_xfersize)
 
 /****************************************************************************
  * Private Types
@@ -742,6 +742,8 @@ static int cxd5602pwbimu_checkver(FAR struct cxd5602pwbimu_dev_s *priv)
 static int cxd5602pwbimu_enable(FAR struct cxd5602pwbimu_dev_s *priv,
                                 bool enable)
 {
+  int ret;
+
   if (priv->state == STATE_UPDATE)
     {
       return -EBUSY;
@@ -754,9 +756,12 @@ static int cxd5602pwbimu_enable(FAR struct cxd5602pwbimu_dev_s *priv,
           return OK; /* Already running, ignore. */
         }
 
-      cxd5602pwbimu_putreg8(priv, CXD5602PWBIMU_OUTPUT_ENABLE,
-                            OUTPUT_ENABLE);
-      priv->state = STATE_RUNNING;
+      ret = cxd5602pwbimu_putreg8(priv, CXD5602PWBIMU_OUTPUT_ENABLE,
+                                  OUTPUT_ENABLE);
+      if (!ret)
+        {
+          priv->state = STATE_RUNNING;
+        }
     }
   else
     {
@@ -770,7 +775,7 @@ static int cxd5602pwbimu_enable(FAR struct cxd5602pwbimu_dev_s *priv,
       priv->state = STATE_READY;
     }
 
-  return OK;
+  return ret;
 }
 
 /****************************************************************************
@@ -829,9 +834,7 @@ static int cxd5602pwbimu_setodr(FAR struct cxd5602pwbimu_dev_s *priv,
         return -EINVAL;
     }
 
-  cxd5602pwbimu_putreg8(priv, CXD5602PWBIMU_ODR, val);
-
-  return OK;
+  return cxd5602pwbimu_putreg8(priv, CXD5602PWBIMU_ODR, val);
 }
 
 /****************************************************************************
@@ -933,9 +936,44 @@ static int cxd5602pwbimu_setdrange(FAR struct cxd5602pwbimu_dev_s *priv,
         return -EINVAL;
     }
 
-  cxd5602pwbimu_putreg8(priv, CXD5602PWBIMU_FSR, val);
+  return cxd5602pwbimu_putreg8(priv, CXD5602PWBIMU_FSR, val);
+}
 
-  return OK;
+/****************************************************************************
+ * Name: cxd5602pwbimu_setfifothresh
+ *
+ * Description:
+ *   Set FIFO threshold. Driver resize the circbuf by configured
+ *   threshold.
+ *
+ ****************************************************************************/
+
+static int cxd5602pwbimu_setfifothresh(FAR struct cxd5602pwbimu_dev_s *priv,
+                                       int thresh)
+{
+  size_t size;
+  int ret;
+
+  if (priv->state != STATE_READY)
+    {
+      return -EBUSY;
+    }
+
+  if (thresh < 1 || thresh > 4)
+    {
+      return -EINVAL;
+    }
+
+  ret = cxd5602pwbimu_putreg8(priv, CXD5602PWBIMU_FIFO_THRESH, thresh);
+  if (!ret)
+    {
+      priv->spi_xfersize = sizeof(cxd5602pwbimu_data_t) * thresh;
+      size = (NR_BUFFERS / thresh) * thresh * sizeof(cxd5602pwbimu_data_t);
+      sninfo("Resize circbuf in %d bytes\n", size);
+      ret = circbuf_resize(&priv->buffer, size);
+    }
+
+  return ret;
 }
 
 /****************************************************************************
@@ -1243,8 +1281,9 @@ static int cxd5602pwbimu_open_priv(FAR struct cxd5602pwbimu_dev_s *priv)
   if (ret > 0)
     {
       /* If return value is positive, firmware mismatch has been detected.
-       * , the driver can be used
-       * for only updating firmwares.
+       * The driver can be used for only updating firmwares.
+       * Additionally, change each PSoCs to update mode for indicate on board
+       * LEDs to in update mode.
        */
 
       cxd5602pwbimu_updatemode(priv);
@@ -1350,13 +1389,6 @@ static ssize_t cxd5602pwbimu_read(FAR struct file *filep, FAR char *buffer,
       return ret;
     }
 
-  if (len < priv->spi_xfersize)
-    {
-      snerr("Buffer size is less than %lu bytes\n",
-            priv->spi_xfersize);
-      return 0;
-    }
-
   if (circbuf_is_empty(&priv->buffer))
     {
       if (filep->f_oflags & O_NONBLOCK)
@@ -1458,6 +1490,7 @@ static int cxd5602pwbimu_ioctl(FAR struct file *filep, int cmd,
         break;
 
       case SNIOC_SFIFOTHRESH:
+        ret = cxd5602pwbimu_setfifothresh(priv, arg);
         break;
 
       case SNIOC_UPDATEFW:
@@ -1589,7 +1622,8 @@ static int cxd5602pwbimu_poll(FAR struct file *filep, FAR struct pollfd *fds,
       flags = enter_critical_section();
       if (!circbuf_is_empty(&priv->buffer))
         {
-          poll_notify(priv->fds, CONFIG_SENSORS_CXD5602PWBIMU_NPOLLWAITERS, POLLIN);
+          poll_notify(priv->fds,
+                      CONFIG_SENSORS_CXD5602PWBIMU_NPOLLWAITERS, POLLIN);
         }
 
       leave_critical_section(flags);
