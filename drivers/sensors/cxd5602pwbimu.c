@@ -1435,7 +1435,7 @@ static int cxd5602pwbimu_ioctl(FAR struct file *filep, int cmd,
       case SNIOC_SETDATASIZE:
         if (priv->state != STATE_READY)
           {
-            break;
+            ret = -EBUSY;
           }
         else
           {
