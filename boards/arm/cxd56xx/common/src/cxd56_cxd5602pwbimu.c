@@ -113,7 +113,6 @@ static int  cxd5602pwbimu_irq_attach(const cxd5602pwbimu_config_t *state,
                                      xcpt_t isr, void *arg);
 static void cxd5602pwbimu_irq_enable(const cxd5602pwbimu_config_t *state,
                                      bool enable);
-static int  cxd5602pwbimu_irq_readlv(const cxd5602pwbimu_config_t *state);
 static void cxd5602pwbimu_csx(const cxd5602pwbimu_config_t *state,
                               bool pol);
 static void cxd5602pwbimu_power(const cxd5602pwbimu_config_t *state,
@@ -129,7 +128,6 @@ static cxd5602pwbimu_config_t g_config =
 {
   .irq_attach = cxd5602pwbimu_irq_attach,
   .irq_enable = cxd5602pwbimu_irq_enable,
-  .irq_readlv = cxd5602pwbimu_irq_readlv,
   .csx = cxd5602pwbimu_csx,
   .power = cxd5602pwbimu_power,
   .reset = cxd5602pwbimu_reset,
@@ -145,7 +143,7 @@ static int cxd5602pwbimu_irq_attach(const cxd5602pwbimu_config_t *state,
                                     xcpt_t isr, void *arg)
 {
   sninfo("cxd5602pwbimu_irq_attach\n");
-  cxd56_gpioint_config(PIN_SPI_DRDY, GPIOINT_PSEUDO_EDGE_RISE, isr, arg);
+  cxd56_gpioint_config(PIN_SPI_DRDY, GPIOINT_LEVEL_HIGH, isr, arg);
 
   return OK;
 }
@@ -157,19 +155,6 @@ static void cxd5602pwbimu_irq_enable(const cxd5602pwbimu_config_t *state,
 {
   sninfo("%d\n", enable);
   board_gpio_int(PIN_SPI_DRDY, enable);
-}
-
-/* Read interrupt pin level */
-
-static int cxd5602pwbimu_irq_readlv(const cxd5602pwbimu_config_t *state)
-{
-  int pin_lv;
-
-  pin_lv = board_gpio_read(PIN_SPI_DRDY);
-
-  sninfo("%d\n", pin_lv);
-
-  return pin_lv;
 }
 
 /* Toggle the csx pin level */

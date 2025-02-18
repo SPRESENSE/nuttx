@@ -126,7 +126,6 @@ struct cxd5602pwbimu_dev_s
   FAR struct i2c_master_s *i2c;          /* I2C interface */
   uint8_t i2caddr[4];                    /* I2C slave address 0-3 */
   uint32_t i2cfreq;                      /* I2C clock frequency */
-  uint8_t xbuf[64];                      /* Transmit buffer */
 
   FAR cxd5602pwbimu_config_t *config;    /* Board control interface */
   mutex_t devlock;                       /* Device exclusion control */
@@ -465,9 +464,6 @@ static void cxd5602pwbimu_putregsn(FAR struct cxd5602pwbimu_dev_s *priv,
 {
   struct i2c_msg_s msg[2];
   int ret;
-
-  priv->xbuf[0] = regaddr;
-  memcpy(&priv->xbuf[1], buffer, len);
 
   msg[0].frequency = priv->i2cfreq;
   msg[0].addr      = priv->i2caddr[slaveid];
@@ -1083,28 +1079,32 @@ static void cxd5602pwbimu_worker(FAR void *arg)
       return;
     }
 
-  /* Drain all of available data */
+  /* Receive 1 sensing data.
+   * If two or more data are ready, re-enter this routine after interrupt
+   * enable, and continue this sequence until sensing data on the device
+   * is empty.
+   */
 
-  do
-    {
 #ifndef CONFIG_CXD5602PWBIMU_OVERWRITE
-      if (circbuf_is_full(&priv->buffer))
-        {
-          /* Drain sensor data but not copy into circular buffer */
+  if (circbuf_is_full(&priv->buffer))
+    {
+      cxd5602pwbimu_data_t data;
 
-          cxd5602pwbimu_recv(priv, priv->xbuf, priv->spi_xfersize);
-        }
-      else
-#endif
-        {
-          ptr = circbuf_get_writeptr(&priv->buffer, &size);
-          cxd5602pwbimu_recv(priv, ptr, priv->spi_xfersize);
-          circbuf_writecommit(&priv->buffer, priv->spi_xfersize);
-        }
+      /* Drain sensor data but not copy into circular buffer */
+
+      cxd5602pwbimu_recv(priv, (FAR uint8_t *)&data, priv->spi_xfersize);
     }
-  while (config->irq_readlv(config));
+  else
+#endif
+    {
+      ptr = circbuf_get_writeptr(&priv->buffer, &size);
+      cxd5602pwbimu_recv(priv, ptr, priv->spi_xfersize);
+      circbuf_writecommit(&priv->buffer, priv->spi_xfersize);
+    }
 
   nxsem_post(&priv->bufsem);
+
+  config->irq_enable(config, true);
 
   /* Notify data get ready to user */
 
@@ -1125,7 +1125,10 @@ static int cxd5602pwbimu_int_handler(int irq, FAR void *context,
 {
   FAR struct cxd5602pwbimu_dev_s *priv =
     (FAR struct cxd5602pwbimu_dev_s *)arg;
+  FAR cxd5602pwbimu_config_t *config = priv->config;
   int ret;
+
+  config->irq_enable(config, false);
 
   if (work_available(&priv->work))
     {
