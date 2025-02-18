@@ -113,14 +113,30 @@
 
 /* Default I2C Slave Addresses */
 
-#define I2C_SLAVE_ADDR0 (0x10)
-#define I2C_SLAVE_ADDR1 (0x11)
-#define I2C_SLAVE_ADDR2 (0x12)
-#define I2C_SLAVE_ADDR3 (0x13)
+#define I2C_PRIMARY_ADDR0   (0x10)
+#define I2C_PRIMARY_ADDR1   (0x11)
+#define I2C_PRIMARY_ADDR2   (0x12)
+#define I2C_PRIMARY_ADDR3   (0x13)
+#define I2C_SECONDARY_ADDR0 (0x30)
+#define I2C_SECONDARY_ADDR1 (0x31)
+#define I2C_SECONDARY_ADDR2 (0x32)
+#define I2C_SECONDARY_ADDR3 (0x33)
 
-#define I2C_ADDR_AUTO (0xff)
+#define I2C_ADDR_NOLOC  (0xff)  /* Not located */
 
-#define IS_VALID_SLAVE(priv, i) (priv->i2caddr[i] != I2C_ADDR_AUTO)
+#ifdef CONFIG_SENSORS_CXD5602PWBIMU_I2C_ADDRS_SECONDARY
+#define I2C_SLAVE_ADDR0 I2C_SECONDARY_ADDR0
+#define I2C_SLAVE_ADDR1 I2C_SECONDARY_ADDR1
+#define I2C_SLAVE_ADDR2 I2C_SECONDARY_ADDR2
+#define I2C_SLAVE_ADDR3 I2C_SECONDARY_ADDR3
+#else
+#define I2C_SLAVE_ADDR0 I2C_PRIMARY_ADDR0
+#define I2C_SLAVE_ADDR1 I2C_PRIMARY_ADDR1
+#define I2C_SLAVE_ADDR2 I2C_PRIMARY_ADDR2
+#define I2C_SLAVE_ADDR3 I2C_PRIMARY_ADDR3
+#endif
+
+#define IS_VALID_SLAVE(priv, i) (priv->i2caddr[i] != I2C_ADDR_NOLOC)
 
 /****************************************************************************
  * Private Types
@@ -139,7 +155,7 @@ struct cxd5602pwbimu_dev_s
   FAR cxd5602pwbimu_config_t *config;    /* Board control interface */
 
   mutex_t            devlock;            /* Device exclusion control */
-  FAR struct pollfd *fds[CONFIG_CXD5602PWBIMU_NPOLLWAITERS];
+  FAR struct pollfd *fds[CONFIG_SENSORS_CXD5602PWBIMU_NPOLLWAITERS];
 
   sem_t            dataready;            /* for notify data ready */
   sem_t            bufsem;               /* lock for buffer is in use */
@@ -210,6 +226,9 @@ static int cxd5602pwbimu_ioctl(FAR struct file *filep, int cmd,
 static int cxd5602pwbimu_poll(FAR struct file *filep,
                               FAR struct pollfd *fds, bool setup);
 
+#ifdef CONFIG_SENSORS_CXD5602PWBIMU_I2C_ADDRS_AUTO
+static int cxd5602pwbimu_detectaddrs(FAR struct cxd5602pwbimu_dev_s *priv);
+#endif
 static int cxd5602pwbimu_checkver(FAR struct cxd5602pwbimu_dev_s *priv);
 static int cxd5602pwbimu_int_handler(int irq, FAR void *context,
                                      FAR void *arg);
@@ -530,6 +549,98 @@ static int cxd5602pwbimu_putreg8n(FAR struct cxd5602pwbimu_dev_s *priv,
                                   uint8_t regaddr, uint8_t regval)
 {
   return cxd5602pwbimu_putregsn(priv, slaveid, regaddr, &regval, 1);
+}
+
+#ifdef CONFIG_SENSORS_CXD5602PWBIMU_I2C_ADDRS_AUTO
+static int cxd5602pwbimu_detectaddrs(FAR struct cxd5602pwbimu_dev_s *priv)
+{
+  uint8_t val;
+  int ret;
+
+  /* First try to get regsiter from primary PSoC.
+   * If an address is determined to be either primary or secondary, the
+   * other addresses are set in the same series for now.
+   */
+
+  priv->i2caddr[0] = I2C_PRIMARY_ADDR0;
+  ret = cxd5602pwbimu_getregsn(priv, 0, CXD5602PWBIMU_FW_VER, &val, 1);
+  if (ret)
+    {
+      priv->i2caddr[0] = I2C_SECONDARY_ADDR0;
+      ret = cxd5602pwbimu_getregsn(priv, 0, CXD5602PWBIMU_FW_VER, &val, 1);
+      if (ret)
+        {
+          /* If no response from primary and secondary address, the device
+           * not found.
+           */
+
+          return -ENODEV;
+        }
+      priv->i2caddr[1] = I2C_SECONDARY_ADDR1;
+      priv->i2caddr[2] = I2C_SECONDARY_ADDR2;
+      priv->i2caddr[3] = I2C_SECONDARY_ADDR3;
+    }
+  else
+    {
+      priv->i2caddr[1] = I2C_PRIMARY_ADDR1;
+      priv->i2caddr[2] = I2C_PRIMARY_ADDR2;
+      priv->i2caddr[3] = I2C_PRIMARY_ADDR3;
+    }
+
+  sninfo("Detected address 0x%02x\n", priv->i2caddr[0]);
+
+  return 0;
+}
+#endif
+
+static int cxd5602pwbimu_checkaddrs(FAR struct cxd5602pwbimu_dev_s *priv)
+{
+  int i;
+  uint8_t val;
+  int ret;
+
+  /* Counting available PSoCs */
+
+  for (i = 0; i < 4; i++)
+    {
+      ret = cxd5602pwbimu_getregsn(priv, i, CXD5602PWBIMU_FW_VER, &val, 1);
+      if (ret)
+        {
+          priv->i2caddr[i] = I2C_ADDR_NOLOC;
+        }
+      else
+        {
+          priv->nslaves++;
+        }
+    }
+  if (priv->nslaves == 0)
+    {
+      return -ENODEV;
+    }
+
+  /* Check that the address dip switches are valid */
+
+  for (i = 2; i < 4; i++)
+    {
+      if (priv->i2caddr[i] == I2C_ADDR_NOLOC)
+        {
+          priv->i2caddr[i] = ((priv->i2caddr[i - 2] & 0x30) ^ 0x20) + i;
+          ret = cxd5602pwbimu_getregsn(priv, i, CXD5602PWBIMU_FW_VER, &val, 1);
+          if (ret)
+            {
+              priv->i2caddr[i] = I2C_ADDR_NOLOC;
+            }
+          else
+            {
+              snerr("Dip switch setting mismatch detected.\n");
+              return -EFAULT;
+            }
+        }
+    }
+
+  sninfo("%d slaves are detected.\n", priv->nslaves);
+
+  return 0;
 }
 
 /****************************************************************************
@@ -1076,6 +1187,19 @@ static int cxd5602pwbimu_open(FAR struct file *filep)
   config->reset(config, false);
   up_mdelay(150);
 
+#ifdef CONFIG_SENSORS_CXD5602PWBIMU_I2C_ADDRS_AUTO
+  ret = cxd5602pwbimu_detectaddrs(priv);
+  if (ret < 0)
+    {
+      return ret;
+    }
+#endif
+  ret = cxd5602pwbimu_checkaddrs(priv);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
   ret = cxd5602pwbimu_checkver(priv);
   if (ret < 0)
     {
@@ -1093,7 +1217,7 @@ static int cxd5602pwbimu_open(FAR struct file *filep)
       return OK;
     }
 
-  size = CONFIG_CXD5602PWBIMU_NR_BUFFERS * priv->spi_xfersize;
+  size = CONFIG_SENSORS_CXD5602PWBIMU_NR_BUFFERS * priv->spi_xfersize;
   circbuf_init(&priv->buffer, NULL, size);
 
   /* Enable data ready interrupt */
@@ -1220,7 +1344,7 @@ static int cxd5602pwbimu_ioctl(FAR struct file *filep, int cmd,
           size_t size;
 
           priv->spi_xfersize = arg;
-          size = CONFIG_CXD5602PWBIMU_NR_BUFFERS * priv->spi_xfersize;
+          size = CONFIG_SENSORS_CXD5602PWBIMU_NR_BUFFERS * priv->spi_xfersize;
           circbuf_resize(&priv->buffer, size);
         }
         break;
@@ -1361,7 +1485,7 @@ static int cxd5602pwbimu_poll(FAR struct file *filep, FAR struct pollfd *fds,
        * the poll structure reference.
        */
 
-      for (i = 0; i < CONFIG_CXD5602PWBIMU_NPOLLWAITERS; i++)
+      for (i = 0; i < CONFIG_SENSORS_CXD5602PWBIMU_NPOLLWAITERS; i++)
         {
           /* Find an available slot */
 
@@ -1375,7 +1499,7 @@ static int cxd5602pwbimu_poll(FAR struct file *filep, FAR struct pollfd *fds,
             }
         }
 
-      if (i >= CONFIG_CXD5602PWBIMU_NPOLLWAITERS)
+      if (i >= CONFIG_SENSORS_CXD5602PWBIMU_NPOLLWAITERS)
         {
           fds->priv = NULL;
           ret = -EBUSY;
@@ -1385,7 +1509,7 @@ static int cxd5602pwbimu_poll(FAR struct file *filep, FAR struct pollfd *fds,
       flags = enter_critical_section();
       if (!circbuf_is_empty(&priv->buffer))
         {
-          poll_notify(priv->fds, CONFIG_CXD5602PWBIMU_NPOLLWAITERS, POLLIN);
+          poll_notify(priv->fds, CONFIG_SENSORS_CXD5602PWBIMU_NPOLLWAITERS, POLLIN);
         }
 
       leave_critical_section(flags);
@@ -1439,7 +1563,7 @@ static void cxd5602pwbimu_worker(FAR void *arg)
    * is empty.
    */
 
-#ifndef CONFIG_CXD5602PWBIMU_OVERWRITE
+#ifndef CONFIG_SENSORS_CXD5602PWBIMU_OVERWRITE
   if (circbuf_is_full(&priv->buffer))
     {
       cxd5602pwbimu_data_t data;
@@ -1451,7 +1575,7 @@ static void cxd5602pwbimu_worker(FAR void *arg)
   else
 #endif
     {
-#ifdef CONFIG_CXD5602PWBIMU_OVERWRITE
+#ifdef CONFIG_SENSORS_CXD5602PWBIMU_OVERWRITE
       if (circbuf_is_full(&priv->buffer))
         {
           /* Advance the read pointer by the transfer size.
@@ -1473,7 +1597,7 @@ static void cxd5602pwbimu_worker(FAR void *arg)
   /* Notify data get ready to user */
 
   nxsem_post(&priv->dataready);
-  poll_notify(priv->fds, CONFIG_CXD5602PWBIMU_NPOLLWAITERS, POLLIN);
+  poll_notify(priv->fds, CONFIG_SENSORS_CXD5602PWBIMU_NPOLLWAITERS, POLLIN);
 }
 
 /****************************************************************************
@@ -1554,7 +1678,7 @@ int cxd5602pwbimu_register(FAR const char *devpath,
   priv->i2caddr[1] = I2C_SLAVE_ADDR1;
   priv->i2caddr[2] = I2C_SLAVE_ADDR2;
   priv->i2caddr[3] = I2C_SLAVE_ADDR3;
-  priv->nslaves = 2; /* XXX */
+  priv->nslaves = 0;
 
   priv->config = config;
   nxmutex_init(&priv->devlock);
