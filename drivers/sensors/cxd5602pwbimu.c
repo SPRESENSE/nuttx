@@ -23,6 +23,8 @@
  ****************************************************************************/
 
 #include <nuttx/config.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 #include <stdlib.h>
 #include <fixedmath.h>
 #include <assert.h>
@@ -49,11 +51,13 @@
  ****************************************************************************/
 /* Register Address */
 
-#define CXD5602PWBIMU_INJECTION_READY        (0x01) /*  */
-#define CXD5602PWBIMU_UPDATE_RESULT          (0x02) /*  */
-#define CXD5602PWBIMU_INJECT_BINARY          (0x03) /*  */
-#define CXD5602PWBIMU_VERIFY_BINARY          (0x04) /*  */
-#define CXD5602PWBIMU_CHANGE_TO_UPDATEMODE   (0x05) /*  */
+/* Firmware update related registers */
+
+#define CXD5602PWBIMU_INJECTION_READY        (0x01)
+#define CXD5602PWBIMU_UPDATE_RESULT          (0x02)
+#define CXD5602PWBIMU_INJECT_BINARY          (0x03)
+#define CXD5602PWBIMU_VERIFY_BINARY          (0x04)
+#define CXD5602PWBIMU_CHANGE_TO_UPDATEMODE   (0x05)
 
 #define CXD5602PWBIMU_FW_VER                 (0x10) /* Firmware version */
 #define CXD5602PWBIMU_HW_REVISION            (0x11) /* HW Revision */
@@ -61,11 +65,10 @@
 #define CXD5602PWBIMU_FSR                    (0x13) /* Full Scale */
 #define CXD5602PWBIMU_ODR                    (0x14) /* Output Data Rate */
 #define CXD5602PWBIMU_INTR_ENABLE            (0x15) /* Interrupt enable */
-#define CXD5602PWBIMU_FIFO_MODE              (0x16) /* FIFO mode */
 #define CXD5602PWBIMU_FIFO_THRESH            (0x17) /* FIFO threshold */
 #define CXD5602PWBIMU_OUTPUT_ENABLE          (0x18) /* Output Enable */
 #define CXD5602PWBIMU_USER_CALIB_COEF        (0x19) /* User calibration */
-#define CXD5602PWBIMU_USER_CALIB_FLASH       (0x1a) /*  */
+#define CXD5602PWBIMU_USER_CALIB_FLASH       (0x1a) /* Flash user calib value */
 
 #define CXD5602PWBIMU_MODE                   (0xff) /* Output Mode */
 
@@ -98,10 +101,11 @@
 #define OUTPUT_DISABLE  (0x00) /* Disable 6axis data output */
 #define OUTPUT_ENABLE   (0x01) /* Enable 6axis data output */
 
-/* FIFO Mode */
+/* Update result status */
 
-#define FIFO_MODE_MULTI  (0x00) /*  */
-#define FIFO_MODE_SINGLE (0x01) /*  */
+#define RESULT_NOEXEC   (0x00)
+#define RESULT_SUCCESS  (0x01)
+#define RESULT_FAILURE  (0x02)
 
 /* I2C Clock Frequency */
 
@@ -130,6 +134,7 @@ struct cxd5602pwbimu_dev_s
   FAR struct i2c_master_s *i2c;          /* I2C interface */
   uint8_t                  i2caddr[4];   /* I2C slave addresses */
   uint32_t                 i2cfreq;      /* I2C clock frequency */
+  int                      nslaves;      /* Number of I2C slaves */
 
   FAR cxd5602pwbimu_config_t *config;    /* Board control interface */
 
@@ -181,8 +186,18 @@ static int cxd5602pwbimu_setcalib(FAR struct cxd5602pwbimu_dev_s *priv,
                                   FAR cxd5602pwbimu_calib_t *calib);
 static int cxd5602pwbimu_setdrange(FAR struct cxd5602pwbimu_dev_s *priv,
                                    int accel, int gyro);
+
+/* Firmware update related functions */
+
+static int cxd5602pwbimu_updatemode(FAR struct cxd5602pwbimu_dev_s *priv);
+static int cxd5602pwbimu_waitforready(FAR struct cxd5602pwbimu_dev_s *priv,
+                                      int slaveid);
+static int cxd5602pwbimu_sendfwchunk(FAR struct cxd5602pwbimu_dev_s *priv,
+                                     int slaveid, FAR uint8_t *buf, int len);
+static int cxd5602pwbimu_verifyfw(FAR struct cxd5602pwbimu_dev_s *priv,
+                                  int slaveid);
 static int cxd5602pwbimu_updatefw(FAR struct cxd5602pwbimu_dev_s *priv,
-                                  FAR const char *filepath);
+                                  FAR cxd5602pwbimu_updatefw_t *param);
 
 /* Character driver methods */
 
@@ -695,17 +710,13 @@ static int cxd5602pwbimu_setcalib(FAR struct cxd5602pwbimu_dev_s *priv,
 {
   int ret;
 
-  /* T.B.D */
-
   ret = cxd5602pwbimu_putregs(priv, CXD5602PWBIMU_USER_CALIB_COEF,
                               (FAR uint8_t *)calib,
                               sizeof(cxd5602pwbimu_calib_t));
-  if (ret != OK)
+  if (ret == 0)
     {
-      return ret;
+      ret = cxd5602pwbimu_putreg8(priv, CXD5602PWBIMU_USER_CALIB_FLASH, 1);
     }
-
-  ret = cxd5602pwbimu_putreg8(priv, CXD5602PWBIMU_USER_CALIB_FLASH, 1);
 
   return ret;
 }
@@ -781,6 +792,47 @@ static int cxd5602pwbimu_setdrange(FAR struct cxd5602pwbimu_dev_s *priv,
 }
 
 /****************************************************************************
+ * Name: cxd5602pwbimu_updatemode
+ *
+ * Description:
+ *   Change CXD5602PWBIMU mode to update mode
+ *
+ ****************************************************************************/
+
+static int cxd5602pwbimu_updatemode(FAR struct cxd5602pwbimu_dev_s *priv)
+{
+  int i;
+  int ret;
+  uint8_t val;
+
+  ret = cxd5602pwbimu_getregsn(priv, 0, CXD5602PWBIMU_MODE, &val, 1);
+  if (ret)
+    {
+      return ret;
+    }
+  if (val == 0)
+    {
+      /* Already in update mode */
+
+      return 0;
+    }
+
+  for (i = 0; i < priv->nslaves; i++)
+    {
+      ret = cxd5602pwbimu_putreg8n(priv, i,
+                                   CXD5602PWBIMU_CHANGE_TO_UPDATEMODE, 1);
+      if (ret)
+        {
+          return ret;
+        }
+    }
+
+  up_mdelay(100);
+
+  return 0;
+}
+
+/****************************************************************************
  * Name: cxd5602pwbimu_waitforready
  *
  * Description:
@@ -801,7 +853,7 @@ static int cxd5602pwbimu_waitforready(FAR struct cxd5602pwbimu_dev_s *priv,
     }
 
   val = 0;
-  retry = 100;
+  retry = 1000;
   do
     {
       ret = cxd5602pwbimu_getregsn(priv, slaveid,
@@ -831,7 +883,7 @@ static int cxd5602pwbimu_sendfwchunk(FAR struct cxd5602pwbimu_dev_s *priv,
   int ret;
 
   ret = cxd5602pwbimu_waitforready(priv, slaveid);
-  if (ret == -ETIMEDOUT)
+  if (ret)
     {
       return ret;
     }
@@ -858,7 +910,7 @@ static int cxd5602pwbimu_verifyfw(FAR struct cxd5602pwbimu_dev_s *priv,
   int ret;
 
   ret = cxd5602pwbimu_waitforready(priv, slaveid);
-  if (ret == -ETIMEDOUT)
+  if (ret)
     {
       return ret;
     }
@@ -872,7 +924,7 @@ static int cxd5602pwbimu_verifyfw(FAR struct cxd5602pwbimu_dev_s *priv,
     }
 
   val = 0;
-  retry = 100;
+  retry = 1000;
   do
     {
       ret = cxd5602pwbimu_getregsn(priv, slaveid,
@@ -883,9 +935,22 @@ static int cxd5602pwbimu_verifyfw(FAR struct cxd5602pwbimu_dev_s *priv,
           return ret;
         }
     }
-  while (val == 0 && --retry);
+  while (val == RESULT_NOEXEC && --retry);
 
-  return val == 1 ? OK : -ETIMEDOUT;
+  if (val == RESULT_SUCCESS)
+    {
+      ret = OK;
+    }
+  else if (val == RESULT_FAILURE)
+    {
+      ret = -EFAULT;
+    }
+  else
+    {
+      ret = -ETIMEDOUT;
+    }
+
+  return ret;
 }
 
 /****************************************************************************
@@ -897,10 +962,13 @@ static int cxd5602pwbimu_verifyfw(FAR struct cxd5602pwbimu_dev_s *priv,
  ****************************************************************************/
 
 static int cxd5602pwbimu_updatefw(FAR struct cxd5602pwbimu_dev_s *priv,
-                                  FAR const char *path)
+                                  FAR cxd5602pwbimu_updatefw_t *param)
 {
   struct file finfo;
+  struct stat stat;
   FAR uint8_t *buf;
+  off_t size;
+  off_t total;
   int i;
   int len;
   int ret;
@@ -911,22 +979,28 @@ static int cxd5602pwbimu_updatefw(FAR struct cxd5602pwbimu_dev_s *priv,
       return -ENOMEM;
     }
 
-  ret = file_open(&finfo, path, O_RDONLY | O_CLOEXEC);
-  if (ret)
+  ret = file_open(&finfo, param->path, O_RDONLY | O_CLOEXEC);
+  if (ret < 0)
     {
       kmm_free(buf);
-      return -ENOENT;
+      return -errno;
     }
-
-  for (i = 0; i < 4; i++)
+  ret = file_fstat(&finfo, &stat);
+  if (ret < 0)
     {
-      if (!IS_VALID_SLAVE(priv, i))
-        {
-          continue;
-        }
-      cxd5602pwbimu_putreg8n(priv, i, CXD5602PWBIMU_CHANGE_TO_UPDATEMODE, 1);
+      return -errno;
+    }
+  total = stat.st_size;
+
+  sninfo("Change update mode\n");
+  ret = cxd5602pwbimu_updatemode(priv);
+  if (ret)
+    {
+      goto errout;
     }
 
+  size = 0;
+  sninfo("Updating");
   for (;;)
     {
       ret = file_read(&finfo, buf, 128);
@@ -938,17 +1012,29 @@ static int cxd5602pwbimu_updatefw(FAR struct cxd5602pwbimu_dev_s *priv,
         }
       len = ret;
 
-      for (i = 0; i < 4; i++)
+      for (i = 0; i < priv->nslaves; i++)
         {
+          sninfo("Send %d bytes to %d ", len, i);
           ret = cxd5602pwbimu_sendfwchunk(priv, i, buf, len);
           if (ret)
             {
               goto errout;
             }
+          sninfo("OK\n");
+        }
+
+      /* Inform current progress to caller */
+
+      size += len;
+      if (param->progress)
+        {
+          param->progress(size, total);
         }
     }
 
-  for (i = 0; i < 4; i++)
+  sninfo("Verifying firmwares");
+
+  for (i = 0; i < priv->nslaves; i++)
     {
       ret = cxd5602pwbimu_verifyfw(priv, i);
       if (ret)
@@ -956,6 +1042,8 @@ static int cxd5602pwbimu_updatefw(FAR struct cxd5602pwbimu_dev_s *priv,
           break;
         }
     }
+
+  sninfo("OK\n");
 
 errout:
   kmm_free(buf);
@@ -1008,14 +1096,9 @@ static int cxd5602pwbimu_open(FAR struct file *filep)
   size = CONFIG_CXD5602PWBIMU_NR_BUFFERS * priv->spi_xfersize;
   circbuf_init(&priv->buffer, NULL, size);
 
-  /* T.B.D: Default configuration */
-
-  cxd5602pwbimu_setdrange(priv, 2, 125);
-  cxd5602pwbimu_putreg8(priv, CXD5602PWBIMU_FIFO_MODE, FIFO_MODE_MULTI);
-  cxd5602pwbimu_putreg8(priv, CXD5602PWBIMU_INTR_ENABLE, 1);
-
   /* Enable data ready interrupt */
 
+  cxd5602pwbimu_putreg8(priv, CXD5602PWBIMU_INTR_ENABLE, 1);
   config->irq_attach(config, cxd5602pwbimu_int_handler, priv);
   config->irq_enable(config, true);
 
@@ -1175,8 +1258,8 @@ static int cxd5602pwbimu_ioctl(FAR struct file *filep, int cmd,
 
       case SNIOC_UPDATEFW:
         {
-          FAR const char *path = (FAR const char *)arg;
-          ret = cxd5602pwbimu_updatefw(priv, path);
+          FAR cxd5602pwbimu_updatefw_t *p = (FAR cxd5602pwbimu_updatefw_t *)arg;
+          ret = cxd5602pwbimu_updatefw(priv, p);
         }
         break;
 
@@ -1471,6 +1554,7 @@ int cxd5602pwbimu_register(FAR const char *devpath,
   priv->i2caddr[1] = I2C_SLAVE_ADDR1;
   priv->i2caddr[2] = I2C_SLAVE_ADDR2;
   priv->i2caddr[3] = I2C_SLAVE_ADDR3;
+  priv->nslaves = 2; /* XXX */
 
   priv->config = config;
   nxmutex_init(&priv->devlock);

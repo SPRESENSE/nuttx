@@ -27,6 +27,7 @@
 
 #include <nuttx/config.h>
 #include <nuttx/fs/ioctl.h>
+#include <sys/types.h>
 
 #include <nuttx/spi/spi.h>
 #include <nuttx/i2c/i2c_master.h>
@@ -99,19 +100,26 @@ typedef struct cxd5602pwbimu_range_s cxd5602pwbimu_range_t;
 
 begin_packed_struct struct cxd5602pwbimu_calib_s
 {
-  uint16_t offset;
+  uint8_t  offset;
   uint32_t coef;
 } end_packed_struct;
 typedef struct cxd5602pwbimu_calib_s cxd5602pwbimu_calib_t;
 
 struct cxd5602pwbimu_regs_s
 {
-  uint8_t addr;   /* Register address */
-  FAR uint8_t *value; /* Write value or read value */
-  uint8_t len;    /* Length of value */
-  int slaveid;    /* Target 0=master, 1,2,3=slave{1,2,3} */
+  uint8_t      addr;    /* Register address */
+  FAR uint8_t *value;   /* Write value or read value */
+  uint8_t      len;     /* Length of value */
+  int          slaveid; /* Target 0=master, 1,2,3=slave{1,2,3} */
 };
 typedef struct cxd5602pwbimu_regs_s cxd5602pwbimu_regs_t;
+
+struct cxd5602pwbimu_updatefw_s
+{
+  FAR const char *path;
+  void (*progress)(off_t current, off_t total);
+};
+typedef struct cxd5602pwbimu_updatefw_s cxd5602pwbimu_updatefw_t;
 
 struct spi_dev_s;
 struct i2c_master_s;
