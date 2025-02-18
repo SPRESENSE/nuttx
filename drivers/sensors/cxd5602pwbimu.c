@@ -1528,6 +1528,13 @@ static int cxd5602pwbimu_ioctl(FAR struct file *filep, int cmd,
         }
         break;
 
+      case SNIOC_GETBNUM:
+        {
+          ret = priv->nslaves == 2 ? 1 :
+                priv->nslaves == 4 ? 2 : 0;
+        }
+        break;
+
       default:
         snerr("Unrecognized cmd: %d\n", cmd);
         ret = -ENOTTY;
