@@ -282,13 +282,13 @@ eFuse            Yes
 GPIO             Yes
 HMAC             No
 I2C              Yes
-I2S              No
-Int. Temp.       No
+I2S              Yes
+Int. Temp.       Yes
 LED              No
 LED_PWM          Yes
 MCPWM            No
 Pulse Counter    Yes
-RMT              No
+RMT              Yes
 RNG              No
 RSA              No
 RTC              Yes
