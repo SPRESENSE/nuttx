@@ -1,5 +1,7 @@
 /****************************************************************************
- * arch/xtensa/src/esp32/esp32_wifi_utils.h
+ * boards/arm/stm32l4/nucleo-l432kc/src/stm32_ioctl.c
+ *
+ * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -22,83 +24,53 @@
  * Included Files
  ****************************************************************************/
 
-#ifndef __ARCH_XTENSA_SRC_ESP32_ESP32_WIFI_UTILS_H
-#define __ARCH_XTENSA_SRC_ESP32_ESP32_WIFI_UTILS_H
-
 #include <nuttx/config.h>
-#include <nuttx/net/netdev.h>
 
+#include <sys/types.h>
 #include <stdint.h>
+#include <errno.h>
 
-#ifndef __ASSEMBLY__
+#include <nuttx/board.h>
 
-#undef EXTERN
-#if defined(__cplusplus)
-#define EXTERN extern "C"
-extern "C"
+#include "nucleo-l432kc.h"
+
+#ifdef CONFIG_BOARDCTL_IOCTL
+
+/****************************************************************************
+ * Public Functions
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: board_ioctl
+ *
+ * Description:
+ *   The "landing site" for much of the boardctl() interface. Generic board-
+ *   control functions invoked via ioctl() get routed through here.
+ *
+ *   Since we don't do anything unusual at the moment, this function
+ *   accomplishes nothing except avoid a missing-function linker error if
+ *   CONFIG_BOARDCTL_IOCTL is selected.
+ *
+ * Input Parameters:
+ *   cmd - IOCTL command being requested.
+ *   arg - Arguments for the IOCTL.
+ *
+ * Returned Value:
+ *   we don't yet support any boardctl IOCTLs.  This function always returns
+ *  -ENOTTY which is the standard IOCTL return value when a command is not
+ *  supported
+ *
+ ****************************************************************************/
+
+int board_ioctl(unsigned int cmd, uintptr_t arg)
 {
-#else
-#define EXTERN extern
-#endif
+  switch (cmd)
+    {
+      default:
+        return -ENOTTY;
+    }
 
-/****************************************************************************
- * Public Function Prototypes
- ****************************************************************************/
-
-/****************************************************************************
- * Name: esp_wifi_start_scan
- *
- * Description:
- *   Scan all available APs.
- *
- * Input Parameters:
- *   iwr - The argument of the ioctl cmd
- *
- * Returned Value:
- *   OK on success (positive non-zero values are cmd-specific)
- *   Negated errno returned on failure.
- *
- ****************************************************************************/
-
-int esp_wifi_start_scan(struct iwreq *iwr);
-
-/****************************************************************************
- * Name: esp_wifi_get_scan_results
- *
- * Description:
- *   Get scan result
- *
- * Input Parameters:
- *   req      The argument of the ioctl cmd
- *
- * Returned Value:
- *   OK on success (positive non-zero values are cmd-specific)
- *   Negated errno returned on failure.
- *
- ****************************************************************************/
-
-int esp_wifi_get_scan_results(struct iwreq *iwr);
-
-/****************************************************************************
- * Name: esp_wifi_scan_event_parse
- *
- * Description:
- *   Parse scan information
- *
- * Input Parameters:
- *   None
- *
- * Returned Value:
- *     None
- *
- ****************************************************************************/
-
-void esp_wifi_scan_event_parse(void);
-
-#ifdef __cplusplus
+  return OK;
 }
-#endif
-#undef EXTERN
 
-#endif /* __ASSEMBLY__ */
-#endif /* __ARCH_XTENSA_SRC_ESP32_ESP32_WIFI_UTILS_H */
+#endif /* CONFIG_BOARDCTL_IOCTL */
