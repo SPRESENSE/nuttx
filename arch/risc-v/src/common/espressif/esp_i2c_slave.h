@@ -1,5 +1,7 @@
 /****************************************************************************
- * arch/xtensa/src/esp32s2/esp32s2_i2c.h
+ * arch/risc-v/src/common/espressif/esp_i2c_slave.h
+ *
+ * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,12 +20,8 @@
  *
  ****************************************************************************/
 
-/****************************************************************************
- * Included Files
- ****************************************************************************/
-
-#ifndef __ARCH_XTENSA_SRC_ESP32S2_ESP32S2_I2C_H
-#define __ARCH_XTENSA_SRC_ESP32S2_ESP32S2_I2C_H
+#ifndef __ARCH_RISCV_SRC_COMMON_ESPRESSIF_ESP_I2C_SLAVE_H
+#define __ARCH_RISCV_SRC_COMMON_ESPRESSIF_ESP_I2C_SLAVE_H
 
 /****************************************************************************
  * Included Files
@@ -31,7 +29,7 @@
 
 #include <nuttx/config.h>
 
-#include <nuttx/i2c/i2c_master.h>
+#include <nuttx/i2c/i2c_slave.h>
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -39,46 +37,47 @@
 
 #ifndef __ASSEMBLY__
 
-#ifdef CONFIG_ESP32S2_I2C0
-#  define ESP32S2_I2C0 0
+#ifdef CONFIG_ESPRESSIF_I2C0_SLAVE
+#  define ESPRESSIF_I2C0_SLAVE 0
 #endif
 
-#ifdef CONFIG_ESP32S2_I2C1
-#  define ESP32S2_I2C1 1
+#ifdef CONFIG_ESPRESSIF_I2C1_SLAVE
+#  define ESPRESSIF_I2C1_SLAVE 1
 #endif
 
 /****************************************************************************
  * Public Function Prototypes
  ****************************************************************************/
 
-#ifdef CONFIG_ESPRESSIF_I2C_PERIPH_MASTER_MODE
+#ifdef CONFIG_ESPRESSIF_I2C_PERIPH_SLAVE_MODE
 /****************************************************************************
- * Name: esp32s2_i2cbus_initialize
+ * Name: esp_i2cbus_slave_initialize
  *
  * Description:
  *   Initialize the selected I2C port. And return a unique instance of struct
- *   struct i2c_master_s.  This function may be called to obtain multiple
+ *   struct i2c_slave_s.  This function may be called to obtain multiple
  *   instances of the interface, each of which may be set up with a
- *   different frequency and slave address.
+ *   different frequency.
  *
  * Input Parameters:
- *   Port number (for hardware that has multiple I2C interfaces)
+ *   port - Port number (for hardware that has multiple I2C interfaces)
+ *   addr - Adress of the slave device
  *
  * Returned Value:
  *   Valid I2C device structure reference on success; a NULL on failure
  *
  ****************************************************************************/
 
-struct i2c_master_s *esp32s2_i2cbus_initialize(int port);
+struct i2c_slave_s *esp_i2cbus_slave_initialize(int port, int addr);
 
 /****************************************************************************
- * Name: esp32s2_i2cbus_uninitialize
+ * Name: esp_i2cbus_uninitialize
  *
  * Description:
  *   De-initialize the selected I2C port, and power down the device.
  *
  * Input Parameters:
- *   Device structure as returned by the esp32s2_i2cbus_initialize()
+ *   dev - Device structure as returned by the esp_i2cbus_slave_initialize()
  *
  * Returned Value:
  *   OK on success, ERROR when internal reference count mismatch or dev
@@ -86,8 +85,8 @@ struct i2c_master_s *esp32s2_i2cbus_initialize(int port);
  *
  ****************************************************************************/
 
-int esp32s2_i2cbus_uninitialize(struct i2c_master_s *dev);
-#endif /* CONFIG_ESPRESSIF_I2C_PERIPH_MASTER_MODE */
+int esp_i2cbus_slave_uninitialize(struct i2c_slave_s *dev);
+#endif /* CONFIG_ESPRESSIF_I2C_PERIPH_SLAVE_MODE */
 
 #endif /* __ASSEMBLY__ */
-#endif /* __ARCH_XTENSA_SRC_ESP32S2_ESP32S2_I2C_H */
+#endif /* __ARCH_RISCV_SRC_COMMON_ESPRESSIF_ESP_I2C_SLAVE_H */
