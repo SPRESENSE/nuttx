@@ -197,7 +197,7 @@ ifeq ($(CONFIG_CXD56_GNSS_ADDON),y)
 endif
 
 ifeq ($(CONFIG_SENSORS_CXD5602PWBIMU),y)
-  CSRCS += cxd56_cxd5602pwbimu_spi.c
+  CSRCS += cxd56_cxd5602pwbimu.c
 endif
 
 DEPPATH += --dep-path src
