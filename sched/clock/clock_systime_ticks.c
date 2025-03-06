@@ -77,7 +77,7 @@
 
 clock_t clock_systime_ticks(void)
 {
-#ifdef CONFIG_RTC_HIRES
+#if defined(CONFIG_RTC_HIRES) && !defined(CONFIG_CXD56_RTC_LATEINIT)
   struct timespec ts =
     {
       0
