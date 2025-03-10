@@ -834,7 +834,7 @@ static int pcm_shutdown(FAR struct audio_lowerhalf_s *dev, int cnt)
   /* Defer the operation to the lower device driver */
 
   lower = priv->lower;
-  DEBUGASSERT(lower && lower->ops->start);
+  DEBUGASSERT(lower && lower->ops->shutdown);
 
   audinfo("Defer to lower shutdown\n");
   return lower->ops->shutdown(lower, cnt);
