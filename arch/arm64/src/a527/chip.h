@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/arm/imx6/sabre-6quad/src/imx_bringup.c
+ * arch/arm64/src/a527/chip.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,56 +20,25 @@
  *
  ****************************************************************************/
 
+#ifndef __ARCH_ARM64_SRC_A527_CHIP_H
+#define __ARCH_ARM64_SRC_A527_CHIP_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
-#include <sys/types.h>
-#include <syslog.h>
-
-#include <nuttx/fs/fs.h>
-
-#include "sabre-6quad.h"
+#ifndef __ASSEMBLY__
+#  include <nuttx/arch.h>
+#endif
 
 /****************************************************************************
- * Public Functions
+ * Pre-processor Definitions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: imx_bringup
- *
- * Description:
- *   Bring up board features
- *
+ * Macro Definitions
  ****************************************************************************/
 
-int imx_bringup(void)
-{
-  int ret;
-
-#ifdef CONFIG_FS_TMPFS
-  /* Mount the tmpfs file system */
-
-  ret = nx_mount(NULL, CONFIG_LIBC_TMPDIR, "tmpfs", 0, NULL);
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: Failed to mount tmpfs at %s: %d\n",
-             CONFIG_LIBC_TMPDIR, ret);
-    }
-#endif
-
-#ifdef CONFIG_FS_PROCFS
-  /* Mount the procfs file system */
-
-  ret = nx_mount(NULL, "/proc", "procfs", 0, NULL);
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: Failed to mount procfs at /proc: %d\n", ret);
-    }
-#endif
-
-  UNUSED(ret);
-  return OK;
-}
+#endif /* __ARCH_ARM64_SRC_A527_CHIP_H */

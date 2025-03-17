@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/arm/imx6/sabre-6quad/src/imx_bringup.c
+ * arch/arm64/include/a527/chip.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,56 +20,58 @@
  *
  ****************************************************************************/
 
+#ifndef __ARCH_ARM64_INCLUDE_A527_CHIP_H
+#define __ARCH_ARM64_INCLUDE_A527_CHIP_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
-#include <sys/types.h>
-#include <syslog.h>
-
-#include <nuttx/fs/fs.h>
-
-#include "sabre-6quad.h"
-
 /****************************************************************************
- * Public Functions
+ * Pre-processor Definitions
  ****************************************************************************/
 
+/* Number of bytes in x kibibytes/mebibytes/gibibytes */
+
+#define KB(x)           ((x) << 10)
+#define MB(x)           (KB(x) << 10)
+#define GB(x)           (MB(UINT64_C(x)) << 10)
+
+/* Generic Interrupt Controller v3: Distributor and Redistributor */
+
+#define CONFIG_GICD_BASE           0x3400000
+#define CONFIG_GICR_BASE           0x3460000
+#define CONFIG_GICR_OFFSET         0x20000
+
+/* Memory Map: RAM and I/O Memory */
+
+#define CONFIG_RAMBANK1_ADDR       0x40000000
+#define CONFIG_RAMBANK1_SIZE       MB(128)
+
+#define CONFIG_DEVICEIO_BASEADDR   0x00000000
+#define CONFIG_DEVICEIO_SIZE       MB(1024)
+
+/* Bootloader loads NuttX at this address */
+
+#define CONFIG_LOAD_BASE           0x40800000
+
+/* GIC Cluster Mapping */
+
+#define MPID_TO_CLUSTER_ID(mpid)   ((mpid) & ~0xff)
+
 /****************************************************************************
- * Name: imx_bringup
- *
- * Description:
- *   Bring up board features
- *
+ * Assembly Macros
  ****************************************************************************/
 
-int imx_bringup(void)
-{
-  int ret;
+#ifdef __ASSEMBLY__
 
-#ifdef CONFIG_FS_TMPFS
-  /* Mount the tmpfs file system */
+.macro  get_cpu_id xreg0
+  mrs    \xreg0, mpidr_el1
+  ubfx   \xreg0, \xreg0, #0, #8
+.endm
 
-  ret = nx_mount(NULL, CONFIG_LIBC_TMPDIR, "tmpfs", 0, NULL);
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: Failed to mount tmpfs at %s: %d\n",
-             CONFIG_LIBC_TMPDIR, ret);
-    }
-#endif
+#endif /* __ASSEMBLY__ */
 
-#ifdef CONFIG_FS_PROCFS
-  /* Mount the procfs file system */
-
-  ret = nx_mount(NULL, "/proc", "procfs", 0, NULL);
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: Failed to mount procfs at /proc: %d\n", ret);
-    }
-#endif
-
-  UNUSED(ret);
-  return OK;
-}
+#endif /* __ARCH_ARM64_INCLUDE_A527_CHIP_H */

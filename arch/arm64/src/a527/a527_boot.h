@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/arm/imx6/sabre-6quad/src/imx_bringup.c
+ * arch/arm64/src/a527/a527_boot.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,56 +20,64 @@
  *
  ****************************************************************************/
 
+#ifndef __ARCH_ARM64_SRC_A527_A527_BOOT_H
+#define __ARCH_ARM64_SRC_A527_A527_BOOT_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
-
+#include <nuttx/compiler.h>
 #include <sys/types.h>
-#include <syslog.h>
-
-#include <nuttx/fs/fs.h>
-
-#include "sabre-6quad.h"
+#include <stdint.h>
+#include <stdbool.h>
+#include <arch/chip/chip.h>
 
 /****************************************************************************
- * Public Functions
+ * Pre-processor Definitions
  ****************************************************************************/
 
+#define CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC  62500000
+
 /****************************************************************************
- * Name: imx_bringup
+ * Public Function Prototypes
+ ****************************************************************************/
+
+#ifndef __ASSEMBLY__
+
+#undef EXTERN
+#if defined(__cplusplus)
+#define EXTERN extern "C"
+extern "C"
+{
+#else
+#define EXTERN extern
+#endif
+
+/****************************************************************************
+ * Name: a527_board_initialize
  *
  * Description:
- *   Bring up board features
+ *   All A527 architectures must provide the following entry point.  This
+ *   entry point is called in the initialization phase -- after
+ *   a527_memory_initialize and after all memory has been configured and
+ *   mapped but before any devices have been initialized.
+ *
+ * Input Parameters:
+ *   None
+ *
+ * Returned Value:
+ *   None
  *
  ****************************************************************************/
 
-int imx_bringup(void)
-{
-  int ret;
+void a527_board_initialize(void);
 
-#ifdef CONFIG_FS_TMPFS
-  /* Mount the tmpfs file system */
-
-  ret = nx_mount(NULL, CONFIG_LIBC_TMPDIR, "tmpfs", 0, NULL);
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: Failed to mount tmpfs at %s: %d\n",
-             CONFIG_LIBC_TMPDIR, ret);
-    }
-#endif
-
-#ifdef CONFIG_FS_PROCFS
-  /* Mount the procfs file system */
-
-  ret = nx_mount(NULL, "/proc", "procfs", 0, NULL);
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: Failed to mount procfs at /proc: %d\n", ret);
-    }
-#endif
-
-  UNUSED(ret);
-  return OK;
+#undef EXTERN
+#if defined(__cplusplus)
 }
+#endif
+
+#endif /* __ASSEMBLY__ */
+#endif /* __ARCH_ARM64_SRC_A527_A527_BOOT_H */
