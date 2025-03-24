@@ -1,7 +1,5 @@
 ############################################################################
-# boards/arm/stm32/nucleo-f302r8/src/Make.defs
-#
-# SPDX-License-Identifier: Apache-2.0
+# boards/arm/ra4/xiao-ra4m1/src/Makefile
 #
 # Licensed to the Apache Software Foundation (ASF) under one or more
 # contributor license agreements.  See the NOTICE file distributed with
@@ -10,7 +8,7 @@
 # "License"); you may not use this file except in compliance with the
 # License.  You may obtain a copy of the License at
 #
-#  http://www.apache.org/licenses/LICENSE-2.0
+#   http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
@@ -22,47 +20,20 @@
 
 include $(TOPDIR)/Make.defs
 
-CSRCS = stm32_boot.c stm32_bringup.c
+CSRCS = ra4m1_boot.c ra4m1_bringup.c
 
 ifeq ($(CONFIG_ARCH_LEDS),y)
-CSRCS += stm32_autoleds.c
+CSRCS += ra4m1_autoleds.c
 else
-CSRCS += stm32_userleds.c
-endif
-
-ifeq ($(CONFIG_ARCH_BUTTONS),y)
-CSRCS += stm32_buttons.c
+CSRCS += ra4m1_userleds.c
 endif
 
 ifeq ($(CONFIG_BOARDCTL),y)
-CSRCS += stm32_appinit.c
+CSRCS += ra4m1_appinit.c
 endif
 
-ifeq ($(CONFIG_PWM),y)
-CSRCS += stm32_pwm.c
+ifeq ($(CONFIG_DEV_GPIO),y)
+CSRCS += ra4m1_gpio.c
 endif
 
-ifeq ($(CONFIG_NUCLEOF302R8_HIGHPRI),y)
-CSRCS += stm32_highpri.c
-endif
-
-ifeq ($(CONFIG_BOARD_STM32_IHM07M1),y)
-CSRCS += stm32_foc_ihm07m1.c
-else
-ifeq ($(CONFIG_ADC),y)
-CSRCS += stm32_adc.c
-endif
-endif
-
-ifeq ($(CONFIG_STM32_CAN),y)
-ifeq ($(CONFIG_STM32_CAN_CHARDRIVER),y)
-CSRCS += stm32_can.c
-endif
-ifeq ($(CONFIG_STM32_CAN_SOCKET),y)
-CSRCS += stm32_cansock.c
-endif
-endif
-
-DEPPATH += --dep-path board
-VPATH += :board
-CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)board$(DELIM)board
+include $(TOPDIR)/boards/Board.mk

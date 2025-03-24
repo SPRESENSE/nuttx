@@ -1,7 +1,5 @@
 # ##############################################################################
-# boards/arm/stm32/nucleo-f302r8/src/CMakeLists.txt
-#
-# SPDX-License-Identifier: Apache-2.0
+# boards/arm/ra4/xiao-ra4m1/src/CMakeLists.txt
 #
 # Licensed to the Apache Software Foundation (ASF) under one or more contributor
 # license agreements.  See the NOTICE file distributed with this work for
@@ -20,47 +18,19 @@
 #
 # ##############################################################################
 
-set(SRCS stm32_boot.c stm32_bringup.c)
+set(SRCS ra4m1_boot.c ra4m1_bringup.c ra4m1_appinit.c)
 
 if(CONFIG_ARCH_LEDS)
-  list(APPEND SRCS stm32_autoleds.c)
+  list(APPEND SRCS ra4m1_autoleds.c)
 else()
-  list(APPEND SRCS stm32_userleds.c)
+  list(APPEND SRCS ra4m1_userleds.c)
 endif()
 
-if(CONFIG_ARCH_BUTTONS)
-  list(APPEND SRCS stm32_buttons.c)
-endif()
-
-if(CONFIG_BOARDCTL)
-  list(APPEND SRCS stm32_appinit.c)
-endif()
-
-if(CONFIG_PWM)
-  list(APPEND SRCS stm32_pwm.c)
-endif()
-
-if(CONFIG_NUCLEOF302R8_HIGHPRI)
-  list(APPEND SRCS stm32_highpri.c)
-endif()
-
-if(CONFIG_BOARD_STM32_IHM07M1)
-  list(APPEND SRCS stm32_foc_ihm07m1.c)
-else()
-  if(CONFIG_ADC)
-    list(APPEND SRCS stm32_adc.c)
-  endif()
-endif()
-
-if(CONFIG_STM32_CAN)
-  if(CONFIG_STM32_CAN_CHARDRIVER)
-    list(APPEND SRCS stm32_can.c)
-  endif()
-  if(CONFIG_STM32_CAN_SOCKET)
-    list(APPEND SRCS stm32_cansock.c)
-  endif()
+if(CONFIG_DEV_GPIO)
+  list(APPEND SRCS ra4m1_gpio.c)
 endif()
 
 target_sources(board PRIVATE ${SRCS})
 
-set_property(GLOBAL PROPERTY LD_SCRIPT "${NUTTX_BOARD_DIR}/scripts/ld.script")
+set_property(GLOBAL PROPERTY LD_SCRIPT
+                             "${NUTTX_BOARD_DIR}/scripts/xiao-ra4m1.ld")
