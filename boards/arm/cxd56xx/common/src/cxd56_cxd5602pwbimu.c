@@ -45,37 +45,10 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-#if defined(CONFIG_CXD56_CXD5602PWBIMU_POWER_EMMC_DATA2)
-#  define PIN_POWER PIN_EMMC_DATA2
-#elif defined(CONFIG_CXD56_CXD5602PWBIMU_POWER_I2S0_LRCK)
-#  define PIN_POWER PIN_I2S0_LRCK
-#else
-#  error Power pin configuration error
-#endif
-
-#if defined(CONFIG_CXD56_CXD5602PWBIMU_XRST_I2S0_BCK)
-#  define PIN_XRST PIN_I2S0_BCK
-#elif defined(CONFIG_CXD56_CXD5602PWBIMU_XRST_I2C0_BCK)
-#  define PIN_XRST PIN_I2C0_BCK
-#else
-#  error XRST pin configuration error
-#endif
-
-#if defined(CONFIG_CXD56_CXD5602PWBIMU_DRDY_EMMC_DATA3)
-#  define PIN_SPI_DRDY PIN_EMMC_DATA3
-#elif defind(CONFIG_CXD56_CXD5602PWBIMU_DRDY_I2S0_DATA_OUT)
-#  define PIN_SPI_DRDY PIN_I2S0_DATA_OUT
-#else
-#  error DRDY pin configuration error
-#endif
-
-#if defined(CONFIG_CXD56_CXD5602PWBIMU_CSX_I2S0_DATA_IN)
-#  define PIN_SPI_CSX PIN_I2S0_DATA_IN
-#elif defined(CONFIG_CXD56_CXD5602PWBIMU_CSX_SEN_IRQ_IN)
-#  define PIN_SPI_CSX PIN_SEN_IRQ_IN
-#else
-#  error SPI_CSX pin configuration error
-#endif
+#define PIN_POWER    PIN_EMMC_DATA2
+#define PIN_XRST     PIN_I2S0_BCK
+#define PIN_SPI_DRDY PIN_EMMC_DATA3
+#define PIN_SPI_CSX  PIN_I2S0_DATA_IN
 
 #define SETUP_PIN_INPUT(pin) \
 do \
