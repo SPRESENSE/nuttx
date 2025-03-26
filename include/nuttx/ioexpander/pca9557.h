@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm64/src/common/arm64_smp.h
+ * include/nuttx/ioexpander/pca9557.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,79 +20,80 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_ARM64_SRC_COMMON_ARM64_SMP_H
-#define __ARCH_ARM64_SRC_COMMON_ARM64_SMP_H
+#ifndef __INCLUDE_NUTTX_IOEXPANDER_PCA9557_H
+#define __INCLUDE_NUTTX_IOEXPANDER_PCA9557_H
 
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
-#include "arm64_internal.h"
+#include <nuttx/i2c/i2c_master.h>
 
-#ifdef CONFIG_SMP
-
-/****************************************************************************
- * Pre-processor Definitions
- ****************************************************************************/
+#include <stdbool.h>
 
 /****************************************************************************
- * Public Data
+ * Public Types
  ****************************************************************************/
 
-#ifndef __ASSEMBLY__
+/* A reference to a structure of this type must be passed to the PCA9557
+ * driver when the driver is instantiated. This structure provides
+ * information about the configuration of the PCA9557 and provides some
+ * board-specific hooks.
+ *
+ * Memory for this structure is provided by the caller.  It is not copied by
+ * the driver and is presumed to PERSIST while the driver is active. The
+ * memory must be writeable because, under certain circumstances, the driver
+ * may modify the frequency.
+ */
+
+struct pca9557_config_s
+{
+  /* Device characterization */
+
+  uint8_t address;     /* 7-bit I2C address (only bits 0-6 used) */
+  uint32_t frequency;  /* I2C or SPI frequency */
+
+  /* Sets the state of the PCA9557's nReset pin, not invoke if NULL */
+
+  CODE void (*set_nreset_pin)(bool state);
+};
 
 /****************************************************************************
  * Public Function Prototypes
  ****************************************************************************/
 
+#ifdef __cplusplus
+#define EXTERN extern "C"
+extern "C"
+{
+#else
+#define EXTERN extern
+#endif
+
 /****************************************************************************
- * Name: arm_cpu_boot
+ * Name: pca9557_initialize
  *
  * Description:
- *   Continues the C-level initialization started by the assembly language
- *   __cpu[n]_start function.  At a minimum, this function needs to
- *   initialize interrupt handling and, perhaps, wait on WFI for
- *   arm_cpu_start() to issue an SGI.
- *
- *   This function must be provided by the each ARMv7-A MCU and implement
- *   MCU-specific initialization logic.
+ *   Instantiate and configure the pca9557 device driver to use the provided
+ *   I2C device instance.
  *
  * Input Parameters:
- *   cpu - The CPU index.  This is the same value that would be obtained by
- *      calling this_cpu();
+ *   dev     - An I2C driver instance
+ *   minor   - The device i2c address
+ *   config  - Persistent board configuration data
  *
  * Returned Value:
- *   Does not return.
+ *   An ioexpander_dev_s instance on success, NULL on failure.
  *
  ****************************************************************************/
 
-void arm64_cpu_boot(int cpu);
+FAR struct ioexpander_dev_s *
+pca9557_initialize(FAR struct i2c_master_s *dev,
+                   FAR struct pca9557_config_s *config);
 
-/****************************************************************************
- * Name: arm64_enable_smp
- *
- * Description:
- *
- * Returned Value:
- *
- ****************************************************************************/
+#ifdef __cplusplus
+}
+#endif
 
-void arm64_enable_smp(int cpu);
-
-/****************************************************************************
- * Name: arm64_timer_secondary_init
- *
- * Description:
- *   Initialize the ARM timer for secondary CPUs.
- *
- * Returned Value:
- *   None
- *
- ****************************************************************************/
-
-void arm64_timer_secondary_init(void);
-
-#endif /* __ASSEMBLY__ */
-#endif /* CONFIG_SMP */
-#endif /* __ARCH_ARM64_SRC_COMMON_ARM64_SMP_H */
+#endif /* __INCLUDE_NUTTX_IOEXPANDER_PCA9557_H */
