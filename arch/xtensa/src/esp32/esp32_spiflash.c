@@ -281,6 +281,8 @@ static ssize_t esp32_bread_decrypt(struct mtd_dev_s *dev,
 #ifdef CONFIG_MTD_BYTE_WRITE
 static ssize_t esp32_write(struct mtd_dev_s *dev, off_t offset,
                            size_t nbytes, const uint8_t *buffer);
+static ssize_t esp32_write_encrypt(FAR struct mtd_dev_s *dev, off_t offset,
+                                   size_t nbytes, FAR const uint8_t *buffer);
 #endif
 static ssize_t esp32_bwrite(struct mtd_dev_s *dev, off_t startblock,
                             size_t nblocks, const uint8_t *buffer);
@@ -334,7 +336,7 @@ static struct esp32_spiflash_s g_esp32_spiflash1_encrypt =
             .read   = esp32_read_decrypt,
             .ioctl  = esp32_ioctl_encrypt,
 #ifdef CONFIG_MTD_BYTE_WRITE
-            .write  = NULL,
+            .write  = esp32_write_encrypt,
 #endif
             .name   = "esp32_mainflash_encrypt"
           },
@@ -1181,6 +1183,8 @@ static int IRAM_ATTR esp32_writedata_encrypted(
   for (i = 0; i < blocks; i++)
     {
       memcpy(tmp_buf, buffer, SPI_FLASH_ENCRYPT_UNIT_SIZE);
+
+      esp32_set_write_opt(priv);
 
       esp32_spiflash_opstart();
       esp_rom_spiflash_write_encrypted_enable();
@@ -2091,6 +2095,74 @@ static ssize_t esp32_write(struct mtd_dev_s *dev, off_t offset,
 
   return ret;
 }
+
+/****************************************************************************
+ * Name: esp32_write_encrypt
+ *
+ * Description:
+ *   write data to SPI Flash at designated address by SPI Flash hardware
+ *   encryption.
+ *
+ * Input Parameters:
+ *   dev    - ESP32 MTD device data
+ *   offset - target address offset
+ *   nbytes - data number
+ *   buffer - data buffer pointer
+ *
+ * Returned Value:
+ *   Writen bytes if success or a negative value if fail.
+ *
+ ****************************************************************************/
+
+static ssize_t esp32_write_encrypt(FAR struct mtd_dev_s *dev, off_t offset,
+                                   size_t nbytes, FAR const uint8_t *buffer)
+{
+  ssize_t ret;
+  struct esp32_spiflash_s *priv = MTD2PRIV(dev);
+
+  ASSERT(buffer);
+
+  if ((offset % SPI_FLASH_ENCRYPT_MIN_SIZE) ||
+    (nbytes % SPI_FLASH_ENCRYPT_MIN_SIZE))
+    {
+      return -EINVAL;
+    }
+
+#ifdef CONFIG_ESP32_SPIFLASH_DEBUG
+  finfo("esp32_write_encrypt(%p, 0x%x, %zu, %p)\n", dev, offset,
+        nbytes, buffer);
+#endif
+
+  /* Acquire the mutex. */
+
+  ret = nxmutex_lock(&g_lock);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+#ifdef CONFIG_ESP32_SPI_FLASH_SUPPORT_PSRAM_STACK
+  if (stack_is_psram())
+    {
+      ret = esp32_async_op(SPIFLASH_OP_CODE_ENCRYPT_WRITE, priv,
+                           offset, buffer, nbytes, 0);
+    }
+  else
+    {
+      ret = esp32_writeblk_encrypted(priv, offset, buffer, nbytes);
+    }
+#else
+  ret = esp32_writeblk_encrypted(priv, offset, buffer, nbytes);
+#endif
+
+  nxmutex_unlock(&g_lock);
+
+#ifdef CONFIG_ESP32_SPIFLASH_DEBUG
+  finfo("esp32_write_encrypt()=%d\n", ret);
+#endif
+
+  return ret;
+}
 #endif
 
 /****************************************************************************
@@ -2755,6 +2827,28 @@ bool esp32_flash_encryption_enabled(void)
     }
 
   return enabled;
+}
+
+/****************************************************************************
+ * Name: esp32_get_flash_address_mapped_as_text
+ *
+ * Description:
+ *   Get flash address which is currently mapped as text
+ *
+ * Input Parameters:
+ *   None
+ *
+ * Returned Value:
+ *   flash address which is currently mapped as text
+ *
+ ****************************************************************************/
+
+uint32_t esp32_get_flash_address_mapped_as_text(void)
+{
+  uint32_t i = MMU_ADDR2PAGE((uint32_t)&_stext - SOC_IROM_MASK_LOW)
+               + IROM0_PAGES_START;
+  return (PRO_MMU_TABLE[i] & DPORT_MMU_ADDRESS_MASK)
+         * SPI_FLASH_MMU_PAGE_SIZE;
 }
 
 #endif /* CONFIG_ESP32_SPIFLASH */
