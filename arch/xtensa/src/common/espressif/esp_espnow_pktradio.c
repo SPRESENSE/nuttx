@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/xtensa/src/esp32/esp32_espnow_pktradio.c
+ * arch/xtensa/src/common/espressif/esp_espnow_pktradio.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -50,9 +50,9 @@
 #include "xtensa_attr.h"
 #include "esp_now.h"
 #include "esp_mac.h"
-#include "esp32_espnow_pktradio.h"
+#include "esp_espnow_pktradio.h"
 
-#ifdef CONFIG_ESP32_ESPNOW_PKTRADIO
+#ifdef CONFIG_ESPRESSIF_ESPNOW_PKTRADIO
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -60,7 +60,7 @@
 
 /* TX timeout = 1 minute */
 
-#define ESP32_ESPNOW_TXTOUT (60 * CLK_TCK)
+#define ESPRESSIF_ESPNOW_TXTOUT (60 * CLK_TCK)
 
 /* We need to have the work queue */
 
@@ -89,9 +89,9 @@
        CONFIG_PKTRADIO_ADDRLEN needs to be at least 2.
 #endif
 
-#if CONFIG_IOB_BUFSIZE < CONFIG_ESP32_ESPNOW_PKTRADIO_FRAMELEN
+#if CONFIG_IOB_BUFSIZE < CONFIG_ESPRESSIF_ESPNOW_PKTRADIO_FRAMELEN
 #  error Unsupported configuration: reduce \
-         CONFIG_ESP32_ESPNOW_PKTRADIO_FRAMELEN or increase \
+         CONFIG_ESPRESSIF_ESPNOW_PKTRADIO_FRAMELEN or increase \
          CONFIG_IOB_BUFSIZE.
 #endif
 
@@ -850,7 +850,7 @@ static void espnow_transmit(FAR struct espnow_driver_s *priv)
       if (ret == -ENOMEM)
         {
           espnow_txheadadd(priv, iob);
-          wd_start(&priv->txtimeout, ESP32_ESPNOW_TXTOUT,
+          wd_start(&priv->txtimeout, ESPRESSIF_ESPNOW_TXTOUT,
                    espnow_txtimeout_expiry, (uint32_t)priv);
           priv->txblocked = true;
           break;
@@ -1528,7 +1528,7 @@ static int espnow_properties(FAR struct radio_driver_s *netdev,
 
   /* Fixed frame length */
 
-  properties->sp_framelen = CONFIG_ESP32_ESPNOW_PKTRADIO_FRAMELEN;
+  properties->sp_framelen = CONFIG_ESPRESSIF_ESPNOW_PKTRADIO_FRAMELEN;
 
   /* Multicast address */
 
@@ -1596,13 +1596,13 @@ int pktradio_espnow(void)
 
   /* Set the PANID */
 
-  priv->panid[0] = CONFIG_ESP32_ESPNOW_PKTRADIO_PANID >> 8;
-  priv->panid[1] = CONFIG_ESP32_ESPNOW_PKTRADIO_PANID & 0xff;
+  priv->panid[0] = CONFIG_ESPRESSIF_ESPNOW_PKTRADIO_PANID >> 8;
+  priv->panid[1] = CONFIG_ESPRESSIF_ESPNOW_PKTRADIO_PANID & 0xff;
 
   /* Set the PANADDRESS */
 
-  mac_address[0] = CONFIG_ESP32_ESPNOW_PKTRADIO_PANADDR >> 8;
-  mac_address[1] = CONFIG_ESP32_ESPNOW_PKTRADIO_PANADDR & 0xff;
+  mac_address[0] = CONFIG_ESPRESSIF_ESPNOW_PKTRADIO_PANADDR >> 8;
+  mac_address[1] = CONFIG_ESPRESSIF_ESPNOW_PKTRADIO_PANADDR & 0xff;
 
   dev->d_mac.radio.nv_addrlen = MAC_ADDRLEN;
   memcpy(dev->d_mac.radio.nv_addr, mac_address, sizeof(mac_address));

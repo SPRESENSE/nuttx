@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/xtensa/src/esp32/esp32_espnow_pktradio.h
+ * libs/libc/machine/arm/arch_crc32.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,58 +20,96 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_XTENSA_SRC_COMMON_ESPRESSIF_ESP_ESPNOW_PKTRADIO_H
-#define __ARCH_XTENSA_SRC_COMMON_ESPRESSIF_ESP_ESPNOW_PKTRADIO_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
+#include <stdint.h>
+#include <sys/types.h>
+#include <arm_acle.h>
 
-#ifndef __ASSEMBLY__
-
-#undef EXTERN
-#if defined(__cplusplus)
-#define EXTERN extern "C"
-extern "C"
-{
-#else
-#define EXTERN extern
-#endif
-
-#ifdef CONFIG_ESP32_ESPNOW_PKTRADIO
 /****************************************************************************
- * Pre-processor Definitions
+ * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Public Function Prototypes
- ****************************************************************************/
-
-/****************************************************************************
- * Name: pktradio_espnow
+ * Name: crc32part
  *
  * Description:
- *   Initialize and register the 6LoWPAN over espnow MAC network driver.
- *
- * Input Parameters:
- *   None
- *
- * Returned Value:
- *   OK on success; Negated errno on failure.
- *
- * Assumptions:
+ *   crc32 polynomial 0x04C11DB7 (bitreflected 0xEDB88320)
  *
  ****************************************************************************/
 
-int pktradio_espnow(void);
-#endif /* CONFIG_ESP32_ESPNOW_PKTRADIO */
+uint32_t crc32part(FAR const uint8_t *src, size_t len, uint32_t crc32val)
+{
+  size_t i = 0;
 
-#ifdef __cplusplus
+  for (; (i + 8) <= len; i += 8)
+    {
+      uint64_t data = *(uint64_t *)(src + i);
+      crc32val = __crc32d(crc32val, data);
+    }
+
+  if (i + 4 <= len)
+    {
+      uint32_t data = *(uint32_t *)(src + i);
+      crc32val = __crc32w(crc32val, data);
+      i += 4;
+    }
+
+  if (i + 2 <= len)
+    {
+      uint16_t data = *(uint16_t *)(src + i);
+      crc32val = __crc32h(crc32val, data);
+      i += 2;
+    }
+
+  if (i < len)
+    {
+      uint8_t data = *(uint8_t *)(src + i);
+      crc32val = __crc32b(crc32val, data);
+    }
+
+  return crc32val;
 }
-#endif
-#undef EXTERN
 
-#endif /* __ASSEMBLY__ */
-#endif /* __ARCH_XTENSA_SRC_COMMON_ESPRESSIF_ESP_ESPNOW_PKTRADIO_H */
+/****************************************************************************
+ * Name: crc32part_c
+ *
+ * Description:
+ *   crc32 Castagnoli polynomial 0x1EDC6F41
+ *
+ ****************************************************************************/
+
+uint32_t crc32part_c(FAR const uint8_t *src, size_t len, uint32_t crc32val)
+{
+  size_t i = 0;
+
+  for (; (i + 8) <= len; i += 8)
+    {
+      uint64_t data = *(uint64_t *)(src + i);
+      crc32val = __crc32cd(crc32val, data);
+    }
+
+  if (i + 4 <= len)
+    {
+      uint32_t data = *(uint32_t *)(src + i);
+      crc32val = __crc32cw(crc32val, data);
+      i += 4;
+    }
+
+  if (i + 2 <= len)
+    {
+      uint16_t data = *(uint16_t *)(src + i);
+      crc32val = __crc32ch(crc32val, data);
+      i += 2;
+    }
+
+  if (i < len)
+    {
+      uint8_t data = *(uint8_t *)(src + i);
+      crc32val = __crc32cb(crc32val, data);
+    }
+
+  return crc32val;
+}
