@@ -59,8 +59,8 @@
 
 #if defined(CONFIG_STM32F0L0G0_ADC1)
 
-#if !defined(CONFIG_STM32F0L0G0_STM32L0)
-#  error Only L0 supported for now
+#if defined(CONFIG_STM32F0L0G0_STM32F0) || defined(CONFIG_STM32F0L0G0_STM32G0)
+#  error Not tested
 #endif
 
 /* At the moment there is no proper implementation for timers external
@@ -116,8 +116,13 @@
 #endif
 
 #if defined(ADC_HAVE_DMA) || (ADC_MAX_SAMPLES == 1)
-#  define ADC_SMP1_DEFAULT    ADC_SMPR_13p5
-#  define ADC_SMP2_DEFAULT    ADC_SMPR_13p5
+#  ifdef ADC_SMPR_13p5
+#    define ADC_SMP1_DEFAULT  ADC_SMPR_13p5
+#    define ADC_SMP2_DEFAULT  ADC_SMPR_13p5
+#  else
+#    define ADC_SMP1_DEFAULT  ADC_SMPR_12p5
+#    define ADC_SMP2_DEFAULT  ADC_SMPR_12p5
+#  endif
 #else /* Slow down sampling frequency */
 #  define ADC_SMP1_DEFAULT    ADC_SMPR_239p5
 #  define ADC_SMP2_DEFAULT    ADC_SMPR_239p5
@@ -134,7 +139,9 @@
  *       (ST manual)
  */
 
-#if defined(CONFIG_STM32F0L0G0_STM32F0) || defined(CONFIG_STM32F0L0G0_STM32L0)
+#if defined(CONFIG_STM32F0L0G0_STM32F0) || \
+    defined(CONFIG_STM32F0L0G0_STM32L0) || \
+    defined(CONFIG_STM32F0L0G0_STM32C0)
 #  define ADC_CHANNELS_NUMBER 19
 #else
 #  error "Not supported"
@@ -1029,18 +1036,16 @@ static void adc_watchdog_cfg(struct stm32_dev_s *priv)
 
 static void adc_calibrate(struct stm32_dev_s *priv)
 {
-#if 0 /* Doesn't work */
-  /* Calibrate the ADC */
+  /* Calibrate the ADC.
+   *   1. ADC must be disabled
+   *   2. the voltage regulater must be enabled
+   */
 
-  adc_modifyreg(priv, STM32_ADC_CR_OFFSET, ADC_CR_ADCALDIF, AD_CR_ADCAL);
+  adc_modifyreg(priv, STM32_ADC_CR_OFFSET, 0, ADC_CR_ADCAL);
 
   /* Wait for the calibration to complete */
 
   while ((adc_getreg(priv, STM32_ADC_CR_OFFSET) & ADC_CR_ADCAL) != 0);
-
-#else
-  UNUSED(priv);
-#endif
 }
 
 /****************************************************************************
@@ -1072,7 +1077,13 @@ static void adc_mode_cfg(struct stm32_dev_s *priv)
 
 static void adc_voltreg_cfg(struct stm32_dev_s *priv)
 {
-  UNUSED(priv);
+  /* Enable voltage regulator - required by ADC calibration */
+
+  adc_putreg(priv, STM32_ADC_CR_OFFSET, ADC_CR_ADVREGEN);
+
+  /* Wait for ADC voltage regulator start-up */
+
+  up_udelay(50);
 }
 
 /****************************************************************************
