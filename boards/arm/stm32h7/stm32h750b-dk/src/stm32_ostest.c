@@ -1,7 +1,5 @@
 /****************************************************************************
- * boards/xtensa/esp32s3/lckfb-szpi-esp32s3/src/esp32s3_ft5x06.c
- *
- * SPDX-License-Identifier: Apache-2.0
+ * boards/arm/stm32h7/stm32h750b-dk/src/stm32_ostest.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -26,58 +24,72 @@
 
 #include <nuttx/config.h>
 
-#include <unistd.h>
-#include <stdlib.h>
+#include <stdint.h>
+#include <stdbool.h>
+#include <string.h>
 #include <debug.h>
-#include <assert.h>
-#include <nuttx/arch.h>
-#include <nuttx/board.h>
-#include <nuttx/input/ft5x06.h>
 
-#include "esp32s3_i2c.h"
-#include "esp32s3-szpi.h"
+#include <nuttx/irq.h>
+#include <arch/board/board.h>
+
+#include "arm_arch.h"
+#include "arm_internal.h"
+#include "stm32h745b-dk.h"
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
-#ifndef CONFIG_FT5X06_POLLMODE
-#error "Only support poll mode currently!"
+/* Configuration ************************************************************/
+
+#undef HAVE_FPU
+#if defined(CONFIG_ARCH_FPU) && !defined(CONFIG_TESTING_OSTEST_FPUTESTDISABLE) && \
+    defined(CONFIG_TESTING_OSTEST_FPUSIZE) && defined(CONFIG_SCHED_WAITPID)
+#    define HAVE_FPU 1
 #endif
 
-#define ESP32S3_FT5X06_I2C_PORT (0)
+#ifdef HAVE_FPU
+
+#if CONFIG_TESTING_OSTEST_FPUSIZE != (4*SW_FPU_REGS)
+#  error "CONFIG_TESTING_OSTEST_FPUSIZE has the wrong size"
+#endif
 
 /****************************************************************************
  * Private Data
  ****************************************************************************/
 
-static const struct ft5x06_config_s g_ft5x06_config =
-{
-  .address   = FT5X06_I2C_ADDRESS,
-  .frequency = FT5X06_FREQUENCY,
-};
+static uint32_t g_saveregs[XCPTCONTEXT_REGS];
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
-int esp32s3_ft5x06_initialize(void)
+/* Given an array of size CONFIG_TESTING_OSTEST_FPUSIZE, this function will
+ * return the current FPU registers.
+ */
+
+void arch_getfpu(uint32_t *fpusave)
 {
-  struct i2c_master_s *i2c;
-  int ret;
+  irqstate_t flags;
 
-  i2c = esp32s3_i2cbus_initialize(ESP32S3_FT5X06_I2C_PORT);
-  if (!i2c)
-    {
-      i2cerr("Initialize I2C bus failed!\n");
-      return -EINVAL;
-    }
+  /* Take a snapshot of the thread context right now */
 
-  ret = ft5x06_register(i2c, &g_ft5x06_config, 0);
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: Failed to register FT5X06 driver: %d\n", ret);
-    }
+  flags = enter_critical_section();
+  arm_saveusercontext(g_saveregs);
 
-  return 0;
+  /* Return only the floating register values */
+
+  memcpy(fpusave, &g_saveregs[REG_S0], (4*SW_FPU_REGS));
+  leave_critical_section(flags);
 }
+
+/* Given two arrays of size CONFIG_TESTING_OSTEST_FPUSIZE this function
+ * will compare them and return true if they are identical.
+ */
+
+bool arch_cmpfpu(const uint32_t *fpusave1, const uint32_t *fpusave2)
+{
+  return memcmp(fpusave1, fpusave2, (4*SW_FPU_REGS)) == 0;
+}
+
+#endif /* HAVE_FPU */

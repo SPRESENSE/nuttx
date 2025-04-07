@@ -1,7 +1,5 @@
 /****************************************************************************
- * boards/xtensa/esp32s3/lckfb-szpi-esp32s3/src/esp32s3_ft5x06.c
- *
- * SPDX-License-Identifier: Apache-2.0
+ * boards/arm/stm32h7/stm32h750b-dk/src/stm32_reset.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -26,58 +24,39 @@
 
 #include <nuttx/config.h>
 
-#include <unistd.h>
-#include <stdlib.h>
-#include <debug.h>
-#include <assert.h>
 #include <nuttx/arch.h>
 #include <nuttx/board.h>
-#include <nuttx/input/ft5x06.h>
 
-#include "esp32s3_i2c.h"
-#include "esp32s3-szpi.h"
-
-/****************************************************************************
- * Pre-processor Definitions
- ****************************************************************************/
-
-#ifndef CONFIG_FT5X06_POLLMODE
-#error "Only support poll mode currently!"
-#endif
-
-#define ESP32S3_FT5X06_I2C_PORT (0)
-
-/****************************************************************************
- * Private Data
- ****************************************************************************/
-
-static const struct ft5x06_config_s g_ft5x06_config =
-{
-  .address   = FT5X06_I2C_ADDRESS,
-  .frequency = FT5X06_FREQUENCY,
-};
+#ifdef CONFIG_BOARDCTL_RESET
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
-int esp32s3_ft5x06_initialize(void)
+/****************************************************************************
+ * Name: board_reset
+ *
+ * Description:
+ *   Reset board.  Support for this function is required by board-level
+ *   logic if CONFIG_BOARDCTL_RESET is selected.
+ *
+ * Input Parameters:
+ *   status - Status information provided with the reset event.  This
+ *            meaning of this status information is board-specific.  If not
+ *            used by a board, the value zero may be provided in calls to
+ *            board_reset().
+ *
+ * Returned Value:
+ *   If this function returns, then it was not possible to power-off the
+ *   board due to some constraints.  The return value int this case is a
+ *   board-specific reason for the failure to shutdown.
+ *
+ ****************************************************************************/
+
+int board_reset(int status)
 {
-  struct i2c_master_s *i2c;
-  int ret;
-
-  i2c = esp32s3_i2cbus_initialize(ESP32S3_FT5X06_I2C_PORT);
-  if (!i2c)
-    {
-      i2cerr("Initialize I2C bus failed!\n");
-      return -EINVAL;
-    }
-
-  ret = ft5x06_register(i2c, &g_ft5x06_config, 0);
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: Failed to register FT5X06 driver: %d\n", ret);
-    }
-
+  up_systemreset();
   return 0;
 }
+
+#endif /* CONFIG_BOARDCTL_RESET */

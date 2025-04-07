@@ -1,7 +1,5 @@
 /****************************************************************************
- * boards/xtensa/esp32s3/lckfb-szpi-esp32s3/src/esp32s3_ft5x06.c
- *
- * SPDX-License-Identifier: Apache-2.0
+ * boards/arm/stm32h7/stm32h750b-dk/src/stm32_appinitialize.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -26,58 +24,53 @@
 
 #include <nuttx/config.h>
 
-#include <unistd.h>
-#include <stdlib.h>
-#include <debug.h>
-#include <assert.h>
-#include <nuttx/arch.h>
 #include <nuttx/board.h>
-#include <nuttx/input/ft5x06.h>
+#include <sys/types.h>
 
-#include "esp32s3_i2c.h"
-#include "esp32s3-szpi.h"
+#include "stm32h750b-dk.h"
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
-#ifndef CONFIG_FT5X06_POLLMODE
-#error "Only support poll mode currently!"
-#endif
-
-#define ESP32S3_FT5X06_I2C_PORT (0)
-
-/****************************************************************************
- * Private Data
- ****************************************************************************/
-
-static const struct ft5x06_config_s g_ft5x06_config =
-{
-  .address   = FT5X06_I2C_ADDRESS,
-  .frequency = FT5X06_FREQUENCY,
-};
-
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
-int esp32s3_ft5x06_initialize(void)
+/****************************************************************************
+ * Name: board_app_initialize
+ *
+ * Description:
+ *   Perform application specific initialization.  This function is never
+ *   called directly from application code, but only indirectly via the
+ *   (non-standard) boardctl() interface using the command BOARDIOC_INIT.
+ *
+ * Input Parameters:
+ *   arg - The boardctl() argument is passed to the board_app_initialize()
+ *         implementation without modification.  The argument has no
+ *         meaning to NuttX; the meaning of the argument is a contract
+ *         between the board-specific initialization logic and the
+ *         matching application logic.  The value could be such things as a
+ *         mode enumeration value, a set of DIP switch switch settings, a
+ *         pointer to configuration data read from a file or serial FLASH,
+ *         or whatever you would like to do with it.  Every implementation
+ *         should accept zero/NULL as a default configuration.
+ *
+ * Returned Value:
+ *   Zero (OK) is returned on success; a negated errno value is returned on
+ *   any failure to indicate the nature of the failure.
+ *
+ ****************************************************************************/
+
+int board_app_initialize(uintptr_t arg)
 {
-  struct i2c_master_s *i2c;
-  int ret;
+#ifdef CONFIG_BOARD_LATE_INITIALIZE
+  /* Board initialization already performed by board_late_initialize() */
 
-  i2c = esp32s3_i2cbus_initialize(ESP32S3_FT5X06_I2C_PORT);
-  if (!i2c)
-    {
-      i2cerr("Initialize I2C bus failed!\n");
-      return -EINVAL;
-    }
+  return OK;
+#else
+  /* Perform board-specific initialization */
 
-  ret = ft5x06_register(i2c, &g_ft5x06_config, 0);
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: Failed to register FT5X06 driver: %d\n", ret);
-    }
-
-  return 0;
+  return stm32_bringup();
+#endif
 }

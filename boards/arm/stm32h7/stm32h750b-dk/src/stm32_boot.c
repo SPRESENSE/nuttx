@@ -1,7 +1,5 @@
 /****************************************************************************
- * boards/xtensa/esp32s3/lckfb-szpi-esp32s3/src/esp32s3_ft5x06.c
- *
- * SPDX-License-Identifier: Apache-2.0
+ * boards/arm/stm32h7/stm32h750b-dk/src/stm32_boot.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -26,58 +24,60 @@
 
 #include <nuttx/config.h>
 
-#include <unistd.h>
-#include <stdlib.h>
 #include <debug.h>
-#include <assert.h>
-#include <nuttx/arch.h>
+
 #include <nuttx/board.h>
-#include <nuttx/input/ft5x06.h>
+#include <arch/board/board.h>
 
-#include "esp32s3_i2c.h"
-#include "esp32s3-szpi.h"
-
-/****************************************************************************
- * Pre-processor Definitions
- ****************************************************************************/
-
-#ifndef CONFIG_FT5X06_POLLMODE
-#error "Only support poll mode currently!"
-#endif
-
-#define ESP32S3_FT5X06_I2C_PORT (0)
-
-/****************************************************************************
- * Private Data
- ****************************************************************************/
-
-static const struct ft5x06_config_s g_ft5x06_config =
-{
-  .address   = FT5X06_I2C_ADDRESS,
-  .frequency = FT5X06_FREQUENCY,
-};
+#include "stm32h750b-dk.h"
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
-int esp32s3_ft5x06_initialize(void)
+/****************************************************************************
+ * Name: stm32_boardinitialize
+ *
+ * Description:
+ *   All STM32 architectures must provide the following entry point.
+ *   This entry point is called early in the initialization -- after all
+ *   memory has been configured and mapped but before any devices have been
+ *   initialized.
+ *
+ ****************************************************************************/
+
+void stm32_boardinitialize(void)
 {
-  struct i2c_master_s *i2c;
-  int ret;
+#ifdef CONFIG_ARCH_LEDS
+  /* Configure on-board LEDs if LED support has been selected. */
 
-  i2c = esp32s3_i2cbus_initialize(ESP32S3_FT5X06_I2C_PORT);
-  if (!i2c)
-    {
-      i2cerr("Initialize I2C bus failed!\n");
-      return -EINVAL;
-    }
+  board_autoled_initialize();
+#endif
 
-  ret = ft5x06_register(i2c, &g_ft5x06_config, 0);
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: Failed to register FT5X06 driver: %d\n", ret);
-    }
+#if defined(CONFIG_STM32H7_OTGFS) || defined(CONFIG_STM32H7_HOST)
+  /* Initialize USB */
 
-  return 0;
+  stm32_usbinitialize();
+#endif
 }
+
+/****************************************************************************
+ * Name: board_late_initialize
+ *
+ * Description:
+ *   If CONFIG_BOARD_LATE_INITIALIZE is selected, then an additional
+ *   initialization call will be performed in the boot-up sequence to a
+ *   function called board_late_initialize().  board_late_initialize()
+ *   will be called immediately after up_initialize() is called and just
+ *   before the initial application is started.  This additional
+ *   initialization phase may be used, for example, to initialize board-
+ *   specific device drivers.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_BOARD_LATE_INITIALIZE
+void board_late_initialize(void)
+{
+  stm32_bringup();
+}
+#endif
