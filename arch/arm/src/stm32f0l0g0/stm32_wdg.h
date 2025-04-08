@@ -1,5 +1,7 @@
 /****************************************************************************
- * arch/xtensa/src/esp32/esp32_i2s.h
+ * arch/arm/src/stm32f0l0g0/stm32_wdg.h
+ *
+ * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,15 +20,21 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_XTENSA_SRC_ESP32_ESP32_I2S_H
-#define __ARCH_XTENSA_SRC_ESP32_ESP32_I2S_H
+#ifndef __ARCH_ARM_SRC_STM32F0L0G0_STM32_WDG_H
+#define __ARCH_ARM_SRC_STM32F0L0G0_STM32_WDG_H
 
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
-#include <nuttx/audio/i2s.h>
+
+#include "chip.h"
+#include "hardware/stm32_wdg.h"
+
+/****************************************************************************
+ * Pre-processor Definitions
+ ****************************************************************************/
 
 #ifndef __ASSEMBLY__
 
@@ -39,37 +47,58 @@ extern "C"
 #define EXTERN extern
 #endif
 
-#ifdef CONFIG_ESP32_I2S
-
-#define ESP32_I2S0 0
-#define ESP32_I2S1 1
-
 /****************************************************************************
  * Public Function Prototypes
  ****************************************************************************/
 
 /****************************************************************************
- * Name: esp32_i2sbus_initialize
+ * Name: stm32_iwdginitialize
  *
  * Description:
- *   Initialize the selected I2S port
+ *   Initialize the IWDG watchdog time.  The watchdog timer is initialized
+ *   and registers as 'devpath.  The initial state of the watchdog time is
+ *   disabled.
  *
  * Input Parameters:
- *   Port number (for hardware that has multiple I2S interfaces)
+ *   devpath - The full path to the watchdog.  This should be of the form
+ *     /dev/watchdog0
+ *   lsifreq - The calibrated LSI clock frequency
  *
  * Returned Value:
- *   Valid I2S device structure reference on success; a NULL on failure
+ *   None
  *
  ****************************************************************************/
 
-struct i2s_dev_s *esp32_i2sbus_initialize(int port);
+#ifdef CONFIG_STM32F0L0G0_IWDG
+void stm32_iwdginitialize(const char *devpath, uint32_t lsifreq);
+#endif
 
-#endif /* CONFIG_ESP32_I2S */
+/****************************************************************************
+ * Name: stm32_wwdginitialize
+ *
+ * Description:
+ *   Initialize the WWDG watchdog time.  The watchdog timer is initializeed
+ *   and registers as 'devpath.  The initial state of the watchdog time is
+ *   disabled.
+ *
+ * Input Parameters:
+ *   devpath - The full path to the watchdog.  This should be of the form
+ *     /dev/watchdog0
+ *
+ * Returned Value:
+ *   None
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_STM32F0L0G0_WWDG
+void stm32_wwdginitialize(const char *devpath);
+#endif
 
 #undef EXTERN
-#ifdef __cplusplus
+#if defined(__cplusplus)
 }
 #endif
 
 #endif /* __ASSEMBLY__ */
-#endif /* __ARCH_XTENSA_SRC_ESP32_ESP32_I2S_H */
+
+#endif /* __ARCH_ARM_SRC_STM32F0L0G0_STM32_WDG_H */

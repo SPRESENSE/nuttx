@@ -1,5 +1,7 @@
 /****************************************************************************
- * arch/xtensa/src/esp32s2/esp32s2_i2s.h
+ * arch/xtensa/src/common/espressif/esp_i2s.h
+ *
+ * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,8 +20,8 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_XTENSA_SRC_ESP32S2_ESP32S2_I2S_H
-#define __ARCH_XTENSA_SRC_ESP32S2_ESP32S2_I2S_H
+#ifndef __ARCH_XTENSA_SRC_COMMON_ESPRESSIF_ESP_I2S_H
+#define __ARCH_XTENSA_SRC_COMMON_ESPRESSIF_ESP_I2S_H
 
 /****************************************************************************
  * Included Files
@@ -39,31 +41,42 @@ extern "C"
 #define EXTERN extern
 #endif
 
-#ifdef CONFIG_ESP32S2_I2S
+#ifdef CONFIG_ESPRESSIF_I2S
 
+#define ESPRESSIF_I2S0 0
+#define ESPRESSIF_I2S1 1
+
+#if defined(CONFIG_ARCH_CHIP_ESP32S3)
+#define ESP32S3_I2S0 0
+#define ESP32S3_I2S1 1
+#elif defined(CONFIG_ARCH_CHIP_ESP32S2)
 #define ESP32S2_I2S0 0
+#elif defined(CONFIG_ARCH_CHIP_ESP32)
+#define ESP32_I2S0 0
+#define ESP32_I2S1 1
+#endif
 
 /****************************************************************************
  * Public Function Prototypes
  ****************************************************************************/
 
 /****************************************************************************
- * Name: esp32s2_i2sbus_initialize
+ * Name: esp_i2sbus_initialize
  *
  * Description:
  *   Initialize the selected I2S port
  *
  * Input Parameters:
- *   None
+ *   port - Port number (for hardware that has multiple I2S interfaces)
  *
  * Returned Value:
  *   Valid I2S device structure reference on success; a NULL on failure
  *
  ****************************************************************************/
 
-struct i2s_dev_s *esp32s2_i2sbus_initialize(void);
+struct i2s_dev_s *esp_i2sbus_initialize(int port);
 
-#endif /* CONFIG_ESP32S2_I2S */
+#endif /* CONFIG_ESPRESSIF_I2S */
 
 #undef EXTERN
 #ifdef __cplusplus
@@ -71,4 +84,4 @@ struct i2s_dev_s *esp32s2_i2sbus_initialize(void);
 #endif
 
 #endif /* __ASSEMBLY__ */
-#endif /* __ARCH_XTENSA_SRC_ESP32S2_ESP32S2_I2S_H */
+#endif /* __ARCH_XTENSA_SRC_COMMON_ESPRESSIF_ESP_I2S_H */

@@ -1,5 +1,7 @@
 /****************************************************************************
- * arch/xtensa/src/esp32s3/esp32s3_i2s.h
+ * libs/libc/sched/task_gettid.c
+ *
+ * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,58 +20,37 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_XTENSA_SRC_ESP32S3_ESP32S3_I2S_H
-#define __ARCH_XTENSA_SRC_ESP32S3_ESP32S3_I2S_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
-#include <nuttx/audio/i2s.h>
 
-#ifndef __ASSEMBLY__
+#include <sys/types.h>
+#include <unistd.h>
 
-#undef EXTERN
-#if defined(__cplusplus)
-#define EXTERN extern "C"
-extern "C"
-{
-#else
-#define EXTERN extern
-#endif
-
-#ifdef CONFIG_ESP32S3_I2S
-
-#define ESP32S3_I2S0 0
-#define ESP32S3_I2S1 1
+#include <nuttx/tls.h>
 
 /****************************************************************************
- * Public Function Prototypes
+ * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: esp32s3_i2sbus_initialize
+ * Name: gettid
  *
  * Description:
- *   Initialize the selected I2S port
+ *   Get the thread ID of the currently executing thread.
  *
- * Input Parameters:
- *   Port number (for hardware that has multiple I2S interfaces)
+ * Input parameters:
+ *   None
  *
  * Returned Value:
- *   Valid I2S device structure reference on success; a NULL on failure
+ *   On success, returns the thread ID of the calling process.
  *
  ****************************************************************************/
 
-struct i2s_dev_s *esp32s3_i2sbus_initialize(int port);
-
-#endif /* CONFIG_ESP32S3_I2S */
-
-#undef EXTERN
-#ifdef __cplusplus
+pid_t gettid(void)
+{
+  FAR struct tls_info_s *tls = tls_get_info();
+  return tls->tl_tid;
 }
-#endif
-
-#endif /* __ASSEMBLY__ */
-#endif /* __ARCH_XTENSA_SRC_ESP32S3_ESP32S3_I2S_H */

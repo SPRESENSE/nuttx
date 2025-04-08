@@ -59,10 +59,6 @@ CHIP_CSRCS += esp32s2_i2c.c
 endif
 endif
 
-ifeq ($(CONFIG_ESP32S2_I2S),y)
-CHIP_CSRCS += esp32s2_i2s.c
-endif
-
 ifeq ($(CONFIG_ESP32S2_TWAI),y)
 CHIP_CSRCS += esp32s2_twai.c
 endif
@@ -147,7 +143,7 @@ endif
 
 ESP_HAL_3RDPARTY_REPO   = esp-hal-3rdparty
 ifndef ESP_HAL_3RDPARTY_VERSION
-	ESP_HAL_3RDPARTY_VERSION = 5d4868f08b94efbe76383382f7a843c6cdeaf811
+	ESP_HAL_3RDPARTY_VERSION = a461ca0750d1a3deca6b10a283064dbcd2b76fb1
 endif
 
 ifndef ESP_HAL_3RDPARTY_URL
