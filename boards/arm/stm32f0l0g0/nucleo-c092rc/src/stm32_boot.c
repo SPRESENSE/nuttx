@@ -1,5 +1,5 @@
 /****************************************************************************
- * sched/task/task_starthook.c
+ * boards/arm/stm32f0l0g0/nucleo-c092rc/src/stm32_boot.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -26,53 +26,62 @@
 
 #include <nuttx/config.h>
 
-#include <assert.h>
-#include <nuttx/sched.h>
+#include <nuttx/board.h>
+#include <arch/board/board.h>
 
-#include "task/task.h"
-
-#ifdef CONFIG_SCHED_STARTHOOK
+#include "nucleo-c092rc.h"
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: nxtask_starthook
+ * Name: stm32_boardinitialize
  *
  * Description:
- *   Configure a start hook... a function that will be called on the thread
- *   of the new task before the new task's main entry point is called.
- *   The start hook is useful, for example, for setting up automatic
- *   configuration of C++ constructors.
- *
- * Input Parameters:
- *   tcb - The new, unstarted task task that needs the start hook
- *   starthook - The pointer to the start hook function
- *   arg - The argument to pass to the start hook function.
- *
- * Returned Value:
- *   None
+ *   All STM32 architectures must provide the following entry point.  This
+ *   entry point is called early in the initialization -- after all memory
+ *   has been configured and mapped but before any devices have been
+ *   initialized.
  *
  ****************************************************************************/
 
-void nxtask_starthook(FAR struct task_tcb_s *tcb, starthook_t starthook,
-                      FAR void *arg)
+void stm32_boardinitialize(void)
 {
-  /* Only tasks can have starthooks.  The starthook will be called when the
-   * task is started (or restarted).
-   */
+#ifdef CONFIG_ARCH_LEDS
+  /* Configure on-board LEDs if LED support has been selected. */
 
-#ifndef CONFIG_DISABLE_PTHREAD
-  DEBUGASSERT(tcb &&
-              (tcb->cmn.flags & TCB_FLAG_TTYPE_MASK) !=
-               TCB_FLAG_TTYPE_PTHREAD);
+  board_autoled_initialize();
 #endif
 
-  /* Set up the start hook */
+#ifdef CONFIG_STM32F0L0G0_SPI
+  /* Configure SPI chip selects */
 
-  tcb->starthook    = starthook;
-  tcb->starthookarg = arg;
+  stm32_spidev_initialize();
+#endif
 }
 
-#endif /* CONFIG_SCHED_STARTHOOK */
+/****************************************************************************
+ * Name: board_late_initialize
+ *
+ * Description:
+ *   If CONFIG_BOARD_LATE_INITIALIZE is selected, then an additional
+ *   initialization call will be performed in the boot-up sequence to a
+ *   function called board_late_initialize().  board_late_initialize() will
+ *   be called immediately after up_initialize() is called and just before
+ *   the initial application is started.  This additional initialization
+ *   phase may be used, for example, to initialize board-specific device
+ *   drivers.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_BOARD_LATE_INITIALIZE
+void board_late_initialize(void)
+{
+  /* Perform board bring-up here instead of from the
+   * board_app_initialize().
+   */
+
+  stm32_bringup();
+}
+#endif
