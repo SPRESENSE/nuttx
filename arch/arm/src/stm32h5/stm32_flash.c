@@ -1,5 +1,5 @@
 /****************************************************************************
- * sched/module/mod_rmmod.c
+ * arch/arm/src/stm32h5/stm32_flash.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -26,33 +26,12 @@
 
 #include <nuttx/config.h>
 
-#include <nuttx/module.h>
-#include <nuttx/lib/elf.h>
-
-#ifdef CONFIG_MODULE
-
-/****************************************************************************
- * Public Functions
- ****************************************************************************/
+#if defined(CONFIG_STM32H5_STM32H563XX)
+#  include "stm32h563xx_flash.c"
+#else
+#  error "Unsupported STM32 H5 chip"
+#endif
 
 /****************************************************************************
- * Name: rmmod
- *
- * Description:
- *   Remove a previously installed module from memory.
- *
- * Input Parameters:
- *   handle - The module handler previously returned by insmod().
- *
- * Returned Value:
- *   Zero (OK) on success.  On any failure, -1 (ERROR) is returned the
- *   errno value is set appropriately.
- *
+ * Private Functions
  ****************************************************************************/
-
-int rmmod(FAR void *handle)
-{
-  return libelf_remove(handle);
-}
-
-#endif /* CONFIG_MODULE */

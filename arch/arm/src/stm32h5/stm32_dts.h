@@ -1,5 +1,5 @@
 /****************************************************************************
- * sched/module/mod_rmmod.c
+ * arch/arm/src/stm32h5/stm32_dts.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,39 +20,15 @@
  *
  ****************************************************************************/
 
+#ifndef __ARCH_ARM_SRC_STM32H5_STM32_DTS_H
+#define __ARCH_ARM_SRC_STM32H5_STM32_DTS_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
+#include "chip.h"
+#include "hardware/stm32_dts.h"
 
-#include <nuttx/module.h>
-#include <nuttx/lib/elf.h>
-
-#ifdef CONFIG_MODULE
-
-/****************************************************************************
- * Public Functions
- ****************************************************************************/
-
-/****************************************************************************
- * Name: rmmod
- *
- * Description:
- *   Remove a previously installed module from memory.
- *
- * Input Parameters:
- *   handle - The module handler previously returned by insmod().
- *
- * Returned Value:
- *   Zero (OK) on success.  On any failure, -1 (ERROR) is returned the
- *   errno value is set appropriately.
- *
- ****************************************************************************/
-
-int rmmod(FAR void *handle)
-{
-  return libelf_remove(handle);
-}
-
-#endif /* CONFIG_MODULE */
+#endif /* __ARCH_ARM_SRC_STM32H5_STM32_DTS_H */
