@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/goldfish/goldfish_boot.c
+ * boards/risc-v/esp32c3/esp32c3-xiao/src/esp32c3_appinit.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -26,104 +26,58 @@
 
 #include <nuttx/config.h>
 
-#include "arm_internal.h"
-#include "arm_cpu_psci.h"
+#include <sys/types.h>
 
-#include "goldfish_irq.h"
-#include "goldfish_memorymap.h"
-#include "smp.h"
-#include "gic.h"
-#include "scu.h"
+#include <nuttx/board.h>
 
-#ifdef CONFIG_DEVICE_TREE
-#  include <nuttx/fdt.h>
-#endif
+#include "esp32c3-xiao.h"
 
-#ifdef CONFIG_SCHED_INSTRUMENTATION
-#  include <sched/sched.h>
-#  include <nuttx/sched_note.h>
-#endif
-
-#include <nuttx/syslog/syslog_rpmsg.h>
+#ifdef CONFIG_BOARDCTL
 
 /****************************************************************************
- * Private Data
+ * Pre-processor Definitions
  ****************************************************************************/
-
-#ifdef CONFIG_SYSLOG_RPMSG
-static char g_syslog_rpmsg_buf[4096];
-#endif
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: arm_boot
+ * Name: board_app_initialize
  *
  * Description:
- *   Complete boot operations started in arm_head.S
+ *   Perform application specific initialization.  This function is never
+ *   called directly from application code, but only indirectly via the
+ *   (non-standard) boardctl() interface using the command BOARDIOC_INIT.
+ *
+ * Input Parameters:
+ *   arg - The boardctl() argument is passed to the board_app_initialize()
+ *         implementation without modification.  The argument has no
+ *         meaning to NuttX; the meaning of the argument is a contract
+ *         between the board-specific initialization logic and the
+ *         matching application logic.  The value could be such things as a
+ *         mode enumeration value, a set of DIP switch settings, a
+ *         pointer to configuration data read from a file or serial FLASH,
+ *         or whatever you would like to do with it.  Every implementation
+ *         should accept zero/NULL as a default configuration.
+ *
+ * Returned Value:
+ *   Zero (OK) is returned on success; a negated errno value is returned on
+ *   any failure to indicate the nature of the failure.
  *
  ****************************************************************************/
 
-void arm_boot(void)
+int board_app_initialize(uintptr_t arg)
 {
-#ifdef CONFIG_ARCH_PERF_EVENTS
-  /* Perf init */
+#ifdef CONFIG_BOARD_LATE_INITIALIZE
+  /* Board initialization already performed by board_late_initialize() */
 
-  up_perf_init(0);
-#endif
+  return OK;
+#else
+  /* Perform board-specific initialization */
 
-  /* Set the page table for section */
-
-  goldfish_setupmappings();
-
-#ifdef CONFIG_SMP
-  /* Enable SMP cache coherency for CPU0 */
-
-  arm_enable_smp(0);
-#endif
-
-  arm_fpuconfig();
-
-#ifdef CONFIG_ARM_PSCI
-  arm_psci_init("smc");
-#endif
-
-#ifdef CONFIG_DEVICE_TREE
-  fdt_register((const char *)0x40000000);
-#endif
-
-#ifdef USE_EARLYSERIALINIT
-  /* Perform early serial initialization if we are going to use the serial
-   * driver.
-   */
-
-  arm_earlyserialinit();
-#endif
-
-#ifdef CONFIG_SYSLOG_RPMSG
-  syslog_rpmsg_init_early(g_syslog_rpmsg_buf, sizeof(g_syslog_rpmsg_buf));
+  return esp_bringup();
 #endif
 }
 
-#if defined(CONFIG_ARM_PSCI) && defined(CONFIG_SMP)
-int up_cpu_start(int cpu)
-{
-#ifdef CONFIG_SCHED_INSTRUMENTATION
-  /* Notify of the start event */
-
-  sched_note_cpu_start(this_task(), cpu);
-#endif
-
-#ifdef CONFIG_ARCH_ADDRENV
-  /* Copy cpu0 page table to target cpu. */
-
-  memcpy((uint32_t *)(PGTABLE_BASE_VADDR + PGTABLE_SIZE * cpu),
-          (uint32_t *)PGTABLE_BASE_VADDR, PGTABLE_SIZE);
-  UP_DSB();
-#endif
-
-  return psci_cpu_on(cpu, (uintptr_t)__start);
-}
-#endif
+#endif /* CONFIG_BOARDCTL */

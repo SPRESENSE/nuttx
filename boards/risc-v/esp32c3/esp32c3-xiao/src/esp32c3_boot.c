@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/goldfish/goldfish_boot.c
+ * boards/risc-v/esp32c3/esp32c3-xiao/src/esp32c3_boot.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -26,104 +26,64 @@
 
 #include <nuttx/config.h>
 
-#include "arm_internal.h"
-#include "arm_cpu_psci.h"
-
-#include "goldfish_irq.h"
-#include "goldfish_memorymap.h"
-#include "smp.h"
-#include "gic.h"
-#include "scu.h"
-
-#ifdef CONFIG_DEVICE_TREE
-#  include <nuttx/fdt.h>
-#endif
-
-#ifdef CONFIG_SCHED_INSTRUMENTATION
-#  include <sched/sched.h>
-#  include <nuttx/sched_note.h>
-#endif
-
-#include <nuttx/syslog/syslog_rpmsg.h>
-
 /****************************************************************************
- * Private Data
+ * Pre-processor Definitions
  ****************************************************************************/
 
-#ifdef CONFIG_SYSLOG_RPMSG
-static char g_syslog_rpmsg_buf[4096];
-#endif
+/****************************************************************************
+ * Private Functions
+ ****************************************************************************/
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: arm_boot
+ * Name: esp_board_initialize
  *
  * Description:
- *   Complete boot operations started in arm_head.S
+ *   All Espressif boards must provide the following entry point.
+ *   This entry point is called early in the initialization -- after all
+ *   memory has been configured and mapped but before any devices have been
+ *   initialized.
+ *
+ * Input Parameters:
+ *   None.
+ *
+ * Returned Value:
+ *   None.
  *
  ****************************************************************************/
 
-void arm_boot(void)
+void esp_board_initialize(void)
 {
-#ifdef CONFIG_ARCH_PERF_EVENTS
-  /* Perf init */
-
-  up_perf_init(0);
-#endif
-
-  /* Set the page table for section */
-
-  goldfish_setupmappings();
-
-#ifdef CONFIG_SMP
-  /* Enable SMP cache coherency for CPU0 */
-
-  arm_enable_smp(0);
-#endif
-
-  arm_fpuconfig();
-
-#ifdef CONFIG_ARM_PSCI
-  arm_psci_init("smc");
-#endif
-
-#ifdef CONFIG_DEVICE_TREE
-  fdt_register((const char *)0x40000000);
-#endif
-
-#ifdef USE_EARLYSERIALINIT
-  /* Perform early serial initialization if we are going to use the serial
-   * driver.
-   */
-
-  arm_earlyserialinit();
-#endif
-
-#ifdef CONFIG_SYSLOG_RPMSG
-  syslog_rpmsg_init_early(g_syslog_rpmsg_buf, sizeof(g_syslog_rpmsg_buf));
-#endif
 }
 
-#if defined(CONFIG_ARM_PSCI) && defined(CONFIG_SMP)
-int up_cpu_start(int cpu)
+/****************************************************************************
+ * Name: board_late_initialize
+ *
+ * Description:
+ *   If CONFIG_BOARD_LATE_INITIALIZE is selected, then an additional
+ *   initialization call will be performed in the boot-up sequence to a
+ *   function called board_late_initialize().  board_late_initialize() will
+ *   be called immediately after up_initialize() is called and just before
+ *   the initial application is started.  This additional initialization
+ *   phase may be used, for example, to initialize board-specific device
+ *   drivers.
+ *
+ * Input Parameters:
+ *   None.
+ *
+ * Returned Value:
+ *   None.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_BOARD_LATE_INITIALIZE
+void board_late_initialize(void)
 {
-#ifdef CONFIG_SCHED_INSTRUMENTATION
-  /* Notify of the start event */
+  /* Perform board-specific initialization */
 
-  sched_note_cpu_start(this_task(), cpu);
-#endif
-
-#ifdef CONFIG_ARCH_ADDRENV
-  /* Copy cpu0 page table to target cpu. */
-
-  memcpy((uint32_t *)(PGTABLE_BASE_VADDR + PGTABLE_SIZE * cpu),
-          (uint32_t *)PGTABLE_BASE_VADDR, PGTABLE_SIZE);
-  UP_DSB();
-#endif
-
-  return psci_cpu_on(cpu, (uintptr_t)__start);
+  esp_bringup();
 }
 #endif
