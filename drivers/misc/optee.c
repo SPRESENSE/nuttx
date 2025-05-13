@@ -144,6 +144,8 @@ static int optee_close(FAR struct file *filep);
 static int optee_ioctl(FAR struct file *filep, int cmd,
                        unsigned long arg);
 
+static int optee_shm_close(FAR struct file *filep);
+
 /****************************************************************************
  * Private Data
  ****************************************************************************/
@@ -152,15 +154,35 @@ static int optee_ioctl(FAR struct file *filep, int cmd,
 
 static const struct file_operations g_optee_ops =
 {
-  optee_open,     /* open */
-  optee_close,    /* close */
-  NULL,           /* read */
-  NULL,           /* write */
-  NULL,           /* seek */
-  optee_ioctl,    /* ioctl */
-  NULL,           /* mmap */
-  NULL,           /* truncate */
-  NULL            /* poll */
+  optee_open,      /* open */
+  optee_close,     /* close */
+  NULL,            /* read */
+  NULL,            /* write */
+  NULL,            /* seek */
+  optee_ioctl,     /* ioctl */
+  NULL,            /* mmap */
+  NULL,            /* truncate */
+  NULL             /* poll */
+};
+
+static const struct file_operations g_optee_shm_ops =
+{
+  NULL,            /* open */
+  optee_shm_close, /* close */
+  NULL,            /* read */
+  NULL,            /* write */
+  NULL,            /* seek */
+  NULL,            /* ioctl */
+  NULL,            /* mmap */
+  NULL,            /* truncate */
+  NULL             /* poll */
+};
+
+static struct inode g_optee_shm_inode =
+{
+  .i_flags = FSNODEFLAG_TYPE_SHM, /* could also be DRIVER; doesn't matter */
+  .i_crefs = 1,                   /* inode never to be released */
+  .u.i_ops = &g_optee_shm_ops
 };
 
 /****************************************************************************
@@ -247,41 +269,6 @@ static bool optee_is_valid_range(FAR const void *va, size_t size)
 #endif
 
 /****************************************************************************
- * Name: optee_shm_next_id
- *
- * Description:
- *   Return a unique ID for adding a new entry to the list of shared memory
- *   chunks registered with the driver. This function assumes all new items
- *   in the list are added to the head. It is NOT thread-safe.
- *
- * Parameters:
- *   priv  - The driver's private data structure
- *
- * Returned Values:
- *   A unique ID for the next shared memory list entry to be added.
- *
- ****************************************************************************/
-
-static inline int32_t optee_shm_next_id(FAR struct optee_priv_data *priv)
-{
-  FAR struct optee_shm_entry *shme;
-  int32_t next_id;
-
-  if (list_is_empty(&priv->shm_list))
-    {
-      next_id = INT32_MIN;
-    }
-  else
-    {
-      shme = list_first_entry(&priv->shm_list, struct optee_shm_entry,
-                              node);
-      next_id = shme->shm.id + 1;
-    }
-
-  return next_id;
-}
-
-/****************************************************************************
  * Name: optee_shm_to_page_list
  *
  * Description:
@@ -297,11 +284,10 @@ static inline int32_t optee_shm_next_id(FAR struct optee_priv_data *priv)
  *   physical address returned in `list_pa`.
  *
  * Parameters:
- *   shme        - Shared memory entry to create a page list for.
- *   list_pa     - If not NULL, will be set to the page list's physical
- *                 address (which is aligned to
- *                 OPTEE_MSG_NONCONTIG_PAGE_SIZE) added with shared memory
- *                 page offset.
+ *   shm     - Shared memory object to create a page list for.
+ *   list_pa - If not NULL, will be set to the page list's physical address
+ *             (which is aligned to OPTEE_MSG_NONCONTIG_PAGE_SIZE) added
+ *             with shared memory page offset.
  *
  * Returned Values:
  *   A pointer to the kernel virtual address of the page list on success.
@@ -311,8 +297,7 @@ static inline int32_t optee_shm_next_id(FAR struct optee_priv_data *priv)
  ****************************************************************************/
 
 static FAR void *
-optee_shm_to_page_list(FAR struct optee_shm_entry *shme,
-                       FAR uintptr_t *list_pa)
+optee_shm_to_page_list(FAR struct optee_shm *shm, FAR uintptr_t *list_pa)
 {
   FAR struct optee_page_list_entry *list_entry;
   size_t pgsize = OPTEE_MSG_NONCONTIG_PAGE_SIZE;
@@ -323,8 +308,8 @@ optee_shm_to_page_list(FAR struct optee_shm_entry *shme,
   uint32_t list_size;
   uint32_t i = 0;
 
-  pgoff = shme->shm.addr & (pgsize - 1);
-  total_pages = (uint32_t)div_round_up(pgoff + shme->shm.length, pgsize);
+  pgoff = shm->addr & (pgsize - 1);
+  total_pages = (uint32_t)div_round_up(pgoff + shm->length, pgsize);
   list_size = div_round_up(total_pages, OPTEE_PAGES_ARRAY_LEN)
               * sizeof(struct optee_page_list_entry);
 
@@ -340,7 +325,7 @@ optee_shm_to_page_list(FAR struct optee_shm_entry *shme,
     }
 
   list_entry = (FAR struct optee_page_list_entry *)list;
-  page = ALIGN_DOWN(shme->shm.addr, pgsize);
+  page = ALIGN_DOWN(shm->addr, pgsize);
   while (total_pages)
     {
       list_entry->pages_array[i++] = optee_va_to_pa((FAR const void *)page);
@@ -364,24 +349,23 @@ optee_shm_to_page_list(FAR struct optee_shm_entry *shme,
 }
 
 /****************************************************************************
- * Name: optee_shm_sec_register
+ * Name: optee_shm_register
  *
  * Description:
- *   Register specified shared memory entry with OP-TEE.
+ *   Register specified shared memory object with OP-TEE.
  *
  * Parameters:
- *   priv  - The driver's private data structure
- *   shme  - Pointer to shared memory entry to register. The entry, the
- *           contained shared memory object, or the referenced shared buffer
- *           cannot be NULL.
+ *   priv - The driver's private data structure
+ *   shm  - Pointer to shared memory object to register. Neither the shm
+ *          object, nor the referenced shared buffer pointer can be NULL.
  *
  * Returned Values:
  *   0 on success, negative error code otherwise.
  *
  ****************************************************************************/
 
-static int optee_shm_sec_register(FAR struct optee_priv_data *priv,
-                                  FAR struct optee_shm_entry *shme)
+static int optee_shm_register(FAR struct optee_priv_data *priv,
+                              FAR struct optee_shm *shm)
 {
   FAR struct optee_msg_arg *msg;
   uintptr_t page_list_pa;
@@ -394,7 +378,7 @@ static int optee_shm_sec_register(FAR struct optee_priv_data *priv,
       return -ENOMEM;
     }
 
-  page_list = optee_shm_to_page_list(shme, &page_list_pa);
+  page_list = optee_shm_to_page_list(shm, &page_list_pa);
   if (page_list == NULL)
     {
       goto errout_with_msg;
@@ -404,8 +388,8 @@ static int optee_shm_sec_register(FAR struct optee_priv_data *priv,
   msg->params[0].attr = OPTEE_MSG_ATTR_TYPE_TMEM_OUTPUT |
                         OPTEE_MSG_ATTR_NONCONTIG;
   msg->params[0].u.tmem.buf_ptr = page_list_pa;
-  msg->params[0].u.tmem.shm_ref = shme->shm.addr;
-  msg->params[0].u.tmem.size = shme->shm.length;
+  msg->params[0].u.tmem.shm_ref = (uintptr_t)shm;
+  msg->params[0].u.tmem.size = shm->length;
 
   ret = optee_transport_call(priv, msg);
   if (ret < 0)
@@ -426,24 +410,24 @@ errout_with_msg:
 }
 
 /****************************************************************************
- * Name: optee_shm_sec_unregister
+ * Name: optee_shm_unregister
  *
  * Description:
- *   Unregister specified shared memory entry with OP-TEE.
+ *   Unregister specified shared memory object from OP-TEE.
  *
  * Parameters:
- *   priv  - the driver's private data structure
- *   shme  - Pointer to shared memory entry to unregister. The shared
- *           memory entry must have been previously registered previously
- *           with the OP-TEE and cannot be NULL.
+ *   priv - the driver's private data structure
+ *   shm  - Pointer to shared memory object to unregister. The shared memory
+ *          entry must have been previously registered previously with the
+ *          OP-TEE OS and cannot be NULL.
  *
  * Returned Values:
  *   0 on success, negative error code otherwise.
  *
  ****************************************************************************/
 
-static int optee_shm_sec_unregister(FAR struct optee_priv_data *priv,
-                                    FAR struct optee_shm_entry *shme)
+static int optee_shm_unregister(FAR struct optee_priv_data *priv,
+                                FAR struct optee_shm *shm)
 {
   FAR struct optee_msg_arg *msg;
   int ret = 0;
@@ -456,7 +440,7 @@ static int optee_shm_sec_unregister(FAR struct optee_priv_data *priv,
 
   msg->cmd = OPTEE_MSG_CMD_UNREGISTER_SHM;
   msg->params[0].attr = OPTEE_MSG_ATTR_TYPE_RMEM_INPUT;
-  msg->params[0].u.rmem.shm_ref = shme->shm.addr;
+  msg->params[0].u.rmem.shm_ref = (uintptr_t)shm;
 
   ret = optee_transport_call(priv, msg);
   if (ret < 0)
@@ -472,6 +456,34 @@ static int optee_shm_sec_unregister(FAR struct optee_priv_data *priv,
 errout_with_msg:
   optee_msg_free(priv, msg);
   return ret;
+}
+
+/****************************************************************************
+ * Name: optee_shm_close
+ *
+ * Description:
+ *   shm close operation
+ *
+ * Parameters:
+ *   filep  - the file instance
+ *
+ * Returned Values:
+ *   Always OK.
+ *
+ ****************************************************************************/
+
+static int optee_shm_close(FAR struct file *filep)
+{
+  FAR struct optee_shm *shm = filep->f_priv;
+
+  if (shm != NULL && shm->id > -1)
+    {
+      filep->f_priv = NULL;
+      shm->fd = -1;
+      optee_shm_free(shm);
+    }
+
+  return 0;
 }
 
 /****************************************************************************
@@ -499,8 +511,7 @@ static int optee_open(FAR struct file *filep)
       return ret;
     }
 
-  list_initialize(&priv->shm_list);
-  spin_lock_init(&priv->lock);
+  priv->shms = idr_init();
   filep->f_priv = priv;
   return 0;
 }
@@ -515,31 +526,99 @@ static int optee_open(FAR struct file *filep)
  *   filep  - the file instance
  *
  * Returned Values:
- *   OK on success; A negated errno value is returned on any failure.
+ *   Always OK.
  *
  ****************************************************************************/
 
 static int optee_close(FAR struct file *filep)
 {
   FAR struct optee_priv_data *priv = filep->f_priv;
-  FAR struct optee_shm_entry *shme;
-  FAR struct optee_shm_entry *tmp;
+  FAR struct optee_shm *shm;
+  FAR struct file *shm_filep;
+  int id = 0;
 
-  list_for_every_entry_safe(&priv->shm_list, shme, tmp,
-                            struct optee_shm_entry, node)
+  idr_for_each_entry(priv->shms, shm, id)
     {
-      optee_shm_free(priv, shme);
+      if (shm->fd > -1 && fs_getfilep(shm->fd, &shm_filep) >= 0)
+        {
+          /* The user did not call close(), prevent vfs auto-close from
+           * double-freeing our SHM
+           */
+
+          shm_filep->f_priv = NULL;
+          fs_putfilep(shm_filep);
+        }
+
+      optee_shm_free(shm);
     }
 
+  idr_destroy(priv->shms);
   optee_transport_close(priv);
   return 0;
 }
 
-static int optee_to_msg_param(FAR struct optee_msg_param *mparams,
+static int optee_memref_to_msg_param(FAR struct optee_priv_data *priv,
+                                     FAR struct optee_msg_param *mp,
+                                     FAR const struct tee_ioctl_param *p)
+{
+  FAR struct optee_shm *shm;
+  uintptr_t page_list_pa;
+
+  if (p->c == TEE_MEMREF_NULL)
+    {
+      mp->attr = OPTEE_MSG_ATTR_TYPE_TMEM_INPUT + p->attr -
+                 TEE_IOCTL_PARAM_ATTR_TYPE_MEMREF_INPUT;
+      mp->u.tmem.buf_ptr = 0;
+      mp->u.tmem.shm_ref = 0;
+      mp->u.tmem.size = p->b;
+      return 0;
+    }
+
+  shm = idr_find(priv->shms, p->c);
+  if (shm == NULL)
+    {
+      return -EINVAL;
+    }
+
+  if (shm->flags & TEE_SHM_REGISTER)
+    {
+      /* registered memory */
+
+      mp->attr = OPTEE_MSG_ATTR_TYPE_RMEM_INPUT + p->attr -
+                 TEE_IOCTL_PARAM_ATTR_TYPE_MEMREF_INPUT;
+      mp->u.rmem.offs = p->a;
+      mp->u.rmem.size = p->b;
+      mp->u.rmem.shm_ref = (uintptr_t)shm;
+    }
+  else
+    {
+      /* non-registered memory (temporary) */
+
+      mp->attr = OPTEE_MSG_ATTR_TYPE_TMEM_INPUT + p->attr -
+                 TEE_IOCTL_PARAM_ATTR_TYPE_MEMREF_INPUT;
+      mp->attr |= OPTEE_MSG_ATTR_NONCONTIG;
+
+      shm->page_list = optee_shm_to_page_list(shm, &page_list_pa);
+      if (shm->page_list == NULL)
+        {
+          return -ENOMEM;
+        }
+
+      mp->u.tmem.buf_ptr = page_list_pa;
+      mp->u.tmem.shm_ref = (uintptr_t)shm;
+      mp->u.tmem.size = shm->length;
+    }
+
+  return 0;
+}
+
+static int optee_to_msg_param(FAR struct optee_priv_data *priv,
+                              FAR struct optee_msg_param *mparams,
                               size_t num_params,
                               FAR const struct tee_ioctl_param *params)
 {
   size_t n;
+  int ret;
 
   for (n = 0; n < num_params; n++)
     {
@@ -568,19 +647,11 @@ static int optee_to_msg_param(FAR struct optee_msg_param *mparams,
           case TEE_IOCTL_PARAM_ATTR_TYPE_MEMREF_INPUT:
           case TEE_IOCTL_PARAM_ATTR_TYPE_MEMREF_OUTPUT:
           case TEE_IOCTL_PARAM_ATTR_TYPE_MEMREF_INOUT:
-            mp->attr = OPTEE_MSG_ATTR_TYPE_RMEM_INPUT + p->attr -
-                       TEE_IOCTL_PARAM_ATTR_TYPE_MEMREF_INPUT;
-             if (p->c != TEE_MEMREF_NULL)
+            ret = optee_memref_to_msg_param(priv, mp, p);
+            if (ret < 0)
               {
-                mp->u.rmem.shm_ref = p->c;
+                return ret;
               }
-            else
-              {
-                mp->u.rmem.shm_ref = 0;
-              }
-
-            mp->u.rmem.size = p->b;
-            mp->u.rmem.offs = p->a;
             break;
           default:
             return -EINVAL;
@@ -600,6 +671,7 @@ static int optee_from_msg_param(FAR struct tee_ioctl_param *params,
     {
       FAR const struct optee_msg_param *mp = mparams + n;
       FAR struct tee_ioctl_param *p = params + n;
+      FAR struct optee_shm *shm;
 
       switch (mp->attr & OPTEE_MSG_ATTR_TYPE_MASK)
         {
@@ -617,6 +689,20 @@ static int optee_from_msg_param(FAR struct tee_ioctl_param *params,
             p->a = mp->u.value.a;
             p->b = mp->u.value.b;
             p->c = mp->u.value.c;
+            break;
+          case OPTEE_MSG_ATTR_TYPE_TMEM_INPUT:
+          case OPTEE_MSG_ATTR_TYPE_TMEM_OUTPUT:
+          case OPTEE_MSG_ATTR_TYPE_TMEM_INOUT:
+            p->attr = TEE_IOCTL_PARAM_ATTR_TYPE_MEMREF_INPUT +
+                      mp->attr - OPTEE_MSG_ATTR_TYPE_TMEM_INPUT;
+            p->b = mp->u.tmem.size;
+
+            shm = (FAR struct optee_shm *)(uintptr_t)mp->u.tmem.shm_ref;
+            if (shm && shm->page_list)
+              {
+                kmm_free(shm->page_list);
+                shm->page_list = NULL;
+              }
             break;
           case OPTEE_MSG_ATTR_TYPE_RMEM_INPUT:
           case OPTEE_MSG_ATTR_TYPE_RMEM_OUTPUT:
@@ -663,7 +749,7 @@ static int optee_ioctl_open_session(FAR struct optee_priv_data *priv,
 
   if (!optee_is_valid_range(buf, sizeof(*buf)))
     {
-      return -EINVAL;
+      return -EFAULT;
     }
 
   if (buf->buf_len > TEE_MAX_ARG_SIZE ||
@@ -676,7 +762,7 @@ static int optee_ioctl_open_session(FAR struct optee_priv_data *priv,
 
   if (!optee_is_valid_range(arg, buf->buf_len))
     {
-      return -EINVAL;
+      return -EFAULT;
     }
 
   if (sizeof(*arg) + TEE_IOCTL_PARAM_SIZE(arg->num_params) !=
@@ -719,7 +805,8 @@ static int optee_ioctl_open_session(FAR struct optee_priv_data *priv,
   memcpy(&msg->params[0].u.value, arg->uuid, sizeof(arg->uuid));
   msg->params[1].u.value.c = arg->clnt_login;
 
-  ret = optee_to_msg_param(msg->params + 2, arg->num_params, arg->params);
+  ret = optee_to_msg_param(priv, msg->params + 2, arg->num_params,
+                           arg->params);
   if (ret < 0)
     {
       goto errout_with_msg;
@@ -731,8 +818,7 @@ static int optee_ioctl_open_session(FAR struct optee_priv_data *priv,
       goto errout_with_msg;
     }
 
-  ret = optee_from_msg_param(arg->params, arg->num_params,
-                             msg->params + 2);
+  ret = optee_from_msg_param(arg->params, arg->num_params, msg->params + 2);
   if (ret < 0)
     {
       optee_close_session(priv, msg->session);
@@ -757,7 +843,7 @@ static int optee_ioctl_invoke(FAR struct optee_priv_data *priv,
 
   if (!optee_is_valid_range(buf, sizeof(*buf)))
     {
-      return -EINVAL;
+      return -EFAULT;
     }
 
   if (buf->buf_len > TEE_MAX_ARG_SIZE ||
@@ -770,7 +856,7 @@ static int optee_ioctl_invoke(FAR struct optee_priv_data *priv,
 
   if (!optee_is_valid_range(arg, buf->buf_len))
     {
-      return -EINVAL;
+      return -EFAULT;
     }
 
   if (sizeof(*arg) + TEE_IOCTL_PARAM_SIZE(arg->num_params) !=
@@ -798,7 +884,7 @@ static int optee_ioctl_invoke(FAR struct optee_priv_data *priv,
   msg->session = arg->session;
   msg->cancel_id = arg->cancel_id;
 
-  ret = optee_to_msg_param(msg->params, arg->num_params, arg->params);
+  ret = optee_to_msg_param(priv, msg->params, arg->num_params, arg->params);
   if (ret < 0)
     {
       goto errout_with_msg;
@@ -830,7 +916,7 @@ optee_ioctl_close_session(FAR struct optee_priv_data *priv,
 {
   if (!optee_is_valid_range(arg, sizeof(*arg)))
     {
-      return -EINVAL;
+      return -EFAULT;
     }
 
   return optee_close_session(priv, arg->session);
@@ -854,7 +940,7 @@ static int optee_ioctl_cancel(FAR struct optee_priv_data *priv,
 
   if (!optee_is_valid_range(arg, sizeof(*arg)))
     {
-      return -EINVAL;
+      return -EFAULT;
     }
 
   optee_msg_alloc(priv, 0, msg);
@@ -873,13 +959,17 @@ static int optee_ioctl_cancel(FAR struct optee_priv_data *priv,
 }
 
 static int
-optee_ioctl_shm_alloc(FAR struct tee_ioctl_shm_alloc_data *data)
+optee_ioctl_shm_alloc(FAR struct optee_priv_data *priv,
+                      FAR struct tee_ioctl_shm_alloc_data *data)
 {
+  FAR struct optee_shm *shm;
+  FAR void *addr;
   int memfd;
+  int ret;
 
   if (!optee_is_valid_range(data, sizeof(*data)))
     {
-      return -EINVAL;
+      return -EFAULT;
     }
 
   memfd = memfd_create(OPTEE_SERVER_PATH, O_CREAT | O_CLOEXEC);
@@ -890,55 +980,74 @@ optee_ioctl_shm_alloc(FAR struct tee_ioctl_shm_alloc_data *data)
 
   if (ftruncate(memfd, data->size) < 0)
     {
+      ret = get_errno();
       goto err;
     }
 
-  data->id = (uintptr_t)mmap(NULL, data->size, PROT_READ | PROT_WRITE,
-                             MAP_SHARED, memfd, 0);
-  if (data->id == (uintptr_t)MAP_FAILED)
+  addr = mmap(NULL, data->size, PROT_READ | PROT_WRITE, MAP_SHARED,
+              memfd, 0);
+  if (addr == MAP_FAILED)
     {
+      ret = get_errno();
       goto err;
     }
 
+  ret = optee_shm_alloc(priv, addr, data->size, 0, &shm);
+  if (ret < 0)
+    {
+      goto err_with_mmap;
+    }
+
+  data->id = shm->id;
   return memfd;
 
+err_with_mmap:
+  munmap(addr, data->size);
 err:
   close(memfd);
-  return get_errno();
+  return ret;
 }
 
 static int
 optee_ioctl_shm_register(FAR struct optee_priv_data *priv,
                          FAR struct tee_ioctl_shm_register_data *rdata)
 {
-  FAR struct optee_shm_entry *shme;
+  FAR struct optee_shm *shm;
   int ret;
 
   if (!optee_is_valid_range(rdata, sizeof(*rdata)))
     {
-      return -EACCES;
+      return -EFAULT;
     }
 
   if (!optee_is_valid_range((FAR void *)(uintptr_t)
                             rdata->addr, rdata->length))
     {
-      return -EACCES;
+      return -EFAULT;
     }
 
-  if (rdata->flags & TEE_SHM_ALLOC)
+  if (rdata->flags)
     {
       return -EINVAL;
     }
 
   ret = optee_shm_alloc(priv, (FAR void *)(uintptr_t)rdata->addr,
-                        rdata->length, rdata->flags, &shme);
-  if (ret)
+                        rdata->length, TEE_SHM_REGISTER, &shm);
+  if (ret < 0)
     {
       return ret;
     }
 
-  rdata->id = shme->shm.id;
-  return 0;
+  ret = file_allocate(&g_optee_shm_inode, O_CLOEXEC, 0, shm, 0, true);
+  if (ret < 0)
+    {
+      optee_shm_free(shm);
+      return ret;
+    }
+
+  shm->fd = ret;
+  rdata->id = shm->id;
+  return ret;
 }
 
 /****************************************************************************
@@ -975,7 +1084,7 @@ static int optee_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
       case TEE_IOC_CANCEL:
         return optee_ioctl_cancel(priv, parg);
       case TEE_IOC_SHM_ALLOC:
-        return optee_ioctl_shm_alloc(parg);
+        return optee_ioctl_shm_alloc(priv, parg);
       case TEE_IOC_SHM_REGISTER:
         return optee_ioctl_shm_register(priv, parg);
       default:
@@ -1031,25 +1140,21 @@ uintptr_t optee_va_to_pa(FAR const void *va)
  * Name: optee_shm_alloc
  *
  * Description:
- *   Allocate, register and/or add shared memory for use with OP-TEE calls.
- *   Shared memory entry suitable for use in shared memory linked list
- *   returned in pass-by-reference `shmep` pointer. This function always
- *   allocates a shared memory entry, regardless of flags. The rest of this
- *   function's behaviour is largely determined by `flags`:
+ *   Allocate and/or register shared memory with the OP-TEE OS.
+ *   This function always allocates a shared memory object and adds it
+ *   to the tree maintained by the driver, regardless of flags. The rest of
+ *   this function's behaviour is determined by `flags`:
  *   - If `TEE_SHM_ALLOC` is specified, then a buffer of length `size` will
  *     be allocated. In this case `addr` will be ignored. The allocated
  *     buffer will be aligned to `priv->alignment`. `TEE_SHM_ALLOC` flag
  *     is reserved for kernel use only.
- *   - If `TEE_SHM_SEC_REGISTER` is specified, then the memory specified by
+ *   - If `TEE_SHM_REGISTER` is specified, then the memory specified by
  *     `addr` or allocated through `TEE_SHM_ALLOC`, will be registered with
  *     OP-TEE as dynamic shared memory.
- *   - If `TEE_SHM_REGISTER` is specified, then the memory specified by
- *     `addr` or allocated through `TEE_SHM_ALLOC`, will be added to the
- *     driver's private data structure linked list of shared memory chunks.
  *
- *   Use `optee_shm_free()` to undo this operation, i.e. to free,
- *   unregister, and/or remove from the list the entry returned in `shmep`
- *   and the contained buffer.
+ *   Use `optee_shm_free()` to undo this operation, i.e. to remove the
+ *   shared memory boject from driver, and/or free, and/or unregister it
+ *   from the OP-TEE OS.
  *
  * Parameters:
  *   priv  - The driver's private data structure
@@ -1058,7 +1163,7 @@ uintptr_t optee_va_to_pa(FAR const void *va)
  *   size  - The size of the shared memory buffer to allocate/add/register.
  *   flags - Flags specifying the behaviour of this function. Supports
  *           combinations of `TEE_SHM_{ALLOC,REGISTER,SEC_REGISTER}`.
- *   shmep - Pass-by-reference pointer to return the shared memory entry
+ *   shmp  - Pass-by-reference pointer to return the shared memory object
  *           allocated. Cannot be NULL.
  *
  * Returned Values:
@@ -1068,17 +1173,16 @@ uintptr_t optee_va_to_pa(FAR const void *va)
 
 int optee_shm_alloc(FAR struct optee_priv_data *priv, FAR void *addr,
                     size_t size, uint32_t flags,
-                    FAR struct optee_shm_entry **shmep)
+                    FAR struct optee_shm **shmp)
 {
-  FAR struct optee_shm_entry *shme;
-  irqstate_t irqstate;
+  FAR struct optee_shm *shm;
   FAR void *ptr;
-  int ret;
+  int ret = -ENOMEM;
 
-  shme = kmm_zalloc(sizeof(struct optee_shm_entry));
-  if (shme == NULL)
+  shm = kmm_zalloc(sizeof(struct optee_shm));
+  if (shm == NULL)
     {
-      return -ENOMEM;
+      return ret;
     }
 
   if (flags & TEE_SHM_ALLOC)
@@ -1099,38 +1203,37 @@ int optee_shm_alloc(FAR struct optee_priv_data *priv, FAR void *addr,
 
   if (ptr == NULL)
     {
-      ret = -ENOMEM;
       goto err;
     }
 
-  shme->shm.addr = (uintptr_t)ptr;
-  shme->shm.length = size;
-  shme->shm.flags = flags;
+  shm->fd = -1;
+  shm->priv = priv;
+  shm->addr = (uintptr_t)ptr;
+  shm->length = size;
+  shm->flags = flags;
+  shm->id = idr_alloc(priv->shms, shm, 0, 0);
 
-  if (flags & TEE_SHM_SEC_REGISTER)
+  if (shm->id < 0)
     {
-      ret = optee_shm_sec_register(priv, shme);
-      if (ret < 0)
-        {
-          goto err;
-        }
+      goto err;
     }
 
   if (flags & TEE_SHM_REGISTER)
     {
-      irqstate = spin_lock_irqsave(&priv->lock);
-
-      shme->shm.id = optee_shm_next_id(priv);
-      list_add_head(&priv->shm_list, &shme->node);
-
-      spin_unlock_irqrestore(&priv->lock, irqstate);
+      ret = optee_shm_register(priv, shm);
+      if (ret < 0)
+        {
+          goto err_with_idr;
+        }
     }
 
-  *shmep = shme;
+  *shmp = shm;
   return 0;
 
+err_with_idr:
+  idr_remove(priv->shms, shm->id);
 err:
-  kmm_free(shme);
+  kmm_free(shm);
   if (flags & TEE_SHM_ALLOC)
     {
       kmm_free(ptr);
@@ -1146,48 +1249,40 @@ err:
  *   Free and/or unregister shared memory allocated by `optee_shm_alloc()`.
  *
  * Parameters:
- *   priv  - The driver's private data structure
- *   shme  - Pointer to shared memory entry to free. Can be NULL, in which
- *           case, this is a no-op.
+ *   shm  - Pointer to shared memory object to free. Can be NULL, in which
+ *          case, this is a no-op.
  *
  * Returned Values:
  *   None
  *
  ****************************************************************************/
 
-void optee_shm_free(FAR struct optee_priv_data *priv,
-                    FAR struct optee_shm_entry *shme)
+void optee_shm_free(FAR struct optee_shm *shm)
 {
-  irqstate_t irqstate;
-
-  if (!shme)
+  if (!shm || !shm->priv)
     {
       return;
     }
 
-  if (shme->shm.flags & TEE_SHM_SEC_REGISTER)
+  if (shm->flags & TEE_SHM_REGISTER)
     {
-      optee_shm_sec_unregister(priv, shme);
+      optee_shm_unregister(shm->priv, shm);
     }
 
-  if (shme->shm.flags & TEE_SHM_REGISTER)
+  if (shm->flags & TEE_SHM_ALLOC)
     {
-      irqstate = spin_lock_irqsave(&priv->lock);
-
-      if (list_in_list(&shme->node))
-        {
-          list_delete(&shme->node);
-        }
-
-      spin_unlock_irqrestore(&priv->lock, irqstate);
+      kmm_free((FAR void *)(uintptr_t)shm->addr);
     }
 
-  if (shme->shm.flags & TEE_SHM_ALLOC)
+  if (!(shm->flags & (TEE_SHM_ALLOC | TEE_SHM_REGISTER)))
     {
-      kmm_free((FAR void *)(uintptr_t)shme->shm.addr);
+      /* allocated by optee_ioctl_shm_alloc(), need to unmap */
+
+      munmap((FAR void *)(uintptr_t)shm->addr, shm->length);
     }
 
-  kmm_free(shme);
+  idr_remove(shm->priv->shms, shm->id);
+  kmm_free(shm);
 }
 
 /****************************************************************************
