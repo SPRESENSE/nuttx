@@ -46,6 +46,10 @@
 
 #if defined(CONFIG_SENSORS_CXD5602PWBIMU)
 
+#if defined(CONFIG_CPUFREQ_RELEASE_LOCK)
+#include <arch/chip/pm.h>
+#endif
+
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
@@ -148,6 +152,14 @@
 #define NR_BUFFERS CONFIG_SENSORS_CXD5602PWBIMU_NR_BUFFERS
 #define CIRCBUFSZ(priv) (NR_BUFFERS * (priv)->spi_xfersize)
 
+#if defined(CONFIG_CPUFREQ_RELEASE_LOCK)
+#  define LOCK_HVFREQ() up_pm_acquire_freqlock(&g_imufreqlock)
+#  define UNLOCK_HVFREQ() up_pm_release_freqlock(&g_imufreqlock);
+#else
+#  define LOCK_HVFREQ()
+#  define UNLOCK_HVFREQ()
+#endif
+
 /****************************************************************************
  * Private Types
  ****************************************************************************/
@@ -247,6 +259,11 @@ static int cxd5602pwbimu_int_handler(int irq, FAR void *context,
 /****************************************************************************
  * Private Data
  ****************************************************************************/
+
+#if defined(CONFIG_CPUFREQ_RELEASE_LOCK)
+static struct pm_cpu_freqlock_s g_imufreqlock =
+  PM_CPUFREQLOCK_INIT(PM_CPUFREQLOCK_TAG('P','I',0), PM_CPUFREQLOCK_FLAG_HV);
+#endif
 
 /* This the vtable that supports the character driver interface */
 
@@ -1261,6 +1278,8 @@ static int cxd5602pwbimu_open(FAR struct file *filep)
   FAR cxd5602pwbimu_config_t *config = priv->config;
   int ret;
 
+  LOCK_HVFREQ();
+
   /* Power on and reset device */
 
   config->power(config, true);
@@ -1273,6 +1292,7 @@ static int cxd5602pwbimu_open(FAR struct file *filep)
   ret = cxd5602pwbimu_detectaddrs(priv);
   if (ret < 0)
     {
+      UNLOCK_HVFREQ();
       return ret;
     }
 #endif
@@ -1280,12 +1300,14 @@ static int cxd5602pwbimu_open(FAR struct file *filep)
   ret = cxd5602pwbimu_checkaddrs(priv);
   if (ret < 0)
     {
+      UNLOCK_HVFREQ();
       return ret;
     }
 
   ret = cxd5602pwbimu_checkver(priv);
   if (ret < 0)
     {
+      UNLOCK_HVFREQ();
       return -ENODEV;
     }
 
@@ -1345,6 +1367,8 @@ static int cxd5602pwbimu_close(FAR struct file *filep)
     }
 
   priv->state = STATE_INIT;
+
+  UNLOCK_HVFREQ();
 
   return OK;
 }
