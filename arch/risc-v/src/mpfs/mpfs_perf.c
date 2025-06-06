@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/risc-v/src/esp32c3-legacy/esp32c3_perf.c
+ * arch/risc-v/src/mpfs/mpfs_perf.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -26,23 +26,16 @@
 
 #include <nuttx/config.h>
 #include <nuttx/clock.h>
+#include <nuttx/arch.h>
 
 #include <stdint.h>
 #include <time.h>
 
-#include "esp32c3_attr.h"
+#include <arch/board/board.h>
+
 #include "riscv_internal.h"
-#include "hardware/esp32c3_system.h"
-#include "esp32c3_clockconfig.h"
-
-#ifdef CONFIG_ARCH_HAVE_PERF_EVENTS
-
-/****************************************************************************
- * Pre-processor Definitions
- ****************************************************************************/
-
-#define NSEC_PER_CYCLE (1000 / CONFIG_ESP32C3_CPU_FREQ_MHZ)
-#define CYCLE_PER_SEC  (USEC_PER_SEC * CONFIG_ESP32C3_CPU_FREQ_MHZ)
+#include "hardware/mpfs_memorymap.h"
+#include "hardware/mpfs_clint.h"
 
 /****************************************************************************
  * Public Functions
@@ -54,17 +47,15 @@
 
 void up_perf_init(void *arg)
 {
-  WRITE_CSR(CSR_PCER_MACHINE, 0x1);
-  WRITE_CSR(CSR_PCMR_MACHINE, 0x1);
 }
 
 /****************************************************************************
  * Name: up_perf_gettime
  ****************************************************************************/
 
-clock_t IRAM_ATTR up_perf_gettime(void)
+clock_t up_perf_gettime(void)
 {
-  return READ_CSR(CSR_PCCR_MACHINE);
+  return getreg64(MPFS_CLINT_MTIME);
 }
 
 /****************************************************************************
@@ -73,7 +64,7 @@ clock_t IRAM_ATTR up_perf_gettime(void)
 
 unsigned long up_perf_getfreq(void)
 {
-  return CYCLE_PER_SEC;
+  return MPFS_MSS_RTC_TOGGLE_CLK;
 }
 
 /****************************************************************************
@@ -82,8 +73,37 @@ unsigned long up_perf_getfreq(void)
 
 void up_perf_convert(clock_t elapsed, struct timespec *ts)
 {
-  ts->tv_sec  = elapsed / CYCLE_PER_SEC;
-  elapsed    -= ts->tv_sec * CYCLE_PER_SEC;
-  ts->tv_nsec = elapsed * NSEC_PER_CYCLE;
+  ts->tv_sec  = elapsed / MPFS_MSS_RTC_TOGGLE_CLK;
+  elapsed    -= ts->tv_sec * MPFS_MSS_RTC_TOGGLE_CLK;
+  ts->tv_nsec = elapsed * NSEC_PER_SEC / MPFS_MSS_RTC_TOGGLE_CLK;
 }
-#endif
+
+/****************************************************************************
+ * Name: up_udelay
+ *
+ * Description:
+ *   Delay for the requested number of microseconds.
+ *
+ ****************************************************************************/
+
+void up_udelay(useconds_t microseconds)
+{
+  clock_t start = up_perf_gettime();
+  clock_t end = microseconds * up_perf_getfreq() / USEC_PER_SEC + start + 1;
+  while (((sclock_t)(up_perf_gettime() - end)) < 0)
+    {
+    }
+}
+
+/****************************************************************************
+ * Name: up_ndelay
+ *
+ * Description:
+ *   Delay for the requested number of nanoseconds.
+ *
+ ****************************************************************************/
+
+void up_ndelay(unsigned long nanoseconds)
+{
+  up_udelay((nanoseconds + NSEC_PER_USEC - 1) / NSEC_PER_USEC);
+}
