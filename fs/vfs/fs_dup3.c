@@ -1,5 +1,5 @@
 /****************************************************************************
- * fs/vfs/fs_dup.c
+ * fs/vfs/fs_dup3.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -24,17 +24,12 @@
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
+#include <nuttx/fs/fs.h>
 
 #include <unistd.h>
 #include <sched.h>
-#include <assert.h>
 #include <errno.h>
-#include <fcntl.h>
 
-#include <nuttx/fs/fs.h>
-
-#include "inode/inode.h"
 #include "sched/sched.h"
 
 /****************************************************************************
@@ -42,57 +37,25 @@
  ****************************************************************************/
 
 /****************************************************************************
- * Name: file_dup
+ * Name: dup3
  *
  * Description:
- *   Equivalent to the standard dup() function except that it
- *   accepts a struct file instance instead of a file descriptor.
- *
- * Returned Value:
- *   The new file descriptor is returned on success; a negated errno value
- *   is returned on any failure.
+ *   Clone a file descriptor or socket descriptor to a specific descriptor
+ *   number and specific flags.
  *
  ****************************************************************************/
 
-int file_dup(FAR struct file *filep, int minfd, int flags)
+int dup3(int fd1, int fd2, int flags)
 {
-  return fdlist_dupfile(nxsched_get_fdlist_from_tcb(this_task()),
-                        flags, minfd, filep);
-}
-
-/****************************************************************************
- * Name: dup
- *
- * Description:
- *   Clone a file or socket descriptor to an arbitrary descriptor number
- *
- ****************************************************************************/
-
-int dup(int fd)
-{
-  FAR struct file *filep;
   int ret;
 
-  /* Get the file structure corresponding to the file descriptor. */
-
-  ret = file_get(fd, &filep);
+  ret = fdlist_dup3(nxsched_get_fdlist_from_tcb(this_task()),
+                    fd1, fd2, flags);
   if (ret < 0)
     {
-      goto err;
-    }
-
-  /* Let file_dup() do the real work */
-
-  ret = file_dup(filep, 0, 0);
-  file_put(filep);
-  if (ret < 0)
-    {
-      goto err;
+      set_errno(-ret);
+      ret = ERROR;
     }
 
   return ret;
-
-err:
-  set_errno(-ret);
-  return ERROR;
 }
