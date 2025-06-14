@@ -48,6 +48,7 @@
 #include "arm_internal.h"
 #include "chip.h"
 #include "stm32.h"
+#include "stm32_tim.h"
 #include "stm32_dma.h"
 #include "stm32_adc.h"
 
@@ -61,14 +62,6 @@
 
 #if defined(CONFIG_STM32F0L0G0_STM32F0) || defined(CONFIG_STM32F0L0G0_STM32G0)
 #  error Not tested
-#endif
-
-/* At the moment there is no proper implementation for timers external
- * trigger.
- */
-
-#if defined(ADC_HAVE_TIMER)
-#  error not supported yet
 #endif
 
 /****************************************************************************
@@ -226,7 +219,8 @@ struct stm32_dev_s
 #endif
 #ifdef ADC_HAVE_TIMER
   uint8_t trigger;           /* Timer trigger channel: 0=CC1, 1=CC2, 2=CC3,
-                              * 3=CC4, 4=TRGO */
+                              * 3=CC4, 4=TRGO, 5=TRGO2
+                              */
 #endif
   xcpt_t   isr;              /* Interrupt handler for this ADC block */
   uint32_t base;             /* Base address of registers unique to this ADC
@@ -277,6 +271,8 @@ static void tim_putreg(struct stm32_dev_s *priv, int offset,
                        uint16_t value);
 static void tim_modifyreg(struct stm32_dev_s *priv, int offset,
                           uint16_t clrbits, uint16_t setbits);
+static void tim_modifyreg32(struct stm32_dev_s *priv, int offset,
+                            uint32_t clrbits, uint32_t setbits);
 static void tim_dumpregs(struct stm32_dev_s *priv,
                          const char *msg);
 #endif
@@ -590,6 +586,7 @@ static uint32_t adccmn_getreg(struct stm32_dev_s *priv, uint32_t offset)
 }
 #endif /* HAVE_ADC_CMN_REGS */
 
+#ifdef ADC_HAVE_TIMER
 /****************************************************************************
  * Name: tim_getreg
  *
@@ -605,12 +602,10 @@ static uint32_t adccmn_getreg(struct stm32_dev_s *priv, uint32_t offset)
  *
  ****************************************************************************/
 
-#ifdef ADC_HAVE_TIMER
 static uint16_t tim_getreg(struct stm32_dev_s *priv, int offset)
 {
   return getreg16(priv->tbase + offset);
 }
-#endif
 
 /****************************************************************************
  * Name: tim_putreg
@@ -628,13 +623,11 @@ static uint16_t tim_getreg(struct stm32_dev_s *priv, int offset)
  *
  ****************************************************************************/
 
-#ifdef ADC_HAVE_TIMER
 static void tim_putreg(struct stm32_dev_s *priv, int offset,
                        uint16_t value)
 {
   putreg16(value, priv->tbase + offset);
 }
-#endif
 
 /****************************************************************************
  * Name: tim_modifyreg
@@ -653,13 +646,35 @@ static void tim_putreg(struct stm32_dev_s *priv, int offset,
  *
  ****************************************************************************/
 
-#ifdef ADC_HAVE_TIMER
 static void tim_modifyreg(struct stm32_dev_s *priv, int offset,
                           uint16_t clrbits, uint16_t setbits)
 {
   tim_putreg(priv, offset, (tim_getreg(priv, offset) & ~clrbits) | setbits);
 }
-#endif
+
+/****************************************************************************
+ * Name: tim_modifyreg32
+ *
+ * Description:
+ *   Modify the value of an ADC timer register (not atomic).
+ *
+ * Input Parameters:
+ *   priv    - A reference to the ADC block status
+ *   offset  - The offset to the register to modify
+ *   clrbits - The bits to clear
+ *   setbits - The bits to set
+ *
+ * Returned Value:
+ *   None
+ *
+ ****************************************************************************/
+
+static void tim_modifyreg32(struct stm32_dev_s *priv, int offset,
+                            uint32_t clrbits, uint32_t setbits)
+{
+  uint32_t addr = priv->tbase + offset;
+  putreg32((getreg32(addr) & ~clrbits) | setbits, addr);
+}
 
 /****************************************************************************
  * Name: tim_dumpregs
@@ -675,7 +690,6 @@ static void tim_modifyreg(struct stm32_dev_s *priv, int offset,
  *
  ****************************************************************************/
 
-#ifdef ADC_HAVE_TIMER
 static void tim_dumpregs(struct stm32_dev_s *priv, const char *msg)
 {
   ainfo("%s:\n", msg);
@@ -715,7 +729,6 @@ static void tim_dumpregs(struct stm32_dev_s *priv, const char *msg)
             tim_getreg(priv, STM32_GTIM_DMAR_OFFSET));
     }
 }
-#endif
 
 /****************************************************************************
  * Name: adc_timstart
@@ -731,7 +744,6 @@ static void tim_dumpregs(struct stm32_dev_s *priv, const char *msg)
  *
  ****************************************************************************/
 
-#ifdef ADC_HAVE_TIMER
 static void adc_timstart(struct stm32_dev_s *priv, bool enable)
 {
   ainfo("enable: %d\n", enable ? 1 : 0);
@@ -749,7 +761,6 @@ static void adc_timstart(struct stm32_dev_s *priv, bool enable)
       tim_modifyreg(priv, STM32_GTIM_CR1_OFFSET, GTIM_CR1_CEN, 0);
     }
 }
-#endif
 
 /****************************************************************************
  * Name: adc_timinit
@@ -766,10 +777,325 @@ static void adc_timstart(struct stm32_dev_s *priv, bool enable)
  *
  ****************************************************************************/
 
-#ifdef ADC_HAVE_TIMER
 static int adc_timinit(struct stm32_dev_s *priv)
 {
-#warning TODO: adc_timinit
+  uint32_t prescaler;
+  uint32_t reload;
+  uint32_t timclk;
+  uint16_t clrbits = 0;
+  uint16_t setbits = 0;
+  uint16_t cr2;
+  uint16_t ccmr1;
+  uint16_t ccmr2;
+  uint16_t ocmode1;
+  uint16_t ocmode2;
+  uint16_t ccenable;
+  uint16_t ccer;
+  uint16_t egr;
+
+  /* If the timer base address is zero, then this ADC was not configured to
+   * use a timer.
+   */
+
+  if (priv->tbase == 0)
+    {
+      return ERROR;
+    }
+
+  /* NOTE: EXTSEL configuration is done in adc_reset function */
+
+  /* Configure the timer channel to drive the ADC */
+
+  /* Calculate optimal values for the timer prescaler and for the timer
+   * reload register.  If freq is the desired frequency, then
+   *
+   *   reload = timclk / freq
+   *   reload = (pclck / prescaler) / freq
+   *
+   * There are many solutions to do this, but the best solution will be the
+   * one that has the largest reload value and the smallest prescaler value.
+   * That is the solution that should give us the most accuracy in the timer
+   * control.  Subject to:
+   *
+   *   0 <= prescaler  <= 65536
+   *   1 <= reload <= 65535
+   *
+   * So (prescaler = pclck / 65535 / freq) would be optimal.
+   */
+
+  prescaler = (priv->pclck / priv->freq + 65534) / 65535;
+
+  /* We need to decrement the prescaler value by one, but only, the value
+   * does not underflow.
+   */
+
+  if (prescaler < 1)
+    {
+      awarn("WARNING: Prescaler underflowed.\n");
+      prescaler = 1;
+    }
+
+  /* Check for overflow */
+
+  else if (prescaler > 65536)
+    {
+      awarn("WARNING: Prescaler overflowed.\n");
+      prescaler = 65536;
+    }
+
+  timclk = priv->pclck / prescaler;
+
+  reload = timclk / priv->freq;
+  if (reload < 1)
+    {
+      awarn("WARNING: Reload value underflowed.\n");
+      reload = 1;
+    }
+  else if (reload > 65535)
+    {
+      awarn("WARNING: Reload value overflowed.\n");
+      reload = 65535;
+    }
+
+  /* Disable the timer until we get it configured */
+
+  adc_timstart(priv, false);
+
+  /* Set up the timer CR1 register.
+   *
+   * Select the Counter Mode == count up:
+   *
+   * ATIM_CR1_EDGE: The counter counts up or down depending on the
+   *                direction bit(DIR).
+   * ATIM_CR1_DIR: 0: count up, 1: count down
+   *
+   * Set the clock division to zero for all
+   */
+
+  clrbits = GTIM_CR1_DIR | GTIM_CR1_CMS_MASK | GTIM_CR1_CKD_MASK;
+  setbits = GTIM_CR1_EDGE;
+  tim_modifyreg(priv, STM32_GTIM_CR1_OFFSET, clrbits, setbits);
+
+  /* Set the reload and prescaler values */
+
+  tim_putreg(priv, STM32_GTIM_PSC_OFFSET, prescaler - 1);
+  tim_putreg(priv, STM32_GTIM_ARR_OFFSET, reload);
+
+  /* Clear the advanced timers repetition counter in TIM1 */
+
+  if (priv->tbase == STM32_TIM1_BASE)
+    {
+      tim_putreg(priv, STM32_ATIM_RCR_OFFSET, 0);
+      tim_putreg(priv, STM32_ATIM_BDTR_OFFSET, ATIM_BDTR_MOE); /* Check me */
+    }
+
+  /* TIMx event generation: Bit 0 UG: Update generation */
+
+  tim_putreg(priv, STM32_GTIM_EGR_OFFSET, GTIM_EGR_UG);
+
+  /* Handle channel specific setup */
+
+  ocmode1 = 0;
+  ocmode2 = 0;
+
+  switch (priv->trigger)
+    {
+      case 0: /* TimerX CC1 event */
+        {
+          ccenable = ATIM_CCER_CC1E;
+          ocmode1  = (ATIM_CCMR_CCS_CCOUT << ATIM_CCMR1_CC1S_SHIFT) |
+                     (ATIM_CCMR_MODE_PWM1 << ATIM_CCMR1_OC1M_SHIFT) |
+                     ATIM_CCMR1_OC1PE;
+
+          /* Set the event CC1 */
+
+          egr      = ATIM_EGR_CC1G;
+
+          /* Set the duty cycle by writing to the CCR register for this
+           * channel
+           */
+
+          tim_putreg(priv, STM32_GTIM_CCR1_OFFSET, (uint16_t)(reload >> 1));
+        }
+        break;
+
+      case 1: /* TimerX CC2 event */
+        {
+          ccenable = ATIM_CCER_CC2E;
+          ocmode1  = (ATIM_CCMR_CCS_CCOUT << ATIM_CCMR1_CC2S_SHIFT) |
+                     (ATIM_CCMR_MODE_PWM1 << ATIM_CCMR1_OC2M_SHIFT) |
+                     ATIM_CCMR1_OC2PE;
+
+          /* Set the event CC2 */
+
+          egr      = ATIM_EGR_CC2G;
+
+          /* Set the duty cycle by writing to the CCR register for this
+           * channel
+           */
+
+          tim_putreg(priv, STM32_GTIM_CCR2_OFFSET, (uint16_t)(reload >> 1));
+        }
+        break;
+
+      case 2: /* TimerX CC3 event */
+        {
+          ccenable = ATIM_CCER_CC3E;
+          ocmode2  = (ATIM_CCMR_CCS_CCOUT << ATIM_CCMR2_CC3S_SHIFT) |
+                     (ATIM_CCMR_MODE_PWM1 << ATIM_CCMR2_OC3M_SHIFT) |
+                     ATIM_CCMR2_OC3PE;
+
+          /* Set the event CC3 */
+
+          egr      = ATIM_EGR_CC3G;
+
+          /* Set the duty cycle by writing to the CCR register for this
+           * channel
+           */
+
+          tim_putreg(priv, STM32_GTIM_CCR3_OFFSET, (uint16_t)(reload >> 1));
+        }
+        break;
+
+      case 3: /* TimerX CC4 event */
+        {
+          ccenable = ATIM_CCER_CC4E;
+          ocmode2  = (ATIM_CCMR_CCS_CCOUT << ATIM_CCMR2_CC4S_SHIFT) |
+                     (ATIM_CCMR_MODE_PWM1 << ATIM_CCMR2_OC4M_SHIFT) |
+                     ATIM_CCMR2_OC4PE;
+
+          /* Set the event CC4 */
+
+          egr      = ATIM_EGR_CC4G;
+
+          /* Set the duty cycle by writing to the CCR register for this
+           * channel
+           */
+
+          tim_putreg(priv, STM32_GTIM_CCR4_OFFSET, (uint16_t)(reload >> 1));
+        }
+        break;
+
+      case 4: /* TimerX TRGO event */
+        {
+          /* Set the event TRGO */
+
+          ccenable = 0;
+          egr      = GTIM_EGR_TG;
+
+          tim_modifyreg(priv, STM32_GTIM_CR2_OFFSET, clrbits,
+                        GTIM_CR2_MMS_UPDATE);
+        }
+        break;
+
+      case 5: /* TimerX TRGO2 event */
+        {
+          /* Set the event TRGO2 */
+
+          ccenable = 0;
+          egr      = GTIM_EGR_TG;
+
+          tim_modifyreg32(priv, STM32_GTIM_CR2_OFFSET, clrbits,
+                          ATIM_CR2_MMS2_UPDATE);
+        }
+        break;
+
+      default:
+        aerr("ERROR: No such trigger: %d\n", priv->trigger);
+        return -EINVAL;
+    }
+
+  /* Disable the Channel by resetting the CCxE Bit in the CCER register */
+
+  ccer = tim_getreg(priv, STM32_GTIM_CCER_OFFSET);
+  ccer &= ~ccenable;
+  tim_putreg(priv, STM32_GTIM_CCER_OFFSET, ccer);
+
+  /* Fetch the CR2, CCMR1, and CCMR2 register (already have ccer) */
+
+  cr2   = tim_getreg(priv, STM32_GTIM_CR2_OFFSET);
+  ccmr1 = tim_getreg(priv, STM32_GTIM_CCMR1_OFFSET);
+  ccmr2 = tim_getreg(priv, STM32_GTIM_CCMR2_OFFSET);
+
+  /* Reset the Output Compare Mode Bits and set the select output compare
+   * mode
+   */
+
+  ccmr1 &= ~(ATIM_CCMR1_CC1S_MASK | ATIM_CCMR1_OC1M_MASK | ATIM_CCMR1_OC1PE |
+             ATIM_CCMR1_CC2S_MASK | ATIM_CCMR1_OC2M_MASK | ATIM_CCMR1_OC2PE);
+  ccmr2 &= ~(ATIM_CCMR2_CC3S_MASK | ATIM_CCMR2_OC3M_MASK | ATIM_CCMR2_OC3PE |
+             ATIM_CCMR2_CC4S_MASK | ATIM_CCMR2_OC4M_MASK | ATIM_CCMR2_OC4PE);
+  ccmr1 |= ocmode1;
+  ccmr2 |= ocmode2;
+
+  /* Reset the output polarity level of all channels (selects high
+   * polarity)
+   */
+
+  ccer &= ~(ATIM_CCER_CC1P | ATIM_CCER_CC2P |
+            ATIM_CCER_CC3P | ATIM_CCER_CC4P);
+
+  /* Enable the output state of the selected channel (only) */
+
+  ccer &= ~(ATIM_CCER_CC1E | ATIM_CCER_CC2E |
+            ATIM_CCER_CC3E | ATIM_CCER_CC4E);
+  ccer |= ccenable;
+
+  if (priv->tbase == STM32_TIM1_BASE)
+    {
+      /* Reset output N polarity level, output N state, output compare state,
+       * output compare N idle state.
+       */
+
+      ccer &= ~(ATIM_CCER_CC1NE | ATIM_CCER_CC1NP |
+                ATIM_CCER_CC2NE | ATIM_CCER_CC2NP |
+                ATIM_CCER_CC3NE | ATIM_CCER_CC3NP |
+                ATIM_CCER_CC4NP);
+
+      /* Reset the output compare and output compare N IDLE State */
+
+      cr2 &= ~(ATIM_CR2_OIS1 | ATIM_CR2_OIS1N |
+               ATIM_CR2_OIS2 | ATIM_CR2_OIS2N |
+               ATIM_CR2_OIS3 | ATIM_CR2_OIS3N |
+               ATIM_CR2_OIS4);
+    }
+  else
+    {
+      ccer &= ~(GTIM_CCER_CC1NP | GTIM_CCER_CC2NP | GTIM_CCER_CC3NP);
+    }
+
+  /* Reset the output compare and output compare N IDLE State */
+
+  if (priv->tbase >= STM32_TIM2_BASE && priv->tbase <= STM32_TIM3_BASE)
+    {
+      /* Reset output N polarity level, output N state, output compare state,
+       * output compare N idle state.
+       */
+
+      ccer &= ~(GTIM_CCER_CC1NE | GTIM_CCER_CC1NP |
+                GTIM_CCER_CC2NP | GTIM_CCER_CC3NP |
+                GTIM_CCER_CC4NP);
+    }
+
+  /* Save the modified register values */
+
+  tim_putreg(priv, STM32_GTIM_CR2_OFFSET, cr2);
+  tim_putreg(priv, STM32_GTIM_CCMR1_OFFSET, ccmr1);
+  tim_putreg(priv, STM32_GTIM_CCMR2_OFFSET, ccmr2);
+  tim_putreg(priv, STM32_GTIM_CCER_OFFSET, ccer);
+  tim_putreg(priv, STM32_GTIM_EGR_OFFSET, egr);
+
+  /* Set the ARR Preload Bit */
+
+  tim_modifyreg(priv, STM32_GTIM_CR1_OFFSET, 0, GTIM_CR1_ARPE);
+
+  /* Enable the timer counter */
+
+  adc_timstart(priv, true);
+
+  tim_dumpregs(priv, "After starting timers");
+
+  return OK;
 }
 #endif
 
@@ -1611,7 +1937,7 @@ static int adc_extcfg_set(struct adc_dev_s *dev, uint32_t extcfg)
       setbits = (extsel | exten);
       clrbits = (ADC_EXTREG_EXTEN_MASK | ADC_EXTREG_EXTSEL_MASK);
 
-      ainfo("Initializing extsel = 0x%08x\n", extsel);
+      ainfo("Initializing extsel = 0x%" PRIx32 "\n", extsel);
 
       /* Write register */
 
