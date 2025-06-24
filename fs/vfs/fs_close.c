@@ -39,10 +39,9 @@
 #  include <android/fdsan.h>
 #endif
 
-#include "notify/notify.h"
 #include "inode/inode.h"
 #include "sched/sched.h"
-#include "vfs/lock.h"
+#include "vfs.h"
 
 /****************************************************************************
  * Private Functions
