@@ -43,7 +43,11 @@ ifeq ($(CONFIG_ARCH_ARMV8A),y)
   endif
   ARCHCPUFLAGS += $(OPTION_MARCH)$(OPTION_MARCH_FEATURE)
 else ifeq ($(CONFIG_ARCH_ARMV8R),y)
-  ARCHCPUFLAGS += -march=armv8-r
+  ifeq ($(CONFIG_ARCH_FPU),y)
+    ARCHCPUFLAGS += -march=armv8-r
+  else
+    ARCHCPUFLAGS += -march=armv8-r+nofp
+  endif
 else ifeq ($(CONFIG_ARCH_CORTEX_A53),y)
   ARCHCPUFLAGS += -mcpu=cortex-a53
 else ifeq ($(CONFIG_ARCH_CORTEX_A55),y)
@@ -94,18 +98,28 @@ endif
 
 ifeq ($(CONFIG_MM_KASAN_INSTRUMENT_ALL),y)
   ARCHOPTIMIZATION += -fsanitize=kernel-address
-endif
+  KASAN_PARAM += asan-stack=0
+  KASAN_PARAM += asan-instrumentation-with-call-threshold=0
 
-ifeq ($(CONFIG_MM_KASAN_GLOBAL),y)
-  ARCHOPTIMIZATION += --param asan-globals=1
-endif
+  ifeq ($(CONFIG_MM_KASAN_GLOBAL),y)
+    KASAN_PARAM += asan-globals=1
+  else
+    KASAN_PARAM += asan-globals=0
+  endif
 
-ifeq ($(CONFIG_MM_KASAN_DISABLE_READS_CHECK),y)
-  ARCHOPTIMIZATION += --param asan-instrument-reads=0
-endif
+  ifeq ($(CONFIG_MM_KASAN_DISABLE_READS_CHECK),y)
+    KASAN_PARAM += asan-instrument-reads=0
+  endif
 
-ifeq ($(CONFIG_MM_KASAN_DISABLE_WRITES_CHECK),y)
-  ARCHOPTIMIZATION += --param asan-instrument-writes=0
+  ifeq ($(CONFIG_MM_KASAN_DISABLE_WRITES_CHECK),y)
+    KASAN_PARAM += asan-instrument-writes=0
+  endif
+
+  ifeq ($(CONFIG_ARM_TOOLCHAIN_CLANG),y)
+    ARCHOPTIMIZATION += $(addprefix -mllvm ,$(KASAN_PARAM))
+  else
+    ARCHOPTIMIZATION += $(addprefix --param ,$(KASAN_PARAM))
+  endif
 endif
 
 # If we don't use MMU, all memory is treated as device memory and can't handle
@@ -198,21 +212,33 @@ CROSSDEV ?= aarch64-none-elf-
 
 # Default toolchain
 
-CC = $(CROSSDEV)gcc
-CXX = $(CROSSDEV)g++
-CPP = $(CROSSDEV)gcc -E -P -x c
-STRIP = $(CROSSDEV)strip --strip-unneeded
-OBJCOPY = $(CROSSDEV)objcopy
-OBJDUMP = $(CROSSDEV)objdump
-LD = $(CROSSDEV)ld
-AR = $(CROSSDEV)ar rcs
-NM = $(CROSSDEV)nm
+ifeq ($(CONFIG_ARCH_TOOLCHAIN_GCC),y)
+  CC = $(CROSSDEV)gcc
+  CXX = $(CROSSDEV)g++
+  CPP = $(CROSSDEV)gcc -E -P -x c
+  STRIP = $(CROSSDEV)strip --strip-unneeded
+  OBJCOPY = $(CROSSDEV)objcopy
+  OBJDUMP = $(CROSSDEV)objdump
+  LD = $(CROSSDEV)ld
+  AR = $(CROSSDEV)ar rcs
+  NM = $(CROSSDEV)nm
+else ifeq ($(CONFIG_ARCH_TOOLCHAIN_CLANG),y)
+  CC      = clang
+  CXX     = clang++
+  CPP     = clang -E -P -x c
+  LD      = ld.lld -m aarch64elf
+  STRIP   = llvm-strip --strip-unneeded
+  AR      = llvm-ar rcs
+  NM      = llvm-nm
+  OBJCOPY = llvm-objcopy
+  OBJDUMP = llvm-objdump
+endif
 
 # Link Time Optimization
 
 ifeq ($(CONFIG_LTO_FULL),y)
   ARCHOPTIMIZATION += -flto
-  ifeq ($(CONFIG_ARM64_TOOLCHAIN_GNU_EABI),y)
+  ifeq ($(CONFIG_ARCH_TOOLCHAIN_GCC),y)
     LD := $(CROSSDEV)gcc
     AR := $(CROSSDEV)gcc-ar rcs
     NM := $(CROSSDEV)gcc-nm
@@ -221,18 +247,12 @@ ifeq ($(CONFIG_LTO_FULL),y)
   endif
 endif
 
-ifeq ($(CONFIG_ARCH_TOOLCHAIN_GNU),y)
-  ifeq ($(CONFIG_ARCH_TOOLCHAIN_CLANG),)
-    ifeq ($(GCCVER),)
-      export GCCVER := $(shell $(CC) --version | grep gcc | sed -E "s/.* ([0-9]+\.[0-9]+).*/\1/" | cut -d'.' -f1)
-    endif
-    ifeq ($(shell expr "$(GCCVER)" \>= 12), 1)
-      LDFLAGS += --no-warn-rwx-segments
-    endif
-
+ifeq ($(CONFIG_ARCH_TOOLCHAIN_GCC),y)
+  ifeq ($(GCCVER),)
+    export GCCVER := $(shell $(CC) --version | grep gcc | sed -E "s/.* ([0-9]+\.[0-9]+).*/\1/" | cut -d'.' -f1)
   endif
   ifeq ($(shell expr "$(GCCVER)" \>= 12), 1)
-    LDFLAGS += --print-memory-usage
+    LDFLAGS += --no-warn-rwx-segments --print-memory-usage
   endif
 endif
 

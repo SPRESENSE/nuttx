@@ -29,6 +29,7 @@
 #include <assert.h>
 
 #include <nuttx/arch.h>
+#include <nuttx/compiler.h>
 #include <arch/barriers.h>
 #include <arch/irq.h>
 #include <arch/chip/chip.h>
@@ -87,7 +88,8 @@ static unsigned long g_gic_rdists[CONFIG_SMP_NCPUS];
  * Private Functions
  ***************************************************************************/
 
-static inline void sys_set_bit(unsigned long addr, unsigned int bit)
+unused_code static inline void sys_set_bit(unsigned long addr,
+                                           unsigned int bit)
 {
   uint32_t temp;
 
@@ -105,7 +107,8 @@ static inline void sys_clear_bit(unsigned long addr, unsigned int bit)
   putreg32(temp, addr);
 }
 
-static inline int sys_test_bit(unsigned long addr, unsigned int bit)
+unused_code static inline int sys_test_bit(unsigned long addr,
+                                           unsigned int bit)
 {
   uint32_t temp;
 
@@ -116,20 +119,6 @@ static inline int sys_test_bit(unsigned long addr, unsigned int bit)
 static inline unsigned long gic_get_rdist(void)
 {
   return g_gic_rdists[this_cpu()];
-}
-
-static inline uint32_t read_gicd_wait_rwp(void)
-{
-  uint32_t value;
-
-  value = getreg32(GICD_CTLR);
-
-  while (value & BIT(GICD_CTLR_RWP))
-    {
-      value = getreg32(GICD_CTLR);
-    }
-
-  return value;
 }
 
 /* Wait for register write pending
