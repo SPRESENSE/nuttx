@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/risc-v/esp32c6/common/include/esp_board_spidev.h
+ * boards/arm/stm32h7/weact-stm32h743/src/stm32_dma_alloc.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,61 +20,88 @@
  *
  ****************************************************************************/
 
-#ifndef __BOARDS_RISC_V_ESP32C6_COMMON_INCLUDE_ESP_BOARD_SPIDEV_H
-#define __BOARDS_RISC_V_ESP32C6_COMMON_INCLUDE_ESP_BOARD_SPIDEV_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
+#include <syslog.h>
+#include <stdint.h>
+#include <errno.h>
+#include <nuttx/mm/gran.h>
+
+#include "weact-stm32h743.h"
+
+#if defined(CONFIG_FAT_DMAMEMORY)
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
-#ifndef __ASSEMBLY__
-
-/****************************************************************************
- * Public Data
- ****************************************************************************/
-
-#undef EXTERN
-#if defined(__cplusplus)
-#define EXTERN extern "C"
-extern "C"
-{
-#else
-#define EXTERN extern
+#if !defined(CONFIG_GRAN)
+#  error microSD DMA support requires CONFIG_GRAN
 #endif
 
+#define BOARD_DMA_ALLOC_POOL_SIZE (8*512)
+
 /****************************************************************************
- * Public Function Prototypes
+ * Private Data
+ ****************************************************************************/
+
+static GRAN_HANDLE dma_allocator;
+
+/* The DMA heap size constrains the total number of things that can be
+ * ready to do DMA at a time.
+ *
+ * For example, FAT DMA depends on one sector-sized buffer per
+ * filesystem plus one sector-sized buffer per file.
+ *
+ * We use a fundamental alignment / granule size of 64B; this is
+ * sufficient to guarantee alignment for the largest STM32 DMA burst
+ * (16 beats x 32bits).
+ */
+
+static uint8_t g_dma_heap[BOARD_DMA_ALLOC_POOL_SIZE]
+                aligned_data(64);
+
+/****************************************************************************
+ * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: board_spidev_initialize
+ * Name: stm32_dma_alloc_init
  *
  * Description:
- *   Initialize SPI driver and register the /dev/spi device.
- *
- * Input Parameters:
- *   bus - The SPI bus number, used to build the device path as /dev/spiN
- *
- * Returned Value:
- *   Zero (OK) is returned on success; A negated errno value is returned
- *   to indicate the nature of any failure.
+ *   All boards may optionally provide this API to instantiate a pool of
+ *   memory for uses with FAST FS DMA operations.
  *
  ****************************************************************************/
 
-#ifdef CONFIG_SPI
-int board_spidev_initialize(int bus);
-#endif
+int stm32_dma_alloc_init(void)
+{
+  dma_allocator = gran_initialize(g_dma_heap,
+                                  sizeof(g_dma_heap),
+                                  7,  /* 128B granule - must be > alignment (XXX bug?) */
+                                  6); /* 64B alignment */
 
-#undef EXTERN
-#if defined(__cplusplus)
+  if (dma_allocator == NULL)
+    {
+      return -ENOMEM;
+    }
+
+  return OK;
 }
-#endif
 
-#endif /* __ASSEMBLY__ */
-#endif /* __BOARDS_RISC_V_ESP32C6_COMMON_INCLUDE_ESP_BOARD_SPIDEV_H */
+/* DMA-aware allocator stubs for the FAT filesystem. */
+
+void *fat_dma_alloc(size_t size)
+{
+  return gran_alloc(dma_allocator, size);
+}
+
+void fat_dma_free(void *memory, size_t size)
+{
+  gran_free(dma_allocator, memory, size);
+}
+
+#endif /* CONFIG_FAT_DMAMEMORY */

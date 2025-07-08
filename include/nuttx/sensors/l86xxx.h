@@ -1,5 +1,7 @@
 /****************************************************************************
- * boards/risc-v/esp32h2/common/include/esp_board_i2c.h
+ * include/nuttx/sensors/l86xxx.h
+ *
+ * NOTE: EXPERIMENTAL DRIVER
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,57 +22,61 @@
  *
  ****************************************************************************/
 
-#ifndef __BOARDS_RISCV_ESP32H2_COMMON_INCLUDE_ESP_BOARD_I2C_H
-#define __BOARDS_RISCV_ESP32H2_COMMON_INCLUDE_ESP_BOARD_I2C_H
+#ifndef __INCLUDE_NUTTX_SENSORS_L86XXX_H
+#define __INCLUDE_NUTTX_SENSORS_L86XXX_H
 
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
+#include <nuttx/sensors/ioctl.h>
 
 /****************************************************************************
- * Pre-processor Definitions
+ * Pre-Processor Declarations
  ****************************************************************************/
 
-#ifndef __ASSEMBLY__
+/****************************************************************************
+ * Public Data Types
+ ****************************************************************************/
 
-#undef EXTERN
-#if defined(__cplusplus)
-#define EXTERN extern "C"
-extern "C"
+typedef enum
 {
-#else
-#define EXTERN extern
-#endif
+  CMD_HOT_START = 101,
+  CMD_WARM_START = 102,
+  CMD_COLD_START = 103,
+  CMD_FULL_COLD_START = 104,
+  CMD_STANDBY_MODE = 161,
+  SET_POS_FIX = 220,
+  SET_NMEA_BAUDRATE = 251,
+  FR_MODE = 886,
+} L86XXX_PMTK_COMMAND;
+
+typedef enum
+{
+  NORMAL = 0,
+  FITNESS = 1,
+  AVIATION = 2,
+  BALLOON = 3,
+  STANDBY = 4,
+} L86XXX_OPERATIONAL_MODE;
 
 /****************************************************************************
- * Public Function Prototypes
+ * Public Functions Prototypes
  ****************************************************************************/
 
 /****************************************************************************
- * Name: board_i2c_init
+ * Name: l86xxx_register
  *
  * Description:
- *   Configure the I2C driver.
+ *   Register the L86-XXX GNSS device driver.
  *
- * Input Parameters:
- *   None.
- *
- * Returned Value:
- *   Zero (OK) is returned on success; A negated errno value is returned
- *   to indicate the nature of any failure.
- *
+ * Arguments:
+ *    uartpath  -  The path to the UART character driver connected to the
+ *                 GNSS module
+ *    devno     -  The device number to use for the topic (i.e. /dev/mag0)
  ****************************************************************************/
 
-#ifdef CONFIG_I2C
-int board_i2c_init(void);
-#endif
+int l86xxx_register(FAR const char *uartpath, int devno);
 
-#undef EXTERN
-#if defined(__cplusplus)
-}
-#endif
-
-#endif /* __ASSEMBLY__ */
-#endif /* __BOARDS_RISCV_ESP32H2_COMMON_INCLUDE_ESP_BOARD_I2C_H */
+#endif /* __INCLUDE_NUTTX_SENSORS_L86XXX_H */

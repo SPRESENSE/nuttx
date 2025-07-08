@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/risc-v/esp32h2/common/include/esp_board_i2c.h
+ * include/nuttx/net/igb.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,8 +20,8 @@
  *
  ****************************************************************************/
 
-#ifndef __BOARDS_RISCV_ESP32H2_COMMON_INCLUDE_ESP_BOARD_I2C_H
-#define __BOARDS_RISCV_ESP32H2_COMMON_INCLUDE_ESP_BOARD_I2C_H
+#ifndef __INCLUDE_NUTTX_NET_IGB_H
+#define __INCLUDE_NUTTX_NET_IGB_H
 
 /****************************************************************************
  * Included Files
@@ -29,14 +29,7 @@
 
 #include <nuttx/config.h>
 
-/****************************************************************************
- * Pre-processor Definitions
- ****************************************************************************/
-
-#ifndef __ASSEMBLY__
-
-#undef EXTERN
-#if defined(__cplusplus)
+#ifdef __cplusplus
 #define EXTERN extern "C"
 extern "C"
 {
@@ -49,28 +42,18 @@ extern "C"
  ****************************************************************************/
 
 /****************************************************************************
- * Name: board_i2c_init
+ * Name: pci_igb_init
  *
  * Description:
- *   Configure the I2C driver.
- *
- * Input Parameters:
- *   None.
- *
- * Returned Value:
- *   Zero (OK) is returned on success; A negated errno value is returned
- *   to indicate the nature of any failure.
+ *   Register a pci driver
  *
  ****************************************************************************/
 
-#ifdef CONFIG_I2C
-int board_i2c_init(void);
-#endif
+int pci_igb_init(void);
 
 #undef EXTERN
-#if defined(__cplusplus)
+#ifdef __cplusplus
 }
 #endif
 
-#endif /* __ASSEMBLY__ */
-#endif /* __BOARDS_RISCV_ESP32H2_COMMON_INCLUDE_ESP_BOARD_I2C_H */
+#endif /* __INCLUDE_NUTTX_NET_IGB_H */
