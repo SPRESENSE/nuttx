@@ -429,6 +429,10 @@ int cxd56_gpioint_config(uint32_t pin, uint32_t gpiocfg, xcpt_t isr,
       irq_attach(irq, NULL, NULL);
       g_isr[slot] = NULL;
 
+      /* Set level high for unused interrupt trigger to avoid waking up. */
+
+      set_gpioint_config(slot, GPIOINT_LEVEL_HIGH);
+
       flags = spin_lock_irqsave(NULL);
       g_bothedge &= ~(1 << slot);
       spin_unlock_irqrestore(NULL, flags);
