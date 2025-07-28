@@ -824,6 +824,17 @@ config ARCH_BOARD_IMXRT1050_EVK
 		This is the board configuration for the port of NuttX to the NXP i.MXRT
 		evaluation kit, MIMXRT1050-EVKB.  This board features the MIMXRT1052DVL6A MCU.
 
+config ARCH_BOARD_ARCX_SOCKET_GRID
+	bool "ARCX Socket Grid board"
+	depends on ARCH_CHIP_MIMXRT1052DVL6A
+	select ARCH_HAVE_LEDS
+	select ARCH_HAVE_BUTTONS
+	select ARCH_HAVE_IRQBUTTONS
+	select ARCH_PHY_INTERRUPT
+	---help---
+		This is the board configuration for the port of NuttX for
+		ARC Socket Grid board.
+
 config ARCH_BOARD_IMXRT1060_EVK
 	bool "NXP i.MX RT 1060 EVK"
 	depends on ARCH_CHIP_MIMXRT1062DVL6A
@@ -2403,6 +2414,14 @@ config ARCH_BOARD_IMX93_EVK
 		This options selects support for NuttX on the NXP i.MX93 CPUs EVK
 		board with ARM Cortex-A55.
 
+config ARCH_BOARD_IMX95_A55_EVK
+	bool "NXP i.MX95 CPUs EVK board"
+	depends on ARCH_CHIP_IMX95
+	select ARCH_HAVE_IRQBUTTONS
+	---help---
+		This options selects support for NuttX on the NXP i.MX95 CPUs EVK
+		board with ARM Cortex-A55.
+
 config ARCH_BOARD_AVAOTA_A1
 	bool "PINE64 Yuzuki Avaota-A1"
 	depends on ARCH_CHIP_SUNXI_A527
@@ -3522,6 +3541,7 @@ config ARCH_BOARD
 	default "hymini-stm32v"             if ARCH_BOARD_HYMINI_STM32V
 	default "imxrt1020-evk"             if ARCH_BOARD_IMXRT1020_EVK
 	default "imxrt1050-evk"             if ARCH_BOARD_IMXRT1050_EVK
+	default "arcx-socket-grid"          if ARCH_BOARD_ARCX_SOCKET_GRID
 	default "imxrt1060-evk"             if ARCH_BOARD_IMXRT1060_EVK
 	default "imxrt1064-evk"             if ARCH_BOARD_IMXRT1064_EVK
 	default "imxrt1170-evk"             if ARCH_BOARD_IMXRT1170_EVK
@@ -3694,6 +3714,7 @@ config ARCH_BOARD
 	default "fvp-armv8r-aarch32"        if ARCH_BOARD_FVP_ARMV8R_AARCH32
 	default "imx8qm-mek"                if ARCH_BOARD_IMX8QM_MEK
 	default "imx93-evk"                 if ARCH_BOARD_IMX93_EVK
+	default "imx95-a55-evk"             if ARCH_BOARD_IMX95_A55_EVK
 	default "avaota-a1"                 if ARCH_BOARD_AVAOTA_A1
 	default "zcu111"                    if ARCH_BOARD_ZCU111
 	default "sama5d2-xult"              if ARCH_BOARD_SAMA5D2_XULT
@@ -3932,6 +3953,9 @@ endif
 if ARCH_BOARD_IMX93_EVK
 source "boards/arm64/imx9/imx93-evk/Kconfig"
 endif
+if ARCH_BOARD_IMX95_A55_EVK
+source "boards/arm64/imx9/imx95-a55-evk/Kconfig"
+endif
 if ARCH_BOARD_AVAOTA_A1
 source "boards/arm64/a527/avaota-a1/Kconfig"
 endif
@@ -3943,6 +3967,9 @@ source "boards/arm/imxrt/imxrt1020-evk/Kconfig"
 endif
 if ARCH_BOARD_IMXRT1050_EVK
 source "boards/arm/imxrt/imxrt1050-evk/Kconfig"
+endif
+if ARCH_BOARD_ARCX_SOCKET_GRID
+source "boards/arm/imxrt/arcx-socket-grid/Kconfig"
 endif
 if ARCH_BOARD_IMXRT1060_EVK
 source "boards/arm/imxrt/imxrt1060-evk/Kconfig"

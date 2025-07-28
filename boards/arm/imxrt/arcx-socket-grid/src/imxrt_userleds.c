@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm64/src/imx9/imx9_gpiobase.c
+ * boards/arm/imxrt/arcx-socket-grid/src/imxrt_userleds.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,33 +20,68 @@
  *
  ****************************************************************************/
 
+/* There are four LED status indicators located on the EVK Board.  The
+ * functions of these LEDs include:
+ *
+ *   - Main Power Supply(D3)
+ *     Green: DC 5V main supply is normal.
+ *     Red:   J2 input voltage is over 5.6V.
+ *     Off:   The board is not powered.
+ *   - Reset RED LED(D15)
+ *   - OpenSDA LED(D16)
+ *   - USER LED(D18)
+ *
+ * Only a single LED, D18, is under software control.
+ */
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
-#include "imx9_gpio.h"
+#include "imxrt_gpio.h"
+#include "imxrt_iomuxc.h"
+#include "arcx-socket-grid.h"
 
-/****************************************************************************
- * Public Data
- ****************************************************************************/
+#include <arch/board/board.h>
 
-#if defined(CONFIG_ARCH_CHIP_IMX93)
-/* Base address for the GPIO memory mapped registers */
-
-const uintptr_t g_gpio_base[] =
-{
-  IMX9_GPIO1_BASE,
-  IMX9_GPIO2_BASE,
-  IMX9_GPIO3_BASE,
-  IMX9_GPIO4_BASE,
-};
-#elif defined(CONFIG_ARCH_CHIP_IMX95)
-#else
-#  error Unrecognized i.MX9 architecture
-#endif
+#if !defined(CONFIG_ARCH_LEDS) && defined(GPIO_LED)
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
+
+/****************************************************************************
+ * Name: board_userled_initialize
+ ****************************************************************************/
+
+uint32_t board_userled_initialize(void)
+{
+  /* Configure LED GPIO for output */
+
+  imxrt_config_gpio(GPIO_LED);
+  return BOARD_NLEDS;
+}
+
+/****************************************************************************
+ * Name: board_userled
+ ****************************************************************************/
+
+void board_userled(int led, bool ledon)
+{
+  imxrt_gpio_write(GPIO_LED, !ledon);  /* Low illuminates */
+}
+
+/****************************************************************************
+ * Name: board_userled_all
+ ****************************************************************************/
+
+void board_userled_all(uint32_t ledset)
+{
+  /* Low illuminates */
+
+  imxrt_gpio_write(GPIO_LED, (ledset & BOARD_USERLED_BIT) == 0);
+}
+
+#endif /* !CONFIG_ARCH_LEDS */

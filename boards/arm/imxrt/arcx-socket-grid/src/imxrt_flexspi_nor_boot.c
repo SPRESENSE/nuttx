@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm64/src/imx9/imx9_gpiobase.c
+ * boards/arm/imxrt/arcx-socket-grid/src/imxrt_flexspi_nor_boot.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -24,28 +24,33 @@
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
-
-#include "imx9_gpio.h"
+#include "imxrt_flexspi_nor_boot.h"
 
 /****************************************************************************
  * Public Data
  ****************************************************************************/
 
-#if defined(CONFIG_ARCH_CHIP_IMX93)
-/* Base address for the GPIO memory mapped registers */
-
-const uintptr_t g_gpio_base[] =
+locate_data(".boot_hdr.ivt")
+const struct ivt_s g_image_vector_table =
 {
-  IMX9_GPIO1_BASE,
-  IMX9_GPIO2_BASE,
-  IMX9_GPIO3_BASE,
-  IMX9_GPIO4_BASE,
+  IVT_HEADER,                         /* IVT Header */
+  0x60002000,                         /* Image  Entry Function */
+  IVT_RSVD,                           /* Reserved = 0 */
+  (uint32_t)DCD_ADDRESS,              /* Address where DCD information is stored */
+  (uint32_t)BOOT_DATA_ADDRESS,        /* Address where BOOT Data Structure is stored */
+  (uint32_t)&g_image_vector_table,    /* Pointer to IVT Self (absolute address */
+  (uint32_t)CSF_ADDRESS,              /* Address where CSF file is stored */
+  IVT_RSVD                            /* Reserved = 0 */
 };
-#elif defined(CONFIG_ARCH_CHIP_IMX95)
-#else
-#  error Unrecognized i.MX9 architecture
-#endif
+
+locate_data(".boot_hdr.boot_data")
+const struct boot_data_s g_boot_data =
+{
+  FLASH_BASE,                         /* boot start location */
+  (FLASH_END - FLASH_BASE),           /* size */
+  PLUGIN_FLAG,                        /* Plugin flag */
+  0xffffffff                          /* empty - extra data word */
+};
 
 /****************************************************************************
  * Public Functions

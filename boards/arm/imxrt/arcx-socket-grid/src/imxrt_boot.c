@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm64/src/imx9/imx9_gpiobase.c
+ * boards/arm/imxrt/arcx-socket-grid/src/imxrt_boot.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -26,27 +26,54 @@
 
 #include <nuttx/config.h>
 
-#include "imx9_gpio.h"
+#include <nuttx/board.h>
+#include <arch/board/board.h>
 
-/****************************************************************************
- * Public Data
- ****************************************************************************/
-
-#if defined(CONFIG_ARCH_CHIP_IMX93)
-/* Base address for the GPIO memory mapped registers */
-
-const uintptr_t g_gpio_base[] =
-{
-  IMX9_GPIO1_BASE,
-  IMX9_GPIO2_BASE,
-  IMX9_GPIO3_BASE,
-  IMX9_GPIO4_BASE,
-};
-#elif defined(CONFIG_ARCH_CHIP_IMX95)
-#else
-#  error Unrecognized i.MX9 architecture
-#endif
+#include "imxrt_start.h"
+#include "arcx-socket-grid.h"
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
+
+/****************************************************************************
+ * Name: imxrt_boardinitialize
+ *
+ * Description:
+ *   All i.MX RT architectures must provide the following entry point.  This
+ *   entry point is called early in the initialization -- after clocking and
+ *   memory have been configured but before caches have been enabled and
+ *   before any devices have been initialized.
+ *
+ ****************************************************************************/
+
+void imxrt_boardinitialize(void)
+{
+  /* Configure on-board LEDs if LED support has been selected. */
+
+#ifdef CONFIG_ARCH_LEDS
+  imxrt_autoled_initialize();
+#endif
+}
+
+/****************************************************************************
+ * Name: board_late_initialize
+ *
+ * Description:
+ *   If CONFIG_BOARD_LATE_INITIALIZE is selected, then an additional
+ *   initialization call will be performed in the boot-up sequence to a
+ *   function called board_late_initialize(). board_late_initialize() will be
+ *   called immediately after up_intitialize() is called and just before the
+ *   initial application is started.  This additional initialization phase
+ *   may be used, for example, to initialize board-specific device drivers.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_BOARD_LATE_INITIALIZE
+void board_late_initialize(void)
+{
+  /* Perform board initialization */
+
+  imxrt_bringup();
+}
+#endif /* CONFIG_BOARD_LATE_INITIALIZE */
