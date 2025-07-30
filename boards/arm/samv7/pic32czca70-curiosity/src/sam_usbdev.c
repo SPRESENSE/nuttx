@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/samv7/sam_periphclks.h
+ * boards/arm/samv7/pic32czca70-curiosity/src/sam_usbdev.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,58 +20,68 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_ARM_SRC_SAMV7_SAM_PERIPHCLKS_H
-#define __ARCH_ARM_SRC_SAMV7_SAM_PERIPHCLKS_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
-#if defined(CONFIG_ARCH_CHIP_SAMV71) || defined(CONFIG_ARCH_CHIP_PIC32CZCA70)
-#  include "samv71_periphclks.h"
-#elif defined(CONFIG_ARCH_CHIP_SAME70)
-#  include "same70_periphclks.h"
-#else
-#  error Unrecognized SAMV7 architecture
-#endif
+#include <sys/types.h>
+#include <stdint.h>
+#include <stdbool.h>
+#include <debug.h>
+
+#include <nuttx/usb/usbdev.h>
+#include <nuttx/usb/usbdev_trace.h>
+
+#include "arm_internal.h"
+#include "sam_gpio.h"
+#include "sam_board.h"
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
 /****************************************************************************
- * Public Types
+ * Private Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Inline Functions
+ * Public Functions
  ****************************************************************************/
-
-#ifndef __ASSEMBLY__
 
 /****************************************************************************
- * Public Data
+ * Name:  sam_usbinitialize
+ *
+ * Description:
+ *   Called from stm32_boardinitialize very early in initialization to setup
+ *   USB- related GPIO pins for the board.
+ *
  ****************************************************************************/
 
-#undef EXTERN
-#if defined(__cplusplus)
-#define EXTERN extern "C"
-extern "C"
+void sam_usbinitialize(void)
 {
-#else
-#define EXTERN extern
-#endif
+  /* Initialize the VBUS enable signal to HI output in any event so that, by
+   * default, VBUS power is not provided at the USB connector.
+   */
+
+  sam_configgpio(GPIO_VBUSON);
+}
 
 /****************************************************************************
- * Public Function Prototypes
+ * Name:  sam_usbsuspend
+ *
+ * Description:
+ *   Board logic must provide the sam_usbsuspend logic if the USBDEV driver
+ *   is used.
+ *   This function is called whenever the USB enters or leaves suspend mode.
+ *   This is an opportunity for the board logic to shutdown clocks, power,
+ *   etc. while the USB is suspended.
+ *
  ****************************************************************************/
 
-#undef EXTERN
-#if defined(__cplusplus)
+void sam_usbsuspend(struct usbdev_s *dev, bool resume)
+{
+  uinfo("resume: %d\n", resume);
 }
-#endif
 
-#endif /* __ASSEMBLY__ */
-#endif /* __ARCH_ARM_SRC_SAMV7_SAM_PERIPHCLKS_H */

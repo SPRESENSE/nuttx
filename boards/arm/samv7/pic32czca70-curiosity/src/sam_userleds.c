@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/samv7/sam_periphclks.h
+ * boards/arm/samv7/pic32czca70-curiosity/src/sam_userleds.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,58 +20,78 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_ARM_SRC_SAMV7_SAM_PERIPHCLKS_H
-#define __ARCH_ARM_SRC_SAMV7_SAM_PERIPHCLKS_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
-#if defined(CONFIG_ARCH_CHIP_SAMV71) || defined(CONFIG_ARCH_CHIP_PIC32CZCA70)
-#  include "samv71_periphclks.h"
-#elif defined(CONFIG_ARCH_CHIP_SAME70)
-#  include "same70_periphclks.h"
-#else
-#  error Unrecognized SAMV7 architecture
-#endif
+#include <stdint.h>
+#include <stdbool.h>
+#include <debug.h>
+
+#include <arch/board/board.h>
+
+#include "sam_gpio.h"
+#include "sam_board.h"
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
 /****************************************************************************
- * Public Types
+ * Private Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Inline Functions
+ * Public Functions
  ****************************************************************************/
-
-#ifndef __ASSEMBLY__
 
 /****************************************************************************
- * Public Data
+ * Name: board_userled_initialize
  ****************************************************************************/
 
-#undef EXTERN
-#if defined(__cplusplus)
-#define EXTERN extern "C"
-extern "C"
+uint32_t board_userled_initialize(void)
 {
-#else
-#define EXTERN extern
-#endif
+  /* Configure LED GPIOs for output */
+
+  sam_configgpio(GPIO_LED0);
+  sam_configgpio(GPIO_LED1);
+  return BOARD_NLEDS;
+}
 
 /****************************************************************************
- * Public Function Prototypes
+ * Name: board_userled
  ****************************************************************************/
 
-#undef EXTERN
-#if defined(__cplusplus)
-}
-#endif
+void board_userled(int led, bool ledon)
+{
+  uint32_t ledcfg;
 
-#endif /* __ASSEMBLY__ */
-#endif /* __ARCH_ARM_SRC_SAMV7_SAM_PERIPHCLKS_H */
+  if (led == BOARD_LED0)
+    {
+      ledcfg = GPIO_LED0;
+    }
+  else if (led == BOARD_LED1)
+    {
+      ledcfg = GPIO_LED1;
+    }
+  else
+    {
+      return;
+    }
+
+  sam_gpiowrite(ledcfg, !ledon); /* Low illuminates */
+}
+
+/****************************************************************************
+ * Name: board_userled_all
+ ****************************************************************************/
+
+void board_userled_all(uint32_t ledset)
+{
+  /* Low illuminates */
+
+  sam_gpiowrite(GPIO_LED0, (ledset & BOARD_LED0_BIT) == 0);
+  sam_gpiowrite(GPIO_LED1, (ledset & BOARD_LED1_BIT) == 0);
+}
