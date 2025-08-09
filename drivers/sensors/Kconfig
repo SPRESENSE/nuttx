@@ -858,15 +858,6 @@ config L86_XXX_BAUD
 	---help---
 		Supported values are: 4800, 9600, 14400, 19200, 38400, 57600 and 115200
 
-config L86_XXX_FIX_INT
-	int "Quectel L86-XXX fix interval rate"
-	default 1000
-	depends on SENSORS_L86_XXX
-	range 100 10000
-	---help---
-		Rate in ms at which module obtains satellite fix. Supported values
-		are integers between 100 10000
-	
 config SENSORS_LIS2DH
 	bool "STMicro LIS2DH device support"
 	default n
@@ -980,8 +971,25 @@ config SENSORS_LSM6DSO32_I2C_FREQUENCY
 config SENSORS_LSM6DSO32_THREAD_STACKSIZE
 	int "LSM6DSO32 worker thread stack size"
 	default 1024
+	depends on SENSORS_LSM6DSO32
 	---help---
 		The stack size for the worker threads that perform measurements.
+
+config SENSORS_LSM6DSO32_ACCEL_ORB_BUFSIZE
+	int "LSM6DSO32 accelerometer uORB buffer size"
+	default 10
+	range 0 500
+	depends on SENSORS_LSM6DSO32
+	---help---
+		The circular buffer size for the accelerometer uORB measurements
+
+config SENSORS_LSM6DSO32_GYRO_ORB_BUFSIZE
+	int "LSM6DSO32 gyro uORB buffer size"
+	default 10
+	range 0 500
+	depends on SENSORS_LSM6DSO32
+	---help---
+		The circular buffer size for the gyroscope uORB measurements
 
 config SENSORS_LSM9DS1
 	bool "STMicro LSM9DS1 support"
@@ -1650,6 +1658,13 @@ config SENSORS_LIS2MDL_THREAD_STACKSIZE
 	default 1024
 	---help---
 		The stack size for the worker thread that performs measurements
+
+config SENSORS_LIS2MDL_ORB_BUFSIZE
+	int "LIS2MDL uORB buffer size"
+	default 10
+	range 0 100
+	---help---
+		The size of the uORB circular buffer for storing measurements.
 
 config SENSORS_LIS2MDL_FETCH
 	bool "Enable LIS2MDL fetch capability"
