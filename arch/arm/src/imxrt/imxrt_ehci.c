@@ -50,6 +50,7 @@
 #include "chip.h"
 #include "hardware/imxrt_usbotg.h"
 #include "imxrt_periphclks.h"
+#include "imxrt_ehci.h"
 
 #if defined(CONFIG_IMXRT_USBOTG) && defined(CONFIG_USBHOST)
 
@@ -459,8 +460,8 @@ static int imxrt_qh_dump(struct imxrt_qh_s *qh, uint32_t **bp, void *arg);
 #else
 #  define imxrt_qtd_print(qtd)
 #  define imxrt_qh_print(qh)
-#  define imxrt_qtd_dump(qtd, bp, arg) OK
-#  define imxrt_qh_dump(qh, bp, arg)   OK
+#  define imxrt_qtd_dump(qtd, bp, arg) ((void)OK)
+#  define imxrt_qh_dump(qh, bp, arg)   ((void)OK)
 #endif
 
 static inline uint8_t imxrt_ehci_speed(uint8_t usbspeed);
@@ -478,9 +479,6 @@ static struct imxrt_qtd_s *imxrt_qtd_setupphase(
 static struct imxrt_qtd_s *imxrt_qtd_dataphase(struct imxrt_epinfo_s *epinfo,
          void *buffer, int buflen, uint32_t tokenbits);
 static struct imxrt_qtd_s *imxrt_qtd_statusphase(uint32_t tokenbits);
-static ssize_t imxrtimxrt_virtramaddr_async_setup(
-         struct imxrt_rhport_s *rhport, struct imxrt_epinfo_s *epinfo,
-         const struct usb_ctrlreq_s *req, uint8_t *buffer, size_t buflen);
 #ifndef CONFIG_USBHOST_INT_DISABLE
 static int imxrt_intr_setup(struct imxrt_rhport_s *rhport,
          struct imxrt_epinfo_s *epinfo, uint8_t *buffer, size_t buflen);
@@ -5055,7 +5053,7 @@ struct usbhost_connection_s *imxrt_ehci_initialize(int controller)
       hport->speed = USB_SPEED_FULL;
     }
 
-#  ifndef CONFIG_IMXRT_EHCI_PREALLOCATE
+#  ifndef CONFIG_IMXRT_EHCI_USB1_PREALLOCATE
   /* Allocate a pool of free Queue Head (QH) structures */
 
   g_qhpool = kmm_memalign(32, CONFIG_IMXRT_EHCI_USB1_NQHS *
