@@ -53,7 +53,6 @@
 struct sig_arg_s
 {
   pid_t pid;
-  cpu_set_t saved_affinity;
   bool need_restore;
 };
 
@@ -82,7 +81,6 @@ static int sig_handler(FAR void *cookie)
 
   if (arg->need_restore)
     {
-      tcb->affinity = arg->saved_affinity;
       tcb->flags &= ~TCB_FLAG_CPU_LOCKED;
     }
 
@@ -175,12 +173,8 @@ static int nxsig_queue_action(FAR struct tcb_s *stcb,
                     }
                   else
                     {
-                      arg.saved_affinity = stcb->affinity;
                       arg.need_restore   = true;
-
                       stcb->flags        |= TCB_FLAG_CPU_LOCKED;
-                      CPU_ZERO(&stcb->affinity);
-                      CPU_SET(stcb->cpu, &stcb->affinity);
                     }
 
                   arg.pid = stcb->pid;
@@ -556,7 +550,7 @@ int nxsig_tcbdispatch(FAR struct tcb_s *stcb, siginfo_t *info,
 
           if (nxsched_add_readytorun(stcb))
             {
-              up_switch_context(stcb, rtcb);
+              up_switch_context(this_task(), rtcb);
             }
 
 #ifdef CONFIG_LIB_SYSCALL
@@ -614,7 +608,7 @@ int nxsig_tcbdispatch(FAR struct tcb_s *stcb, siginfo_t *info,
 
           if (nxsched_add_readytorun(stcb))
             {
-              up_switch_context(stcb, rtcb);
+              up_switch_context(this_task(), rtcb);
             }
         }
 
@@ -674,7 +668,7 @@ int nxsig_tcbdispatch(FAR struct tcb_s *stcb, siginfo_t *info,
 
           if (nxsched_add_readytorun(stcb))
             {
-              up_switch_context(stcb, rtcb);
+              up_switch_context(this_task(), rtcb);
             }
 #endif
         }

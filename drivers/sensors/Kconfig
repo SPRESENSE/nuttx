@@ -202,7 +202,7 @@ config SENSORS_BH1750FVI
 config SENSORS_NAU7802
 	bool "Adafruit NAU7802 ADC sensor support"
 	default n
-	select I2C 
+	select I2C
 	---help---
 		Enable driver support for the Adafruit NAU7802 sensor.
 
@@ -2145,5 +2145,20 @@ config SENSORS_FS3000_THREAD_STACKSIZE
 		The stack size for the worker thread.
 
 endif # SENSORS_FS3000
+
+config SENSORS_TMP112
+	bool "Texas Instruments TMP112x Temperature Sensor support"
+	default n
+	select I2C
+	---help---
+		Enable driver support for the Texas Instruments TMP112x temperature sensor.
+
+if SENSORS_TMP112
+
+config TMP112_I2C_FREQUENCY
+	int "TMP112 I2C frequency"
+	default 400000
+
+endif #SENSORS_TMP112
 
 endif # SENSORS

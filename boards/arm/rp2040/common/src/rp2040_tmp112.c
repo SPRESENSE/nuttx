@@ -1,5 +1,5 @@
 /****************************************************************************
- * sched/group/group_continue.c
+ * boards/arm/rp2040/common/src/rp2040_tmp112.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -26,95 +26,80 @@
 
 #include <nuttx/config.h>
 
-#include <sys/types.h>
-#include <stdint.h>
-#include <sched.h>
-#include <pthread.h>
+#include <stdio.h>
+#include <debug.h>
 
-#include <nuttx/sched.h>
+#include <nuttx/arch.h>
+#include <nuttx/sensors/tmp112.h>
 
-#include "sched/sched.h"
-#include "group/group.h"
+#include "rp2040_i2c.h"
+#include "rp2040_tmp112.h"
 
-#ifdef HAVE_GROUP_MEMBERS
+/****************************************************************************
+ * Pre-processor Definitions
+ ****************************************************************************/
+
+/****************************************************************************
+ * Private Types
+ ****************************************************************************/
+
+/****************************************************************************
+ * Private Function Prototypes
+ ****************************************************************************/
+
+/****************************************************************************
+ * Private Data
+ ****************************************************************************/
+
+/****************************************************************************
+ * Public Data
+ ****************************************************************************/
 
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: group_continue_handler
- *
- * Description:
- *   Callback from group_foreachchild that handles one member of the group.
- *
- * Input Parameters:
- *   pid - The ID of the group member that may be resumed.
- *   arg - Unused
- *
- * Returned Value:
- *   0 (OK) always
- *
- ****************************************************************************/
-
-static int group_continue_handler(pid_t pid, FAR void *arg)
-{
-  FAR struct tcb_s *tcb = this_task();
-  FAR struct tcb_s *rtcb;
-
-  /* Resume all threads */
-
-  rtcb = nxsched_get_tcb(pid);
-  if (rtcb != NULL)
-    {
-      /* Remove the task from waiting list */
-
-      nxsched_remove_blocked(rtcb);
-
-      /* Add the task to ready-to-run task list and
-       * perform the context switch if one is needed
-       */
-
-      if (nxsched_add_readytorun(rtcb))
-        {
-          up_switch_context(this_task(), tcb);
-        }
-    }
-
-  /* Always return zero.  We need to visit each member of the group */
-
-  return OK;
-}
-
-/****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: group_continue
+ * Name: board_tmp112_initialize
  *
  * Description:
- *   Resume all members of the task group.  This is SIGCONT default signal
- *   action logic.
- *   Note: this function should used within critical_section
+ *   Initialize and register the TMP112 temperature sensor driver.
  *
  * Input Parameters:
- *   tcb - TCB of the task to be retained.
+ *   i2c   - An instance of the I2C interface to use.
+ *   devno - The device number, used to build the device path as /dev/tempN.
+ *   addr  - The I2C address to use.
  *
  * Returned Value:
- *   None
+ *   Zero (OK) on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
-int group_continue(FAR struct tcb_s *tcb)
+int board_tmp112_initialize(FAR struct i2c_master_s *i2c, int devno,
+                            uint8_t addr)
 {
-  irqstate_t flags;
+  char devpath[11];
   int ret;
 
-  flags = enter_critical_section();
-  ret = group_foreachchild(tcb->group, group_continue_handler, NULL);
-  leave_critical_section(flags);
+  sninfo("Initializing TMP112 with address %#4x\n", addr);
+
+  if (i2c)
+    {
+      snprintf(devpath, sizeof(devpath), "/dev/temp%d", devno);
+      ret = tmp112_register(devpath, i2c, addr);
+      if (ret < 0)
+        {
+          snerr("ERROR: Error registering TMP112 at /dev/temp%d\n", devno);
+        }
+    }
+  else
+    {
+      ret = -ENODEV;
+    }
+
   return ret;
 }
-
-#endif /* HAVE_GROUP_MEMBERS */

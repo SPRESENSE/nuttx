@@ -1,5 +1,5 @@
 /****************************************************************************
- * sched/group/group_continue.c
+ * boards/arm/rp2040/common/include/rp2040_tmp112.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,101 +20,70 @@
  *
  ****************************************************************************/
 
+#ifndef __BOARDS_ARM_RP2040_COMMON_INCLUDE_RP2040_TMP112_H
+#define __BOARDS_ARM_RP2040_COMMON_INCLUDE_RP2040_TMP112_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
-
-#include <sys/types.h>
-#include <stdint.h>
-#include <sched.h>
-#include <pthread.h>
-
-#include <nuttx/sched.h>
-
-#include "sched/sched.h"
-#include "group/group.h"
-
-#ifdef HAVE_GROUP_MEMBERS
+#include <nuttx/i2c/i2c_master.h>
 
 /****************************************************************************
- * Private Functions
+ * Pre-processor Definitions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: group_continue_handler
+ * Type Definitions
+ ****************************************************************************/
+
+/****************************************************************************
+ * Public Types
+ ****************************************************************************/
+
+/****************************************************************************
+ * Public Data
+ ****************************************************************************/
+
+#ifdef __cplusplus
+#define EXTERN extern "C"
+extern "C"
+{
+#else
+#define EXTERN extern
+#endif
+
+/****************************************************************************
+ * Inline Functions
+ ****************************************************************************/
+
+/****************************************************************************
+ * Public Function Prototypes
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: board_tmp112_initialize
  *
  * Description:
- *   Callback from group_foreachchild that handles one member of the group.
+ *   Initialize and register the TMP112 temperature sensor driver.
  *
  * Input Parameters:
- *   pid - The ID of the group member that may be resumed.
- *   arg - Unused
+ *   i2c   - An instance of the I2C interface to use.
+ *   devno - The device number, used to build the device path as /dev/tempN.
+ *   addr  - The I2C address to use.
  *
  * Returned Value:
- *   0 (OK) always
+ *   Zero (OK) on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
-static int group_continue_handler(pid_t pid, FAR void *arg)
-{
-  FAR struct tcb_s *tcb = this_task();
-  FAR struct tcb_s *rtcb;
+int board_tmp112_initialize(FAR struct i2c_master_s *i2c, int devno,
+                            uint8_t addr);
 
-  /* Resume all threads */
-
-  rtcb = nxsched_get_tcb(pid);
-  if (rtcb != NULL)
-    {
-      /* Remove the task from waiting list */
-
-      nxsched_remove_blocked(rtcb);
-
-      /* Add the task to ready-to-run task list and
-       * perform the context switch if one is needed
-       */
-
-      if (nxsched_add_readytorun(rtcb))
-        {
-          up_switch_context(this_task(), tcb);
-        }
-    }
-
-  /* Always return zero.  We need to visit each member of the group */
-
-  return OK;
+#undef EXTERN
+#ifdef __cplusplus
 }
+#endif
 
-/****************************************************************************
- * Public Functions
- ****************************************************************************/
-
-/****************************************************************************
- * Name: group_continue
- *
- * Description:
- *   Resume all members of the task group.  This is SIGCONT default signal
- *   action logic.
- *   Note: this function should used within critical_section
- *
- * Input Parameters:
- *   tcb - TCB of the task to be retained.
- *
- * Returned Value:
- *   None
- *
- ****************************************************************************/
-
-int group_continue(FAR struct tcb_s *tcb)
-{
-  irqstate_t flags;
-  int ret;
-
-  flags = enter_critical_section();
-  ret = group_foreachchild(tcb->group, group_continue_handler, NULL);
-  leave_critical_section(flags);
-  return ret;
-}
-
-#endif /* HAVE_GROUP_MEMBERS */
+#endif /* __BOARDS_ARM_RP2040_COMMON_INCLUDE_RP2040_TMP112_H */
