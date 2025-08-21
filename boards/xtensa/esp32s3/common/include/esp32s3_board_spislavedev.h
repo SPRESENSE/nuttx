@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/tricore/include/arch.h
+ * boards/xtensa/esp32s3/common/include/esp32s3_board_spislavedev.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,12 +20,8 @@
  *
  ****************************************************************************/
 
-/* This file should never be included directly but, rather,
- * only indirectly through nuttx/arch.h
- */
-
-#ifndef __ARCH_TRICORE_INCLUDE_ARCH_H
-#define __ARCH_TRICORE_INCLUDE_ARCH_H
+#ifndef __BOARDS_XTENSA_ESP32S3_COMMON_INCLUDE_ESP32S3_BOARD_SPISLAVEDEV_H
+#define __BOARDS_XTENSA_ESP32S3_COMMON_INCLUDE_ESP32S3_BOARD_SPISLAVEDEV_H
 
 /****************************************************************************
  * Included Files
@@ -33,24 +29,14 @@
 
 #include <nuttx/config.h>
 
-#ifndef __ASSEMBLY__
-#  include <stdint.h>
-#  include <stddef.h>
-#endif
-
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
-/****************************************************************************
- * Public Types
- ****************************************************************************/
+#ifndef __ASSEMBLY__
 
-/****************************************************************************
- * Public Function Prototypes
- ****************************************************************************/
-
-#ifdef __cplusplus
+#undef EXTERN
+#if defined(__cplusplus)
 #define EXTERN extern "C"
 extern "C"
 {
@@ -58,9 +44,33 @@ extern "C"
 #define EXTERN extern
 #endif
 
+/****************************************************************************
+ * Public Function Prototypes
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: board_spislavedev_initialize
+ *
+ * Description:
+ *   Initialize SPI Slave driver and register the /dev/spislv device.
+ *
+ * Input Parameters:
+ *   bus - The SPI bus number, used to build the device path as /dev/spislvN
+ *
+ * Returned Value:
+ *   Zero (OK) is returned on success; A negated errno value is returned
+ *   to indicate the nature of any failure.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_SPI_SLAVE_DRIVER
+int board_spislavedev_initialize(int bus);
+#endif
+
 #undef EXTERN
-#ifdef __cplusplus
+#if defined(__cplusplus)
 }
 #endif
 
-#endif /* __ARCH_TRICORE_INCLUDE_ARCH_H */
+#endif /* __ASSEMBLY__ */
+#endif /* __BOARDS_XTENSA_ESP32S3_COMMON_INCLUDE_ESP32S3_BOARD_SPISLAVEDEV_H */

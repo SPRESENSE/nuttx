@@ -1,7 +1,5 @@
 # ##############################################################################
-# drivers/leds/CMakeLists.txt
-#
-# SPDX-License-Identifier: Apache-2.0
+# arch/arm64/src/bcm2711/CMakeLists.txt
 #
 # Licensed to the Apache Software Foundation (ASF) under one or more contributor
 # license agreements.  See the NOTICE file distributed with this work for
@@ -20,46 +18,26 @@
 #
 # ##############################################################################
 
-set(SRCS)
+# BCM2711 specific C source files
 
-if(CONFIG_USERLED)
-  list(APPEND SRCS userled_upper.c)
+set(SRCS bcm2711_boot.c bcm2711_serial.c bcm2711_gpio.c bcm2711_timer.c)
 
-  if(CONFIG_USERLED_LOWER)
-    list(APPEND SRCS userled_lower.c)
-  endif()
+# Early boot logging
+
+if(CONFIG_ARCH_EARLY_PRINT)
+  list(APPEND SRCS bcm2711_lowputc.c)
 endif()
 
-if(CONFIG_LEDS_APA102)
-  list(APPEND SRCS apa102.c)
+# I2C interfaces
+
+if(CONFIG_BCM2711_I2C)
+  list(APPEND SRCS bcm2711_i2c.c)
 endif()
 
-if(CONFIG_KTD2052)
-  list(APPEND SRCS ktd2052.c)
+# SPI interfaces
+#
+if(CONFIG_BCM2711_SPI)
+  list(APPEND SRCS bcm2711_spi.c)
 endif()
 
-if(CONFIG_LEDS_MAX7219)
-  list(APPEND SRCS max7219.c)
-endif()
-
-if(CONFIG_RGBLED)
-  list(APPEND SRCS rgbled.c)
-endif()
-
-if(CONFIG_LP503X)
-  list(APPEND SRCS lp503x.c)
-endif()
-
-if(CONFIG_PCA9635PW)
-  list(APPEND SRCS pca9635pw.c)
-endif()
-
-if(CONFIG_NCP5623C)
-  list(APPEND SRCS ncp5623c.c)
-endif()
-
-if(CONFIG_WS2812)
-  list(APPEND SRCS ws2812.c)
-endif()
-
-target_sources(drivers PRIVATE ${SRCS})
+target_sources(arch PRIVATE ${SRCS})

@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/tricore/include/arch.h
+ * boards/xtensa/esp32s3/common/src/esp32s3_board_spislavedev.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,47 +20,63 @@
  *
  ****************************************************************************/
 
-/* This file should never be included directly but, rather,
- * only indirectly through nuttx/arch.h
- */
-
-#ifndef __ARCH_TRICORE_INCLUDE_ARCH_H
-#define __ARCH_TRICORE_INCLUDE_ARCH_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
-#ifndef __ASSEMBLY__
-#  include <stdint.h>
-#  include <stddef.h>
-#endif
+#include <stdio.h>
+#include <debug.h>
+#include <errno.h>
+
+#include <nuttx/spi/slave.h>
+
+#include "esp32s3_spi.h"
 
 /****************************************************************************
- * Pre-processor Definitions
+ * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Public Types
+ * Name: board_spislavedev_initialize
+ *
+ * Description:
+ *   Initialize SPI Slave driver and register the /dev/spislv device.
+ *
+ * Input Parameters:
+ *   bus - The SPI bus number, used to build the device path as /dev/spislvN
+ *
+ * Returned Value:
+ *   Zero (OK) is returned on success; A negated errno value is returned
+ *   to indicate the nature of any failure.
+ *
  ****************************************************************************/
 
-/****************************************************************************
- * Public Function Prototypes
- ****************************************************************************/
-
-#ifdef __cplusplus
-#define EXTERN extern "C"
-extern "C"
+int board_spislavedev_initialize(int bus)
 {
-#else
-#define EXTERN extern
-#endif
+  int ret;
 
-#undef EXTERN
-#ifdef __cplusplus
+  struct spi_slave_ctrlr_s *ctrlr;
+
+  spiinfo("Initializing /dev/spislv%d...\n", bus);
+
+  /* Initialize SPI Slave controller device */
+
+  ctrlr = esp32s3_spislave_ctrlr_initialize(bus);
+  if (ctrlr == NULL)
+    {
+      spierr("Failed to initialize SPI%d as slave.\n", bus);
+      return -ENODEV;
+    }
+
+  ret = spi_slave_register(ctrlr, bus);
+  if (ret < 0)
+    {
+      spierr("Failed to register /dev/spislv%d: %d\n", bus, ret);
+
+      esp32s3_spislave_ctrlr_uninitialize(ctrlr);
+    }
+
+  return ret;
 }
-#endif
-
-#endif /* __ARCH_TRICORE_INCLUDE_ARCH_H */

@@ -1,7 +1,5 @@
 /****************************************************************************
- * arch/tricore/include/arch.h
- *
- * SPDX-License-Identifier: Apache-2.0
+ * arch/arm/include/arm/barriers.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -20,47 +18,25 @@
  *
  ****************************************************************************/
 
-/* This file should never be included directly but, rather,
- * only indirectly through nuttx/arch.h
- */
-
-#ifndef __ARCH_TRICORE_INCLUDE_ARCH_H
-#define __ARCH_TRICORE_INCLUDE_ARCH_H
+#ifndef __ARCH_ARM_INCLUDE_ARM_BARRIERS_H
+#define __ARCH_ARM_INCLUDE_ARM_BARRIERS_H
 
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
-
-#ifndef __ASSEMBLY__
-#  include <stdint.h>
-#  include <stddef.h>
-#endif
-
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
-/****************************************************************************
- * Public Types
- ****************************************************************************/
+/* ARM memory barriers */
 
-/****************************************************************************
- * Public Function Prototypes
- ****************************************************************************/
+#define arm_dsb()  __asm__ __volatile__ ("dsb " : : : "memory")
+#define arm_isb()  __asm__ __volatile__ ("isb " : : : "memory")
+#define arm_dmb()  __asm__ __volatile__ ("dmb " : : : "memory")
 
-#ifdef __cplusplus
-#define EXTERN extern "C"
-extern "C"
-{
-#else
-#define EXTERN extern
-#endif
+#define UP_DSB()  arm_dsb()
+#define UP_ISB()  arm_isb()
+#define UP_DMB()  arm_dmb()
 
-#undef EXTERN
-#ifdef __cplusplus
-}
-#endif
-
-#endif /* __ARCH_TRICORE_INCLUDE_ARCH_H */
+#endif /* __ARCH_ARM_INCLUDE_ARM_BARRIERS_H */

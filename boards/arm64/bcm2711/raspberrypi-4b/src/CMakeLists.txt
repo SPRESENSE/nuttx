@@ -1,7 +1,5 @@
 # ##############################################################################
-# drivers/leds/CMakeLists.txt
-#
-# SPDX-License-Identifier: Apache-2.0
+# boards/arm64/bcm2711/raspberrypi-4b/src/CMakeLists.txt
 #
 # Licensed to the Apache Software Foundation (ASF) under one or more contributor
 # license agreements.  See the NOTICE file distributed with this work for
@@ -20,46 +18,18 @@
 #
 # ##############################################################################
 
-set(SRCS)
+set(SRCS rpi4b_boardinitialize.c rpi4b_bringup.c)
 
-if(CONFIG_USERLED)
-  list(APPEND SRCS userled_upper.c)
-
-  if(CONFIG_USERLED_LOWER)
-    list(APPEND SRCS userled_lower.c)
-  endif()
+if(CONFIG_BOARDCTL)
+  list(APPEND SRCS rpi4b_appinit.c)
 endif()
 
-if(CONFIG_LEDS_APA102)
-  list(APPEND SRCS apa102.c)
+if(CONFIG_DEV_GPIO)
+  list(APPEND SRCS rpi4b_gpio.c)
 endif()
 
-if(CONFIG_KTD2052)
-  list(APPEND SRCS ktd2052.c)
+if(CONFIG_BCM2711_I2C_DRIVER)
+  list(APPEND SRCS bcm2711_i2cdev.c)
 endif()
 
-if(CONFIG_LEDS_MAX7219)
-  list(APPEND SRCS max7219.c)
-endif()
-
-if(CONFIG_RGBLED)
-  list(APPEND SRCS rgbled.c)
-endif()
-
-if(CONFIG_LP503X)
-  list(APPEND SRCS lp503x.c)
-endif()
-
-if(CONFIG_PCA9635PW)
-  list(APPEND SRCS pca9635pw.c)
-endif()
-
-if(CONFIG_NCP5623C)
-  list(APPEND SRCS ncp5623c.c)
-endif()
-
-if(CONFIG_WS2812)
-  list(APPEND SRCS ws2812.c)
-endif()
-
-target_sources(drivers PRIVATE ${SRCS})
+target_sources(board PRIVATE ${SRCS})
