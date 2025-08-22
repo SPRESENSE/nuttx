@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/tricore/src/common/tricore_irq.c
+ * libs/libc/pthread/pthread_concurrency.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -24,105 +24,64 @@
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
+#include <pthread.h>
 
-#include <stdint.h>
-#include <assert.h>
-#include <debug.h>
+/****************************************************************************
+ * Public Data
+ ****************************************************************************/
 
-#include <nuttx/arch.h>
-#include <nuttx/irq.h>
-
-#include "tricore_internal.h"
-
-#include "IfxSrc.h"
-#include "IfxCpu.h"
+static int g_pthread_concurrency_level = 0;
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: up_irq_enable
+ * Name: pthread_setconcurrency
  *
  * Description:
- *   Enable interrupts globally.
+ *   The pthread_setconcurrency() function informs the implementation of
+ *   the application's desired concurrency level.
+ *
+ *   NuttX uses 1:1 threading model, so this function has no real effect
+ *   on the scheduling behavior.
+ *
+ * Input Parameters:
+ *  new_level - desired concurrency level
+ *
+ * Returned Value:
+ *  Returns 0 on success, on error it returns a nonzero error number
  *
  ****************************************************************************/
 
-void up_irq_enable(void)
+int pthread_setconcurrency(int new_level)
 {
-  IfxCpu_enableInterrupts();
+  if (new_level < 0)
+    {
+      return EINVAL;
+    }
+
+  g_pthread_concurrency_level = new_level;
+
+  return OK;
 }
 
 /****************************************************************************
- * Name: up_irqinitialize
- ****************************************************************************/
-
-void up_irqinitialize(void)
-{
-  up_irq_enable();
-}
-
-/****************************************************************************
- * Name: up_disable_irq
+ * Name: pthread_getconcurrency
  *
  * Description:
- *   Disable the IRQ specified by 'irq'
+ *   The pthread_getconcurrency() returns the value previously set by
+ *   pthread_setconcurrency().
+ *
+ * Input Parameters:
+ *   None
+ *
+ * Returned Value:
+ *   Returns the current value of concurrency level.
  *
  ****************************************************************************/
 
-void up_disable_irq(int irq)
+int pthread_getconcurrency(void)
 {
-  volatile Ifx_SRC_SRCR *src = &SRC_CPU_CPU0_SB + irq;
-
-  IfxSrc_disable(src);
-}
-
-/****************************************************************************
- * Name: up_enable_irq
- *
- * Description:
- *   Enable the IRQ specified by 'irq'
- *
- ****************************************************************************/
-
-void up_enable_irq(int irq)
-{
-  volatile Ifx_SRC_SRCR *src = &SRC_CPU_CPU0_SB + irq;
-
-  IfxSrc_init(src, IfxSrc_Tos_cpu0, irq);
-  IfxSrc_enable(src);
-}
-
-#ifdef CONFIG_ARCH_HAVE_IRQTRIGGER
-
-/****************************************************************************
- * Name: up_trigger_irq
- *
- * Description:
- *   Trigger an IRQ by software.
- *
- ****************************************************************************/
-
-void up_trigger_irq(int irq, cpu_set_t cpuset)
-{
-  (void) cpuset;
-  volatile Ifx_SRC_SRCR *src = &SRC_CPU_CPU0_SB + irq;
-
-  IfxSrc_setRequest(src);
-}
-
-#endif
-
-/****************************************************************************
- * Name: tricore_ack_irq
- *
- * Description:
- *   Acknowledge the IRQ
- *
- ****************************************************************************/
-
-void tricore_ack_irq(int irq)
-{
+  return g_pthread_concurrency_level;
 }

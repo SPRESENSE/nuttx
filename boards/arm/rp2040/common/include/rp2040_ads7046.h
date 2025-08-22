@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm64/src/imx9/imx9_iomuxc.h
+ * boards/arm/rp2040/common/include/rp2040_ads7046.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,79 +20,33 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_ARM64_SRC_IMX9_IMX9_IOMUXC_H
-#define __ARCH_ARM64_SRC_IMX9_IMX9_IOMUXC_H
+#ifndef __BOARDS_ARM_RP2040_COMMON_INCLUDE_RP2040_ADS7046_H
+#define __BOARDS_ARM_RP2040_COMMON_INCLUDE_RP2040_ADS7046_H
 
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
-
-#include <stdint.h>
-#include <stdbool.h>
-
-#include "hardware/imx9_iomuxc.h"
+#include <nuttx/spi/spi.h>
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
-#define IOMUX_PADCFG(_ctlreg, _mode, _dsyreg, _dsy, _padreg) \
-  {                                                          \
-    .ctlreg = (_ctlreg),                                     \
-    .padreg = (_padreg),                                     \
-    .dsyreg = (_dsyreg),                                     \
-    .mode   = (_mode),                                       \
-    .dsy    = (_dsy),                                        \
-  }
-
-#define IOMUX_CFG(_padcfg, _pad, _mux) \
-  (iomux_cfg_t)                        \
-  {                                    \
-    .padcfg = _padcfg,                 \
-    .pad    = (_pad),                  \
-    .mux    = (_mux),                  \
-  }
+/****************************************************************************
+ * Type Definitions
+ ****************************************************************************/
 
 /****************************************************************************
  * Public Types
  ****************************************************************************/
 
-/* Information for the pad alternate function */
-
-struct iomux_padcfg_s
-{
-  /* Register offsets for PAD */
-
-  uintptr_t ctlreg;
-  uintptr_t padreg;
-  uintptr_t dsyreg;
-
-  /* ALT and input daisy configuration for pad */
-
-  uint32_t  mode;
-  uint32_t  dsy;
-};
-
-struct iomux_cfg_s
-{
-  struct iomux_padcfg_s padcfg;
-
-  /* Register values */
-
-  uint32_t pad;
-  uint32_t mux;
-};
-
-typedef struct iomux_cfg_s iomux_cfg_t;
-
 /****************************************************************************
- * Public Function Prototypes
+ * Public Data
  ****************************************************************************/
 
-#undef EXTERN
-#if defined(__cplusplus)
+#ifdef __cplusplus
 #define EXTERN extern "C"
 extern "C"
 {
@@ -101,42 +55,33 @@ extern "C"
 #endif
 
 /****************************************************************************
- * Name: imx9_iomux_configure
- *
- * Description:
- *   This function writes the encoded pad configuration to the Pad Control
- *   register.
- *
- * Input Parameters:
- *   cfg - The IOMUX configuration
- *
- * Returned Value:
- *   Zero (OK) on success; a negated errno value on failure.
- *
+ * Inline Functions
  ****************************************************************************/
-
-int imx9_iomux_configure(iomux_cfg_t cfg);
 
 /****************************************************************************
- * Name: imx9_iomux_configure
+ * Public Function Prototypes
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: board_ads7046_initialize
  *
  * Description:
- *   This can be used to forcibly set a pad to GPIO mode. This overrides and
- *   disconnects any peripheral using the pin.
+ *   Initialize and register the ADS7046 ADC driver.
  *
  * Input Parameters:
- *   cfg - The IOMUX configuration.
- *   sion - if true; sets SION, otherwise clears it.
+ *   spi   - An instance of the SPI interface to use.
+ *   devno - The device number, used to build the device path as /dev/adcN.
  *
  * Returned Value:
  *   Zero (OK) on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
-int imx9_iomux_gpio(iomux_cfg_t cfg, bool sion);
+int board_ads7046_initialize(FAR struct spi_dev_s *spi, int devno);
 
 #undef EXTERN
-#if defined(__cplusplus)
+#ifdef __cplusplus
 }
 #endif
-#endif /* __ARCH_ARM64_SRC_IMX9_IMX9_IOMUXC_H */
+
+#endif /* __BOARDS_ARM_RP2040_COMMON_INCLUDE_RP2040_ADS7046_H */

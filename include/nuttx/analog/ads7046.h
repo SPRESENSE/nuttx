@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/tricore/src/common/tricore_irq.c
+ * include/nuttx/analog/ads7046.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,109 +20,60 @@
  *
  ****************************************************************************/
 
+#ifndef __INCLUDE_NUTTX_ANALOG_ADS7046_H
+#define __INCLUDE_NUTTX_ANALOG_ADS7046_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
-
+#include <nuttx/spi/spi.h>
 #include <stdint.h>
-#include <assert.h>
-#include <debug.h>
 
-#include <nuttx/arch.h>
-#include <nuttx/irq.h>
-
-#include "tricore_internal.h"
-
-#include "IfxSrc.h"
-#include "IfxCpu.h"
+#if defined(CONFIG_ADC_ADS7046)
 
 /****************************************************************************
- * Public Functions
+ * Pre-processor Definitions
+ ****************************************************************************/
+
+/* IOCTL Commands ***********************************************************/
+
+/* Cmd: ANIOC_ADS7046_READ                    Arg: uint16_t *value
+ * Cmd: ANIOC_ADS7046_READ_FASTUNSAFE         Arg: uint16_t *value
+ * Cmd: ANIOC_ADS7046_OFFCAL                  Arg: N/A
+ */
+
+#define ANIOC_ADS7046_READ                    _ANIOC(AN_ADS7046_FIRST + 0)
+#define ANIOC_ADS7046_READ_FASTUNSAFE         _ANIOC(AN_ADS7046_FIRST + 1)
+#define ANIOC_ADS7046_OFFCAL                  _ANIOC(AN_ADS7046_FIRST + 2)
+
+/****************************************************************************
+ * Public Types
  ****************************************************************************/
 
 /****************************************************************************
- * Name: up_irq_enable
+ * Public Function Prototypes
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: ads7046_register
  *
  * Description:
- *   Enable interrupts globally.
+ *   Register the ADS7046 character device as 'devpath'
+ *
+ * Input Parameters:
+ *   devpath  - The full path to the driver to register. E.g., "/dev/adc0"
+ *   spi      - An instance of the SPI interface to use.
+ *   devno    - SPI device number.
+ *
+ * Returned Value:
+ *   Zero (OK) on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
-void up_irq_enable(void)
-{
-  IfxCpu_enableInterrupts();
-}
+int ads7046_register(FAR const char *devpath, FAR struct spi_dev_s *spi,
+                     unsigned int devno);
 
-/****************************************************************************
- * Name: up_irqinitialize
- ****************************************************************************/
-
-void up_irqinitialize(void)
-{
-  up_irq_enable();
-}
-
-/****************************************************************************
- * Name: up_disable_irq
- *
- * Description:
- *   Disable the IRQ specified by 'irq'
- *
- ****************************************************************************/
-
-void up_disable_irq(int irq)
-{
-  volatile Ifx_SRC_SRCR *src = &SRC_CPU_CPU0_SB + irq;
-
-  IfxSrc_disable(src);
-}
-
-/****************************************************************************
- * Name: up_enable_irq
- *
- * Description:
- *   Enable the IRQ specified by 'irq'
- *
- ****************************************************************************/
-
-void up_enable_irq(int irq)
-{
-  volatile Ifx_SRC_SRCR *src = &SRC_CPU_CPU0_SB + irq;
-
-  IfxSrc_init(src, IfxSrc_Tos_cpu0, irq);
-  IfxSrc_enable(src);
-}
-
-#ifdef CONFIG_ARCH_HAVE_IRQTRIGGER
-
-/****************************************************************************
- * Name: up_trigger_irq
- *
- * Description:
- *   Trigger an IRQ by software.
- *
- ****************************************************************************/
-
-void up_trigger_irq(int irq, cpu_set_t cpuset)
-{
-  (void) cpuset;
-  volatile Ifx_SRC_SRCR *src = &SRC_CPU_CPU0_SB + irq;
-
-  IfxSrc_setRequest(src);
-}
-
-#endif
-
-/****************************************************************************
- * Name: tricore_ack_irq
- *
- * Description:
- *   Acknowledge the IRQ
- *
- ****************************************************************************/
-
-void tricore_ack_irq(int irq)
-{
-}
+#endif /* CONFIG_ADC_ADS7046 */
+#endif /* __INCLUDE_NUTTX_ANALOG_ADS7046_H */

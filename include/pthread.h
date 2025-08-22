@@ -107,6 +107,7 @@
 
 #define PTHREAD_STACK_MIN             CONFIG_PTHREAD_STACK_MIN
 #define PTHREAD_STACK_DEFAULT         CONFIG_PTHREAD_STACK_DEFAULT
+#define PTHREAD_GUARD_DEFAULT         CONFIG_PTHREAD_GUARDSIZE_DEFAULT
 
 /* Values for the pthread inheritsched attribute */
 
@@ -237,6 +238,7 @@ struct pthread_attr_s
 
   FAR void  *stackaddr;        /* Address of memory to be used as stack */
   size_t stacksize;            /* Size of the stack allocated for the pthread */
+  size_t guardsize;            /* Size of the guard area for the pthread's stack */
 
 #ifdef CONFIG_SCHED_SPORADIC
   struct timespec repl_period; /* Replenishment period */
@@ -529,6 +531,12 @@ int pthread_attr_getstack(FAR const pthread_attr_t *attr,
 int pthread_attr_setscope(FAR pthread_attr_t *attr, int scope);
 int pthread_attr_getscope(FAR const pthread_attr_t *attr, FAR int *scope);
 
+/* Set/get guardsize attribute in thread attributes object */
+
+int pthread_attr_setguardsize(FAR pthread_attr_t *attr, size_t guardsize);
+int pthread_attr_getguardsize(FAR const pthread_attr_t *attr,
+                              FAR size_t *guardsize);
+
 /* Set or get the name of a thread */
 
 int pthread_setname_np(pthread_t thread, FAR const char *name);
@@ -617,6 +625,11 @@ int pthread_getaffinity_np(pthread_t thread, size_t cpusetsize,
 #define pthread_setaffinity_np(...) (-ENOSYS)
 #define pthread_getaffinity_np(...) (-ENOSYS)
 #endif
+
+/* Concurrency level */
+
+int pthread_setconcurrency(int new_level);
+int pthread_getconcurrency(void);
 
 /* Thread-specific Data Interfaces */
 

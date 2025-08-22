@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/tricore/src/common/tricore_irq.c
+ * boards/arm/rp2040/common/src/rp2040_ads7046.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -26,103 +26,78 @@
 
 #include <nuttx/config.h>
 
-#include <stdint.h>
-#include <assert.h>
+#include <stdio.h>
 #include <debug.h>
 
 #include <nuttx/arch.h>
-#include <nuttx/irq.h>
+#include <nuttx/analog/ads7046.h>
 
-#include "tricore_internal.h"
+#include "rp2040_spi.h"
+#include "rp2040_ads7046.h"
 
-#include "IfxSrc.h"
-#include "IfxCpu.h"
+/****************************************************************************
+ * Pre-processor Definitions
+ ****************************************************************************/
+
+/****************************************************************************
+ * Private Types
+ ****************************************************************************/
+
+/****************************************************************************
+ * Private Function Prototypes
+ ****************************************************************************/
+
+/****************************************************************************
+ * Private Data
+ ****************************************************************************/
+
+/****************************************************************************
+ * Public Data
+ ****************************************************************************/
+
+/****************************************************************************
+ * Private Functions
+ ****************************************************************************/
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: up_irq_enable
+ * Name: board_ads7046_initialize
  *
  * Description:
- *   Enable interrupts globally.
+ *   Initialize and register the ADS7046 ADC driver.
+ *
+ * Input Parameters:
+ *   spi   - An instance of the SPI interface to use.
+ *   devno - The device number, used to build the device path as /dev/adcN.
+ *
+ * Returned Value:
+ *   Zero (OK) on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
-void up_irq_enable(void)
+int board_ads7046_initialize(FAR struct spi_dev_s *spi, int devno)
 {
-  IfxCpu_enableInterrupts();
-}
+  char devpath[10];
+  int ret;
 
-/****************************************************************************
- * Name: up_irqinitialize
- ****************************************************************************/
+  ainfo("Initializing ADS7046 #%d\n", devno);
 
-void up_irqinitialize(void)
-{
-  up_irq_enable();
-}
+  if (spi)
+    {
+      snprintf(devpath, sizeof(devpath), "/dev/adc%d", devno);
+      ret = ads7046_register(devpath, spi, devno);
+      if (ret < 0)
+        {
+          snerr("ERROR: Error registering ADS7046 at /dev/adc%d\n", devno);
+        }
+    }
+  else
+    {
+      ret = -ENODEV;
+    }
 
-/****************************************************************************
- * Name: up_disable_irq
- *
- * Description:
- *   Disable the IRQ specified by 'irq'
- *
- ****************************************************************************/
-
-void up_disable_irq(int irq)
-{
-  volatile Ifx_SRC_SRCR *src = &SRC_CPU_CPU0_SB + irq;
-
-  IfxSrc_disable(src);
-}
-
-/****************************************************************************
- * Name: up_enable_irq
- *
- * Description:
- *   Enable the IRQ specified by 'irq'
- *
- ****************************************************************************/
-
-void up_enable_irq(int irq)
-{
-  volatile Ifx_SRC_SRCR *src = &SRC_CPU_CPU0_SB + irq;
-
-  IfxSrc_init(src, IfxSrc_Tos_cpu0, irq);
-  IfxSrc_enable(src);
-}
-
-#ifdef CONFIG_ARCH_HAVE_IRQTRIGGER
-
-/****************************************************************************
- * Name: up_trigger_irq
- *
- * Description:
- *   Trigger an IRQ by software.
- *
- ****************************************************************************/
-
-void up_trigger_irq(int irq, cpu_set_t cpuset)
-{
-  (void) cpuset;
-  volatile Ifx_SRC_SRCR *src = &SRC_CPU_CPU0_SB + irq;
-
-  IfxSrc_setRequest(src);
-}
-
-#endif
-
-/****************************************************************************
- * Name: tricore_ack_irq
- *
- * Description:
- *   Acknowledge the IRQ
- *
- ****************************************************************************/
-
-void tricore_ack_irq(int irq)
-{
+  return ret;
 }
