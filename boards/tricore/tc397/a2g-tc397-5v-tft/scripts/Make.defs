@@ -1,5 +1,5 @@
 ############################################################################
-# boards/arm/samv7/pic32czca70-curiosity/src/Make.defs
+# boards/tricore/tc397/a2g-tc397-5v-tft/scripts/Make.defs
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -20,48 +20,19 @@
 #
 ############################################################################
 
-include $(TOPDIR)/Make.defs
+include $(TOPDIR)/.config
+include $(TOPDIR)/tools/Config.mk
+include $(TOPDIR)/arch/tricore/src/tc3xx/Toolchain.defs
 
-CSRCS = sam_boot.c
-
-ifeq ($(CONFIG_BOARDCTL),y)
-CSRCS += sam_appinit.c sam_bringup.c
-else ifeq ($(CONFIG_BOARD_LATE_INITIALIZE),y)
-CSRCS += sam_bringup.c
-endif
-
-ifeq ($(CONFIG_ARCH_LEDS),y)
-CSRCS += sam_autoleds.c
+ifeq ($(CONFIG_TRICORE_TOOLCHAIN_TASKING),y)
+  ARCHSCRIPT += $(BOARD_DIR)$(DELIM)scripts$(DELIM)Lcf_Tasking_Tricore_Tc.lsl
 else
-CSRCS += sam_userleds.c
+  ARCHSCRIPT += $(BOARD_DIR)$(DELIM)scripts$(DELIM)Lcf_Gnuc_Tricore_Tc.lsl
 endif
 
-ifeq ($(CONFIG_ARCH_BUTTONS),y)
-CSRCS += sam_buttons.c
-endif
-
-ifeq ($(CONFIG_SAMV7_HSMCI0),y)
-CSRCS += sam_sdcard.c
-endif
-
-ifeq ($(CONFIG_SAMV7_USBDEVHS),y)
-CSRCS += sam_usbdev.c
-endif
-
-ifeq ($(CONFIG_SAMV7_PROGMEM),y)
-CSRCS += sam_progmem_partition.c
-endif
-
-.PHONY = context distclean
-
-$(SCRIPTOUT): $(LDSCRIPT_TEMPLATE) $(CONFIGFILE)
-	$(Q) $(CC) -isystem $(TOPDIR)/include -I $(dir $(LDSCRIPT_TEMPLATE)) -C -P -x c -E $(LDSCRIPT_TEMPLATE) -o $@
-
-context:: $(SCRIPTOUT)
-
-distclean::
-	$(call DELFILE, $(SCRIPTOUT))
-
-DEPPATH += --dep-path board
-VPATH += :board
-CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)board$(DELIM)board
+CFLAGS := $(ARCHCFLAGS) $(ARCHOPTIMIZATION) $(ARCHCPUFLAGS) $(ARCHINCLUDES) $(ARCHDEFINES) $(EXTRAFLAGS)
+CPICFLAGS = $(ARCHPICFLAGS) $(CFLAGS)
+CXXFLAGS := $(ARCHCXXFLAGS) $(ARCHOPTIMIZATION) $(ARCHCPUFLAGS) $(ARCHXXINCLUDES) $(ARCHDEFINES) $(EXTRAFLAGS)
+CXXPICFLAGS = $(ARCHPICFLAGS) $(CXXFLAGS)
+CPPFLAGS := $(ARCHINCLUDES) $(ARCHDEFINES) $(EXTRAFLAGS)
+AFLAGS := $(CFLAGS) -D__ASSEMBLY__
