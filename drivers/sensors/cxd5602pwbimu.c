@@ -1394,7 +1394,7 @@ static ssize_t cxd5602pwbimu_read(FAR struct file *filep, FAR char *buffer,
       return ret;
     }
 
-  if (circbuf_is_empty(&priv->buffer))
+  while (circbuf_is_empty(&priv->buffer))
     {
       if (filep->f_oflags & O_NONBLOCK)
         {
