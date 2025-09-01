@@ -33,6 +33,7 @@
 #include <nuttx/config.h>
 #include <nuttx/irq.h>
 #include <nuttx/wireless/ioctl.h>
+#include <nuttx/wireless/wireless.h>
 
 /****************************************************************************
  * Public Data Types
@@ -47,14 +48,6 @@ extern "C"
 #else
 #  define EXTERN extern
 #endif
-
-#define SIOCSIWBANDWIDTH  _WLIOC(SIOCIWFIRSTPRIV + 0)
-#define SIOCGIWBANDWIDTH  _WLIOC(SIOCIWFIRSTPRIV + 1)
-#define SIOCSIFWUPDINIT   _WLIOC(SIOCIWFIRSTPRIV + 2)
-#define SIOCSIFWUPDINJECT _WLIOC(SIOCIWFIRSTPRIV + 3)
-#define SIOCSIFWUPDEXEC   _WLIOC(SIOCIWFIRSTPRIV + 4)
-#define SIOCSIWCONNECT    _WLIOC(SIOCIWFIRSTPRIV + 5)
-#define SIOCSIWREGEVTCB   _WLIOC(SIOCIWFIRSTPRIV + 6)
 
 struct nrc7292_lower_s
 {

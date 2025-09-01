@@ -154,11 +154,11 @@
 
 /* RSS notify recv cpu calls ************************************************/
 
-#define SIOCNOTIFYRECVCPU  _SIOC(0x0041)  /* RSS notify recv cpu */
+#define SIOCNOTIFYRECVCPU  _SIOC(0x0043)  /* RSS notify recv cpu */
 
 /* usrsock control  *********************************************************/
 
-#define SIOCUSRSOCKDTERM   _SIOC(0x0042) /* Terminate usrsock daemon */
+#define SIOCUSRSOCKDTERM   _SIOC(0x0044) /* Terminate usrsock daemon */
 
 
 /* Device private ioctl calls ***********************************************/

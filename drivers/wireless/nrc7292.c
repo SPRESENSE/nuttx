@@ -31,6 +31,7 @@
 #include <debug.h>
 #include <poll.h>
 
+#include <nuttx/arch.h>
 #include <nuttx/spi/spi.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/kthread.h>
@@ -1392,7 +1393,7 @@ static int nrc7292_start(FAR struct nrc7292_dev_s *dev)
                     (FAR uint8_t *) &dev->sys_info,
                     sizeof(struct spi_sys_s));
 
-  dev->net_dev.d_flags |= IFF_DOWN;
+  IFF_CLR_UP(dev->net_dev.d_flags);
 
   return 0;
 }

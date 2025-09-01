@@ -171,6 +171,14 @@
 
 #define SIOCSIWPTAPRIO      (SIOCIWFIRSTPRIV + 6)       /* Set PTA priority type */
 #define SIOCGIWPTAPRIO      (SIOCIWFIRSTPRIV + 7)       /* Get PTA priority type */
+#define SIOCSIWBANDWIDTH    (SIOCIWFIRSTPRIV + 8)       /* Set Bandwidth of radio */
+#define SIOCGIWBANDWIDTH    (SIOCIWFIRSTPRIV + 9)       /* Get Bandwidth of radio */
+
+#define SIOCSIFWUPDINIT     (SIOCIWFIRSTPRIV + 10)
+#define SIOCSIFWUPDINJECT   (SIOCIWFIRSTPRIV + 11)
+#define SIOCSIFWUPDEXEC     (SIOCIWFIRSTPRIV + 12)
+#define SIOCSIWCONNECT      (SIOCIWFIRSTPRIV + 13)
+#define SIOCSIWREGEVTCB     (SIOCIWFIRSTPRIV + 14)
 
 #define SIOCIWLASTPRIV      _WLIOC(0x00ff)
 
