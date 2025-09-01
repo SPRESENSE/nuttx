@@ -149,12 +149,21 @@
 
 /* TCP socket control *******************************************************/
 
-#define SIOCATMARK         _SIOC(0x003E)  /* Determine whether socket is at
+#define SIOCATMARK         _SIOC(0x003F)  /* Determine whether socket is at
                                            * out-of-band mark */
 
 /* RSS notify recv cpu calls ************************************************/
 
-#define SIOCNOTIFYRECVCPU  _SIOC(0x003F)  /* RSS notify recv cpu */
+#define SIOCNOTIFYRECVCPU  _SIOC(0x0041)  /* RSS notify recv cpu */
+
+/* usrsock control  *********************************************************/
+
+#define SIOCUSRSOCKDTERM   _SIOC(0x0042) /* Terminate usrsock daemon */
+
+
+/* Device private ioctl calls ***********************************************/
+
+#define SIOCDEVPRIVATE     _SIOC(0x00F0)  /* Set bridging options */
 
 /****************************************************************************
  * Public Type Definitions
