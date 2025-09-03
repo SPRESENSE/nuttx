@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/risc-v/src/common/espressif/esp_efuse.h
+ * drivers/net/oa_tc6/oa_tc6_lan865x.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,58 +20,40 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_RISCV_SRC_COMMON_ESPRESSIF_ESP_EFUSE_H
-#define __ARCH_RISCV_SRC_COMMON_ESPRESSIF_ESP_EFUSE_H
+#ifndef __DRIVERS_NET_OA_TC6_LAN865X_H
+#define __DRIVERS_NET_OA_TC6_LAN865X_H
 
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/efuse/efuse.h>
-
-#ifndef __ASSEMBLY__
-
-#undef EXTERN
-#if defined(__cplusplus)
-#define EXTERN extern "C"
-extern "C"
-{
-#else
-#define EXTERN extern
-#endif
+#include "oa_tc6.h"
 
 /****************************************************************************
- * Pre-processor definitions
+ * Preprocessor Macros
  ****************************************************************************/
 
- #define ESP_EFUSE_BLK_LEN 256
+#define OA_TC6_LAN865X_PHYID 0x0007C1B4U
 
-/****************************************************************************
- * Public Functions Prototypes
- ****************************************************************************/
+/* Registers specific to the LAN865x */
 
-/****************************************************************************
- * Name: esp_efuse_initialize
- *
- * Description:
- *   Initialize the efuse driver. The efuse is initialized
- *   and registered as 'devpath'.
- *
- * Input Parameters:
- *   devpath        - The full path to the efuse device.
- *                    This should be of the form /dev/efuse
- *
- * Returned Value:
- *   Zero (OK) is returned on success. Otherwise -1 (ERROR).
- *
- ****************************************************************************/
+#define LAN865X_MAC_NCR_MMS         1
+#define LAN865X_MAC_NCR_ADDR        0x0U
+#define LAN865X_MAC_NCR_REGID       OA_TC6_MAKE_REGID(LAN865X_MAC_NCR_MMS, LAN865X_MAC_NCR_ADDR)
+#define LAN865X_MAC_NCR_TXEN_POS    3
+#define LAN865X_MAC_NCR_RXEN_POS    2
 
-int esp_efuse_initialize(const char *devpath);
+#define LAN865X_MAC_NCFGR_MMS       1
+#define LAN865X_MAC_NCFGR_ADDR      0x1U
+#define LAN865X_MAC_NCFGR_REGID     OA_TC6_MAKE_REGID(LAN865X_MAC_NCFGR_MMS, LAN865X_MAC_NCFGR_ADDR)
+#define LAN865X_MAC_NCFGR_EFRHD_POS 25
+#define LAN865X_MAC_NCFGR_CAF_POS   4
 
-#ifdef __cplusplus
-}
-#endif
-#undef EXTERN
+#define LAN865X_MAC_SAB1_MMS        1
+#define LAN865X_MAC_SAB1_ADDR       0x22U
+#define LAN865X_MAC_SAB1_REGID      OA_TC6_MAKE_REGID(LAN865X_MAC_SAB1_MMS, LAN865X_MAC_SAB1_ADDR)
 
-#endif /* __ASSEMBLY__ */
-#endif /* __ARCH_RISCV_SRC_COMMON_ESPRESSIF_ESP_EFUSE_H */
+#define LAN865X_MAC_SAB_REGID(i)    OA_TC6_MAKE_REGID(LAN865X_MAC_SAB1_MMS, LAN865X_MAC_SAB1_ADDR + 2 * (i - 1))
+#define LAN865X_MAC_SAT_REGID(i)    OA_TC6_MAKE_REGID(LAN865X_MAC_SAB1_MMS, LAN865X_MAC_SAB1_ADDR + 2 * (i - 1) + 1)
+
+#endif /* __DRIVERS_NET_OA_TC6_LAN865X_H */
