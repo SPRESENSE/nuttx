@@ -1,5 +1,5 @@
 /****************************************************************************
- * sched/event/event.h
+ * libs/libc/semaphore/sem_setmaxvalue.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,23 +20,47 @@
  *
  ****************************************************************************/
 
-#ifndef __SCHED_EVENT_EVENT_H
-#define __SCHED_EVENT_EVENT_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
+#include <nuttx/trace.h>
 
-#include <nuttx/irq.h>
-#include <nuttx/list.h>
 #include <nuttx/semaphore.h>
 
-#include <nuttx/event.h>
+#ifdef CONFIG_CUSTOM_SEMAPHORE_MAXVALUE
 
 /****************************************************************************
- * Public Type Definitions
+ * Public Functions
  ****************************************************************************/
 
-#endif /* __SCHED_EVENT_EVENT_H */
+/****************************************************************************
+ * Name: nxsem_setmaxvalue
+ *
+ * Description:
+ *  Set sem max allowed value
+ *
+ * Input Parameters:
+ *   sem     - Semaphore object
+ *   delay   - Max allowed semaphore value.
+ *
+ * Returned Value:
+ *   This is an internal OS interface and should not be used by applications.
+ *   It follows the NuttX internal error return policy:  Zero (OK) is
+ *   returned on success.  A negated errno value is returned on failure.
+ *
+ ****************************************************************************/
+
+int nxsem_setmaxvalue(FAR sem_t *sem, int32_t maxvalue)
+{
+  if (sem != NULL)
+    {
+      sem->maxvalue = maxvalue;
+      return OK;
+    }
+
+  return -EINVAL;
+}
+
+#endif /* CONFIG_PRIORITY_INHERITANCE */
