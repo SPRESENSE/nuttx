@@ -24,6 +24,10 @@ CSRCS += cxd56_main.c
 CSRCS += cxd56_clock.c
 CSRCS += cxd56_bringup.c
 
+ifeq ($(CONFIG_AUDIO_CXD56),y)
+CSRCS += cxd56_audio_lower.c
+endif
+
 ifeq ($(CONFIG_BOARDCTL),y)
 CSRCS += cxd56_appinit.c
 CSRCS += cxd56_power.c

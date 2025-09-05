@@ -380,7 +380,7 @@ int cxd56_bringup(void)
 #endif
 
 #ifdef CONFIG_AUDIO_CXD56
-  ret = board_audio_initialize_driver(1);
+  ret = board_audio_initialize_driver();
   if (ret < 0)
     {
       _err("ERROR: Failed to initialize audio. %d\n", ret);

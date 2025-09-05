@@ -28,7 +28,106 @@ config CXD56_SPIFLASHSIZE
 
 comment "Audio Options"
 
-if AUDIO_CXD56 || CXD56_AUDIO
+if AUDIO_CXD56
+
+menu "NuttX Audio Framework based Driver lower setups"
+menu "Mic assign on CXD5247"
+
+config CXD5247_MICID_CH0
+	int "MIC Channel 0 Assign 1~4:Analog 5~12:Digial 15:Not used"
+	default 1
+	range 1 15
+	---help---
+		MIC select for channel 0. 1 to 4 is for Analog MIC A to D.
+		5 to 12 is for Digital MIC 0 to 7. And 15 means not used. Please see
+		https://developer.sony.com/spresense/development-guides/hw_docs_en.html#_how_to_use_microphones
+		for more information.
+
+config CXD5247_MICID_CH1
+	int "MIC Channel 1 Assign 1~4:Analog 5~12:Digial 15:Not used"
+	default 2
+	range 1 15
+	---help---
+		MIC select for channel 1. 1 to 4 is for Analog MIC A to D.
+		5 to 12 is for Digital MIC 0 to 7. And 15 means not used. Please see
+		https://developer.sony.com/spresense/development-guides/hw_docs_en.html#_how_to_use_microphones
+		for more information.
+
+config CXD5247_MICID_CH2
+	int "MIC Channel 2 Assign 1~4:Analog 5~12:Digial 15:Not used"
+	default 3
+	range 1 15
+	---help---
+		MIC select for channel 2. 1 to 4 is for Analog MIC A to D.
+		5 to 12 is for Digital MIC 0 to 7. And 15 means not used. Please see
+		https://developer.sony.com/spresense/development-guides/hw_docs_en.html#_how_to_use_microphones
+		for more information.
+
+config CXD5247_MICID_CH3
+	int "MIC Channel 3 Assign 1~4:Analog 5~12:Digial 15:Not used"
+	default 4
+	range 1 15
+	---help---
+		MIC select for channel 3. 1 to 4 is for Analog MIC A to D.
+		5 to 12 is for Digital MIC 0 to 7. And 15 means not used. Please see
+		https://developer.sony.com/spresense/development-guides/hw_docs_en.html#_how_to_use_microphones
+		for more information.
+
+config CXD5247_MICID_CH4
+	int "MIC Channel 4 Assign 1~4:Analog 5~12:Digial 15:Not used"
+	default 15
+	range 1 15
+	---help---
+		MIC select for channel 4. 1 to 4 is for Analog MIC A to D.
+		5 to 12 is for Digital MIC 0 to 7. And 15 means not used. Please see
+		https://developer.sony.com/spresense/development-guides/hw_docs_en.html#_how_to_use_microphones
+		for more information.
+
+config CXD5247_MICID_CH5
+	int "MIC Channel 5 Assign 1~4:Analog 5~12:Digial 15:Not used"
+	default 15
+	range 1 15
+	---help---
+		MIC select for channel 5. 1 to 4 is for Analog MIC A to D.
+		5 to 12 is for Digital MIC 0 to 7. And 15 means not used. Please see
+		https://developer.sony.com/spresense/development-guides/hw_docs_en.html#_how_to_use_microphones
+		for more information.
+
+config CXD5247_MICID_CH6
+	int "MIC Channel 6 Assign 1~4:Analog 5~12:Digial 15:Not used"
+	default 15
+	range 1 15
+	---help---
+		MIC select for channel 6. 1 to 4 is for Analog MIC A to D.
+		5 to 12 is for Digital MIC 0 to 7. And 15 means not used. Please see
+		https://developer.sony.com/spresense/development-guides/hw_docs_en.html#_how_to_use_microphones
+		for more information.
+
+config CXD5247_MICID_CH7
+	int "MIC Channel 7 Assign 1~4:Analog 5~12:Digial 15:Not used"
+	default 15
+	range 1 15
+	---help---
+		MIC select for channel 7. 1 to 4 is for Analog MIC A to D.
+		5 to 12 is for Digital MIC 0 to 7. And 15 means not used. Please see
+		https://developer.sony.com/spresense/development-guides/hw_docs_en.html#_how_to_use_microphones
+		for more hardware information.
+
+endmenu # "Mic assign on CXD5247"
+
+config CXD5247_OSC_FREQ_24MHZ
+	bool "Is CXD5247 OSC frequency 24.576MHz"
+	default n
+	---help---
+		CXD5247 can use Oscilator of which frequency is 24.576MHz or 49.152MHz.
+		Set "Y" if you use 24.576MHz. The Spresense board uses 49.152MHz, so set
+		this "n".
+
+endmenu # "NuttX Audio Framework based Driver lower setups"
+endif # AUDIO_CXD56
+
+menu "Old standalone audio options"
+if CXD56_AUDIO
 
 choice
 	prompt "Audio I2S settings"
@@ -409,7 +508,7 @@ endmenu
 endif # CXD56_AUDIO_ALC_SPC_SEL_ALC
 
 if CXD56_AUDIO_ALC_SPC_SEL_SPC
-menu "Sound Pressure Counter setting"
+menu "Sound Pressure Conter setting"
 config CXD56_AUDIO_SPC_LIMIT
 	int "Limit levels of Sound Pressure Counter.[(1/10)dB]"
 	default 0
@@ -445,6 +544,7 @@ config CXD56_AUDIO_MIC_BOOT_WAIT
 
 endmenu
 endif # Spresense Audio
+endmenu # "Old standalone audio options"
 
 config CXD56_IMAGEPROC
 	bool "Spresense Image Processor"

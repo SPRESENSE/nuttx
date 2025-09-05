@@ -300,15 +300,27 @@ comment "NuttX style Audio Driver Support"
 menu "NX Audio Driver Support"
 
 config AUDIO_CXD56
-	bool "CXD56 audio driver"
+	bool "CXD56 NuttX audio driver"
 	default n
 	depends on AUDIO
 	select AUDIO_DRIVER_SPECIFIC_BUFFERS
 	---help---
-		Enable support for audio playback using the CXD5247 chip on the
-		CXD56 Spresense board.
+		Enable support for NuttX audio playback and record using the CXD5247
+		chip on the CXD56 Spresense board.
 
 if AUDIO_CXD56
+
+config CXD56_START_ENQUEUE_APB
+	int "Size of enqueued APB to start playing/recording"
+	default 3
+	---help---
+		Define the number of APBs for start DMA.
+
+config CXD56_BEEPDEV
+	bool "Enable BEEP function of CXD56"
+	default y
+	---help---
+		Enable support for beep HW funcfion of CXD5602.
 
 if AUDIO_DRIVER_SPECIFIC_BUFFERS
 
@@ -329,10 +341,6 @@ config CXD56_AUDIO_BUFFER_SIZE
 	default 4096
 
 endif # AUDIO_DRIVER_SPECIFIC_BUFFERS
-
-config CXD56_AUDIO_WORKER_STACKSIZE
-	int "Worker thread stack size"
-	default 768
 
 endif # AUDIO_CXD56
 

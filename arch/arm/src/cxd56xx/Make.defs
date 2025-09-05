@@ -126,10 +126,10 @@ CHIP_CSRCS += cxd56_charger.c
 endif
 
 ifeq ($(CONFIG_AUDIO_CXD56),y)
-CHIP_CSRCS += cxd56_nxaudio.c
-ifeq ($(CONFIG_AUDIO_CXD56_SRC),y)
-CHIP_CSRCS += cxd56_nxaudio_src.c
-endif
+CHIP_CSRCS += cxd5247.c
+CHIP_CSRCS += cxd56_audio_dma.c
+CHIP_CSRCS += cxd56_audio_reg.c
+CHIP_CSRCS += cxd56_audio_driver.c
 endif
 
 ifeq ($(CONFIG_CXD56_GE2D),y)
