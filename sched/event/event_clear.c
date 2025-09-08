@@ -1,5 +1,7 @@
 /****************************************************************************
- * arch/sim/src/sim/sim_hostcan.h
+ * sched/event/event_clear.c
+ *
+ * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,50 +20,52 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_SIM_SRC_SIM_CAN_H
-#define __ARCH_SIM_SRC_SIM_CAN_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#ifdef __SIM__
-#  include "config.h"
-#endif
+#include <nuttx/sched.h>
 
-#include <stdint.h>
-#include <stdbool.h>
+#include "event.h"
 
 /****************************************************************************
- * Pre-processor Definitions
+ * Public Functions
  ****************************************************************************/
-
-/* Reserve data for maximum CANFD frame */
-
-#define SIM_CAN_MAX_DLEN 64
 
 /****************************************************************************
- * Public Types
+ * Name: nxevent_clear
+ *
+ * Description:
+ *   Clear specific bits from the event mask of the given event object.
+ *
+ * Input Parameters:
+ *   event - Address of the event object
+ *   mask  - Bit mask specifying which event flags should be cleared
+ *
+ * Returned Value:
+ *   Returns the previous event mask value of the event object before
+ *   applying the clear operation.
+ *
+ * Notes:
+ *   - This is an internal OS interface and must not be invoked directly
+ *     by user applications.
+ *   - This function is safe to call from an interrupt handler.
+ *
  ****************************************************************************/
 
-struct sim_can_s
+nxevent_mask_t nxevent_clear(FAR nxevent_t *event, nxevent_mask_t mask)
 {
-  int fd;
-  bool ifup;
-};
+  nxevent_mask_t events;
+  irqstate_t flags;
 
-/****************************************************************************
- * Public Function Prototypes
- ****************************************************************************/
+  DEBUGASSERT(event != NULL);
 
-/* Host CAN interface */
+  flags = spin_lock_irqsave(&event->lock);
 
-int host_can_init(struct sim_can_s *can, int devidx);
-int host_can_read(struct sim_can_s *can, void *frame);
-int host_can_send(struct sim_can_s *can, void *frame, size_t len);
-int host_can_ifup(struct sim_can_s *can);
-int host_can_ifdown(struct sim_can_s *can);
-bool host_can_avail(struct sim_can_s *can);
-int host_can_loopback(struct sim_can_s *can, bool enable);
+  events = event->events;
+  event->events &= ~mask;
 
-#endif /* __ARCH_SIM_SRC_SIM_CAN_H */
+  spin_unlock_irqrestore(&event->lock, flags);
+
+  return events;
+}

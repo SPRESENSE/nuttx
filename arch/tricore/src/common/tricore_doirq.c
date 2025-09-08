@@ -46,8 +46,7 @@
 
 IFX_INTERRUPT_INTERNAL(tricore_doirq, 0, 255)
 {
-  struct tcb_s **running_task = &g_running_tasks[this_cpu()];
-  struct tcb_s *tcb;
+  struct tcb_s *running_task = g_running_tasks[this_cpu()];
 
 #ifdef CONFIG_SUPPRESS_INTERRUPTS
   PANIC();
@@ -58,9 +57,9 @@ IFX_INTERRUPT_INTERNAL(tricore_doirq, 0, 255)
   icr.U = __mfcr(CPU_ICR);
   regs = (uintptr_t *)__mfcr(CPU_PCXI);
 
-  if (*running_task != NULL)
+  if (running_task != NULL)
     {
-      (*running_task)->xcp.regs = regs;
+      running_task->xcp.regs = regs;
     }
 
   board_autoled_on(LED_INIRQ);
@@ -88,7 +87,7 @@ IFX_INTERRUPT_INTERNAL(tricore_doirq, 0, 255)
 
   if (regs != up_current_regs())
     {
-      tcb = this_task();
+      running_task = this_task();
 
 #ifdef CONFIG_ARCH_ADDRENV
       /* Make sure that the address environment for the previously
@@ -105,7 +104,7 @@ IFX_INTERRUPT_INTERNAL(tricore_doirq, 0, 255)
        * crashes.
        */
 
-      g_running_tasks[this_cpu()] = tcb;
+      g_running_tasks[this_cpu()] = running_task;
 
       __mtcr(CPU_PCXI, (uintptr_t)up_current_regs());
       __isync();
@@ -117,11 +116,11 @@ IFX_INTERRUPT_INTERNAL(tricore_doirq, 0, 255)
 
   up_set_current_regs(NULL);
 
-  /* (*running_task)->xcp.regs is about to become invalid
+  /* running_task->xcp.regs is about to become invalid
    * and will be marked as NULL to avoid misusage.
    */
 
-  (*running_task)->xcp.regs = NULL;
+  running_task->xcp.regs = NULL;
   board_autoled_off(LED_INIRQ);
 #endif
 }

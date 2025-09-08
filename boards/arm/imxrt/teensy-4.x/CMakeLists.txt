@@ -1,5 +1,5 @@
 # ##############################################################################
-# sched/event/CMakeLists.txt
+# boards/arm/imxrt/teensy-4.x/CMakeLists.txt
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -20,18 +20,11 @@
 #
 # ##############################################################################
 
-# Add event-related files to the build
-set(CSRCS)
-if(CONFIG_SCHED_EVENTS)
-  list(
-    APPEND
-    CSRCS
-    event_init.c
-    event_post.c
-    event_reset.c
-    event_destroy.c
-    event_wait.c
-    event_clear.c)
-endif()
+add_subdirectory(src)
 
-target_sources(sched PRIVATE ${CSRCS})
+if(NOT CONFIG_BUILD_FLAT)
+  add_subdirectory(kernel)
+  set_property(
+    GLOBAL PROPERTY LD_SCRIPT_USER ${CMAKE_CURRENT_LIST_DIR}/scripts/memory.ld
+                    ${CMAKE_CURRENT_LIST_DIR}/scripts/user-space.ld)
+endif()
