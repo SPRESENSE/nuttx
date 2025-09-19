@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/xtensa/esp32s3/lckfb-szpi-esp32s3/src/etc/init.d/rcS
+ * boards/risc-v/esp32c3/common/src/etc/init.d/rc.sysinit
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -22,14 +22,6 @@
 
 #include <nuttx/config.h>
 
-#ifdef CONFIG_SYSTEM_ADBD
-adbd &
-#endif
+/* This script "rc.sysinit" is executed after the board bring up. */
 
-#ifdef CONFIG_SYSTEM_FASTBOOTD
-fastbootd &
-#endif
-
-#ifdef CONFIG_EXAMPLES_LVGLDEMO
-lvgldemo widgets &
-#endif
+echo "rc.sysinit is called!"
