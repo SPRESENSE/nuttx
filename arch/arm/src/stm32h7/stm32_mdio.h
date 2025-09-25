@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/x86/src/common/x86_exit.c
+ * arch/arm/src/stm32h7/stm32_mdio.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,70 +20,39 @@
  *
  ****************************************************************************/
 
+#ifndef __ARCH_ARM_SRC_STM32H7_STM32_MDIO_H
+#define __ARCH_ARM_SRC_STM32H7_STM32_MDIO_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
-
-#include <sched.h>
-#include <debug.h>
-
-#include <nuttx/addrenv.h>
-#include <nuttx/arch.h>
-#include <nuttx/irq.h>
-
-#include "task/task.h"
-#include "sched/sched.h"
-#include "group/group.h"
-#include "x86_internal.h"
+#include <nuttx/net/mdio.h>
 
 /****************************************************************************
- * Public Functions
+ * Pre-processor Definitions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: up_exit
+ * Public Types
+ ****************************************************************************/
+
+/****************************************************************************
+ * Public Function Prototypes
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: stm32_mdio_bus_initialize
  *
  * Description:
- *   This function causes the currently executing task to cease to exist.
- *   This is a special case of task_delete() where the task to be deleted is
- *   the currently executing task.  It is more complex because a context
- *   switch must be perform to the next ready to run task.
+ *   Initialize the MDIO bus
+ *
+ * Returned Value:
+ *   Initialized MDIO bus structure or NULL on failure
  *
  ****************************************************************************/
 
-void up_exit(int status)
-{
-  struct tcb_s *tcb = this_task();
+struct mdio_bus_s *stm32_mdio_bus_initialize(void);
 
-  /* Destroy the task at the head of the ready to run list. */
-
-  nxtask_exit();
-
-  /* Now, perform the context switch to the new ready-to-run task at the
-   * head of the list.
-   */
-
-  tcb = this_task();
-
-  /* Adjusts time slice for SCHED_RR & SCHED_SPORADIC cases
-   * NOTE: the API also adjusts the global IRQ control for SMP
-   */
-
-  g_running_tasks[this_cpu()] = tcb;
-
-#ifdef CONFIG_ARCH_ADDRENV
-  /* Make sure that the address environment for the previously running
-   * task is closed down gracefully (data caches dump, MMU flushed) and
-   * set up the address environment for the new thread at the head of
-   * the ready-to-run list.
-   */
-
-  addrenv_switch(tcb);
-#endif
-
-  /* Then switch contexts */
-
-  x86_fullcontextrestore(tcb->xcp.regs);
-}
+#endif /* __ARCH_ARM_SRC_STM32H7_STM32_MDIO_H */
