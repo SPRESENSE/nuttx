@@ -68,6 +68,21 @@ void nxsched_suspend_scheduler(FAR struct tcb_s *tcb)
       return;
     }
 
+#ifdef CONFIG_STACKCHECK_SOFTWARE
+  if (tcb->xcp.regs)
+    {
+      uintptr_t sp = up_getusrsp(tcb->xcp.regs);
+      uintptr_t top = (uintptr_t)tcb->stack_base_ptr + tcb->adj_stack_size;
+      uintptr_t bottom = (uintptr_t)tcb->stack_base_ptr;
+      DEBUGASSERT(sp > bottom && sp <= top);
+    }
+
+#if CONFIG_STACKCHECK_MARGIN > 0
+    DEBUGASSERT(up_check_tcbstack(tcb, CONFIG_STACKCHECK_MARGIN) == 0);
+#endif
+
+#endif
+
 #ifdef CONFIG_SCHED_SPORADIC
   /* Perform sporadic schedule operations */
 
