@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/risc-v/src/common/espressif/esp_ulp.c
+ * arch/xtensa/src/common/espressif/esp_ulp.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -30,7 +30,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "ulp_lp_core.h"
+#include "ulp_riscv.h"
 #include "ulp/ulp_code.h"
 #include "ulp/ulp_var_map.h"
 
@@ -46,6 +46,9 @@
  * Private Function Prototypes
  ****************************************************************************/
 
+static int esp_ulp_write(struct file *filep,
+                         const char *buffer,
+                         size_t buflen);
 static int esp_ulp_ioctl(struct file *filep, int cmd, unsigned long arg);
 
 /****************************************************************************
@@ -54,14 +57,8 @@ static int esp_ulp_ioctl(struct file *filep, int cmd, unsigned long arg);
 
 static const struct file_operations g_esp_ulp_fops =
 {
+  .write = esp_ulp_write, /* write */
   .ioctl = esp_ulp_ioctl, /* ioctl */
-};
-
-/* Configuration for ULP LP Core */
-
-ulp_lp_core_cfg_t cfg =
-{
-  .wakeup_source = ULP_LP_CORE_WAKEUP_SOURCE_HP_CPU,
 };
 
 /****************************************************************************
@@ -136,6 +133,33 @@ static int esp_ulp_ioctl(struct file *filep, int cmd, unsigned long arg)
 }
 
 /****************************************************************************
+ * Name: esp_ulp_write
+ *
+ * Description:
+ *   Load binary data into ULP.
+ *
+ * Input Parameters:
+ *   filep  - The pointer of file
+ *   buffer - Buffer that includes binary to run on ULP.
+ *   buflen - Length of the buffer
+ *
+ * Returned Value:
+ *   Returns OK on success; a negated errno value on failure
+ *
+ ****************************************************************************/
+
+static int esp_ulp_write(struct file *filep,
+                         const char *buffer,
+                         size_t buflen)
+{
+  int ret = ERROR;
+  ulp_riscv_halt();
+  ret = ulp_riscv_load_binary((const uint8_t *)buffer, buflen);
+  ulp_riscv_run();
+  return ret;
+}
+
+/****************************************************************************
  * Name: esp_ulp_register
  *
  * Description:
@@ -174,9 +198,9 @@ static void esp_ulp_register(void)
 
 void esp_ulp_init(void)
 {
-  ulp_lp_core_load_binary(esp_ulp_bin,
+  esp_ulp_register();
+  ulp_riscv_load_binary(esp_ulp_bin,
                           sizeof(esp_ulp_bin));
 
-  esp_ulp_register();
-  ulp_lp_core_run(&cfg);
+  ulp_riscv_run();
 }

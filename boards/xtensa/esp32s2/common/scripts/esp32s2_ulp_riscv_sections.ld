@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/stm32f0l0g0/stm32_pwr.c
+ * boards/xtensa/esp32s2/common/scripts/esp32s2_ulp_riscv_sections.ld
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,23 +20,46 @@
  *
  ****************************************************************************/
 
-/****************************************************************************
- * Included Files
- ****************************************************************************/
-
 #include <nuttx/config.h>
-#include "chip.h"
 
-/* This file is only a thin shell that includes the proper PWR implementation
- * according to the selected MCU family.
- */
+ENTRY(reset_vector)
 
-#if defined(CONFIG_STM32F0L0G0_STM32G0)
-#  include "stm32g0_pwr.c"
-#elif defined(CONFIG_STM32F0L0G0_STM32F0) || defined(CONFIG_STM32F0L0G0_STM32L0)
-#  include "stm32f0l0_pwr.c"
-#endif
+MEMORY
+{
+    ram(RW) : ORIGIN = 0, LENGTH = CONFIG_ESP32S2_ULP_COPROC_RESERVE_MEM
+}
 
-/****************************************************************************
- * Public Functions
- ****************************************************************************/
+SECTIONS
+{
+    . = ORIGIN(ram);
+    .text :
+    {
+        *ulp_riscv_vectors.S.obj(.text.vectors) /* Default reset vector must link to offset 0x0 */
+        *(.text)
+        *(.text*)
+    } >ram
+
+    .rodata ALIGN(4):
+    {
+        *(.rodata)
+        *(.rodata*)
+    } > ram
+
+    .data ALIGN(4):
+    {
+        *(.data)
+        *(.data*)
+        *(.sdata)
+        *(.sdata*)
+    } > ram
+
+    .bss ALIGN(4) :
+    {
+        *(.bss)
+        *(.bss*)
+        *(.sbss)
+        *(.sbss*)
+    } >ram
+
+    __stack_top = ORIGIN(ram) + LENGTH(ram);
+}

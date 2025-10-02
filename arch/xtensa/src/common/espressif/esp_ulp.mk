@@ -1,5 +1,5 @@
 ############################################################################
-# arch/risc-v/src/common/espressif/esp_ulp.mk
+# arch/xtensa/src/common/espressif/esp_ulp.mk
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -20,14 +20,14 @@
 #
 ############################################################################
 
-ifeq ($(CONFIG_ESPRESSIF_USE_LP_CORE),y)
+ifeq ($(CONFIG_ESPRESSIF_USE_ULP_RISCV_CORE),y)
 
 # Include header paths
 
 ULP_INCLUDES += $(INCDIR_PREFIX)chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)
 ULP_INCLUDES += $(INCDIR_PREFIX)chip$(DELIM)ulp
+
 ULP_INCLUDES += $(INCDIR_PREFIX)chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)esp_common$(DELIM)include
-ULP_INCLUDES += $(INCDIR_PREFIX)chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)esp_hw_support$(DELIM)include
 ULP_INCLUDES += $(INCDIR_PREFIX)chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)esp_hw_support$(DELIM)include
 ULP_INCLUDES += $(INCDIR_PREFIX)chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)esp_hw_support$(DELIM)port$(DELIM)$(CHIP_SERIES)$(DELIM)include
 ULP_INCLUDES += $(INCDIR_PREFIX)chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)esp_hw_support$(DELIM)port$(DELIM)$(CHIP_SERIES)$(DELIM)private_include
@@ -53,12 +53,11 @@ ULP_INCLUDES += $(INCDIR_PREFIX)chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)comp
 ULP_INCLUDES += $(INCDIR_PREFIX)chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp
 ULP_INCLUDES += $(INCDIR_PREFIX)chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)ulp_common
 ULP_INCLUDES += $(INCDIR_PREFIX)chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)ulp_common$(DELIM)include
-ULP_INCLUDES += $(INCDIR_PREFIX)chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)lp_core
-ULP_INCLUDES += $(INCDIR_PREFIX)chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)lp_core$(DELIM)lp_core
-ULP_INCLUDES += $(INCDIR_PREFIX)chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)lp_core$(DELIM)include
-ULP_INCLUDES += $(INCDIR_PREFIX)chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)lp_core$(DELIM)shared
-ULP_INCLUDES += $(INCDIR_PREFIX)chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)lp_core$(DELIM)lp_core$(DELIM)include
-ULP_INCLUDES += $(INCDIR_PREFIX)chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)lp_core$(DELIM)shared$(DELIM)include
+ULP_INCLUDES += $(INCDIR_PREFIX)chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)ulp_riscv$(DELIM)include
+ULP_INCLUDES += $(INCDIR_PREFIX)chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)ulp_riscv$(DELIM)shared
+ULP_INCLUDES += $(INCDIR_PREFIX)chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)ulp_riscv$(DELIM)shared$(DELIM)include
+ULP_INCLUDES += $(INCDIR_PREFIX)chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)ulp_riscv$(DELIM)ulp_core
+ULP_INCLUDES += $(INCDIR_PREFIX)chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)ulp_riscv$(DELIM)ulp_core$(DELIM)include
 ULP_INCLUDES += $(INCDIR_PREFIX)chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)nuttx$(DELIM)include
 ULP_INCLUDES += $(INCDIR_PREFIX)chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)nuttx$(DELIM)$(CHIP_SERIES)$(DELIM)include
 ULP_INCLUDES += $(INCDIR_PREFIX)chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)nuttx$(DELIM)src$(DELIM)components$(DELIM)esp_driver_gpio$(DELIM)include
@@ -66,42 +65,32 @@ ULP_INCLUDES += $(INCDIR_PREFIX)chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)nutt
 
 # Linker scripts
 
-ULP_LDINCLUDES += -Tchip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)soc$(DELIM)$(CHIP_SERIES)$(DELIM)ld$(DELIM)$(CHIP_SERIES).peripherals.ld
+ULP_LDINCLUDES += -Tchip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)ld$(DELIM)$(CHIP_SERIES).peripherals.ld
 ULP_LDINCLUDES += -Tchip$(DELIM)ulp$(DELIM)ulp_sections.ld
 
 # Source files
 
-ULP_ASOURCES += chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)lp_core$(DELIM)lp_core$(DELIM)port$(DELIM)${CHIP_SERIES}$(DELIM)vector_table.S
-ULP_ASOURCES += chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)lp_core$(DELIM)lp_core$(DELIM)start.S
-ULP_ASOURCES += chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)lp_core$(DELIM)lp_core$(DELIM)vector.S
+ULP_ASOURCES += chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)ulp_riscv$(DELIM)ulp_core$(DELIM)start.S
+ULP_ASOURCES += chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)ulp_riscv$(DELIM)ulp_core$(DELIM)ulp_riscv_vectors.S
 
-ULP_CSOURCES += chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)lp_core$(DELIM)lp_core$(DELIM)lp_core_spi.c
-# ULP_CSOURCES += chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)nuttx$(DELIM)src$(DELIM)components$(DELIM)esp_driver_uart$(DELIM)src$(DELIM)uart_wakeup.c
-ULP_CSOURCES += chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)lp_core$(DELIM)shared$(DELIM)ulp_lp_core_memory_shared.c
-ULP_CSOURCES += chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)lp_core$(DELIM)shared$(DELIM)ulp_lp_core_lp_uart_shared.c
-ULP_CSOURCES += chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)lp_core$(DELIM)shared$(DELIM)ulp_lp_core_lp_timer_shared.c
-ULP_CSOURCES += chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)hal$(DELIM)uart_hal_iram.c
-ULP_CSOURCES += chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)hal$(DELIM)uart_hal.c
-ULP_CSOURCES += chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)lp_core$(DELIM)lp_core$(DELIM)lp_core_i2c.c
-ULP_CSOURCES += chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)lp_core$(DELIM)lp_core$(DELIM)lp_core_startup.c
-ULP_CSOURCES += chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)lp_core$(DELIM)lp_core$(DELIM)lp_core_utils.c
-ULP_CSOURCES += chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)lp_core$(DELIM)lp_core$(DELIM)lp_core_uart.c
-ULP_CSOURCES += chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)lp_core$(DELIM)lp_core$(DELIM)lp_core_print.c
-ULP_CSOURCES += chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)lp_core$(DELIM)lp_core$(DELIM)lp_core_panic.c
-ULP_CSOURCES += chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)lp_core$(DELIM)lp_core$(DELIM)lp_core_interrupt.c
-ULP_CSOURCES += chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)lp_core$(DELIM)lp_core$(DELIM)lp_core_ubsan.c
-ULP_CSOURCES += chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)lp_core$(DELIM)shared$(DELIM)ulp_lp_core_lp_adc_shared.c
-ULP_CSOURCES += chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)lp_core$(DELIM)shared$(DELIM)ulp_lp_core_lp_vad_shared.c
-ULP_CSOURCES += chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)lp_core$(DELIM)shared$(DELIM)ulp_lp_core_critical_section_shared.c
+ULP_CSOURCES += chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)ulp_riscv$(DELIM)ulp_core$(DELIM)ulp_riscv_adc.c
+ULP_CSOURCES += chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)ulp_riscv$(DELIM)ulp_core$(DELIM)ulp_riscv_lock.c
+ULP_CSOURCES += chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)ulp_riscv$(DELIM)ulp_core$(DELIM)ulp_riscv_uart.c
+ULP_CSOURCES += chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)ulp_riscv$(DELIM)ulp_core$(DELIM)ulp_riscv_print.c
+ULP_CSOURCES += chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)ulp_riscv$(DELIM)ulp_core$(DELIM)ulp_riscv_i2c.c
+ULP_CSOURCES += chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)ulp_riscv$(DELIM)ulp_core$(DELIM)ulp_riscv_utils.c
+ULP_CSOURCES += chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)ulp_riscv$(DELIM)ulp_core$(DELIM)ulp_riscv_touch.c
+ULP_CSOURCES += chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)ulp_riscv$(DELIM)ulp_core$(DELIM)ulp_riscv_gpio.c
+ULP_CSOURCES += chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)ulp_riscv$(DELIM)ulp_core$(DELIM)ulp_riscv_interrupt.c
 
 # Add ULP app source files and directories
 
 ULP_FOLDER = chip$(DELIM)ulp
 ULP_CODE_HEADER = $(ULP_FOLDER)$(DELIM)ulp_code.h
-ULP_PROJECT_PATH = $(shell echo $(CONFIG_ESPRESSIF_ULP_PROJECT_PATH))
+ULP_PROJECT_PATH = $(shell echo $(CONFIG_ESPRESSIF_ULP_RISCV_PROJECT_PATH))
 
 ifeq ($(suffix $(ULP_PROJECT_PATH)),.bin)
-	ULP_BIN_FILE_PATH = $(TOPDIR)$(DELIM)$(CONFIG_ESPRESSIF_ULP_PROJECT_PATH)
+	ULP_BIN_FILE_PATH = $(TOPDIR)$(DELIM)$(CONFIG_ESPRESSIF_ULP_RISCV_PROJECT_PATH)
 	ULP_BIN_FILE = "skip"
 else
 	ARCHSCRIPT += $(ULP_FOLDER)$(DELIM)ulp_main.ld
@@ -109,15 +98,15 @@ else
 	ULP_BIN_FILE = $(ULP_FOLDER)$(DELIM)ulp.bin
 	ULP_BIN_FILE_PATH = $(ULP_BIN_FILE)
 
-	ULP_APP_DIR = $(shell echo $(CONFIG_ESPRESSIF_ULP_PROJECT_PATH))
+	ULP_APP_DIR = $(shell echo $(CONFIG_ESPRESSIF_ULP_RISCV_PROJECT_PATH))
 	ULP_APP_PATH = $(TOPDIR)$(DELIM)$(ULP_APP_DIR)
 
 	ULP_APP_C_SRCS = $(wildcard $(ULP_APP_PATH)/*.c $(ULP_APP_PATH)/**/*.c)
 	ULP_APP_ASM_SRCS = $(wildcard $(ULP_APP_PATH)/*.s $(ULP_APP_PATH)/**/*.S)
 	ULP_APP_HEADERS = $(wildcard $(ULP_APP_PATH)/**/*.h $(ULP_APP_PATH)/**/*.h)
 	ULP_APP_INCLUDES = $(addprefix -I,$(sort $(dir $(ULP_APP_HEADERS))))
-	ULP_APP_OBJS = $(ULP_APP_ASM_SRCS:.S=_ulp.o)
-	ULP_APP_OBJS += $(ULP_APP_C_SRCS:.c=_ulp.o)
+	ULP_APP_OBJS = $(ULP_APP_ASM_SRCS:.S=.S.obj)
+	ULP_APP_OBJS += $(ULP_APP_C_SRCS:.c=.c.obj)
 
 	ULP_INCLUDES += $(ULP_APP_INCLUDES)
 	ULP_CSOURCES += $(ULP_APP_C_SRCS)
@@ -125,8 +114,8 @@ else
 
 	# Object file format for ULP will be FILE_NAME_ulp.o to distinguish it from HP core files
 
-	ULP_COBJS = $(ULP_CSOURCES:.c=_ulp.o)
-	ULP_AOBJS = $(ULP_ASOURCES:.S=_ulp.o)
+	ULP_COBJS = $(ULP_CSOURCES:.c=.c.obj)
+	ULP_AOBJS = $(ULP_ASOURCES:.S=.S.obj)
 	ULP_OBJS = $(ULP_COBJS) $(ULP_AOBJS)
 
 	ULP_ELF_FILE = $(ULP_FOLDER)$(DELIM)ulp.elf
@@ -137,12 +126,13 @@ endif
 
 # Toolchain and output paths definitions
 
-ULP_AS = $(CC)
+ULP_CC = riscv-none-elf-gcc
+ULP_OBJCOPY = riscv-none-elf-objcopy
 
-ULP_READELF = $(CROSSDEV)readelf
+ULP_READELF = riscv-none-elf-readelf
 ULP_MAPGEN_TOOL_PATH = chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)esp32ulp_mapgen.py
 ULP_PREFIX = ulp_
-ULP_BASE = 0
+ULP_BASE = 0x50000000
 ULP_VAR_MAP_HEADER_STRING = '\#include "nuttx/symtab.h"\n\nstruct ulp_var_map_s\n{\n  struct symtab_s sym;\n  size_t size;\n};\n'
 
 # To prevent redefining error of other header files in nuttx folder, nuttx/config.h file
@@ -154,40 +144,23 @@ ULP_NUTTX_CONFIG = chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)nuttx$(DELIM)conf
 
 ULP_CFLAGS := 										\
 	-Os 														\
-	-ggdb 													\
-	-march=rv32imac_zicsr_zifencei 	\
+	-march=rv32imc_zicsr_zifencei 	\
 	-mdiv 													\
 	-fdata-sections 								\
 	-ffunction-sections 						\
 	-DIS_ULP_COCPU									\
+  -DULP_RISCV_REGISTER_OPS				\
 	$(ULP_INCLUDES)
 
 ULP_ASFLAGS :=										\
-	-Os															\
-	-ggdb														\
-	-march=rv32imac_zicsr_zifencei	\
-	-x assembler-with-cpp 					\
-	-D__ASSEMBLER__									\
+	-march=rv32imc									\
+	-x assembler-with-cpp						\
 	-DIS_ULP_COCPU									\
+  -DULP_RISCV_REGISTER_OPS				\
 	$(ULP_INCLUDES)
 
-ifeq ($(CONFIG_DEBUG_SYMBOLS),y)
-ULP_CFLAGS += -O0
-ULP_ASFLAGS += -O0
-
-ifeq ($(CONFIG_ESPRESSIF_ULP_ENABLE_UBSAN),y)
-ULP_CFLAGS +=								\
-	-fno-sanitize=shift-base	\
-	-fsanitize=undefined
-
-ULP_ASFLAGS +=							\
-	-fno-sanitize=shift-base	\
-	-fsanitize=undefined
-endif
-endif
-
 ULP_LDFLAGS :=										\
-	-march=rv32imac_zicsr_zifencei	\
+	-march=rv32imc_zicsr_zifencei		\
 	--specs=nano.specs							\
 	--specs=nosys.specs 						\
 	-nostartfiles										\
@@ -207,14 +180,28 @@ checkpython3:
 		exit 1; \
 	fi
 
-%_ulp.o: %.c $(ULP_NUTTX_CONFIG)
-	$(Q) echo "Compiling $< for ULP"
-	$(Q) $(CC) $(ULP_CFLAGS) -c $< -o $@
-	$(Q) $(CC) $(ULP_INCLUDES) -E -P -xc -o $(ULP_FOLDER)$(DELIM)ulp_sections.ld board$(DELIM)scripts$(DELIM)${CHIP_SERIES}_lpcore_sections.ld
+check_rv_toolchain:
+	$(Q) if [ -z "$$(which $(ULP_CC))" ]; then \
+		$(Q) echo "ERROR: $(ULP_CC) not found in PATH"; \
+		$(Q) echo "       Please install $(ULP_CC) or fix the PATH."; \
+		$(Q) echo "       For more information please check ESP32-C3, ESP32-C6 or ESP32-H2 toolchain installation docs"; \
+		exit 1; \
+	fi
+	$(Q) if [ -z "$$(which $(ULP_OBJCOPY))" ]; then \
+		$(Q) echo "ERROR: $(ULP_OBJCOPY) not found in PATH"; \
+		$(Q) echo "       Please install python3 or fix the PATH."; \
+		$(Q) echo "       For more information please check ESP32-C3, ESP32-C6 or ESP32-H2 toolchain installation docs"; \
+		exit 1; \
+	fi
 
-%_ulp.o: %.S $(ULP_NUTTX_CONFIG)
+%.c.obj: %.c $(ULP_NUTTX_CONFIG)
 	$(Q) echo "Compiling $< for ULP"
-	$(Q) $(CC) $(ULP_ASFLAGS) -c $< -o $@
+	$(Q) $(ULP_CC) $(ULP_CFLAGS) -c $< -o $@
+	$(Q) $(ULP_CC) $(ULP_INCLUDES) -E -P -xc -o $(ULP_FOLDER)$(DELIM)ulp_sections.ld board$(DELIM)scripts$(DELIM)${CHIP_SERIES}_ulp_riscv_sections.ld
+
+%.S.obj: %.S $(ULP_NUTTX_CONFIG)
+	$(Q) echo "Compiling $< for ULP"
+	$(Q) $(ULP_CC) $(ULP_ASFLAGS) -c $< -o $@
 
 $(ULP_NUTTX_CONFIG): $(ULP_FOLDER)
 	$(Q) echo "Copying nuttx$(DELIM)config.h into $(ULP_FOLDER)$(DELIM)nuttx"
@@ -222,7 +209,7 @@ $(ULP_NUTTX_CONFIG): $(ULP_FOLDER)
 
 $(ULP_ELF_FILE): $(ULP_OBJS)
 	$(Q) echo "Linking for ULP"
-	$(Q) $(CC) $(ULP_LDFLAGS) $(ULP_OBJS) -o $@
+	$(Q) $(ULP_CC) $(ULP_LDFLAGS) $(ULP_OBJS) -o $@
 
 $(ULP_BIN_FILE): $(ULP_ELF_FILE) checkpython3
 	$(Q) echo -e $(ULP_VAR_MAP_HEADER_STRING) > $(ULP_FOLDER)$(DELIM)ulp_var_map.h
@@ -230,7 +217,7 @@ $(ULP_BIN_FILE): $(ULP_ELF_FILE) checkpython3
 	$(Q) echo -e "\n};" >> $(ULP_FOLDER)$(DELIM)ulp_var_map.h
 ifneq ($(suffix $(ULP_PROJECT_PATH)),.bin)
 	$(Q) echo "Creating bin for ULP"
-	$(Q) $(OBJCOPY) -O binary $(ULP_ELF_FILE) $(ULP_BIN_FILE)
+	$(Q) $(ULP_OBJCOPY) -O binary $(ULP_ELF_FILE) $(ULP_BIN_FILE)
 	$(Q) $(ULP_READELF) -sW $(ULP_ELF_FILE) > $(ULP_SYM_FILE)
 	$(Q) python3 $(ULP_MAPGEN_TOOL_PATH) -s $(ULP_SYM_FILE) -o $(ULP_FOLDER)$(DELIM)ulp_main --base $(ULP_BASE) --prefix $(ULP_PREFIX)
 # Creating map header file for accessing shared memory region of ULP variables
@@ -265,7 +252,7 @@ $(ULP_FOLDER):
 	$(Q) mkdir $(ULP_FOLDER)
 	$(Q) mkdir $(ULP_FOLDER)$(DELIM)nuttx
 
-context:: $(ULP_FOLDER)
+context:: $(ULP_FOLDER) check_rv_toolchain
 	$(Q) touch $(ULP_CODE_HEADER)
 	$(Q) touch $(ULP_FOLDER)$(DELIM)ulp_main.h
 	$(Q) touch $(ULP_FOLDER)$(DELIM)ulp_var_map.h
@@ -277,4 +264,4 @@ ifneq ($(suffix $(ULP_PROJECT_PATH)),.bin)
 	$(Q) rm $(ULP_APP_OBJS) || true
 endif
 
-endif # CONFIG_ESPRESSIF_USE_LP_CORE
+endif # CONFIG_ESPRESSIF_USE_ULP_RISCV_CORE

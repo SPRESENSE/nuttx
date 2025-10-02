@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/stm32f0l0g0/stm32_pwr.c
+ * arch/xtensa/src/common/espressif/esp_ulp.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,23 +20,51 @@
  *
  ****************************************************************************/
 
+#ifndef __ARCH_XTENSA_SRC_COMMON_ESPRESSIF_ESP_ULP_H
+#define __ARCH_XTENSA_SRC_COMMON_ESPRESSIF_ESP_ULP_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
-#include "chip.h"
+#include <sys/types.h>
 
-/* This file is only a thin shell that includes the proper PWR implementation
- * according to the selected MCU family.
- */
+#ifndef __ASSEMBLY__
 
-#if defined(CONFIG_STM32F0L0G0_STM32G0)
-#  include "stm32g0_pwr.c"
-#elif defined(CONFIG_STM32F0L0G0_STM32F0) || defined(CONFIG_STM32F0L0G0_STM32L0)
-#  include "stm32f0l0_pwr.c"
+#undef EXTERN
+#if defined(__cplusplus)
+#define EXTERN extern "C"
+extern "C"
+{
+#else
+#define EXTERN extern
 #endif
 
 /****************************************************************************
- * Public Functions
+ * Public Function Prototypes
  ****************************************************************************/
+
+/****************************************************************************
+ * Name: esp_ulp_init
+ *
+ * Description:
+ *   Initialize ULP co-processor
+ *
+ * Input Parameters:
+ *   None
+ *
+ * Returned Value:
+ *   None
+ *
+ ****************************************************************************/
+
+void esp_ulp_init(void);
+
+#ifdef __cplusplus
+}
+#endif
+#undef EXTERN
+
+#endif /* __ASSEMBLY__ */
+#endif /* __ARCH_XTENSA_SRC_COMMON_ESPRESSIF_ESP_ULP_H */
