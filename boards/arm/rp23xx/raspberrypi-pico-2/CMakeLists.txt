@@ -1,5 +1,5 @@
 # ##############################################################################
-# cmake/nuttx_add_subdirectory.cmake
+# boards/arm/rp23xx/raspberrypi-pico-2/CMakeLists.txt
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -20,31 +20,21 @@
 #
 # ##############################################################################
 
-function(nuttx_add_subdirectory)
-  # Parse arguments: EXCLUDE can be a list of directories
-  set(options)
-  set(oneValueArgs)
-  set(multiValueArgs EXCLUDE)
-  cmake_parse_arguments(NUTTX "${options}" "${oneValueArgs}"
-                        "${multiValueArgs}" ${ARGN})
+add_subdirectory(src)
 
-  # Find all subdirs that have a CMakeLists.txt
-  file(
-    GLOB subdir
-    LIST_DIRECTORIES false
-    RELATIVE ${CMAKE_CURRENT_LIST_DIR}
-    ${CMAKE_CURRENT_LIST_DIR}/*/CMakeLists.txt)
+add_custom_target(
+  nuttx_post_build
+  DEPENDS nuttx
+  WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+  COMMENT "Regenerate nuttx.uf2")
 
-  foreach(dir ${subdir})
-    get_filename_component(dir ${dir} DIRECTORY)
-
-    # Skip excluded directories
-    list(FIND NUTTX_EXCLUDE ${dir} _skip_index)
-    if(_skip_index GREATER -1)
-      message(STATUS "nuttx_add_subdirectory: Skipping ${dir}")
-      continue()
-    endif()
-
-    add_subdirectory(${dir})
-  endforeach()
-endfunction()
+# The uf2 command to convert ELF/BIN to UF2
+add_custom_command(
+  TARGET nuttx_post_build
+  POST_BUILD
+  COMMAND picotool ARGS uf2 convert --quiet -t elf nuttx nuttx.uf2
+  COMMAND_EXPAND_LISTS
+  COMMAND ${CMAKE_COMMAND} -E echo "nuttx.uf2" >>
+          ${CMAKE_BINARY_DIR}/nuttx.manifest
+  WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+  COMMENT "Regenerate nuttx.uf2")
