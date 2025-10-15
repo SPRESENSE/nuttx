@@ -1,5 +1,5 @@
 /****************************************************************************
- * sched/clock/clock_systime_timespec.c
+ * sched/sched/nxsched_checkstackoverflow.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -26,61 +26,69 @@
 
 #include <nuttx/config.h>
 
-#include <stdint.h>
 #include <time.h>
 #include <assert.h>
-#include <errno.h>
 
 #include <nuttx/arch.h>
-#include <nuttx/clock.h>
-#include <nuttx/spinlock.h>
+#include <nuttx/sched.h>
+#include <nuttx/sched_note.h>
 
-#include "clock/clock.h"
+#include "sched/sched.h"
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: clock_systime_timespec
+ * Name: nxsched_checkstackoverflow
  *
  * Description:
- *   Return the current value of the system timer counter as a struct
- *   timespec.  The returned time is the elapsed time since power up.
+ *   Verify that the specified thread has not overflowed its stack.
+ *
+ *   Behavior depends on CONFIG_STACKCHECK_MARGIN:
+ *
+ *   - CONFIG_STACKCHECK_MARGIN == 0:
+ *       Perform a strict boundary check.  The current stack pointer must
+ *       remain within the allocated stack region [base, top].
+ *
+ *   - CONFIG_STACKCHECK_MARGIN > 0:
+ *       Perform an architecture-specific check with a safety margin.
+ *       The stack must not extend beyond the reserved margin area.
+ *
+ *   - CONFIG_STACKCHECK_MARGIN < 0:
+ *       Stack checking is disabled at build time.  In this case, calls to
+ *       nxsched_checkstackoverflow() are replaced with a no-op macro.
  *
  * Input Parameters:
- *   ts - Location to return the time
+ *   tcb - Pointer to the TCB of the thread to be checked.
  *
  * Returned Value:
- *   None
- *
- * Assumptions:
+ *   None.  The function will trigger a DEBUGASSERT if a stack overflow
+ *   condition is detected.
  *
  ****************************************************************************/
 
-void clock_systime_timespec(FAR struct timespec *ts)
+void nxsched_checkstackoverflow(FAR struct tcb_s *tcb)
 {
-#ifdef CONFIG_RTC_HIRES
-  if (g_rtc_enabled)
-    {
-      irqstate_t flags;
+#if (CONFIG_STACKCHECK_MARGIN == 0)
+  /* Strict stack pointer check:
+   * SP must remain within the allocated stack boundaries.
+   */
 
-      up_rtc_gettime(ts);
-
-      flags = spin_lock_irqsave(&g_basetime_lock);
-      clock_timespec_subtract(ts, &g_basetime, ts);
-      spin_unlock_irqrestore(&g_basetime_lock, flags);
-    }
-  else
+  if (tcb->xcp.regs != NULL)
     {
-      ts->tv_sec = 0;
-      ts->tv_nsec = 0;
+      uintptr_t sp = up_getusrsp(tcb->xcp.regs);
+      uintptr_t top = (uintptr_t)tcb->stack_base_ptr + tcb->adj_stack_size;
+      uintptr_t bot = (uintptr_t)tcb->stack_base_ptr;
+
+      DEBUGASSERT(sp > bot && sp <= top);
     }
-#elif defined(CONFIG_ALARM_ARCH) || \
-      defined(CONFIG_TIMER_ARCH) || \
-      defined(CONFIG_SCHED_TICKLESS)
-  up_timer_gettime(ts);
-#else
-  clock_ticks2time(ts, g_system_ticks);
+
+#elif defined(CONFIG_STACK_COLORATION) && (CONFIG_STACKCHECK_MARGIN > 0)
+  /* Margin-based stack check:
+   * Allow some reserved margin area before reporting overflow.
+   */
+
+  DEBUGASSERT(up_check_tcbstack(tcb, CONFIG_STACKCHECK_MARGIN) == 0);
 #endif
 }

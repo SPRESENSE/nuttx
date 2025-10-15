@@ -1,5 +1,5 @@
 /****************************************************************************
- * libs/libc/string/lib_strncmp.c
+ * fs/driver/fs_finddriver.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -25,29 +25,54 @@
  ****************************************************************************/
 
 #include <nuttx/config.h>
-#include <sys/types.h>
-#include <string.h>
+#include <debug.h>
 
-#include "libc.h"
+#include "inode/inode.h"
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
-#if !defined(CONFIG_LIBC_ARCH_STRNCMP) && defined(LIBC_BUILD_STRNCMP)
-#undef strncmp
-int strncmp(FAR const char *cs, FAR const char *ct, size_t nb)
+/****************************************************************************
+ * Name: find_driver
+ *
+ * Description:
+ *   Returns the pointer of a registered driver specified by 'pathname'
+ *
+ * Input Parameters:
+ *   pathname - the full path to the driver's device node in file system
+ *
+ * Returned Value:
+ *   Pointer to driver's registered private pointer or NULL if not found.
+ *
+ ****************************************************************************/
+
+FAR void *find_driver(FAR const char *pathname)
 {
-  register int result = 0;
-  for (; nb > 0; nb--)
+  struct inode_search_s desc;
+  FAR void *drvr = NULL;
+
+  DEBUGASSERT(pathname != NULL);
+
+  /* Find the inode registered with this pathname */
+
+  SETUP_SEARCH(&desc, pathname, false);
+
+  /* Get the search results */
+
+  inode_lock();
+  if (inode_find(&desc) < 0)
     {
-      if ((result = (unsigned char)*cs - (unsigned char)*ct++) != 0 ||
-          *cs++ == '\0')
-        {
-          break;
-        }
+      ferr("ERROR: Failed to find %s\n", pathname);
+    }
+  else
+    {
+      drvr = desc.node->i_private;
+      inode_release(desc.node);
     }
 
-  return result;
+  inode_unlock();
+  RELEASE_SEARCH(&desc);
+
+  return drvr;
 }
-#endif
