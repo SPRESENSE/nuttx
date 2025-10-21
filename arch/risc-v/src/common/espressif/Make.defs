@@ -195,7 +195,7 @@ endif
 
 ESP_HAL_3RDPARTY_REPO   = esp-hal-3rdparty
 ifndef ESP_HAL_3RDPARTY_VERSION
-	ESP_HAL_3RDPARTY_VERSION = bcbd8aa887b2644c08f0b4c42291e5e5ae00d5ab
+	ESP_HAL_3RDPARTY_VERSION = 84efb531f4cdf3162e91652357cac6a0be8dd73e
 endif
 
 ifndef ESP_HAL_3RDPARTY_URL
@@ -245,10 +245,6 @@ CFLAGS += -Wno-undef -Wno-unused-variable -fno-jump-tables -fno-tree-switch-conv
 CHIP_SERIES = $(patsubst "%",%,$(CONFIG_ESPRESSIF_CHIP_SERIES))
 
 include chip/hal_${CHIP_SERIES}.mk
-
-ifeq ($(CONFIG_ESPRESSIF_USE_LP_CORE), y)
-	include common$(DELIM)espressif$(DELIM)/esp_ulp.mk
-endif
 
 ifeq ($(CONFIG_ESP_WIRELESS),y)
 	include common$(DELIM)espressif$(DELIM)Wireless.mk

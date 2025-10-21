@@ -31,7 +31,6 @@
 #include <string.h>
 
 #include "ulp_lp_core.h"
-#include "ulp/ulp_code.h"
 #include "ulp/ulp_var_map.h"
 
 /****************************************************************************
@@ -47,6 +46,10 @@
  ****************************************************************************/
 
 static int esp_ulp_ioctl(struct file *filep, int cmd, unsigned long arg);
+static int esp_ulp_write(struct file *filep,
+                         const char *buffer,
+                         size_t buflen);
+int esp_ulp_load_bin(const char *buffer, size_t buflen);
 
 /****************************************************************************
  * Private Data
@@ -54,6 +57,7 @@ static int esp_ulp_ioctl(struct file *filep, int cmd, unsigned long arg);
 
 static const struct file_operations g_esp_ulp_fops =
 {
+  .write = esp_ulp_write, /* write */
   .ioctl = esp_ulp_ioctl, /* ioctl */
 };
 
@@ -90,6 +94,7 @@ ulp_lp_core_cfg_t cfg =
 
 static int esp_ulp_ioctl(struct file *filep, int cmd, unsigned long arg)
 {
+  UNUSED(filep);
   int ret = 0;
   int index = -1;
   struct symtab_s *sym = (struct symtab_s *)arg;
@@ -136,6 +141,30 @@ static int esp_ulp_ioctl(struct file *filep, int cmd, unsigned long arg)
 }
 
 /****************************************************************************
+ * Name: esp_ulp_write
+ *
+ * Description:
+ *   Load binary data into ULP.
+ *
+ * Input Parameters:
+ *   filep  - The pointer of file
+ *   buffer - Buffer that includes binary to run on ULP.
+ *   buflen - Length of the buffer
+ *
+ * Returned Value:
+ *   Returns OK on success; a negated errno value on failure
+ *
+ ****************************************************************************/
+
+static int esp_ulp_write(struct file *filep,
+                         const char *buffer,
+                         size_t buflen)
+{
+  UNUSED(filep);
+  return esp_ulp_load_bin(buffer, buflen);
+}
+
+/****************************************************************************
  * Name: esp_ulp_register
  *
  * Description:
@@ -159,6 +188,30 @@ static void esp_ulp_register(void)
  ****************************************************************************/
 
 /****************************************************************************
+ * Name: esp_ulp_load_bin
+ *
+ * Description:
+ *   Load binary data into ULP.
+ *
+ * Input Parameters:
+ *   buffer - Buffer that includes binary to run on ULP.
+ *   buflen - Length of the buffer
+ *
+ * Returned Value:
+ *   Returns OK on success; a negated errno value on failure
+ *
+ ****************************************************************************/
+
+int esp_ulp_load_bin(const char *buffer, size_t buflen)
+{
+  int ret = ERROR;
+  ulp_lp_core_stop();
+  ret = ulp_lp_core_load_binary((const uint8_t *)buffer, buflen);
+  ulp_lp_core_run(&cfg);
+  return ret;
+}
+
+/****************************************************************************
  * Name: esp_ulp_init
  *
  * Description:
@@ -174,9 +227,6 @@ static void esp_ulp_register(void)
 
 void esp_ulp_init(void)
 {
-  ulp_lp_core_load_binary(esp_ulp_bin,
-                          sizeof(esp_ulp_bin));
-
   esp_ulp_register();
   ulp_lp_core_run(&cfg);
 }

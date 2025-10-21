@@ -139,6 +139,9 @@
 
 #ifdef CONFIG_ESPRESSIF_USE_LP_CORE
 #  include "espressif/esp_ulp.h"
+#  ifdef CONFIG_ESPRESSIF_ULP_USE_TEST_BIN
+#    include "ulp/ulp_code.h"
+#  endif
 #endif
 
 #include "esp32c6-devkitc.h"
@@ -287,13 +290,20 @@ int esp_bringup(void)
 #endif
 
 #ifdef CONFIG_ESPRESSIF_SPI
-#  ifdef CONFIG_ESPRESSIF_SPI2
+#  ifdef CONFIG_ESPRESSIF_SPI_SLAVE
+  ret = board_spislavedev_initialize(ESPRESSIF_SPI2);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "Failed to initialize SPI%d Slave driver: %d\n",
+             ESPRESSIF_SPI2, ret);
+    }
+#  else
   ret = board_spidev_initialize(ESPRESSIF_SPI2);
   if (ret < 0)
     {
       syslog(LOG_ERR, "ERROR: Failed to init spidev 2: %d\n", ret);
     }
-#  endif /* CONFIG_ESPRESSIF_SPI2 */
+#  endif
 
 #  ifdef CONFIG_ESPRESSIF_SPI_BITBANG
   ret = board_spidev_initialize(ESPRESSIF_SPI_BITBANG);
@@ -428,15 +438,6 @@ int esp_bringup(void)
     }
 #endif
 
-#if defined(CONFIG_SPI_SLAVE) && defined(CONFIG_ESPRESSIF_SPI2)
-  ret = board_spislavedev_initialize(ESPRESSIF_SPI2);
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "Failed to initialize SPI%d Slave driver: %d\n",
-             ESPRESSIF_SPI2, ret);
-    }
-#endif
-
 #ifdef CONFIG_DEV_GPIO
   ret = esp_gpio_init();
   if (ret < 0)
@@ -514,6 +515,10 @@ int esp_bringup(void)
    */
 
   esp_ulp_init();
+
+#  ifdef CONFIG_ESPRESSIF_ULP_USE_TEST_BIN
+  esp_ulp_load_bin((char *)esp_ulp_bin, esp_ulp_bin_len);
+#  endif
 #endif
 
 #ifdef CONFIG_NET_OA_TC6
