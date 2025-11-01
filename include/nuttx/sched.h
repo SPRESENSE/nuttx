@@ -42,6 +42,7 @@
 #include <nuttx/irq.h>
 #include <nuttx/mutex.h>
 #include <nuttx/semaphore.h>
+#include <nuttx/event.h>
 #include <nuttx/queue.h>
 #include <nuttx/wdog.h>
 #include <nuttx/fs/fs.h>
@@ -253,6 +254,9 @@ enum tstate_e
   TSTATE_TASK_INACTIVE,       /* BLOCKED      - Initialized but not yet activated */
   TSTATE_WAIT_SEM,            /* BLOCKED      - Waiting for a semaphore */
   TSTATE_WAIT_SIG,            /* BLOCKED      - Waiting for a signal */
+#ifdef CONFIG_SCHED_EVENTS
+  TSTATE_WAIT_EVENT,          /* BLOCKED      - Waiting for a event */
+#endif
 #if !defined(CONFIG_DISABLE_MQUEUE) || !defined(CONFIG_DISABLE_MQUEUE_SYSV)
   TSTATE_WAIT_MQNOTEMPTY,     /* BLOCKED      - Waiting for a MQ to become not empty. */
   TSTATE_WAIT_MQNOTFULL,      /* BLOCKED      - Waiting for a MQ to become not full. */
@@ -650,6 +654,11 @@ struct tcb_s
 
   FAR void *waitobj;                     /* Object thread waiting on        */
 
+#ifdef CONFIG_SCHED_EVENTS
+  nxevent_mask_t expect;                 /* expected event mask */
+  nxevent_flags_t eflags;                /* event wait flags */
+#endif
+
   /* POSIX Signal Control Fields ********************************************/
 
   sigset_t   sigprocmask;                /* Signals that are blocked        */
@@ -662,6 +671,7 @@ struct tcb_s
 
 #if !defined(CONFIG_DISABLE_PTHREAD) && !defined(CONFIG_PTHREAD_MUTEX_UNSAFE)
   FAR struct pthread_mutex_s *mhead;     /* List of mutexes held by thread  */
+  spinlock_t mhead_lock;
 #endif
 
   /* CPU load monitoring support ********************************************/
@@ -716,10 +726,6 @@ struct tcb_s
   size_t caller_deepest;
   size_t level_deepest;
   size_t level;
-#endif
-
-#ifndef CONFIG_PTHREAD_MUTEX_UNSAFE
-  spinlock_t mutex_lock;
 #endif
 };
 

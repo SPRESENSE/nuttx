@@ -270,6 +270,13 @@ static void tasklist_initialize(void)
   tlist[TSTATE_WAIT_SEM].attr = TLIST_ATTR_PRIORITIZED |
                                 TLIST_ATTR_OFFSET;
 
+#ifdef CONFIG_SCHED_EVENTS
+  /* TSTATE_WAIT_EVENT */
+
+  tlist[TSTATE_WAIT_EVENT].list = (FAR void *)offsetof(nxevent_t, waitlist);
+  tlist[TSTATE_WAIT_EVENT].attr = TLIST_ATTR_PRIORITIZED |
+                                  TLIST_ATTR_OFFSET;
+#endif
   /* TSTATE_WAIT_SIG */
 
   tlist[TSTATE_WAIT_SIG].list = list_waitingforsignal();
@@ -444,8 +451,8 @@ static void idle_group_initialize(void)
 
       nxtask_joininit(tcb);
 
-#ifndef CONFIG_PTHREAD_MUTEX_UNSAFE
-      spin_lock_init(&tcb->mutex_lock);
+#if !defined(CONFIG_DISABLE_PTHREAD) && !defined(CONFIG_PTHREAD_MUTEX_UNSAFE)
+      spin_lock_init(&tcb->mhead_lock);
 #endif
 
 #ifdef CONFIG_SMP
