@@ -1,5 +1,5 @@
 /****************************************************************************
- * libs/libc/unistd/lib_getoptvars.c
+ * boards/arm/stm32h7/portenta-h7/src/stm32_appinitialize.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -25,53 +25,54 @@
  ****************************************************************************/
 
 #include <nuttx/config.h>
-#include <assert.h>
 
-#include "unistd.h"
+#include <sys/types.h>
+#include <nuttx/board.h>
+
+#include "portenta-h7.h"
 
 /****************************************************************************
- * Private Data
+ * Pre-processor Definitions
  ****************************************************************************/
-
-#ifdef CONFIG_BUILD_KERNEL
-/* Data is naturally process-specific in the KERNEL build so no special
- * access to process-specific global data is needed.
- */
-
-struct getopt_s g_getopt_vars =
-{
-  NULL,
-  0,
-  1,
-  '?',
-  NULL,
-  false
-};
-#endif
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: getoptvars
+ * Name: board_app_initialize
  *
  * Description:
- *   Returns a pointer to to the thread-specific getopt() data.
+ *   Perform application specific initialization.  This function is never
+ *   called directly from application code, but only indirectly via the
+ *   (non-standard) boardctl() interface using the command BOARDIOC_INIT.
+ *
+ * Input Parameters:
+ *   arg - The boardctl() argument is passed to the board_app_initialize()
+ *         implementation without modification.  The argument has no
+ *         meaning to NuttX; the meaning of the argument is a contract
+ *         between the board-specific initialization logic and the
+ *         matching application logic.  The value could be such things as a
+ *         mode enumeration value, a set of DIP switch switch settings, a
+ *         pointer to configuration data read from a file or serial FLASH,
+ *         or whatever you would like to do with it.  Every implementation
+ *         should accept zero/NULL as a default configuration.
+ *
+ * Returned Value:
+ *   Zero (OK) is returned on success; a negated errno value is returned on
+ *   any failure to indicate the nature of the failure.
  *
  ****************************************************************************/
 
-FAR struct getopt_s *getoptvars(void)
+int board_app_initialize(uintptr_t arg)
 {
-#ifndef CONFIG_BUILD_KERNEL
-  FAR struct task_info_s *info;
+#ifdef CONFIG_BOARD_LATE_INITIALIZE
+  /* Board initialization already performed by board_late_initialize() */
 
-  /* Get the structure of getopt() variables using the key. */
-
-  info = task_get_info();
-  DEBUGASSERT(info != NULL);
-  return &info->ta_getopt;
+  return OK;
 #else
-  return &g_getopt_vars;
+  /* Perform board-specific initialization */
+
+  return stm32_bringup();
 #endif
 }

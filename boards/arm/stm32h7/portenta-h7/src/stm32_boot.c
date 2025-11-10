@@ -1,5 +1,5 @@
 /****************************************************************************
- * libs/libc/unistd/lib_getoptvars.c
+ * boards/arm/stm32h7/portenta-h7/src/stm32_boot.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -25,53 +25,57 @@
  ****************************************************************************/
 
 #include <nuttx/config.h>
-#include <assert.h>
 
-#include "unistd.h"
+#include <debug.h>
 
-/****************************************************************************
- * Private Data
- ****************************************************************************/
+#include <nuttx/board.h>
+#include <arch/board/board.h>
 
-#ifdef CONFIG_BUILD_KERNEL
-/* Data is naturally process-specific in the KERNEL build so no special
- * access to process-specific global data is needed.
- */
-
-struct getopt_s g_getopt_vars =
-{
-  NULL,
-  0,
-  1,
-  '?',
-  NULL,
-  false
-};
-#endif
+#include "arm_internal.h"
+#include "stm32_start.h"
+#include "portenta-h7.h"
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: getoptvars
+ * Name: stm32_boardinitialize
  *
  * Description:
- *   Returns a pointer to to the thread-specific getopt() data.
+ *   All STM32 architectures must provide the following entry point.
+ *   This entry point is called early in the initialization -- after all
+ *   memory has been configured and mapped but before any devices have been
+ *   initialized.
  *
  ****************************************************************************/
 
-FAR struct getopt_s *getoptvars(void)
+void stm32_boardinitialize(void)
 {
-#ifndef CONFIG_BUILD_KERNEL
-  FAR struct task_info_s *info;
+#ifdef CONFIG_ARCH_LEDS
+  /* Configure on-board LEDs if LED support has been selected. */
 
-  /* Get the structure of getopt() variables using the key. */
-
-  info = task_get_info();
-  DEBUGASSERT(info != NULL);
-  return &info->ta_getopt;
-#else
-  return &g_getopt_vars;
+  board_autoled_initialize();
 #endif
 }
+
+/****************************************************************************
+ * Name: board_late_initialize
+ *
+ * Description:
+ *   If CONFIG_BOARD_LATE_INITIALIZE is selected, then an additional
+ *   initialization call will be performed in the boot-up sequence to a
+ *   function called board_late_initialize().  board_late_initialize()
+ *   will be called immediately after up_initialize() is called and just
+ *   before the initial application is started.  This additional
+ *   initialization phase may be used, for example, to initialize board-
+ *   specific device drivers.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_BOARD_LATE_INITIALIZE
+void board_late_initialize(void)
+{
+  stm32_bringup();
+}
+#endif

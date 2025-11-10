@@ -1,5 +1,7 @@
 # ##############################################################################
-# arch/arm64/src/bcm2711/CMakeLists.txt
+# boards/arm/stm32h7/portenta-h7/src/CMakeLists.txt
+#
+# SPDX-License-Identifier: Apache-2.0
 #
 # Licensed to the Apache Software Foundation (ASF) under one or more contributor
 # license agreements.  See the NOTICE file distributed with this work for
@@ -18,39 +20,21 @@
 #
 # ##############################################################################
 
-# BCM2711 specific C source files
+set(SRCS stm32_boot.c stm32_bringup.c)
 
-set(SRCS bcm2711_boot.c bcm2711_mailbox.c bcm2711_serial.c bcm2711_gpio.c
-         bcm2711_timer.c)
-
-# Early boot logging
-
-if(CONFIG_ARCH_EARLY_PRINT)
-  list(APPEND SRCS bcm2711_lowputc.c)
+if(CONFIG_ARCH_LEDS)
+  list(APPEND SRCS stm32_autoleds.c)
 endif()
 
-# I2C interfaces
-
-if(CONFIG_BCM2711_I2C)
-  list(APPEND SRCS bcm2711_i2c.c)
+if(CONFIG_BOARDCTL)
+  list(APPEND SRCS stm32_appinitialize.c)
 endif()
 
-# SPI interfaces
+target_sources(board PRIVATE ${SRCS})
 
-if(CONFIG_BCM2711_SPI)
-  list(APPEND SRCS bcm2711_spi.c)
+if(CONFIG_ARCH_CHIP_STM32H7_CORTEXM7)
+  set_property(GLOBAL PROPERTY LD_SCRIPT "${NUTTX_BOARD_DIR}/scripts/flash.ld")
+else()
+  set_property(GLOBAL PROPERTY LD_SCRIPT
+                               "${NUTTX_BOARD_DIR}/scripts/flash_m4.ld")
 endif()
-
-# EMMC interfaces
-
-if(CONFIG_BCM2711_EMMC)
-  list(APPEND SRCS bcm2711_sdio.c)
-endif()
-
-# Graphics
-
-if(CONFIG_BCM2711_FRAMEBUFFER)
-  list(APPEND SRCS bcm2711_fb.c)
-endif()
-
-target_sources(arch PRIVATE ${SRCS})

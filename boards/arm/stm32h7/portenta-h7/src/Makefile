@@ -1,5 +1,7 @@
 ############################################################################
-# arch/arm64/src/bcm2711/Make.defs
+# boards/arm/stm32h7/portenta-h7/src/Makefile
+#
+# SPDX-License-Identifier: Apache-2.0
 #
 # Licensed to the Apache Software Foundation (ASF) under one or more
 # contributor license agreements.  See the NOTICE file distributed with
@@ -18,42 +20,16 @@
 #
 ############################################################################
 
-include common/Make.defs
+include $(TOPDIR)/Make.defs
 
-# BCM2711 specific C source files
+CSRCS = stm32_boot.c stm32_bringup.c
 
-CHIP_CSRCS += bcm2711_boot.c
-CHIP_CSRCS += bcm2711_mailbox.c
-CHIP_CSRCS += bcm2711_serial.c
-CHIP_CSRCS += bcm2711_gpio.c
-CHIP_CSRCS += bcm2711_timer.c
-
-# Early boot logging
-
-ifeq ($(CONFIG_ARCH_EARLY_PRINT),y)
-CHIP_CSRCS += bcm2711_lowputc.c
+ifeq ($(CONFIG_ARCH_LEDS),y)
+CSRCS += stm32_autoleds.c
 endif
 
-# I2C interfaces
-
-ifeq ($(CONFIG_BCM2711_I2C),y)
-CHIP_CSRCS += bcm2711_i2c.c
+ifeq ($(CONFIG_BOARDCTL),y)
+CSRCS += stm32_appinitialize.c
 endif
 
-# SPI interfaces
-
-ifeq ($(CONFIG_BCM2711_SPI),y)
-CHIP_CSRCS += bcm2711_spi.c
-endif
-
-# EMMC interfaces
-
-ifeq ($(CONFIG_BCM2711_EMMC),y)
-CHIP_CSRCS += bcm2711_sdio.c
-endif
-
-# Graphics
-
-ifeq ($(CONFIG_BCM2711_FRAMEBUFFER),y)
-CHIP_CSRCS += bcm2711_fb.c
-endif
+include $(TOPDIR)/boards/Board.mk
