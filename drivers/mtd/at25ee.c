@@ -221,6 +221,12 @@ static const struct at25ee_geom_s g_at25ee_devices[] =
   {
     2, 0, 1, 1
   }, /* AT25040B     512    8     1+bit */
+  {
+    9, 4, 2, 0
+  }, /* AT25512    65536  128     2 */
+  {
+    10, 5, 3, 0
+  }, /* AT25M01   131072  256     3 */
 
   /* STM devices */
 
@@ -661,7 +667,7 @@ static ssize_t at25ee_write(FAR struct mtd_dev_s *dev, off_t offset,
 
   /* Forbid writes past the end of the device */
 
-  if (nbytes + offset >= priv->size)
+  if (nbytes + offset > priv->size)
     {
       return 0;
     }
