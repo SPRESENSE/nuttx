@@ -63,8 +63,6 @@ struct arm_timer_lowerhalf_s
 {
   struct oneshot_lowerhalf_s lh;        /* Lower half operations */
   uint32_t                   freq;      /* Timer working clock frequency(Hz) */
-  oneshot_callback_t         callback;  /* Current user interrupt callback */
-  void                       *arg;      /* Argument passed to upper half callback */
 
   /* which cpu timer is running, -1 indicate timer stoppd */
 
@@ -78,7 +76,6 @@ struct arm_timer_lowerhalf_s
 static int arm_timer_maxdelay(struct oneshot_lowerhalf_s *lower,
                               struct timespec *ts);
 static int arm_timer_start(struct oneshot_lowerhalf_s *lower,
-                           oneshot_callback_t callback, void *arg,
                            const struct timespec *ts);
 static int arm_timer_cancel(struct oneshot_lowerhalf_s *lower,
                             struct timespec *ts);
@@ -170,7 +167,6 @@ static int arm_timer_maxdelay(struct oneshot_lowerhalf_s *lower_,
 }
 
 static int arm_timer_start(struct oneshot_lowerhalf_s *lower_,
-                           oneshot_callback_t callback, void *arg,
                            const struct timespec *ts)
 {
   struct arm_timer_lowerhalf_s *lower =
@@ -179,9 +175,6 @@ static int arm_timer_start(struct oneshot_lowerhalf_s *lower_,
   uint64_t count;
 
   flags = up_irq_save();
-
-  lower->callback = callback;
-  lower->arg      = arg;
 
   lower->running = this_cpu();
 
@@ -206,8 +199,6 @@ static int arm_timer_cancel(struct oneshot_lowerhalf_s *lower_,
 
   flags = up_irq_save();
 
-  lower->callback = NULL;
-  lower->arg      = NULL;
   lower->running  = -1;
 
   arm_timer_phy_set_irq_mask(true);
@@ -234,23 +225,14 @@ static int arm_timer_current(struct oneshot_lowerhalf_s *lower_,
 static int arm_timer_interrupt(int irq, void *context, void *arg)
 {
   struct arm_timer_lowerhalf_s *lower = arg;
-  oneshot_callback_t callback;
-  void *cbarg;
 
   DEBUGASSERT(lower != NULL);
 
   arm_timer_phy_set_irq_mask(true);
 
-  if (lower->callback != NULL && lower->running == this_cpu())
+  if (lower->running == this_cpu())
     {
-      callback        = lower->callback;
-      cbarg           = lower->arg;
-      lower->callback = NULL;
-      lower->arg      = NULL;
-
-      /* Then perform the callback */
-
-      callback(&lower->lh, cbarg);
+      oneshot_process_callback(&lower->lh);
     }
 
   return 0;

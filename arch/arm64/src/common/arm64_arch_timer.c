@@ -69,9 +69,7 @@ struct arm64_oneshot_lowerhalf_s
 
   /* Private lower half data follows */
 
-  void *arg;                          /* Argument that is passed to the handler */
   uint64_t frequency;                 /* Frequency in cycle per second */
-  oneshot_callback_t callback;        /* Internal handler that receives callback */
 
   /* which cpu timer is running, -1 indicate timer stoppd */
 
@@ -89,38 +87,14 @@ static inline void arm64_arch_timer_set_compare(uint64_t value)
 
 static inline void arm64_arch_timer_enable(bool enable)
 {
-  uint64_t value;
-
-  value = read_sysreg(cntv_ctl_el0);
-
-  if (enable)
-    {
-      value |= CNTV_CTL_ENABLE_BIT;
-    }
-  else
-    {
-      value &= ~CNTV_CTL_ENABLE_BIT;
-    }
-
-  write_sysreg(value, cntv_ctl_el0);
+  modify_sysreg(enable ? CNTV_CTL_ENABLE_BIT : 0u,
+                CNTV_CTL_ENABLE_BIT, cntv_ctl_el0);
 }
 
 static inline void arm64_arch_timer_set_irq_mask(bool mask)
 {
-  uint64_t value;
-
-  value = read_sysreg(cntv_ctl_el0);
-
-  if (mask)
-    {
-      value |= CNTV_CTL_IMASK_BIT;
-    }
-  else
-    {
-      value &= ~CNTV_CTL_IMASK_BIT;
-    }
-
-  write_sysreg(value, cntv_ctl_el0);
+  modify_sysreg(mask ? CNTV_CTL_IMASK_BIT : 0u,
+                CNTV_CTL_IMASK_BIT, cntv_ctl_el0);
 }
 
 static inline uint64_t arm64_arch_timer_count(void)
@@ -131,45 +105,6 @@ static inline uint64_t arm64_arch_timer_count(void)
 static inline uint64_t arm64_arch_timer_get_cntfrq(void)
 {
   return read_sysreg(cntfrq_el0);
-}
-
-static inline uint64_t arm64_arch_cnt2tick(uint64_t count, uint64_t freq)
-{
-  uint64_t sec;
-  uint64_t ticks;
-
-  /* In case of count * TICK_PER_SEC overflow.
-   * We should divide the count into two parts:
-   * The second part and sub-second part.
-   */
-
-  sec    = count / freq;
-  ticks  = sec * TICK_PER_SEC;
-
-  /* Here we convert the sub-second part to ticks. */
-
-  count -= sec * freq;
-  ticks += count * TICK_PER_SEC / freq;
-
-  return ticks;
-}
-
-static inline uint64_t arm64_arch_tick2cnt(uint64_t ticks, uint64_t freq)
-{
-  uint64_t count;
-  uint64_t sec;
-
-  /* First we convert the second part to count. */
-
-  sec    = div_const(ticks, TICK_PER_SEC);
-  count  = sec * freq;
-
-  /* Here we convert the sub-second part to count. */
-
-  ticks -= sec * TICK_PER_SEC;
-  count += div_const(ticks * freq, TICK_PER_SEC);
-
-  return count;
 }
 
 /****************************************************************************
@@ -199,11 +134,11 @@ static int arm64_arch_timer_compare_isr(int irq, void *regs, void *arg)
 
   arm64_arch_timer_set_irq_mask(true);
 
-  if (priv->callback && priv->running == this_cpu())
+  if (priv->running == this_cpu())
     {
       /* Then perform the callback */
 
-      priv->callback(&priv->lh, priv->arg);
+      oneshot_process_callback(&priv->lh);
     }
 
   return OK;
@@ -227,12 +162,15 @@ static int arm64_arch_timer_compare_isr(int irq, void *regs, void *arg)
  *
  ****************************************************************************/
 
-static int arm64_tick_max_delay(struct oneshot_lowerhalf_s *lower,
-                                clock_t *ticks)
+static int arm64_max_delay(struct oneshot_lowerhalf_s *lower,
+                           struct timespec *ts)
 {
-  DEBUGASSERT(ticks != NULL);
+  uint64_t freq = arm64_arch_timer_get_cntfrq();
 
-  *ticks = (clock_t)UINT32_MAX;
+  DEBUGASSERT(ts != NULL);
+
+  ts->tv_sec  = UINT64_MAX / freq;
+  ts->tv_nsec = UINT64_MAX % freq * NSEC_PER_SEC / freq;
 
   return OK;
 }
@@ -260,13 +198,13 @@ static int arm64_tick_max_delay(struct oneshot_lowerhalf_s *lower,
  *
  ****************************************************************************/
 
-static int arm64_tick_cancel(struct oneshot_lowerhalf_s *lower,
-                             clock_t *ticks)
+static int arm64_cancel(struct oneshot_lowerhalf_s *lower,
+                        struct timespec *ts)
 {
   struct arm64_oneshot_lowerhalf_s *priv =
     (struct arm64_oneshot_lowerhalf_s *)lower;
 
-  DEBUGASSERT(priv != NULL && ticks != NULL);
+  DEBUGASSERT(priv != NULL && ts != NULL);
 
   /* Disable int */
 
@@ -296,35 +234,23 @@ static int arm64_tick_cancel(struct oneshot_lowerhalf_s *lower,
  *
  ****************************************************************************/
 
-static int arm64_tick_start(struct oneshot_lowerhalf_s *lower,
-                            oneshot_callback_t callback, void *arg,
-                            clock_t ticks)
+static int arm64_start(struct oneshot_lowerhalf_s *lower,
+                       const struct timespec *ts)
 {
-  uint64_t next_cnt;
-  uint64_t next_tick;
+  uint64_t count;
   struct arm64_oneshot_lowerhalf_s *priv =
     (struct arm64_oneshot_lowerhalf_s *)lower;
   uint64_t freq = priv->frequency;
 
-  DEBUGASSERT(priv != NULL && callback != NULL);
-
-  /* Save the new handler and its argument */
-
-  priv->callback = callback;
-  priv->arg = arg;
+  DEBUGASSERT(priv && ts);
 
   priv->running = this_cpu();
 
-  /* Align the timer count to the tick boundary.
-   * Notice that this is just a work-around. We should pass both
-   * the current system ticks and the delay ticks as input parameters.
-   * But we only have the delay tick here due to the oneshot interface.
-   */
+  count  = arm64_arch_timer_count();
+  count += (uint64_t)ts->tv_sec * freq +
+           (uint64_t)ts->tv_nsec * freq / NSEC_PER_SEC;
 
-  next_tick = arm64_arch_cnt2tick(arm64_arch_timer_count(), freq) + ticks;
-  next_cnt  = arm64_arch_tick2cnt(next_tick, freq);
-
-  arm64_arch_timer_set_compare(next_cnt);
+  arm64_arch_timer_set_compare(count);
 
   arm64_arch_timer_set_irq_mask(false);
 
@@ -345,18 +271,21 @@ static int arm64_tick_start(struct oneshot_lowerhalf_s *lower,
  *
  ****************************************************************************/
 
-static int arm64_tick_current(struct oneshot_lowerhalf_s *lower,
-                              clock_t *ticks)
+static int arm64_current(struct oneshot_lowerhalf_s *lower,
+                         struct timespec *ts)
 {
   uint64_t count;
+  uint64_t freq;
   struct arm64_oneshot_lowerhalf_s *priv =
     (struct arm64_oneshot_lowerhalf_s *)lower;
 
-  DEBUGASSERT(ticks != NULL);
+  DEBUGASSERT(ts != NULL);
 
+  freq  = priv->frequency;
   count = arm64_arch_timer_count();
 
-  *ticks = arm64_arch_cnt2tick(count, priv->frequency);
+  ts->tv_sec  = count / freq;
+  ts->tv_nsec = (count % freq) * NSEC_PER_SEC / freq;
 
   return OK;
 }
@@ -389,10 +318,10 @@ static void arm64_oneshot_initialize_per_cpu(void)
 
 static const struct oneshot_operations_s g_oneshot_ops =
 {
-  .tick_start     = arm64_tick_start,
-  .tick_current   = arm64_tick_current,
-  .tick_max_delay = arm64_tick_max_delay,
-  .tick_cancel    = arm64_tick_cancel,
+  .start     = arm64_start,
+  .current   = arm64_current,
+  .max_delay = arm64_max_delay,
+  .cancel    = arm64_cancel,
 };
 
 /****************************************************************************

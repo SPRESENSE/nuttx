@@ -59,7 +59,7 @@ static void oneshot_callback(FAR struct oneshot_lowerhalf_s *lower,
    * atomically w. respect to a HW timer
    */
 
-  ONESHOT_TICK_START(g_oneshot_lower, oneshot_callback, NULL, 1);
+  ONESHOT_TICK_START(g_oneshot_lower, 1);
 
   /* It is always an error if this progresses more than 1 tick at a time.
    * That would break any timer based on wdog; such timers might timeout
@@ -90,12 +90,15 @@ void up_alarm_set_lowerhalf(FAR struct oneshot_lowerhalf_s *lower)
 
   g_oneshot_lower = lower;
 
+  lower->callback = oneshot_callback;
+  lower->arg      = lower;
+
 #ifdef CONFIG_SCHED_TICKLESS
   ONESHOT_TICK_MAX_DELAY(g_oneshot_lower, &ticks);
   g_oneshot_maxticks = ticks < UINT32_MAX ? ticks : UINT32_MAX;
 #else
   ONESHOT_TICK_CURRENT(g_oneshot_lower, &g_current_tick);
-  ONESHOT_TICK_START(g_oneshot_lower, oneshot_callback, NULL, 1);
+  ONESHOT_TICK_START(g_oneshot_lower, 1);
 #endif
 }
 
@@ -269,8 +272,7 @@ int weak_function up_alarm_tick_start(clock_t ticks)
           delta = 0;
         }
 
-      ret = ONESHOT_TICK_START(g_oneshot_lower, oneshot_callback,
-                               NULL, delta);
+      ret = ONESHOT_TICK_START(g_oneshot_lower, delta);
     }
 
   return ret;

@@ -95,10 +95,8 @@
  *
  ****************************************************************************/
 
-#define ONESHOT_MAX_DELAY(l,t) \
-  ((l)->ops->max_delay ? (l)->ops->max_delay(l,t) : oneshot_max_delay(l,t))
-#define ONESHOT_TICK_MAX_DELAY(l,t) \
-  ((l)->ops->tick_max_delay ? (l)->ops->tick_max_delay(l,t) : oneshot_tick_max_delay(l,t))
+#define ONESHOT_MAX_DELAY(l,t) (l)->ops->max_delay(l,t)
+#define ONESHOT_TICK_MAX_DELAY(l,t) oneshot_tick_max_delay(l,t)
 
 /****************************************************************************
  * Name: ONESHOT_START
@@ -120,10 +118,8 @@
  *
  ****************************************************************************/
 
-#define ONESHOT_START(l,h,a,t) \
-  ((l)->ops->start ? (l)->ops->start(l,h,a,t) : oneshot_start(l,h,a,t))
-#define ONESHOT_TICK_START(l,h,a,t) \
-  ((l)->ops->tick_start ? (l)->ops->tick_start(l,h,a,t) : oneshot_tick_start(l,h,a,t))
+#define ONESHOT_START(l,t) (l)->ops->start(l,t)
+#define ONESHOT_TICK_START(l,t) oneshot_tick_start(l,t)
 
 /****************************************************************************
  * Name: ONESHOT_CANCEL
@@ -149,10 +145,8 @@
  *
  ****************************************************************************/
 
-#define ONESHOT_CANCEL(l,t) \
-  ((l)->ops->cancel ? (l)->ops->cancel(l,t) : oneshot_cancel(l,t))
-#define ONESHOT_TICK_CANCEL(l,t) \
-  ((l)->ops->tick_cancel ? (l)->ops->tick_cancel(l,t) : oneshot_tick_cancel(l,t))
+#define ONESHOT_CANCEL(l,t) (l)->ops->cancel(l,t)
+#define ONESHOT_TICK_CANCEL(l,t) oneshot_tick_cancel(l,t)
 
 /****************************************************************************
  * Name: ONESHOT_CURRENT
@@ -173,10 +167,8 @@
  *
  ****************************************************************************/
 
-#define ONESHOT_CURRENT(l,t) \
-  ((l)->ops->current ? (l)->ops->current(l,t) : oneshot_current(l,t))
-#define ONESHOT_TICK_CURRENT(l,t) \
-  ((l)->ops->tick_current ? (l)->ops->tick_current(l,t) : oneshot_tick_current(l,t))
+#define ONESHOT_CURRENT(l,t) (l)->ops->current(l,t)
+#define ONESHOT_TICK_CURRENT(l,t) oneshot_tick_current(l,t)
 
 /****************************************************************************
  * Public Types
@@ -202,21 +194,11 @@ struct oneshot_operations_s
   CODE int (*max_delay)(FAR struct oneshot_lowerhalf_s *lower,
                         FAR struct timespec *ts);
   CODE int (*start)(FAR struct oneshot_lowerhalf_s *lower,
-                    oneshot_callback_t callback, FAR void *arg,
                     FAR const struct timespec *ts);
   CODE int (*cancel)(FAR struct oneshot_lowerhalf_s *lower,
                      FAR struct timespec *ts);
   CODE int (*current)(FAR struct oneshot_lowerhalf_s *lower,
                       FAR struct timespec *ts);
-  CODE int (*tick_max_delay)(FAR struct oneshot_lowerhalf_s *lower,
-                             FAR clock_t *ticks);
-  CODE int (*tick_start)(FAR struct oneshot_lowerhalf_s *lower,
-                         oneshot_callback_t callback, FAR void *arg,
-                         clock_t ticks);
-  CODE int (*tick_cancel)(FAR struct oneshot_lowerhalf_s *lower,
-                          FAR clock_t *ticks);
-  CODE int (*tick_current)(FAR struct oneshot_lowerhalf_s *lower,
-                           FAR clock_t *ticks);
 };
 
 /* This structure describes the state of the oneshot timer lower-half
@@ -230,6 +212,9 @@ struct oneshot_lowerhalf_s
    */
 
   FAR const struct oneshot_operations_s *ops;
+
+  FAR oneshot_callback_t callback;
+  FAR void *arg;
 
   /* Private lower half data may follow */
 };
@@ -259,77 +244,8 @@ extern "C"
 #endif
 
 /****************************************************************************
- * Public Function Prototypes
+ * Inline Functions
  ****************************************************************************/
-
-static inline
-int oneshot_max_delay(FAR struct oneshot_lowerhalf_s *lower,
-                      FAR struct timespec *ts)
-{
-  clock_t tick;
-  int ret;
-
-  if (lower->ops->tick_max_delay == NULL)
-    {
-      return -ENOTSUP;
-    }
-
-  ret = lower->ops->tick_max_delay(lower, &tick);
-  clock_ticks2time(ts, tick);
-  return ret;
-}
-
-static inline
-int oneshot_start(FAR struct oneshot_lowerhalf_s *lower,
-                  oneshot_callback_t callback, FAR void *arg,
-                  FAR const struct timespec *ts)
-{
-  clock_t tick;
-
-  if (lower->ops->tick_start == NULL)
-    {
-      return -ENOTSUP;
-    }
-
-  tick = clock_time2ticks(ts);
-  return lower->ops->tick_start(lower, callback, arg, tick);
-}
-
-static inline
-int oneshot_cancel(FAR struct oneshot_lowerhalf_s *lower,
-                   FAR struct timespec *ts)
-{
-  clock_t tick;
-  int ret;
-
-  if (lower->ops->tick_cancel == NULL)
-    {
-      return -ENOTSUP;
-    }
-
-  ret = lower->ops->tick_cancel(lower, &tick);
-  clock_ticks2time(ts, tick);
-
-  return ret;
-}
-
-static inline
-int oneshot_current(FAR struct oneshot_lowerhalf_s *lower,
-                    FAR struct timespec *ts)
-{
-  clock_t tick;
-  int ret;
-
-  if (lower->ops->tick_current == NULL)
-    {
-      return -ENOTSUP;
-    }
-
-  ret = lower->ops->tick_current(lower, &tick);
-  clock_ticks2time(ts, tick);
-
-  return ret;
-}
 
 static inline
 int oneshot_tick_max_delay(FAR struct oneshot_lowerhalf_s *lower,
@@ -350,7 +266,6 @@ int oneshot_tick_max_delay(FAR struct oneshot_lowerhalf_s *lower,
 
 static inline
 int oneshot_tick_start(FAR struct oneshot_lowerhalf_s *lower,
-                       oneshot_callback_t callback, FAR void *arg,
                        clock_t ticks)
 {
   struct timespec ts;
@@ -361,7 +276,7 @@ int oneshot_tick_start(FAR struct oneshot_lowerhalf_s *lower,
     }
 
   clock_ticks2time(&ts, ticks);
-  return lower->ops->start(lower, callback, arg, &ts);
+  return lower->ops->start(lower, &ts);
 }
 
 static inline
@@ -399,6 +314,19 @@ int oneshot_tick_current(FAR struct oneshot_lowerhalf_s *lower,
 
   return ret;
 }
+
+static inline_function
+void oneshot_process_callback(FAR struct oneshot_lowerhalf_s *lower)
+{
+  if (lower->callback)
+    {
+      lower->callback(lower, lower->arg);
+    }
+}
+
+/****************************************************************************
+ * Public Function Prototypes
+ ****************************************************************************/
 
 /****************************************************************************
  * Name: oneshot_initialize
