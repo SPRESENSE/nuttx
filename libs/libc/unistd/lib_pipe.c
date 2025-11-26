@@ -1,5 +1,5 @@
 /****************************************************************************
- * sched/sched/sched_idletask.c
+ * libs/libc/unistd/lib_pipe.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -26,52 +26,35 @@
 
 #include <nuttx/config.h>
 
-#include <stdbool.h>
-#include <assert.h>
+#include <unistd.h>
 
-#include <nuttx/init.h>
-#include <nuttx/sched.h>
-
-#include "sched/sched.h"
+#if CONFIG_DEV_PIPE_SIZE > 0
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: sched_idletask
+ * Name: pipe
  *
  * Description:
- *   Check if the caller is an IDLE thread.  For most implementations of
- *   the SYSLOG output semaphore locking is required for mutual exclusion.
- *   The idle threads are unable to lock semaphores because they cannot
- *   wait.  So IDLE thread output is a special case and is treated much as
- *   we treat debug output from an interrupt handler.
+ *   pipe() creates a pair of file descriptors, pointing to a pipe inode,
+ *   and places them in the array pointed to by 'fd'. fd[0] is for reading,
+ *   fd[1] is for writing.
  *
  * Input Parameters:
- *   None
+ *   fd[2] - The user provided array in which to catch the pipe file
+ *   descriptors
  *
  * Returned Value:
- *   true if the calling task is an IDLE thread.
+ *   0 is returned on success; -1 (ERROR) is returned on a failure
+ *   with the errno value set appropriately.
  *
  ****************************************************************************/
 
-bool sched_idletask(void)
+int pipe(int fd[2])
 {
-  FAR struct tcb_s *rtcb = this_task();
-
-  DEBUGASSERT(rtcb);
-
-  /* The IDLE task TCB is distinguishable by a few things:
-   *
-   * (1) It always lies at the end of the task list,
-   * (2) It always has priority zero, and
-   * (3) It should have the TCB_FLAG_CPU_LOCKED flag set.
-   *
-   * In the non-SMP case, the IDLE task will also have PID=0, but that
-   * is not a portable test because there are multiple IDLE tasks with
-   * different PIDs in the SMP configuration.
-   */
-
-  return is_idle_task(rtcb);
+  return pipe2(fd, 0);
 }
+
+#endif /* CONFIG_DEV_PIPE_SIZE > 0 */
