@@ -147,6 +147,7 @@ SECTIONS
     *libarch.a:*regi2c_ctrl.*(.text .text.* .literal .literal.*)
     *libarch.a:*gpio_periph.*(.text .text.* .literal .literal.*)
     *libarch.a:*modem_clock_hal.*(.text .text.* .literal .literal.*)
+    *libarch.a:*sleep_modes.*(.text .text.* .literal .literal.*)
     *libarch.a:*esp_rom_systimer.*(.text .text.* .literal .literal.*)
     *libarch.a:*esp_rom_wdt.*(.text .text.* .literal .literal.*)
     *libarch.a:*ocode_init.*(.text .text.* .literal .literal.*)
@@ -310,6 +311,7 @@ SECTIONS
     *libarch.a:*pmu_init.*(.rodata .rodata.*)
     *libarch.a:*modem_clock.*(.rodata .rodata.*)
     *libarch.a:*modem_clock_hal.*(.rodata .rodata.*)
+    *libarch.a:*sleep_modes.*(.rodata .rodata.*)
     *libarch.a:*regi2c_ctrl.*(.rodata .rodata.*)
     *libarch.a:*gpio_periph.*(.rodata .rodata.*)
     *libarch.a:*esp_rom_systimer.*(.rodata .rodata.*)
@@ -556,20 +558,60 @@ SECTIONS
   .rtc.text :
   {
     . = ALIGN(4);
-    *(.rtc.literal .rtc.text)
+    _rtc_fast_start = ABSOLUTE(.);
+    _rtc_text_start = ABSOLUTE(.);
+    *(.rtc.literal .rtc.literal.*)
+    *(.rtc.text .rtc.text.*)
     *(.rtc.entry.text)
     /* 16B padding for possible CPU prefetch and 4B alignment for PMS split lines */
     . += 16;
     . = ALIGN(4);
+    _rtc_text_end = ABSOLUTE(.);
+  } > lp_ram_seg AT > ROM
 
+  /* RTC fast memory section */
+
+  .rtc.force_fast :
+  {
+    . = ALIGN(4);
+    _rtc_force_fast_start = ABSOLUTE(.);
+
+    *(.rtc.force_fast .rtc.force_fast.*)
+    . = ALIGN(4);
+    _rtc_force_fast_end = ABSOLUTE(.);
   } > lp_ram_seg AT > ROM
 
   /* RTC BSS section. */
 
   .rtc.bss (NOLOAD) :
   {
+    _rtc_bss_start = ABSOLUTE(.);
     *(.rtc.bss)
+    _rtc_bss_end = ABSOLUTE(.);
   } > lp_ram_seg
+
+
+  /* RTC NOINIT section. */
+
+  .rtc_noinit (NOLOAD) :
+  {
+    . = ALIGN(4);
+    _rtc_noinit_start = ABSOLUTE(.);
+    *(.rtc_noinit .rtc_noinit.*)
+    . = ALIGN(4) ;
+    _rtc_noinit_end = ABSOLUTE(.);
+  } > lp_ram_seg
+
+  /* RTC slow memory section */
+
+  .rtc.force_slow :
+  {
+    . = ALIGN(4);
+    _rtc_force_slow_start = ABSOLUTE(.);
+    *(.rtc.force_slow .rtc.force_slow.*)
+    . = ALIGN(4);
+    _rtc_force_slow_end = ABSOLUTE(.);
+  } > lp_ram_seg AT > ROM
 
   .rtc.data :
   {
