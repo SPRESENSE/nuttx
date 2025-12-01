@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/avr/src/avrdx/avrdx_serial.h
+ * arch/avr/src/avrdx/avrdx_twi.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,39 +20,29 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_AVR_SRC_AVRDX_AVRDX_SERIAL_H
-#define __ARCH_AVR_SRC_AVRDX_AVRDX_SERIAL_H
+#ifndef __ARCH_AVR_SRC_AVRDX_AVRDX_TWI_H
+#define __ARCH_AVR_SRC_AVRDX_AVRDX_TWI_H
 
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include "avrdx_iodefs.h"
+#include <nuttx/i2c/i2c_master.h>
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
-/* Base address of USARTn peripheral. USART index corresponds to the location
- * of its I/O registers in memory
+/* Base address of TWIn peripheral. TWI index corresponds to the location
+ * of its I/O registers in memory. Ignores its parameter if the chip
+ * only has one TWI.
  */
 
-#define AVRDX_USART(n) (*(avr_usart_t *) (0x0800 + n * 0x20))
-
-#ifdef CONFIG_MCU_SERIAL
-
-/* Mapping of USART to corresponding I/O port. Uses avrdx_usart_ports
- * referenced below and defined in avr_peripherals.c
- */
-
-#  define AVRDX_USART_PORT(n) (AVRDX_PORT(avrdx_usart_ports[n]))
-
-/* Macro that retrieves priv member of uart_dev_s and casts it
- * to pointer to avrdx_uart_priv_s
- */
-
-#  define AVRDX_USART_DEV_PRIV(dev) ((struct avrdx_uart_priv_s *)dev->priv)
-
+#ifdef CONFIG_AVR_HAVE_TWI1
+#  define AVRDX_TWI(n) (*(avr_twi_t *) (0x0900 + n * 0x20))
+#else
+#  define AVRDX_TWI(n) (*(avr_twi_t *) (0x0900 + 0 * 0x20))
 #endif
 
 /****************************************************************************
@@ -60,17 +50,6 @@
  ****************************************************************************/
 
 #ifndef __ASSEMBLY__
-
-/* This struct is used in struct uart_dev_s as its priv member. */
-
-struct avrdx_uart_priv_s
-{
-  /* uart_dev_s instance holding this struct is connected to USARTn
-   * peripheral recorded in usart_n
-   */
-
-  uint8_t usart_n;
-};
 
 /****************************************************************************
  * Public Data
@@ -85,15 +64,6 @@ extern "C"
 #define EXTERN extern
 #endif
 
-#ifdef CONFIG_MCU_SERIAL
-
-EXTERN const IOBJ uint8_t avrdx_usart_ports[];
-EXTERN const IOBJ uint8_t avrdx_usart_tx_pins[];
-EXTERN const IOBJ uint8_t avrdx_usart_portmux_bits[];
-EXTERN const IOBJ uint8_t avrdx_usart_portmux_masks[];
-
-#endif
-
 /****************************************************************************
  * Inline Functions
  ****************************************************************************/
@@ -103,35 +73,22 @@ EXTERN const IOBJ uint8_t avrdx_usart_portmux_masks[];
  ****************************************************************************/
 
 /****************************************************************************
- * Name: avrdx_usart_reset
+ * Name: avrdx_initialize_twi
  *
  * Description:
- *   Reset USARTn.
+ *   Initializer for TWI device. Allocates data structures and configures
+ *   the peripheral. May be called multiple times by multiple drivers using
+ *   the bus.
  *
  * Input Parameters:
- *   struct avrdx_uart_priv_s identifying which peripheral is to be reset
+ *   Peripheral number, ignored if the chip only has single TWI
+ *
+ * Returned Value:
+ *   Initialized structure cast to i2c_master_s
  *
  ****************************************************************************/
 
-#ifdef CONFIG_MCU_SERIAL
-void avrdx_usart_reset(struct avrdx_uart_priv_s *priv);
-#endif
-
-/****************************************************************************
- * Name: avrdx_usart_configure
- *
- * Description:
- *   Configure USARTn
- *
- * Input Parameters:
- *   struct avrdx_uart_priv_s identifying which peripheral
- *   is to be configured
- *
- ****************************************************************************/
-
-#ifdef CONFIG_MCU_SERIAL
-void avrdx_usart_configure(struct avrdx_uart_priv_s *priv);
-#endif
+FAR struct i2c_master_s *avrdx_initialize_twi(uint8_t twi_n);
 
 #endif /* __ASSEMBLY__ */
-#endif /* __ARCH_AVR_SRC_AVRDX_AVRDX_SERIAL_H */
+#endif /* __ARCH_AVR_SRC_AVRDX_AVRDX_TWI_H */
