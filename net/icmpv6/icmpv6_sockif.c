@@ -319,7 +319,7 @@ static int icmpv6_getsockopt_internal(FAR struct socket *psock, int option,
 
   if (psock->s_type != SOCK_RAW)
     {
-      return ENOPROTOOPT;
+      return -ENOPROTOOPT;
     }
 
   net_lock();
@@ -381,10 +381,10 @@ static int icmpv6_getsockopt(FAR struct socket *psock, int level, int option,
 {
   switch (level)
     {
-      case IPPROTO_IPV6:
+      case SOL_IPV6:
         return ipv6_getsockopt(psock, option, value, value_len);
 
-      case IPPROTO_ICMPV6:
+      case SOL_ICMPV6:
         return icmpv6_getsockopt_internal(psock, option, value, value_len);
 
       default:
@@ -427,7 +427,7 @@ static int icmpv6_setsockopt_internal(FAR struct socket *psock, int option,
 
   if (psock->s_type != SOCK_RAW)
     {
-      return ENOPROTOOPT;
+      return -ENOPROTOOPT;
     }
 
   net_lock();
@@ -484,10 +484,10 @@ static int icmpv6_setsockopt(FAR struct socket *psock, int level, int option,
 {
   switch (level)
     {
-      case IPPROTO_IPV6:
+      case SOL_IPV6:
         return ipv6_setsockopt(psock, option, value, value_len);
 
-      case IPPROTO_ICMPV6:
+      case SOL_ICMPV6:
         return icmpv6_setsockopt_internal(psock, option, value, value_len);
 
       default:

@@ -321,7 +321,7 @@ static int icmp_getsockopt_internal(FAR struct socket *psock, int option,
 
   if (psock->s_type != SOCK_RAW)
     {
-      return ENOPROTOOPT;
+      return -ENOPROTOOPT;
     }
 
   net_lock();
@@ -383,10 +383,10 @@ static int icmp_getsockopt(FAR struct socket *psock, int level, int option,
 {
   switch (level)
   {
-    case IPPROTO_IP:
+    case SOL_IP:
       return ipv4_getsockopt(psock, option, value, value_len);
 
-    case IPPROTO_ICMP:
+    case SOL_RAW:
       return icmp_getsockopt_internal(psock, option, value, value_len);
 
     default:
@@ -429,7 +429,7 @@ static int icmp_setsockopt_internal(FAR struct socket *psock, int option,
 
   if (psock->s_type != SOCK_RAW)
     {
-      return ENOPROTOOPT;
+      return -ENOPROTOOPT;
     }
 
   net_lock();
@@ -486,10 +486,10 @@ static int icmp_setsockopt(FAR struct socket *psock, int level, int option,
 {
   switch (level)
   {
-    case IPPROTO_IP:
+    case SOL_IP:
       return ipv4_setsockopt(psock, option, value, value_len);
 
-    case IPPROTO_ICMP:
+    case SOL_RAW:
       return icmp_setsockopt_internal(psock, option, value, value_len);
 
     default:
