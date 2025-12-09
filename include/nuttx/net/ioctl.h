@@ -165,6 +165,11 @@
 
 #define SIOCDEVPRIVATE     _SIOC(0x00F0)  /* Set bridging options */
 
+/* VLAN control *************************************************************/
+
+#define SIOCGIFVLAN        _SIOC(0x0043)  /* Get VLAN interface */
+#define SIOCSIFVLAN        _SIOC(0x0044)  /* Set VLAN interface */
+
 /****************************************************************************
  * Public Type Definitions
  ****************************************************************************/

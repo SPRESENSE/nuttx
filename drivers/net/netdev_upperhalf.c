@@ -39,6 +39,7 @@
 #include <nuttx/net/net.h>
 #include <nuttx/net/netdev_lowerhalf.h>
 #include <nuttx/net/pkt.h>
+#include <nuttx/net/vlan.h>
 #include <nuttx/semaphore.h>
 #include <nuttx/spinlock.h>
 
@@ -66,6 +67,14 @@
  * Private Types
  ****************************************************************************/
 
+#ifdef CONFIG_NET_VLAN
+struct netdev_vlan_entry_s
+{
+  FAR struct netdev_lowerhalf_s *dev;
+  uint16_t vid;
+};
+#endif
+
 /* This structure describes the state of the upper half driver */
 
 struct netdev_upperhalf_s
@@ -87,7 +96,17 @@ struct netdev_upperhalf_s
 #if CONFIG_IOB_NCHAINS > 0
   struct iob_queue_s txq;
 #endif
+
+#ifdef CONFIG_NET_VLAN
+  struct netdev_vlan_entry_s vlan[CONFIG_NET_VLAN_COUNT];
+#endif
 };
+
+/****************************************************************************
+ * Private Function Prototypes
+ ****************************************************************************/
+
+static int netdev_upper_txavail(FAR struct net_driver_s *dev);
 
 /****************************************************************************
  * Private Functions
@@ -155,7 +174,7 @@ static FAR netpkt_t *netpkt_get(FAR struct net_driver_s *dev,
    * cases will be limited by netdev_upper_can_tx and seldom reaches here.
    */
 
-  if (atomic_fetch_sub(&upper->lower->quota[type], 1) <= 0)
+  if (atomic_fetch_sub(&upper->lower->quota_ptr[type], 1) <= 0)
     {
       nwarn("WARNING: Allowing temporarily exceeding quota of %s.\n",
             dev->d_ifname);
@@ -182,15 +201,8 @@ static void netpkt_put(FAR struct net_driver_s *dev, FAR netpkt_t *pkt,
 
   DEBUGASSERT(dev && pkt);
 
-  /* TODO: Using netdev_iob_release instead of netdev_iob_replace now,
-   *       because netdev_iob_replace sets d_len = L3_LEN and d_buf,
-   *       but we don't want these changes.
-   */
-
-  atomic_fetch_add(&upper->lower->quota[type], 1);
-  netdev_iob_release(dev);
-  dev->d_iob = pkt;
-  dev->d_len = netpkt_getdatalen(upper->lower, pkt);
+  atomic_fetch_add(&upper->lower->quota_ptr[type], 1);
+  netdev_iob_replace_l2(dev, pkt);
 }
 
 /****************************************************************************
@@ -309,6 +321,7 @@ static int netdev_upper_txpoll(FAR struct net_driver_s *dev)
        */
 
       NETDEV_TXERRORS(dev);
+      nerr("ERROR: Transmit failed: %d\n", ret);
       netpkt_put(dev, pkt, NETPKT_TX);
       return ret;
     }
@@ -344,7 +357,7 @@ static int netdev_upper_tx(FAR struct net_driver_s *dev)
     {
       /* Put the packet back to the device */
 
-      netdev_iob_replace(dev, iob_remove_queue(&upper->txq));
+      netdev_iob_replace_l2(dev, iob_remove_queue(&upper->txq));
       return netdev_upper_txpoll(dev);
     }
 #endif
@@ -407,6 +420,7 @@ static void netdev_upper_queue_tx(FAR struct net_driver_s *dev)
   if ((ret = iob_tryadd_queue(dev->d_iob, &upper->txq)) >= 0)
     {
       netdev_iob_clear(dev);
+      netdev_upper_txavail(dev);
     }
   else
     {
@@ -417,6 +431,69 @@ static void netdev_upper_queue_tx(FAR struct net_driver_s *dev)
 
   netdev_upper_txpoll(dev);
 #endif
+}
+#endif
+
+/****************************************************************************
+ * Name: netdev_upper_vlan_dev
+ *
+ * Description:
+ *   Get the VLAN device for the VID.
+ *
+ * Input Parameters:
+ *   upper - Reference to the upper half driver structure
+ *   vid   - VLAN ID
+ *
+ * Returned Value:
+ *   Reference to the network device structure, or NULL if not found.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_NET_VLAN
+static FAR struct netdev_lowerhalf_s *
+netdev_upper_vlan_dev(FAR struct netdev_upperhalf_s *upper, uint16_t vid)
+{
+  int i;
+
+  for (i = 0; i < CONFIG_NET_VLAN_COUNT; i++)
+    {
+      if (upper->vlan[i].vid == vid)
+        {
+          return upper->vlan[i].dev;
+        }
+    }
+
+  return NULL;
+}
+
+/****************************************************************************
+ * Name: netdev_upper_vlan_foreach
+ *
+ * Description:
+ *   Call the callback for each VLAN device.
+ *
+ * Input Parameters:
+ *   upper - Reference to the upper half driver structure
+ *   cb    - The callback function
+ *
+ ****************************************************************************/
+
+static void
+netdev_upper_vlan_foreach(FAR struct netdev_upperhalf_s *upper,
+                          CODE void (*cb)(FAR struct netdev_lowerhalf_s *))
+{
+  int i;
+
+  net_lock();
+  for (i = 0; i < CONFIG_NET_VLAN_COUNT; i++)
+    {
+      if (upper->vlan[i].dev)
+        {
+          cb(upper->vlan[i].dev);
+        }
+    }
+
+  net_unlock();
 }
 #endif
 
@@ -442,21 +519,45 @@ static void eth_input(FAR struct net_driver_s *dev)
 
   /* Check if this is an 802.1Q VLAN tagged packet */
 
-  if (eth_hdr->type == HTONS(TPID_8021QVLAN))
+#ifdef CONFIG_NET_VLAN
+  if (eth_hdr->type == HTONS(ETHERTYPE_VLAN))
     {
-      /* Need to remove the 4 octet VLAN Tag, by moving src and dest
-       * addresses 4 octets to the right, and then read the actual
-       * ethertype. The VLAN ID and priority fields are currently
-       * ignored.
-       */
+      FAR struct netdev_upperhalf_s *upper = dev->d_private;
+      FAR struct netdev_lowerhalf_s *vlan;
+      FAR struct eth_8021qhdr_s *vlan_hdr = NETLLBUF;
+      uint16_t vid = NTOHS(vlan_hdr->tci) & VLAN_VID_MASK;
 
-      memmove((FAR uint8_t *)eth_hdr + 4, eth_hdr,
-              offsetof(struct eth_hdr_s, type));
-      dev->d_iob  = iob_trimhead(dev->d_iob, 4);
-      dev->d_len -= 4;
+      vlan = netdev_upper_vlan_dev(upper, vid);
+      if (vlan)
+        {
+          /* Need to remove the 4 octet VLAN Tag, by moving src and dest
+           * addresses 4 octets to the right, and then read the actual
+           * ethertype.
+           */
 
-      eth_hdr = (FAR struct eth_hdr_s *)NETLLBUF;
+          memmove((FAR uint8_t *)eth_hdr + 4, eth_hdr,
+                  offsetof(struct eth_hdr_s, type));
+          netdev_iob_release(&vlan->netdev);
+          vlan->netdev.d_iob = iob_trimhead(dev->d_iob, 4);
+          vlan->netdev.d_len = dev->d_len - 4;
+          netdev_iob_clear(dev);
+
+          /* Then call eth_input again with the new dev */
+
+#ifdef CONFIG_NET_PKT
+          pkt_input(&vlan->netdev);
+#endif
+          eth_input(&vlan->netdev);
+        }
+      else
+        {
+          ninfo("INFO: Dropped, unknown vlan id: %d\n", vid);
+          NETDEV_RXDROPPED(dev);
+          dev->d_len = 0;
+        }
     }
+  else
+#endif
 
   /* We only accept IP packets of the configured type and ARP packets */
 
@@ -500,6 +601,7 @@ static void eth_input(FAR struct net_driver_s *dev)
       ninfo("INFO: Dropped, Unknown type: %04x\n", eth_hdr->type);
       NETDEV_RXDROPPED(dev);
       dev->d_len = 0;
+      netdev_iob_release(dev);
     }
 
   /* If the above function invocation resulted in data
@@ -614,6 +716,7 @@ static void netdev_upper_rxpoll_work(FAR struct netdev_upperhalf_s *upper)
 
           NETDEV_RXDROPPED(dev);
           netpkt_free(lower, pkt, NETPKT_RX);
+          nerr("ERROR: Dropped frame due to lower dev not up\n");
           continue;
         }
 
@@ -1037,6 +1140,40 @@ int netdev_upper_wireless_ioctl(FAR struct netdev_lowerhalf_s *lower,
 #endif  /* CONFIG_NETDEV_WIRELESS_HANDLER */
 
 /****************************************************************************
+ * Name: netdev_upper_vlan_ioctl
+ *
+ * Description:
+ *   Support for VLAN handlers in ioctl.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_NET_VLAN
+int netdev_upper_vlan_ioctl(FAR struct netdev_lowerhalf_s *lower,
+                            int cmd, unsigned long arg)
+{
+  FAR struct vlan_ioctl_args *args =
+                                (FAR struct vlan_ioctl_args *)(uintptr_t)arg;
+
+  if (cmd != SIOCSIFVLAN && cmd != SIOCGIFVLAN)
+    {
+      return -ENOTTY;
+    }
+
+  switch (args->cmd)
+    {
+      case ADD_VLAN_CMD:
+        return vlan_register(lower, args->u.VID, args->vlan_qos);
+
+      case DEL_VLAN_CMD:
+        vlan_unregister(lower);
+        return OK;
+    }
+
+  return -ENOSYS;
+}
+#endif /* CONFIG_NET_VLAN */
+
+/****************************************************************************
  * Name: netdev_upper_ifup/ifdown/addmac/rmmac/ioctl
  *
  * Description:
@@ -1144,15 +1281,24 @@ static int netdev_upper_ioctl(FAR struct net_driver_s *dev, int cmd,
 {
   FAR struct netdev_upperhalf_s *upper = dev->d_private;
   FAR struct netdev_lowerhalf_s *lower = upper->lower;
+  int ret = -ENOTTY;
 
 #ifdef CONFIG_NETDEV_WIRELESS_HANDLER
   if (lower->iw_ops)
     {
-      int ret = netdev_upper_wireless_ioctl(lower, cmd, arg);
+      ret = netdev_upper_wireless_ioctl(lower, cmd, arg);
       if (ret != -ENOTTY)
         {
           return ret;
         }
+    }
+#endif
+
+#ifdef CONFIG_NET_VLAN
+  ret = netdev_upper_vlan_ioctl(lower, cmd, arg);
+  if (ret != -ENOTTY)
+    {
+      return ret;
     }
 #endif
 
@@ -1161,7 +1307,7 @@ static int netdev_upper_ioctl(FAR struct net_driver_s *dev, int cmd,
       return lower->ops->ioctl(lower, cmd, arg);
     }
 
-  return -ENOTTY;
+  return ret;
 }
 #endif
 
@@ -1195,8 +1341,19 @@ int netdev_lower_register(FAR struct netdev_lowerhalf_s *dev,
   int i;
 #endif
 
-  if (dev == NULL || quota_is_valid(dev) == false || dev->ops == NULL ||
+  if (dev == NULL || dev->ops == NULL ||
       dev->ops->transmit == NULL || dev->ops->receive == NULL)
+    {
+      nerr("ERROR: Invalid lower half device\n");
+      return -EINVAL;
+    }
+
+  if (dev->quota_ptr == NULL)
+    {
+      dev->quota_ptr = dev->quota;
+    }
+
+  if (quota_is_valid(dev) == false)
     {
       return -EINVAL;
     }
@@ -1221,16 +1378,19 @@ int netdev_lower_register(FAR struct netdev_lowerhalf_s *dev,
   ret = netdev_register(&dev->netdev, lltype);
   if (ret < 0)
     {
+      nerr("ERROR: Netdev_register failed: %d\n", ret);
       kmm_free(upper);
       dev->netdev.d_private = NULL;
     }
-
 #ifdef CONFIG_NETDEV_WORK_THREAD
-  for (i = 0; i < NETDEV_THREAD_COUNT; i++)
+  else
     {
-      upper->tid[i] = INVALID_PROCESS_ID;
-      nxsem_init(&upper->sem[i], 0, 0);
-      nxsem_init(&upper->sem_exit[i], 0, 0);
+      for (i = 0; i < NETDEV_THREAD_COUNT; i++)
+        {
+          upper->tid[i] = INVALID_PROCESS_ID;
+          nxsem_init(&upper->sem[i], 0, 0);
+          nxsem_init(&upper->sem_exit[i], 0, 0);
+        }
     }
 #endif
 
@@ -1261,10 +1421,16 @@ int netdev_lower_unregister(FAR struct netdev_lowerhalf_s *dev)
 
   if (dev == NULL || dev->netdev.d_private == NULL)
     {
+      nerr("ERROR: Invalid lower half device\n");
       return -EINVAL;
     }
 
   upper = (FAR struct netdev_upperhalf_s *)dev->netdev.d_private;
+
+#ifdef CONFIG_NET_VLAN
+  netdev_upper_vlan_foreach(upper, vlan_unregister);
+#endif
+
   ret = netdev_unregister(&dev->netdev);
   if (ret < 0)
     {
@@ -1312,6 +1478,11 @@ int netdev_lower_unregister(FAR struct netdev_lowerhalf_s *dev)
 
 void netdev_lower_carrier_on(FAR struct netdev_lowerhalf_s *dev)
 {
+#ifdef CONFIG_NET_VLAN
+  FAR struct netdev_upperhalf_s *upper = dev->netdev.d_private;
+  netdev_upper_vlan_foreach(upper, netdev_lower_carrier_on);
+#endif
+
   netdev_carrier_on(&dev->netdev);
 }
 
@@ -1329,6 +1500,11 @@ void netdev_lower_carrier_on(FAR struct netdev_lowerhalf_s *dev)
 
 void netdev_lower_carrier_off(FAR struct netdev_lowerhalf_s *dev)
 {
+#ifdef CONFIG_NET_VLAN
+  FAR struct netdev_upperhalf_s *upper = dev->netdev.d_private;
+  netdev_upper_vlan_foreach(upper, netdev_lower_carrier_off);
+#endif
+
   netdev_carrier_off(&dev->netdev);
 }
 
@@ -1346,6 +1522,10 @@ void netdev_lower_carrier_off(FAR struct netdev_lowerhalf_s *dev)
 void netdev_lower_rxready(FAR struct netdev_lowerhalf_s *dev)
 {
 #if CONFIG_NETDEV_WORK_THREAD_POLLING_PERIOD == 0
+  /* Note: Don't need to handle VLAN here, because RX of VLAN is handled in
+   * eth_input.
+   */
+
   netdev_upper_queue_work(&dev->netdev);
 #endif
 }
@@ -1363,11 +1543,97 @@ void netdev_lower_rxready(FAR struct netdev_lowerhalf_s *dev)
 
 void netdev_lower_txdone(FAR struct netdev_lowerhalf_s *dev)
 {
-  NETDEV_TXDONE(&dev->netdev);
 #if CONFIG_NETDEV_WORK_THREAD_POLLING_PERIOD == 0
+#  ifdef CONFIG_NET_VLAN
+  FAR struct netdev_upperhalf_s *upper = dev->netdev.d_private;
+  netdev_upper_vlan_foreach(upper, netdev_lower_txdone);
+#  endif
+
   netdev_upper_queue_work(&dev->netdev);
 #endif
+  NETDEV_TXDONE(&dev->netdev);
 }
+
+/****************************************************************************
+ * Name: netdev_lower_vlan_add
+ *
+ * Description:
+ *   Add a VLAN device to the network device.
+ *
+ * Input Parameters:
+ *   dev  - The lower half device driver structure
+ *   vid  - VLAN ID
+ *   vlan - The VLAN device to add
+ *
+ * Returned Value:
+ *   0:Success; negated errno on failure
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_NET_VLAN
+int netdev_lower_vlan_add(FAR struct netdev_lowerhalf_s *dev, uint16_t vid,
+                          FAR struct netdev_lowerhalf_s *vlan)
+{
+  FAR struct netdev_upperhalf_s  *upper = dev->netdev.d_private;
+  FAR struct netdev_vlan_entry_s *entry = NULL;
+  int i;
+
+  for (i = 0; i < CONFIG_NET_VLAN_COUNT; i++)
+    {
+      if (upper->vlan[i].vid == vid)
+        {
+          return -EEXIST;
+        }
+
+      if (upper->vlan[i].vid == 0 && entry == NULL)
+        {
+          entry = &upper->vlan[i];
+        }
+    }
+
+  if (entry)
+    {
+      entry->vid = vid;
+      entry->dev = vlan;
+      return OK;
+    }
+
+  return -ENOMEM;
+}
+
+/****************************************************************************
+ * Name: netdev_lower_vlan_del
+ *
+ * Description:
+ *   Delete a VLAN device from the network device.
+ *
+ * Input Parameters:
+ *   dev - The lower half device driver structure
+ *   vid - VLAN ID
+ *
+ * Returned Value:
+ *   0:Success; negated errno on failure
+ *
+ ****************************************************************************/
+
+int netdev_lower_vlan_del(FAR struct netdev_lowerhalf_s *dev, uint16_t vid)
+{
+  FAR struct netdev_upperhalf_s *upper = dev->netdev.d_private;
+  int i;
+
+  for (i = 0; i < CONFIG_NET_VLAN_COUNT; i++)
+    {
+      if (upper->vlan[i].vid == vid)
+        {
+          upper->vlan[i].vid = 0;
+          upper->vlan[i].dev = NULL;
+          return OK;
+        }
+    }
+
+  return -ENOENT;
+}
+#endif
 
 /****************************************************************************
  * Name: netpkt_alloc
@@ -1389,16 +1655,16 @@ FAR netpkt_t *netpkt_alloc(FAR struct netdev_lowerhalf_s *dev,
 {
   FAR netpkt_t *pkt;
 
-  if (atomic_fetch_sub(&dev->quota[type], 1) <= 0)
+  if (atomic_fetch_sub(&dev->quota_ptr[type], 1) <= 0)
     {
-      atomic_fetch_add(&dev->quota[type], 1);
+      atomic_fetch_add(&dev->quota_ptr[type], 1);
       return NULL;
     }
 
   pkt = iob_tryalloc(false);
   if (pkt == NULL)
     {
-      atomic_fetch_add(&dev->quota[type], 1);
+      atomic_fetch_add(&dev->quota_ptr[type], 1);
       return NULL;
     }
 
@@ -1422,7 +1688,7 @@ FAR netpkt_t *netpkt_alloc(FAR struct netdev_lowerhalf_s *dev,
 void netpkt_free(FAR struct netdev_lowerhalf_s *dev, FAR netpkt_t *pkt,
                  enum netpkt_type_e type)
 {
-  atomic_fetch_add(&dev->quota[type], 1);
+  atomic_fetch_add(&dev->quota_ptr[type], 1);
   iob_free_chain(pkt);
 }
 
