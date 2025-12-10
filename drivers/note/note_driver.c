@@ -290,7 +290,7 @@ static inline int note_isenabled_switch(FAR struct note_driver_s *driver)
 
   return true;
 }
-#endif
+#endif /* CONFIG_SCHED_INSTRUMENTATION_SWITCH */
 
 /****************************************************************************
  * Name: note_isenabled_syscall
@@ -441,9 +441,8 @@ static inline int note_isenabled_dump(FAR struct note_driver_s *driver,
 }
 #endif
 
-#ifdef CONFIG_SCHED_INSTRUMENTATION_SWITCH
-#if CONFIG_DRIVERS_NOTE_TASKNAME_BUFSIZE > 0
-
+#if defined(CONFIG_SCHED_INSTRUMENTATION_SWITCH) && \
+    (CONFIG_DRIVERS_NOTE_TASKNAME_BUFSIZE > 0)
 /****************************************************************************
  * Name: note_find_taskname
  *
@@ -617,6 +616,7 @@ void sched_note_add(FAR const void *data, size_t len)
 }
 #endif
 
+#ifdef CONFIG_SCHED_INSTRUMENTATION_SWITCH
 /****************************************************************************
  * Name: sched_note_*
  *
@@ -2085,8 +2085,6 @@ void sched_note_filter_tag(FAR struct note_filter_named_tag_s *oldf,
 
 #endif /* CONFIG_SCHED_INSTRUMENTATION_FILTER */
 
-#if CONFIG_DRIVERS_NOTE_TASKNAME_BUFSIZE > 0
-
 /****************************************************************************
  * Name: note_get_taskname
  *
@@ -2095,37 +2093,42 @@ void sched_note_filter_tag(FAR struct note_filter_named_tag_s *oldf,
  *
  * Input Parameters:
  *   PID - Task ID
+ *   buf - A writable buffer to hold the task name
+ *   len - The length of the buffer
  *
  * Returned Value:
- *   Return name if task name can be retrieved, otherwise NULL
+ *   Return name if task name can be retrieved, otherwise "<noname>"
+ *
  ****************************************************************************/
 
-FAR const char *note_get_taskname(pid_t pid)
+FAR char *note_get_taskname(pid_t pid, FAR char *buf, size_t len)
 {
-  FAR struct note_taskname_info_s *ti;
-  FAR struct tcb_s *tcb;
-  UNUSED(ti);
+#if CONFIG_TASK_NAME_SIZE > 0
+  FAR struct tcb_s *tcb = nxsched_get_tcb(pid);
 
-  tcb = nxsched_get_tcb(pid);
   if (tcb != NULL)
     {
-      return tcb->name;
+      strlcpy(buf, tcb->name, len);
+      return buf;
     }
 
-#ifdef CONFIG_SCHED_INSTRUMENTATION_SWITCH
-  ti = note_find_taskname(pid);
-  if (ti != NULL)
+#  if defined(CONFIG_SCHED_INSTRUMENTATION_SWITCH) && \
+      (CONFIG_DRIVERS_NOTE_TASKNAME_BUFSIZE > 0)
+  else
     {
-      return ti->name;
+      FAR struct note_taskname_info_s *ti = note_find_taskname(pid);
+
+      if (ti != NULL)
+        {
+          strlcpy(buf, ti->name, len);
+          return buf;
+        }
     }
-
-  return NULL;
-#else
-  return "unknown";
+#  endif
 #endif
+
+  return "<noname>";
 }
-
-#endif
 
 /****************************************************************************
  * Name: note_driver_register
