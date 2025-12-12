@@ -1094,9 +1094,9 @@ int usbdev_register(struct usbdevclass_driver_s *driver)
       /* Setup the USB host controller */
 
 #ifdef CONFIG_USBDEV_DUALSPEED
-      host_usbdev_init(SIM_USB_SPEED);
+      ret = host_usbdev_init(SIM_USB_SPEED);
 #else
-      host_usbdev_init(USB_SPEED_FULL);
+      ret = host_usbdev_init(USB_SPEED_FULL);
 #endif
     }
 
@@ -1173,32 +1173,40 @@ int sim_usbdev_loop(void)
   uint8_t *recv_data;
   uint16_t data_len;
   uint8_t epcnt;
+  bool do_loop;
 
   /* Loop ep0 */
 
-  ctrlreq = host_usbdev_ep0read();
-  if (ctrlreq)
+  do
     {
-      sim_usbdev_ep0read(ctrlreq);
-      host_usbdev_epread_end(0);
-    }
-
-  /* Loop other eps */
-
-  for (epcnt = 1; epcnt < SIM_USB_EPNUM; epcnt++)
-    {
-      privep = &priv->eps[epcnt];
-      if (privep->epstate == SIM_EPSTATE_IDLE &&
-          !USB_ISEPIN(privep->ep.eplog))
+      do_loop = false;
+      ctrlreq = host_usbdev_ep0read();
+      if (ctrlreq)
         {
-          recv_data = host_usbdev_epread(epcnt, &data_len);
-          if (recv_data)
+          sim_usbdev_ep0read(ctrlreq);
+          host_usbdev_epread_end(0);
+          do_loop = true;
+        }
+
+      /* Loop other eps */
+
+      for (epcnt = 1; epcnt < SIM_USB_EPNUM; epcnt++)
+        {
+          privep = &priv->eps[epcnt];
+          if (privep->epstate == SIM_EPSTATE_IDLE &&
+              !USB_ISEPIN(privep->ep.eplog))
             {
-              sim_usbdev_epread(privep->ep.eplog, recv_data, data_len);
-              host_usbdev_epread_end(epcnt);
+              recv_data = host_usbdev_epread(epcnt, &data_len);
+              if (recv_data)
+                {
+                  sim_usbdev_epread(privep->ep.eplog, recv_data, data_len);
+                  host_usbdev_epread_end(epcnt);
+                  do_loop = true;
+                }
             }
         }
     }
+  while (do_loop);
 
   return OK;
 }
