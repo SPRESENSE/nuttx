@@ -1,7 +1,5 @@
 /****************************************************************************
- * drivers/usbhost/usbhost_registry.h
- *
- * SPDX-License-Identifier: Apache-2.0
+ * libs/libc/machine/xtensa/arch_mcount.c
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -20,57 +18,51 @@
  *
  ****************************************************************************/
 
-#ifndef __DRIVERS_USBHOST_USBHOST_REGISTRY_H
-#define __DRIVERS_USBHOST_USBHOST_REGISTRY_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
-#include <nuttx/spinlock.h>
-
-#include <nuttx/usb/usbhost.h>
+#include <sys/gmon.h>
 
 /****************************************************************************
- * Pre-processor Definitions
- ****************************************************************************/
-
-/* Configuration ************************************************************/
-
-/****************************************************************************
- * Public Types
+ * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Public Data
+ * Name: _mcount
+ *
+ * Description:
+ *   This is the Xtensa mcount function.  It is called by the profiling logic
+ *   to record the call.
+ *
+ * Input Parameters:
+ *   frompc - The address of the calling instruction
+ *
+ * Returned Value:
+ *   None
+ *
  ****************************************************************************/
 
-#undef EXTERN
-#if defined(__cplusplus)
-#  define EXTERN extern "C"
-extern "C"
+noinstrument_function
+void _mcount(uintptr_t from_pc)
 {
-#else
-#  define EXTERN extern
+#ifndef __XTENSA_CALL0_ABI__
+  uint32_t high_bit_mask = (0x03 << 30);
+  uint32_t low_bit_mask = ~high_bit_mask;
+  uint32_t pc_high_bits = ((uint32_t)_mcount) & high_bit_mask;
+#endif
+  uintptr_t self_pc;
+
+  __asm__ __volatile__
+  (
+    "mov %0, a0\n"
+    : "=r" (self_pc)
+  );
+
+#ifndef __XTENSA_CALL0_ABI__
+  self_pc = pc_high_bits | (self_pc & low_bit_mask);
+  from_pc = pc_high_bits | (from_pc & low_bit_mask);
 #endif
 
-/* g_classregistry is a singly-linked list of class ID information added by
- * calls to usbhost_registerclass().  Since this list is accessed from USB
- * host controller interrupt handling logic, accesses to this list must be
- * protected by disabling interrupts.
- */
-
-EXTERN struct usbhost_registry_s *g_classregistry;
-EXTERN spinlock_t g_classregistry_lock;
-
-/****************************************************************************
- * Public Function Prototypes
- ****************************************************************************/
-
-#undef EXTERN
-#if defined(__cplusplus)
+  mcount_internal(from_pc, self_pc);
 }
-#endif
-
-#endif /* #define __DRIVERS_USBHOST_USBHOST_REGISTRY_H */
