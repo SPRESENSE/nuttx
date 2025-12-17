@@ -391,6 +391,19 @@ static int ff_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
         }
         break;
 
+      case EVIOCGDURATION:
+        {
+          if (upper->lower->get_duration == NULL)
+            {
+              ret = -ENOTSUP;
+              break;
+            }
+
+          ret = upper->lower->get_duration(upper->lower,
+                (FAR struct ff_effect *)(uintptr_t)arg);
+        }
+        break;
+
       case EVIOCSETCALIBDATA:
         {
           if (upper->lower->set_calibvalue == NULL)
@@ -416,7 +429,15 @@ static int ff_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
         break;
 
       default:
-        ret = -ENOTTY;
+        if (upper->lower->control)
+          {
+            ret = upper->lower->control(upper->lower, cmd, arg);
+          }
+        else
+          {
+            ret = -ENOTTY;
+          }
+
         break;
     }
 
