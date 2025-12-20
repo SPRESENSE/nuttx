@@ -86,6 +86,8 @@ struct netdev_upperhalf_s
   struct netdev_vlan_entry_s vlan[CONFIG_NET_VLAN_COUNT];
 #endif
 
+  bool txing;
+
   /* Deferring process to work queue or thread */
 
   union
@@ -380,12 +382,17 @@ static void netdev_upper_txavail_work(FAR struct netdev_upperhalf_s *upper)
 
   /* Ignore the notification if the interface is not yet up */
 
-  if (IFF_IS_UP(dev->d_flags))
+  net_lock();
+  if (IFF_IS_UP(dev->d_flags) && !upper->txing)
     {
       DEBUGASSERT(dev->d_buf == NULL); /* Make sure: IOB only. */
+      upper->txing = true;
       while (netdev_upper_can_tx(upper) &&
              netdev_upper_tx(dev) == NETDEV_TX_CONTINUE);
+      upper->txing = false;
     }
+
+  net_unlock();
 }
 
 /****************************************************************************
@@ -701,6 +708,7 @@ static void netdev_upper_rxpoll_work(FAR struct netdev_upperhalf_s *upper)
 
   /* Loop while receive() successfully retrieves valid Ethernet frames. */
 
+  net_lock();
   while ((pkt = lower->ops->receive(lower)) != NULL)
     {
       if (!IFF_IS_UP(dev->d_flags))
@@ -754,6 +762,8 @@ static void netdev_upper_rxpoll_work(FAR struct netdev_upperhalf_s *upper)
           break;
         }
     }
+
+  net_unlock();
 }
 
 /****************************************************************************
@@ -773,10 +783,8 @@ static void netdev_upper_work(FAR void *arg)
 
   /* RX may release quota and driver buffer, so do RX first. */
 
-  net_lock();
   netdev_upper_rxpoll_work(upper);
   netdev_upper_txavail_work(upper);
-  net_unlock();
 }
 
 /****************************************************************************
@@ -872,7 +880,7 @@ static inline void netdev_upper_queue_work(FAR struct net_driver_s *dev)
 
 static int netdev_upper_txavail(FAR struct net_driver_s *dev)
 {
-  netdev_upper_queue_work(dev);
+  netdev_upper_txavail_work(dev->d_private);
   return OK;
 }
 
@@ -1403,6 +1411,8 @@ int netdev_lower_register(FAR struct netdev_lowerhalf_s *dev,
     {
       return -ENOMEM;
     }
+
+  upper->txing = false;
 
   dev->netdev.d_ifup    = netdev_upper_ifup;
   dev->netdev.d_ifdown  = netdev_upper_ifdown;
