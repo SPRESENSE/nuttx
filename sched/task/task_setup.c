@@ -516,7 +516,7 @@ static int nxthread_setup_scheduler(FAR struct tcb_s *tcb, int priority,
  *
  ****************************************************************************/
 
-int nxtask_setup_stackargs(FAR struct task_tcb_s *tcb,
+int nxtask_setup_stackargs(FAR struct tcb_s *tcb,
                            FAR const char *name,
                            FAR char * const argv[])
 {
@@ -557,8 +557,8 @@ int nxtask_setup_stackargs(FAR struct task_tcb_s *tcb,
            */
 
           strtablen += (strlen(argv[argc]) + 1);
-          DEBUGASSERT(strtablen < tcb->cmn.adj_stack_size);
-          if (strtablen >= tcb->cmn.adj_stack_size)
+          DEBUGASSERT(strtablen < tcb->adj_stack_size);
+          if (strtablen >= tcb->adj_stack_size)
             {
               return -ENAMETOOLONG;
             }
@@ -583,7 +583,7 @@ int nxtask_setup_stackargs(FAR struct task_tcb_s *tcb,
    */
 
   argvlen   = (argc + 2) * sizeof(FAR char *);
-  stackargv = (FAR char **)up_stack_frame(&tcb->cmn, argvlen + strtablen);
+  stackargv = (FAR char **)up_stack_frame(tcb, argvlen + strtablen);
 
   DEBUGASSERT(stackargv != NULL);
   if (stackargv == NULL)
@@ -658,13 +658,12 @@ int nxtask_setup_stackargs(FAR struct task_tcb_s *tcb,
  *
  ****************************************************************************/
 
-int nxtask_setup_scheduler(FAR struct task_tcb_s *tcb, int priority,
+int nxtask_setup_scheduler(FAR struct tcb_s *tcb, int priority,
                            start_t start, main_t main, uint8_t ttype)
 {
   /* Perform common thread setup */
 
-  return nxthread_setup_scheduler((FAR struct tcb_s *)tcb, priority,
-                                  start, (CODE void *)main, ttype);
+  return nxthread_setup_scheduler(tcb, priority, start, main, ttype);
 }
 
 /****************************************************************************
@@ -692,13 +691,12 @@ int nxtask_setup_scheduler(FAR struct task_tcb_s *tcb, int priority,
  ****************************************************************************/
 
 #ifndef CONFIG_DISABLE_PTHREAD
-int pthread_setup_scheduler(FAR struct pthread_tcb_s *tcb, int priority,
+int pthread_setup_scheduler(FAR struct tcb_s *tcb, int priority,
                             start_t start, pthread_startroutine_t entry)
 {
   /* Perform common thread setup */
 
-  return nxthread_setup_scheduler((FAR struct tcb_s *)tcb, priority,
-                                  start, (CODE void *)entry,
+  return nxthread_setup_scheduler(tcb, priority, start, entry,
                                   TCB_FLAG_TTYPE_PTHREAD);
 }
 #endif
@@ -719,9 +717,9 @@ int pthread_setup_scheduler(FAR struct pthread_tcb_s *tcb, int priority,
  ****************************************************************************/
 
 #if CONFIG_TASK_NAME_SIZE > 0
-void nxtask_setup_name(FAR struct task_tcb_s *tcb, FAR const char *name)
+void nxtask_setup_name(FAR struct tcb_s *tcb, FAR const char *name)
 {
-  FAR char *dst = tcb->cmn.name;
+  FAR char *dst = tcb->name;
   int i;
 
   /* Give a name to the unnamed tasks */

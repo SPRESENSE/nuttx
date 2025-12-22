@@ -86,14 +86,6 @@
 #define ptr_to_wdparm(ptr)       wdparm_to_ptr(wdparm_t, ptr)
 
 /****************************************************************************
- * Private Data
- ****************************************************************************/
-
-#ifdef CONFIG_SCHED_TICKLESS
-static unsigned int g_wdtimernested;
-#endif
-
-/****************************************************************************
  * Private Functions
  ****************************************************************************/
 
@@ -120,14 +112,6 @@ static inline_function void wd_expiration(clock_t ticks)
   wdparm_t           arg;
 
   flags = spin_lock_irqsave(&g_wdspinlock);
-
-#ifdef CONFIG_SCHED_TICKLESS
-  /* Increment the nested watchdog timer count to handle cases where wd_start
-   * is called in the watchdog callback functions.
-   */
-
-  g_wdtimernested++;
-#endif
 
   /* Process the watchdog at the head of the list as well as any
    * other watchdogs that became ready to run at this time
@@ -172,12 +156,6 @@ static inline_function void wd_expiration(clock_t ticks)
 
       flags = spin_lock_irqsave(&g_wdspinlock);
     }
-
-#ifdef CONFIG_SCHED_TICKLESS
-  /* Decrement the nested watchdog timer count */
-
-  g_wdtimernested--;
-#endif
 
   spin_unlock_irqrestore(&g_wdspinlock, flags);
 }
@@ -313,7 +291,7 @@ int wd_start_abstick(FAR struct wdog_s *wdog, clock_t ticks,
 
   reassess |= wd_insert(wdog, ticks, wdentry, arg);
 
-  if (!g_wdtimernested && reassess)
+  if (reassess)
     {
       /* Resume the interval timer that will generate the next
        * interval event. If the timer at the head of the list changed,
@@ -363,7 +341,7 @@ int wd_start_abstick(FAR struct wdog_s *wdog, clock_t ticks,
  *
  * Returned Value:
  *   If CONFIG_SCHED_TICKLESS is defined then the number of ticks for the
- *   next delay is provided (zero if no delay).  Otherwise, this function
+ *   next delay is provided (CLOCK_MAX if no delay). Otherwise, this function
  *   has no returned value.
  *
  * Assumptions:
@@ -392,7 +370,7 @@ clock_t wd_timer(clock_t ticks, bool noswitches)
   if (list_is_empty(&g_wdactivelist))
     {
       spin_unlock_irqrestore(&g_wdspinlock, flags);
-      return 0;
+      return CLOCK_MAX;
     }
 
   /* Notice that if noswitches, expired - g_wdtickbase
@@ -406,7 +384,7 @@ clock_t wd_timer(clock_t ticks, bool noswitches)
 
   /* Return the delay for the next watchdog to expire */
 
-  return MAX(ret, 1);
+  return MAX(ret, 0);
 }
 
 #else
