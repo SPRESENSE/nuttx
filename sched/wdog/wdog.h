@@ -36,7 +36,6 @@
 #include <nuttx/clock.h>
 #include <nuttx/queue.h>
 #include <nuttx/wdog.h>
-#include <nuttx/spinlock_type.h>
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -60,7 +59,6 @@ extern "C"
  */
 
 extern struct list_node g_wdactivelist;
-extern spinlock_t g_wdspinlock;
 
 /****************************************************************************
  * Public Function Prototypes
@@ -97,28 +95,6 @@ clock_t wd_timer(clock_t ticks, bool noswitches);
 #else
 void wd_timer(clock_t ticks);
 #endif
-
-/****************************************************************************
- * Name: wd_recover
- *
- * Description:
- *   This function is called from nxtask_recover() when a task is deleted via
- *   task_delete() or via pthread_cancel(). It checks if the deleted task
- *   is waiting for a timed event and if so cancels the timeout
- *
- * Input Parameters:
- *   tcb - The TCB of the terminated task or thread
- *
- * Returned Value:
- *   None.
- *
- * Assumptions:
- *   This function is called from task deletion logic in a safe context.
- *
- ****************************************************************************/
-
-struct tcb_s;
-void wd_recover(FAR struct tcb_s *tcb);
 
 #undef EXTERN
 #ifdef __cplusplus

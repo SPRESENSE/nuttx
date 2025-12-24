@@ -424,7 +424,6 @@ void sim_vpnkit_send(unsigned char *buf, unsigned int buflen);
 int sim_netdriver_init(void);
 void sim_netdriver_setmacaddr(int devidx, unsigned char *macaddr);
 void sim_netdriver_setmtu(int devidx, int mtu);
-void sim_netdriver_loop(void);
 
 /* sim_rptun.c **************************************************************/
 
@@ -456,7 +455,6 @@ int sim_bthcisock_register(int dev_id);
 
 #ifdef CONFIG_SIM_SOUND
 struct audio_lowerhalf_s *sim_audio_initialize(bool playback, bool offload);
-void sim_audio_loop(void);
 #endif
 
 /* sim_*i2c.c ***************************************************************/
@@ -477,7 +475,6 @@ int sim_spi_uninitialize(struct spi_dev_s *dev);
 
 #ifdef CONFIG_SIM_CAMERA
 int sim_camera_initialize(void);
-void sim_camera_loop(void);
 #endif
 
 #ifdef CONFIG_SIM_VIDEO_DECODER
@@ -492,14 +489,12 @@ int sim_encoder_initialize(void);
 
 #ifdef CONFIG_SIM_USB_DEV
 void sim_usbdev_initialize(void);
-int sim_usbdev_loop(void);
 #endif
 
 /* sim_usbhost.c ************************************************************/
 
 #ifdef CONFIG_SIM_USB_HOST
 int sim_usbhost_initialize(void);
-int sim_usbhost_loop(void);
 #endif
 
 /* sim_canchar.c ************************************************************/

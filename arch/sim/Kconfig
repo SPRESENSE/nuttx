@@ -169,18 +169,11 @@ config SIM_WALLTIME_SIGNAL
 
 endchoice
 
-config SIM_LOOPTASK_PRIORITY
-	int "looptask priority"
-	default SCHED_HPWORKPRIORITY if SCHED_HPWORK
-	default 255 if !SCHED_HPWORK
+config SIM_LOOP_INTERVAL
+	int "loop interval in ms"
+	default 10
 	---help---
-		Looptask priority
-
-config SIM_LOOPTASK_INTERVAL
-	int "looptask interval in us"
-	default 10000
-	---help---
-		Looptask sleep time
+		Loop event sleep time
 
 config SIM_STACKSIZE_ADJUSTMENT
 	int "The adjustment of stack size for sim"
@@ -454,6 +447,12 @@ config SIM_X11NOSHM
 	---help---
 		Don't use shared memory with the X11 graphics device emulation.
 
+config SIM_X11UPDATE_INTERVAL
+	int "X11 update interval in ms"
+	default 16
+	---help---
+		 X11 update sleep time
+
 menu "Window Configuration"
 
 config SIM_FBHEIGHT
@@ -519,6 +518,13 @@ endchoice
 endif # SIM_X11FB
 
 if INPUT
+config SIM_X11EVENT_INTERVAL
+	int "X11 event interval in ms"
+	default 8
+	depends on SIM_X11FB
+	---help---
+		 X11 event sleep time
+
 choice
 	prompt "Input Device"
 	default SIM_NOINPUT
