@@ -139,19 +139,6 @@ netlink_get_terminator(FAR const struct nlmsghdr *req)
  ****************************************************************************/
 
 /****************************************************************************
- * Name: netlink_initialize()
- *
- * Description:
- *   Initialize the NetLink connection structures.  Called once and only
- *   from the networking layer.
- *
- ****************************************************************************/
-
-void netlink_initialize(void)
-{
-}
-
-/****************************************************************************
  * Name: netlink_alloc()
  *
  * Description:
@@ -166,7 +153,7 @@ FAR struct netlink_conn_s *netlink_alloc(void)
 
   /* The free list is protected by a mutex. */
 
-  NET_BUFPOLL_LOCK(g_netlink_connections);
+  NET_BUFPOOL_LOCK(g_netlink_connections);
 
   conn = NET_BUFPOOL_TRYALLOC(g_netlink_connections);
   if (conn != NULL)
@@ -176,7 +163,7 @@ FAR struct netlink_conn_s *netlink_alloc(void)
       dq_addlast(&conn->sconn.node, &g_active_netlink_connections);
     }
 
-  NET_BUFPOLL_UNLOCK(g_netlink_connections);
+  NET_BUFPOOL_UNLOCK(g_netlink_connections);
   return conn;
 }
 
@@ -197,7 +184,7 @@ void netlink_free(FAR struct netlink_conn_s *conn)
 
   DEBUGASSERT(conn->crefs == 0);
 
-  NET_BUFPOLL_LOCK(g_netlink_connections);
+  NET_BUFPOOL_LOCK(g_netlink_connections);
 
   /* Remove the connection from the active list */
 
@@ -214,7 +201,7 @@ void netlink_free(FAR struct netlink_conn_s *conn)
 
   NET_BUFPOOL_FREE(g_netlink_connections, conn);
 
-  NET_BUFPOLL_UNLOCK(g_netlink_connections);
+  NET_BUFPOOL_UNLOCK(g_netlink_connections);
 }
 
 /****************************************************************************

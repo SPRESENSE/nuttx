@@ -79,19 +79,6 @@ static dq_queue_t g_active_pkt_connections;
  ****************************************************************************/
 
 /****************************************************************************
- * Name: pkt_initialize()
- *
- * Description:
- *   Initialize the packet socket connection structures.  Called once and
- *   only from the network initialization layer.
- *
- ****************************************************************************/
-
-void pkt_initialize(void)
-{
-}
-
-/****************************************************************************
  * Name: pkt_alloc()
  *
  * Description:
@@ -106,7 +93,7 @@ FAR struct pkt_conn_s *pkt_alloc(void)
 
   /* The free list is protected by a mutex. */
 
-  NET_BUFPOLL_LOCK(g_pkt_connections);
+  NET_BUFPOOL_LOCK(g_pkt_connections);
 
   conn = NET_BUFPOOL_TRYALLOC(g_pkt_connections);
   if (conn)
@@ -116,7 +103,7 @@ FAR struct pkt_conn_s *pkt_alloc(void)
       dq_addlast(&conn->sconn.node, &g_active_pkt_connections);
     }
 
-  NET_BUFPOLL_UNLOCK(g_pkt_connections);
+  NET_BUFPOOL_UNLOCK(g_pkt_connections);
   return conn;
 }
 
@@ -135,7 +122,7 @@ void pkt_free(FAR struct pkt_conn_s *conn)
 
   DEBUGASSERT(conn->crefs == 0);
 
-  NET_BUFPOLL_LOCK(g_pkt_connections);
+  NET_BUFPOOL_LOCK(g_pkt_connections);
 
   /* Remove the connection from the active list */
 
@@ -151,7 +138,7 @@ void pkt_free(FAR struct pkt_conn_s *conn)
 
   NET_BUFPOOL_FREE(g_pkt_connections, conn);
 
-  NET_BUFPOLL_UNLOCK(g_pkt_connections);
+  NET_BUFPOOL_UNLOCK(g_pkt_connections);
 }
 
 /****************************************************************************

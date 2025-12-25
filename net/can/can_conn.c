@@ -72,19 +72,6 @@ static dq_queue_t g_active_can_connections;
  ****************************************************************************/
 
 /****************************************************************************
- * Name: can_initialize()
- *
- * Description:
- *   Initialize the User Socket connection structures.  Called once and only
- *   from the networking layer.
- *
- ****************************************************************************/
-
-void can_initialize(void)
-{
-}
-
-/****************************************************************************
  * Name: can_alloc()
  *
  * Description:
@@ -99,7 +86,7 @@ FAR struct can_conn_s *can_alloc(void)
 
   /* The free list is protected by a a mutex. */
 
-  NET_BUFPOLL_LOCK(g_can_connections);
+  NET_BUFPOOL_LOCK(g_can_connections);
 
   conn = NET_BUFPOOL_TRYALLOC(g_can_connections);
   if (conn != NULL)
@@ -127,7 +114,7 @@ FAR struct can_conn_s *can_alloc(void)
       dq_addlast(&conn->sconn.node, &g_active_can_connections);
     }
 
-  NET_BUFPOLL_UNLOCK(g_can_connections);
+  NET_BUFPOOL_UNLOCK(g_can_connections);
   return conn;
 }
 
@@ -146,7 +133,7 @@ void can_free(FAR struct can_conn_s *conn)
 
   DEBUGASSERT(conn->crefs == 0);
 
-  NET_BUFPOLL_LOCK(g_can_connections);
+  NET_BUFPOOL_LOCK(g_can_connections);
 
   /* Remove the connection from the active list */
 
@@ -177,7 +164,7 @@ void can_free(FAR struct can_conn_s *conn)
 
   NET_BUFPOOL_FREE(g_can_connections, conn);
 
-  NET_BUFPOLL_UNLOCK(g_can_connections);
+  NET_BUFPOOL_UNLOCK(g_can_connections);
 }
 
 /****************************************************************************

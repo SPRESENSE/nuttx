@@ -460,17 +460,6 @@ extern "C"
  ****************************************************************************/
 
 /****************************************************************************
- * Name: tcp_initialize
- *
- * Description:
- *   Initialize the TCP/IP connection structures.  Called only once and only
- *   from the network layer at start-up.
- *
- ****************************************************************************/
-
-void tcp_initialize(void);
-
-/****************************************************************************
  * Name: tcp_alloc
  *
  * Description:
@@ -693,6 +682,19 @@ int tcp_bind(FAR struct tcp_conn_s *conn, FAR const struct sockaddr *addr);
 
 int tcp_connect(FAR struct tcp_conn_s *conn,
                 FAR const struct sockaddr *addr);
+
+/****************************************************************************
+ * Name: tcp_removeconn
+ *
+ * Description:
+ *   remove the connection from the list of active TCP connections
+ *
+ * Assumptions:
+ *   This function is called from network logic with the network locked.
+ *
+ ****************************************************************************/
+
+void tcp_removeconn(FAR struct tcp_conn_s *conn);
 
 /****************************************************************************
  * Name: psock_tcp_connect

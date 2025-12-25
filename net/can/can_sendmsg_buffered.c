@@ -39,6 +39,7 @@
 
 #include <arch/irq.h>
 
+#include <nuttx/net/can.h>
 #include <nuttx/net/ip.h>
 #include <nuttx/net/net.h>
 #include <nuttx/net/netdev.h>
@@ -273,11 +274,11 @@ ssize_t can_sendmsg(FAR struct socket *psock, FAR struct msghdr *msg,
 
   if (nonblock)
     {
-      wb_iob = iob_tryalloc(false);
+      wb_iob = can_iob_timedalloc(0);
     }
   else
     {
-      wb_iob = net_iobtimedalloc(true, _SO_TIMEOUT(conn->sconn.s_sndtimeo));
+      wb_iob = can_iob_timedalloc(_SO_TIMEOUT(conn->sconn.s_sndtimeo));
     }
 
   if (wb_iob == NULL)
@@ -426,6 +427,10 @@ errout_with_lock:
 
 int psock_can_cansend(FAR struct socket *psock)
 {
+#if CONFIG_NET_SEND_BUFSIZE > 0
+  FAR struct can_conn_s *conn;
+#endif
+
   /* Verify that we received a valid socket */
 
   if (psock == NULL || psock->s_conn == NULL)
@@ -438,10 +443,14 @@ int psock_can_cansend(FAR struct socket *psock)
    * one free IOB to initialize the write buffer head.
    */
 
-  if (iob_navail(false) <= 0
-  #if CONFIG_NET_SEND_BUFSIZE > 0
+#if CONFIG_NET_SEND_BUFSIZE > 0
+  conn = psock->s_conn;
+#endif
+
+  if (can_iob_navail() <= 0
+#if CONFIG_NET_SEND_BUFSIZE > 0
       || iob_get_queue_size(&conn->write_q) >= conn->sndbufs
-  #endif
+#endif
      )
     {
       return -EWOULDBLOCK;
