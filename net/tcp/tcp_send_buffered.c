@@ -1361,6 +1361,13 @@ ssize_t psock_tcp_send(FAR struct socket *psock, FAR const void *buf,
       goto errout;
     }
 
+  if ((conn->shutdown & SHUT_WR) != 0)
+    {
+      nerr("ERROR: Connection is shutdown\n");
+      ret = -EPIPE;
+      goto errout;
+    }
+
   /* Make sure that we have the IP address mapping */
 
 #if defined(CONFIG_NET_ARP_SEND) || defined(CONFIG_NET_ICMPv6_NEIGHBOR)
@@ -1409,7 +1416,7 @@ ssize_t psock_tcp_send(FAR struct socket *psock, FAR const void *buf,
       size_t chunk_len = len;
       ssize_t chunk_result;
 
-      net_lock();
+      conn_dev_lock(&conn->sconn, conn->dev);
 
       /* Now that we have the network locked, we need to check the connection
        * state again to ensure the connection is still valid.
@@ -1443,7 +1450,7 @@ ssize_t psock_tcp_send(FAR struct socket *psock, FAR const void *buf,
       /* Set up the callback in the connection */
 
       conn->sndcb->flags = (TCP_ACKDATA | TCP_REXMIT | TCP_POLL |
-                               TCP_DISCONN_EVENTS);
+                            TCP_DISCONN_EVENTS | TCP_TXCLOSE);
       conn->sndcb->priv  = (FAR void *)conn;
       conn->sndcb->event = psock_send_eventhandler;
 
@@ -1467,13 +1474,15 @@ ssize_t psock_tcp_send(FAR struct socket *psock, FAR const void *buf,
            */
 
           info.tc_conn = conn;
-          info.tc_cb   = conn->sndcb;
+          info.tc_cb   = &conn->sndcb;
           info.tc_sem  = &conn->snd_sem;
+          conn_dev_unlock(&conn->sconn, conn->dev);
           tls_cleanup_push(tls_get_info(), tcp_callback_cleanup, &info);
 
           ret = net_sem_timedwait_uninterruptible(&conn->snd_sem,
             tcp_send_gettimeout(start, timeout));
           tls_cleanup_pop(tls_get_info(), 0);
+          conn_dev_lock(&conn->sconn, conn->dev);
           if (ret < 0)
             {
               if (ret == -ETIMEDOUT)
@@ -1523,8 +1532,10 @@ ssize_t psock_tcp_send(FAR struct socket *psock, FAR const void *buf,
             }
           else
             {
+              conn_dev_unlock(&conn->sconn, conn->dev);
               wrb = tcp_wrbuffer_timedalloc(tcp_send_gettimeout(start,
                                                                 timeout));
+              conn_dev_lock(&conn->sconn, conn->dev);
               ninfo("new wrb %p\n", wrb);
             }
 
@@ -1630,7 +1641,9 @@ ssize_t psock_tcp_send(FAR struct socket *psock, FAR const void *buf,
            * we risk a deadlock with other threads competing on IOBs.
            */
 
+          conn_dev_unlock(&conn->sconn, conn->dev);
           iob = net_iobtimedalloc(true, tcp_send_gettimeout(start, timeout));
+          conn_dev_lock(&conn->sconn, conn->dev);
           if (iob != NULL)
             {
               iob_free_chain(iob);
@@ -1652,8 +1665,8 @@ ssize_t psock_tcp_send(FAR struct socket *psock, FAR const void *buf,
 
       /* Notify the device driver of the availability of TX data */
 
+      conn_dev_unlock(&conn->sconn, conn->dev);
       tcp_send_txnotify(psock, conn);
-      net_unlock();
 
       if (chunk_result == 0)
         {
@@ -1699,7 +1712,7 @@ ssize_t psock_tcp_send(FAR struct socket *psock, FAR const void *buf,
   return result;
 
 errout_with_lock:
-  net_unlock();
+  conn_dev_unlock(&conn->sconn, conn->dev);
 
 errout:
   if (result > 0)

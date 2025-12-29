@@ -271,10 +271,10 @@ uint16_t tcp_callback(FAR struct net_driver_s *dev,
       return 0;
     }
 
-  /* Preserve the TCP_ACKDATA, TCP_CLOSE, and TCP_ABORT in the response.
-   * These is needed by the network to handle responses and buffer state.
-   * The TCP_NEWDATA indication will trigger the ACK response, but must be
-   * explicitly set in the callback.
+  /* Preserve the TCP_ACKDATA, TCP_RXCLOSE, TCP_TXCLOSE, and TCP_ABORT in the
+   * response.  These is needed by the network to handle responses and buffer
+   * state.  The TCP_NEWDATA indication will trigger the ACK response, but
+   * must be explicitly set in the callback.
    */
 
   ninfo("flags: %04x\n", flags);
@@ -283,9 +283,9 @@ uint16_t tcp_callback(FAR struct net_driver_s *dev,
    * 'list', the input flags are normally returned, however, the
    * implementation may set one of the following:
    *
-   *   TCP_CLOSE   - Gracefully close the current connection
-   *   TCP_ABORT   - Abort (reset) the current connection on an error that
-   *                 prevents TCP_CLOSE from working.
+   *   TCP_RXCLOSE - Gracefully close the current connection (RX)
+   *   TCP_TXCLOSE - Gracefully close the current connection (TX)
+   *   TCP_ABORT   - Abort (reset) the current connection
    *
    * And/Or set/clear the following:
    *
@@ -436,9 +436,12 @@ uint16_t tcp_datahandler(FAR struct net_driver_s *dev,
 void tcp_callback_cleanup(FAR void *arg)
 {
   FAR struct tcp_callback_s *cb = (FAR struct tcp_callback_s *)arg;
+  FAR struct tcp_conn_s *conn = cb->tc_conn;
 
+  conn_dev_lock(&conn->sconn, conn->dev);
   nerr("ERROR: pthread is being canceled, need to cleanup cb\n");
-  tcp_callback_free(cb->tc_conn, cb->tc_cb);
+  tcp_callback_free(cb->tc_conn, *(cb->tc_cb));
   nxsem_destroy(cb->tc_sem);
+  conn_dev_unlock(&conn->sconn, conn->dev);
 }
 #endif /* NET_TCP_HAVE_STACK */

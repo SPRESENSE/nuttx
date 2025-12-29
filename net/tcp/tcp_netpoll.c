@@ -39,6 +39,7 @@
 #include "netdev/netdev.h"
 #include "socket/socket.h"
 #include "inet/inet.h"
+#include "utils/utils.h"
 #include "tcp/tcp.h"
 
 /****************************************************************************
@@ -82,7 +83,7 @@ static uint16_t tcp_poll_eventhandler(FAR struct net_driver_s *dev,
 
       /* Check for data or connection availability events. */
 
-      if ((flags & (TCP_NEWDATA | TCP_BACKLOG)) != 0)
+      if ((flags & (TCP_NEWDATA | TCP_BACKLOG | TCP_RXCLOSE)) != 0)
         {
           eventset |= POLLIN;
         }
@@ -121,9 +122,7 @@ static uint16_t tcp_poll_eventhandler(FAR struct net_driver_s *dev,
               reason = ENETUNREACH;
             }
 
-          /* TCP_CLOSE: The remote host has closed the connection
-           * TCP_ABORT: The remote host has aborted the connection
-           */
+          /* TCP_ABORT: The remote host has aborted the connection */
 
           else
             {
@@ -207,17 +206,16 @@ int tcp_pollsetup(FAR struct socket *psock, FAR struct pollfd *fds)
 
   /* Some of the following must be atomic */
 
-  net_lock();
-
   conn = psock->s_conn;
 
   /* Sanity check */
 
   if (!conn || !fds)
     {
-      ret = -EINVAL;
-      goto errout_with_lock;
+      return -EINVAL;
     }
+
+  conn_dev_lock(&conn->sconn, conn->dev);
 
   /* Non-blocking connection ? */
 
@@ -301,7 +299,7 @@ int tcp_pollsetup(FAR struct socket *psock, FAR struct pollfd *fds)
 
   if ((fds->events & POLLIN) != 0)
     {
-      cb->flags |= TCP_NEWDATA | TCP_BACKLOG;
+      cb->flags |= TCP_NEWDATA | TCP_BACKLOG | TCP_RXCLOSE;
     }
 
   /* Save the reference in the poll info structure as fds private as well
@@ -312,7 +310,8 @@ int tcp_pollsetup(FAR struct socket *psock, FAR struct pollfd *fds)
 
   /* Check for read data or backlogged connection availability now */
 
-  if (conn->readahead != NULL || tcp_backlogpending(conn))
+  if (conn->readahead != NULL || tcp_backlogpending(conn) ||
+      (conn->shutdown & SHUT_RD) != 0)
     {
       /* Normal data may be read without blocking. */
 
@@ -367,7 +366,15 @@ int tcp_pollsetup(FAR struct socket *psock, FAR struct pollfd *fds)
        * exceptional event.
        */
 
-      _SO_CONN_SETERRNO(conn, ENOTCONN);
+      if (_SS_ISCLOSED(conn->sconn.s_flags))
+        {
+          _SO_CONN_SETERRNO(conn, ECONNREFUSED);
+        }
+      else
+        {
+          _SO_CONN_SETERRNO(conn, ENOTCONN);
+        }
+
       eventset |= POLLERR | POLLHUP;
     }
   else if (_SS_ISCONNECTED(conn->sconn.s_flags) &&
@@ -388,7 +395,7 @@ notify:
   poll_notify(&fds, 1, eventset);
 
 errout_with_lock:
-  net_unlock();
+  conn_dev_unlock(&conn->sconn, conn->dev);
   return ret;
 }
 
@@ -415,17 +422,16 @@ int tcp_pollteardown(FAR struct socket *psock, FAR struct pollfd *fds)
 
   /* Some of the following must be atomic */
 
-  net_lock();
-
   conn = psock->s_conn;
 
   /* Sanity check */
 
   if (!conn || !fds->priv)
     {
-      net_unlock();
       return -EINVAL;
     }
+
+  conn_dev_lock(&conn->sconn, conn->dev);
 
   /* Recover the socket descriptor poll state info from the poll structure */
 
@@ -446,7 +452,7 @@ int tcp_pollteardown(FAR struct socket *psock, FAR struct pollfd *fds)
       info->conn = NULL;
     }
 
-  net_unlock();
+  conn_dev_unlock(&conn->sconn, conn->dev);
 
   return OK;
 }

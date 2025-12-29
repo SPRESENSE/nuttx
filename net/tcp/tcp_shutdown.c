@@ -37,8 +37,9 @@
 
 #include "netdev/netdev.h"
 #include "devif/devif.h"
-#include "tcp/tcp.h"
 #include "socket/socket.h"
+#include "utils/utils.h"
+#include "tcp/tcp.h"
 
 /****************************************************************************
  * Private Functions
@@ -70,7 +71,15 @@ static uint16_t tcp_shutdown_eventhandler(FAR struct net_driver_s *dev,
 #endif
 
   dev->d_len = 0;
-  flags = (flags & ~TCP_NEWDATA) | TCP_CLOSE;
+  if ((conn->shutdown & SHUT_WR) != 0)
+    {
+      flags |= TCP_TXCLOSE;
+    }
+
+  if ((conn->shutdown & SHUT_RD) != 0)
+    {
+      flags |= TCP_RXCLOSE;
+    }
 
   if (conn->shdcb != NULL)
     {
@@ -105,11 +114,10 @@ static inline int tcp_send_fin(FAR struct socket *psock)
 
   /* Interrupts are disabled here to avoid race conditions */
 
-  net_lock();
-
   conn = psock->s_conn;
   DEBUGASSERT(conn != NULL);
 
+  conn_dev_lock(&conn->sconn, conn->dev);
   if ((conn->tcpstateflags == TCP_ESTABLISHED ||
        conn->tcpstateflags == TCP_SYN_SENT ||
        conn->tcpstateflags == TCP_SYN_RCVD ||
@@ -129,11 +137,13 @@ static inline int tcp_send_fin(FAR struct socket *psock)
 
       /* Notify the device driver of the availability of TX data */
 
+      conn_dev_unlock(&conn->sconn, conn->dev);
       tcp_send_txnotify(psock, conn);
+      return ret;
     }
 
 out:
-  net_unlock();
+  conn_dev_unlock(&conn->sconn, conn->dev);
   return ret;
 }
 
@@ -158,10 +168,17 @@ out:
 
 int tcp_shutdown(FAR struct socket *psock, int how)
 {
-  if (!(how & SHUT_WR))
+  FAR struct tcp_conn_s *conn;
+
+  conn = psock->s_conn;
+  DEBUGASSERT(conn != NULL);
+
+  if (!(how & SHUT_RDWR))
     {
       return -EOPNOTSUPP;
     }
+
+  conn->shutdown |= how;
 
   tcp_unlisten(psock->s_conn); /* No longer accepting connections */
 

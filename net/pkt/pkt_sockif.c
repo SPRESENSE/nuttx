@@ -41,6 +41,7 @@
 
 #include "devif/devif.h"
 #include "netdev/netdev.h"
+#include "utils/utils.h"
 #include <socket/socket.h>
 #include "pkt/pkt.h"
 
@@ -132,6 +133,8 @@ static int pkt_sockif_alloc(FAR struct socket *psock)
   nxsem_init(&conn->sndsem, 0, 0);
 #endif
 
+  nxrmutex_init(&conn->sconn.s_lock);
+
   /* Save the pre-allocated connection in the socket structure */
 
   psock->s_conn = conn;
@@ -162,11 +165,10 @@ static int pkt_setup(FAR struct socket *psock)
    * connection structure, it is unallocated at this point.  It will not
    * actually be initialized until the socket is connected.
    *
-   * SOCK_RAW and SOCK_CTRL are supported.
+   * SOCK_RAW is supported.
    */
 
-  if (psock->s_type == SOCK_DGRAM || psock->s_type == SOCK_RAW ||
-      psock->s_type == SOCK_CTRL)
+  if (psock->s_type == SOCK_DGRAM || psock->s_type == SOCK_RAW)
     {
       return pkt_sockif_alloc(psock);
     }
@@ -215,7 +217,7 @@ static void pkt_addref(FAR struct socket *psock)
 {
   FAR struct pkt_conn_s *conn;
 
-  DEBUGASSERT(psock->s_type == SOCK_RAW || psock->s_type == SOCK_CTRL);
+  DEBUGASSERT(psock->s_type == SOCK_RAW);
 
   conn = psock->s_conn;
   DEBUGASSERT(conn->crefs > 0 && conn->crefs < 255);
@@ -256,8 +258,7 @@ static int pkt_bind(FAR struct socket *psock,
 
   /* Bind a raw socket to a network device. */
 
-  if (psock->s_type == SOCK_DGRAM || psock->s_type == SOCK_RAW ||
-      psock->s_type == SOCK_CTRL)
+  if (psock->s_type == SOCK_DGRAM || psock->s_type == SOCK_RAW)
     {
       FAR struct pkt_conn_s *conn = psock->s_conn;
       FAR struct net_driver_s *dev;
@@ -351,9 +352,9 @@ static int pkt_close(FAR struct socket *psock)
     {
       case SOCK_DGRAM:
       case SOCK_RAW:
-      case SOCK_CTRL:
         {
           FAR struct pkt_conn_s *conn = psock->s_conn;
+          FAR struct net_driver_s *dev = pkt_find_device(conn);
 
           /* Is this the last reference to the connection structure (there
            * could be more if the socket was dup'ed).
@@ -361,6 +362,8 @@ static int pkt_close(FAR struct socket *psock)
 
           if (conn->crefs <= 1)
             {
+              conn_dev_lock(&conn->sconn, dev);
+
               /* Yes... free any read-ahead data */
 
               iob_free_queue(&conn->readahead);
@@ -370,20 +373,19 @@ static int pkt_close(FAR struct socket *psock)
 
               if (conn->sndcb != NULL)
                 {
-                  FAR struct net_driver_s *dev;
                   int ret;
 
                   while (iob_get_queue_entry_count(&conn->write_q) != 0)
                     {
+                      conn_dev_unlock(&conn->sconn, dev);
                       ret = net_sem_timedwait_uninterruptible(&conn->sndsem,
                             _SO_TIMEOUT(conn->sconn.s_sndtimeo));
+                      conn_dev_lock(&conn->sconn, dev);
                       if (ret < 0)
                         {
                           break;
                         }
                     }
-
-                  dev = pkt_find_device(conn);
 
                   pkt_callback_free(dev, conn, conn->sndcb);
                   conn->sndcb = NULL;
@@ -393,6 +395,7 @@ static int pkt_close(FAR struct socket *psock)
               /* Then free the connection structure */
 
               conn->crefs = 0;          /* No more references on the connection */
+              conn_dev_unlock(&conn->sconn, dev);
               pkt_free(psock->s_conn);  /* Free network resources */
             }
           else
