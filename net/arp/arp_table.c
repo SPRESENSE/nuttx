@@ -72,6 +72,8 @@
  ****************************************************************************/
 
 #define ARP_MAXAGE_TICK SEC2TICK(10 * CONFIG_NET_ARP_MAXAGE)
+#define ARP_MAXAGE_UNREACHABLE_TICK SEC2TICK(10 * CONFIG_NET_ARP_MAXAGE_UNREACHABLE)
+#define ARP_INPROGRESS_TICK MSEC2TICK(CONFIG_ARP_SEND_MAXTRIES * CONFIG_ARP_SEND_DELAYMSEC)
 
 /****************************************************************************
  * Private Types
@@ -441,7 +443,20 @@ int arp_find(in_addr_t ipaddr, FAR uint8_t *ethaddr,
       if (memcmp(&tabptr->at_ethaddr, &g_zero_ethaddr,
                  sizeof(tabptr->at_ethaddr)) == 0)
         {
-          return -ENETUNREACH;
+          clock_t elapsed;
+          elapsed = clock_systime_ticks() - tabptr->at_time;
+          if (elapsed <= ARP_INPROGRESS_TICK)
+            {
+              return -EINPROGRESS;
+            }
+          else if (elapsed <= ARP_MAXAGE_UNREACHABLE_TICK)
+            {
+              return -ENETUNREACH;
+            }
+          else
+            {
+              return -ENOENT;
+            }
         }
 
       /* Yes.. return the Ethernet MAC address if the caller has provided a

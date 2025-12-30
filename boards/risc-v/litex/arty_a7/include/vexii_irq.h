@@ -1,5 +1,5 @@
 /****************************************************************************
- * libs/libc/sched/clock_getres.c
+ * boards/risc-v/litex/arty_a7/include/vexii_irq.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -18,63 +18,50 @@
  * License for the specific language governing permissions and limitations
  * under the License.
  *
+ * Auto-generated: 2025-12-28 11:16:55
+ * Source: LiteX soc.h
+ *
  ****************************************************************************/
+
+#ifndef __BOARDS_RISCV_LITEX_ARTY_A7_INCLUDE_VEXII_IRQ_H
+#define __BOARDS_RISCV_LITEX_ARTY_A7_INCLUDE_VEXII_IRQ_H
 
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
-
-#include <stdint.h>
-#include <time.h>
-#include <errno.h>
-#include <debug.h>
-
-#include <nuttx/clock.h>
+#include <arch/mode.h>
 
 /****************************************************************************
- * Public Functions
+ * Pre-processor Definitions
  ****************************************************************************/
 
-/****************************************************************************
- * Name: clock_getres
- *
- * Description:
- *   Clock Functions based on POSIX APIs
- *
- ****************************************************************************/
+/* Custom IRQ definitions for LiteX VexiiRISCV core */
 
-int clock_getres(clockid_t clock_id, struct timespec *res)
-{
-  clockid_t clock_type = clock_id & CLOCK_MASK;
-  int       ret = OK;
+/* Map RISC-V external IRQs to NuttX IRQ numbers */
 
-  sinfo("clock_id=%d, clock_type=%d\n", clock_id, clock_type);
+#define LITEX_IRQ_UART0                (RISCV_IRQ_EXT + 1)
+#define LITEX_IRQ_TIMER0               (RISCV_IRQ_EXT + 2)
+#define LITEX_IRQ_ETHMAC               (RISCV_IRQ_EXT + 3)
+#define LITEX_IRQ_GPIO_BASE            (RISCV_IRQ_EXT + 4)
+#define LITEX_IRQ_GPIO_LENGTH          8
 
-  switch (clock_type)
-    {
-      default:
-        serr("Returning ERROR\n");
-        set_errno(EINVAL);
-        ret = ERROR;
-        break;
+/* The last hardware IRQ number */
 
-      case CLOCK_MONOTONIC:
-      case CLOCK_BOOTTIME:
-      case CLOCK_REALTIME:
-      case CLOCK_PROCESS_CPUTIME_ID:
-      case CLOCK_THREAD_CPUTIME_ID:
+#define LITEX_IRQ_LAST        (LITEX_IRQ_GPIO_BASE + LITEX_IRQ_GPIO_LENGTH)
 
-        /* Form the timspec using clock resolution in nanoseconds */
+/* Second level GPIO interrupts if enabled */
 
-        res->tv_sec  = 0;
-        res->tv_nsec = NSEC_PER_TICK;
+#ifdef CONFIG_LITEX_GPIO_IRQ
+#  define LITEX_NIRQ_GPIO           (LITEX_IRQ_GPIO_LENGTH * 32)
+#  define LITEX_FIRST_GPIOIRQ       (LITEX_IRQ_LAST + 1)
+#  define LITEX_LAST_GPIOIRQ        (LITEX_FIRST_GPIOIRQ + LITEX_NIRQ_GPIO)
+#else
+#  define LITEX_NIRQ_GPIO           0
+#endif
 
-        sinfo("Returning res=(%d,%d)\n", (int)res->tv_sec,
-                                         (int)res->tv_nsec);
-        break;
-    }
+/* Total number of IRQs */
 
-  return ret;
-}
+#define NR_IRQS            (LITEX_IRQ_LAST + LITEX_NIRQ_GPIO + 1)
+
+#endif /* __BOARDS_RISCV_LITEX_ARTY_A7_INCLUDE_VEXII_IRQ_H */

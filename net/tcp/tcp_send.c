@@ -238,7 +238,6 @@ static void tcp_sendcommon(FAR struct net_driver_s *dev,
   g_netstats.tcp.sent++;
 #endif
 
-#if !defined(CONFIG_NET_TCP_WRITE_BUFFERS)
   if ((tcp->flags & (TCP_SYN | TCP_FIN)) != 0)
     {
       /* Remember sndseq that will be used in case of a possible
@@ -253,9 +252,6 @@ static void tcp_sendcommon(FAR struct net_driver_s *dev,
 
       net_incr32(conn->sndseq, 1);
     }
-#else
-  /* REVISIT for the buffered mode */
-#endif
 }
 
 /****************************************************************************
@@ -382,7 +378,6 @@ void tcp_send(FAR struct net_driver_s *dev, FAR struct tcp_conn_s *conn,
 void tcp_reset(FAR struct net_driver_s *dev, FAR struct tcp_conn_s *conn)
 {
   FAR struct tcp_hdr_s *tcp;
-  uint32_t ackno;
   uint16_t tmp16;
   uint16_t acklen = 0;
   uint8_t seqbyte;
@@ -437,7 +432,6 @@ void tcp_reset(FAR struct net_driver_s *dev, FAR struct tcp_conn_s *conn)
 
   acklen        -= (tcp->tcpoffset >> 4) << 2;
 
-  tcp->flags     = TCP_RST | TCP_ACK;
   tcp->tcpoffset = 5 << 4;
 
   /* Flip the seqno and ackno fields in the TCP header. */
@@ -463,9 +457,19 @@ void tcp_reset(FAR struct net_driver_s *dev, FAR struct tcp_conn_s *conn)
    * to propagate the carry to the other bytes as well.
    */
 
-  ackno = tcp_addsequence(tcp->ackno, acklen);
-
-  tcp_setsequence(tcp->ackno, ackno);
+  if ((tcp->flags & TCP_ACK) != 0)
+    {
+      tcp->flags = TCP_RST;
+      tcp_setsequence(tcp->ackno, 0);
+    }
+  else
+    {
+      uint32_t ackno;
+      tcp->flags = TCP_RST | TCP_ACK;
+      tcp_setsequence(tcp->seqno, 0);
+      ackno = tcp_addsequence(tcp->ackno, acklen);
+      tcp_setsequence(tcp->ackno, ackno);
+    }
 
   /* Swap port numbers. */
 
