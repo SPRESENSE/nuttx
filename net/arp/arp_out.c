@@ -254,7 +254,7 @@ void arp_out(FAR struct net_driver_s *dev)
 
   /* Check if we already have this destination address in the ARP table */
 
-  ret = arp_find(ipaddr, ethaddr.ether_addr_octet, dev, false);
+  ret = arp_find(ipaddr, ethaddr.ether_addr_octet, dev);
   if (ret < 0)
     {
       /* No send ARP if the interface forbidden */
@@ -275,7 +275,12 @@ void arp_out(FAR struct net_driver_s *dev)
            * to prevent arp flood.
            */
 
+#ifdef CONFIG_NET_ARP_SEND_QUEUE
+          arp_queue_iob(dev, ipaddr, dev->d_iob);
+          netdev_iob_clear(dev);
+#else
           dev->d_len = 0;
+#endif
           return;
         }
 
@@ -283,7 +288,11 @@ void arp_out(FAR struct net_driver_s *dev)
        * send ARP request for same destination.
        */
 
-      arp_update(dev, ipaddr, NULL);
+      arp_update(dev, ipaddr, NULL, 0);
+#ifdef CONFIG_NET_ARP_SEND_QUEUE
+      arp_queue_iob(dev, ipaddr, dev->d_iob);
+      netdev_iob_clear(dev);
+#endif
 
       /* The destination address was not in our ARP table, so we overwrite
        * the IP packet with an ARP request.

@@ -432,30 +432,6 @@ void net_unlock(void);
 int net_sem_timedwait(FAR sem_t *sem, unsigned int timeout);
 
 /****************************************************************************
- * Name: net_mutex_timedlock
- *
- * Description:
- *   Atomically wait for mutex (or a timeout) while temporarily releasing
- *   the lock on the network.
- *
- *   Caution should be utilized.  Because the network lock is relinquished
- *   during the wait, there could be changes in the network state that occur
- *   before the lock is recovered.  Your design should account for this
- *   possibility.
- *
- * Input Parameters:
- *   mutex   - A reference to the mutex to be taken.
- *   timeout - The relative time to wait until a timeout is declared.
- *
- * Returned Value:
- *   Zero (OK) is returned on success; a negated errno value is returned on
- *   any failure.
- *
- ****************************************************************************/
-
-int net_mutex_timedlock(FAR mutex_t *mutex, unsigned int timeout);
-
-/****************************************************************************
  * Name: net_sem_wait
  *
  * Description:
@@ -476,28 +452,6 @@ int net_mutex_timedlock(FAR mutex_t *mutex, unsigned int timeout);
  ****************************************************************************/
 
 int net_sem_wait(FAR sem_t *sem);
-
-/****************************************************************************
- * Name: net_mutex_lock
- *
- * Description:
- *   Atomically wait for mutex while temporarily releasing the network lock.
- *
- *   Caution should be utilized.  Because the network lock is relinquished
- *   during the wait, there could be changes in the network state that occur
- *   before the lock is recovered.  Your design should account for this
- *   possibility.
- *
- * Input Parameters:
- *   mutex - A reference to the mutex to be taken.
- *
- * Returned Value:
- *   Zero (OK) is returned on success; a negated errno value is returned on
- *   any failure.
- *
- ****************************************************************************/
-
-int net_mutex_lock(FAR mutex_t *mutex);
 
 /****************************************************************************
  * Name: net_sem_timedwait_uninterruptible
@@ -535,6 +489,31 @@ int net_sem_timedwait_uninterruptible(FAR sem_t *sem, unsigned int timeout);
  ****************************************************************************/
 
 int net_sem_wait_uninterruptible(FAR sem_t *sem);
+
+/****************************************************************************
+ * Name: net_sem_timedwait2
+ *
+ * Description:
+ *   Atomically wait for sem (or a timeout) while temporarily releasing
+ *   the lock on the conn and device.
+ *
+ * Input Parameters:
+ *   sem           - A reference to the semaphore to be taken.
+ *   interruptible - An indication of whether the wait is interruptible
+ *   timeout       - The relative time to wait until a timeout is declared.
+ *   mutex1        - The lock to be released during waiting and restored
+ *                   later, can be NULL.
+ *   mutex2        - Same as mutex1, but released after mutex1.
+ *
+ * Returned Value:
+ *   Zero (OK) is returned on success; a negated errno value is returned on
+ *   any failure.
+ *
+ ****************************************************************************/
+
+int net_sem_timedwait2(FAR sem_t *sem, bool interruptible,
+                       unsigned int timeout, FAR rmutex_t *mutex1,
+                       FAR rmutex_t *mutex2);
 
 #ifdef CONFIG_MM_IOB
 
