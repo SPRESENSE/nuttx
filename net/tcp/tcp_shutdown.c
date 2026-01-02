@@ -49,12 +49,12 @@
  * Name: tcp_shutdown_eventhandler
  ****************************************************************************/
 
-static uint16_t tcp_shutdown_eventhandler(FAR struct net_driver_s *dev,
-                                          FAR void *pvpriv, uint16_t flags)
+static uint32_t tcp_shutdown_eventhandler(FAR struct net_driver_s *dev,
+                                          FAR void *pvpriv, uint32_t flags)
 {
   FAR struct tcp_conn_s *conn = pvpriv;
 
-  ninfo("flags: %04x\n", flags);
+  ninfo("flags: %" PRIx32 "\n", flags);
 
 #ifdef CONFIG_NET_TCP_WRITE_BUFFERS
   /* We don't need the send callback anymore. */
@@ -137,9 +137,7 @@ static inline int tcp_send_fin(FAR struct socket *psock)
 
       /* Notify the device driver of the availability of TX data */
 
-      conn_dev_unlock(&conn->sconn, conn->dev);
       tcp_send_txnotify(psock, conn);
-      return ret;
     }
 
 out:

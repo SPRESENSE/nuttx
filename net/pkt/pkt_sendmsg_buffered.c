@@ -82,8 +82,8 @@ static void pkt_sendbuffer_notify(FAR struct pkt_conn_s *conn)
  * Name: psock_send_eventhandler
  ****************************************************************************/
 
-static uint16_t psock_send_eventhandler(FAR struct net_driver_s *dev,
-                                        FAR void *pvpriv, uint16_t flags)
+static uint32_t psock_send_eventhandler(FAR struct net_driver_s *dev,
+                                        FAR void *pvpriv, uint32_t flags)
 {
   FAR struct pkt_conn_s *conn = pvpriv;
 
@@ -156,7 +156,7 @@ static uint16_t psock_send_eventhandler(FAR struct net_driver_s *dev,
 
           /* Notify the device driver that new TX data is available. */
 
-          netdev_txnotify_dev(dev);
+          netdev_txnotify_dev(dev, PKT_POLL);
         }
       else
         {
@@ -254,8 +254,9 @@ ssize_t pkt_sendmsg(FAR struct socket *psock, FAR const struct msghdr *msg,
           goto errout_with_lock;
         }
 
-      ret = net_sem_timedwait_uninterruptible(&conn->sndsem,
-        _SO_TIMEOUT(conn->sconn.s_sndtimeo));
+      ret = conn_dev_sem_timedwait(&conn->sndsem, false,
+                                   _SO_TIMEOUT(conn->sconn.s_sndtimeo),
+                                   &conn->sconn, dev);
       if (ret < 0)
         {
           goto errout_with_lock;
@@ -372,11 +373,11 @@ ssize_t pkt_sendmsg(FAR struct socket *psock, FAR const struct msghdr *msg,
       conn->sndcb->flags = PKT_POLL;
       conn->sndcb->priv  = conn;
       conn->sndcb->event = psock_send_eventhandler;
-      conn_dev_unlock(&conn->sconn, dev);
 
       /* Notify the device driver that new TX data is available. */
 
-      netdev_txnotify_dev(dev);
+      netdev_txnotify_dev(dev, PKT_POLL);
+      conn_dev_unlock(&conn->sconn, dev);
     }
 
   return len;

@@ -92,12 +92,12 @@ static void icmpv6_router_terminate(FAR struct icmpv6_router_s *state,
  * Name: icmpv6_router_eventhandler
  ****************************************************************************/
 
-static uint16_t icmpv6_router_eventhandler(FAR struct net_driver_s *dev,
-                                           FAR void *priv, uint16_t flags)
+static uint32_t icmpv6_router_eventhandler(FAR struct net_driver_s *dev,
+                                           FAR void *priv, uint32_t flags)
 {
   FAR struct icmpv6_router_s *state = (FAR struct icmpv6_router_s *)priv;
 
-  ninfo("flags: %04x sent: %d\n", flags, state->snd_sent);
+  ninfo("flags: %" PRIx32 " sent: %d\n", flags, state->snd_sent);
 
   if (state)
     {
@@ -224,19 +224,17 @@ static int icmpv6_send_message(FAR struct net_driver_s *dev, bool advertise)
 
   /* Notify the device driver that new TX data is available. */
 
-  netdev_txnotify_dev(dev);
+  netdev_txnotify_dev(dev, ICMPv6_POLL);
 
   /* Wait for the send to complete or an error to occur
-   * net_sem_wait will also terminate if a signal is received.
+   * nxsem_wait will also terminate if a signal is received.
    */
 
-  netdev_unlock(dev);
   do
     {
-      net_sem_wait(&state.snd_sem);
+      conn_dev_sem_timedwait(&state.snd_sem, true, UINT_MAX, NULL, dev);
     }
   while (!state.snd_sent);
-  netdev_lock(dev);
 
   ret = state.snd_result;
   devif_dev_callback_free(dev, state.snd_cb);
@@ -393,7 +391,7 @@ got_lladdr:
 
       /* Wait to receive the Router Advertisement message */
 
-      ret = icmpv6_rwait(&notify, CONFIG_ICMPv6_AUTOCONF_DELAYMSEC);
+      ret = icmpv6_rwait(dev, &notify, CONFIG_ICMPv6_AUTOCONF_DELAYMSEC);
       if (ret != -ETIMEDOUT)
         {
           /* ETIMEDOUT is the only expected failure.  We will retry on that

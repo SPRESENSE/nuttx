@@ -170,12 +170,12 @@ static void sendto_request(FAR struct net_driver_s *dev,
  *
  ****************************************************************************/
 
-static uint16_t sendto_eventhandler(FAR struct net_driver_s *dev,
-                                    FAR void *pvpriv, uint16_t flags)
+static uint32_t sendto_eventhandler(FAR struct net_driver_s *dev,
+                                    FAR void *pvpriv, uint32_t flags)
 {
   FAR struct icmpv6_sendto_s *pstate = pvpriv;
 
-  ninfo("flags: %04x\n", flags);
+  ninfo("flags: %" PRIx32 "\n", flags);
 
   if (pstate != NULL)
     {
@@ -384,9 +384,9 @@ ssize_t icmpv6_sendmsg(FAR struct socket *psock, FAR struct msghdr *msg,
   state.snd_cb = icmpv6_callback_alloc(dev, conn);
   if (state.snd_cb)
     {
-      state.snd_cb->flags   = (ICMPv6_POLL | NETDEV_DOWN);
-      state.snd_cb->priv    = (FAR void *)&state;
-      state.snd_cb->event   = sendto_eventhandler;
+      state.snd_cb->flags = (ICMPv6_POLL | NETDEV_DOWN);
+      state.snd_cb->priv  = (FAR void *)&state;
+      state.snd_cb->event = sendto_eventhandler;
 
       /* Setup to receive ICMPv6 ECHO replies */
 
@@ -399,16 +399,15 @@ ssize_t icmpv6_sendmsg(FAR struct socket *psock, FAR struct msghdr *msg,
 
       /* Notify the device driver of the availability of TX data */
 
-      netdev_txnotify_dev(dev);
+      netdev_txnotify_dev(dev, ICMPv6_POLL);
 
       /* Wait for either the send to complete or for timeout to occur.
-       * net_sem_timedwait will also terminate if a signal is received.
+       * conn_dev_sem_timedwait will also terminate if a signal is received.
        */
 
-      conn_dev_unlock(&conn->sconn, dev);
-      ret = net_sem_timedwait(&state.snd_sem,
-                          _SO_TIMEOUT(conn->sconn.s_sndtimeo));
-      conn_dev_lock(&conn->sconn, dev);
+      ret = conn_dev_sem_timedwait(&state.snd_sem, true,
+                                   _SO_TIMEOUT(conn->sconn.s_sndtimeo),
+                                   &conn->sconn, dev);
       if (ret < 0)
         {
           if (ret == -ETIMEDOUT)

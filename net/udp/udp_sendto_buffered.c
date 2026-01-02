@@ -94,8 +94,8 @@ static inline void sendto_ipselect(FAR struct net_driver_s *dev,
                                    FAR struct udp_conn_s *conn);
 #endif
 static int sendto_next_transfer(FAR struct udp_conn_s *conn);
-static uint16_t sendto_eventhandler(FAR struct net_driver_s *dev,
-                                    FAR void *pvpriv, uint16_t flags);
+static uint32_t sendto_eventhandler(FAR struct net_driver_s *dev,
+                                    FAR void *pvpriv, uint32_t flags);
 
 /****************************************************************************
  * Private Functions
@@ -248,6 +248,7 @@ static int sendto_next_transfer(FAR struct udp_conn_s *conn)
 {
   FAR struct udp_wrbuffer_s *wrb;
   FAR struct net_driver_s *dev;
+  int ret = OK;
 
   /* Set the UDP "connection" to the destination address of the write buffer
    * at the head of the queue.
@@ -329,11 +330,10 @@ static int sendto_next_transfer(FAR struct udp_conn_s *conn)
    * callback is not already in place.
    */
 
+  conn_dev_lock(&conn->sconn, dev);
   if (conn->sndcb == NULL)
     {
-      conn_dev_lock(&conn->sconn, dev);
       conn->sndcb = udp_callback_alloc(dev, conn);
-      conn_dev_unlock(&conn->sconn, dev);
     }
 
   /* Test if the callback has been allocated */
@@ -343,8 +343,8 @@ static int sendto_next_transfer(FAR struct udp_conn_s *conn)
       /* A buffer allocation error occurred */
 
       nerr("ERROR: Failed to allocate callback\n");
-      conn_lock(&conn->sconn);
-      return -ENOMEM;
+      ret = -ENOMEM;
+      goto out;
     }
 
   conn->dev = dev;
@@ -357,11 +357,13 @@ static int sendto_next_transfer(FAR struct udp_conn_s *conn)
 
   /* Notify the device driver of the availability of TX data */
 
-  netdev_txnotify_dev(dev);
+  netdev_txnotify_dev(dev, UDP_POLL);
 
+out:
+  conn_dev_unlock(&conn->sconn, dev);
   conn_lock(&conn->sconn);
 
-  return OK;
+  return ret;
 }
 
 /****************************************************************************
@@ -384,20 +386,20 @@ static int sendto_next_transfer(FAR struct udp_conn_s *conn)
  *
  ****************************************************************************/
 
-static uint16_t sendto_eventhandler(FAR struct net_driver_s *dev,
-                                    FAR void *pvpriv, uint16_t flags)
+static uint32_t sendto_eventhandler(FAR struct net_driver_s *dev,
+                                    FAR void *pvpriv, uint32_t flags)
 {
   FAR struct udp_conn_s *conn = pvpriv;
 
   DEBUGASSERT(dev != NULL && conn != NULL);
 
-  ninfo("flags: %04x\n", flags);
+  ninfo("flags: %" PRIx32 "\n", flags);
 
   /* Check if the network device has gone down  */
 
   if ((flags & NETDEV_DOWN) != 0)
     {
-      ninfo("Device down: %04x\n", flags);
+      ninfo("Device down: %" PRIx32 "\n", flags);
 
       /* Free the write buffer at the head of the queue and attempt to setup
        * the next transfer.
@@ -715,14 +717,15 @@ ssize_t psock_udp_sendto(FAR struct socket *psock, FAR const void *buf,
   conn_lock(&conn->sconn);
   while (udp_wrbuffer_inqueue_size(conn) + len > conn->sndbufs)
     {
-      conn_unlock(&conn->sconn);
       if (nonblock)
         {
+          conn_unlock(&conn->sconn);
           return -EAGAIN;
         }
 
-      ret = net_sem_timedwait_uninterruptible(&conn->sndsem,
-                            udp_send_gettimeout(start, timeout));
+      ret = conn_dev_sem_timedwait(&conn->sndsem, false,
+                                   udp_send_gettimeout(start, timeout),
+                                   &conn->sconn, NULL);
       if (ret < 0)
         {
           if (ret == -ETIMEDOUT)
@@ -730,10 +733,9 @@ ssize_t psock_udp_sendto(FAR struct socket *psock, FAR const void *buf,
               ret = -EAGAIN;
             }
 
+          conn_unlock(&conn->sconn);
           return ret;
         }
-
-      conn_lock(&conn->sconn);
     }
 
   conn_unlock(&conn->sconn);

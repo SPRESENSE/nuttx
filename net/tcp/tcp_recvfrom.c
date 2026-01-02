@@ -170,9 +170,9 @@ static size_t tcp_recvfrom_newdata(FAR struct net_driver_s *dev,
  *
  ****************************************************************************/
 
-static inline uint16_t tcp_newdata(FAR struct net_driver_s *dev,
+static inline uint32_t tcp_newdata(FAR struct net_driver_s *dev,
                                    FAR struct tcp_recvfrom_s *pstate,
-                                   uint16_t flags)
+                                   uint32_t flags)
 {
   FAR struct tcp_conn_s *conn = pstate->ir_conn;
 
@@ -391,13 +391,13 @@ static inline void tcp_sender(FAR struct net_driver_s *dev,
  *
  ****************************************************************************/
 
-static uint16_t tcp_recvhandler(FAR struct net_driver_s *dev,
-                                FAR void *pvpriv, uint16_t flags)
+static uint32_t tcp_recvhandler(FAR struct net_driver_s *dev,
+                                FAR void *pvpriv, uint32_t flags)
 {
   FAR struct tcp_recvfrom_s *pstate = pvpriv;
   FAR struct iob_s *iob = NULL;
 
-  ninfo("flags: %04x\n", flags);
+  ninfo("flags: %" PRIx32 "\n", flags);
 
   /* 'priv' might be null in some race conditions (?) */
 
@@ -576,7 +576,7 @@ static void tcp_recvfrom_initialize(FAR struct tcp_conn_s *conn,
  *   Evaluate the result of the recv operations
  *
  * Input Parameters:
- *   result   The result of the net_sem_timedwait operation
+ *   result   The result of the conn_dev_sem_timedwait operation
  *            (may indicate EINTR)
  *   pstate   A pointer to the state structure to be initialized
  *
@@ -801,18 +801,17 @@ static ssize_t tcp_recvfrom_one(FAR struct tcp_conn_s *conn, FAR void *buf,
           info.tc_conn = conn;
           info.tc_cb   = &state.ir_cb;
           info.tc_sem  = &state.ir_sem;
-          conn_dev_unlock(&conn->sconn, conn->dev);
           tls_cleanup_push(tls_get_info(), tcp_callback_cleanup, &info);
 
           /* Wait for either the receive to complete or for an
-           * error/timeout to occur.  net_sem_timedwait will also
+           * error/timeout to occur.  conn_dev_sem_timedwait will also
            * terminate if a signal is received.
            */
 
-          ret = net_sem_timedwait(&state.ir_sem,
-                              _SO_TIMEOUT(conn->sconn.s_rcvtimeo));
+          ret = conn_dev_sem_timedwait(&state.ir_sem, true,
+                                       _SO_TIMEOUT(conn->sconn.s_rcvtimeo),
+                                       &conn->sconn, conn->dev);
           tls_cleanup_pop(tls_get_info(), 0);
-          conn_dev_lock(&conn->sconn, conn->dev);
           if (ret == -ETIMEDOUT)
             {
               ret = -EAGAIN;
@@ -837,9 +836,7 @@ static ssize_t tcp_recvfrom_one(FAR struct tcp_conn_s *conn, FAR void *buf,
 
   if (tcp_should_send_recvwindow(conn))
     {
-      conn_unlock(&conn->sconn);
-      netdev_txnotify_dev(conn->dev);
-      conn_lock(&conn->sconn);
+      netdev_txnotify_dev(conn->dev, TCP_POLL);
     }
 
   tcp_notify_recvcpu(conn);

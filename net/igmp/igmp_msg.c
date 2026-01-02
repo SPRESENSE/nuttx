@@ -105,7 +105,9 @@ int igmp_schedmsg(FAR struct igmp_group_s *group, uint8_t msgid)
 
   /* Notify the device that we have a packet to send */
 
-  netdev_txnotify_dev(dev);
+  netdev_lock(dev);
+  netdev_txnotify_dev(dev, IGMP_POLL);
+  netdev_unlock(dev);
   return OK;
 }
 
@@ -143,7 +145,7 @@ int igmp_waitmsg(FAR struct igmp_group_s *group, uint8_t msgid)
     {
       /* Wait for the semaphore to be posted */
 
-      ret = net_sem_wait_uninterruptible(&group->sem);
+      ret = nxsem_wait_uninterruptible(&group->sem);
       if (ret < 0)
         {
           break;

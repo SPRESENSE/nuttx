@@ -32,6 +32,7 @@
 
 #include <stdlib.h>
 
+#include <nuttx/mutex.h>
 #include <nuttx/net/net.h>
 #include <nuttx/net/ip.h>
 #include <nuttx/net/netdev.h>
@@ -151,6 +152,69 @@ extern "C"
 #else
 #define EXTERN extern
 #endif
+
+/****************************************************************************
+ * Inline Functions
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: conn_lock, conn_unlock, conn_dev_lock, conn_dev_unlock
+ *
+ * Description:
+ *   Lock and unlock the connection and device.
+ *
+ ****************************************************************************/
+
+static inline_function void conn_lock(FAR struct socket_conn_s *sconn)
+{
+  nxrmutex_lock(&sconn->s_lock);
+}
+
+static inline_function void conn_unlock(FAR struct socket_conn_s *sconn)
+{
+  nxrmutex_unlock(&sconn->s_lock);
+}
+
+static inline_function void conn_dev_lock(FAR struct socket_conn_s *sconn,
+                                          FAR struct net_driver_s *dev)
+{
+  if (dev != NULL)
+    {
+      netdev_lock(dev);
+    }
+
+  nxrmutex_lock(&sconn->s_lock);
+}
+
+static inline_function void conn_dev_unlock(FAR struct socket_conn_s *sconn,
+                                            FAR struct net_driver_s *dev)
+{
+  nxrmutex_unlock(&sconn->s_lock);
+
+  if (dev != NULL)
+    {
+      netdev_unlock(dev);
+    }
+}
+
+/****************************************************************************
+ * Name: conn_dev_sem_timedwait
+ *
+ * Description:
+ *   Wait on the connection semaphore, unlocking the device and connection
+ *   locks while waiting.
+ *
+ ****************************************************************************/
+
+static inline_function int
+conn_dev_sem_timedwait(FAR sem_t *sem, bool interruptible,
+                       unsigned int timeout, FAR struct socket_conn_s *sconn,
+                       FAR struct net_driver_s *dev)
+{
+  return net_sem_timedwait2(sem, interruptible, timeout,
+                            sconn ? &sconn->s_lock : NULL,
+                            dev ? &dev->d_lock : NULL);
+}
 
 /****************************************************************************
  * Public Function Prototypes
@@ -605,23 +669,6 @@ uint16_t icmpv6_chksum(FAR struct net_driver_s *dev, unsigned int iplen);
 
 FAR void *cmsg_append(FAR struct msghdr *msg, int level, int type,
                       FAR void *value, int value_len);
-
-/****************************************************************************
- * Name: conn_lock, conn_unlock, conn_dev_lock, conn_dev_unlock
- *
- * Description:
- *   Lock and unlock the connection and device.
- *
- ****************************************************************************/
-
-void conn_lock(FAR struct socket_conn_s *sconn);
-void conn_unlock(FAR struct socket_conn_s *sconn);
-
-void conn_dev_lock(FAR struct socket_conn_s *sconn,
-                   FAR struct net_driver_s *dev);
-
-void conn_dev_unlock(FAR struct socket_conn_s *sconn,
-                     FAR struct net_driver_s *dev);
 
 #undef EXTERN
 #ifdef __cplusplus

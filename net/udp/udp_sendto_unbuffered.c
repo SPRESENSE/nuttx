@@ -144,8 +144,8 @@ static inline void sendto_ipselect(FAR struct net_driver_s *dev,
  *
  ****************************************************************************/
 
-static uint16_t sendto_eventhandler(FAR struct net_driver_s *dev,
-                                    FAR void *pvpriv, uint16_t flags)
+static uint32_t sendto_eventhandler(FAR struct net_driver_s *dev,
+                                    FAR void *pvpriv, uint32_t flags)
 {
   FAR struct sendto_s *pstate = pvpriv;
 
@@ -163,7 +163,7 @@ static uint16_t sendto_eventhandler(FAR struct net_driver_s *dev,
           return flags;
         }
 
-      ninfo("flags: %04x\n", flags);
+      ninfo("flags: %" PRIx32 "\n", flags);
 
       /* If the network device has gone down, then we will have terminate
        * the wait now with an error.
@@ -471,23 +471,22 @@ ssize_t psock_udp_sendto(FAR struct socket *psock, FAR const void *buf,
   state.st_cb = udp_callback_alloc(state.st_dev, conn);
   if (state.st_cb)
     {
-      state.st_cb->flags   = (UDP_POLL | NETDEV_DOWN);
-      state.st_cb->priv    = (FAR void *)&state;
-      state.st_cb->event   = sendto_eventhandler;
-
-      conn_dev_unlock(&conn->sconn, state.st_dev);
+      state.st_cb->flags = (UDP_POLL | NETDEV_DOWN);
+      state.st_cb->priv  = (FAR void *)&state;
+      state.st_cb->event = sendto_eventhandler;
 
       /* Notify the device driver of the availability of TX data */
 
-      netdev_txnotify_dev(state.st_dev);
+      netdev_txnotify_dev(state.st_dev, UDP_POLL);
 
       /* Wait for either the receive to complete or for an error/timeout to
-       * occur. NOTES:  net_sem_timedwait will also terminate if a signal
+       * occur. NOTES: conn_dev_sem_timedwait will also terminate if a signal
        * is received.
        */
 
-      ret = net_sem_timedwait(&state.st_sem,
-                          _SO_TIMEOUT(conn->sconn.s_sndtimeo));
+      ret = conn_dev_sem_timedwait(&state.st_sem, true,
+                                   _SO_TIMEOUT(conn->sconn.s_sndtimeo),
+                                   &conn->sconn, state.st_dev);
       if (ret >= 0)
         {
           /* The result of the sendto operation is the number of bytes
@@ -496,8 +495,6 @@ ssize_t psock_udp_sendto(FAR struct socket *psock, FAR const void *buf,
 
           ret = state.st_sndlen;
         }
-
-      conn_dev_lock(&conn->sconn, state.st_dev);
 
       /* Make sure that no further events are processed */
 

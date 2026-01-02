@@ -86,14 +86,14 @@ struct icmp_recvfrom_s
  *
  ****************************************************************************/
 
-static uint16_t recvfrom_eventhandler(FAR struct net_driver_s *dev,
-                                      FAR void *pvpriv, uint16_t flags)
+static uint32_t recvfrom_eventhandler(FAR struct net_driver_s *dev,
+                                      FAR void *pvpriv, uint32_t flags)
 {
   FAR struct icmp_recvfrom_s *pstate = pvpriv;
   FAR struct socket *psock;
   FAR struct ipv4_hdr_s *ipv4;
 
-  ninfo("flags: %04x\n", flags);
+  ninfo("flags: %" PRIx32 "\n", flags);
 
   if (pstate != NULL)
     {
@@ -374,14 +374,13 @@ ssize_t icmp_recvmsg(FAR struct socket *psock, FAR struct msghdr *msg,
           state.recv_cb->event = recvfrom_eventhandler;
 
           /* Wait for either the response to be received or for timeout to
-           * occur. net_sem_timedwait will also terminate if a signal is
+           * occur. conn_dev_sem_timedwait will also terminate if a signal is
            * received.
            */
 
-          conn_dev_unlock(&conn->sconn, dev);
-          ret = net_sem_timedwait(&state.recv_sem,
-                              _SO_TIMEOUT(conn->sconn.s_rcvtimeo));
-          conn_dev_lock(&conn->sconn, dev);
+          ret = conn_dev_sem_timedwait(&state.recv_sem, true,
+                                       _SO_TIMEOUT(conn->sconn.s_rcvtimeo),
+                                       &conn->sconn, dev);
           if (ret < 0)
             {
               state.recv_result = ret;

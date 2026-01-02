@@ -81,12 +81,12 @@ static void arp_send_terminate(FAR struct net_driver_s *dev,
  * Name: arp_send_eventhandler
  ****************************************************************************/
 
-static uint16_t arp_send_eventhandler(FAR struct net_driver_s *dev,
-                                      FAR void *priv, uint16_t flags)
+static uint32_t arp_send_eventhandler(FAR struct net_driver_s *dev,
+                                      FAR void *priv, uint32_t flags)
 {
   FAR struct arp_send_s *state = (FAR struct arp_send_s *)priv;
 
-  ninfo("flags: %04x sent: %d\n", flags, state->snd_sent);
+  ninfo("flags: %" PRIx32 " sent: %d\n", flags, state->snd_sent);
 
   if (state)
     {
@@ -359,8 +359,6 @@ int arp_send(in_addr_t ipaddr)
       state.snd_cb->event = arp_send_eventhandler;
       state.finish_cb     = NULL;
 
-      netdev_unlock(dev);
-
       /* MAC address marked with all zeros to limit concurrent task
        * send ARP request for same destination.
        */
@@ -373,16 +371,18 @@ int arp_send(in_addr_t ipaddr)
 
       /* Notify the device driver that new TX data is available. */
 
-      netdev_txnotify_dev(dev);
+      netdev_txnotify_dev(dev, ARP_POLL);
 
       /* Wait for the send to complete or an error to occur.
-       * net_sem_wait will also terminate if a signal is received.
+       * nxsem_tickwait will also terminate if a signal is received.
        */
+
+      netdev_unlock(dev);
 
       do
         {
-          ret = net_sem_timedwait_uninterruptible(&state.snd_sem,
-                                              CONFIG_ARP_SEND_DELAYMSEC);
+          ret = nxsem_tickwait(&state.snd_sem,
+                               MSEC2TICK(CONFIG_ARP_SEND_DELAYMSEC));
           if (ret == -ETIMEDOUT)
             {
               arp_wait_cancel(&notify);
@@ -504,7 +504,7 @@ int arp_send_async(in_addr_t ipaddr, arp_send_finish_cb_t cb)
 
   /* Notify the device driver that new TX data is available. */
 
-  netdev_txnotify_dev(dev);
+  netdev_txnotify_dev(dev, ARP_POLL);
 
 errout_with_lock:
   netdev_unlock(dev);

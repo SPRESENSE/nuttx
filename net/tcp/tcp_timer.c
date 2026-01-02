@@ -154,7 +154,9 @@ static void tcp_timer_expiry(FAR void *arg)
         {
           tcp_conn_list_unlock();
           conn->timeout = true;
-          netdev_txnotify_dev(conn->dev);
+          netdev_lock(conn->dev);
+          netdev_txnotify_dev(conn->dev, TCP_POLL);
+          netdev_unlock(conn->dev);
           return;
         }
     }
@@ -362,7 +364,7 @@ void tcp_stop_timer(FAR struct tcp_conn_s *conn)
  *
  ****************************************************************************/
 
-void tcp_set_zero_probe(FAR struct tcp_conn_s *conn, uint16_t flags)
+void tcp_set_zero_probe(FAR struct tcp_conn_s *conn, uint32_t flags)
 {
   if ((conn->tcpstateflags & TCP_ESTABLISHED) &&
       ((flags & TCP_NEWDATA) == 0) && conn->tx_unacked <= 0 &&
