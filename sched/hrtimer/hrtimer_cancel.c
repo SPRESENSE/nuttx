@@ -57,7 +57,7 @@
  *   true  - The timer is active on at least one CPU.
  *   false - The timer is not active.
  ****************************************************************************/
-
+#ifdef CONFIG_SMP
 static inline_function bool hrtimer_is_active(FAR hrtimer_t *hrtimer)
 {
   bool is_active = false;
@@ -73,6 +73,7 @@ static inline_function bool hrtimer_is_active(FAR hrtimer_t *hrtimer)
 
   return is_active;
 }
+#endif
 
 /****************************************************************************
  * Public Functions
@@ -131,9 +132,11 @@ int hrtimer_cancel(FAR hrtimer_t *hrtimer)
       hrtimer_remove(hrtimer);
     }
 
-  /* Mark timer as cancelled */
+  /* If the timer was running, increment its expiration count to prevent
+   * it from being re-armed by the callback.
+   */
 
-  hrtimer->expired = UINT64_MAX;
+  hrtimer->expired++;
 
   /* If the canceled timer was the earliest one, update the hardware timer */
 
@@ -175,15 +178,9 @@ int hrtimer_cancel(FAR hrtimer_t *hrtimer)
 
 int hrtimer_cancel_sync(FAR hrtimer_t *hrtimer)
 {
-  int  ret;
-  bool cansleep;
+  int ret = OK;
 
   DEBUGASSERT(hrtimer != NULL);
-
-  /* Determine whether sleeping is permitted in the current context */
-
-  cansleep = !up_interrupt_context() &&
-             !is_idle_task(this_task());
 
   /* Request cancellation of the timer */
 
@@ -199,14 +196,16 @@ int hrtimer_cancel_sync(FAR hrtimer_t *hrtimer)
    * busy-waiting.  Otherwise, spin until the callback completes
    * and the state becomes inactive.
    */
-
+#ifdef CONFIG_SMP
   while (hrtimer_is_active(hrtimer))
     {
-      if (cansleep)
+      if (!up_interrupt_context() &&
+          !is_idle_task(this_task()))
         {
           nxsched_msleep(HRTIMER_CANCEL_SYNC_DELAY_MS);
         }
     }
+#endif
 
-  return OK;
+  return ret;
 }
