@@ -1,5 +1,5 @@
 # ##############################################################################
-# arch/arm/src/xmc4/CMakeLists.txt
+# boards/arm/xmc4/xmc4700-relax/src/CMakeLists.txt
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -20,55 +20,26 @@
 #
 # ##############################################################################
 
-set(SRCS)
+set(SRCS xmc4_boot.c xmc4_bringup.c)
 
-list(
-  APPEND
-  SRCS
-  xmc4_allocateheap.c
-  xmc4_clockconfig.c
-  xmc4_clockutils.c
-  xmc4_clrpend.c
-  xmc4_flash.c
-  xmc4_gpio.c
-  xmc4_irq.c
-  xmc4_lowputc.c
-  xmc4_serial.c
-  xmc4_start.c
-  xmc4_usic.c
-  xmc4_ccu4.c
-  xmc4_vadc.c)
-
-if(NOT CONFIG_ARCH_IDLE_CUSTOM)
-  list(APPEND SRCS xmc4_idle.c)
+if(CONFIG_INPUT_BUTTONS)
+  list(APPEND SRCS xmc4_buttons.c)
 endif()
 
-if(NOT CONFIG_SCHED_TICKLESS)
-  list(APPEND SRCS xmc4_timerisr.c)
+if(CONFIG_ARCH_LEDS)
+  list(APPEND SRCS xmc4_autoleds.c)
 else()
-  list(APPEND SRCS xmc4_tickless.c)
+  list(APPEND SRCS xmc4_userleds.c)
 endif()
 
-if(CONFIG_BUILD_PROTECTED)
-  list(APPEND SRCS xmc4_userspace.c xmc4_mpuinit.c)
-endif()
-
-if(CONFIG_DEBUG_GPIO_INFO)
-  list(APPEND SRCS xmc4_pindump.c)
-endif()
 if(CONFIG_XMC4_USCI_SPI)
   list(APPEND SRCS xmc4_spi.c)
 endif()
 
-if(CONFIG_XMC4_USCI_I2C)
-  list(APPEND SRCS xmc4_i2c.c)
+if(CONFIG_BOARDCTL)
+  list(APPEND SRCS xmc4_appinit.c)
 endif()
 
-if(CONFIG_XMC4_ECAT)
-  list(APPEND SRCS xmc4_ecat.c)
-endif()
-if(CONFIG_XMC4_PWM)
-  list(APPEND SRCS xmc4_pwm.c)
-endif()
+target_sources(board PRIVATE ${SRCS})
 
-target_sources(arch PRIVATE ${SRCS})
+set_property(GLOBAL PROPERTY LD_SCRIPT "${NUTTX_BOARD_DIR}/scripts/flash.ld")

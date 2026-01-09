@@ -31,10 +31,11 @@
 #include <stdio.h>
 
 #include <nuttx/crc16.h>
+#include <nuttx/fs/fs.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/kthread.h>
 #include <nuttx/mutex.h>
-#include <nuttx/fs/fs.h>
+#include <nuttx/semaphore.h>
 
 #include "rpmsg_port.h"
 
@@ -43,10 +44,14 @@
  ****************************************************************************/
 
 #define RPMSG_PORT_UART_START              0x7f
-#define RPMSG_PORT_UART_END                0x7e
-#define RPMSG_PORT_UART_CONNREQ            0x7d
-#define RPMSG_PORT_UART_CONNACK            0x7c
-#define RPMSG_PORT_UART_ESCAPE             0x7b
+#define RPMSG_PORT_UART_CONNREQ            0x7e
+#define RPMSG_PORT_UART_CONNACK            0x7d
+#define RPMSG_PORT_UART_ESCAPE             0x7c
+#define RPMSG_PORT_UART_SUSPEND            0x7b
+#define RPMSG_PORT_UART_RESUME             0x7a
+#define RPMSG_PORT_UART_WAKEUP             0x79
+#define RPMSG_PORT_UART_POWEROFF           0x78
+#define RPMSG_PORT_UART_END                0x77
 #define RPMSG_PORT_UART_ESCAPE_MASK        0x20
 
 #define RPMSG_PORT_UART_BUFLEN             256
@@ -54,6 +59,8 @@
 #define RPMSG_PORT_UART_RX_WAIT_START      1
 #define RPMSG_PORT_UART_RX_RECV_NORMAL     2
 #define RPMSG_PORT_UART_RX_RECV_ESCAPE     3
+
+#define RPMSG_PORT_UART_WAKEUP_TIMEOUT     MSEC2TICK(100)
 
 #ifdef CONFIG_RPMSG_PORT_UART_CRC
 #  define rpmsg_port_uart_crc16(hdr)       \
@@ -64,7 +71,7 @@
 
 #ifdef CONFIG_RPMSG_PORT_UART_DEBUG
 #  define rpmsgdump                        lib_dumpbuffer
-#  define rpmsgdbg                         rpmsginfo
+#  define rpmsgdbg                         rpmsgerr
 #else
 #  define rpmsgdump(m,b,s)
 #  define rpmsgdbg(fmt,...)
@@ -80,6 +87,7 @@ struct rpmsg_port_uart_s
   struct file            file;     /* Indicate uart device */
   char                   localcpu[RPMSG_NAME_SIZE];
   rpmsg_port_rx_cb_t     rx_cb;
+  sem_t                  wake;
   bool                   connected;
 };
 
@@ -109,6 +117,75 @@ static const struct rpmsg_port_ops_s g_rpmsg_port_uart_ops =
  ****************************************************************************/
 
 /****************************************************************************
+ * Name: rpmsg_port_uart_send_one
+ ****************************************************************************/
+
+static inline void
+rpmsg_port_uart_send_one(FAR struct rpmsg_port_uart_s *rpuart, uint8_t ch)
+{
+  ssize_t ret = file_write(&rpuart->file, &ch, 1);
+  if (ret != 1)
+    {
+      rpmsgerr("Send ch %u failed, ret=%zd\n", ch, ret);
+      PANIC();
+    }
+}
+
+/****************************************************************************
+ * Name: rpmsg_port_uart_send_command
+ ****************************************************************************/
+
+static inline void
+rpmsg_port_uart_send_command(FAR struct rpmsg_port_uart_s *rpuart,
+                             uint8_t cmd)
+{
+  if (cmd != RPMSG_PORT_UART_WAKEUP)
+    {
+      rpmsg_port_uart_send_one(rpuart, RPMSG_PORT_UART_WAKEUP);
+    }
+
+  rpmsg_port_uart_send_one(rpuart, cmd);
+}
+
+/****************************************************************************
+ * Name: rpmsg_port_uart_wakeup
+ *
+ * Description:
+ *   Send wakeup data to peer if peer is suspended.
+ *
+ ****************************************************************************/
+
+static inline void
+rpmsg_port_uart_wakeup(FAR struct rpmsg_port_uart_s *rpuart)
+{
+  int ret;
+
+  /* Try first, if peer is in suspend state, start send the wakeup byte */
+
+  ret = nxsem_trywait(&rpuart->wake);
+  if (ret >= 0)
+    {
+      nxsem_post(&rpuart->wake);
+      return;
+    }
+
+  for (; ; )
+    {
+      rpmsgdbg("Try to wakeup peer\n");
+      rpmsg_port_uart_send_command(rpuart, RPMSG_PORT_UART_WAKEUP);
+
+      ret = nxsem_tickwait(&rpuart->wake, RPMSG_PORT_UART_WAKEUP_TIMEOUT);
+      if (ret >= 0)
+        {
+          nxsem_post(&rpuart->wake);
+          break;
+        }
+    }
+
+  rpmsgdbg("Wakeup peer success\n");
+}
+
+/****************************************************************************
  * Name: rpmsg_port_uart_send_packet
  *
  * Description:
@@ -119,7 +196,10 @@ static const struct rpmsg_port_ops_s g_rpmsg_port_uart_ops =
 static void rpmsg_port_uart_send_packet(FAR struct rpmsg_port_uart_s *rpuart,
                                         FAR const void *data, size_t datalen)
 {
+  rpmsg_port_uart_wakeup(rpuart);
+
   rpmsgdump("TX Packed Data", data, datalen);
+  rpmsgdbg("Sent %zu Data\n", datalen);
 
   while (datalen > 0)
     {
@@ -157,7 +237,7 @@ static void rpmsg_port_uart_send_frame(FAR struct rpmsg_port_uart_s *rpuart,
   for (; datalen-- > 0; data = (FAR uint8_t *)data + 1)
     {
       ch = *(FAR uint8_t *)data;
-      if (ch >= RPMSG_PORT_UART_ESCAPE && ch <= RPMSG_PORT_UART_START)
+      if (ch >= RPMSG_PORT_UART_END && ch <= RPMSG_PORT_UART_START)
         {
           buf[next++] = RPMSG_PORT_UART_ESCAPE;
           buf[next++] = ch ^ RPMSG_PORT_UART_ESCAPE_MASK;
@@ -204,38 +284,6 @@ static void rpmsg_port_uart_send_data(FAR struct rpmsg_port_uart_s *rpuart,
 }
 
 /****************************************************************************
- * Name: rpmsg_port_uart_send_connect_req
- ****************************************************************************/
-
-static void
-rpmsg_port_uart_send_connect_req(FAR struct rpmsg_port_uart_s *rpuart)
-{
-  uint8_t ch = RPMSG_PORT_UART_CONNREQ;
-  ssize_t ret = file_write(&rpuart->file, &ch, 1);
-  if (ret != 1)
-    {
-      rpmsgerr("Send connect request failed, ret=%zd\n", ret);
-      PANIC();
-    }
-}
-
-/****************************************************************************
- * Name: rpmsg_port_uart_send_connect_ack
- ****************************************************************************/
-
-static void
-rpmsg_port_uart_send_connect_ack(FAR struct rpmsg_port_uart_s *rpuart)
-{
-  uint8_t ch = RPMSG_PORT_UART_CONNACK;
-  ssize_t ret = file_write(&rpuart->file, &ch, 1);
-  if (ret != 1)
-    {
-      rpmsgerr("Send connect ack failed, ret=%zd\n", ret);
-      PANIC();
-    }
-}
-
-/****************************************************************************
  * Name: rpmsg_port_uart_register_callback
  ****************************************************************************/
 
@@ -261,6 +309,7 @@ rpmsg_port_uart_process_rx_conn(FAR struct rpmsg_port_uart_s *rpuart,
       rpmsgdbg("Connect Request Command %d\n", rpuart->connected);
       if (rpuart->connected)
         {
+          rpmsg_port_drop_packets(&rpuart->port, RPMSG_PORT_DROP_TXQ);
           rpmsg_port_unregister(&rpuart->port);
         }
       else
@@ -268,7 +317,8 @@ rpmsg_port_uart_process_rx_conn(FAR struct rpmsg_port_uart_s *rpuart,
           rpuart->connected = true;
         }
 
-      rpmsg_port_uart_send_connect_ack(rpuart);
+      rpmsg_port_drop_packets(&rpuart->port, RPMSG_PORT_DROP_ALL);
+      rpmsg_port_uart_send_command(rpuart, RPMSG_PORT_UART_CONNACK);
       rpmsg_port_register(&rpuart->port, rpuart->localcpu);
     }
   else if (ch == RPMSG_PORT_UART_CONNACK)
@@ -277,6 +327,7 @@ rpmsg_port_uart_process_rx_conn(FAR struct rpmsg_port_uart_s *rpuart,
       if (!rpuart->connected)
         {
           rpuart->connected = true;
+          rpmsg_port_drop_packets(&rpuart->port, RPMSG_PORT_DROP_ALL);
           rpmsg_port_register(&rpuart->port, rpuart->localcpu);
         }
     }
@@ -323,6 +374,28 @@ static int rpmsg_port_uart_rx_thread(int argc, FAR char *argv[])
 
               rpmsg_port_uart_process_rx_conn(rpuart, buf[i]);
               state = RPMSG_PORT_UART_RX_WAIT_START;
+              continue;
+            }
+          else if (buf[i] == RPMSG_PORT_UART_SUSPEND)
+            {
+              rpmsgdbg("Received suspend command\n");
+              atomic_fetch_and(&rpuart->port.signals, ~RPMSG_SIGNAL_RUNNING);
+              nxsem_wait(&rpuart->wake);
+              continue;
+            }
+          else if (buf[i] == RPMSG_PORT_UART_RESUME)
+            {
+              rpmsgdbg("Received resume command\n");
+              atomic_fetch_or(&rpuart->port.signals, RPMSG_SIGNAL_RUNNING);
+              nxsem_post(&rpuart->wake);
+              continue;
+            }
+          else if (buf[i] == RPMSG_PORT_UART_POWEROFF)
+            {
+              rpmsgdbg("Received poweroff command\n");
+              rpmsg_port_drop_packets(&rpuart->port, RPMSG_PORT_DROP_TXQ);
+              rpmsg_port_unregister(&rpuart->port);
+              rpuart->connected = false;
               continue;
             }
 
@@ -403,7 +476,7 @@ static int rpmsg_port_uart_tx_thread(int argc, FAR char *argv[])
   FAR struct rpmsg_port_queue_s *txq = &rpuart->port.txq;
   FAR struct rpmsg_port_header_s *hdr;
 
-  rpmsg_port_uart_send_connect_req(rpuart);
+  rpmsg_port_uart_send_command(rpuart, RPMSG_PORT_UART_CONNREQ);
 
   for (; ; )
     {
@@ -414,7 +487,11 @@ static int rpmsg_port_uart_tx_thread(int argc, FAR char *argv[])
 
       while ((hdr = rpmsg_port_queue_get_buffer(txq, true)) != NULL)
         {
-          rpmsg_port_uart_send_data(rpuart, hdr);
+          if (rpuart->connected)
+            {
+              rpmsg_port_uart_send_data(rpuart, hdr);
+            }
+
           rpmsg_port_queue_return_buffer(txq, hdr);
         }
     }
@@ -455,6 +532,8 @@ int rpmsg_port_uart_initialize(FAR const struct rpmsg_port_config_s *cfg,
       rpmsgerr("Malloc rptun uart failed\n");
       return -ENOMEM;
     }
+
+  nxsem_init(&rpuart->wake, 0, 1);
 
   /* Hardware initialize */
 
@@ -515,6 +594,7 @@ err_rx_thread:
 err_rpmsg_port:
   file_close(&rpuart->file);
 err_file:
+  nxsem_destroy(&rpuart->wake);
   kmm_free(rpuart);
   return ret;
 }
