@@ -1,5 +1,5 @@
 # ##############################################################################
-# arch/tricore/src/common/CMakeLists.txt
+# arch/arm/src/am335x/CMakeLists.txt
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -20,41 +20,31 @@
 #
 # ##############################################################################
 
-set(SRCS
-    tricore_allocateheap.c
-    tricore_checkstack.c
-    tricore_createstack.c
-    tricore_csa.c
-    tricore_exit.c
-    tricore_getintstack.c
-    tricore_idle.c
-    tricore_initialize.c
-    tricore_initialstate.c
-    tricore_irq.c
-    tricore_main.c
-    tricore_nputs.c
-    tricore_registerdump.c
-    tricore_releasestack.c
-    tricore_saveusercontext.c
-    tricore_schedulesigaction.c
-    tricore_sigdeliver.c
-    tricore_stackframe.c
-    tricore_svcall.c
-    tricore_tcbinfo.c
-    tricore_trapcall.c
-    tricore_systimer.c
-    tricore_usestack.c)
+# AM335x-specific C source files
 
-if(CONFIG_SPINLOCK)
-  list(APPEND SRCS tricore_testset.c)
+set(SRCS
+    am335x_boot.c
+    am335x_clockconfig.c
+    am335x_pinmux.c
+    am335x_irq.c
+    am335x_gpio.c
+    am335x_lowputc.c
+    am335x_serial.c
+    am335x_wdog.c
+    am335x_sysclk.c
+    am335x_i2c.c
+    am335x_can.c)
+
+if(NOT CONFIG_SCHED_TICKLESS)
+  list(APPEND SRCS am335x_timerisr.c)
 endif()
 
-set(IFXFLAGS -DIFX_CFG_EXTEND_TRAP_HOOKS -DIFX_USE_SW_MANAGED_INT)
+if(CONFIG_AM335X_GPIO_IRQ)
+  list(APPEND SRCS am335x_gpioirq.c)
+endif()
+
+if(CONFIG_AM335X_LCDC)
+  list(APPEND SRCS am335x_lcdc.c am335x_edid.c)
+endif()
 
 target_sources(arch PRIVATE ${SRCS})
-target_sources(nuttx PRIVATE tricore_doirq.c)
-target_compile_options(arch PRIVATE ${IFXFLAGS})
-target_compile_options(nuttx PRIVATE ${IFXFLAGS})
-target_include_directories(
-  nuttx SYSTEM PRIVATE ${CMAKE_SOURCE_DIR}/include ${CMAKE_BINARY_DIR}/include
-                       ${CMAKE_BINARY_DIR}/include_arch)
