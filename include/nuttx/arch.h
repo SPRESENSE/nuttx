@@ -92,6 +92,12 @@
  * Pre-processor definitions
  ****************************************************************************/
 
+#define IRQ_RISING_EDGE          0x00
+#define IRQ_FALLING_EDGE         0x01
+#define IRQ_BOTH_EDGE            0x02
+#define IRQ_HIGH_LEVEL           0x03
+#define IRQ_LOW_LEVEL            0x04
+
 #define DEBUGPOINT_NONE          0x00
 #define DEBUGPOINT_WATCHPOINT_RO 0x01
 #define DEBUGPOINT_WATCHPOINT_WO 0x02
@@ -1822,6 +1828,18 @@ void up_trigger_irq(int irq, cpu_set_t cpuset);
 #endif
 
 /****************************************************************************
+ * Name: up_set_irq_type
+ *
+ * Description:
+ *   Config an IRQ trigger type.
+ *
+ ****************************************************************************/
+
+#ifndef CONFIG_ARCH_NOINTC
+int up_set_irq_type(int irq, int mode);
+#endif
+
+/****************************************************************************
  * Name: up_prioritize_irq
  *
  * Description:
@@ -2911,6 +2929,16 @@ int up_saveusercontext(FAR void *saveregs);
 bool up_fpucmp(FAR const void *saveregs1, FAR const void *saveregs2);
 #else
 #define up_fpucmp(r1, r2) (true)
+#endif
+
+/****************************************************************************
+ * Name: up_regs_memcpy
+ ****************************************************************************/
+
+#ifdef CONFIG_ARCH_HAVE_REGCPY
+void up_regs_memcpy(FAR void *dest, FAR void *src, size_t count);
+#else
+#define up_regs_memcpy(dest, src, count) memcpy(dest, src, count)
 #endif
 
 #ifdef CONFIG_ARCH_HAVE_DEBUG

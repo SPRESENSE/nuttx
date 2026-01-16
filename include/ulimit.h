@@ -1,5 +1,5 @@
 /****************************************************************************
- * sched/tls/tls_dupinfo.c
+ * include/ulimit.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,62 +20,33 @@
  *
  ****************************************************************************/
 
+#ifndef __INCLUDE_ULIMIT_H
+#define __INCLUDE_ULIMIT_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#include <assert.h>
-#include <errno.h>
-#include <string.h>
+#include <nuttx/config.h>
 
-#include "tls.h"
+#include <sys/resource.h>
 
 /****************************************************************************
- * Public Functions
+ * Pre-processor Definitions
  ****************************************************************************/
+
+/* Get limit on the size of a file, in units of 512 bytes */
+
+#define UL_GETFSIZE 1
+
+/* Set limit on the size of a file */
+
+#define UL_SETFSIZE 2
 
 /****************************************************************************
- * Name: tls_dup_info
- *
- * Description:
- *   Allocate and duplicate tls_info_s structure.
- *
- * Input Parameters:
- *   - dst: The TCB of new task
- *   - src: The TCB of source task
- *
- * Returned Value:
- *   Zero (OK) on success; a negated errno value on failure.
- *
+ * Public Function Prototypes
  ****************************************************************************/
 
-int tls_dup_info(FAR struct tcb_s *dst, FAR struct tcb_s *src)
-{
-  FAR struct tls_info_s *info;
+long int ulimit(int cmd, long newlimit);
 
-  /* Allocate thread local storage */
-
-  info = up_stack_frame(dst, tls_info_size());
-  if (info == NULL)
-    {
-      return -ENOMEM;
-    }
-
-  DEBUGASSERT(info == dst->stack_alloc_ptr);
-
-  /* Copy thread local storage */
-
-  memcpy(info, src->stack_alloc_ptr, tls_info_size());
-
-  /* Attach per-task info in group to TLS */
-
-  info->tl_task = dst->group->tg_info;
-
-  /* Initialize the starting address of argv to NULL to prevent
-   * it from being misused.
-   */
-
-  info->tl_argv = NULL;
-
-  return OK;
-}
+#endif /* __INCLUDE_ULIMIT_H */

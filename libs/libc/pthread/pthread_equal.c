@@ -1,5 +1,5 @@
 /****************************************************************************
- * sched/tls/tls_dupinfo.c
+ * libs/libc/pthread/pthread_equal.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -24,58 +24,32 @@
  * Included Files
  ****************************************************************************/
 
-#include <assert.h>
-#include <errno.h>
-#include <string.h>
+#include <nuttx/config.h>
 
-#include "tls.h"
+#include <pthread.h>
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: tls_dup_info
+ * Name: pthread_equal
  *
  * Description:
- *   Allocate and duplicate tls_info_s structure.
+ *  Detect whether the two pthreads is equal or not
  *
  * Input Parameters:
- *   - dst: The TCB of new task
- *   - src: The TCB of source task
+ *  t1 - the first pthread to compare
+ *  t2 - the another pthread to compare
  *
  * Returned Value:
- *   Zero (OK) on success; a negated errno value on failure.
+ *  1 (TRUE) if the two pthreads are equal, 0 (FALSE) otherwise.
+ *
+ * Assumptions:
  *
  ****************************************************************************/
 
-int tls_dup_info(FAR struct tcb_s *dst, FAR struct tcb_s *src)
+int pthread_equal(pthread_t t1, pthread_t t2)
 {
-  FAR struct tls_info_s *info;
-
-  /* Allocate thread local storage */
-
-  info = up_stack_frame(dst, tls_info_size());
-  if (info == NULL)
-    {
-      return -ENOMEM;
-    }
-
-  DEBUGASSERT(info == dst->stack_alloc_ptr);
-
-  /* Copy thread local storage */
-
-  memcpy(info, src->stack_alloc_ptr, tls_info_size());
-
-  /* Attach per-task info in group to TLS */
-
-  info->tl_task = dst->group->tg_info;
-
-  /* Initialize the starting address of argv to NULL to prevent
-   * it from being misused.
-   */
-
-  info->tl_argv = NULL;
-
-  return OK;
+  return t1 == t2;
 }

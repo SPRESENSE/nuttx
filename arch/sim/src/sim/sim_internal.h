@@ -198,6 +198,7 @@ struct i2c_master_s;
 
 extern int g_argc;
 extern char **g_argv;
+extern struct kwork_wqueue_s *g_work_queue;
 
 /****************************************************************************
  * Public Function Prototypes
@@ -217,6 +218,10 @@ void  sim_unlock(void);
 int host_errno_convert(int errcode);
 int host_errno_get(void);
 void host_errno_set(int errcode);
+
+/* sim_hostirq.c ************************************************************/
+
+void host_irqinitialize(void);
 
 /* sim_hostmisc.c ***********************************************************/
 

@@ -1,5 +1,5 @@
 /****************************************************************************
- * sched/tls/tls_dupinfo.c
+ * libs/libc/unistd/lib_ulimit.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -24,58 +24,53 @@
  * Included Files
  ****************************************************************************/
 
-#include <assert.h>
-#include <errno.h>
-#include <string.h>
+#include <nuttx/config.h>
 
-#include "tls.h"
+#include <errno.h>
+#include <ulimit.h>
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: tls_dup_info
+ * Name: ulimit
  *
  * Description:
- *   Allocate and duplicate tls_info_s structure.
+ *   The ulimit will make calls to getrlimit() and setrlimit() to perform
+ *   get and set resource limits respectively.
  *
- * Input Parameters:
- *   - dst: The TCB of new task
- *   - src: The TCB of source task
- *
- * Returned Value:
- *   Zero (OK) on success; a negated errno value on failure.
+ * Returned value:
+ *   On success, return a non-negative value.
+ *   On failure, return -1 and set the errno value.
  *
  ****************************************************************************/
 
-int tls_dup_info(FAR struct tcb_s *dst, FAR struct tcb_s *src)
+long ulimit(int cmd, long newlimit)
 {
-  FAR struct tls_info_s *info;
+  long ret = ERROR;
 
-  /* Allocate thread local storage */
-
-  info = up_stack_frame(dst, tls_info_size());
-  if (info == NULL)
+  switch (cmd)
     {
-      return -ENOMEM;
+      case UL_GETFSIZE:
+        {
+          struct rlimit rlp;
+          getrlimit(RLIMIT_FSIZE, &rlp);
+          ret = rlp.rlim_cur / 512UL;
+        }
+        break;
+      case UL_SETFSIZE:
+        {
+          struct rlimit rlp;
+          rlp.rlim_max = RLIM_INFINITY;
+          rlp.rlim_cur = newlimit * 512UL;
+          ret = setrlimit(RLIMIT_FSIZE, &rlp);
+        }
+        break;
+      default:
+        set_errno(EINVAL);
+        break;
     }
 
-  DEBUGASSERT(info == dst->stack_alloc_ptr);
-
-  /* Copy thread local storage */
-
-  memcpy(info, src->stack_alloc_ptr, tls_info_size());
-
-  /* Attach per-task info in group to TLS */
-
-  info->tl_task = dst->group->tg_info;
-
-  /* Initialize the starting address of argv to NULL to prevent
-   * it from being misused.
-   */
-
-  info->tl_argv = NULL;
-
-  return OK;
+  return ret;
 }

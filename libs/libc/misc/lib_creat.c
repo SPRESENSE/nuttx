@@ -1,5 +1,5 @@
 /****************************************************************************
- * sched/tls/tls_dupinfo.c
+ * libs/libc/misc/lib_creat.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -24,58 +24,29 @@
  * Included Files
  ****************************************************************************/
 
-#include <assert.h>
-#include <errno.h>
-#include <string.h>
-
-#include "tls.h"
+#include <fcntl.h>
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: tls_dup_info
+ * Name: creat
  *
  * Description:
- *   Allocate and duplicate tls_info_s structure.
+ *   The creat() function is just a simple wrapper of open() function
  *
  * Input Parameters:
- *   - dst: The TCB of new task
- *   - src: The TCB of source task
+ *   path  - The path for the file to create on
+ *   mode  - the access mode
  *
  * Returned Value:
- *   Zero (OK) on success; a negated errno value on failure.
+ *   Return a file descriptor of the file that created success,
+ *   return -1 if error occurd on creat new file, and errno is setup
  *
  ****************************************************************************/
 
-int tls_dup_info(FAR struct tcb_s *dst, FAR struct tcb_s *src)
+int creat(FAR const char *path, mode_t mode)
 {
-  FAR struct tls_info_s *info;
-
-  /* Allocate thread local storage */
-
-  info = up_stack_frame(dst, tls_info_size());
-  if (info == NULL)
-    {
-      return -ENOMEM;
-    }
-
-  DEBUGASSERT(info == dst->stack_alloc_ptr);
-
-  /* Copy thread local storage */
-
-  memcpy(info, src->stack_alloc_ptr, tls_info_size());
-
-  /* Attach per-task info in group to TLS */
-
-  info->tl_task = dst->group->tg_info;
-
-  /* Initialize the starting address of argv to NULL to prevent
-   * it from being misused.
-   */
-
-  info->tl_argv = NULL;
-
-  return OK;
+  return open(path, O_WRONLY | O_CREAT | O_TRUNC, mode);
 }
