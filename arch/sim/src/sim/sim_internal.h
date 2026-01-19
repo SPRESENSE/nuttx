@@ -84,12 +84,6 @@
 #  define CONFIG_SIM_FB_INTERVAL_LINE 0
 #endif
 
-/* Use a stack alignment of 16 bytes.  If necessary frame_size must be
- * rounded up to the next boundary
- */
-
-#define STACK_ALIGNMENT     16
-
 /* Stack alignment macros */
 
 #define STACK_ALIGN_MASK    (STACK_ALIGNMENT - 1)
@@ -236,6 +230,7 @@ void host_init_cwd(void);
 pid_t host_posix_spawn(const char *path,
                        char *const argv[], char *const envp[]);
 int   host_waitpid(pid_t pid);
+int   host_kill(pid_t pid, int sig);
 
 /* sim_hostmemory.c *********************************************************/
 

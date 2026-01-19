@@ -75,7 +75,9 @@ IFX_INTERRUPT_INTERNAL(tricore_doirq, 0, 255)
 
   /* Deliver the IRQ */
 
-  irq_dispatch(icr.B.CCPN, regs);
+  tricore_ack_irq(NDX_TO_IRQ(icr.B.CCPN));
+
+  irq_dispatch(NDX_TO_IRQ(icr.B.CCPN), regs);
 
   /* Check for a context switch. */
 

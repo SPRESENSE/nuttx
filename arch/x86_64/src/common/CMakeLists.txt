@@ -48,6 +48,7 @@ endif()
 
 if(CONFIG_ARCH_X86_64_ACPI)
   list(APPEND SRCS x86_64_acpi.c)
+  list(APPEND SRCS x86_64_acpi_procfs.c)
 endif()
 
 if(CONFIG_SCHED_THREAD_LOCAL)
@@ -78,3 +79,10 @@ if(CONFIG_ARCH_HAVE_DEBUG)
 endif()
 
 target_sources(arch PRIVATE ${SRCS})
+
+nuttx_add_aux_library(STARTUP_OBJS crt0.c)
+
+target_compile_options(
+  STARTUP_OBJS
+  PRIVATE
+    $<GENEX_EVAL:$<TARGET_PROPERTY:nuttx_global,NUTTX_ELF_APP_COMPILE_OPTIONS>>)

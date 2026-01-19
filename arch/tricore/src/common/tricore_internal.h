@@ -85,12 +85,6 @@
 #  define USE_SERIALDRIVER 1
 #endif
 
-/* For use with EABI and floating point, the stack must be aligned to 8-byte
- * addresses.
- */
-
-#define STACK_ALIGNMENT     8
-
 /* Stack alignment macros */
 
 #define STACK_ALIGN_MASK    (STACK_ALIGNMENT - 1)
@@ -192,6 +186,10 @@ extern uintptr_t        __A0_MEM[];    /* End+1 of .data */
 /****************************************************************************
  * Public Function Prototypes
  ****************************************************************************/
+
+/* Interrupt ****************************************************************/
+
+void tricore_ack_irq(int irq);
 
 /* Signal handling **********************************************************/
 
