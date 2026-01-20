@@ -115,10 +115,6 @@ static uint64_t *common_handler(int irq, uint64_t *regs)
        */
 
       *running_task = tcb;
-
-      /* Restore the cpu lock */
-
-      restore_critical_section(tcb, this_cpu());
     }
 
   /* Clear irq flag */
@@ -188,7 +184,7 @@ uint64_t *irq_handler(uint64_t *regs, uint64_t irq_no)
  *
  ****************************************************************************/
 
-nosanitize_address
+noinstrument_function nosanitize_address
 uint64_t *irq_xcp_regs(void)
 {
   /* This must be the simplest as possible, so we not use too much registers.
