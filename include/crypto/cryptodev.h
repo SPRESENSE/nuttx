@@ -152,6 +152,7 @@ struct cryptoini
   int cri_klen;      /* Key length, in bits */
   int cri_rnd;       /* Algorithm rounds, where relevant */
   int cri_sid;
+  int cri_op;
   caddr_t cri_key;   /* key to use */
   union
   {
@@ -200,6 +201,7 @@ struct cryptop
   uint64_t crp_sid;  /* Session ID */
   int crp_ilen;      /* Input data total length */
   int crp_olen;      /* Result total length */
+  int crp_ivlen;     /* IV length */
   int crp_alloctype; /* Type of buf to allocate if needed */
   int crp_etype;     /* Error type (zero means no error).
                       * All error codes except EAGAIN
@@ -350,6 +352,7 @@ struct cryptocap
 #define CRYPTOCAP_F_SOFTWARE    0x02
 #define CRYPTOCAP_F_ENCRYPT_MAC 0x04 /* Can do encrypt-then-MAC (IPsec) */
 #define CRYPTOCAP_F_MAC_ENCRYPT 0x08 /* Can do MAC-then-encrypt (TLS) */
+#define CRYPTOCAP_F_REMOTE      0x10 /* Remote core driver  */
 
   CODE int (*cc_newsession)(FAR uint32_t *, FAR struct cryptoini *);
   CODE int (*cc_process)(FAR struct cryptop *);
@@ -363,6 +366,7 @@ struct cryptocap
 struct session_op
 {
   uint32_t cipher;    /* ie. CRYPTO_AES_EBC */
+  uint16_t op;        /* i.e. COP_ENCRYPT */
   uint32_t mac;
   uint32_t keylen;    /* cipher key */
   caddr_t key;
@@ -396,6 +400,8 @@ struct crypt_op
 
   uint16_t flags;
   unsigned len;
+  unsigned olen;
+  unsigned ivlen;
   unsigned aadlen;
   caddr_t src, dst;   /* become iov[] inside kernel */
   caddr_t mac;        /* must be big enough for chosen MAC */
@@ -440,10 +446,6 @@ int crypto_kinvoke(FAR struct cryptkop *);
 int crypto_getfeat(FAR int *);
 int crypto_driver_set_priv(uint32_t, FAR void *);
 FAR void *crypto_driver_get_priv(uint32_t);
-
-FAR struct cryptop *crypto_getreq(int);
-void crypto_freereq(FAR struct cryptop *);
-
 #ifdef CONFIG_CRYPTO_CRYPTODEV_HARDWARE
 void hwcr_init(void);
 #endif
