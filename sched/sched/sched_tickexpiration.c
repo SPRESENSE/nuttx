@@ -78,7 +78,7 @@ static clock_t nxsched_cpu_scheduler(int cpu, clock_t ticks,
 #endif
 static clock_t nxsched_process_scheduler(clock_t ticks, clock_t elapsed,
                                          bool noswitches);
-static clock_t nxsched_timer_start(clock_t ticks, clock_t interval);
+static void nxsched_timer_start(clock_t ticks, clock_t interval);
 
 /****************************************************************************
  * Private Data
@@ -91,13 +91,6 @@ static clock_t nxsched_timer_start(clock_t ticks, clock_t interval);
 
 static clock_t g_timer_tick;
 
-/* This is the duration of the currently active timer or, when
- * nxsched_process_timer() is called, the duration of interval timer
- * that just expired.  The value zero means that no timer was active.
- */
-
-static atomic_t g_timer_interval;
-
 /* Wdog timer for scheduler event. */
 
 static struct wdog_s g_sched_event;
@@ -105,50 +98,6 @@ static struct wdog_s g_sched_event;
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
-
-static inline_function clock_t adjust_next_interval(clock_t interval)
-{
-  clock_t ret = interval;
-
-#ifdef CONFIG_SCHED_TICKLESS_LIMIT_MAX_SLEEP
-  ret = MIN(ret, g_oneshot_maxticks);
-#endif
-
-  /* Normally, timer event cannot triggered on exact time due to the
-   * existence of interrupt latency.
-   * Assuming that the interrupt latency is distributed within
-   * [Best-Case Execution Time, Worst-Case Execution Time],
-   * we can set the timer adjustment value to the BCET to reduce the latency.
-   * After the adjustment, the timer interrupt latency will be
-   * [0, WCET - BCET].
-   * Please use this carefully, if the timer adjustment value is not the
-   * best-case interrupt latency, it will immediately fired another timer
-   * interrupt, which may result in a much larger timer interrupt latency.
-   */
-
-  ret = ret <= (CONFIG_TIMER_ADJUST_USEC / USEC_PER_TICK) ? 0 :
-        ret - (CONFIG_TIMER_ADJUST_USEC / USEC_PER_TICK);
-
-  return ret;
-}
-
-static inline_function clock_t get_time_tick(void)
-{
-#ifdef CONFIG_SYSTEM_TIME64
-  return atomic64_read((FAR atomic64_t *)&g_timer_tick);
-#else
-  return atomic_read((FAR atomic_t *)&g_timer_tick);
-#endif
-}
-
-static inline_function clock_t update_time_tick(clock_t tick)
-{
-#ifdef CONFIG_SYSTEM_TIME64
-  return atomic64_xchg((FAR atomic64_t *)&g_timer_tick, tick);
-#else
-  return atomic_xchg((FAR atomic_t *)&g_timer_tick, tick);
-#endif
-}
 
 #if !defined(CONFIG_CLOCK_TIMEKEEPING) && !defined(CONFIG_ALARM_ARCH) && \
     !defined(CONFIG_TIMER_ARCH)
@@ -162,24 +111,52 @@ int up_timer_gettick(FAR clock_t *ticks)
 }
 #endif
 
-static void nxsched_process_event(wdparm_t noswitches)
+#if defined(CONFIG_SCHED_TICKLESS_ALARM) && !defined(CONFIG_ALARM_ARCH)
+int up_alarm_tick_start(clock_t ticks)
 {
-  clock_t ticks;
+  struct timespec ts;
+  clock_ticks2time(&ts, ticks);
+  return up_alarm_start(&ts);
+}
+#endif
+
+#if !defined(CONFIG_SCHED_TICKLESS_ALARM) && !defined(CONFIG_TIMER_ARCH)
+int up_timer_tick_start(clock_t ticks)
+{
+  struct timespec ts;
+  clock_ticks2time(&ts, ticks);
+  return up_timer_start(&ts);
+}
+#endif
+
+static void nxsched_process_event(clock_t ticks, bool noswitches)
+{
   clock_t next;
   clock_t elapsed;
 
-  /* Get the current time. */
+  /* Ensure the g_timer_tick is monotonic. */
 
-  up_timer_gettick(&ticks);
+  if (clock_compare(g_timer_tick, ticks))
+    {
+      /* Calculate the elapsed time and update clock tickbase. */
 
-  /* Calculate the elapsed time and update clock tickbase. */
+      elapsed      = ticks - g_timer_tick;
+      g_timer_tick = ticks;
 
-  elapsed = ticks - update_time_tick(ticks);
+      /* Process the timer ticks and set up the next interval (or not) */
 
-  /* Process the timer ticks and set up the next interval (or not) */
+      next = nxsched_process_scheduler(ticks, elapsed, noswitches);
+      nxsched_timer_start(ticks, next);
+    }
+}
 
-  next = nxsched_process_scheduler(ticks, elapsed, (bool)noswitches);
-  nxsched_timer_start(ticks, next);
+static void nxsched_wdog_expiration(wdparm_t arg)
+{
+  /* Since the g_wdexpired has updated in the nxsched_timer_expiration,
+   * here we do not need to get tick again.
+   */
+
+  nxsched_process_event(g_wdexpired, false);
 }
 
 /****************************************************************************
@@ -351,21 +328,18 @@ clock_t nxsched_process_scheduler(clock_t ticks, clock_t elapsed,
  *
  ****************************************************************************/
 
-static clock_t nxsched_timer_start(clock_t ticks, clock_t interval)
+static void nxsched_timer_start(clock_t ticks, clock_t interval)
 {
   if (interval != CLOCK_MAX)
     {
-      interval = adjust_next_interval(interval);
+      DEBUGASSERT(interval <= UINT32_MAX);
       wd_start_abstick(&g_sched_event, ticks + interval,
-                       nxsched_process_event, 0u);
+                       nxsched_wdog_expiration, 0u);
     }
   else
     {
       wd_cancel(&g_sched_event);
     }
-
-  atomic_set(&g_timer_interval, interval);
-  return interval;
 }
 
 /****************************************************************************
@@ -393,9 +367,24 @@ void nxsched_process_tick(void)
   irqstate_t flags;
   clock_t ticks;
 
+  flags = enter_critical_section();
+
+  /* Do not move the up_timer_gettick out of the critical section,
+   * it will violate the invariant that the g_timer_tick should be monotonic.
+   */
+
   up_timer_gettick(&ticks);
 
-  flags = enter_critical_section();
+#if CONFIG_RR_INTERVAL > 0
+  /* The current SCHED_RR implementation has an issue: if a round-robin task
+   * is preempted, its timeslice counter does not decrement properly.
+   * Therefore, we must trigger the scheduler on each timer expiration to
+   * minimize the occurrence of this problem.
+   * This workaround can be removed once the SCHED_RR behavior is fixed.
+   */
+
+  nxsched_process_event(ticks, true);
+#endif
 
   wd_timer(ticks);
 
@@ -441,7 +430,14 @@ void nxsched_process_tick(void)
 
 void nxsched_reassess_timer(void)
 {
-  nxsched_process_event(1u);
+  /* If we are in the wdog callback, there is no need to get tick again. */
+
+  if (!wd_in_callback())
+    {
+      up_timer_gettick(&g_wdexpired);
+    }
+
+  nxsched_process_event(g_wdexpired, true);
 }
 
 /****************************************************************************
@@ -460,12 +456,7 @@ void nxsched_reassess_timer(void)
 
 clock_t nxsched_get_next_expired(void)
 {
-  sclock_t ret;
-
-  ret = get_time_tick() + atomic_read(&g_timer_interval) -
-        clock_systime_ticks();
-
-  return ret < 0 ? 0 : ret;
+  return wd_get_next_expire(clock_systime_ticks());
 }
 
 #endif /* CONFIG_SCHED_TICKLESS */

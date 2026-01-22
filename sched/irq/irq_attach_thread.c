@@ -54,12 +54,6 @@ struct irq_thread_info_s
 };
 
 /****************************************************************************
- * Private Data
- ****************************************************************************/
-
-static pid_t g_irq_thread_pid[NR_IRQS];
-
-/****************************************************************************
  * Private Functions
  ****************************************************************************/
 
@@ -67,7 +61,7 @@ static pid_t g_irq_thread_pid[NR_IRQS];
  * Useful for oneshot interrupts.
  */
 
-static int irq_default_handler(int irq, FAR void *regs, FAR void *arg)
+static int irq_thread_default_handler(int irq, FAR void *regs, FAR void *arg)
 {
   FAR struct irq_thread_info_s *info = arg;
   int ret = IRQ_WAKE_THREAD;
@@ -99,9 +93,9 @@ static int isr_thread_main(int argc, FAR char *argv[])
   info.arg = arg;
   info.handler = isr;
 
-  nxsem_init(&sem, 0, 0);
+  nxsem_init(&sem, 0, 0u);
 
-  irq_attach(irq, irq_default_handler, &info);
+  irq_attach(irq, irq_thread_default_handler, &info);
 
 #if !defined(CONFIG_ARCH_NOINTC)
   up_enable_irq(irq);
@@ -151,6 +145,8 @@ int irq_attach_thread(int irq, xcpt_t isr, xcpt_t isrthread, FAR void *arg,
                       int priority, int stack_size)
 {
 #if NR_IRQS > 0
+  static pid_t irq_thread_pid[NR_IRQS];
+
   FAR char *argv[5];
   char arg1[32];  /* irq */
   char arg2[32];  /* isr */
@@ -159,7 +155,7 @@ int irq_attach_thread(int irq, xcpt_t isr, xcpt_t isrthread, FAR void *arg,
   pid_t pid;
   int ndx;
 
-  if ((unsigned)irq >= NR_IRQS)
+  if (irq < 0 || irq >= NR_IRQS)
     {
       return -EINVAL;
     }
@@ -175,14 +171,14 @@ int irq_attach_thread(int irq, xcpt_t isr, xcpt_t isrthread, FAR void *arg,
   if (isrthread == NULL)
     {
       irq_detach(irq);
-      DEBUGASSERT(g_irq_thread_pid[ndx] != 0);
-      kthread_delete(g_irq_thread_pid[ndx]);
-      g_irq_thread_pid[ndx] = 0;
+      DEBUGASSERT(irq_thread_pid[ndx] != 0);
+      kthread_delete(irq_thread_pid[ndx]);
+      irq_thread_pid[ndx] = 0;
 
       return OK;
     }
 
-  if (g_irq_thread_pid[ndx] != 0)
+  if (irq_thread_pid[ndx] != 0)
     {
       return -EINVAL;
     }
@@ -204,7 +200,7 @@ int irq_attach_thread(int irq, xcpt_t isr, xcpt_t isrthread, FAR void *arg,
       return pid;
     }
 
-  g_irq_thread_pid[ndx] = pid;
+  irq_thread_pid[ndx] = pid;
 
 #endif /* NR_IRQS */
 
