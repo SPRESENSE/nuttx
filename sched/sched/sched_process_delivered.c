@@ -69,7 +69,18 @@ void nxsched_process_delivered(int cpu)
 
   if ((g_cpu_irqset & (1 << cpu)) == 0)
     {
+      /* If CONFIG_SCHED_CRITMONITOR_MAXTIME_BUSYWAIT >= 0,
+       * start counting time of busy-waiting.
+       */
+
+      nxsched_critmon_busywait(true, return_address(0));
+
       spin_lock_notrace(&g_cpu_irqlock);
+
+      /* Get the lock, end counting busy-waiting */
+
+      nxsched_critmon_busywait(false, return_address(0));
+
       g_cpu_irqset |= (1 << cpu);
     }
 
@@ -94,7 +105,7 @@ void nxsched_process_delivered(int cpu)
         {
           int target_cpu = tcb->flags & TCB_FLAG_CPU_LOCKED ?
             tcb->cpu : nxsched_select_cpu(tcb->affinity);
-          if (target_cpu < CONFIG_SMP_NCPUS && target_cpu != cpu &&
+          if (target_cpu != cpu &&
               current_task(target_cpu)->sched_priority < tcb->sched_priority)
             {
               nxsched_deliver_task(cpu, target_cpu, priority);

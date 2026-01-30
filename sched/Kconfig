@@ -828,7 +828,7 @@ config PTHREAD_MUTEX_TYPES
 
 choice
 	prompt "pthread mutex robustness"
-	default PTHREAD_MUTEX_ROBUST if !DEFAULT_SMALL
+	default PTHREAD_MUTEX_BOTH if !DEFAULT_SMALL
 	default PTHREAD_MUTEX_UNSAFE if DEFAULT_SMALL
 
 config PTHREAD_MUTEX_ROBUST
@@ -853,7 +853,7 @@ endchoice # pthread mutex robustness
 
 choice
 	prompt "Default NORMAL mutex robustness"
-	default PTHREAD_MUTEX_DEFAULT_ROBUST
+	default PTHREAD_MUTEX_DEFAULT_UNSAFE
 	depends on PTHREAD_MUTEX_BOTH
 
 config PTHREAD_MUTEX_DEFAULT_ROBUST
@@ -910,7 +910,6 @@ config SCHED_IRQMONITOR
 config SCHED_CRITMONITOR
 	bool "Enable Critical Section monitoring"
 	default n
-	depends on FS_PROCFS
 	select IRQCOUNT
 	---help---
 		Enables logic that monitors the duration of time that a thread keeps
@@ -955,6 +954,15 @@ config SCHED_CRITMONITOR_MAXTIME_CSECTION
 		SCHED_CRITMONITOR_MAXTIME_CSECTION, or system will give a warning.
 		For debugging system latency, 0 means disabled.
 
+config SCHED_CRITMONITOR_MAXTIME_BUSYWAIT
+	int "Critical section or spinlock max busy waiting time"
+	default -1
+	---help---
+		Busy waiting time to enter critical section or
+		get spinlock should be smaller than
+		SCHED_CRITMONITOR_MAXTIME_BUSYWAIT, or system will give a warning.
+		For debugging system latency, -1 means disabled.
+
 config SCHED_CRITMONITOR_MAXTIME_IRQ
 	int "IRQ max execution time"
 	default SCHED_CRITMONITOR_MAXTIME_CSECTION
@@ -981,6 +989,7 @@ config SCHED_CRITMONITOR_MAXTIME_PANIC
 		SCHED_CRITMONITOR_MAXTIME_WQUEUE > 0 || \
 		SCHED_CRITMONITOR_MAXTIME_PREEMPTION > 0 || \
 		SCHED_CRITMONITOR_MAXTIME_CSECTION > 0 || \
+		SCHED_CRITMONITOR_MAXTIME_BUSYWAIT > 0 || \
 		SCHED_CRITMONITOR_MAXTIME_IRQ > 0
 	default n
 	---help---
@@ -1855,6 +1864,12 @@ config SCHED_HPWORKSTACKSIZE
 	---help---
 		The stack size allocated for the worker thread.  Default: 2K.
 
+config SCHED_HPWORKSTACKSECTION
+	string "The section where hpwork stack is located"
+	default ""
+	---help---
+		The section where hpwork stack is located.
+
 endif # SCHED_HPWORK
 
 config SCHED_LPWORK
@@ -1953,6 +1968,12 @@ config SCHED_LPWORKSTACKSIZE
 	default DEFAULT_TASK_STACKSIZE
 	---help---
 		The stack size allocated for the lower priority worker thread.  Default: 2K.
+
+config SCHED_LPWORKSTACKSECTION
+	string "The section where lpwork stack is located"
+	default ""
+	---help---
+		The section where lpwork stack is located.
 
 endif # SCHED_LPWORK
 endmenu # Work Queue Support

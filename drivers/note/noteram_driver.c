@@ -42,6 +42,7 @@
 #include <nuttx/kmalloc.h>
 #include <nuttx/note/note_driver.h>
 #include <nuttx/note/noteram_driver.h>
+#include <nuttx/nuttx.h>
 #include <nuttx/panic_notifier.h>
 #include <nuttx/fs/fs.h>
 #include <nuttx/streams.h>
@@ -88,11 +89,13 @@ struct noteram_driver_s
   FAR uint8_t *ni_buffer;
   size_t ni_bufsize;
   unsigned int ni_overwrite;
+  unsigned int threshold;
   volatile unsigned int ni_head;
   volatile unsigned int ni_tail;
   volatile unsigned int ni_read;
   spinlock_t lock;
   FAR struct pollfd *pfd;
+  struct notifier_block nb;
 };
 
 /* The structure to hold the context data of trace dump */
@@ -445,6 +448,8 @@ static int noteram_open(FAR struct file *filep)
       return -ENOMEM;
     }
 
+  drv->threshold = sizeof(struct note_common_s);
+
   filep->f_priv = ctx;
   noteram_dump_init_context(ctx);
   return OK;
@@ -602,6 +607,23 @@ static int noteram_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
           }
         break;
 
+      case FIONREAD:
+        if (arg == 0)
+          {
+            ret = -EINVAL;
+          }
+        else
+          {
+            *(FAR unsigned int *)arg = noteram_unread_length(drv);
+            ret = OK;
+          }
+        break;
+
+      case PIPEIOC_POLLINTHRD:
+        drv->threshold = (uint32_t)arg;
+        ret = OK;
+        break;
+
       default:
           break;
     }
@@ -659,7 +681,7 @@ static int noteram_poll(FAR struct file *filep, FAR struct pollfd *fds,
        * don't wait for RX.
        */
 
-      if (noteram_unread_length(drv) > 0)
+      if (noteram_unread_length(drv) >= drv->threshold)
         {
           spin_unlock_irqrestore_notrace(&drv->lock, flags);
           poll_notify(&drv->pfd, 1, POLLIN);
@@ -744,7 +766,11 @@ static void noteram_add(FAR struct note_driver_s *driver,
   memcpy(drv->ni_buffer, buf + space, notelen - space);
   drv->ni_head = noteram_next(drv, head, NOTE_ALIGN(notelen));
   spin_unlock_irqrestore_notrace(&drv->lock, flags);
-  poll_notify(&drv->pfd, 1, POLLIN);
+
+  if (drv->pfd && (noteram_unread_length(drv) >= drv->threshold))
+    {
+      poll_notify(&drv->pfd, 1, POLLIN);
+    }
 }
 
 /****************************************************************************
@@ -1186,11 +1212,30 @@ static int noteram_dump_one(FAR uint8_t *p, FAR struct lib_outstream_s *s,
       break;
     case NOTE_DUMP_MARK:
       {
-        int len = note->nc_length - sizeof(struct note_event_s);
         FAR struct note_event_s *nbi = (FAR struct note_event_s *)p;
+        int len = note->nc_length - SIZEOF_NOTE_EVENT(0);
+
         ret += noteram_dump_header(s, &nbi->nev_cmn, ctx);
         ret += lib_sprintf(s, "tracing_mark_write: I|%d|%.*s\n",
                            pid, len, (FAR const char *)nbi->nev_data);
+      }
+      break;
+      case NOTE_DUMP_BINARY:
+      {
+        FAR struct note_event_s *nbi = (FAR struct note_event_s *)p;
+        int len = note->nc_length - SIZEOF_NOTE_EVENT(0);
+        int i;
+
+        ret += noteram_dump_header(s, &nbi->nev_cmn, ctx);
+        ret += lib_sprintf(s, "tracing_mark_write: I|%d|", pid);
+
+        for (i = 0; i < len; i++)
+          {
+            ret += lib_sprintf(s, "%02x ", nbi->nev_data[i]);
+          }
+
+        lib_stream_putc(s, '\n');
+        ret++;
       }
       break;
     case NOTE_DUMP_COUNTER:
@@ -1272,19 +1317,20 @@ static void noteram_dump(FAR struct noteram_driver_s *drv)
 static int noteram_crash_dump(FAR struct notifier_block *nb,
                               unsigned long action, FAR void *data)
 {
+  FAR struct noteram_driver_s *drv =
+      container_of(nb, struct noteram_driver_s, nb);
   if (action == PANIC_KERNEL)
     {
-      noteram_dump(&g_noteram_driver);
+      noteram_dump(drv);
     }
 
   return 0;
 }
 
-static void noteram_crash_dump_register(void)
+static void noteram_crash_dump_register(FAR struct noteram_driver_s *drv)
 {
-  static struct notifier_block nb;
-  nb.notifier_call = noteram_crash_dump;
-  panic_notifier_chain_register(&nb);
+  drv->nb.notifier_call = noteram_crash_dump;
+  panic_notifier_chain_register(&drv->nb);
 }
 #endif
 
@@ -1310,7 +1356,7 @@ static void noteram_crash_dump_register(void)
 int noteram_register(void)
 {
 #ifdef CONFIG_DRIVERS_NOTERAM_CRASH_DUMP
-  noteram_crash_dump_register();
+  noteram_crash_dump_register(&g_noteram_driver);
 #endif
   return register_driver("/dev/note/ram", &g_noteram_fops, 0666,
                          &g_noteram_driver);
@@ -1334,7 +1380,8 @@ int noteram_register(void)
  ****************************************************************************/
 
 FAR struct note_driver_s *
-noteram_initialize(FAR const char *devpath, size_t bufsize, bool overwrite)
+noteram_initialize(FAR const char *devpath, size_t bufsize,
+                   bool overwrite, bool crashdump)
 {
   FAR struct noteram_driver_s *drv;
 #ifdef CONFIG_SCHED_INSTRUMENTATION_FILTER
@@ -1349,8 +1396,8 @@ noteram_initialize(FAR const char *devpath, size_t bufsize, bool overwrite)
     {
       return NULL;
     }
-#ifdef CONFIG_SCHED_INSTRUMENTATION_FILTER
 
+#ifdef CONFIG_SCHED_INSTRUMENTATION_FILTER
   memcpy(drv + 1, devpath, len);
   drv->driver.name = (FAR const char *)(drv + 1);
   drv->driver.filter.mode.flag =
@@ -1360,7 +1407,13 @@ noteram_initialize(FAR const char *devpath, size_t bufsize, bool overwrite)
   drv->driver.filter.mode.cpuset =
                       CONFIG_SCHED_INSTRUMENTATION_CPUSET;
 #  endif
+#endif
 
+#ifdef CONFIG_DRIVERS_NOTERAM_CRASH_DUMP
+  if (crashdump)
+    {
+      noteram_crash_dump_register(drv);
+    }
 #endif
 
   drv->driver.ops = &g_noteram_ops;

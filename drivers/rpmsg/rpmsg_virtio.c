@@ -31,7 +31,6 @@
 #include <nuttx/kmalloc.h>
 #include <nuttx/kthread.h>
 #include <nuttx/power/pm.h>
-#include <nuttx/rpmsg/rpmsg.h>
 #include <nuttx/rpmsg/rpmsg_virtio.h>
 #include <nuttx/semaphore.h>
 #include <nuttx/spinlock.h>
@@ -39,6 +38,8 @@
 #include <nuttx/wdog.h>
 #include <metal/utilities.h>
 #include <openamp/rpmsg_virtio.h>
+
+#include "rpmsg.h"
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -72,8 +73,6 @@ struct rpmsg_virtio_priv_s
   vq_callback                  cbrx;
   vq_callback                  cbtx;
   vq_notify                    notifytx;
-  char                         local_cpuname[VIRTIO_RPMSG_CPUNAME_SIZE];
-  char                         cpuname[VIRTIO_RPMSG_CPUNAME_SIZE];
   uint16_t                     headrx;
 #ifdef CONFIG_RPMSG_VIRTIO_PM
   spinlock_t                   lock;
@@ -92,9 +91,6 @@ static void rpmsg_virtio_wakeup_tx(FAR struct rpmsg_virtio_priv_s *priv);
 static int rpmsg_virtio_wait(FAR struct rpmsg_s *rpmsg, FAR sem_t *sem);
 static int rpmsg_virtio_post(FAR struct rpmsg_s *rpmsg, FAR sem_t *sem);
 static void rpmsg_virtio_dump(FAR struct rpmsg_s *rpmsg);
-static FAR const char *
-rpmsg_virtio_get_local_cpuname(FAR struct rpmsg_s *rpmsg);
-static FAR const char *rpmsg_virtio_get_cpuname(FAR struct rpmsg_s *rpmsg);
 
 static void rpmsg_virtio_rx_callback(FAR struct virtqueue *vq);
 static void rpmsg_virtio_tx_callback(FAR struct virtqueue *vq);
@@ -111,8 +107,6 @@ static const struct rpmsg_ops_s g_rpmsg_virtio_ops =
   NULL,
   NULL,
   rpmsg_virtio_dump,
-  rpmsg_virtio_get_local_cpuname,
-  rpmsg_virtio_get_cpuname,
 };
 
 /****************************************************************************
@@ -410,13 +404,13 @@ static void rpmsg_virtio_dump(FAR struct rpmsg_s *rpmsg)
   FAR struct rpmsg_virtio_priv_s *priv =
     (FAR struct rpmsg_virtio_priv_s *)rpmsg;
   FAR struct rpmsg_virtio_device *rvdev = &priv->rvdev;
-  FAR struct rpmsg_device *rdev = rpmsg->rdev;
+  FAR struct rpmsg_device *rdev = &rvdev->rdev;
   FAR struct rpmsg_endpoint *ept;
   FAR struct metal_list *node;
   bool needunlock = false;
 
   metal_log(METAL_LOG_EMERGENCY, "Local: %s Remote: %s Headrx %u\n",
-            priv->local_cpuname, priv->cpuname, priv->headrx);
+            priv->rpmsg.local_cpuname, priv->rpmsg.cpuname, priv->headrx);
 
   if (!rvdev->vdev)
     {
@@ -433,7 +427,7 @@ static void rpmsg_virtio_dump(FAR struct rpmsg_s *rpmsg)
   metal_log(METAL_LOG_EMERGENCY,
             "Dump rpmsg info between cpu (master: %s)%s <==> %s:\n",
             rpmsg_virtio_get_role(rvdev) == RPMSG_HOST ? "yes" : "no",
-            priv->local_cpuname, priv->cpuname);
+            priv->rpmsg.local_cpuname, priv->rpmsg.cpuname);
 
   metal_log(METAL_LOG_EMERGENCY, "rpmsg vq RX:\n");
   virtqueue_dump(rvdev->rvq);
@@ -457,31 +451,6 @@ static void rpmsg_virtio_dump(FAR struct rpmsg_s *rpmsg)
     {
       metal_mutex_release(&rdev->lock);
     }
-}
-
-/****************************************************************************
- * Name: rpmsg_virtio_get_local_cpuname
- ****************************************************************************/
-
-static FAR const char *
-rpmsg_virtio_get_local_cpuname(FAR struct rpmsg_s *rpmsg)
-{
-  FAR struct rpmsg_virtio_priv_s *priv =
-    (FAR struct rpmsg_virtio_priv_s *)rpmsg;
-
-  return priv->local_cpuname;
-}
-
-/****************************************************************************
- * Name: rpmsg_virtio_get_cpuname
- ****************************************************************************/
-
-static FAR const char *rpmsg_virtio_get_cpuname(FAR struct rpmsg_s *rpmsg)
-{
-  FAR struct rpmsg_virtio_priv_s *priv =
-    (FAR struct rpmsg_virtio_priv_s *)rpmsg;
-
-  return priv->cpuname;
 }
 
 /****************************************************************************
@@ -547,8 +516,8 @@ static void rpmsg_virtio_tx_notify(FAR struct virtqueue *vq)
 static int rpmsg_virtio_notify_wait(FAR struct rpmsg_device *rdev,
                                     uint32_t id)
 {
-  FAR struct rpmsg_virtio_priv_s *priv = (FAR struct rpmsg_virtio_priv_s *)
-    metal_container_of(rdev, struct rpmsg_s, rdev);
+  FAR struct rpmsg_virtio_priv_s *priv =
+    metal_container_of(rdev, struct rpmsg_virtio_priv_s, rvdev);
 
   if (!rpmsg_virtio_is_recursive(priv))
     {
@@ -642,7 +611,7 @@ int rpmsg_virtio_probe(FAR struct virtio_device *vdev)
   FAR struct rpmsg_virtio_priv_s *priv;
   FAR char *argv[3];
   uint64_t features;
-  char name[32];
+  char name[64];
   char arg1[32];
   int ret;
 
@@ -673,24 +642,30 @@ int rpmsg_virtio_probe(FAR struct virtio_device *vdev)
   DEBUGASSERT(virtio_has_feature(vdev, VIRTIO_RPMSG_F_CPUNAME));
   if (vdev->role == VIRTIO_DEV_DRIVER)
     {
-      virtio_read_config(vdev, offsetof(struct fw_rsc_config, host_cpuname),
-                         priv->local_cpuname, sizeof(priv->local_cpuname));
-      virtio_read_config(vdev,
-                         offsetof(struct fw_rsc_config, remote_cpuname),
-                         priv->cpuname, sizeof(priv->cpuname));
+      virtio_read_config_bytes(vdev, offsetof(struct fw_rsc_config,
+                                              host_cpuname),
+                               priv->rpmsg.local_cpuname,
+                               VIRTIO_RPMSG_CPUNAME_SIZE);
+      virtio_read_config_bytes(vdev, offsetof(struct fw_rsc_config,
+                                              remote_cpuname),
+                               priv->rpmsg.cpuname,
+                               VIRTIO_RPMSG_CPUNAME_SIZE);
     }
   else
     {
-      virtio_read_config(vdev, offsetof(struct fw_rsc_config, host_cpuname),
-                         priv->cpuname, sizeof(priv->cpuname));
-      virtio_read_config(vdev,
-                         offsetof(struct fw_rsc_config, remote_cpuname),
-                         priv->local_cpuname, sizeof(priv->local_cpuname));
+      virtio_read_config_bytes(vdev, offsetof(struct fw_rsc_config,
+                                              host_cpuname),
+                               priv->rpmsg.cpuname,
+                               VIRTIO_RPMSG_CPUNAME_SIZE);
+      virtio_read_config_bytes(vdev, offsetof(struct fw_rsc_config,
+                                              remote_cpuname),
+                               priv->rpmsg.local_cpuname,
+                               VIRTIO_RPMSG_CPUNAME_SIZE);
     }
 
   /* Register the rpmsg to rpmsg framework */
 
-  snprintf(name, sizeof(name), "/dev/rpmsg/%s", priv->cpuname);
+  snprintf(name, sizeof(name), "/dev/rpmsg/%s", priv->rpmsg.cpuname);
   ret = rpmsg_register(name, &priv->rpmsg, &g_rpmsg_virtio_ops);
   if (ret < 0)
     {
@@ -699,7 +674,7 @@ int rpmsg_virtio_probe(FAR struct virtio_device *vdev)
     }
 
   snprintf(arg1, sizeof(arg1), "%p", priv);
-  argv[0] = priv->cpuname;
+  argv[0] = priv->rpmsg.cpuname;
   argv[1] = arg1;
   argv[2] = NULL;
   ret = kthread_create("rpmsg-virtio", CONFIG_RPMSG_VIRTIO_PRIORITY,
@@ -715,7 +690,7 @@ int rpmsg_virtio_probe(FAR struct virtio_device *vdev)
 
 #ifdef CONFIG_RPMSG_VIRTIO_PM
   spin_lock_init(&priv->lock);
-  snprintf(name, sizeof(name), "rpmsg-virtio-%s", priv->cpuname);
+  snprintf(name, sizeof(name), "rpmsg-virtio-%s", priv->rpmsg.cpuname);
   pm_wakelock_init(&priv->wakelock, name, PM_IDLE_DOMAIN, PM_IDLE);
 #endif
 
@@ -738,11 +713,11 @@ void rpmsg_virtio_remove(FAR struct virtio_device *vdev)
 {
   FAR struct rpmsg_virtio_priv_s *priv =
     metal_container_of(vdev->priv, struct rpmsg_virtio_priv_s, rvdev);
-  char name[32];
+  char name[64];
 
   /* Unregister the rpmsg */
 
-  snprintf(name, sizeof(name), "/dev/rpmsg/%s", priv->cpuname);
+  snprintf(name, sizeof(name), "/dev/rpmsg/%s", priv->rpmsg.cpuname);
   rpmsg_unregister(name, &priv->rpmsg);
 
   /* Disable tx buffer return callback */

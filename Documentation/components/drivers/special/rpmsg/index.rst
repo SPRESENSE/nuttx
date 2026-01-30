@@ -10,3 +10,7 @@ for inter-processor communication in Asymmetric Multiprocessing (AMP) systems.
    :caption: Contents
 
    concepts
+   rpmsg_port
+   rpmsg_port_uart
+   rpmsg_ping
+   rpmsg_dump

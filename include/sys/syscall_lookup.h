@@ -77,6 +77,7 @@ SYSCALL_LOOKUP(sethostname,                2)
 
 SYSCALL_LOOKUP(nxsem_destroy,              1)
 SYSCALL_LOOKUP(nxsem_post_slow,            1)
+SYSCALL_LOOKUP(nxsem_reset,                2)
 SYSCALL_LOOKUP(nxsem_tickwait,             2)
 SYSCALL_LOOKUP(nxsem_clockwait,            3)
 SYSCALL_LOOKUP(nxsem_timedwait,            2)
@@ -315,29 +316,17 @@ SYSCALL_LOOKUP(munmap,                     2)
 
 #ifndef CONFIG_DISABLE_PTHREAD
   SYSCALL_LOOKUP(pthread_cancel,           1)
-  SYSCALL_LOOKUP(pthread_cond_broadcast,   1)
-  SYSCALL_LOOKUP(pthread_cond_signal,      1)
-  SYSCALL_LOOKUP(pthread_cond_wait,        2)
   SYSCALL_LOOKUP(nx_pthread_create,        5)
   SYSCALL_LOOKUP(pthread_detach,           1)
   SYSCALL_LOOKUP(nx_pthread_exit,          1)
   SYSCALL_LOOKUP(pthread_getschedparam,    3)
   SYSCALL_LOOKUP(pthread_join,             2)
-  SYSCALL_LOOKUP(pthread_mutex_destroy,    1)
-  SYSCALL_LOOKUP(pthread_mutex_init,       2)
-  SYSCALL_LOOKUP(pthread_mutex_timedlock,  2)
-  SYSCALL_LOOKUP(pthread_mutex_trylock,    1)
-  SYSCALL_LOOKUP(pthread_mutex_unlock,     1)
-#ifndef CONFIG_PTHREAD_MUTEX_UNSAFE
-  SYSCALL_LOOKUP(pthread_mutex_consistent, 1)
-#endif
   SYSCALL_LOOKUP(pthread_setschedparam,    3)
   SYSCALL_LOOKUP(pthread_setschedprio,     2)
 #ifdef CONFIG_SMP
   SYSCALL_LOOKUP(pthread_setaffinity_np,   3)
   SYSCALL_LOOKUP(pthread_getaffinity_np,   3)
 #endif
-  SYSCALL_LOOKUP(pthread_cond_clockwait,   4)
   SYSCALL_LOOKUP(pthread_sigmask,          3)
 #endif
 
@@ -409,3 +398,8 @@ SYSCALL_LOOKUP(settimeofday,               2)
 /* ANSI C signal handling */
 
 SYSCALL_LOOKUP(signal,                     2)
+
+#ifdef CONFIG_SCHED_INSTRUMENTATION_DUMP
+  SYSCALL_LOOKUP(sched_note_vprintf_ip,    5)
+  SYSCALL_LOOKUP(sched_note_event_ip,      5)
+#endif

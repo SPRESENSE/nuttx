@@ -309,6 +309,10 @@ extern volatile spinlock_t g_cpu_tasklistlock;
 
 void nxsched_process_tick(void);
 
+#if defined(CONFIG_HRTIMER) && defined(CONFIG_SCHED_TICKLESS)
+int nxsched_hrtimer_tick_start(clock_t tick);
+#endif
+
 int nxthread_create(FAR const char *name, uint8_t ttype, int priority,
                     FAR void *stack_addr, int stack_size, main_t entry,
                     FAR char * const argv[], FAR char * const envp[]);
@@ -573,7 +577,7 @@ static inline_function int nxsched_select_cpu(cpu_set_t affinity)
   int i;
 
   minprio = SCHED_PRIORITY_MAX;
-  cpu     = CONFIG_SMP_NCPUS;
+  cpu     = 0xff;
 
   for (i = 0; i < CONFIG_SMP_NCPUS; i++)
     {
@@ -596,8 +600,7 @@ static inline_function int nxsched_select_cpu(cpu_set_t affinity)
               DEBUGASSERT(rtcb->sched_priority == 0);
               return i;
             }
-          else if (rtcb->sched_priority <= minprio &&
-                   !nxsched_islocked_tcb(rtcb))
+          else if (rtcb->sched_priority <= minprio)
             {
               DEBUGASSERT(rtcb->sched_priority > 0);
               minprio = rtcb->sched_priority;
@@ -606,6 +609,7 @@ static inline_function int nxsched_select_cpu(cpu_set_t affinity)
         }
     }
 
+  DEBUGASSERT(cpu != 0xff);
   return cpu;
 }
 #  endif

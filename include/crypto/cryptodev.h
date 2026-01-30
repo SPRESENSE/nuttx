@@ -262,6 +262,7 @@ struct crypt_kop
   u_int crk_flags;
   struct crparam crk_param[CRK_MAXPARAM];
   uint32_t crk_reqid;
+  FAR void *crk_arg;   /* callback parameter */
 };
 
 #define CRK_MOD_EXP                0
@@ -270,33 +271,39 @@ struct crypt_kop
 #define CRK_DSA_VERIFY             3
 #define CRK_DH_MAKE_PUBLIC         4
 #define CRK_DH_COMPUTE_KEY         5
-#define CRK_RSA_PKCS15_VERIFY      6
-#define CRK_ECDSA_SECP256R1_SIGN   7
-#define CRK_ECDSA_SECP256R1_VERIFY 8
-#define CRK_ECDSA_SECP256R1_GENKEY 9
+#define CRK_RSA_PKCS15_SIGN        6
+#define CRK_RSA_PKCS15_VERIFY      7
+#define CRK_RSA_PSS_SIGN           8
+#define CRK_RSA_PSS_VERIFY         10
+#define CRK_ECDSA_SECP256R1_SIGN   11
+#define CRK_ECDSA_SECP256R1_VERIFY 12
+#define CRK_ECDSA_SECP256R1_GENKEY 13
 
 /* key management */
 
-#define CRK_ALLOCATE_KEY           10 /* Request an available keyid from the driver */
-#define CRK_VALIDATE_KEYID         11 /* Check the specified keyid is available */
-#define CRK_IMPORT_KEY             12 /* Import key data into driver */
-#define CRK_DELETE_KEY             13 /* Request to remove key with specified keyid */
-#define CRK_EXPORT_KEY             14 /* Export raw data or private key if keypair */
-#define CRK_EXPORT_PUBLIC_KEY      15 /* Export public key of keypair */
-#define CRK_GENERATE_AES_KEY       16 /* Generate key data for AES with specified keyid */
-#define CRK_GENERATE_RSA_KEY       17 /* Generate keypair for RSA with specified keyid */
-#define CRK_GENERATE_SECP256R1_KEY 18 /* Generate keypair for ECC256 with specified keyid */
-#define CRK_SAVE_KEY               19 /* Save key data into FLASH */
-#define CRK_LOAD_KEY               20 /* Load key data from FLASH into RAM */
-#define CRK_UNLOAD_KEY             21 /* Unload key data from RAM */
-#define CRK_ALGORITHM_MAX          21 /* Keep updated */
+#define CRK_ALLOCATE_KEY           14 /* Request an available keyid from the driver */
+#define CRK_VALIDATE_KEYID         15 /* Check the specified keyid is available */
+#define CRK_IMPORT_KEY             16 /* Import key data into driver */
+#define CRK_DELETE_KEY             17 /* Request to remove key with specified keyid */
+#define CRK_EXPORT_KEY             18 /* Export raw data or private key if keypair */
+#define CRK_EXPORT_PUBLIC_KEY      19 /* Export public key of keypair */
+#define CRK_GENERATE_AES_KEY       20 /* Generate key data for AES with specified keyid */
+#define CRK_GENERATE_RSA_KEY       21 /* Generate keypair for RSA with specified keyid */
+#define CRK_GENERATE_SECP256R1_KEY 22 /* Generate keypair for ECC256 with specified keyid */
+#define CRK_SAVE_KEY               23 /* Save key data into FLASH */
+#define CRK_LOAD_KEY               24 /* Load key data from FLASH into RAM */
+#define CRK_UNLOAD_KEY             25 /* Unload key data from RAM */
+#define CRK_ALGORITHM_MAX          25 /* Keep updated */
 
 #define CRF_MOD_EXP                (1 << CRK_MOD_EXP)
 #define CRF_MOD_EXP_CRT            (1 << CRK_MOD_EXP_CRT)
 #define CRF_DSA_SIGN               (1 << CRK_DSA_SIGN)
 #define CRF_DSA_VERIFY             (1 << CRK_DSA_VERIFY)
 #define CRF_DH_COMPUTE_KEY         (1 << CRK_DH_COMPUTE_KEY)
+#define CRF_RSA_PKCS15_SIGN        (1 << CRK_RSA_PKCS15_SIGN)
 #define CRF_RSA_PKCS15_VERIFY      (1 << CRK_RSA_PKCS15_VERIFY)
+#define CRF_RSA_PSS_SIGN           (1 << CRK_RSA_PSS_SIGN)
+#define CRF_RSA_PSS_VERIFY         (1 << CRK_RSA_PSS_VERIFY)
 #define CRF_ECDSA_SECP256R1_SIGN   (1 << CRK_ECDSA_SECP256R1_SIGN)
 #define CRF_ECDSA_SECP256R1_VERIFY (1 << CRK_ECDSA_SECP256R1_VERIFY)
 #define CRF_ECDSA_SECP256R1_GENKEY (1 << CRK_ECDSA_SECP256R1_GENKEY)
@@ -327,6 +334,7 @@ struct cryptkop
   FAR struct fcrypt *krp_fcr;
   u_int krp_flags;     /* same as cryptop */
   uint32_t krp_reqid;  /* distinguish tasks in asynchronous calling */
+  FAR void *krp_opaque;
 };
 
 /* Crypto capabilities structure */
@@ -353,6 +361,7 @@ struct cryptocap
 #define CRYPTOCAP_F_ENCRYPT_MAC 0x04 /* Can do encrypt-then-MAC (IPsec) */
 #define CRYPTOCAP_F_MAC_ENCRYPT 0x08 /* Can do MAC-then-encrypt (TLS) */
 #define CRYPTOCAP_F_REMOTE      0x10 /* Remote core driver  */
+#define CRYPTOCAP_F_KEY_MGMT    0x20 /* Key management */
 
   CODE int (*cc_newsession)(FAR uint32_t *, FAR struct cryptoini *);
   CODE int (*cc_process)(FAR struct cryptop *);
@@ -441,6 +450,7 @@ int crypto_kregister(uint32_t, FAR int *,
                      CODE int (*)(FAR struct cryptkop *));
 int crypto_unregister(uint32_t, int);
 int crypto_get_driverid(uint8_t);
+int crypto_find_driverid(uint8_t);
 int crypto_invoke(FAR struct cryptop *);
 int crypto_kinvoke(FAR struct cryptkop *);
 int crypto_getfeat(FAR int *);

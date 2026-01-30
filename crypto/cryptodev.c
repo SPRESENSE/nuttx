@@ -60,7 +60,7 @@ extern FAR struct cryptocap *crypto_drivers;
 extern int crypto_drivers_num;
 int usercrypto = 1;         /* userland may do crypto requests */
 int userasymcrypto = 1;     /* userland may do asymmetric crypto reqs */
-#ifdef CONFIG_CRYPTO_CRYPTODEV_SOFTWARE
+#ifdef CONFIG_CRYPTO_CRYPTODEV_SOFTWARE_CRYPTO
 int cryptodevallowsoft = 1; /* 0 is only use hardware crypto
                              * 1 is use hardware & software crypto
                              */
@@ -501,6 +501,7 @@ static int cryptodev_op(FAR struct csession *cse,
 
 static int cryptodev_key(FAR struct fcrypt *fcr, FAR struct crypt_kop *kop)
 {
+  FAR struct cryptkop *krp_async = NULL;
   FAR struct cryptkop *krp = NULL;
   int error = -EINVAL;
   int in;
@@ -559,8 +560,29 @@ static int cryptodev_key(FAR struct fcrypt *fcr, FAR struct crypt_kop *kop)
           }
 
         return -EINVAL;
+      case CRK_RSA_PKCS15_SIGN:
+        if (in == 4 && out == 1)
+          {
+            break;
+          }
+
+        return -EINVAL;
       case CRK_RSA_PKCS15_VERIFY:
         if (in == 5 && out == 0)
+          {
+            break;
+          }
+
+        return -EINVAL;
+      case CRK_RSA_PSS_SIGN:
+        if (in == 3 && out == 1)
+          {
+            break;
+          }
+
+        return -EINVAL;
+      case CRK_RSA_PSS_VERIFY:
+        if (in == 4 && out == 0)
           {
             break;
           }
@@ -602,7 +624,6 @@ static int cryptodev_key(FAR struct fcrypt *fcr, FAR struct crypt_kop *kop)
         return -EINVAL;
       case CRK_VALIDATE_KEYID:
       case CRK_DELETE_KEY:
-      case CRK_GENERATE_AES_KEY:
       case CRK_SAVE_KEY:
       case CRK_LOAD_KEY:
       case CRK_UNLOAD_KEY:
@@ -618,6 +639,10 @@ static int cryptodev_key(FAR struct fcrypt *fcr, FAR struct crypt_kop *kop)
       case CRK_IMPORT_KEY:
 
       /* inparam: keyid, raw data */
+
+      case CRK_GENERATE_AES_KEY:
+
+      /* inparam: keyid, keylen 16/24/32(128/192/256) */
 
         if (in == 2 && out == 0)
           {
@@ -665,8 +690,20 @@ static int cryptodev_key(FAR struct fcrypt *fcr, FAR struct crypt_kop *kop)
   krp->krp_status = 0;
   krp->krp_flags = kop->crk_flags;
   krp->krp_reqid = kop->crk_reqid;
-  krp->krp_fcr = fcr;
-  krp->krp_callback = cryptodevkey_cb;
+
+  if (krp->krp_flags & CRYPTO_F_CBIMM)
+    {
+      if (kop->crk_arg == NULL)
+        {
+          error = -EINVAL;
+          goto fail;
+        }
+
+      krp_async = (FAR struct cryptkop *)kop->crk_arg;
+      krp_async->krp_fcr = fcr;
+      krp_async->krp_callback = cryptodevkey_cb;
+      krp->krp_opaque = krp_async;
+    }
 
   for (i = 0; i < CRK_MAXPARAM; i++)
     {
@@ -762,11 +799,20 @@ static int cryptodev_getkeystatus(struct fcrypt *fcr, struct crypt_kop *ret)
       return -EAGAIN;
     }
 
-  /* return the result in task list to the upper layer  */
+  TAILQ_FOREACH(krp, &fcr->crpk_ret, krp_next)
+    {
+      if (krp->krp_reqid == ret->crk_reqid)
+        {
+          break;
+        }
+    }
 
-  krp = TAILQ_FIRST(&fcr->crpk_ret);
+  if (krp == NULL)
+    {
+      return -EINVAL;
+    }
+
   TAILQ_REMOVE(&fcr->crpk_ret, krp, krp_next);
-
   ret->crk_op = krp->krp_op;
   ret->crk_status = krp->krp_status;
   ret->crk_iparams = krp->krp_iparams;
@@ -785,19 +831,6 @@ static int cryptodev_getkeystatus(struct fcrypt *fcr, struct crypt_kop *ret)
       memcpy(ret->crk_param[i].crp_p, krp->krp_param[i].crp_p, size);
     }
 
-  /* free asynchronous result */
-
-  for (i = 0; i < CRK_MAXPARAM; i++)
-    {
-      if (krp->krp_param[i].crp_p)
-        {
-          explicit_bzero(krp->krp_param[i].crp_p,
-              (krp->krp_param[i].crp_nbits + 7) / 8);
-          kmm_free(krp->krp_param[i].crp_p);
-        }
-    }
-
-  kmm_free(krp);
   return OK;
 }
 
@@ -842,29 +875,11 @@ static int cryptof_close(FAR struct file *filep)
 {
   FAR struct fcrypt *fcr = filep->f_priv;
   FAR struct csession *cse;
-  FAR struct cryptkop *krp;
-  int i;
 
   while ((cse = TAILQ_FIRST(&fcr->csessions)))
     {
       TAILQ_REMOVE(&fcr->csessions, cse, next);
       (void)csefree(cse);
-    }
-
-  while ((krp = TAILQ_FIRST(&fcr->crpk_ret)))
-    {
-      TAILQ_REMOVE(&fcr->crpk_ret, krp, krp_next);
-      for (i = 0; i < CRK_MAXPARAM; i++)
-        {
-          if (krp->krp_param[i].crp_p)
-            {
-              explicit_bzero(krp->krp_param[i].crp_p,
-                  (krp->krp_param[i].crp_nbits + 7) / 8);
-              kmm_free(krp->krp_param[i].crp_p);
-            }
-        }
-
-      kmm_free(krp);
     }
 
   kmm_free(fcr);
@@ -1143,8 +1158,12 @@ void devcrypto_register(void)
 {
   register_driver("/dev/crypto", &g_cryptoops, 0666, NULL);
 
-#ifdef CONFIG_CRYPTO_CRYPTODEV_SOFTWARE
+#ifdef CONFIG_CRYPTO_CRYPTODEV_SOFTWARE_CRYPTO
   swcr_init();
+#endif
+
+#ifdef CONFIG_CRYPTO_CRYPTODEV_SOFTWARE_KEYMGMT
+  swkey_init();
 #endif
 
 #ifdef CONFIG_CRYPTO_CRYPTODEV_HARDWARE

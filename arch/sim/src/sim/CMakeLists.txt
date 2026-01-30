@@ -51,7 +51,7 @@ list(
   sim_stackframe.c
   sim_exit.c
   sim_switchcontext.c
-  sim_heap.c
+  sim_ummheap.c
   sim_uart.c
   sim_copyfullstate.c
   sim_registerdump.c
@@ -137,7 +137,6 @@ if(CONFIG_SIM_SOUND_ALSA)
   list(APPEND SRCS posix/sim_alsa.c)
   list(APPEND SRCS sim_offload.c)
   list(APPEND STDLIBS asound)
-  list(APPEND STDLIBS mad)
 endif()
 
 # host sources ###############################################################

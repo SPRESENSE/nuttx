@@ -136,8 +136,8 @@ Basic Usage Pattern
 
 For more details, refer to the cryptodev.h header file and specific driver documentation.
 
-Asymmetric Cryptography and Key Management
-===========================================
+Asymmetric Cryptography
+=======================
 
 Public Key Algorithms
 ---------------------
@@ -145,41 +145,81 @@ Public Key Algorithms
 **RSA (Rivest-Shamir-Adleman)**
 
 - RSA key pair generation for variable key sizes
-- Digital signature generation and verification
+- Digital signature generation and verification with multiple padding schemes:
+  - PKCS#1 v1.5 padding (CRK_RSA_PKCS15_SIGN, CRK_RSA_PKCS15_VERIFY)
+  - PSS (Probabilistic Signature Scheme) padding (CRK_RSA_PSS_SIGN, CRK_RSA_PSS_VERIFY)
 - Public key encryption and decryption
+- RSA operations accessible via /dev/crypto cryptodev interface
 
 **ECDSA (Elliptic Curve Digital Signature Algorithm)**
 
 - ECDSA key pair generation for different curves
 - Digital signature generation and verification
 
+ECC / ECDSA (Software)
+----------------------
+
+NuttX also provides a lightweight ECC implementation and public API in
+``include/crypto/ecc.h``. It can be used for ECC key generation, ECDH shared
+secret computation, and ECDSA sign/verify. Public key export is available in
+compressed form (``ECC_BYTES + 1``) as well as X/Y uncompressed form.
+
+RSA Digital Signature Operations
+--------------------------------
+
+The cryptodev module supports RSA digital signatures via the cryptokey interface:
+
+- **CRK_RSA_PKCS15_SIGN**: Generate RSA signature with PKCS#1 v1.5 padding
+  - Input: message hash, private key ID
+  - Output: RSA signature
+
+- **CRK_RSA_PKCS15_VERIFY**: Verify RSA signature with PKCS#1 v1.5 padding
+  - Input: message hash, signature, public key ID
+  - Output: verification result
+
+- **CRK_RSA_PSS_SIGN**: Generate RSA signature with PSS padding
+  - Input: message hash, private key ID
+  - Output: RSA signature
+
+- **CRK_RSA_PSS_VERIFY**: Verify RSA signature with PSS padding
+  - Input: message hash, signature, public key ID
+  - Output: verification result
+
+Both padding schemes are supported via the cryptokey ioctl interface accessible through ``/dev/crypto``.
+
 Key Management Operations
 --------------------------
 
 The cryptodev module provides comprehensive key management interfaces:
 
-**Key Allocation and Validation**
-
-- CRK_ALLOCATE_KEY: Request an available key ID from the driver
-- CRK_VALIDATE_KEYID: Check if a specified key ID is available in the driver
-
-**Key Import and Export**
-
-- CRK_IMPORT_KEY: Import key data into the driver for use in cryptographic operations
-- CRK_EXPORT_KEY: Export raw key data or private key from a keypair
-- CRK_EXPORT_PUBLIC_KEY: Export only the public key portion of a keypair
-
 **Key Generation**
 
 - CRK_GENERATE_AES_KEY: Generate AES key data with specified key ID
+  - Supports 128-bit, 192-bit, and 256-bit key generation
+  - Generates cryptographically secure random AES keys using software implementation
+  - Keys can be used immediately for AES encryption/decryption operations
+
 - CRK_GENERATE_RSA_KEY: Generate RSA keypair (public and private) with specified key ID
 - CRK_GENERATE_SECP256R1_KEY: Generate ECDSA keypair on SECP256R1 curve with specified key ID
+  - Generates P-256 elliptic curve keypairs for ECDSA operations
+  - Uses NuttX's lightweight ECC implementation for key generation
+  - Generated keys can be used for ECDSA digital signature operations
 
 **Key Lifecycle Management**
 
 - CRK_DELETE_KEY: Remove key with specified key ID from the driver
 - CRK_SAVE_KEY: Persist key data to FLASH storage for non-volatile storage
 - CRK_LOAD_KEY: Load previously saved key data from FLASH into RAM
+
+**MTD-based Key Storage**
+
+NuttX supports persistent key storage using MTD (Memory Technology Device):
+
+- Keys can be saved to MTD-based storage for non-volatile persistence
+- Software-based key management (swkey) provides transparent MTD integration
+- Keys are automatically loaded from MTD upon system initialization
+- Supports both symmetric (AES) and asymmetric (RSA, ECC) key storage
+- Enables secure device configuration and credential persistence across reboots
 
 **Cryptographic Operations Using Keys**
 

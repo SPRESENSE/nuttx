@@ -479,7 +479,7 @@ static void rpmsg_socket_ns_unbind(FAR struct rpmsg_endpoint *ept)
   conn->unbind = true;
   rpmsg_socket_post(&conn->sendsem);
   rpmsg_socket_post(&conn->recvsem);
-  rpmsg_socket_poll_notify(conn, POLLIN | POLLOUT);
+  rpmsg_socket_poll_notify(conn, POLLIN | POLLOUT | POLLHUP | POLLERR);
 
   nxmutex_unlock(&conn->recvlock);
 }
@@ -778,6 +778,10 @@ static int rpmsg_socket_connect_internal(FAR struct socket *psock)
 
       ret = net_sem_timedwait(&conn->sendsem,
                               _SO_TIMEOUT(conn->sconn.s_sndtimeo));
+      if (!conn->ept.rdev || conn->unbind)
+        {
+          ret = -ECONNRESET;
+        }
 
       if (ret < 0)
         {

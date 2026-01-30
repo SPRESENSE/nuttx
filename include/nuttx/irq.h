@@ -77,14 +77,22 @@
 #endif
 
 #if defined(CONFIG_ARCH_MINIMAL_VECTORTABLE_DYNAMIC)
-#  define IRQ_TO_NDX(irq) (g_irqmap[irq] ? g_irqmap[irq] : irq_to_ndx(irq))
+#  if defined(CONFIG_ARCH_IRQ_TO_NDX)
+#    define IRQ_TO_NDX(irq) \
+       ((irq) < 0 || (irq) >= NR_IRQS ? -EINVAL : up_irq_to_ndx(irq))
+#  else
+#    define IRQ_TO_NDX(irq) \
+       ((irq) < 0 || (irq) >= NR_IRQS ? -EINVAL : \
+        (g_irqmap[irq] ? g_irqmap[irq] : irq_to_ndx(irq)))
+#  endif
 #  define NDX_TO_IRQ(ndx) g_irqrevmap[ndx]
 #elif defined(CONFIG_ARCH_MINIMAL_VECTORTABLE)
 #  define IRQ_TO_NDX(irq) \
-  (g_irqmap[(irq)] < CONFIG_ARCH_NUSER_INTERRUPTS ? g_irqmap[(irq)] : -EINVAL)
+     ((irq) < 0 || (irq) >= NR_IRQS ? -EINVAL : \
+      (g_irqmap[(irq)] < CONFIG_ARCH_NUSER_INTERRUPTS ? g_irqmap[(irq)] : -EINVAL))
 #  define NDX_TO_IRQ(ndx) ndx_to_irq(ndx)
 #else
-#  define IRQ_TO_NDX(irq) (irq)
+#  define IRQ_TO_NDX(irq) ((irq) < 0 || (irq) >= NR_IRQS ? -EINVAL : (irq))
 #  define NDX_TO_IRQ(ndx) (ndx)
 #endif
 
@@ -144,6 +152,10 @@
 
 #ifndef CONFIG_SCHED_CRITMONITOR_MAXTIME_CSECTION
 #  define CONFIG_SCHED_CRITMONITOR_MAXTIME_CSECTION -1
+#endif
+
+#ifndef CONFIG_SCHED_CRITMONITOR_MAXTIME_BUSYWAIT
+#  define CONFIG_SCHED_CRITMONITOR_MAXTIME_BUSYWAIT -1
 #endif
 
 #ifndef CONFIG_SCHED_CRITMONITOR_MAXTIME_IRQ
@@ -214,7 +226,9 @@ extern "C"
  */
 
 #if defined(CONFIG_ARCH_MINIMAL_VECTORTABLE_DYNAMIC)
+#  if !defined(CONFIG_ARCH_IRQ_TO_NDX)
 extern irq_mapped_t g_irqmap[];
+#  endif
 extern int g_irqrevmap[];
 int irq_to_ndx(int irq);
 #elif defined(CONFIG_ARCH_MINIMAL_VECTORTABLE)
@@ -325,16 +339,17 @@ int irqchain_detach(int irq, xcpt_t isr, FAR void *arg);
 
 #ifdef CONFIG_IRQCOUNT
 #  if CONFIG_SCHED_CRITMONITOR_MAXTIME_CSECTION >= 0 || \
+      CONFIG_SCHED_CRITMONITOR_MAXTIME_BUSYWAIT >= 0 || \
       defined(CONFIG_SCHED_INSTRUMENTATION_CSECTION)
 irqstate_t enter_critical_section(void) noinstrument_function;
 #  else
-#    define enter_critical_section() enter_critical_section_wo_note()
+#    define enter_critical_section() enter_critical_section_notrace()
 #  endif
 
-irqstate_t enter_critical_section_wo_note(void) noinstrument_function;
+irqstate_t enter_critical_section_notrace(void) noinstrument_function;
 #else
 #  define enter_critical_section() up_irq_save()
-#  define enter_critical_section_wo_note() up_irq_save()
+#  define enter_critical_section_notrace() up_irq_save()
 #endif
 
 /****************************************************************************
@@ -366,13 +381,13 @@ irqstate_t enter_critical_section_wo_note(void) noinstrument_function;
       defined(CONFIG_SCHED_INSTRUMENTATION_CSECTION)
 void leave_critical_section(irqstate_t flags) noinstrument_function;
 #  else
-#    define leave_critical_section(f) leave_critical_section_wo_note(f)
+#    define leave_critical_section(f) leave_critical_section_notrace(f)
 #  endif
 
-void leave_critical_section_wo_note(irqstate_t flags) noinstrument_function;
+void leave_critical_section_notrace(irqstate_t flags) noinstrument_function;
 #else
 #  define leave_critical_section(f) up_irq_restore(f)
-#  define leave_critical_section_wo_note(f) up_irq_restore(f)
+#  define leave_critical_section_notrace(f) up_irq_restore(f)
 #endif
 
 /****************************************************************************

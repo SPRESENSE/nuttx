@@ -108,6 +108,16 @@ nxsched_hrtimer_callback(FAR const struct hrtimer_s *hrtimer,
  * Public Functions
  ****************************************************************************/
 
+#if defined(CONFIG_HRTIMER) && defined(CONFIG_SCHED_TICKLESS)
+int nxsched_hrtimer_tick_start(clock_t tick)
+{
+  return hrtimer_start(&g_sched_hrtimer,
+                       nxsched_hrtimer_callback,
+                       tick * NSEC_PER_TICK,
+                       HRTIMER_MODE_ABS);
+}
+#endif
+
 /****************************************************************************
  * Name: nxsched_process_timer
  *
@@ -135,7 +145,7 @@ void nxsched_process_timer(void)
                     HRTIMER_MODE_REL);
     }
 
-  hrtimer_process(hrtimer_gettime());
+  hrtimer_process(clock_systime_nsec());
 #else
   /* Fallback: process one scheduler tick */
 

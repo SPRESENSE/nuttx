@@ -217,17 +217,6 @@ config ARM64_TBI
 	bool "Top Byte Ignore support"
 	default n
 
-config ARM64_SMP_BUSY_WAIT
-	bool "Busy wait when SMP boot"
-	default n
-	depends on SMP
-	---help---
-		Enables busy wait when SMP boot
-
-config ARM64_SMP_BUSY_WAIT_FLAG_ADDR
-	hex "Busy wait flag address"
-	depends on ARM64_SMP_BUSY_WAIT
-
 config ARCH_HAVE_EL3
 	bool
 	default n
@@ -351,6 +340,7 @@ config ARCH_CORTEX_R82
 	select ARCH_HAVE_CLUSTER_PMU
 	select ARCH_HAVE_TESTSET
 	select ARM64_HAVE_NEON
+	select ARCH_HAVE_PERF_EVENTS_USER_ACCESS if !ARCH_CLUSTER_PMU
 
 config ARCH_CPU_UNKNOWN
 	bool

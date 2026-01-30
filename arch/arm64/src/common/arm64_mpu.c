@@ -163,6 +163,34 @@ unsigned int mpu_allocregion(void)
 }
 
 /****************************************************************************
+ * Name: mpu_allocregion
+ *
+ * Description:
+ *   Get the number of MPU region used
+ *
+ * Input Parameters:
+ *   None
+ *
+ * Returned Value:
+ *   The the number of MPU region used
+ *
+ ****************************************************************************/
+
+unsigned int mpu_usedregion(void)
+{
+  unsigned int n = g_mpu_region[this_cpu()];
+  unsigned int count = 0;
+
+  while (n)
+    {
+      count += n & 1;
+      n >>= 1;
+    }
+
+  return count;
+}
+
+/****************************************************************************
  * Name: mpu_freeregion
  *
  * Description:
@@ -222,6 +250,7 @@ void arm64_mpu_enable(void)
 #ifndef CONFIG_ARM64_DCACHE_DISABLE
           | SCTLR_C_BIT
 #endif
+          | SCTLR_BR_BIT             /* Background region enable */
          );
   write_sysreg(val, sctlr_el1);
   UP_MB();
@@ -263,28 +292,30 @@ void arm64_mpu_disable(void)
  *
  * Input Parameters:
  *   region - The index of the MPU region to modify.
- *   table  - Pointer to a struct containing the configuration
- *            parameters for the region.
+ *   base   - The base address of the region.
+ *   size   - The size of the region.
+ *   flags1 - Additional flags for the region.
+ *   flags2 - Additional flags for the region.
  *
  * Returned Value:
  *   None
  *
  ****************************************************************************/
 
-void mpu_modify_region(unsigned int region,
-                       const struct arm64_mpu_region *table)
+void mpu_modify_region(unsigned int region, uintptr_t base, size_t size,
+                       uint32_t flags1, uint32_t flags2)
 {
-  uint64_t rbar = table->base & MPU_RBAR_BASE_MSK;
-  uint64_t rlar = (table->limit - 1) & MPU_RLAR_LIMIT_MSK;
+  uint64_t rbar = base & MPU_RBAR_BASE_MSK;
+  uint64_t rlar = (base + size - 1) & MPU_RLAR_LIMIT_MSK;
 
   /* Check that the region is valid */
 
   DEBUGASSERT(g_mpu_region[this_cpu()] & (1 << region));
 
-  rbar |= table->attr.rbar &
+  rbar |= flags1 &
           (MPU_RBAR_XN_MSK | MPU_RBAR_AP_MSK | MPU_RBAR_SH_MSK);
   rlar |=
-     (table->attr.mair_idx <<
+     (flags2 <<
       MPU_RLAR_ATTRINDX_POS) & MPU_RLAR_ATTRINDX_MSK;
   rlar |= MPU_RLAR_EN_MSK;
 
@@ -307,19 +338,21 @@ void mpu_modify_region(unsigned int region,
  *   Configure a region for privileged, strongly ordered memory
  *
  * Input Parameters:
- *   table - Pointer to a struct containing the configuration
- *           parameters for the region.
+ *   base   - The base address of the region.
+ *   size   - The size of the region.
+ *   flags1 - Additional flags for the region.
+ *   flags2 - Additional flags for the region.
  *
  * Returned Value:
  *   The region number allocated for the configured region.
  *
  ****************************************************************************/
 
-unsigned int mpu_configure_region(const struct arm64_mpu_region *
-                                  table)
+unsigned int mpu_configure_region(uintptr_t base, size_t size,
+                                  uint32_t flags1, uint32_t flags2)
 {
   unsigned int region = mpu_allocregion();
-  mpu_modify_region(region, table);
+  mpu_modify_region(region, base, size, flags1, flags2);
   return region;
 }
 
@@ -387,7 +420,6 @@ void mpu_dump_region(void)
 void arm64_mpu_init(bool is_primary_core)
 {
   uint64_t  val;
-  uint32_t  r_index;
 
 #ifdef CONFIG_MM_KASAN_SW_TAGS
   val  = read_sysreg(tcr_el1);
@@ -418,12 +450,7 @@ void arm64_mpu_init(bool is_primary_core)
 
   mpu_init();
 
-  /* Program fixed regions configured at SOC definition. */
-
-  for (r_index = 0U; r_index < g_mpu_config.num_regions; r_index++)
-    {
-      mpu_configure_region(&g_mpu_config.mpu_regions[r_index]);
-    }
+  arm64_mpu_init_regiions();
 
   arm64_mpu_enable();
 }

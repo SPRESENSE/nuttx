@@ -66,6 +66,12 @@ void sched_note_spinlock_unlock(FAR volatile spinlock_t *spinlock);
 #  define sched_note_spinlock_unlock(spinlock)
 #endif
 
+#if CONFIG_SCHED_CRITMONITOR_MAXTIME_BUSYWAIT >= 0
+void nxsched_critmon_busywait(bool state, FAR void *caller);
+#else
+#  define nxsched_critmon_busywait(state, caller)
+#endif
+
 /****************************************************************************
  * Public Data Types
  ****************************************************************************/
@@ -223,9 +229,17 @@ static inline_function void spin_lock(FAR volatile spinlock_t *lock)
 
   sched_note_spinlock_lock(lock);
 
+  /* If CONFIG_SCHED_CRITMONITOR_MAXTIME_BUSYWAIT >= 0, count busy-waiting. */
+
+  nxsched_critmon_busywait(true, return_address(0));
+
   /* Lock without trace note */
 
   spin_lock_notrace(lock);
+
+  /* Get the lock, end counting busy-waiting */
+
+  nxsched_critmon_busywait(false, return_address(0));
 
   /* Notify that we have the spinlock */
 
@@ -477,9 +491,17 @@ irqstate_t spin_lock_irqsave(FAR volatile spinlock_t *lock)
 
   sched_note_spinlock_lock(lock);
 
+  /* If CONFIG_SCHED_CRITMONITOR_MAXTIME_BUSYWAIT >= 0, count busy-waiting. */
+
+  nxsched_critmon_busywait(true, return_address(0));
+
   /* Lock without trace note */
 
   flags = spin_lock_irqsave_notrace(lock);
+
+  /* Get the lock, end counting busy-waiting */
+
+  nxsched_critmon_busywait(false, return_address(0));
 
   /* Notify that we have the spinlock */
 
@@ -616,6 +638,76 @@ irqstate_t rspin_lock_irqsave_nopreempt(FAR rspinlock_t *lock)
 
   return flags;
 }
+
+/****************************************************************************
+ * Name: rspin_trylock/rspin_trylock_irqsave/rspin_trylock_irqsave_nopreempt
+ *
+ * Description:
+ *   Nest supported spinlock, try once to lock the rspinlock, can support
+ *   UINT16_MAX max depth.
+ *   As we should not disable irq for long time, sched also locked.
+ *   Similar feature with enter_critical_section, but isolate by instance.
+ *
+ *   If SPINLOCK is enabled:
+ *     Will take spinlock each cpu first call.
+ *
+ *   If SPINLOCK is not enabled:
+ *     Equivalent to up_irq_save() + sched_lock().
+ *     Will only sched_lock once when first called.
+ *
+ * Input Parameters:
+ *   lock - Caller specific rspinlock_s. not NULL.
+ *
+ * Returned Value:
+ *   true  - Success, the spinlock was successfully locked
+ *   false - Failure, the spinlock was already locked
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_SPINLOCK
+static inline_function bool rspin_trylock(FAR rspinlock_t *lock)
+{
+  rspinlock_t new_val;
+  rspinlock_t old_val = RSPINLOCK_INITIALIZER;
+  int         cpu     = this_cpu() + 1;
+
+  /* Already owned this lock. */
+
+  if (lock->owner == cpu)
+    {
+      lock->count += 1;
+      return true;
+    }
+
+  new_val.count = 1;
+  new_val.owner = cpu;
+
+  /* Try seize the ownership of the lock. */
+
+  return atomic_cmpxchg_acquire((FAR atomic_t *)&lock->val,
+                                (FAR atomic_t *)&old_val.val, new_val.val);
+}
+
+#  define rspin_trylock_irqsave(l, f) \
+    ({ \
+      (f) = up_irq_save(); \
+      rspin_trylock(l) ? \
+      true : ({ up_irq_restore(f); false; }); \
+    })
+#else
+#  define rspin_trylock_irqsave(l, f) \
+    ({ \
+      (void)(l); \
+      (f) = up_irq_save(); \
+      true; \
+    })
+#endif
+
+#define rspin_trylock_irqsave_nopreempt(l, f) \
+  ({ \
+    rspin_trylock_irqsave(l, f) ? \
+    ({ sched_lock(); true; }) : false; \
+  })
 
 /****************************************************************************
  * Name: spin_trylock_irqsave_notrace
@@ -918,6 +1010,8 @@ void rspin_restorelock(FAR rspinlock_t *lock, uint16_t count)
 
 static inline_function void read_lock(FAR volatile rwlock_t *lock)
 {
+  nxsched_critmon_busywait(true, return_address(0));
+
   while (true)
     {
       int old = atomic_read(lock);
@@ -934,6 +1028,8 @@ static inline_function void read_lock(FAR volatile rwlock_t *lock)
     }
 
   UP_DMB();
+
+  nxsched_critmon_busywait(false, return_address(0));
 }
 
 /****************************************************************************
@@ -1036,6 +1132,8 @@ static inline_function void read_unlock(FAR volatile rwlock_t *lock)
 
 static inline_function void write_lock(FAR volatile rwlock_t *lock)
 {
+  nxsched_critmon_busywait(true, return_address(0));
+
   while (true)
     {
       int zero = RW_SP_UNLOCKED;
@@ -1049,6 +1147,8 @@ static inline_function void write_lock(FAR volatile rwlock_t *lock)
     }
 
   UP_DMB();
+
+  nxsched_critmon_busywait(false, return_address(0));
 }
 
 /****************************************************************************

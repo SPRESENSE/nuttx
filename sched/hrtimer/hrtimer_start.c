@@ -54,7 +54,7 @@
  *
  * Assumptions/Notes:
  *   - This function disables interrupts briefly via spinlock to safely
- *     insert the timer into the RB-tree.
+ *     insert the timer into the container.
  *   - Absolute mode sets the timer to expire at the given absolute time.
  *   - Relative mode sets the timer to expire after 'ns'
  *     nanoseconds from the current time.
@@ -64,38 +64,41 @@ int hrtimer_start(FAR hrtimer_t *hrtimer, hrtimer_entry_t func,
                   uint64_t expired,
                   enum hrtimer_mode_e mode)
 {
+  uint64_t next_expired;
   irqstate_t flags;
   int ret = OK;
 
+  /* Compute absolute expiration time */
+
+  if (mode == HRTIMER_MODE_ABS)
+    {
+      next_expired = expired;
+    }
+  else
+    {
+      expired = expired <= HRTIMER_MAX_DELAY ? expired : HRTIMER_MAX_DELAY;
+      next_expired = clock_systime_nsec() + expired;
+    }
+
   DEBUGASSERT(hrtimer != NULL);
 
-  /* Protect RB-tree manipulation with spinlock and disable interrupts */
+  /* Acquire the lock and seize the ownership of the hrtimer queue. */
 
-  flags = spin_lock_irqsave(&g_hrtimer_spinlock);
+  flags = write_seqlock_irqsave(&g_hrtimer_lock);
+
+  /* Ensure no core can write the hrtimer. */
+
+  hrtimer_cancel_running(hrtimer);
 
   if (hrtimer_is_armed(hrtimer))
     {
       hrtimer_remove(hrtimer);
     }
 
-  hrtimer->func = func;
+  hrtimer->func    = func;
+  hrtimer->expired = next_expired;
 
-  /* Compute absolute expiration time */
-
-  if (mode == HRTIMER_MODE_ABS)
-    {
-      hrtimer->expired = expired;
-    }
-  else
-    {
-      hrtimer->expired = hrtimer_gettime() + expired;
-    }
-
-  /* Ensure expiration time does not overflow */
-
-  DEBUGASSERT(hrtimer->expired >= expired);
-
-  /* Insert the timer into the RB-tree */
+  /* Insert the timer into the hrtimer queue. */
 
   hrtimer_insert(hrtimer);
 
@@ -103,12 +106,12 @@ int hrtimer_start(FAR hrtimer_t *hrtimer, hrtimer_entry_t func,
 
   if (hrtimer_is_first(hrtimer))
     {
-      ret = hrtimer_starttimer(hrtimer->expired);
+      hrtimer_reprogram(hrtimer->expired);
     }
 
-  /* Release spinlock and restore interrupts */
+  /* Release the lock and give up the ownership of the hrtimer queue. */
 
-  spin_unlock_irqrestore(&g_hrtimer_spinlock, flags);
+  write_sequnlock_irqrestore(&g_hrtimer_lock, flags);
 
   return ret;
 }

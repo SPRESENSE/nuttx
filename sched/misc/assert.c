@@ -45,6 +45,7 @@
 #include <nuttx/syslog/syslog.h>
 #include <nuttx/usb/usbdev_trace.h>
 #include <nuttx/mm/kasan.h>
+#include <nuttx/trace.h>
 
 #include <assert.h>
 #include <debug.h>
@@ -848,8 +849,7 @@ void _assert(FAR const char *filename, int linenum,
   flags = 0; /* suppress GCC warning */
   if (os_ready)
     {
-      flags = spin_lock_irqsave(&g_assert_lock);
-      sched_lock();
+      flags = spin_lock_irqsave_nopreempt(&g_assert_lock);
     }
 
 #if CONFIG_BOARD_RESET_ON_ASSERT < 2
@@ -860,6 +860,7 @@ void _assert(FAR const char *filename, int linenum,
       /* Fatal error, enter panic state. */
 
       g_nx_initstate = OSINIT_PANIC;
+      sched_trace_mark("PANIC");
 
       /* Disable KASAN to avoid false positive */
 
@@ -923,7 +924,6 @@ void _assert(FAR const char *filename, int linenum,
 
   if (os_ready)
     {
-      spin_unlock_irqrestore(&g_assert_lock, flags);
-      sched_unlock();
+      spin_unlock_irqrestore_nopreempt(&g_assert_lock, flags);
     }
 }

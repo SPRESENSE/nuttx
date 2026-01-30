@@ -36,10 +36,12 @@
 #include <nuttx/arch.h>
 #include <nuttx/board.h>
 #include <nuttx/cache.h>
+#include <nuttx/init.h>
 #include <nuttx/lib/elf.h>
 #include <nuttx/binfmt/symtab.h>
 #include <nuttx/drivers/ramdisk.h>
 #include <nuttx/reboot_notifier.h>
+#include <nuttx/trace.h>
 
 #ifdef CONFIG_NX
 #  include <nuttx/nx/nxmu.h>
@@ -412,6 +414,8 @@ int boardctl(unsigned int cmd, uintptr_t arg)
 
       case BOARDIOC_RESET:
         {
+          g_nx_initstate = OSINIT_RESET;
+          sched_trace_mark("RESET");
           reboot_notifier_call_chain(SYS_RESTART, (FAR void *)arg);
           up_flush_dcache_all();
           ret = board_reset((int)arg);
@@ -804,42 +808,47 @@ int boardctl(unsigned int cmd, uintptr_t arg)
 
           if (spinlock->action == BOARDIOC_SPINLOCK_LOCK)
             {
-              if (flags != NULL)
-                {
-                  *flags = up_irq_save();
-                }
-
               if (lock != NULL)
                 {
-                  spin_lock(lock);
+                  if (flags != NULL)
+                    {
+                      *flags = spin_lock_irqsave(lock);
+                    }
+                  else
+                    {
+                      spin_lock(lock);
+                    }
                 }
             }
           else if (spinlock->action == BOARDIOC_SPINLOCK_TRYLOCK)
             {
-              if (flags != NULL)
-                {
-                  *flags = up_irq_save();
-                }
-
-              if (!spin_trylock(lock))
-                {
-                  ret = -EBUSY;
-                  if (flags != NULL)
-                    {
-                      up_irq_restore(*flags);
-                    }
-                }
+              if (lock != NULL)
+              {
+                if (flags != NULL)
+                  {
+                    if (!spin_trylock_irqsave(lock, *flags))
+                      {
+                        ret = -EBUSY;
+                      }
+                  }
+                else if (!spin_trylock(lock))
+                  {
+                    ret = -EBUSY;
+                  }
+              }
             }
           else if (spinlock->action == BOARDIOC_SPINLOCK_UNLOCK)
             {
-              if (flags != NULL)
-                {
-                  up_irq_restore(*flags);
-                }
-
               if (lock != NULL)
                 {
-                  spin_unlock(lock);
+                  if (flags != NULL)
+                    {
+                      spin_unlock_irqrestore(lock, *flags);
+                    }
+                  else
+                    {
+                      spin_unlock(lock);
+                    }
                 }
             }
           else

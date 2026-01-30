@@ -605,7 +605,7 @@ struct tcb_s
   start_t  start;                        /* Thread start function           */
   entry_t  entry;                        /* Entry Point into the thread     */
 
-  uint8_t  task_state;                   /* Current state of the thread     */
+  tstate_t task_state;                   /* Current state of the thread     */
 
 #ifdef CONFIG_PRIORITY_INHERITANCE
   uint8_t  boost_priority;               /* Boosted priority of the thread  */
@@ -673,13 +673,6 @@ struct tcb_s
   siginfo_t  *sigunbinfo;                /* Signal info when task unblocked */
 #endif /* !CONFIG_DISABLE_ALL_SIGNALS */
 
-  /* Robust mutex support ***************************************************/
-
-#if !defined(CONFIG_DISABLE_PTHREAD) && !defined(CONFIG_PTHREAD_MUTEX_UNSAFE)
-  FAR struct pthread_mutex_s *mhead;     /* List of mutexes held by thread  */
-  spinlock_t mhead_lock;
-#endif
-
   /* CPU load monitoring support ********************************************/
 
 #ifndef CONFIG_SCHED_CPULOAD_NONE
@@ -706,6 +699,14 @@ struct tcb_s
   clock_t crit_max;                      /* Max time in critical section    */
   void   *crit_caller;                   /* Caller of critical section      */
   void   *crit_max_caller;               /* Caller of max critical section  */
+#endif
+
+#if CONFIG_SCHED_CRITMONITOR_MAXTIME_BUSYWAIT >= 0
+  clock_t busywait_start;                /* Time when thread busywait       */
+  clock_t busywait_max;                  /* Max time of busywait            */
+  clock_t busywait_total;                /* Total time of busywait          */
+  void   *busywait_caller;               /* Caller of busywait              */
+  void   *busywait_max_caller;           /* Caller of max busywait          */
 #endif
 
   /* State save areas *******************************************************/
@@ -827,6 +828,11 @@ EXTERN clock_t g_preemp_max[CONFIG_SMP_NCPUS];
 #if CONFIG_SCHED_CRITMONITOR_MAXTIME_CSECTION >= 0
 EXTERN clock_t g_crit_max[CONFIG_SMP_NCPUS];
 #endif /* CONFIG_SCHED_CRITMONITOR_MAXTIME_CSECTION >= 0 */
+
+#if CONFIG_SCHED_CRITMONITOR_MAXTIME_BUSYWAIT >= 0
+EXTERN clock_t g_busywait_max[CONFIG_SMP_NCPUS];
+EXTERN clock_t g_busywait_total[CONFIG_SMP_NCPUS];
+#endif /* CONFIG_SCHED_CRITMONITOR_MAXTIME_BUSYWAIT >= 0 */
 
 /* g_running_tasks[] holds a references to the running task for each CPU.
  * It is valid only when up_interrupt_context() returns true.

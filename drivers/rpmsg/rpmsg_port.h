@@ -32,8 +32,9 @@
 #include <nuttx/list.h>
 #include <nuttx/spinlock.h>
 #include <nuttx/semaphore.h>
-#include <nuttx/rpmsg/rpmsg.h>
 #include <nuttx/rpmsg/rpmsg_port.h>
+
+#include "rpmsg.h"
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -66,8 +67,14 @@ struct rpmsg_port_list_s
   struct list_node head;          /* List head */
 };
 
+struct rpmsg_port_s;
+
 struct rpmsg_port_queue_s
 {
+  /* Pointer to the rpmsg port handler */
+
+  FAR struct rpmsg_port_s  *port;
+
   /* Indicate buffers current queue managed is dynamic alloced */
 
   bool                     alloced;
@@ -93,8 +100,6 @@ struct rpmsg_port_queue_s
   struct rpmsg_port_list_s ready;
 };
 
-struct rpmsg_port_s;
-
 typedef void (*rpmsg_port_rx_cb_t)(FAR struct rpmsg_port_s *port,
                                    FAR struct rpmsg_port_header_s *hdr);
 
@@ -108,12 +113,21 @@ struct rpmsg_port_ops_s
 
   CODE void (*notify_rx_free)(FAR struct rpmsg_port_s *port);
 
+  /* Notify driver there is no available buffer */
+
+  CODE int (*notify_queue_noavail)(FAR struct rpmsg_port_s *port,
+                                   FAR struct rpmsg_port_queue_s *queue);
+
   /* Register callback function which should be invoked when there is
    * date received to the rx queue by driver
    */
 
   CODE void (*register_callback)(FAR struct rpmsg_port_s *port,
                                  rpmsg_port_rx_cb_t callback);
+
+  /* Dump the transport debug information */
+
+  CODE void (*dump)(FAR struct rpmsg_port_s *port);
 };
 
 struct rpmsg_port_s
@@ -122,12 +136,6 @@ struct rpmsg_port_s
   struct rpmsg_device               rdev;   /* Rpmsg device object */
   struct rpmsg_port_queue_s         txq;    /* Port tx queue */
   struct rpmsg_port_queue_s         rxq;    /* Port rx queue */
-
-  char                              local_cpuname[RPMSG_NAME_SIZE];
-
-  /* Remote cpu name of this port connected to */
-
-  char                              cpuname[RPMSG_NAME_SIZE];
 
   /* Ops need implemented by drivers under port layer */
 

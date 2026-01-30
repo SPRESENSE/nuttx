@@ -29,51 +29,7 @@
 #include <nuttx/clock.h>
 #include <errno.h>
 
-#include "sched/sched.h"
 #include "hrtimer/hrtimer.h"
-
-/****************************************************************************
- * Pre-processor Definitions
- ****************************************************************************/
-
-/* Delay used while waiting for a running hrtimer callback to complete */
-
-#define HRTIMER_CANCEL_SYNC_DELAY_MS  5
-
-/****************************************************************************
- * Private Functions
- ****************************************************************************/
-
-/****************************************************************************
- * Name: hrtimer_is_active
- *
- * Description:
- *   Check whether a high-resolution timer is currently running on any CPU.
- *
- * Input Parameters:
- *   hrtimer - Pointer to the high-resolution timer to check.
- *
- * Returned Value:
- *   true  - The timer is active on at least one CPU.
- *   false - The timer is not active.
- ****************************************************************************/
-#ifdef CONFIG_SMP
-static inline_function bool hrtimer_is_active(FAR hrtimer_t *hrtimer)
-{
-  bool is_active = false;
-
-  for (int i = 0; i < CONFIG_SMP_NCPUS; i++)
-    {
-      if (g_hrtimer_running[i] == hrtimer)
-        {
-          is_active = true;
-          break;
-        }
-    }
-
-  return is_active;
-}
-#endif
 
 /****************************************************************************
  * Public Functions
@@ -83,20 +39,23 @@ static inline_function bool hrtimer_is_active(FAR hrtimer_t *hrtimer)
  * Name: hrtimer_cancel
  *
  * Description:
- *   Cancel a high-resolution timer.
+ *   Cancel a high-resolution timer asynchronously.
  *
- *   If the timer is currently armed, it will be removed from the active
- *   hrtimer red-black tree and will not be executed.
+ *   If the timer is currently pending, it will be removed from the
+ *   hrtimer queue and will not be executed.
  *
- *   If the timer callback is currently executing, the timer will be marked
- *   as canceled.  The running callback is allowed to complete, but the timer
- *   will not be re-armed or executed again.
+ *   If the timer callback is currently executing. This function set the
+ *   timer to the cancelled state. The caller will acquire the limited
+ *   ownership of the hrtimer, which allow the caller restart the hrtimer,
+ *   but the callback function may still be executing on another CPU,
+ *   which prevent the caller from freeing the hrtimer.
+ *   The caller must call `hrtimer_cancel_sync` to wait for the callback
+ *   to be finished. Please use the function with care.
+ *   Concurrency errors are prone to occur in this use case.
  *
- *   If the canceled timer was the earliest (head) timer in the tree, the
- *   expiration of the underlying hardware timer will be updated to:
- *
- *     1. The expiration time of the next earliest timer, or
- *     2. A safe default expiration if no timers remain.
+ *   If the canceled timer was the earliest expired timer in the queue,
+ *   the expiration of the underlying hardware timer will be updated to the
+ *   expiration time of the next earliest timer
  *
  *   This function is non-blocking and does not wait for a running callback
  *   to finish.
@@ -106,10 +65,11 @@ static inline_function bool hrtimer_is_active(FAR hrtimer_t *hrtimer)
  *
  * Returned Value:
  *   OK (0) on success; a negated errno value on failure.
+ *   > 0 on if the timer callback is running.
  *
  * Assumptions/Notes:
- *   - This function acquires the global hrtimer spinlock to protect both
- *     the red-black tree and the timer state.
+ *   - This function acquires the global hrtimer spinlock to protect
+ *     the container.
  *   - The caller must ensure that the timer structure is not freed until
  *     it is guaranteed that any running callback has returned.
  *
@@ -119,39 +79,37 @@ int hrtimer_cancel(FAR hrtimer_t *hrtimer)
 {
   FAR hrtimer_t *first;
   irqstate_t flags;
-  int ret = OK;
+  int ret;
 
   DEBUGASSERT(hrtimer != NULL);
 
-  /* Enter critical section to protect the hrtimer tree and state */
+  /* Acquire the lock and seize the ownership of the hrtimer queue. */
 
-  flags = spin_lock_irqsave(&g_hrtimer_spinlock);
+  flags = write_seqlock_irqsave(&g_hrtimer_lock);
+
+  /* Ensure no core can write the hrtimer. */
+
+  ret = hrtimer_cancel_running(hrtimer);
 
   if (hrtimer_is_armed(hrtimer))
     {
       hrtimer_remove(hrtimer);
-    }
 
-  /* If the timer was running, increment its expiration count to prevent
-   * it from being re-armed by the callback.
-   */
+      /* Update the hardware timer if the queue head changed. */
 
-  hrtimer->expired++;
-
-  /* If the canceled timer was the earliest one, update the hardware timer */
-
-  if (hrtimer_is_first(hrtimer))
-    {
-      first = hrtimer_get_first();
-      if (first != NULL)
+      if (hrtimer_is_first(hrtimer))
         {
-          ret = hrtimer_starttimer(first->expired);
+          first = hrtimer_get_first();
+          if (first != NULL)
+            {
+              hrtimer_reprogram(first->expired);
+            }
         }
     }
 
-  /* Leave critical section */
+  /* Release the lock and give up the ownership of the hrtimer queue. */
 
-  spin_unlock_irqrestore(&g_hrtimer_spinlock, flags);
+  write_sequnlock_irqrestore(&g_hrtimer_lock, flags);
   return ret;
 }
 
@@ -159,11 +117,13 @@ int hrtimer_cancel(FAR hrtimer_t *hrtimer)
  * Name: hrtimer_cancel_sync
  *
  * Description:
- *   Cancel a high-resolution timer and wait until it becomes inactive.
+ *   Cancel a high-resolution timer and synchronously wait the callback to
+ *   be finished.
  *
- *   - Calls hrtimer_cancel() to request timer cancellation.
- *   - If the timer callback is running, waits until it completes and
- *     the timer state transitions to HRTIMER_STATE_INACTIVE.
+ *   If the timer callback is running, this function set the timer to the
+ *   cancelled state and wait for all all references to be released.
+ *   The caller will then acquire full ownership of the hrtimer. After the
+ *   function returns, the caller can safely deallocate the hrtimer.
  *   - If sleeping is allowed (normal task context), yields CPU briefly
  *     to avoid busy-waiting.
  *   - Otherwise (interrupt or idle task context), spins until completion.
@@ -185,27 +145,12 @@ int hrtimer_cancel_sync(FAR hrtimer_t *hrtimer)
   /* Request cancellation of the timer */
 
   ret = hrtimer_cancel(hrtimer);
-  if (ret < 0)
+  if (ret > 0)
     {
-      return ret;
-    }
+      /* Wait until all the timer callbacks finish. */
 
-  /* Wait until the timer transitions to the inactive state.
-   *
-   * If sleeping is permitted, yield the CPU briefly to avoid
-   * busy-waiting.  Otherwise, spin until the callback completes
-   * and the state becomes inactive.
-   */
-#ifdef CONFIG_SMP
-  while (hrtimer_is_active(hrtimer))
-    {
-      if (!up_interrupt_context() &&
-          !is_idle_task(this_task()))
-        {
-          nxsched_msleep(HRTIMER_CANCEL_SYNC_DELAY_MS);
-        }
+       hrtimer_wait(hrtimer);
     }
-#endif
 
   return ret;
 }

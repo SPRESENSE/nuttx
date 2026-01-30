@@ -475,6 +475,7 @@
 /* GNSS Geofence */
 
 #define SENSOR_TYPE_GNSS_GEOFENCE                   52
+
 /* Velocity Sensor
  * A sensor of this type measures the velocity as it is moving.
  * The default unit velocity is meter by seconds m/s (SI).
@@ -653,12 +654,37 @@ struct sensor_accel         /* Type: Accerometer */
   float temperature;        /* Temperature in degrees celsius */
 };
 
+struct sensor_accel_uncal   /* Type: Accerometer Uncalibrated */
+{
+  uint64_t timestamp;       /* Units is microseconds */
+  float x;                  /* Axis X in m/s^2 */
+  float y;                  /* Axis Y in m/s^2 */
+  float z;                  /* Axis Z in m/s^2 */
+  float x_bias;             /* Axis X bias in m/s^2 */
+  float y_bias;             /* Axis Y bias in m/s^2 */
+  float z_bias;             /* Axis Z bias in m/s^2 */
+  float temperature;        /* Temperature in degrees celsius */
+};
+
 struct sensor_mag           /* Type: Magnetic Field */
 {
   uint64_t timestamp;       /* Units is microseconds */
   float x;                  /* Axis X in Gauss or micro Tesla (uT) */
   float y;                  /* Axis Y in Gauss or micro Tesla (uT) */
   float z;                  /* Axis Z in Gauss or micro Tesla (uT) */
+  float temperature;        /* Temperature in degrees celsius */
+  int32_t status;           /* Status of calibration */
+};
+
+struct sensor_mag_uncal     /* Type: Magnetic Field Uncalibrated */
+{
+  uint64_t timestamp;       /* Units is microseconds */
+  float x;                  /* Axis X in Gauss or micro Tesla (uT) */
+  float y;                  /* Axis Y in Gauss or micro Tesla (uT) */
+  float z;                  /* Axis Z in Gauss or micro Tesla (uT) */
+  float x_bias;             /* Axis X bias in Gauss or micro Tesla (uT) */
+  float y_bias;             /* Axis Y bias in Gauss or micro Tesla (uT) */
+  float z_bias;             /* Axis Z bias in Gauss or micro Tesla (uT) */
   float temperature;        /* Temperature in degrees celsius */
   int32_t status;           /* Status of calibration */
 };
@@ -677,6 +703,18 @@ struct sensor_gyro          /* Type: Gyroscope */
   float x;                  /* Axis X in rad/s */
   float y;                  /* Axis Y in rad/s */
   float z;                  /* Axis Z in rad/s */
+  float temperature;        /* Temperature in degrees celsius */
+};
+
+struct sensor_gyro_uncal    /* Type: Gyroscope Uncalibrated */
+{
+  uint64_t timestamp;       /* Units is microseconds */
+  float x;                  /* Axis X in rad/s */
+  float y;                  /* Axis Y in rad/s */
+  float z;                  /* Axis Z in rad/s */
+  float x_bias;             /* Axis X bias in rad/s */
+  float y_bias;             /* Axis Y bias in rad/s */
+  float z_bias;             /* Axis Z bias in rad/s */
   float temperature;        /* Temperature in degrees celsius */
 };
 
@@ -1207,6 +1245,7 @@ struct sensor_state_s
   uint32_t nsubscribers;       /* The number of subscribers */
   uint32_t nadvertisers;       /* The number of advertisers */
   uint32_t generation;         /* The recent generation of circular buffer */
+  uint32_t nonwakeup;          /* The non wakeup state of sensor device */
   uint64_t priv;               /* The pointer to private data of userspace user */
 };
 
@@ -1217,7 +1256,8 @@ struct sensor_ustate_s
   uint32_t esize;              /* The element size of circular buffer */
   uint32_t latency;            /* The batch latency for user, in us */
   uint32_t interval;           /* The subscription interval for user, in us */
-  uint64_t generation;         /* The recent generation of circular buffer */
+  uint32_t nonwakeup;          /* The non wakeup state of sensor user */
+  uint32_t generation;         /* The recent generation of circular buffer */
 };
 
 /* This structure describes the context custom ioctl for device */

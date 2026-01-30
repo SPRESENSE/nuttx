@@ -75,12 +75,12 @@ inline_function FAR struct kwork_wqueue_s *irq_get_wqueue(int priority)
   static mutex_t irq_wqueue_lock = NXMUTEX_INITIALIZER;
   static FAR struct kwork_wqueue_s *irq_wqueue[CONFIG_IRQ_NWORKS];
 
-  FAR struct kwork_wqueue_s *queue;
+  FAR struct kwork_wqueue_s *queue = NULL;
   int wqueue_priority;
   int i;
 
   nxmutex_lock(&irq_wqueue_lock);
-  for (i = 0; irq_wqueue[i] != NULL && i < CONFIG_IRQ_NWORKS; i++)
+  for (i = 0; i < CONFIG_IRQ_NWORKS && irq_wqueue[i] != NULL; i++)
     {
       wqueue_priority = work_queue_priority_wq(irq_wqueue[i]);
       DEBUGASSERT(wqueue_priority >= SCHED_PRIORITY_MIN &&
@@ -89,17 +89,20 @@ inline_function FAR struct kwork_wqueue_s *irq_get_wqueue(int priority)
       if (wqueue_priority == priority)
         {
           nxmutex_unlock(&irq_wqueue_lock);
-          return irq_wqueue[i];
+          queue = irq_wqueue[i];
+          break;
         }
     }
 
-  DEBUGASSERT(i < CONFIG_IRQ_NWORKS);
+  if (i < CONFIG_IRQ_NWORKS && queue == NULL)
+    {
+      queue = work_queue_create("isrwork", priority, irq_work_stack[i],
+                                CONFIG_IRQ_WORK_STACKSIZE, 1);
 
-  queue = work_queue_create("isrwork", priority, irq_work_stack[i],
-                            CONFIG_IRQ_WORK_STACKSIZE, 1);
+      irq_wqueue[i] = queue;
+      nxmutex_unlock(&irq_wqueue_lock);
+    }
 
-  irq_wqueue[i] = queue;
-  nxmutex_unlock(&irq_wqueue_lock);
   return queue;
 }
 
@@ -114,14 +117,14 @@ static void irq_work_handler(FAR void *arg)
   info->isrwork(info->irq, NULL, info->arg);
 }
 
-static int irq_default_handler(int irq, FAR void *regs, FAR void *arg)
+static int irq_default_handler(int irq, FAR void *context, FAR void *arg)
 {
   FAR struct irq_work_info_s *info = arg;
   int ret = IRQ_WAKE_THREAD;
 
   if (info->handler != NULL)
     {
-      ret = info->handler(irq, regs, info->arg);
+      ret = info->handler(irq, context, info->arg);
     }
 
   if (ret == IRQ_WAKE_THREAD)
@@ -170,47 +173,42 @@ int irq_attach_wqueue(int irq, xcpt_t isr, xcpt_t isrwork,
 #endif
 
   FAR struct irq_work_info_s *info;
-
+  int ret = OK;
 #if NR_IRQS > 0
-  int ndx;
-
-  if (irq < 0 || irq >= NR_IRQS)
-    {
-      return -EINVAL;
-    }
-
-  ndx = IRQ_TO_NDX(irq);
+  int ndx = IRQ_TO_NDX(irq);
   if (ndx < 0)
     {
-      return ndx;
+      ret = ndx;
     }
-
-  /* If the isrwork is NULL, then the ISR is being detached. */
-
-  info = &irq_work_vector[ndx];
-
-  if (isrwork == NULL)
+  else
     {
-      irq_detach(irq);
-      info->isrwork = NULL;
-      info->handler = NULL;
-      info->arg     = NULL;
-      info->wqueue  = NULL;
-      return OK;
-    }
+      /* If the isrwork is NULL, then the ISR is being detached. */
 
-  info->isrwork = isrwork;
-  info->handler = isr;
-  info->arg     = arg;
-  info->irq     = irq;
-  if (info->wqueue == NULL)
-    {
-      info->wqueue = irq_get_wqueue(priority);
-    }
+      info = &irq_work_vector[ndx];
 
-  irq_attach(irq, irq_default_handler, info);
+      if (isrwork == NULL)
+        {
+          irq_detach(irq);
+          info->isrwork = NULL;
+          info->handler = NULL;
+          info->arg     = NULL;
+          info->wqueue  = NULL;
+        }
+      else
+        {
+          info->isrwork = isrwork;
+          info->handler = isr;
+          info->arg     = arg;
+          info->irq     = irq;
+          if (info->wqueue == NULL)
+            {
+              info->wqueue = irq_get_wqueue(priority);
+            }
+
+          irq_attach(irq, irq_default_handler, info);
+        }
+    }
 #endif /* NR_IRQS */
 
-  return OK;
+  return ret;
 }
-
