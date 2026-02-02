@@ -60,16 +60,10 @@
 
 void arm64_fork_fpureg_save(struct fork_s *context)
 {
-  irqstate_t flags;
-
   /* Take a snapshot of the thread fpu reg context right now */
-
-  flags = enter_critical_section();
 
   arm64_fpu_save(context->fpu);
   UP_DSB();
-
-  leave_critical_section(flags);
 }
 
 #endif
@@ -225,9 +219,8 @@ pid_t arm64_fork(const struct fork_s *context)
 
   child->xcp.regs[REG_ELR]    = (uint64_t)context->lr;
 
-  child->xcp.regs[REG_SCTLR_EL1]  = read_sysreg(sctlr_el1);
 #ifdef CONFIG_ARM64_MTE
-  child->xcp.regs[REG_SCTLR_EL1] |= SCTLR_TCF1_BIT;
+  child->xcp.regs[REG_SCTLR_EL1] = read_sysreg(sctlr_el1) | SCTLR_TCF1_BIT;
 #endif
 
   child->xcp.regs[REG_EXE_DEPTH] = 0;
