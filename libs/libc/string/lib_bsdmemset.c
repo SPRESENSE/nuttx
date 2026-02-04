@@ -1,5 +1,5 @@
 /****************************************************************************
- * libs/libc/string/lib_bsdstrcat.c
+ * libs/libc/string/lib_bsdmemset.c
  *
  * SPDX-License-Identifier: BSD
  * SPDX-FileCopyrightText: 1994-2009  Red Hat, Inc. All rights reserved
@@ -24,7 +24,7 @@
  ****************************************************************************/
 
 #include <nuttx/config.h>
-
+#include <sys/types.h>
 #include <string.h>
 
 #include "libc.h"
@@ -33,59 +33,81 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-#define ALIGNED(x) \
-  (((long)(uintptr_t)(x) & (sizeof(long) - 1)) == 0)
-
-/* Macros for detecting endchar */
-
-#if LONG_MAX == 2147483647
-#  define DETECTNULL(x) (((x) - 0x01010101) & ~(x) & 0x80808080)
-#elif LONG_MAX == 9223372036854775807
-/* Nonzero if x (a long int) contains a NULL byte. */
-
-#  define DETECTNULL(x) (((x) - 0x0101010101010101) & ~(x) & 0x8080808080808080)
-#endif
+#define LBLOCKSIZE     (sizeof(long))
+#define UNALIGNED(x)   ((long)(x) & (LBLOCKSIZE - 1))
+#define TOO_SMALL(len) ((len) < LBLOCKSIZE)
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
-#if !defined(CONFIG_LIBC_ARCH_STRCAT) && defined(LIBC_BUILD_STRCAT)
-#undef strcat
-no_builtin("strcat")
-nosanitize_address
-FAR char *strcat(FAR char *dest, FAR const char *src)
+/****************************************************************************
+ * Name: memset
+ ****************************************************************************/
+
+#if !defined(CONFIG_LIBC_ARCH_MEMSET) && defined(LIBC_BUILD_MEMSET)
+#undef memset
+no_builtin("memset")
+FAR void *memset(FAR void *m, int c, size_t n)
 {
-  FAR char *ret = dest;
+  FAR unsigned long *aligned_addr;
+  FAR char *s = (FAR char *)m;
+  unsigned long buffer;
+  int i;
 
-  /* Skip over the data in dest as quickly as possible. */
+  /* To avoid sign extension, copy C to an unsigned variable.  */
 
-  if (ALIGNED(dest))
+  while (UNALIGNED(s))
     {
-      FAR unsigned long *aligned_s1 = (FAR unsigned long *)dest;
-      while (!DETECTNULL(*aligned_s1))
+      if (n--)
         {
-          aligned_s1++;
+          *s++ = c;
+        }
+      else
+        {
+          return m;
+        }
+    }
+
+  if (!TOO_SMALL(n))
+    {
+      /* If we get this far, we know that n is large and s is word-aligned. */
+
+      aligned_addr = (FAR unsigned long *)s;
+      buffer = ((unsigned int)c << 8) | c;
+      buffer |= (buffer << 16);
+      for (i = 32; i < LBLOCKSIZE * 8; i <<= 1)
+        {
+          buffer = (buffer << i) | buffer;
         }
 
-      dest = (FAR char *)aligned_s1;
+      /* Unroll the loop.  */
+
+      while (n >= LBLOCKSIZE * 4)
+        {
+          *aligned_addr++ = buffer;
+          *aligned_addr++ = buffer;
+          *aligned_addr++ = buffer;
+          *aligned_addr++ = buffer;
+          n -= 4 * LBLOCKSIZE;
+        }
+
+      while (n >= LBLOCKSIZE)
+        {
+          *aligned_addr++ = buffer;
+          n -= LBLOCKSIZE;
+        }
+
+      /* Pick up the remainder with a bytewise loop.  */
+
+      s = (FAR char *)aligned_addr;
     }
 
-  while (*dest)
+  while (n--)
     {
-      dest++;
+      *s++ = c;
     }
 
-  /* dest now points to the its trailing null character, we can
-   * just use strcpy to do the work for us now.
-   * ?!? We might want to just include strcpy here.
-   * Also, this will cause many more unaligned string copies because
-   * dest is much less likely to be aligned.  I don't know if its worth
-   * tweaking strcpy to handle this better.
-   */
-
-  strcpy(dest, src);
-
-  return ret;
+  return m;
 }
 #endif
