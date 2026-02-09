@@ -1,5 +1,8 @@
 /****************************************************************************
- * include/nuttx/rpmsg/rpmsg_virtio.h
+ * boards/arm/imx9/mr-navq95b/src/imx95_bringup.c
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: 2026 NXP
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,49 +21,81 @@
  *
  ****************************************************************************/
 
-#ifndef __INCLUDE_NUTTX_RPMSG_RPMSG_VIRTIO_H
-#define __INCLUDE_NUTTX_RPMSG_RPMSG_VIRTIO_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
+#include <nuttx/fs/fs.h>
+#include <sys/types.h>
+#include <syslog.h>
+#include "mr-navq95b.h"
 
-#ifdef CONFIG_RPMSG_VIRTIO
+#ifdef CONFIG_RPTUN
+#  include <imx9_rptun.h>
+#endif
 
-#include <openamp/virtio.h>
-
-/****************************************************************************
- * Pre-processor Definitions
- ****************************************************************************/
-
-/****************************************************************************
- * Public Data
- ****************************************************************************/
-
-#ifdef __cplusplus
-#define EXTERN extern "C"
-extern "C"
-{
-#else
-#define EXTERN extern
+#ifdef CONFIG_RPMSG_UART
+#  include <nuttx/serial/uart_rpmsg.h>
 #endif
 
 /****************************************************************************
- * Public Function Prototypes
+ * Public Functions
  ****************************************************************************/
 
-int rpmsg_virtio_probe_cpuname(FAR struct virtio_device *vdev,
-                               FAR const char *cpuname);
-int rpmsg_virtio_probe(FAR struct virtio_device *vdev);
-void rpmsg_virtio_remove(FAR struct virtio_device *vdev);
-
-#undef EXTERN
-#ifdef __cplusplus
+#ifdef CONFIG_RPMSG_UART
+void rpmsg_serialinit(void)
+{
+  uart_rpmsg_init("netcore", "proxy", 4096, true);
 }
 #endif
 
-#endif /* CONFIG_RPMSG_VIRTIO */
+/****************************************************************************
+ * Name: imx_bringup
+ *
+ * Description:
+ *   Bring up board features
+ *
+ ****************************************************************************/
 
-#endif /* __INCLUDE_NUTTX_RPMSG_RPMSG_VIRTIO_H */
+int imx95_bringup(void)
+{
+  int ret;
+
+#ifdef CONFIG_RPTUN
+  imx9_rptun_init("imx9-shmem", "netcore");
+#endif
+
+#ifdef CONFIG_FS_PROCFS
+  /* Mount the procfs file system */
+
+  ret = nx_mount(NULL, "/proc", "procfs", 0, NULL);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: Failed to mount procfs at /proc: %d\n", ret);
+    }
+#endif
+
+#if defined(CONFIG_IMX9_LPI2C)
+  /* Configure I2C peripheral interfaces */
+
+  ret = imx95_i2c_initialize();
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "Failed to initialize I2C driver: %d\n", ret);
+    }
+#endif
+
+#if defined(CONFIG_IMX9_LPSPI1)
+  /* Configure SPI peripheral interfaces */
+
+  ret = imx95_spi_initialize();
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "Failed to initialize SPI driver: %d\n", ret);
+    }
+#endif
+
+  UNUSED(ret);
+  return OK;
+}

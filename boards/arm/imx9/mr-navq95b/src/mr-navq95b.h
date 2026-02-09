@@ -1,5 +1,8 @@
 /****************************************************************************
- * include/nuttx/rpmsg/rpmsg_virtio.h
+ * boards/arm/imx9/mr-navq95b/src/mr-navq95b.h
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: 2026 NXP
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,8 +21,8 @@
  *
  ****************************************************************************/
 
-#ifndef __INCLUDE_NUTTX_RPMSG_RPMSG_VIRTIO_H
-#define __INCLUDE_NUTTX_RPMSG_RPMSG_VIRTIO_H
+#ifndef __BOARDS_ARM_IMX9_MR_NAVQ95B_SRC_MR_NAVQ95B_H
+#define __BOARDS_ARM_IMX9_MR_NAVQ95B_SRC_MR_NAVQ95B_H
 
 /****************************************************************************
  * Included Files
@@ -27,40 +30,69 @@
 
 #include <nuttx/config.h>
 
-#ifdef CONFIG_RPMSG_VIRTIO
-
-#include <openamp/virtio.h>
+#include <stdint.h>
 
 /****************************************************************************
- * Pre-processor Definitions
+ * Public Types
  ****************************************************************************/
 
 /****************************************************************************
  * Public Data
  ****************************************************************************/
 
-#ifdef __cplusplus
-#define EXTERN extern "C"
-extern "C"
-{
-#else
-#define EXTERN extern
+#ifndef __ASSEMBLY__
+
+/****************************************************************************
+ * Public Functions Definitions
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: imx95_bringup
+ *
+ * Description:
+ *   Bring up board features
+ *
+ ****************************************************************************/
+
+#if defined(CONFIG_BOARDCTL) || defined(CONFIG_BOARD_LATE_INITIALIZE)
+int imx95_bringup(void);
 #endif
 
 /****************************************************************************
- * Public Function Prototypes
+ * Name: imx95_pwm_setup
+ *
+ * Description:
+ *   Initialize PWM outputs
+ *
  ****************************************************************************/
 
-int rpmsg_virtio_probe_cpuname(FAR struct virtio_device *vdev,
-                               FAR const char *cpuname);
-int rpmsg_virtio_probe(FAR struct virtio_device *vdev);
-void rpmsg_virtio_remove(FAR struct virtio_device *vdev);
-
-#undef EXTERN
-#ifdef __cplusplus
-}
+#if defined(CONFIG_PWM)
+int imx95_pwm_setup(void);
 #endif
 
-#endif /* CONFIG_RPMSG_VIRTIO */
+/****************************************************************************
+ * Name: imx95_i2c_setup
+ *
+ * Description:
+ *   Initialize I2C devices and driver
+ *
+ ****************************************************************************/
 
-#endif /* __INCLUDE_NUTTX_RPMSG_RPMSG_VIRTIO_H */
+#if defined(CONFIG_I2C_DRIVER)
+int imx95_i2c_initialize(void);
+#endif
+
+/****************************************************************************
+ * Name: imx95_spi_setup
+ *
+ * Description:
+ *   Initialize SPI devices and driver
+ *
+ ****************************************************************************/
+
+#if defined(CONFIG_SPI_DRIVER)
+int imx95_spi_initialize(void);
+#endif
+
+#endif /* __ASSEMBLY__ */
+#endif /* __BOARDS_ARM_IMX9_MR_NAVQ95B_SRC_MR_NAVQ95B_H */

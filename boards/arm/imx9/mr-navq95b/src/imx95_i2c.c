@@ -1,5 +1,8 @@
 /****************************************************************************
- * include/nuttx/rpmsg/rpmsg_virtio.h
+ * boards/arm/imx9/mr-navq95b/src/imx95_i2c.c
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: 2026 NXP
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,49 +21,68 @@
  *
  ****************************************************************************/
 
-#ifndef __INCLUDE_NUTTX_RPMSG_RPMSG_VIRTIO_H
-#define __INCLUDE_NUTTX_RPMSG_RPMSG_VIRTIO_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
+#include <nuttx/i2c/i2c_master.h>
+#include <nuttx/sensors/bmm150.h>
+#include <debug.h>
+#include <errno.h>
+#include <sys/types.h>
 
-#ifdef CONFIG_RPMSG_VIRTIO
-
-#include <openamp/virtio.h>
+#include "imx9_lpi2c.h"
 
 /****************************************************************************
- * Pre-processor Definitions
+ * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Public Data
+ * Name: board_i2c_init
+ *
+ * Description:
+ *   Configure the I2C driver.
+ *
+ * Returned Value:
+ *   Zero (OK) is returned on success; A negated errno value is returned
+ *   to indicate the nature of any failure.
+ *
  ****************************************************************************/
 
-#ifdef __cplusplus
-#define EXTERN extern "C"
-extern "C"
+int imx95_i2c_initialize(void)
 {
-#else
-#define EXTERN extern
+  int ret = OK;
+
+#ifdef CONFIG_IMX9_LPI2C6
+  struct i2c_master_s *i2c;
+
+  i2c = imx9_i2cbus_initialize(6);
+  if (i2c == NULL)
+    {
+      i2cerr("ERROR: Failed to init I2C6 interface\n");
+      return -ENODEV;
+    }
+
+#ifdef CONFIG_SENSORS_BMM150
+  struct bmm150_config_s bmm150_config = {
+    .i2c = i2c,
+    .addr = 0x12,
+  };
+
+  bmm150_register_uorb(0, &bmm150_config);
 #endif
 
-/****************************************************************************
- * Public Function Prototypes
- ****************************************************************************/
+#ifdef CONFIG_I2C_DRIVER
+  ret = i2c_register(i2c, 0);
+  if (ret < 0)
+    {
+      i2cerr("ERROR: Failed to register I2C6 driver: %d\n", ret);
+      imx9_i2cbus_uninitialize(i2c);
+      return ret;
+    }
+#endif
 
-int rpmsg_virtio_probe_cpuname(FAR struct virtio_device *vdev,
-                               FAR const char *cpuname);
-int rpmsg_virtio_probe(FAR struct virtio_device *vdev);
-void rpmsg_virtio_remove(FAR struct virtio_device *vdev);
-
-#undef EXTERN
-#ifdef __cplusplus
+#endif
+  return OK;
 }
-#endif
-
-#endif /* CONFIG_RPMSG_VIRTIO */
-
-#endif /* __INCLUDE_NUTTX_RPMSG_RPMSG_VIRTIO_H */
