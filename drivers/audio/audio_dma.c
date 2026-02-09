@@ -59,7 +59,7 @@ struct audio_dma_s
 
 static int audio_dma_getcaps(struct audio_lowerhalf_s *dev, int type,
                              struct audio_caps_s *caps);
-static int audio_dma_shutdown(struct audio_lowerhalf_s *dev, int cnt);
+static int audio_dma_shutdown(struct audio_lowerhalf_s *dev);
 #ifdef CONFIG_AUDIO_MULTI_SESSION
 static int audio_dma_configure(struct audio_lowerhalf_s *dev,
                                void *session,
@@ -110,7 +110,6 @@ static void audio_dma_callback(struct dma_chan_s *chan, void *arg,
 
 static const struct audio_ops_s g_audio_dma_ops =
 {
-  .setup = NULL,
   .getcaps = audio_dma_getcaps,
   .configure = audio_dma_configure,
   .shutdown = audio_dma_shutdown,
@@ -260,7 +259,7 @@ static int audio_dma_configure(struct audio_lowerhalf_s *dev,
   return ret;
 }
 
-static int audio_dma_shutdown(struct audio_lowerhalf_s *dev, int cnt)
+static int audio_dma_shutdown(struct audio_lowerhalf_s *dev)
 {
   /* apps enqueued buffers, but doesn't start. stop here to
    * clear audio_dma->pendq.

@@ -73,7 +73,7 @@ static int  cs4344_configure(FAR struct audio_lowerhalf_s *dev,
 static int  cs4344_configure(FAR struct audio_lowerhalf_s *dev,
                               FAR const struct audio_caps_s *caps);
 #endif
-static int  cs4344_shutdown(FAR struct audio_lowerhalf_s *dev, int cnt);
+static int  cs4344_shutdown(FAR struct audio_lowerhalf_s *dev);
 static void cs4344_senddone(FAR struct i2s_dev_s *i2s,
                              FAR struct ap_buffer_s *apb, FAR void *arg,
                              int result);
@@ -136,7 +136,6 @@ static int cs4344_reset(FAR struct cs4344_dev_s *priv);
 
 static const struct audio_ops_s g_audioops =
 {
-  NULL,                 /* setup */
   cs4344_getcaps,       /* getcaps */
   cs4344_configure,     /* configure */
   cs4344_shutdown,      /* shutdown */
@@ -630,7 +629,7 @@ cs4344_configure(FAR struct audio_lowerhalf_s *dev,
  *
  ****************************************************************************/
 
-static int cs4344_shutdown(FAR struct audio_lowerhalf_s *dev, int cnt)
+static int cs4344_shutdown(FAR struct audio_lowerhalf_s *dev)
 {
   FAR struct cs4344_dev_s *priv = (FAR struct cs4344_dev_s *)dev;
 

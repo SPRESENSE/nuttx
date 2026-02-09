@@ -589,7 +589,7 @@ struct audio_ops_s
    * processed / dequeued should be dequeued by this function.
    */
 
-  CODE int (*shutdown)(FAR struct audio_lowerhalf_s *dev, int opencnt);
+  CODE int (*shutdown)(FAR struct audio_lowerhalf_s *dev);
 
   /* Start audio streaming in the configured mode.  For input and synthesis
    * devices, this means it should begin sending streaming audio data.

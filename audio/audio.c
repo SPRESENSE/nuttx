@@ -141,7 +141,6 @@ static int audio_open(FAR struct file *filep)
 {
   FAR struct inode *inode = filep->f_inode;
   FAR struct audio_upperhalf_s *upper = inode->i_private;
-  FAR struct audio_lowerhalf_s *lower = upper->dev;
   uint8_t tmp;
   int ret;
 
@@ -167,17 +166,6 @@ static int audio_open(FAR struct file *filep)
 
       ret = -EMFILE;
       goto errout_with_lock;
-    }
-
-  /* Call open method of lowerhalf if exist */
-
-  if (lower && lower->ops && lower->ops->setup)
-    {
-      ret = lower->ops->setup(lower, tmp);
-      if (ret < 0)
-        {
-          goto errout_with_lock;
-        }
     }
 
   /* Save the new open count on success */
@@ -237,7 +225,7 @@ static int audio_close(FAR struct file *filep)
       DEBUGASSERT(lower->ops->shutdown != NULL);
       audinfo("calling shutdown\n");
 
-      lower->ops->shutdown(lower, upper->crefs);
+      lower->ops->shutdown(lower);
       upper->usermq = NULL;
     }
 
@@ -429,8 +417,7 @@ static int audio_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 
           /* Call the lower-half driver initialize handler */
 
-          ret = lower->ops->shutdown(lower, upper->crefs);
-          upper->started = false;
+          ret = lower->ops->shutdown(lower);
         }
         break;
 
@@ -494,7 +481,6 @@ static int audio_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
           audinfo("AUDIOIOC_PAUSE\n");
           DEBUGASSERT(lower->ops->pause != NULL);
 
-          ret = -EAGAIN;
           if (upper->started)
             {
 #ifdef CONFIG_AUDIO_MULTI_SESSION
@@ -517,7 +503,6 @@ static int audio_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
           audinfo("AUDIOIOC_RESUME\n");
           DEBUGASSERT(lower->ops->resume != NULL);
 
-          ret = -EAGAIN;
           if (upper->started)
             {
 #ifdef CONFIG_AUDIO_MULTI_SESSION

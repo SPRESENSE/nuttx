@@ -173,7 +173,7 @@ static int virtio_snd_enqueuebuffer(FAR struct audio_lowerhalf_s *dev,
 static int virtio_snd_ioctl(FAR struct audio_lowerhalf_s *dev,
                             int cmd,
                             unsigned long arg);
-static int virtio_snd_shutdown(FAR struct audio_lowerhalf_s *dev, int cnt);
+static int virtio_snd_shutdown(FAR struct audio_lowerhalf_s *dev);
 
 static int virtio_snd_probe(FAR struct virtio_device *vdev);
 static void virtio_snd_remove(FAR struct virtio_device *vdev);
@@ -248,7 +248,6 @@ static struct virtio_driver g_virtio_snd_driver =
 
 static const struct audio_ops_s g_virtio_snd_ops =
 {
-  NULL,                      /* setup          */
   virtio_snd_getcaps,        /* getcaps        */
   virtio_snd_configure,      /* configure      */
   virtio_snd_shutdown,       /* shutdown       */
@@ -1030,7 +1029,7 @@ static int virtio_snd_ioctl(FAR struct audio_lowerhalf_s *dev,
  *
  ****************************************************************************/
 
-static int virtio_snd_shutdown(FAR struct audio_lowerhalf_s *dev, int cnt)
+static int virtio_snd_shutdown(FAR struct audio_lowerhalf_s *dev)
 {
   vrtinfo("Return OK\n");
   return OK;

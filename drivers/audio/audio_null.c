@@ -135,7 +135,6 @@ static int   null_sleep(FAR struct audio_lowerhalf_s *dev,
 
 static const struct audio_ops_s g_audioops =
 {
-  NULL,               /* setup          */
   null_getcaps,       /* getcaps        */
   null_configure,     /* configure      */
   null_shutdown,      /* shutdown       */
@@ -484,7 +483,7 @@ static int null_configure(FAR struct audio_lowerhalf_s *dev,
  *
  ****************************************************************************/
 
-static int null_shutdown(FAR struct audio_lowerhalf_s *dev, int cnt)
+static int null_shutdown(FAR struct audio_lowerhalf_s *dev)
 {
   audinfo("Return OK\n");
   return OK;

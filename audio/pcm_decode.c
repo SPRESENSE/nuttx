@@ -124,8 +124,6 @@ static void pcm_subsample(FAR struct pcm_decode_s *priv,
 
 /* struct audio_lowerhalf_s methods *****************************************/
 
-static int  pcm_setup(FAR struct audio_lowerhalf_s *dev, int opencnt);
-
 static int  pcm_getcaps(FAR struct audio_lowerhalf_s *dev, int type,
               FAR struct audio_caps_s *caps);
 
@@ -137,7 +135,7 @@ static int  pcm_configure(FAR struct audio_lowerhalf_s *dev,
               FAR const struct audio_caps_s *caps);
 #endif
 
-static int  pcm_shutdown(FAR struct audio_lowerhalf_s *dev, int cnt);
+static int  pcm_shutdown(FAR struct audio_lowerhalf_s *dev);
 
 #ifdef CONFIG_AUDIO_MULTI_SESSION
 static int  pcm_start(FAR struct audio_lowerhalf_s *dev, FAR void *session);
@@ -670,34 +668,6 @@ static void pcm_subsample(FAR struct pcm_decode_s *priv,
 #endif
 
 /****************************************************************************
- * Name: pcm_setup
- *
- * Description:
- *   This method is called when the related device file is opened.
- *   And then next lower's setup is called in this method.
- *
- ****************************************************************************/
-
-static int  pcm_setup(FAR struct audio_lowerhalf_s *dev, int opencnt)
-{
-  FAR struct pcm_decode_s *priv = (FAR struct pcm_decode_s *)dev;
-  FAR struct audio_lowerhalf_s *lower;
-
-  DEBUGASSERT(priv);
-
-  lower = priv->lower;
-
-  DEBUGASSERT(lower);
-
-  if (lower->ops && lower->ops->setup)
-    {
-      return lower->ops->setup(lower, opencnt);
-    }
-
-  return OK;
-}
-
-/****************************************************************************
  * Name: pcm_getcaps
  *
  * Description:
@@ -820,7 +790,7 @@ static int pcm_configure(FAR struct audio_lowerhalf_s *dev,
  *
  ****************************************************************************/
 
-static int pcm_shutdown(FAR struct audio_lowerhalf_s *dev, int cnt)
+static int pcm_shutdown(FAR struct audio_lowerhalf_s *dev)
 {
   FAR struct pcm_decode_s *priv = (FAR struct pcm_decode_s *)dev;
   FAR struct audio_lowerhalf_s *lower;
@@ -837,7 +807,7 @@ static int pcm_shutdown(FAR struct audio_lowerhalf_s *dev, int cnt)
   DEBUGASSERT(lower && lower->ops->shutdown);
 
   audinfo("Defer to lower shutdown\n");
-  return lower->ops->shutdown(lower, cnt);
+  return lower->ops->shutdown(lower);
 }
 
 /****************************************************************************
@@ -1436,7 +1406,6 @@ FAR struct audio_lowerhalf_s *
   /* Setup our operations */
 
   ops                  = &priv->ops;
-  ops->setup           = pcm_setup;
   ops->getcaps         = pcm_getcaps;
   ops->configure       = pcm_configure;
   ops->shutdown        = pcm_shutdown;

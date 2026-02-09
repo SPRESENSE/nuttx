@@ -556,7 +556,6 @@ static struct sam_classd_config_s sam_classd_const =
 
 static const struct audio_ops_s g_audioops =
 {
-  NULL,                 /* setup          */
   classd_getcaps,       /* getcaps        */
   classd_configure,     /* configure      */
   classd_shutdown,      /* shutdown       */
@@ -1750,7 +1749,7 @@ static int classd_configure(struct audio_lowerhalf_s *dev,
  *
  ****************************************************************************/
 
-static int classd_shutdown(struct audio_lowerhalf_s *dev, int cnt)
+static int classd_shutdown(struct audio_lowerhalf_s *dev)
 {
   struct classd_dev_s *priv = (struct classd_dev_s *)dev;
 
