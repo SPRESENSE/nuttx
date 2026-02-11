@@ -2180,6 +2180,11 @@ static int capture_reqbufs(FAR struct file *filep,
       return -EINVAL;
     }
 
+  if (reqbufs->count == 0)
+    {
+      return 0;
+    }
+
   imgdata  = cmng->imgdata;
   type_inf = get_capture_type_inf(cmng, reqbufs->type);
   if (type_inf == NULL)
@@ -3451,7 +3456,7 @@ static int capture_enum_fmt(FAR struct file *filep,
 
   if (cmng->imgsensor && cmng->imgsensor->fmtdescs)
     {
-      if (f->index > cmng->imgsensor->fmtdescs_num)
+      if (f->index >= cmng->imgsensor->fmtdescs_num)
         {
           return -EINVAL;
         }
@@ -3489,7 +3494,7 @@ static int capture_enum_frmsize(FAR struct file *filep,
 
   if (cmng->imgsensor && cmng->imgsensor->frmsizes)
     {
-      if (f->index > cmng->imgsensor->frmsizes_num)
+      if (f->index >= cmng->imgsensor->frmsizes_num)
         {
           return -EINVAL;
         }
@@ -3534,7 +3539,7 @@ static int capture_enum_frminterval(FAR struct file *filep,
 
   if (cmng->imgsensor && cmng->imgsensor->frmintervals)
     {
-      if (f->index > cmng->imgsensor->frmintervals_num)
+      if (f->index >= cmng->imgsensor->frmintervals_num)
         {
           return -EINVAL;
         }
