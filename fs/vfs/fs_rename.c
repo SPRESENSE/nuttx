@@ -73,7 +73,6 @@ static int pseudorename(FAR const char *oldpath, FAR struct inode *oldinode,
    * first, provided that it is not a directory.
    */
 
-next_subdir:
   SETUP_SEARCH(&newdesc, newpath, true);
   ret = inode_find(&newdesc);
   if (ret >= 0)
@@ -113,16 +112,6 @@ next_subdir:
         {
           FAR char *subdirname;
 
-          inode_release(newinode);
-
-          /* Free memory may be allocated in previous loop */
-
-          if (subdir != NULL)
-            {
-              lib_free(subdir);
-              subdir = NULL;
-            }
-
           /* Yes.. In this case, the target of the rename must be a
            * subdirectory of newinode, not the newinode itself.  For
            * example: mv b a/ must move b to a/b.
@@ -138,14 +127,6 @@ next_subdir:
             }
 
           newpath = subdir;
-
-          /* This can be a recursive case, another inode may already exist
-           * at oldpth/subdirname.  In that case, we need to do this all
-           * over again.  A nasty goto is used because I am lazy.
-           */
-
-          RELEASE_SEARCH(&newdesc);
-          goto next_subdir;
         }
       else
         {
@@ -338,7 +319,6 @@ static int mountptrename(FAR const char *oldpath, FAR struct inode *oldinode,
     {
       struct stat buf;
 
-next_subdir:
       ret = oldinode->u.i_mops->stat(oldinode, newrelpath, &buf);
       if (ret >= 0)
         {
@@ -363,19 +343,8 @@ next_subdir:
                 }
               else
                 {
-                  /* Save subdir to free memory may be allocated in
-                   * previous loop.
-                   */
-
-                  FAR void *tmp = subdir;
-
                   ret = asprintf(&subdir, "%s/%s", newrelpath,
                                  subdirname);
-                  if (tmp != NULL)
-                    {
-                      lib_free(tmp);
-                    }
-
                   if (ret < 0)
                     {
                       subdir = NULL;
@@ -385,14 +354,6 @@ next_subdir:
 
                   newrelpath = subdir;
                 }
-
-              /* This can be a recursive, another directory may already
-               * exist at the newrelpath.  In that case, we need to
-               * do this all over again.  A nasty goto is used because
-               * I am lazy.
-               */
-
-              goto next_subdir;
             }
           else
             {
