@@ -214,6 +214,7 @@ distclean:: clean
 	$(Q) $(MAKE) -C kbin distclean
 	$(Q) $(MAKE) -C zoneinfo distclean BIN=$(BIN)
 	$(call DELFILE, exec_symtab.c)
+	$(call DELFILE, $(CSRCS:.c=.ddc) $(ASRCS:.S=.dds))
 	$(call DELFILE, bin$(DELIM)Make.dep)
 	$(call DELFILE, kbin$(DELIM)Make.dep)
 	$(call DELFILE, .depend)

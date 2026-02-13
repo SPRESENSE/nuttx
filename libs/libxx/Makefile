@@ -91,6 +91,7 @@ clean:
 	$(call CLEAN)
 
 distclean:: clean
+	$(call DELFILE, $(CXXSRCS:.cxx=.ddx) $(CPPSRCS:.cpp=.ddp))
 	$(call DELFILE, Make.dep)
 	$(call DELFILE, .depend)
 

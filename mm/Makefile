@@ -122,6 +122,7 @@ clean:
 distclean:: clean
 	$(Q) $(MAKE) -C bin  distclean
 	$(Q) $(MAKE) -C kbin distclean
+	$(call DELFILE, $(CSRCS:.c=.ddc) $(ASRCS:.S=.dds))
 	$(call DELFILE, bin$(DELIM)Make.dep)
 	$(call DELFILE, kbin$(DELIM)Make.dep)
 	$(call DELFILE, .depend)
