@@ -33,7 +33,7 @@
 #include "inode/inode.h"
 
 /****************************************************************************
- * Public Functions
+ * Private Functions
  ****************************************************************************/
 
 /****************************************************************************
@@ -54,7 +54,7 @@
  *
  ****************************************************************************/
 
-FAR struct inode *inode_unlink(FAR const char *path)
+static FAR struct inode *inode_unlink(FAR const char *path)
 {
   struct inode_search_s desc;
   FAR struct inode *node = NULL;
@@ -90,7 +90,16 @@ FAR struct inode *inode_unlink(FAR const char *path)
 
       else
         {
-          DEBUGASSERT(desc.parent != NULL);
+          /* The parent could be null if we are trying to remove the
+           * root inode. In that case, fail because we cannot remove it.
+           */
+
+          if (desc.parent == NULL)
+            {
+              node = NULL;
+              goto errout;
+            }
+
           desc.parent->i_child = node->i_peer;
         }
 
@@ -98,9 +107,14 @@ FAR struct inode *inode_unlink(FAR const char *path)
       node->i_parent = NULL;
     }
 
+errout:
   RELEASE_SEARCH(&desc);
   return node;
 }
+
+/****************************************************************************
+ * Public Functions
+ ****************************************************************************/
 
 /****************************************************************************
  * Name: inode_remove
