@@ -118,6 +118,7 @@ endif
 
 distclean: clean
 	$(call DELFILE, .context)
+	$(call DELFILE, $(CSRCS:.c=.ddc) $(ASRCS:.S=.dds))
 	$(call DELFILE, Make.dep)
 	$(call DELFILE, .depend)
 	$(call DELFILE, proxies$(DELIM)*.c)
