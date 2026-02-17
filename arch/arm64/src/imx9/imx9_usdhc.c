@@ -69,9 +69,11 @@
 #define DCACHE_LINEMASK (ARMV8A_DCACHE_LINESIZE - 1)
 
 #if !defined(CONFIG_ARM64_DCACHE_DISABLE)
+#  define USDHC_DATABUF_ALIGN    ARMV8A_DCACHE_LINESIZE
 #  define cache_aligned_alloc(s) kmm_memalign(ARMV8A_DCACHE_LINESIZE,(s))
 #  define CACHE_ALIGNED_DATA     aligned_data(ARMV8A_DCACHE_LINESIZE)
 #else
+#  define USDHC_DATABUF_ALIGN    sizeof(uint32_t)
 #  define cache_aligned_alloc    kmm_malloc
 #  define CACHE_ALIGNED_DATA
 #endif
@@ -85,12 +87,6 @@
 #  define  IMX9_MAX_SDHC_DEV_SLOTS  2
 #else
 #error Unrecognised number of SDHC slots
-#endif
-
-#if !defined(CONFIG_IMX9_USDHC_DMA)
-#  warning "Large Non-DMA transfer may result in RX overrun failures"
-#elif !defined(CONFIG_SDIO_DMA)
-#  warning CONFIG_SDIO_DMA should be defined with CONFIG_IMX9_USDHC_DMA
 #endif
 
 #if !defined(CONFIG_SCHED_WORKQUEUE) || !defined(CONFIG_SCHED_HPWORK)
@@ -126,7 +122,7 @@
 
 /* Block size for multi-block transfers */
 
-#define SDMMC_MAX_BLOCK_SIZE        (512)
+#define USDHC_MAX_BLOCK_SIZE        (512)
 
 /* Data transfer / Event waiting interrupt mask bits */
 
@@ -202,19 +198,17 @@ struct imx9_dev_s
   size_t remaining;                   /* Number of bytes remaining in the
                                        * transfer */
   uint32_t xfrints;                   /* Interrupt enables for data transfer */
-
-#ifdef CONFIG_IMX9_USDHC_DMA
-  /* DMA data transfer support */
-
   volatile uint8_t xfrflags;          /* Used to synchronize SDIO and DMA
                                        * completion */
                                       /* DMA buffer for unaligned transfers */
-#if !defined(CONFIG_ARM64_DCACHE_DISABLE)
+
+  /* DMA data transfer support */
+
+#if defined(CONFIG_IMX9_USDHC_DMA)
   uint32_t blocksize;                 /* Current block size */
-  uint8_t  rxbuffer[SDMMC_MAX_BLOCK_SIZE]
-                   __attribute__((aligned(ARMV8A_DCACHE_LINESIZE)));
+  uint8_t  rxbuffer[USDHC_MAX_BLOCK_SIZE]
+                   __attribute__((aligned(USDHC_DATABUF_ALIGN)));
   bool     unaligned_rx;              /* buffer is not cache-line aligned */
-#endif
 #endif
 
   /* Card interrupt support for SDIO */
@@ -227,6 +221,7 @@ struct imx9_dev_s
   uint32_t sw_cd_gpio;                /* If a non USDHCx CD pin is used,
                                        * this is its GPIO */
   uint32_t cd_invert;                 /* If true invert the CD pin */
+  uint32_t root_clock_freq;           /* Root clock frequency */
 };
 
 /* Register logging support */
@@ -304,9 +299,8 @@ static void imx9_dataconfig(struct imx9_dev_s *priv, bool bwrite,
 #ifndef CONFIG_IMX9_USDHC_DMA
 static void imx9_transmit(struct imx9_dev_s *priv);
 static void imx9_receive(struct imx9_dev_s *priv);
-#if !defined(CONFIG_ARM64_DCACHE_DISABLE)
+#else
 static void imx9_recvdma(struct imx9_dev_s *priv);
-#endif
 #endif
 
 static void imx9_eventtimeout(wdparm_t arg);
@@ -333,10 +327,9 @@ static void imx9_reset(struct sdio_dev_s *dev);
 static sdio_capset_t imx9_capabilities(struct sdio_dev_s *dev);
 static sdio_statset_t imx9_status(struct sdio_dev_s *dev);
 static void imx9_widebus(struct sdio_dev_s *dev, bool enable);
-
-#ifdef CONFIG_IMX9_USDHC_ABSFREQ
-static void imx9_frequency(struct sdio_dev_s *dev, uint32_t frequency);
-#endif
+static bool imx9_sdcard_hs_mode(struct sdio_dev_s *dev, bool set);
+static uint32_t imx9_frequency(struct sdio_dev_s *dev,
+                               unsigned long frequency);
 
 static void imx9_clock(struct sdio_dev_s *dev, enum sdio_clock_e rate);
 static int  imx9_attach(struct sdio_dev_s *dev);
@@ -799,7 +792,7 @@ static void imx9_dataconfig(struct imx9_dev_s *priv, bool bwrite,
   regval |= timeout << USDHC_SYSCTL_DTOCV_SHIFT;
   putreg32(regval, priv->addr + IMX9_USDHC_SYSCTL_OFFSET);
 
-#if defined(CONFIG_IMX9_USDHC_DMA) && !defined(CONFIG_ARM64_DCACHE_DISABLE)
+#if defined(CONFIG_IMX9_USDHC_DMA)
       /* If cache is enabled, and this is an unaligned receive,
        * receive one block at a time to the internal buffer
        */
@@ -1034,14 +1027,14 @@ static void imx9_receive(struct imx9_dev_s *priv)
  *   Receive SDIO data in dma mode
  *
  * Input Parameters:
- *   priv  - Instance of the SDMMC private state structure.
+ *   priv  - Instance of the USDHC private state structure.
  *
  * Returned Value:
  *   None
  *
  ****************************************************************************/
 
-#if defined(CONFIG_IMX9_USDHC_DMA) && !defined(CONFIG_ARM64_DCACHE_DISABLE)
+#if defined(CONFIG_IMX9_USDHC_DMA)
 static void imx9_recvdma(struct imx9_dev_s *priv)
 {
   unsigned int watermark;
@@ -1052,10 +1045,12 @@ static void imx9_recvdma(struct imx9_dev_s *priv)
        * we receive them one-by-one
        */
 
+#  if !defined(CONFIG_ARM64_DCACHE_DISABLE)
       /* Invalidate the cache before receiving next block */
 
       up_invalidate_dcache((uintptr_t)priv->rxbuffer,
                            (uintptr_t)priv->rxbuffer + priv->blocksize);
+#endif
 
       /* Copy the received data to client buffer */
 
@@ -1067,10 +1062,12 @@ static void imx9_recvdma(struct imx9_dev_s *priv)
     }
   else
     {
+#  if !defined(CONFIG_ARM64_DCACHE_DISABLE)
       /* In an aligned case, we have always received all blocks */
 
       up_invalidate_dcache((uintptr_t)priv->buffer,
                            (uintptr_t)priv->buffer + priv->remaining);
+#  endif
       priv->remaining = 0;
     }
 
@@ -1304,7 +1301,7 @@ static int imx9_interrupt(int irq, void *context, void *arg)
       if ((pending & USDHC_INT_TC) != 0)
         {
           /* Terminate the transfer */
-#if defined(CONFIG_IMX9_USDHC_DMA) && !defined(CONFIG_ARM64_DCACHE_DISABLE)
+#if defined(CONFIG_IMX9_USDHC_DMA)
           imx9_recvdma(priv);
 #else
           imx9_endtransfer(priv, SDIOWAIT_TRANSFERDONE);
@@ -1662,6 +1659,141 @@ static void imx9_widebus(struct sdio_dev_s *dev, bool wide)
 }
 
 /****************************************************************************
+ * Name: imx9_sdcard_hs_mode
+ *
+ * Description:
+ *   Check if the high speed mode is supported or try to switch to that
+ *   via CMD6
+ *
+ * Input Parameters:
+ *   dev    - An instance of the SDIO device interface
+ *   set    - Switch to HS mode
+ *
+ * Returned Value:
+ *   If "set" is false, return true if card supports high speed mode. If
+ *   the "set" is true, return true if the selected mode for group one is
+ *   high-speed (1), that is, card is switched to high-speed.
+ *
+ ****************************************************************************/
+
+static bool imx9_sdcard_hs_mode(struct sdio_dev_s *dev, bool set)
+{
+#ifdef CONFIG_IMX9_USDHC_DMA
+  struct imx9_dev_s *priv = (struct imx9_dev_s *)dev;
+  uint8_t *resp = priv->rxbuffer;
+#else
+  uint32_t resp_buf[16]; /* 32-bit aligned 64-byte buffer */
+  uint8_t *resp = (uint8_t *)resp_buf;
+#endif
+  uint32_t r1;
+  int ret;
+
+  /* Construct CMD6 with full 64 byte response */
+
+  const uint32_t cmd6 = (MMCSD_CMDIDX6 | MMCSD_R1_RESPONSE |
+                         MMCSD_RDDATAXFR | USDHC_XFERTYP_RSPTYP_LEN48 |
+                         USDHC_XFERTYP_CICEN | USDHC_XFERTYP_CCCEN);
+
+  /* CMD6 argument for switching to high-speed mode:
+   * Bit 31: Mode (1 = switch, 0 = check)
+   * Bits 30:24: Reserved (0)
+   * Bits 23:20: Group 6 (0xf = no change)
+   * Bits 19:16: Group 5 (0xf = no change)
+   * Bits 15:12: Group 4 (0xf = no change)
+   * Bits 11:8:  Group 3 (0xf = no change)
+   * Bits 7:4:   Group 2 (0xf = no change)
+   * Bits 3:0:   Group 1 - Access Mode (0x1 = High Speed)
+   */
+
+  const uint32_t cmd6_arg = set ? 0x80fffff1u : 0x00fffff1u;
+  uint16_t fg1_support;
+  uint8_t fg1_selected;
+  bool hs_supported = false;
+  sdio_eventset_t wait_ret;
+
+#ifdef CONFIG_SDIO_BLOCKSETUP
+  imx9_blocksetup(dev, 64, 1);
+#endif
+  imx9_waitenable(dev, SDIOWAIT_TRANSFERDONE | SDIOWAIT_TIMEOUT |
+                  SDIOWAIT_ERROR, 100);
+
+#ifdef CONFIG_IMX9_USDHC_DMA
+  imx9_dmarecvsetup(dev, resp, 64);
+#else
+  imx9_recvsetup(dev, resp, 64);
+#endif
+
+  ret = imx9_sendcmd(dev, cmd6, cmd6_arg);
+  if (ret != OK)
+    {
+      return false;
+    }
+
+  ret = imx9_waitresponse(dev, cmd6);
+  if (ret != OK)
+    {
+      return false;
+    }
+
+  ret = imx9_recvshortcrc(dev, cmd6, &r1);
+  if (ret != OK)
+    {
+      return false;
+    }
+
+  wait_ret = imx9_eventwait(dev);
+  if (wait_ret & (SDIOWAIT_TIMEOUT | SDIOWAIT_ERROR))
+    {
+      return false;
+    }
+
+  /* Parse the switch status block */
+
+  /* FG1 support (16-bit big-endian at bytes 12..13) */
+
+  fg1_support = ((uint16_t)resp[12] << 8) | resp[13];
+
+  /* FG1 selected result at byte 16 low nibble */
+
+  fg1_selected = resp[16] & 0xf;
+
+  if (set)
+    {
+      /* Selected should indicate function 1 */
+
+      hs_supported = fg1_selected == 1;
+    }
+  else
+    {
+      /* Rely on support bits */
+
+      hs_supported = (fg1_support & (1 << 1)) != 0;
+    }
+
+  if (set)
+    {
+      if (hs_supported)
+        {
+          mcinfo("SD card switched to high-speed mode (fg1_selected=%02x)\n",
+                 fg1_selected);
+        }
+      else
+        {
+          mcerr("ERROR: Failed to set SD card high-speed mode"
+                " (fg1_selected=%02x, fg1_support=0x%04x)\n",
+                fg1_selected, fg1_support);
+        }
+    }
+  else
+    {
+      mcinfo("High Speed is%s supported by the card (fg1_support=0x%04x)\n",
+             hs_supported ? "" : " not", fg1_support);
+    }
+
+  return hs_supported;
+}
+
+/****************************************************************************
  * Name: imx9_frequency
  *
  * Description:
@@ -1672,18 +1804,17 @@ static void imx9_widebus(struct sdio_dev_s *dev, bool wide)
  *   frequency - The frequency to use
  *
  * Returned Value:
- *   None
+ *   frequency divisor bits for the SYSCTL register
  *
  ****************************************************************************/
 
-#ifdef CONFIG_IMX9_USDHC_ABSFREQ
-static void imx9_frequency(struct sdio_dev_s *dev, uint32_t frequency)
+static uint32_t imx9_frequency(struct sdio_dev_s *dev,
+                               unsigned long frequency)
 {
-  uint32_t sdclkfs;
-  uint32_t prescaled;
-  uint32_t regval;
-  unsigned int prescaler;
-  unsigned int divisor;
+  struct imx9_dev_s *priv = (struct imx9_dev_s *)dev;
+  unsigned long root_freq = priv->root_clock_freq;
+  unsigned prescaler;
+  unsigned divisor;
 
   /* The SDCLK frequency is determined by
    *  (1) the frequency of the base clock that was selected as the
@@ -1694,109 +1825,58 @@ static void imx9_frequency(struct sdio_dev_s *dev, uint32_t frequency)
    *
    * The prescaler is available only for the values: 2, 4, 8, 16, 32,
    * 64, 128, and 256.  Pick the smallest value of SDCLKFS that would
-   * result in an in-range frequency. For example, if the base clock
-   * frequency is 96 MHz, and the target frequency is 25 MHz, the
-   * following logic will select prescaler:
-   *
-   * NOTE: USDHC_SYSCTL_SDCLKFS_DIVs are for Single Data Rate mode.
-   *       See Reference manual for further details.
-   *
-   *  96MHz / 2 <= 25MHz <= 96MHz / 2 /16 -- YES, prescaler == 2
-   *
-   * If the target frequency is 400 kHz, the following logic will
-   * select prescaler:
-   *
-   *  96MHz / 2 <= 400KHz <= 96MHz / 2 / 16 -- NO
-   *  96MHz / 4 <= 400KHz <= 96MHz / 4 / 16 -- NO
-   *  96MHz / 8 <= 400KHz <= 96MHz / 8 / 16 -- NO
-   *  96MHz / 16 <=400KHz <= 96MHz / 16 / 16 -- YES, prescaler == 16
+   * result in an in-range frequency.
    */
 
-  if (/* frequency >= (BOARD_CORECLK_FREQ / 2) && */
-       frequency <= (BOARD_CORECLK_FREQ / 2 / 16))
+  prescaler = 1;
+  do
     {
-      sdclkfs   = USDHC_SYSCTL_SDCLKFS_DIV2;
-      prescaler = 2;
+      prescaler *= 2;
+      divisor = root_freq / (frequency * prescaler);
+
+      /* In case of root_freq is not divisible by frequency * prescaler
+       * we need to increase divisor by one to avoid frequency higher
+       * than requested
+       */
+
+      if (root_freq % (frequency * prescaler))
+        {
+          divisor++;
+        }
     }
-  else if (frequency >= (BOARD_CORECLK_FREQ / 4) &&
-           frequency <= (BOARD_CORECLK_FREQ / 4 / 16))
+  while (divisor > 16 && prescaler < 256);
+
+  /* Clamp divisor to minimum of 1 */
+
+  if (divisor < 1)
     {
-      sdclkfs   = USDHC_SYSCTL_SDCLKFS_DIV4;
-      prescaler = 4;
+      divisor = 1;
     }
-  else if (frequency >= (BOARD_CORECLK_FREQ / 8) &&
-           frequency <= (BOARD_CORECLK_FREQ / 8 / 16))
+
+  /* Clamp divisor to maximum 16. This would result too high frequency.
+   * This only triggers if prescaler reached maximum (256) but frequency
+   * is still too high. At 200MHz root clock this would mean that < 50kHZ
+   * frequency was requested, so this is not a real issue.
+   */
+
+  if (divisor > 16)
     {
-      sdclkfs   = USDHC_SYSCTL_SDCLKFS_DIV8;
-      prescaler = 8;
-    }
-  else if (frequency >= (BOARD_CORECLK_FREQ / 16) &&
-           frequency <= (BOARD_CORECLK_FREQ / 16 / 16))
-    {
-      sdclkfs   = USDHC_SYSCTL_SDCLKFS_DIV16;
-      prescaler = 16;
-    }
-  else if (frequency >= (BOARD_CORECLK_FREQ / 32) &&
-           frequency <= (BOARD_CORECLK_FREQ / 32 / 16))
-    {
-      sdclkfs   = USDHC_SYSCTL_SDCLKFS_DIV32;
-      prescaler = 32;
-    }
-  else if (frequency >= (BOARD_CORECLK_FREQ / 64) &&
-           frequency <= (BOARD_CORECLK_FREQ / 64 / 16))
-    {
-      sdclkfs   = USDHC_SYSCTL_SDCLKFS_DIV64;
-      prescaler = 64;
-    }
-  else if (frequency >= (BOARD_CORECLK_FREQ / 128) &&
-           frequency <= (BOARD_CORECLK_FREQ / 128 / 16))
-    {
-      sdclkfs   = USDHC_SYSCTL_SDCLKFS_DIV128;
-      prescaler = 128;
+      divisor = 16;
+      mcerr("ERROR: Frequency too high. Requested: %lu Hz, Actual: %lu Hz "
+            "(prescaler=%u, divisor=%u)\n", frequency,
+            root_freq / (prescaler * divisor), prescaler, divisor);
     }
   else
     {
-      sdclkfs   = USDHC_SYSCTL_SDCLKFS_DIV256;
-      prescaler = 256;
+      mcinfo("Requested: %lu Hz, Actual: %lu Hz "
+             "(prescaler=%u, divisor=%u)\n", frequency,
+             root_freq / (prescaler * divisor), prescaler, divisor);
     }
 
-  /* The optimal divider can than be calculated. For example, if the base
-   * clock frequency is 96 MHz, the target frequency is 25 MHz, and the
-   * selected prescaler value is 2, then
-   *
-   *   prescaled = 96MHz / 2 = 48MHz
-   *   divisor = (48MHz + 12.5HMz/ 25MHz = 2
-   *
-   * And the resulting frequency will be 24MHz. Or, for example, if the
-   * target frequency is 400 kHz and the selected prescaler is 16, the
-   * following logic will select prescaler:
-   *
-   *   prescaled = 96MHz / 16 = 6MHz
-   *   divisor = (6MHz + 200KHz) / 400KHz = 15
-   *
-   * And the resulting frequency will be exactly 400KHz.
-   */
+  /* Return the new divisor information */
 
-  prescaled = frequency / prescaler;
-  divisor   = (prescaled + (frequency >> 1)) / frequency;
-
-  /* Set the new divisor information and enable all clocks in the SYSCTRL
-   * register. TODO: Investigate using the automatically gated clocks to
-   * reduce power consumption.
-   */
-
-  regval  = getreg32(priv->addr + IMX9_USDHC_SYSCTL_OFFSET);
-  regval &= ~(USDHC_SYSCTL_SDCLKFS_MASK | USDHC_SYSCTL_DVS_MASK);
-  regval |= (sdclkfs | USDHC_SYSCTL_DVS_DIV(divisor));
-  regval |= (USDHC_SYSCTL_SDCLKEN | USDHC_SYSCTL_PEREN |
-             USDHC_SYSCTL_HCKEN | USDHC_SYSCTL_IPGEN);
-
-  putreg32(regval, priv->addr + IMX9_USDHC_SYSCTL_OFFSET);
-
-  mcinfo("SYSCTRL: %08x\n",
-         getreg32(priv->addr + IMX9_USDHC_SYSCTL_OFFSET));
+  return USDHC_SYSCTL_SDCLKFS_DIV(prescaler) | USDHC_SYSCTL_DVS_DIV(divisor);
 }
-#endif
 
 /****************************************************************************
  * Name: imx9_clock
@@ -1817,12 +1897,13 @@ static void imx9_clock(struct sdio_dev_s *dev, enum sdio_clock_e rate)
 {
   struct imx9_dev_s *priv = (struct imx9_dev_s *)dev;
   uint32_t regval;
+  unsigned speed;
 
   /* Clear the old prescaler and divisor values so that new ones can be
    * ORed in.
    */
 
-  regval  = getreg32(priv->addr + IMX9_USDHC_SYSCTL_OFFSET);
+  regval = getreg32(priv->addr + IMX9_USDHC_SYSCTL_OFFSET);
   regval &= ~(USDHC_SYSCTL_SDCLKFS_MASK | USDHC_SYSCTL_DVS_MASK);
 
   /* Select the new prescaler and divisor values based on the requested
@@ -1833,13 +1914,12 @@ static void imx9_clock(struct sdio_dev_s *dev, enum sdio_clock_e rate)
   switch (rate)
     {
     default:
-    case CLOCK_SDIO_DISABLED:      /* Clock is disabled */
+    case CLOCK_SDIO_DISABLED:
       {
-        /* Clear the prescaler and divisor settings */
+        /* Clock is disabled */
 
-        putreg32(regval, priv->addr + IMX9_USDHC_SYSCTL_OFFSET);
-        mcinfo("DISABLED, SYSCTRL: %08" PRIx32 "\n",
-               getreg32(priv->addr + IMX9_USDHC_SYSCTL_OFFSET)); return;
+        mcinfo("DISABLED, SYSCTRL: %08" PRIx32 "\n", regval);
+        speed = 0;
       }
       break;
 
@@ -1848,14 +1928,13 @@ static void imx9_clock(struct sdio_dev_s *dev, enum sdio_clock_e rate)
         /* Initial ID mode clocking (<400KHz) */
 
         mcinfo("IDMODE\n");
+        speed = BOARD_USDHC_IDMODE_SPEED;
 
         /* Put out an additional 80 clocks in case this is a power-up
          * sequence.
          */
 
-        regval |= (BOARD_USDHC_IDMODE_PRESCALER |
-                   BOARD_USDHC_IDMODE_DIVISOR |
-                   USDHC_SYSCTL_INITA);
+        regval |= USDHC_SYSCTL_INITA;
       }
       break;
 
@@ -1864,8 +1943,7 @@ static void imx9_clock(struct sdio_dev_s *dev, enum sdio_clock_e rate)
         /* MMC normal operation clocking */
 
         mcinfo("MMCTRANSFER\n");
-        regval |= (BOARD_USDHC_MMCMODE_PRESCALER |
-                   BOARD_USDHC_MMCMODE_DIVISOR);
+        speed = BOARD_USDHC_MMCMODE_SPEED;
       }
       break;
 
@@ -1874,8 +1952,7 @@ static void imx9_clock(struct sdio_dev_s *dev, enum sdio_clock_e rate)
         /* SD normal operation clocking (narrow 1-bit mode) */
 
         mcinfo("1BITTRANSFER\n");
-        regval |= (BOARD_USDHC_SD1MODE_PRESCALER |
-                   BOARD_USDHC_SD1MODE_DIVISOR);
+        speed = BOARD_USDHC_SD1MODE_SPEED;
       }
       break;
 
@@ -1883,11 +1960,32 @@ static void imx9_clock(struct sdio_dev_s *dev, enum sdio_clock_e rate)
       {
         /* SD normal operation clocking (wide 4-bit mode) */
 
-        mcinfo("4BITTRANSFER\n");
-        regval |= (BOARD_USDHC_SD4MODE_PRESCALER |
-                  BOARD_USDHC_SD4MODE_DIVISOR);
+        mcinfo("SDTRANSFER\n");
+        speed = BOARD_USDHC_SDMODE_SPEED;
+
+        if (speed > 25000000)
+          {
+            /* Switch SD card to high-speed mode if configured for higher
+             * than 25MHz
+             */
+
+            if (imx9_sdcard_hs_mode(dev, false))
+              {
+                if (!imx9_sdcard_hs_mode(dev, true))
+                  {
+                    /* HS mode setting failed, fall back to 25 MHz */
+
+                    speed = 25000000;
+                  }
+              }
+          }
       }
       break;
+    }
+
+  if (speed > 0)
+    {
+      regval |= imx9_frequency(dev, speed);
     }
 
   putreg32(regval, priv->addr + IMX9_USDHC_SYSCTL_OFFSET);
@@ -2254,7 +2352,7 @@ static void imx9_blocksetup(struct sdio_dev_s *dev,
 
   /* Configure block size for next transfer */
 
-#if !defined(CONFIG_ARM64_DCACHE_DISABLE)
+#ifdef CONFIG_IMX9_USDHC_DMA
   priv->blocksize = blocklen;
 #endif
 
@@ -2981,8 +3079,8 @@ static int imx9_dmapreflight(struct sdio_dev_s *dev,
    */
 
   if (buffer != priv->rxbuffer &&
-      (((uintptr_t)buffer & (ARMV8A_DCACHE_LINESIZE - 1)) != 0 ||
-      ((uintptr_t)(buffer + buflen) & (ARMV8A_DCACHE_LINESIZE - 1)) != 0))
+      (((uintptr_t)buffer & (USDHC_DATABUF_ALIGN - 1)) != 0 ||
+      ((uintptr_t)(buffer + buflen) & (USDHC_DATABUF_ALIGN - 1)) != 0))
     {
       mcerr("dcache unaligned buffer:%p end:%p\n",
             buffer, buffer + buflen - 1);
@@ -3020,8 +3118,7 @@ static int imx9_dmarecvsetup(struct sdio_dev_s *dev,
   struct imx9_dev_s *priv = (struct imx9_dev_s *)dev;
   DEBUGASSERT(priv != NULL && buffer != NULL && buflen > 0);
 
-#if defined(CONFIG_ARCH_HAVE_SDIO_PREFLIGHT) && \
-   !defined(CONFIG_ARM64_DCACHE_DISABLE)
+#if defined(CONFIG_ARCH_HAVE_SDIO_PREFLIGHT)
   /* Normally imx9_dmapreflight is called prior to imx9_dmarecvsetup
    * except for the case where the CSR read is done at initialization.
    *
@@ -3040,27 +3137,29 @@ static int imx9_dmarecvsetup(struct sdio_dev_s *dev,
   imx9_sampleinit();
   imx9_sample(priv, SAMPLENDX_BEFORE_SETUP);
 
-#if !defined(CONFIG_ARM64_DCACHE_DISABLE)
-  if (((uintptr_t)buffer & (ARMV8A_DCACHE_LINESIZE - 1)) != 0 ||
-       (buflen & (ARMV8A_DCACHE_LINESIZE - 1)) != 0)
+  if (((uintptr_t)buffer & (USDHC_DATABUF_ALIGN - 1)) != 0 ||
+       (buflen & (USDHC_DATABUF_ALIGN - 1)) != 0)
     {
-      /* The read buffer is not cache-line aligned, but will fit in
+      /* The read buffer is not aligned, but will fit in
        * the rxbuffer. So read to an internal buffer instead.
        */
 
+#  if !defined(CONFIG_ARM64_DCACHE_DISABLE)
       up_invalidate_dcache((uintptr_t)priv->rxbuffer,
                            (uintptr_t)priv->rxbuffer + priv->blocksize);
+#  endif
 
       priv->unaligned_rx = true;
     }
   else
     {
+#  if !defined(CONFIG_ARM64_DCACHE_DISABLE)
       up_invalidate_dcache((uintptr_t)buffer,
                            (uintptr_t)buffer + buflen);
+#  endif
 
       priv->unaligned_rx = false;
     }
-#endif
 
   /* Save the destination buffer information for use by the interrupt
    * handler
@@ -3076,14 +3175,12 @@ static int imx9_dmarecvsetup(struct sdio_dev_s *dev,
   /* Configure the RX DMA */
 
   imx9_configxfrints(priv, USDHC_DMADONE_INTS);
-#if !defined(CONFIG_ARM64_DCACHE_DISABLE)
   if (priv->unaligned_rx)
     {
       putreg32((uint64_t) priv->rxbuffer,
                priv->addr + IMX9_USDHC_DSADDR_OFFSET);
     }
   else
-#endif
     {
       putreg32((uint64_t) priv->buffer,
                priv->addr + IMX9_USDHC_DSADDR_OFFSET);
@@ -3130,9 +3227,9 @@ static int imx9_dmasendsetup(struct sdio_dev_s *dev,
 
   /* Save the source buffer information for use by the interrupt handler */
 
-#if !defined(CONFIG_ARM64_DCACHE_DISABLE)
   priv->unaligned_rx = false;
 
+#if !defined(CONFIG_ARM64_DCACHE_DISABLE)
   /* Flush cache to physical memory when not in DTCM memory */
 
   up_clean_dcache((uintptr_t)buffer, (uintptr_t)buffer + buflen);
@@ -3356,8 +3453,8 @@ struct sdio_dev_s *imx9_usdhc_initialize(int slotno)
 
       /* Enable clocks */
 
-      imx9_ccm_configure_root_clock(CCM_CR_USDHC2, SYS_PLL1PFD1, 4);
-
+      imx9_ccm_configure_root_clock(CCM_CR_USDHC1, SYS_PLL1PFD1, 2);
+      imx9_get_rootclock(CCM_CR_USDHC1, &priv->root_clock_freq);
       imx9_ccm_gate_on(CCM_LPCG_USDHC1, true);
 
       break;
@@ -3391,8 +3488,8 @@ struct sdio_dev_s *imx9_usdhc_initialize(int slotno)
 
       /* Enable clocks */
 
-      imx9_ccm_configure_root_clock(CCM_CR_USDHC2, SYS_PLL1PFD1, 4);
-
+      imx9_ccm_configure_root_clock(CCM_CR_USDHC2, SYS_PLL1PFD1, 2);
+      imx9_get_rootclock(CCM_CR_USDHC2, &priv->root_clock_freq);
       imx9_ccm_gate_on(CCM_LPCG_USDHC2, true);
 
       mcinfo("Enabled clocks\n");
