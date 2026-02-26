@@ -33,7 +33,7 @@
 
 # Request a version available on latest Ubuntu LTS (20.04)
 
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.20)
 
 # Handle newer CMake versions correctly by setting policies
 
@@ -348,6 +348,19 @@ if(NOT EXISTS ${CMAKE_BINARY_DIR}/.config OR NOT "${NUTTX_DEFCONFIG}" STREQUAL
   file(RENAME ${CMAKE_BINARY_DIR}/.config.compressed
        ${CMAKE_BINARY_DIR}/.config)
   set(ENV{KCONFIG_CONFIG} ${CMAKE_BINARY_DIR}/.config)
+
+  # Set CONFIG_BASE_DEFCONFIG so .config matches Make behavior (configure.sh)
+  file(READ ${CMAKE_BINARY_DIR}/.config _config_init_content)
+  string(
+    REGEX
+    REPLACE "CONFIG_BASE_DEFCONFIG=\"[^\"]*\""
+            "CONFIG_BASE_DEFCONFIG=\"${NUTTX_BOARD}/${NUTTX_CONFIG}\""
+            _config_init_content "${_config_init_content}")
+  if(NOT _config_init_content MATCHES "CONFIG_BASE_DEFCONFIG=")
+    string(APPEND _config_init_content
+           "\nCONFIG_BASE_DEFCONFIG=\"${NUTTX_BOARD}/${NUTTX_CONFIG}\"\n")
+  endif()
+  file(WRITE ${CMAKE_BINARY_DIR}/.config "${_config_init_content}")
 
   # store original expanded .config
   configure_file(${CMAKE_BINARY_DIR}/.config ${CMAKE_BINARY_DIR}/.config.orig

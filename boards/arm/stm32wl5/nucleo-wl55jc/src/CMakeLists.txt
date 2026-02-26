@@ -1,5 +1,5 @@
 # ##############################################################################
-# drivers/modem/alt1250/CMakeLists.txt
+# boards/arm/stm32wl5/nucleo-wl55jc/src/CMakeLists.txt
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -20,31 +20,34 @@
 #
 # ##############################################################################
 
-if(CONFIG_MODEM_ALT1250)
-  set(SRCS
-      alt1250.c
-      altcom_pkt.c
-      altcom_hdlr.c
-      altcom_hdlr_pdn.c
-      altcom_hdlr_radio.c
-      altcom_hdlr_net.c
-      altcom_hdlr_psave.c
-      altcom_hdlr_sim.c
-      altcom_hdlr_pin.c
-      altcom_hdlr_socket.c
-      altcom_hdlr_sms.c
-      altcom_hdlr_firmware.c
-      altcom_hdlr_log.c
-      altcom_hdlr_other.c
-      altcom_lwm2m_hdlr.c
-      altcom_errno.c
-      altmdm.c
-      altmdm_event.c
-      altmdm_spi.c)
+set(SRCS stm32_boot.c stm32_leds.c)
 
-  if(NOT CONFIG_DISABLE_ALL_SIGNALS)
-    list(APPEND SRCS altmdm_timer.c)
-  endif()
-
-  target_sources(drivers PRIVATE ${SRCS})
+if(CONFIG_BOARDCTL)
+  list(APPEND SRCS stm32_appinit.c)
 endif()
+
+if(CONFIG_ARCH_BUTTONS)
+  list(APPEND SRCS stm32_buttons.c)
+endif()
+
+if(CONFIG_ARCH_BOARD_FLASH_MOUNT)
+  list(APPEND SRCS stm32_flash.c)
+endif()
+
+if(CONFIG_SPI_DRIVER)
+  list(APPEND SRCS stm32_spi.c)
+endif()
+
+if(CONFIG_ARCH_BOARD_IPCC)
+  list(APPEND SRCS stm32_ipcc.c)
+endif()
+
+if(CONFIG_VIDEO_FB)
+  if(CONFIG_LCD_SSD1680)
+    list(APPEND SRCS stm32_ssd1680.c)
+  endif()
+endif()
+
+target_sources(board PRIVATE ${SRCS})
+
+set_property(GLOBAL PROPERTY LD_SCRIPT "${NUTTX_BOARD_DIR}/scripts/wl55jc.ld")

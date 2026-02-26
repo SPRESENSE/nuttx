@@ -1,5 +1,5 @@
 # ##############################################################################
-# drivers/modem/alt1250/CMakeLists.txt
+# arch/arm/src/stm32wl5/CMakeLists.txt
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -20,31 +20,30 @@
 #
 # ##############################################################################
 
-if(CONFIG_MODEM_ALT1250)
-  set(SRCS
-      alt1250.c
-      altcom_pkt.c
-      altcom_hdlr.c
-      altcom_hdlr_pdn.c
-      altcom_hdlr_radio.c
-      altcom_hdlr_net.c
-      altcom_hdlr_psave.c
-      altcom_hdlr_sim.c
-      altcom_hdlr_pin.c
-      altcom_hdlr_socket.c
-      altcom_hdlr_sms.c
-      altcom_hdlr_firmware.c
-      altcom_hdlr_log.c
-      altcom_hdlr_other.c
-      altcom_lwm2m_hdlr.c
-      altcom_errno.c
-      altmdm.c
-      altmdm_event.c
-      altmdm_spi.c)
+# Required STM32WL5 files
 
-  if(NOT CONFIG_DISABLE_ALL_SIGNALS)
-    list(APPEND SRCS altmdm_timer.c)
-  endif()
+set(SRCS
+    stm32wl5_allocateheap.c
+    stm32wl5_exti_gpio.c
+    stm32wl5_gpio.c
+    stm32wl5_irq.c
+    stm32wl5_lowputc.c
+    stm32wl5_rcc.c
+    stm32wl5_serial.c
+    stm32wl5_start.c
+    stm32wl5_waste.c
+    stm32wl5_uid.c
+    stm32wl5_lse.c
+    stm32wl5_lsi.c
+    stm32wl5_idle.c
+    stm32wl5_pwr.c
+    stm32wl5_tim.c
+    stm32wl5_flash.c
+    stm32wl5_timerisr.c
+    stm32wl5_spi.c)
 
-  target_sources(drivers PRIVATE ${SRCS})
+if(CONFIG_STM32WL5_IPCC)
+  list(APPEND SRCS stm32wl5_ipcc.c)
 endif()
+
+target_sources(arch PRIVATE ${SRCS})
