@@ -114,6 +114,25 @@ if UART_PL011
 source "drivers/serial/Kconfig-pl011"
 endif
 
+menuconfig UART_XLNXPS
+	bool "Xilinx UART Peripheral System (XUARTPS) Chip support"
+	default n
+	---help---
+		This option enables support for the Xilinx UART Peripheral System
+		(XUARTPS) controller, which is commonly found in Xilinx Zynq-7000
+		and Zynq UltraScale+ MPSoC platforms.
+
+		The XUARTPS controller provides full-duplex UART functionality with
+		features such as baud rate generation, FIFO buffers, interrupt
+		support, and hardware flow control (RTS/CTS).
+
+		If you are building a kernel for Xilinx Zynq/Zynq MPSoC platforms
+		and need serial communication via the XUARTPS peripheral, say Y here.
+
+if UART_XLNXPS
+source "drivers/serial/Kconfig-xlnxps"
+endif # UART_XLNXPS
+
 menuconfig CMSDK_UART
 	bool "CMSDK UART Chip support"
 	select ARCH_HAVE_SERIAL_TERMIOS
