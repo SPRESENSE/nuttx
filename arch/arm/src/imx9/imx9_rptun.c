@@ -29,6 +29,8 @@
 #include "arm_internal.h"
 #include "imx9_mu.h"
 #include "imx9_rsctable.h"
+#include "hardware/imx9_rptun.h"
+#include "hardware/imx9_rsctable.h"
 #include <debug.h>
 #include <nuttx/config.h>
 #include <nuttx/kthread.h>
@@ -41,10 +43,7 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-#define VRING_SHMEM 0x88220000 /* Vring shared memory start */
-
 #define RPMSG_MU_CHANNEL 1
-#define MU_INSTANCE      7
 
 #define MU_MSG_VQID_BITOFFSET 16
 
@@ -161,7 +160,7 @@ imx9_rptun_get_resource(struct rptun_dev_s *dev)
       return &priv->shmem->rsc.rsc_tbl_hdr;
     }
 
-  priv->shmem = (struct imx9_rptun_shmem_s *)VRING_SHMEM;
+  priv->shmem = (struct imx9_rptun_shmem_s *)RESOURCE_TABLE_BASE;
   if (priv->shmem->rsc.rsc_tbl_hdr.offset
       != g_imx9_rsc_table.rsc_tbl_hdr.offset)
     {
@@ -218,8 +217,8 @@ static int imx9_rptun_notify(struct rptun_dev_s *dev, uint32_t vqid)
 
   ipcinfo("Rptun notify vqid=%ld\n", vqid);
 
-  imx95_mu_send_msg(priv->mu, RPMSG_MU_CHANNEL,
-                    vqid << MU_MSG_VQID_BITOFFSET);
+  imx9_mu_send_msg(priv->mu, RPMSG_MU_CHANNEL,
+                   vqid << MU_MSG_VQID_BITOFFSET);
 
   return 0;
 }
@@ -278,14 +277,14 @@ int imx9_rptun_init(const char *shmemname, const char *cpuname)
 
   /* Subscribe to MU */
 
-  dev->mu = imx95_mu_init(MU_INSTANCE);
+  dev->mu = imx9_mu_init(MU_INSTANCE);
   if (!dev->mu)
     {
       ipcerr("ERROR: cannot init mailbox %i!\n", MU_INSTANCE);
       return ret;
     }
 
-  imx95_mu_subscribe_msg(dev->mu, (1 << RPMSG_MU_CHANNEL), imx9_mu_callback);
+  imx9_mu_subscribe_msg(dev->mu, (1 << RPMSG_MU_CHANNEL), imx9_mu_callback);
 
   /* Configure device */
 

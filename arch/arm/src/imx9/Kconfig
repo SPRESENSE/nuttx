@@ -5,10 +5,8 @@
 
 if ARCH_CHIP_IMX9_CORTEX_M
 
-menu "i.MX9 Chip Selection"
-
 choice
-	prompt "i.MX9 Core Configuration"
+	prompt "i.MX9 Core Selection"
 	default ARCH_CHIP_IMX95_M7
 
 config ARCH_CHIP_IMX95_M7
@@ -21,9 +19,14 @@ config ARCH_CHIP_IMX95_M7
 	select ARMV7M_HAVE_DTCM
 	select IMX9_HAVE_MU
 
-endchoice # i.MX9 Chip Selection
+config ARCH_CHIP_IMX93_M33
+	bool "i.MX93 Cortex-M33 Processor"
+	select ARCH_CORTEXM33
+	select ARMV8M_HAVE_ITCM
+	select ARMV8M_HAVE_DTCM
+	select IMX9_HAVE_MU
 
-endmenu # "i.MX9 Chip Selection"
+endchoice # i.MX9 Core Selection
 
 config IMX9_HAVE_MU
 	bool
@@ -33,6 +36,24 @@ config IMX9_SCMI
 	bool "SCMI Interface"
 	default y
 	depends on IMX9_MU5
+
+config IMX9_XCACHE
+	bool
+	default n
+
+config IMX9_LPCAC_PC
+	bool "Low Power Cache - Program Cache (ICACHE)"
+	default n
+	depends on ARCH_CHIP_IMX93_M33
+	select ARCH_ICACHE
+	select IMX9_XCACHE
+
+config IMX9_LPCAC_PS
+	bool "Low Power Cache - Peripheral System (DCACHE)"
+	default n
+	depends on ARCH_CHIP_IMX93_M33
+	select ARCH_DCACHE
+	select IMX9_XCACHE
 
 if IMX9_SCMI
 
@@ -49,6 +70,7 @@ endif
 config IMX9_WFI_AWAKES_AT_SYSTICK
 	bool "WFI awakes at systick interrupts"
 	default y
+	depends on ARCH_CHIP_IMX95_M7
 	---help---
 	Configure the GPC to wake up from systick interrupts at WFI
 	instruction
@@ -999,23 +1021,40 @@ menuconfig IMX9_MU
 
 if IMX9_MU
 
+config IMX9_MU1
+	bool "MU1 M33 <-> A55"
+	default y
+	depends on ARCH_CHIP_IMX93_M33
+	---help---
+		Enable mailbox 1 that operates between M33 and A55 cores
+
+config IMX9_MU2
+	bool "MU2 M33 <-> A55"
+	default n
+	depends on ARCH_CHIP_IMX93_M33
+	---help---
+		Enable mailbox 2 that operates between M33 and A55 cores
+
 config IMX9_MU5
 	bool "MU5 M7 <-> M33"
 	default y
+	depends on ARCH_CHIP_IMX95_M7
 	---help---
 		Enable mailbox 5 that operates between M7 and M33 cores
 
 config IMX9_MU7
 	bool "MU7 M7 <-> A55"
 	default n
+	depends on ARCH_CHIP_IMX95_M7
 	---help---
 		Enable mailbox 7 that operates between M7 and A55 cores
 
 config IMX9_MU8
 	bool "MU8 M7 <-> A55"
 	default n
+	depends on ARCH_CHIP_IMX95_M7
 	---help---
-		Enable mailbox 5 that operates between M7 and A55 cores
+		Enable mailbox 8 that operates between M7 and A55 cores
 
 endif # IMX9_MU Configuration
 

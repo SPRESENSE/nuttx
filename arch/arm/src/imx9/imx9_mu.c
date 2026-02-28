@@ -27,7 +27,7 @@
 
 #include "imx9_mu.h"
 #include "arm_internal.h"
-#include "hardware/imx95/imx95_memorymap.h"
+#include "hardware/imx9_memorymap.h"
 #include "hardware/imx9_mu.h"
 #include <debug.h>
 #include <nuttx/config.h>
@@ -60,6 +60,22 @@ struct imx9_mudev_s
 /****************************************************************************
  * Private Data
  ****************************************************************************/
+
+#ifdef CONFIG_IMX9_MU1
+static struct imx9_mudev_s g_mu1_dev = /* clang-format off */
+{
+  .mubase = IMX9_MU1_MUA_BASE,
+  .irq = IMX9_IRQ_MU1_A
+}; /* clang-format on */
+#endif
+
+#ifdef CONFIG_IMX9_MU2
+static struct imx9_mudev_s g_mu2_dev = /* clang-format off */
+{
+  .mubase = IMX9_MU2_MUA_BASE,
+  .irq = IMX9_IRQ_MU2_A
+}; /* clang-format on */
+#endif
 
 #ifdef CONFIG_IMX9_MU5
 static struct imx9_mudev_s g_mu5_dev = /* clang-format off */
@@ -106,7 +122,7 @@ static int imx9_mu_interrupt(int irq, void *context, void *args)
         {
           if (rsr & (1 << i))
             {
-              uint32_t msg = imx95_mu_receive_msg_non_blocking(dev, i);
+              uint32_t msg = imx9_mu_receive_msg_non_blocking(dev, i);
 
               if (dev->msg_callback)
                 {
@@ -145,10 +161,26 @@ static int imx9_mu_interrupt(int irq, void *context, void *args)
  * Public Functions
  ****************************************************************************/
 
-struct imx9_mudev_s *imx95_mu_init(int index)
+struct imx9_mudev_s *imx9_mu_init(int index)
 {
   struct imx9_mudev_s *priv;
 
+#ifdef CONFIG_IMX9_MU1
+  if ((index == 1))
+    {
+      priv = &g_mu1_dev;
+    }
+
+  else
+#endif
+#ifdef CONFIG_IMX9_MU2
+  if ((index == 2))
+    {
+      priv = &g_mu2_dev;
+    }
+
+  else
+#endif
 #ifdef CONFIG_IMX9_MU5
   if ((index == 5))
     {
@@ -186,29 +218,29 @@ struct imx9_mudev_s *imx95_mu_init(int index)
   return priv;
 }
 
-void imx95_mu_subscribe_msg(struct imx9_mudev_s *priv,
-                            uint32_t msg_int_bitfield,
-                            imx9_mu_msg_callback_t callback)
+void imx9_mu_subscribe_msg(struct imx9_mudev_s *priv,
+                           uint32_t msg_int_bitfield,
+                           imx9_mu_msg_callback_t callback)
 {
   priv->msg_callback = callback;
   putreg32(msg_int_bitfield & MSG_INT_MASK, IMX9_MU_RCR(priv->mubase));
 }
 
-void imx95_mu_subscribe_gpi(struct imx9_mudev_s *priv,
-                            uint32_t gpi_int_enable,
-                            imx9_mu_gpi_callback_t callback)
+void imx9_mu_subscribe_gpi(struct imx9_mudev_s *priv,
+                           uint32_t gpi_int_enable,
+                           imx9_mu_gpi_callback_t callback)
 {
   priv->gpi_callback = callback;
   putreg32(gpi_int_enable & GPI_INT_MASK, IMX9_MU_GIER(priv->mubase));
 }
 
-void imx95_mu_deinit(struct imx9_mudev_s *priv)
+void imx9_mu_deinit(struct imx9_mudev_s *priv)
 {
   up_disable_irq(priv->irq);
 }
 
-int imx95_mu_send_msg_non_blocking(struct imx9_mudev_s *priv,
-                                   uint32_t reg_index, uint32_t msg)
+int imx9_mu_send_msg_non_blocking(struct imx9_mudev_s *priv,
+                                  uint32_t reg_index, uint32_t msg)
 {
   assert(reg_index < IMX9_MU_TR_REGARRAY_SIZE);
 
@@ -223,8 +255,8 @@ int imx95_mu_send_msg_non_blocking(struct imx9_mudev_s *priv,
   return OK;
 }
 
-void imx95_mu_send_msg(struct imx9_mudev_s *priv, uint32_t reg_index,
-                       uint32_t msg)
+void imx9_mu_send_msg(struct imx9_mudev_s *priv, uint32_t reg_index,
+                      uint32_t msg)
 {
   assert(reg_index < IMX9_MU_TR_REGARRAY_SIZE);
 
@@ -238,7 +270,7 @@ void imx95_mu_send_msg(struct imx9_mudev_s *priv, uint32_t reg_index,
   putreg32(msg, IMX9_MU_TR1(priv->mubase) + (reg_index * sizeof(uint32_t)));
 }
 
-int imx95_mu_has_received_msg(struct imx9_mudev_s *priv, uint32_t reg_index)
+int imx9_mu_has_received_msg(struct imx9_mudev_s *priv, uint32_t reg_index)
 {
   if ((getreg32(IMX9_MU_RSR(priv->mubase)) & (1UL << reg_index)) == 0UL)
     {
@@ -248,8 +280,8 @@ int imx95_mu_has_received_msg(struct imx9_mudev_s *priv, uint32_t reg_index)
   return 0;
 }
 
-uint32_t imx95_mu_receive_msg_non_blocking(struct imx9_mudev_s *priv,
-                                           uint32_t reg_index)
+uint32_t imx9_mu_receive_msg_non_blocking(struct imx9_mudev_s *priv,
+                                          uint32_t reg_index)
 {
   assert(reg_index < IMX9_MU_RR_REGARRAY_SIZE);
 
@@ -257,20 +289,20 @@ uint32_t imx95_mu_receive_msg_non_blocking(struct imx9_mudev_s *priv,
             (reg_index * sizeof(uint32_t)));
 }
 
-uint32_t imx95_mu_receive_msg(struct imx9_mudev_s *priv, uint32_t reg_index)
+uint32_t imx9_mu_receive_msg(struct imx9_mudev_s *priv, uint32_t reg_index)
 {
   assert(reg_index < IMX9_MU_RR_REGARRAY_SIZE);
 
   /* Wait RX register to be full. */
 
-  while (imx95_mu_has_received_msg(priv, reg_index) == -ENODATA);
+  while (imx9_mu_has_received_msg(priv, reg_index) == -ENODATA);
 
   return getreg32(IMX9_MU_RR1(priv->mubase) +
             (reg_index * sizeof(uint32_t)));
 }
 
-int imx95_mu_trigger_interrupts(struct imx9_mudev_s *priv,
-                                uint32_t interrupts)
+int imx9_mu_trigger_interrupts(struct imx9_mudev_s *priv,
+                               uint32_t interrupts)
 {
   int ret      = -ECOMM;
   uint32_t gcr = getreg32(IMX9_MU_GCR(priv->mubase));
