@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 ############################################################################
-# boards/sim/sim/sim/configs/citest/run.sh
+# boards/arm64/qemu/qemu-armv8a/configs/citest_smp/run.sh
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -46,7 +46,7 @@ deactivate
 # export test results
 artifacts=${ARTIFACTCONFDIR}/ntfc
 mkdir -p ${artifacts}
-rm -f pytest.debug.log
+mv pytest.debug.log ${artifacts}
 mv result ${artifacts}
 
 # restore old dir
