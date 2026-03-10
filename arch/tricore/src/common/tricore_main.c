@@ -29,7 +29,12 @@
 
 #include "Ifx_Types.h"
 #include "IfxCpu.h"
-#include "IfxScuWdt.h"
+
+#ifdef CONFIG_ARCH_CHIP_TC4XX
+#  include "IfxWtu.h"
+#else
+#  include "IfxScuWdt.h"
+#endif
 
 /****************************************************************************
  * Private Functions
@@ -46,7 +51,12 @@ static void core_main(void)
   /* Wait for CPU sync event */
 
   IfxCpu_emitEvent(&g_sync_event);
+
+#if defined(CONFIG_ARCH_CHIP_TC3XX)
   IfxCpu_waitEvent(&g_sync_event, 1);
+#else
+  IfxCpu_waitEvent(&g_sync_event, UINT32_MAX, 1);
+#endif
 
   if (IfxCpu_getCoreIndex() == 0)
     {
@@ -68,10 +78,10 @@ void core0_main(void)
    * to ensure the normal startup of the system.
    */
 
-#if defined(CONFIG_ARCH_CHIP_AURIX_TC3XX)
+#if defined(CONFIG_ARCH_CHIP_TC3XX)
   IfxScuWdt_disableCpuWatchdog(IfxScuWdt_getCpuWatchdogPassword());
   IfxScuWdt_disableSafetyWatchdog(IfxScuWdt_getSafetyWatchdogPassword());
-#elif defined(CONFIG_ARCH_CHIP_AURIX_TC4XX)
+#elif defined(CONFIG_ARCH_CHIP_TC4XX)
   IfxWtu_disableCpuWatchdog(IfxWtu_getCpuWatchdogPassword());
   IfxWtu_disableSystemWatchdog(IfxWtu_getSystemWatchdogPassword());
 #endif
