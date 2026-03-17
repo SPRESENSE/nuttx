@@ -1,5 +1,5 @@
 # ##############################################################################
-# arch/risc-v/src/k210/CMakeLists.txt
+# boards/arm/nuc1xx/nutiny-nuc120/src/CMakeLists.txt
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -20,16 +20,29 @@
 #
 # ##############################################################################
 
-set(SRCS k210_head.S k210_start.c k210_irq.c k210_irq_dispatch.c)
+set(SRCS nuc_boardinitialize.c)
 
-list(APPEND SRCS k210_timerisr.c k210_allocateheap.c k210_clockconfig.c)
-
-list(APPEND SRCS k210_lowputc.c k210_serial.c k210_fpioa.c k210_gpiohs.c)
-
-list(APPEND SRCS k210_sysctl.c)
-
-if(CONFIG_BUILD_PROTECTED)
-  list(APPEND SRCS k210_userspace.c)
+if(CONFIG_ARCH_LEDS)
+  list(APPEND SRCS nuc_led.c)
 endif()
 
-target_sources(arch PRIVATE ${SRCS})
+if(CONFIG_NUC1XX_USBD)
+  list(APPEND SRCS nuc_usbd.c)
+endif()
+
+if(CONFIG_PWM)
+  list(APPEND SRCS nuc_pwm.c)
+endif()
+
+if(CONFIG_SENSORS_QENCODER)
+  list(APPEND SRCS nuc_qencoder.c)
+endif()
+
+if(CONFIG_WATCHDOG)
+  list(APPEND SRCS nuc_watchdog.c)
+endif()
+
+target_sources(board PRIVATE ${SRCS})
+
+set_property(GLOBAL PROPERTY LD_SCRIPT
+                             "${NUTTX_BOARD_DIR}/scripts/nutiny-nuc120.ld")

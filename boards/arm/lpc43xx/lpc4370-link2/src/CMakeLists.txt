@@ -1,5 +1,5 @@
 # ##############################################################################
-# arch/risc-v/src/k210/CMakeLists.txt
+# boards/arm/lpc43xx/lpc4370-link2/src/CMakeLists.txt
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -20,16 +20,46 @@
 #
 # ##############################################################################
 
-set(SRCS k210_head.S k210_start.c k210_irq.c k210_irq_dispatch.c)
+set(SRCS lpc43_boot.c)
 
-list(APPEND SRCS k210_timerisr.c k210_allocateheap.c k210_clockconfig.c)
-
-list(APPEND SRCS k210_lowputc.c k210_serial.c k210_fpioa.c k210_gpiohs.c)
-
-list(APPEND SRCS k210_sysctl.c)
-
-if(CONFIG_BUILD_PROTECTED)
-  list(APPEND SRCS k210_userspace.c)
+if(CONFIG_BOARDCTL)
+  list(APPEND SRCS lpc43_appinit.c)
 endif()
 
-target_sources(arch PRIVATE ${SRCS})
+if(CONFIG_ARCH_LEDS)
+  list(APPEND SRCS lpc43_autoleds.c)
+else()
+  list(APPEND SRCS lpc43_userleds.c)
+endif()
+
+if(CONFIG_USBMSC)
+  list(APPEND SRCS lpc43_usbmsc.c)
+endif()
+
+if(CONFIG_LPC43_ADC0)
+  list(APPEND SRCS lpc43_adc.c)
+endif()
+
+if(CONFIG_SPIFI_LIBRARY)
+  list(APPEND SRCS lpc43_spifilib_init.c)
+endif()
+
+target_sources(board PRIVATE ${SRCS})
+
+if(CONFIG_LPC43_BOOT_SRAM)
+  set(LDFILE ramconfig.ld)
+endif()
+if(CONFIG_LPC43_BOOT_SPIFI)
+  set(LDFILE spificonfig.ld)
+endif()
+if(CONFIG_LPC43_BOOT_FLASHA)
+  set(LDFILE flashaconfig.ld)
+endif()
+if(CONFIG_LPC43_BOOT_FLASHB)
+  set(LDFILE flashaconfig.ld)
+endif()
+if(CONFIG_LPC43_BOOT_CS0FLASH)
+  set(LDFILE cs0flash.ld)
+endif()
+
+set_property(GLOBAL PROPERTY LD_SCRIPT "${NUTTX_BOARD_DIR}/scripts/${LDFILE}")

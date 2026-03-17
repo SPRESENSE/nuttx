@@ -1,5 +1,5 @@
 # ##############################################################################
-# arch/risc-v/src/k210/CMakeLists.txt
+# boards/arm/lpc43xx/bambino-200e/CMakeLists.txt
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -20,16 +20,4 @@
 #
 # ##############################################################################
 
-set(SRCS k210_head.S k210_start.c k210_irq.c k210_irq_dispatch.c)
-
-list(APPEND SRCS k210_timerisr.c k210_allocateheap.c k210_clockconfig.c)
-
-list(APPEND SRCS k210_lowputc.c k210_serial.c k210_fpioa.c k210_gpiohs.c)
-
-list(APPEND SRCS k210_sysctl.c)
-
-if(CONFIG_BUILD_PROTECTED)
-  list(APPEND SRCS k210_userspace.c)
-endif()
-
-target_sources(arch PRIVATE ${SRCS})
+add_subdirectory(src)

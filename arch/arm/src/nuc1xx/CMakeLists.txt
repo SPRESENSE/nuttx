@@ -1,5 +1,5 @@
 # ##############################################################################
-# arch/risc-v/src/k210/CMakeLists.txt
+# arch/arm/src/nuc1xx/CMakeLists.txt
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -20,16 +20,30 @@
 #
 # ##############################################################################
 
-set(SRCS k210_head.S k210_start.c k210_irq.c k210_irq_dispatch.c)
+list(
+  APPEND
+  SRCS
+  nuc_clockconfig.c
+  nuc_gpio.c
+  nuc_irq.c
+  nuc_lowputc.c
+  nuc_serial.c
+  nuc_start.c)
 
-list(APPEND SRCS k210_timerisr.c k210_allocateheap.c k210_clockconfig.c)
+if(NOT CONFIG_ARCH_IDLE_CUSTOM)
+  list(APPEND SRCS nuc_idle.c)
+endif()
 
-list(APPEND SRCS k210_lowputc.c k210_serial.c k210_fpioa.c k210_gpiohs.c)
-
-list(APPEND SRCS k210_sysctl.c)
+if(NOT CONFIG_SCHED_TICKLESS)
+  list(APPEND SRCS nuc_timerisr.c)
+endif()
 
 if(CONFIG_BUILD_PROTECTED)
-  list(APPEND SRCS k210_userspace.c)
+  list(APPEND SRCS nuc_userspace.c)
+endif()
+
+if(CONFIG_DEBUG_FEATURES)
+  list(APPEND SRCS nuc_dumpgpio.c)
 endif()
 
 target_sources(arch PRIVATE ${SRCS})
