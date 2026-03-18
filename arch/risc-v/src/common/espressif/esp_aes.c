@@ -1,5 +1,7 @@
 /****************************************************************************
- * arch/xtensa/src/esp32s3/esp32s3_aes.c
+ * arch/risc-v/src/common/espressif/esp_aes.c
+ *
+ * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -32,21 +34,22 @@
 #include <nuttx/mutex.h>
 #include <nuttx/crypto/crypto.h>
 
-#include "xtensa.h"
-#include "esp32s3_aes.h"
+#include "riscv_internal.h"
+#include "esp_aes.h"
 
-#include "hardware/esp32s3_aes.h"
-#include "hardware/esp32s3_system.h"
+#include "esp_private/periph_ctrl.h"
+#include "esp_private/esp_crypto_lock_internal.h"
+#include "soc/periph_defs.h"
+#include "hal/aes_hal.h"
+#include "hal/aes_ll.h"
+#include "soc/soc_caps.h"
+#include "rom/cache.h"
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
 #define AES_BLK_SIZE                    (16)
-
-#define AES_MODE_DECRYPT                (BIT(2))
-
-#define AES_IDLE_STATE                  (0)
 
 /****************************************************************************
  * Private Data
@@ -74,19 +77,9 @@ static mutex_t g_aes_lock = NXMUTEX_INITIALIZER;
  *
  ****************************************************************************/
 
-static void aes_hw_setkey(struct esp32s3_aes_s *aes, bool encrypt)
+static void aes_hw_setkey(struct esp_aes_s *aes, bool encrypt)
 {
-  int i;
-  uint32_t cryptbits = encrypt ? 0 : AES_MODE_DECRYPT;
-  uint32_t keybits = (aes->keybits / 64) - 2;
-  uint32_t keywords = aes->keybits / 32;
-
-  putreg32(cryptbits | keybits, AES_MODE_REG);
-
-  for (i = 0; i < keywords; ++i)
-    {
-      putreg32(aes->key[i], AES_KEY_0_REG + i * 4);
-    }
+  aes_hal_setkey((uint8_t *)aes->key, aes->keybits / 8, encrypt);
 }
 
 /****************************************************************************
@@ -106,27 +99,7 @@ static void aes_hw_setkey(struct esp32s3_aes_s *aes, bool encrypt)
 
 static void aes_hw_cypher(const uint8_t *s, uint8_t *d)
 {
-  uint32_t buffer[AES_BLK_SIZE / 4];
-
-  memcpy(buffer, s, AES_BLK_SIZE);
-
-  putreg32(buffer[0], AES_TEXT_IN_0_REG + 0);
-  putreg32(buffer[1], AES_TEXT_IN_0_REG + 4);
-  putreg32(buffer[2], AES_TEXT_IN_0_REG + 8);
-  putreg32(buffer[3], AES_TEXT_IN_0_REG + 12);
-
-  putreg32(AES_TRIGGER_M, AES_TRIGGER_REG);
-
-  while (getreg32(AES_STATE_REG) != AES_IDLE_STATE)
-    {
-    }
-
-  buffer[0] = getreg32(AES_TEXT_OUT_0_REG + 0);
-  buffer[1] = getreg32(AES_TEXT_OUT_0_REG + 4);
-  buffer[2] = getreg32(AES_TEXT_OUT_0_REG + 8);
-  buffer[3] = getreg32(AES_TEXT_OUT_0_REG + 12);
-
-  memcpy(d, buffer, AES_BLK_SIZE);
+  aes_hal_transform_block(s, d);
 }
 
 /****************************************************************************
@@ -158,415 +131,12 @@ static void gf128mul_x_ble(uint8_t *d, const uint8_t *s)
   memcpy(d + 8, &rb, 8);
 }
 
-#ifdef CONFIG_ESP32S3_AES_ACCELERATOR_TEST
-
-/****************************************************************************
- * Name: esp32s3_aes_ecb_test
- *
- * Description:
- *   ESP32-S3 AES-ECB test.
- *
- * Input Parameters:
- *   None
- *
- * Returned Value:
- *   None
- *
- ****************************************************************************/
-
-static void esp32s3_aes_ecb_test(void)
-{
-  int ret;
-  int i;
-  int keybits;
-  uint8_t encrypt_buf[16];
-  uint8_t decrypt_buf[16];
-  struct esp32s3_aes_s aes;
-  const int size = 16;
-
-  const uint32_t input[8] =
-    {
-      0x740fdb34, 0x002defca, 0xb042437b, 0xc2f42cf9,
-      0xc64444be, 0x32365bc1, 0xb613cfa2, 0x15ce0d23
-    };
-
-  const uint32_t key[16] =
-    {
-      0x8ffdc2c5, 0x14d6c69d, 0x9cb7608f, 0x899b2472,
-      0xbf9e4372, 0x855290d0, 0xc62753da, 0xdeedeab7
-    };
-
-  const uint32_t result[2][4] =
-    {
-      /* keybits = 128 */
-
-      {
-        0xc810df2a, 0x8ae67e6e, 0x50c5e32c, 0xd535f3e4
-      },
-
-      /* keybits = 256 */
-
-      {
-        0xa0714c2b, 0x356adb1f, 0xe905c243, 0x35195a7c
-      }
-    };
-
-  for (i = 0; i < 2; i++)
-    {
-      keybits = i * 128 + 128;
-
-      ret = esp32s3_aes_setkey(&aes, key, keybits);
-      DEBUGASSERT(ret == 0);
-
-      ret = esp32s3_aes_ecb_cypher(&aes, 1, input, encrypt_buf, size);
-      DEBUGASSERT(ret == 0);
-
-      if (memcmp(encrypt_buf, result[i], size))
-        {
-          DEBUGASSERT(0);
-        }
-
-      ret = esp32s3_aes_ecb_cypher(&aes, 0, encrypt_buf, decrypt_buf, size);
-      DEBUGASSERT(ret == 0);
-
-      if (memcmp(decrypt_buf, input, size))
-        {
-          DEBUGASSERT(0);
-        }
-
-      syslog(LOG_INFO, "AES ECB key=%d bits test: PASS\n", keybits);
-    }
-}
-
-/****************************************************************************
- * Name: esp32s3_aes_cbc_test
- *
- * Description:
- *   ESP32-S3 AES-CBC test.
- *
- * Input Parameters:
- *   None
- *
- * Returned Value:
- *   None
- *
- ****************************************************************************/
-
-static void esp32s3_aes_cbc_test(void)
-{
-  int ret;
-  int i;
-  int keybits;
-  uint8_t encrypt_buf[32];
-  uint8_t decrypt_buf[32];
-  uint8_t iv_buf[16];
-  struct esp32s3_aes_s aes;
-  const int size = 32;
-
-  const uint32_t input[8] =
-    {
-      0x740fdb34, 0x002defca, 0xb042437b, 0xc2f42cf9,
-      0xc64444be, 0x32365bc1, 0xb613cfa2, 0x15ce0d23
-    };
-
-  const uint32_t key[16] =
-    {
-      0x8ffdc2c5, 0x14d6c69d, 0x9cb7608f, 0x899b2472,
-      0xbf9e4372, 0x855290d0, 0xc62753da, 0xdeedeab7
-    };
-
-  const uint32_t iv[4] =
-    {
-      0xf53a50f2, 0x8aaf711d, 0x953bbbfa, 0x228d53cb
-    };
-
-  const uint32_t result[2][8] =
-    {
-      /* keybits = 128 */
-
-      {
-        0x04e27d12, 0x1a91e508, 0x01092431, 0x9d572184,
-        0xa39979e1, 0x5543e1bc, 0x7173b71d, 0x4e3be064
-      },
-
-      /* keybits = 256 */
-
-      {
-        0x6f36b8fe, 0x33bc1f37, 0x24fe659c, 0x0370def0,
-        0xb9a852f8, 0x64a79ae2, 0xd59f5045, 0x648a0f44
-      }
-    };
-
-  for (i = 0; i < 2; i++)
-    {
-      keybits = i * 128 + 128;
-
-      ret = esp32s3_aes_setkey(&aes, key, keybits);
-      DEBUGASSERT(ret == 0);
-
-      memcpy(iv_buf, iv, 16);
-      ret = esp32s3_aes_cbc_cypher(&aes, 1, iv_buf, input,
-                                   encrypt_buf, size);
-      DEBUGASSERT(ret == 0);
-
-      if (memcmp(encrypt_buf, result[i], size))
-        {
-          DEBUGASSERT(0);
-        }
-
-      memcpy(iv_buf, iv, 16);
-      ret = esp32s3_aes_cbc_cypher(&aes, 0, iv_buf, encrypt_buf,
-                                   decrypt_buf, size);
-      DEBUGASSERT(ret == 0);
-
-      if (memcmp(decrypt_buf, input, size))
-        {
-          DEBUGASSERT(0);
-        }
-
-      syslog(LOG_INFO, "AES CBC key=%d bits test: PASS\n", keybits);
-    }
-}
-
-/****************************************************************************
- * Name: esp32s3_aes_ctr_test
- *
- * Description:
- *   ESP32-S3 AES-CTR test.
- *
- * Input Parameters:
- *   None
- *
- * Returned Value:
- *   None
- *
- ****************************************************************************/
-
-static void esp32s3_aes_ctr_test(void)
-{
-  int ret;
-  int i;
-  int keybits;
-  uint8_t encrypt_buf[32];
-  uint8_t decrypt_buf[32];
-  uint8_t cnt_buf[16];
-  uint8_t cache_buf[16];
-  uint32_t nc_off;
-  struct esp32s3_aes_s aes;
-  const int size = 32;
-
-  const uint32_t input[8] =
-    {
-      0x740fdb34, 0x002defca, 0xb042437b, 0xc2f42cf9,
-      0xc64444be, 0x32365bc1, 0xb613cfa2, 0x15ce0d23
-    };
-
-  const uint32_t key[16] =
-    {
-      0x8ffdc2c5, 0x14d6c69d, 0x9cb7608f, 0x899b2472,
-      0xbf9e4372, 0x855290d0, 0xc62753da, 0xdeedeab7
-    };
-
-  const uint32_t cnt[4] =
-    {
-      0xf53a50f2, 0x8aaf711d, 0x953bbbfa, 0x228d53cb
-    };
-
-  const uint32_t result[2][8] =
-    {
-      /* keybits = 128 */
-
-      {
-        0x5f922338, 0x5aff403d, 0x45fede3f, 0x616568c6,
-        0x3cd0ffc7, 0xa26cb704, 0x0aaa8b6a, 0x1d0b5e1c
-      },
-
-      /* keybits = 256 */
-
-      {
-        0x70af4473, 0x597d2126, 0xd598ed09, 0x3fea540c,
-        0xfb5c743c, 0x0c1a39ca, 0xcbcf2d17, 0x341a7a0c
-      }
-    };
-
-  for (i = 0; i < 2; i++)
-    {
-      keybits = i * 128 + 128;
-
-      ret = esp32s3_aes_setkey(&aes, key, keybits);
-      DEBUGASSERT(ret == 0);
-
-      nc_off = 0;
-      memcpy(cnt_buf, cnt, 16);
-      ret = esp32s3_aes_ctr_cypher(&aes, &nc_off, cnt_buf, cache_buf,
-                                   input, encrypt_buf, size);
-      DEBUGASSERT(ret == 0);
-
-      if (memcmp(encrypt_buf, result[i], size))
-        {
-          DEBUGASSERT(0);
-        }
-
-      nc_off = 0;
-      memcpy(cnt_buf, cnt, 16);
-      ret = esp32s3_aes_ctr_cypher(&aes, &nc_off, cnt_buf, cache_buf,
-                                   encrypt_buf, decrypt_buf, size);
-      DEBUGASSERT(ret == 0);
-
-      if (memcmp(decrypt_buf, input, size))
-        {
-          DEBUGASSERT(0);
-        }
-
-      syslog(LOG_INFO, "AES CTR key=%d bits test: PASS\n", keybits);
-    }
-}
-
-/****************************************************************************
- * Name: esp32s3_aes_xts_test
- *
- * Description:
- *   ESP32-S3 AES-XTS test.
- *
- * Input Parameters:
- *   None
- *
- * Returned Value:
- *   None
- *
- ****************************************************************************/
-
-static void esp32s3_aes_xts_test(void)
-{
-  int ret;
-  int i;
-  int keybits;
-  uint8_t encrypt_buf[32];
-  uint8_t decrypt_buf[32];
-  uint8_t unit_buf[16];
-  struct esp32s3_aes_xts_s aes;
-  int size;
-
-  const uint32_t input[8] =
-    {
-      0x740fdb34, 0x002defca, 0xb042437b, 0xc2f42cf9,
-      0xc64444be, 0x32365bc1, 0xb613cfa2, 0x15ce0d23
-    };
-
-  const uint32_t key[16] =
-    {
-      0x8ffdc2c5, 0x14d6c69d, 0x9cb7608f, 0x899b2472,
-      0xbf9e4372, 0x855290d0, 0xc62753da, 0xdeedeab7,
-      0x7ac6c53b, 0xc94f0b81, 0xdd673fc9, 0x8c1b71a6,
-      0x1f99b728, 0x5e7af2eb, 0xcc7274a3, 0xf0005b23
-    };
-
-  const uint32_t unit[4] =
-    {
-      0xf53a50f2, 0x8aaf711d, 0x953bbbfa, 0x228d53cb
-    };
-
-  const uint32_t result_in32[2][8] =
-    {
-      /* keybits = 256 */
-
-      {
-        0xf70e05fd, 0x2791be41, 0x926ec006, 0xc76068f4,
-        0x01fd0843, 0xdf5e576a, 0xa4b1833d, 0x90502608
-      },
-
-      /* keybits = 512 */
-
-      {
-        0x164b4185, 0x4cb1cce7, 0xf285e523, 0x06a5923a,
-        0xae4fcb7b, 0x59ce9dc6, 0xed64546f, 0x5889cb17
-      }
-    };
-
-  const uint32_t result_in30[2][8] =
-    {
-      /* keybits = 256 */
-
-      {
-        0x26991fb6, 0x72e4a7bc, 0x97041d61, 0x9ec889af,
-        0xf70e05fd, 0x2791be41, 0x926ec006, 0x000068f4
-      },
-
-      /* keybits = 512 */
-
-      {
-        0x4b42dd86, 0xeee792c0, 0x1516ff95, 0x1f5fd9e6,
-        0x164b4185, 0x4cb1cce7, 0xf285e523, 0x0000923a
-      }
-    };
-
-  for (i = 0; i < 2; i++)
-    {
-      keybits = i * 256 + 256;
-
-      ret = esp32s3_aes_xts_setkey(&aes, key, keybits);
-      DEBUGASSERT(ret == 0);
-
-      /* Encrypt/Decrypt 32 bytes */
-
-      size = 32;
-
-      memcpy(unit_buf, unit, 16);
-      ret = esp32s3_aes_xts_cypher(&aes, true, unit_buf, input,
-                                   encrypt_buf, size);
-      DEBUGASSERT(ret == 0);
-
-      if (memcmp(encrypt_buf, result_in32[i], size))
-        {
-          DEBUGASSERT(0);
-        }
-
-      memcpy(unit_buf, unit, 16);
-      ret = esp32s3_aes_xts_cypher(&aes, false, unit_buf, encrypt_buf,
-                                   decrypt_buf, size);
-      DEBUGASSERT(ret == 0);
-
-      if (memcmp(decrypt_buf, input, size))
-        {
-          DEBUGASSERT(0);
-        }
-
-      /* Encrypt/Decrypt 30 bytes */
-
-      size = 30;
-
-      memcpy(unit_buf, unit, 16);
-      ret = esp32s3_aes_xts_cypher(&aes, true, unit_buf, input,
-                                   encrypt_buf, size);
-      DEBUGASSERT(ret == 0);
-
-      if (memcmp(encrypt_buf, result_in30[i], size))
-        {
-          DEBUGASSERT(0);
-        }
-
-      memcpy(unit_buf, unit, 16);
-      ret = esp32s3_aes_xts_cypher(&aes, false, unit_buf, encrypt_buf,
-                                   decrypt_buf, size);
-      DEBUGASSERT(ret == 0);
-
-      if (memcmp(decrypt_buf, input, size))
-        {
-          DEBUGASSERT(0);
-        }
-
-      syslog(LOG_INFO, "AES XTS key=%d bits test: PASS\n", keybits);
-    }
-}
-
-#endif
-
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: esp32s3_aes_ecb_cypher
+ * Name: esp_aes_ecb_cypher
  *
  * Description:
  *   Process AES ECB encryption/decryption.
@@ -583,8 +153,8 @@ static void esp32s3_aes_xts_test(void)
  *
  ****************************************************************************/
 
-int esp32s3_aes_ecb_cypher(struct esp32s3_aes_s *aes, bool encrypt,
-                           const void *input, void *output, uint32_t size)
+int esp_aes_ecb_cypher(struct esp_aes_s *aes, bool encrypt,
+                       const void *input, void *output, uint32_t size)
 {
   int ret;
   uint32_t i;
@@ -620,7 +190,7 @@ int esp32s3_aes_ecb_cypher(struct esp32s3_aes_s *aes, bool encrypt,
 }
 
 /****************************************************************************
- * Name: esp32s3_aes_cbc_cypher
+ * Name: esp_aes_cbc_cypher
  *
  * Description:
  *   Process AES CBC encryption/decryption.
@@ -638,9 +208,9 @@ int esp32s3_aes_ecb_cypher(struct esp32s3_aes_s *aes, bool encrypt,
  *
  ****************************************************************************/
 
-int esp32s3_aes_cbc_cypher(struct esp32s3_aes_s *aes, bool encrypt,
-                           void *ivptr, const void *input, void *output,
-                           uint32_t size)
+int esp_aes_cbc_cypher(struct esp_aes_s *aes, bool encrypt,
+                       void *ivptr, const void *input, void *output,
+                       uint32_t size)
 {
   int ret;
   uint32_t i;
@@ -699,7 +269,7 @@ int esp32s3_aes_cbc_cypher(struct esp32s3_aes_s *aes, bool encrypt,
 }
 
 /****************************************************************************
- * Name: esp32s3_aes_ctr_cypher
+ * Name: esp_aes_ctr_cypher
  *
  * Description:
  *   Process AES CTR encryption/decryption.
@@ -718,9 +288,9 @@ int esp32s3_aes_cbc_cypher(struct esp32s3_aes_s *aes, bool encrypt,
  *
  ****************************************************************************/
 
-int esp32s3_aes_ctr_cypher(struct esp32s3_aes_s *aes, uint32_t *offptr,
-                           void *cntptr, void *cacheptr, const void *input,
-                           void *output, uint32_t size)
+int esp_aes_ctr_cypher(struct esp_aes_s *aes, uint32_t *offptr,
+                       void *cntptr, void *cacheptr, const void *input,
+                       void *output, uint32_t size)
 {
   int ret;
   uint32_t i;
@@ -775,7 +345,7 @@ int esp32s3_aes_ctr_cypher(struct esp32s3_aes_s *aes, uint32_t *offptr,
 }
 
 /****************************************************************************
- * Name: esp32s3_aes_xts_cypher
+ * Name: esp_aes_xts_cypher
  *
  * Description:
  *   Process AES XTS encryption/decryption.
@@ -793,9 +363,9 @@ int esp32s3_aes_ctr_cypher(struct esp32s3_aes_s *aes, uint32_t *offptr,
  *
  ****************************************************************************/
 
-int esp32s3_aes_xts_cypher(struct esp32s3_aes_xts_s *aes, bool encrypt,
-                           void *unitptr, const void *input, void *output,
-                           uint32_t size)
+int esp_aes_xts_cypher(struct esp_aes_xts_s *aes, bool encrypt,
+                       void *unitptr, const void *input, void *output,
+                       uint32_t size)
 {
   int ret;
   uint32_t i;
@@ -892,7 +462,7 @@ int esp32s3_aes_xts_cypher(struct esp32s3_aes_xts_s *aes, bool encrypt,
 }
 
 /****************************************************************************
- * Name: esp32s3_aes_setkey
+ * Name: esp_aes_setkey
  *
  * Description:
  *   Configure AES key.
@@ -907,8 +477,8 @@ int esp32s3_aes_xts_cypher(struct esp32s3_aes_xts_s *aes, bool encrypt,
  *
  ****************************************************************************/
 
-int esp32s3_aes_setkey(struct esp32s3_aes_s *aes, const void *keyptr,
-                       uint16_t keybits)
+int esp_aes_setkey(struct esp_aes_s *aes, const void *keyptr,
+                   uint16_t keybits)
 {
   DEBUGASSERT(aes && keyptr);
 
@@ -924,7 +494,7 @@ int esp32s3_aes_setkey(struct esp32s3_aes_s *aes, const void *keyptr,
 }
 
 /****************************************************************************
- * Name: esp32s3_aes_xts_setkey
+ * Name: esp_aes_xts_setkey
  *
  * Description:
  *   Configure AES XTS key.
@@ -939,8 +509,8 @@ int esp32s3_aes_setkey(struct esp32s3_aes_s *aes, const void *keyptr,
  *
  ****************************************************************************/
 
-int esp32s3_aes_xts_setkey(struct esp32s3_aes_xts_s *aes, const void *keyptr,
-                           uint16_t keybits)
+int esp_aes_xts_setkey(struct esp_aes_xts_s *aes, const void *keyptr,
+                       uint16_t keybits)
 {
   const uint8_t *key = (const uint8_t *)keyptr;
   uint16_t half_keybits = keybits / 2;
@@ -962,10 +532,10 @@ int esp32s3_aes_xts_setkey(struct esp32s3_aes_xts_s *aes, const void *keyptr,
 }
 
 /****************************************************************************
- * Name: esp32s3_aes_init
+ * Name: esp_aes_init
  *
  * Description:
- *   Initialize ESP32-S3 AES hardware.
+ *   Initialize ESP device AES hardware.
  *
  * Input Parameters:
  *   None
@@ -975,21 +545,21 @@ int esp32s3_aes_xts_setkey(struct esp32s3_aes_xts_s *aes, const void *keyptr,
  *
  ****************************************************************************/
 
-int esp32s3_aes_init(void)
+int esp_aes_init(void)
 {
-  if (g_aes_inited == false)
+  if (!g_aes_inited)
     {
-      modifyreg32(SYSTEM_PERIP_CLK_EN1_REG, 0, SYSTEM_CRYPTO_AES_CLK_EN);
-      modifyreg32(SYSTEM_PERIP_RST_EN1_REG, SYSTEM_CRYPTO_AES_RST, 0);
+      AES_RCC_ATOMIC()
+        {
+          aes_ll_enable_bus_clock(true);
+          aes_ll_reset_register();
+        }
+
       g_aes_inited = true;
     }
 
   return OK;
 }
-
-/****************************************************************************
- * Name: aes_cypher
- ****************************************************************************/
 
 #ifdef CONFIG_CRYPTO_AES
 
@@ -1001,16 +571,11 @@ int aes_cypher(void *out, const void *in, size_t size,
   uint8_t iv_buf[AES_BLK_SIZE];
   uint8_t cache_buf[AES_BLK_SIZE];
   uint32_t nc_off;
-  struct esp32s3_aes_s aes;
+  struct esp_aes_s aes;
 
   if ((size & (AES_BLK_SIZE - 1)) != 0)
     {
       return -EINVAL;
-    }
-
-  if (mode == AES_MODE_CTR)
-    {
-      keysize -= 4;
     }
 
   if (keysize != 16 && keysize != 32)
@@ -1025,13 +590,13 @@ int aes_cypher(void *out, const void *in, size_t size,
       return -EINVAL;
     }
 
-  ret = esp32s3_aes_init();
+  ret = esp_aes_init();
   if (ret < 0)
     {
       return ret;
     }
 
-  ret = esp32s3_aes_setkey(&aes, key, keysize * 8);
+  ret = esp_aes_setkey(&aes, key, keysize * 8);
   if (ret < 0)
     {
       return ret;
@@ -1040,17 +605,17 @@ int aes_cypher(void *out, const void *in, size_t size,
   switch (mode)
     {
       case AES_MODE_ECB:
-        ret = esp32s3_aes_ecb_cypher(&aes, encrypt, in, out, size);
+        ret = esp_aes_ecb_cypher(&aes, encrypt, in, out, size);
         break;
       case AES_MODE_CBC:
         memcpy(iv_buf, iv, AES_BLK_SIZE);
-        ret = esp32s3_aes_cbc_cypher(&aes, encrypt, iv_buf, in, out, size);
+        ret = esp_aes_cbc_cypher(&aes, encrypt, iv_buf, in, out, size);
         break;
       case AES_MODE_CTR:
         nc_off = 0;
         memcpy(iv_buf, iv, AES_BLK_SIZE);
-        ret = esp32s3_aes_ctr_cypher(&aes, &nc_off, iv_buf, cache_buf,
-                                     in, out, size);
+        ret = esp_aes_ctr_cypher(&aes, &nc_off, iv_buf, cache_buf,
+                                   in, out, size);
         break;
       default:
         ret = -EINVAL;
@@ -1059,22 +624,4 @@ int aes_cypher(void *out, const void *in, size_t size,
 
   return ret;
 }
-
-#endif
-
-#ifdef CONFIG_ESP32S3_AES_ACCELERATOR_TEST
-
-/****************************************************************************
- * Name: esp32s3_aes_test
- ****************************************************************************/
-
-void esp32s3_aes_test(void)
-{
-  esp32s3_aes_ecb_test();
-  esp32s3_aes_cbc_test();
-  esp32s3_aes_ctr_test();
-  esp32s3_aes_xts_test();
-  syslog(LOG_INFO, "\nAES hardware accelerate test done.\n");
-}
-
-#endif
+#endif /* CONFIG_CRYPTO_AES */
