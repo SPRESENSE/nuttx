@@ -42,7 +42,7 @@
  * Private Data
  ****************************************************************************/
 
-static mutex_t g_nat_lock = NXMUTEX_INITIALIZER;
+static rmutex_t g_nat_lock = NXRMUTEX_INITIALIZER;
 
 /****************************************************************************
  * Private Functions
@@ -118,6 +118,7 @@ int nat_enable(FAR struct net_driver_s *dev)
   if (IFF_IS_NAT(dev->d_flags))
     {
       nwarn("WARNING: NAT was already enabled for %s!\n", dev->d_ifname);
+      nat_unlock();
       return -EEXIST;
     }
 
@@ -418,7 +419,7 @@ uint32_t nat_expire_time(uint8_t protocol)
 
 void nat_lock(void)
 {
-  nxmutex_lock(&g_nat_lock);
+  nxrmutex_lock(&g_nat_lock);
 }
 
 /****************************************************************************
@@ -431,7 +432,7 @@ void nat_lock(void)
 
 void nat_unlock(void)
 {
-  nxmutex_unlock(&g_nat_lock);
+  nxrmutex_unlock(&g_nat_lock);
 }
 
 #endif /* CONFIG_NET_NAT */
