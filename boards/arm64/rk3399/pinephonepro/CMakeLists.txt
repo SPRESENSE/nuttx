@@ -1,5 +1,5 @@
 # ##############################################################################
-# boards/risc-v/k210/maix-bit/src/CMakeLists.txt
+# boards/arm64/rk3399/pinephonepro/CMakeLists.txt
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -20,22 +20,4 @@
 #
 # ##############################################################################
 
-set(SRCS k210_bringup.c k210_boot.c)
-
-if(CONFIG_BOARDCTL)
-  list(APPEND SRCS k210_appinit.c)
-endif()
-
-if(CONFIG_ARCH_LEDS)
-  list(APPEND SRCS k210_leds.c)
-endif()
-
-if(CONFIG_USERLED_LOWER)
-  list(APPEND SRCS k210_userleds.c)
-endif()
-
-target_sources(board PRIVATE ${SRCS})
-
-set(LDFILE ld.script)
-
-set_property(GLOBAL PROPERTY LD_SCRIPT "${NUTTX_BOARD_DIR}/scripts/${LDFILE}")
+add_subdirectory(src)
