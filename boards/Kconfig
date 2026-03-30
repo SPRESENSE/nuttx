@@ -636,6 +636,14 @@ config ARCH_BOARD_ESP32P4_FUNCTION_EV_BOARD
 	---help---
 		The ESP32-P4 Function EV Board features the ESP32-P4 CPU with two RISC-V cores.
 
+config ARCH_BOARD_ESP32P4_PICO_WIFI_WARESHARE
+	bool "Waveshare ESP32-P4-PICO-WIFI"
+	depends on ARCH_CHIP_ESP32P4
+	select ARCH_HAVE_BUTTONS
+	select ARCH_HAVE_IRQBUTTONS
+	---help---
+		The Waveshare ESP32-P4-PICO-WIFI features the ESP32-P4 CPU with two RISC-V cores.
+
 config ARCH_BOARD_ET_STM32_STAMP
 	bool "Futurlec: ET-STM32 Stamp"
 	depends on ARCH_CHIP_STM32F103RE
@@ -3481,6 +3489,13 @@ config ARCH_BOARD_AT32F437_MINI
 	---help---
 		AT32F437-MINI board based on the Artery AT32F437VMT7 MCU.
 
+config ARCH_BOARD_ESK32
+	bool "ESK32 board"
+	depends on ARCH_CHIP_HT32F49163
+	select ARCH_HAVE_LEDS
+	---help---
+		ESK32 board based on the Holtek HT32F49163 MCU.
+
 config ARCH_BOARD_FRDM_MCXN236
 	bool "NXP MCXN236 CPU EVK board"
 	depends on ARCH_CHIP_N236
@@ -3618,6 +3633,7 @@ config ARCH_BOARD
 	default "esp32c6-xiao"                 if ARCH_BOARD_ESP32C6_XIAO
 	default "esp32h2-devkit"               if ARCH_BOARD_ESP32H2_DEVKIT
 	default "esp32p4-function-ev-board"    if ARCH_BOARD_ESP32P4_FUNCTION_EV_BOARD
+	default "esp32p4-pico-wifi-wareshare"  if ARCH_BOARD_ESP32P4_PICO_WIFI_WARESHARE
 	default "et-stm32-stamp"               if ARCH_BOARD_ET_STM32_STAMP
 	default "tlsr8278adk80d"               if ARCH_BOARD_TLSR8278ADK80D
 	default "ez80f910200kitg"              if ARCH_BOARD_EZ80F910200KITG
@@ -3927,6 +3943,7 @@ config ARCH_BOARD
 	default "hpm6360evk"                   if ARCH_BOARD_HPM6360EVK
 	default "hpm6750evk2"                  if ARCH_BOARD_HPM6750EVK2
 	default "at32f437-mini"                if ARCH_BOARD_AT32F437_MINI
+	default "esk32"                        if ARCH_BOARD_ESK32
 	default "csk6011a-nano"                if ARCH_BOARD_CSK6011A_NANO
 	default "frdm-mcxn236"                 if ARCH_BOARD_FRDM_MCXN236
 
@@ -4927,6 +4944,9 @@ endif
 if ARCH_BOARD_ESP32P4_FUNCTION_EV_BOARD
 source "boards/risc-v/esp32p4/esp32p4-function-ev-board/Kconfig"
 endif
+if ARCH_BOARD_ESP32P4_PICO_WIFI_WARESHARE
+source "boards/risc-v/esp32p4/esp32p4-pico-wifi-wareshare/Kconfig"
+endif
 if ARCH_BOARD_SIM
 source "boards/sim/sim/sim/Kconfig"
 endif
@@ -5040,6 +5060,9 @@ source "boards/risc-v/hpm6750/hpm6750evk2/Kconfig"
 endif
 if ARCH_BOARD_AT32F437_MINI
 source "boards/arm/at32/at32f437-mini/Kconfig"
+endif
+if ARCH_BOARD_ESK32
+source "boards/arm/ht32f491x3/esk32/Kconfig"
 endif
 if ARCH_BOARD_CSK6011A_NANO
 source "boards/arm/csk6/csk6011a-nano/Kconfig"
