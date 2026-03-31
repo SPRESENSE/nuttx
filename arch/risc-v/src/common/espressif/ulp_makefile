@@ -1,5 +1,5 @@
 ############################################################################
-# Documentation/platforms/risc-v/esp32c6/boards/esp32c6-devkitc/ulp_makefile
+# arch/risc-v/src/common/espressif/ulp_makefile
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -24,6 +24,6 @@ ULP_APP_USE_TEST_BIN = y
 
 ULP_APP_NAME = esp_ulp
 ULP_APP_FOLDER = $(TOPDIR)$(DELIM)arch$(DELIM)risc-v$(DELIM)src$(DELIM)$(CHIP_SERIES)
-ULP_APP_BIN = $(TOPDIR)$(DELIM)Documentation$(DELIM)platforms$(DELIM)risc-v$(DELIM)esp32c6$(DELIM)boards$(DELIM)esp32c6-devkitc$(DELIM)ulp_blink.bin
+ULP_APP_BIN = $(TOPDIR)$(DELIM)Documentation$(DELIM)platforms$(DELIM)risc-v$(DELIM)$(CONFIG_ARCH_CHIP)$(DELIM)boards$(DELIM)$(CONFIG_ARCH_BOARD)$(DELIM)ulp_blink.bin
 
 include $(TOPDIR)$(DELIM)arch$(DELIM)risc-v$(DELIM)src$(DELIM)common$(DELIM)espressif$(DELIM)esp_ulp.mk

@@ -26,3 +26,6 @@ include common/espressif/Make.defs
 CHIP_CSRCS += esp_chip_rev.c
 
 CFLAGS += ${DEFINE_PREFIX}_RETARGETABLE_LOCKING
+
+# TODO: Remove these flags once ulp/lp_core/lp_core.c is updated.
+CFLAGS += -Wno-array-bounds -Wno-stringop-overflow
