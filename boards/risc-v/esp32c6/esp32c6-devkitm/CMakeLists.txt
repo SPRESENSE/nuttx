@@ -1,5 +1,5 @@
 # ##############################################################################
-# arch/arm/src/ht32f491x3/CMakeLists.txt
+# boards/risc-v/esp32c6/esp32c6-devkitm/CMakeLists.txt
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -20,22 +20,4 @@
 #
 # ##############################################################################
 
-list(
-  APPEND
-  SRCS
-  ht32f491x3_start.c
-  ht32f491x3_irq.c
-  ht32f491x3_timerisr.c
-  ht32f491x3_gpio.c
-  ht32f491x3_lowputc.c
-  ht32f491x3_serial.c)
-
-if(CONFIG_PWM)
-  list(APPEND SRCS ht32f491x3_pwm.c)
-endif()
-
-if(CONFIG_ARCH_HAVE_CUSTOM_VECTORS)
-  list(APPEND SRCS arm_vectors.c)
-endif()
-
-target_sources(arch PRIVATE ${SRCS})
+add_subdirectory(src)

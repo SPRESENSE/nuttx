@@ -1,5 +1,5 @@
 # ##############################################################################
-# arch/arm/src/ht32f491x3/CMakeLists.txt
+# arch/risc-v/src/esp32h2/CMakeLists.txt
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -20,22 +20,13 @@
 #
 # ##############################################################################
 
-list(
-  APPEND
-  SRCS
-  ht32f491x3_start.c
-  ht32f491x3_irq.c
-  ht32f491x3_timerisr.c
-  ht32f491x3_gpio.c
-  ht32f491x3_lowputc.c
-  ht32f491x3_serial.c)
+# Include common espressif CMake configuration
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../common/espressif espressif)
 
-if(CONFIG_PWM)
-  list(APPEND SRCS ht32f491x3_pwm.c)
+set(SRCS esp_chip_rev.c)
+
+target_compile_definitions(arch PRIVATE _RETARGETABLE_LOCKING)
+
+if(SRCS)
+  target_sources(arch PRIVATE ${SRCS})
 endif()
-
-if(CONFIG_ARCH_HAVE_CUSTOM_VECTORS)
-  list(APPEND SRCS arm_vectors.c)
-endif()
-
-target_sources(arch PRIVATE ${SRCS})
