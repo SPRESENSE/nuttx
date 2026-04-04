@@ -1,5 +1,5 @@
 # ##############################################################################
-# drivers/rmt/CMakeLists.txt
+# boards/risc-v/esp32c3/esp32c3-xiao/CMakeLists.txt
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -20,12 +20,4 @@
 #
 # ##############################################################################
 
-if(CONFIG_RMT)
-  set(SRCS)
-
-  if(CONFIG_RMTCHAR)
-    list(APPEND SRCS rmtchar.c)
-  endif()
-
-  target_sources(drivers PRIVATE ${SRCS})
-endif()
+add_subdirectory(src)
