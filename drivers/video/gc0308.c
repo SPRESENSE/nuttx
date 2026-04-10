@@ -134,9 +134,9 @@
 #define GC0308_NATIVE_WIDTH   640
 #define GC0308_NATIVE_HEIGHT  480
 
-/* Mirror/flip */
+/* Mirror/flip: register 0x14 (CISCTL_MODE1) bit[0] = horizontal mirror */
 
-#define GC0308_REG_CISCTL_MODE1_MIRROR  0x14
+#define GC0308_REG_CISCTL_MODE1_HMIRROR_BIT  (1 << 0)
 
 /****************************************************************************
  * Private Types
@@ -461,8 +461,8 @@ static const struct v4l2_fmtdesc g_gc0308_fmtdescs[] =
     .description = "YUV 4:2:2 (YUYV)",
   },
   {
-    .pixelformat = V4L2_PIX_FMT_RGB565,
-    .description = "RGB565",
+    .pixelformat = V4L2_PIX_FMT_RGB565X,
+    .description = "RGB565X (BE)",
   },
 };
 
@@ -653,7 +653,10 @@ static int gc0308_init(struct imgsensor_s *sensor)
 
   up_mdelay(80);
 
-  /* Set default RGB565 output format: reg 0x24 bits[3:0] = 6 */
+  /* Set RGB565 output: reg 0x24 bits[3:0] = 0x06 per datasheet.
+   * On 8-bit DVP bus the high byte is clocked out first, so the
+   * resulting memory layout is big-endian (RGB565X).
+   */
 
   ret = gc0308_putreg(priv->i2c, GC0308_REG_RESET, 0x00);
   if (ret < 0)
@@ -662,7 +665,7 @@ static int gc0308_init(struct imgsensor_s *sensor)
     }
 
   ret = gc0308_modreg(priv->i2c, GC0308_REG_OUTPUT_FMT, 0x0f, 0x06);
-  priv->pixelformat = IMGSENSOR_PIX_FMT_RGB565;
+  priv->pixelformat = IMGSENSOR_PIX_FMT_RGB565X;
   if (ret < 0)
     {
       return ret;
@@ -760,7 +763,7 @@ static int gc0308_validate_frame_setting(struct imgsensor_s *sensor,
   if (datafmts[IMGSENSOR_FMT_MAIN].pixelformat !=
       IMGSENSOR_PIX_FMT_YUYV &&
       datafmts[IMGSENSOR_FMT_MAIN].pixelformat !=
-      IMGSENSOR_PIX_FMT_RGB565)
+      IMGSENSOR_PIX_FMT_RGB565X)
     {
       return -EINVAL;
     }
@@ -795,9 +798,9 @@ static int gc0308_start_capture(struct imgsensor_s *sensor,
 
   /* Configure output format register based on requested pixel format */
 
-  if (datafmts[IMGSENSOR_FMT_MAIN].pixelformat == IMGSENSOR_PIX_FMT_RGB565)
+  if (datafmts[IMGSENSOR_FMT_MAIN].pixelformat == IMGSENSOR_PIX_FMT_RGB565X)
     {
-      fmtval = 0x06;  /* RGB565 */
+      fmtval = 0x06;  /* Reg 0x24 = RGB565; BE in memory due to 8-bit DVP */
     }
   else
     {
@@ -836,7 +839,20 @@ static int gc0308_get_supported_value(struct imgsensor_s *sensor,
                                       uint32_t id,
                                       imgsensor_supported_value_t *value)
 {
-  return -ENOTTY;
+  switch (id)
+    {
+      case IMGSENSOR_ID_HFLIP_VIDEO:
+      case IMGSENSOR_ID_HFLIP_STILL:
+        value->type = IMGSENSOR_CTRL_TYPE_BOOLEAN;
+        value->u.range.minimum       = 0;
+        value->u.range.maximum       = 1;
+        value->u.range.step          = 1;
+        value->u.range.default_value = 0;
+        return OK;
+
+      default:
+        return -ENOTTY;
+    }
 }
 
 /****************************************************************************
@@ -847,7 +863,27 @@ static int gc0308_get_value(struct imgsensor_s *sensor,
                             uint32_t id, uint32_t size,
                             imgsensor_value_t *value)
 {
-  return -ENOTTY;
+  struct gc0308_dev_s *priv = (struct gc0308_dev_s *)sensor;
+  uint8_t regval;
+  int ret;
+
+  switch (id)
+    {
+      case IMGSENSOR_ID_HFLIP_VIDEO:
+      case IMGSENSOR_ID_HFLIP_STILL:
+        ret = gc0308_getreg(priv->i2c, GC0308_REG_CISCTL_MODE1, &regval);
+        if (ret < 0)
+          {
+            return ret;
+          }
+
+        value->value32 =
+          (regval & GC0308_REG_CISCTL_MODE1_HMIRROR_BIT) ? 1 : 0;
+        return OK;
+
+      default:
+        return -ENOTTY;
+    }
 }
 
 /****************************************************************************
@@ -858,7 +894,20 @@ static int gc0308_set_value(struct imgsensor_s *sensor,
                             uint32_t id, uint32_t size,
                             imgsensor_value_t value)
 {
-  return -ENOTTY;
+  struct gc0308_dev_s *priv = (struct gc0308_dev_s *)sensor;
+
+  switch (id)
+    {
+      case IMGSENSOR_ID_HFLIP_VIDEO:
+      case IMGSENSOR_ID_HFLIP_STILL:
+        return gc0308_modreg(priv->i2c, GC0308_REG_CISCTL_MODE1,
+                             GC0308_REG_CISCTL_MODE1_HMIRROR_BIT,
+                             value.value32 ?
+                             GC0308_REG_CISCTL_MODE1_HMIRROR_BIT : 0);
+
+      default:
+        return -ENOTTY;
+    }
 }
 
 /****************************************************************************

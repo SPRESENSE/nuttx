@@ -128,6 +128,10 @@
 #  include "espressif/esp_aes.h"
 #endif
 
+#ifdef CONFIG_PM
+#  include "espressif/esp_pm.h"
+#endif
+
 #ifdef CONFIG_MMCSD_SPI
 #  include "esp_board_mmcsd.h"
 #endif
@@ -456,6 +460,16 @@ int esp_bringup(void)
       syslog(LOG_ERR, "ERROR: board_ledc_setup() failed: %d\n", ret);
     }
 #endif /* CONFIG_ESPRESSIF_LEDC */
+
+#ifdef CONFIG_ESPRESSIF_AUTO_SLEEP
+  /* Configure PM */
+
+  ret = esp_pmconfigure();
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: esp_pmconfigure failed: %d\n", ret);
+    }
+#endif
 
 #ifdef CONFIG_SYSTEM_NXDIAG_ESPRESSIF_CHIP_WO_TOOL
   ret = esp_nxdiag_initialize();
