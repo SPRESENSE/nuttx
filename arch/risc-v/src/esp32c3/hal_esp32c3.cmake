@@ -201,21 +201,22 @@ set(ESP_ROM_LD_DIR
 set(ESP_SOC_LD_DIR ${ESP_HAL_3RDPARTY_REPO}/components/soc/${CHIP_SERIES}/ld)
 set(ESP_RISCV_LD_DIR ${ESP_HAL_3RDPARTY_REPO}/components/riscv/ld)
 
-target_link_options(
-  nuttx
-  PRIVATE
-  -T${ESP_ROM_LD_DIR}/${CHIP_SERIES}.rom.api.ld
-  -T${ESP_ROM_LD_DIR}/${CHIP_SERIES}.rom.bt_funcs.ld
-  -T${ESP_ROM_LD_DIR}/${CHIP_SERIES}.rom.eco3_bt_funcs.ld
-  -T${ESP_ROM_LD_DIR}/${CHIP_SERIES}.rom.eco3.ld
-  -T${ESP_ROM_LD_DIR}/${CHIP_SERIES}.rom.ld
-  -T${ESP_ROM_LD_DIR}/${CHIP_SERIES}.rom.libc.ld
-  -T${ESP_ROM_LD_DIR}/${CHIP_SERIES}.rom.libc-suboptimal_for_misaligned_mem.ld
-  -T${ESP_ROM_LD_DIR}/${CHIP_SERIES}.rom.libgcc.ld
-  -T${ESP_ROM_LD_DIR}/${CHIP_SERIES}.rom.newlib.ld
-  -T${ESP_ROM_LD_DIR}/${CHIP_SERIES}.rom.version.ld
-  -T${ESP_SOC_LD_DIR}/${CHIP_SERIES}.peripherals.ld
-  -T${ESP_RISCV_LD_DIR}/rom.api.ld)
+set(_esp32c3_rom_ld_files
+    ${ESP_ROM_LD_DIR}/${CHIP_SERIES}.rom.api.ld
+    ${ESP_ROM_LD_DIR}/${CHIP_SERIES}.rom.bt_funcs.ld
+    ${ESP_ROM_LD_DIR}/${CHIP_SERIES}.rom.eco3_bt_funcs.ld
+    ${ESP_ROM_LD_DIR}/${CHIP_SERIES}.rom.eco3.ld
+    ${ESP_ROM_LD_DIR}/${CHIP_SERIES}.rom.ld
+    ${ESP_ROM_LD_DIR}/${CHIP_SERIES}.rom.libc.ld
+    ${ESP_ROM_LD_DIR}/${CHIP_SERIES}.rom.libc-suboptimal_for_misaligned_mem.ld
+    ${ESP_ROM_LD_DIR}/${CHIP_SERIES}.rom.libgcc.ld
+    ${ESP_ROM_LD_DIR}/${CHIP_SERIES}.rom.newlib.ld
+    ${ESP_ROM_LD_DIR}/${CHIP_SERIES}.rom.version.ld
+    ${ESP_SOC_LD_DIR}/${CHIP_SERIES}.peripherals.ld
+    ${ESP_RISCV_LD_DIR}/rom.api.ld)
+
+# Add these files to the GLOBAL PROPERTY LD_SCRIPT
+set_property(GLOBAL APPEND PROPERTY LD_SCRIPT ${_esp32c3_rom_ld_files})
 
 # ##############################################################################
 # HAL Source Files
@@ -421,8 +422,6 @@ list(
 list(
   APPEND
   HAL_SRCS
-  ${ESP_HAL_3RDPARTY_REPO}/components/spi_flash/spi_flash_os_func_noos.c
-  ${ESP_HAL_3RDPARTY_REPO}/components/spi_flash/spi_flash_os_func_app.c
   ${ESP_HAL_3RDPARTY_REPO}/components/spi_flash/spi_flash_chip_generic.c
   ${ESP_HAL_3RDPARTY_REPO}/components/spi_flash/spi_flash_chip_boya.c
   ${ESP_HAL_3RDPARTY_REPO}/components/spi_flash/spi_flash_chip_gd.c
@@ -431,14 +430,34 @@ list(
   ${ESP_HAL_3RDPARTY_REPO}/components/spi_flash/spi_flash_chip_mxic_opi.c
   ${ESP_HAL_3RDPARTY_REPO}/components/spi_flash/spi_flash_chip_mxic.c
   ${ESP_HAL_3RDPARTY_REPO}/components/spi_flash/spi_flash_chip_th.c
-  ${ESP_HAL_3RDPARTY_REPO}/components/spi_flash/esp_flash_api.c
-  ${ESP_HAL_3RDPARTY_REPO}/components/spi_flash/flash_ops.c
   ${ESP_HAL_3RDPARTY_REPO}/components/spi_flash/spi_flash_chip_drivers.c
   ${ESP_HAL_3RDPARTY_REPO}/components/spi_flash/memspi_host_driver.c
-  ${ESP_HAL_3RDPARTY_REPO}/components/spi_flash/esp_flash_spi_init.c
+  ${ESP_HAL_3RDPARTY_REPO}/components/spi_flash/flash_brownout_hook.c)
+
+# Cache (relates to SPI Flash)
+
+set(CACHE_SRCS)
+list(
+  APPEND
+  CACHE_SRCS
+  ${ESP_HAL_3RDPARTY_REPO}/components/spi_flash/cache_utils.c
   ${ESP_HAL_3RDPARTY_REPO}/components/spi_flash/flash_mmap.c
-  ${ESP_HAL_3RDPARTY_REPO}/components/spi_flash/flash_brownout_hook.c
-  ${ESP_HAL_3RDPARTY_REPO}/components/spi_flash/cache_utils.c)
+  ${ESP_HAL_3RDPARTY_REPO}/components/spi_flash/flash_ops.c
+  ${ESP_HAL_3RDPARTY_REPO}/components/spi_flash/esp_flash_api.c
+  ${ESP_HAL_3RDPARTY_REPO}/components/spi_flash/esp_flash_spi_init.c
+  ${ESP_HAL_3RDPARTY_REPO}/components/spi_flash/spi_flash_os_func_app.c
+  ${ESP_HAL_3RDPARTY_REPO}/components/spi_flash/spi_flash_os_func_noos.c
+  ${ESP_HAL_3RDPARTY_REPO}/components/spi_flash/spi_flash_wrap.c)
+
+list(APPEND HAL_SRCS ${CACHE_SRCS})
+
+# Avoid cache miss by unexpected inlineing when built by -Os
+set_source_files_properties(
+  ${CACHE_SRCS} DIRECTORY ../../../../
+  PROPERTIES
+    COMPILE_FLAGS
+    "-fno-inline-functions -fno-inline-small-functions -fno-inline-functions-called-once"
+)
 
 # SOC sources (paths from hal_esp32c3.mk: esp_hal_* periph and soc)
 list(
