@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/x86/src/qemu/qemu_vga.h
+ * boards/arm64/imx9/imx93-evk/src/imx9_dshot.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,41 +20,81 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_X86_SRC_QEMU_QEMU_VGA_H
-#define __ARCH_X86_SRC_QEMU_QEMU_VGA_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
+#include <nuttx/timers/dshot.h>
+#include <arch/board/board.h>
+
+#include <errno.h>
+
+#include "imx9_flexio_dshot.h"
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
 /****************************************************************************
- * Public Types
+ * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Public Data
- ****************************************************************************/
-
-/****************************************************************************
- * Public Functions Prototypes
- ****************************************************************************/
-
-/****************************************************************************
- * Name:  qemu_vga_initialize
+ * Name: imx9_dshot_setup
  *
  * Description:
- *   Initialize the QEMU VGA video hardware.
+ *
+ *   Initialize DShot and register DShot devices
+ *
+ * Input Parameters:
+ *   None
+ *
+ * Returned Value:
+ *   0 on success, negated error value on error
  *
  ****************************************************************************/
 
-struct lcd_dev_s *qemu_vga_initialize(void);
+int imx9_dshot_setup(void)
+{
+  struct dshot_lowerhalf_s *lower_half = NULL;
+  int ret = 0;
 
-int qemu_vga(void);
+#ifdef CONFIG_IMX9_FLEXIO1_DSHOT
+  lower_half = imx9_flexio_dshot_init(DSHOT_FLEXIO1);
 
-#endif /* __ARCH_X86_SRC_QEMU_QEMU_VGA_H */
+  if (lower_half)
+    {
+      ret = dshot_register("/dev/dshot0", lower_half);
+    }
+  else
+    {
+      ret = -ENODEV;
+    }
+
+  if (ret < 0)
+    {
+      return ret;
+    }
+#endif
+
+#ifdef CONFIG_IMX9_FLEXIO2_DSHOT
+  lower_half = imx9_flexio_dshot_init(DSHOT_FLEXIO2);
+
+  if (lower_half)
+    {
+      ret = dshot_register("/dev/dshot1", lower_half);
+    }
+  else
+    {
+      ret = -ENODEV;
+    }
+
+  if (ret < 0)
+    {
+      return ret;
+    }
+#endif
+
+  return ret;
+}

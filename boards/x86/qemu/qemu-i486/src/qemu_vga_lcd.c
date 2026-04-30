@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/arm64/imx9/imx93-evk/src/imx93-evk.h
+ * boards/x86/qemu/qemu-i486/src/qemu_vga_lcd.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,120 +20,82 @@
  *
  ****************************************************************************/
 
-#ifndef __BOARDS_ARM64_IMX9_IMX93_EVK_SRC_IMX93_EVK_H
-#define __BOARDS_ARM64_IMX9_IMX93_EVK_SRC_IMX93_EVK_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
-#include <stdint.h>
+#include <stdio.h>
+#include <stdbool.h>
+#include <nuttx/debug.h>
+#include <errno.h>
+
+#include <nuttx/arch.h>
+#include <nuttx/board.h>
+#include <nuttx/lcd/lcd.h>
+
+#include "qemu_vga.h"
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
-/* Checking needed by MMC/SDCard */
+/****************************************************************************
+ * Private Data
+ ****************************************************************************/
 
-#ifdef CONFIG_NSH_MMCSDSLOTNO
-#  define SDIO_SLOTNO   CONFIG_NSH_MMCSDSLOTNO
-#else
-#  define SDIO_SLOTNO   0
-#endif
-
-#ifdef CONFIG_NSH_MMCSDMINOR
-#  define SDIO_MINOR   CONFIG_NSH_MMCSDMINOR
-#else
-#  define SDIO_MINOR   0
-#endif
+struct lcd_dev_s *g_lcddev;
 
 /****************************************************************************
- * Public Types
+ * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Public Data
+ * Name: board_lcd_initialize
  ****************************************************************************/
 
-#ifndef __ASSEMBLY__
+int board_lcd_initialize(void)
+{
+  g_lcddev = qemu_vga_initialize();
+  if (!g_lcddev)
+    {
+      lcderr("ERROR: Failed to get the VGA LCD device\n");
+    }
+  else
+    {
+      lcdinfo("VGA LCD Initialized\n");
+    }
+
+  return OK;
+}
 
 /****************************************************************************
- * Public Functions Definitions
+ * Name: board_lcd_getdev
  ****************************************************************************/
+
+struct lcd_dev_s *board_lcd_getdev(int lcddev)
+{
+  if (!g_lcddev)
+    {
+      lcderr("ERROR: VGA LCD was not initialized\n");
+    }
+  else
+    {
+      lcdinfo("Returning the lcd_dev\n");
+
+      return g_lcddev;
+    }
+
+  return NULL;
+}
 
 /****************************************************************************
- * Name: imx9_bringup
- *
- * Description:
- *   Bring up board features
- *
+ * Name: board_lcd_uninitialize
  ****************************************************************************/
 
-#if defined(CONFIG_BOARDCTL) || defined(CONFIG_BOARD_LATE_INITIALIZE)
-int imx9_bringup(void);
-#endif
+void board_lcd_uninitialize(void)
+{
+  /* TO-FIX */
+}
 
-/****************************************************************************
- * Name: imx9_pwm_setup
- *
- * Description:
- *   Initialize PWM outputs
- *
- ****************************************************************************/
-
-#if defined(CONFIG_PWM)
-int imx9_pwm_setup(void);
-#endif
-
-/****************************************************************************
- * Name: imx9_dshot_setup
- *
- * Description:
- *   Initialize DShot outputs
- *
- ****************************************************************************/
-
-#if defined(CONFIG_DSHOT)
-int imx9_dshot_setup(void);
-#endif
-
-/****************************************************************************
- * Name: imx9_i2c_setup
- *
- * Description:
- *   Initialize I2C devices and driver
- *
- ****************************************************************************/
-
-#if defined(CONFIG_I2C_DRIVER)
-int imx9_i2c_initialize(void);
-#endif
-
-/****************************************************************************
- * Name: imx9_spi_setup
- *
- * Description:
- *   Initialize SPI devices and driver
- *
- ****************************************************************************/
-
-#if defined(CONFIG_SPI_DRIVER)
-int imx9_spi_initialize(void);
-#endif
-
-/****************************************************************************
- * Name: imx9_usdhc_init
- *
- * Description:
- *   Initialize uSDHC driver
- *
- ****************************************************************************/
-
-#if defined(CONFIG_MMCSD)
-int imx9_usdhc_init(void);
-#endif
-
-#endif /* __ASSEMBLY__ */
-#endif /* __BOARDS_ARM64_IMX9_IMX93_EVK_SRC_IMX93_EVK_H */

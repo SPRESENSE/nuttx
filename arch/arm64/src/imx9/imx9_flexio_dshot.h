@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/x86/src/qemu/qemu_vga.h
+ * arch/arm64/src/imx9/imx9_flexio_dshot.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,41 +20,88 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_X86_SRC_QEMU_QEMU_VGA_H
-#define __ARCH_X86_SRC_QEMU_QEMU_VGA_H
+#ifndef __ARCH_ARM64_SRC_IMX9_IMX9_FLEXIO_DSHOT_H
+#define __ARCH_ARM64_SRC_IMX9_IMX9_FLEXIO_DSHOT_H
 
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
+#include <stdbool.h>
+#include <stdint.h>
+
+#include <nuttx/timers/dshot.h>
+
+#ifdef CONFIG_IMX9_FLEXIO_DSHOT
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
+/* There are 8 shifters and timers per one FlexIO IP */
+
+#if CONFIG_DSHOT_NCHANNELS > 8
+#  error Driver supports max 8 channels per flexio (CONFIG_DSHOT_NCHANNELS)
+#endif
+
+#define DSHOT_MAX_CHANNELS CONFIG_DSHOT_NCHANNELS
+
 /****************************************************************************
  * Public Types
  ****************************************************************************/
 
-/****************************************************************************
- * Public Data
- ****************************************************************************/
+/* Which FlexIO instance backs this DShot device */
+
+typedef enum
+{
+  DSHOT_FLEXIO1 = 0,
+  DSHOT_FLEXIO2 = 1,
+} flexio_dshot_id_t;
 
 /****************************************************************************
- * Public Functions Prototypes
+ * Public Function Prototypes
  ****************************************************************************/
 
+#ifndef __ASSEMBLY__
+
+#undef EXTERN
+#if defined(__cplusplus)
+#define EXTERN extern "C"
+extern "C"
+{
+#else
+#define EXTERN extern
+#endif
+
 /****************************************************************************
- * Name:  qemu_vga_initialize
+ * Name: imx9_flexio_dshot_init
  *
  * Description:
- *   Initialize the QEMU VGA video hardware.
+ *   Initialise a FlexIO-backed DShot lower-half instance.
+ *
+ *   Channel count and pin mapping are taken from Kconfig
+ *   (CONFIG_IMX9_FLEXIOx_DSHOT_NCHANNELS,
+ *   CONFIG_IMX9_FLEXIOx_DSHOT_CHANNEL_PINS). These use the same FlexIO
+ *   output numbers as the FlexIO PWM driver. The corresponding board
+ *   IOMUXC macros must be provided, and the driver applies the required
+ *   pinmux configuration during setup.
+ *
+ * Input Parameters:
+ *   id      - Which FlexIO instance to use (DSHOT_FLEXIO1 / DSHOT_FLEXIO2)
+ *
+ * Returned Value:
+ *   A valid pointer to struct dshot_lowerhalf_s on success; NULL on failure.
  *
  ****************************************************************************/
 
-struct lcd_dev_s *qemu_vga_initialize(void);
+struct dshot_lowerhalf_s *imx9_flexio_dshot_init(flexio_dshot_id_t id);
 
-int qemu_vga(void);
+#undef EXTERN
+#if defined(__cplusplus)
+}
+#endif
 
-#endif /* __ARCH_X86_SRC_QEMU_QEMU_VGA_H */
+#endif /* __ASSEMBLY__ */
+#endif /* CONFIG_IMX9_FLEXIO_DSHOT */
+#endif /* __ARCH_ARM64_SRC_IMX9_IMX9_FLEXIO_DSHOT_H */
