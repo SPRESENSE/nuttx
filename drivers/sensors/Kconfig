@@ -17,6 +17,24 @@ config USENSOR
 	---help---
 		Allow application to register user sensor by /dev/usensor.
 
+choice
+	prompt "Sensor framework data type"
+	default SENSORS_USE_FLOAT
+
+config SENSORS_USE_FLOAT
+	bool "Use float as data type for sensors"
+	---help---
+		Use float as data type for sensors.
+		This option is recommended for targets with FPU support.
+
+config SENSORS_USE_B16
+	bool "Use b16_t as data type for sensors"
+	---help---
+		Use b16_t (fixed-point type) as data type for sensors.
+		This option is recommended for targets without FPU support.
+
+endchoice # Sensor framework data type
+
 config SENSORS_RPMSG
 	bool "Sensor RPMSG Support"
 	default n
@@ -142,6 +160,15 @@ config SENSORS_AK09912
 	select I2C
 	---help---
 		Enable driver for AK09911/AK09912 Compass sensor.
+
+config SENSORS_MT6816
+	bool "MagTek MT6816 Magnetic Angle Position support"
+	default n
+	select SPI
+	select SENSORS_QENCODER
+	---help---
+		Enable driver support for the MagTek MT6816 magnetic angle
+                position (magnetic rotary encoder).
 
 config SENSORS_AS5048B
 	bool "AMS AS5048B Magnetic Rotary Encoder support"

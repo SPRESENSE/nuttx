@@ -50,5 +50,18 @@
  * Public Functions Definitions
  ****************************************************************************/
 
+/****************************************************************************
+ * Name: qemu_bringup
+ *
+ * Description:
+ *   Perform architecture-specific initialization
+ *
+ *   CONFIG_BOARD_LATE_INITIALIZE=y :
+ *     Called from board_late_initialize().
+ *
+ ****************************************************************************/
+
+int qemu_bringup(void);
+
 #endif /* __ASSEMBLY__ */
 #endif /* __BOARDS_X86_QEMU_QEMU_I486_SRC_QEMU_I486_H */

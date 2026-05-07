@@ -144,12 +144,6 @@
  * Description:
  *   Perform architecture-specific initialization.
  *
- *   CONFIG_BOARD_LATE_INITIALIZE=y :
- *     Called from board_late_initialize().
- *
- *   CONFIG_BOARD_LATE_INITIALIZE=y && CONFIG_BOARDCTL=y :
- *     Called from the NSH library via board_app_initialize().
- *
  * Input Parameters:
  *   None.
  *
@@ -450,6 +444,14 @@ int esp_bringup(void)
   if (ret < 0)
     {
       syslog(LOG_ERR, "ERROR: board_adc_init failed: %d\n", ret);
+    }
+#endif
+
+#ifdef CONFIG_ESPRESSIF_EMAC
+  ret = board_emac_init();
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: board_emac_init failed: %d\n", ret);
     }
 #endif
 

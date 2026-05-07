@@ -60,6 +60,7 @@
 #  include "nrf91_timer.h"
 #endif
 
+#include "chip.h"
 #include "nrf9160-dk.h"
 
 /****************************************************************************
@@ -78,6 +79,20 @@
  ****************************************************************************/
 
 /****************************************************************************
+ * Name: arm_netinitialize
+ *
+ * Description:
+ *   Dummy function expected to start-up logic.
+ *
+ ****************************************************************************/
+
+#if defined(CONFIG_NET) && !defined(CONFIG_NETDEV_LATEINIT)
+void arm_netinitialize(void)
+{
+}
+#endif
+
+/****************************************************************************
  * Name: nrf91_bringup
  *
  * Description:
@@ -85,9 +100,6 @@
  *
  *   CONFIG_BOARD_LATE_INITIALIZE=y :
  *     Called from board_late_initialize().
- *
- *   CONFIG_BOARD_LATE_INITIALIZE=n && CONFIG_BOARDCTL=y :
- *     Called from the NSH library
  *
  ****************************************************************************/
 

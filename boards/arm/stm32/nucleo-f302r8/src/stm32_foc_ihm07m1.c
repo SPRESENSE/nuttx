@@ -102,17 +102,17 @@ static uint8_t g_adc1_chan[] =
 static uint32_t g_adc1_pins[] =
 {
 #ifdef CONFIG_BOARD_STM32_IHM07M1_VBUS
-  GPIO_ADC1_IN2,
+  GPIO_ADC1_IN2_0,
 #endif
 #ifdef CONFIG_BOARD_STM32_IHM07M1_POT
-  GPIO_ADC1_IN12,
+  GPIO_ADC1_IN12_0,
 #endif
-  GPIO_ADC1_IN1,
+  GPIO_ADC1_IN1_0,
 #if CONFIG_MOTOR_FOC_SHUNTS > 1
-  GPIO_ADC1_IN7,
+  GPIO_ADC1_IN7_0,
 #endif
 #if CONFIG_MOTOR_FOC_SHUNTS > 2
-  GPIO_ADC1_IN6,
+  GPIO_ADC1_IN6_0,
 #endif
 };
 
@@ -171,8 +171,6 @@ static struct stm32_foc_adc_s g_adc_cfg =
  *
  * Description:
  *   Initialize FOC driver.
- *
- *   This function should be call by board_app_initialize().
  *
  * Returned Value:
  *   0 on success, a negated errno value on failure

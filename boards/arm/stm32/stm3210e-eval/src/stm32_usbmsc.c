@@ -74,9 +74,6 @@
  *   CONFIG_BOARD_LATE_INITIALIZE=y :
  *     Called from board_late_initialize().
  *
- *   CONFIG_BOARD_LATE_INITIALIZE=y && CONFIG_BOARDCTL=y :
- *     Called from the NSH library
- *
  ****************************************************************************/
 
 int stm32_bringup(void);
@@ -93,8 +90,7 @@ int stm32_bringup(void);
 int board_usbmsc_initialize(int port)
 {
   /* If system/usbmsc is built as an NSH command, then SD slot should
-   * already have been initialized in board_app_initialize()
-   * (see stm32_appinit.c).
+   * already have been initialized.
    * In this case, there is nothing further to be done here.
    */
 

@@ -1523,6 +1523,61 @@ After compiling and flashing the firmware in our board, run kbd command.
       code : 49
       type : 1
 
+mt6816
+------
+
+This board config enables the MagTek MT6816 Magnetic Rotary Encoder connected
+to STM32F4Discovery board SPI1 this way:
+
+================ ======
+STM32F4Discovery MT6816
+================ ======
+3V [1]           VCC
+GND              GND
+PE3              CSN
+SPI1 MOSI (PA7)  MOSI
+SPI1 MISO (PA6)  MISO
+SPI1 SCK (PA5)   SCK
+================ ======
+
+1: You need to remove the diode D3 and short-circuit the PADs in the
+board to get 3.3V. Be aware: although my board works fine, it could
+damage something that expects 3V in our board (double check).
+
+IMPORTANT: You need to connect the HVPP (pin 2) to VCC in order to get
+MT6816 working in SPI mode. Just short-circuit R3 pads will work:
+
+.. figure:: mt6816.png
+   :align: center
+      
+After compiling and flashing the firmware in our board, run qe command:
+
+.. code:: console
+
+   NuttShell (NSH) NuttX-12.13.0
+   nsh> ls /dev
+   /dev:
+    console
+    null
+    qe0
+    ttyS0
+    zero
+   nsh> qe
+   qe_main: Hardware initialized. Opening the encoder device: /dev/qe0
+   qe_main: Number of samples: 0
+   qe_main:   1. 6546
+   qe_main:   2. 6620
+   qe_main:   3. 7384
+   qe_main:   4. 7808
+   qe_main:   5. 7900
+   qe_main:   6. 7984
+   qe_main:   7. 7989
+   qe_main:   8. 7993
+   qe_main:   9. 7998
+   qe_main:  10. 8008
+   qe_main:  11. 8052
+   qe_main:  12. 8064
+
 netnsh
 ------
 
@@ -1646,7 +1701,6 @@ NOTES:
         CONFIG_USBDEV=y               : USB device support must be enabled
         CONFIG_CDCACM=y               : The CDC/ACM driver must be built
         CONFIG_NSH_BUILTIN_APPS=y     : NSH built-in application support must be enabled
-        CONFIG_NSH_ARCHINIT=y         : To perform USB initialization
 
 7. Using the USB console.
 
@@ -1728,11 +1782,7 @@ NOTES:
          CONFIG_FS_FAT=y          : Needed by the USB host mass storage class.
 
        Board Selection ->
-         CONFIG_BOARDCTL=y    : Needed for CONFIG_NSH_ARCHINIT
-
-       Application Configuration -> NSH Library
-         CONFIG_NSH_ARCHINIT=y    : Architecture specific USB initialization
-                                  : is needed for NSH
+         CONFIG_BOARDCTL=y
 
      With those changes, you can use NSH with a FLASH pen driver as shown
      belong.  Here NSH is started with nothing in the USB host slot::
@@ -2273,7 +2323,6 @@ NOTES:
        CONFIG_USBDEV_TRACE=y                   : Enable USB trace feature
        CONFIG_USBDEV_TRACE_NRECORDS=128        : Buffer 128 records in memory
        CONFIG_NSH_USBDEV_TRACE=n               : No builtin tracing from NSH
-       CONFIG_NSH_ARCHINIT=y                   : Automatically start the USB monitor
        CONFIG_USBMONITOR=y              : Enable the USB monitor daemon
        CONFIG_USBMONITOR_STACKSIZE=2048 : USB monitor daemon stack size
        CONFIG_USBMONITOR_PRIORITY=50    : USB monitor daemon priority

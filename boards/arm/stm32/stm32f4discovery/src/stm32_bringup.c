@@ -60,6 +60,10 @@
 #include "stm32_apds9960.h"
 #endif
 
+#ifdef CONFIG_SENSORS_MT6816
+#include "stm32_mt6816.h"
+#endif
+
 #ifdef CONFIG_INPUT_MPR121_KEYPAD
 #include "stm32_mpr121.h"
 #endif
@@ -216,9 +220,6 @@ static void stm32_i2ctool(void)
  *   CONFIG_BOARD_LATE_INITIALIZE=y :
  *     Called from board_late_initialize().
  *
- *   CONFIG_BOARD_LATE_INITIALIZE=n && CONFIG_BOARDCTL=y :
- *     Called from the NSH library
- *
  ****************************************************************************/
 
 int stm32_bringup(void)
@@ -266,6 +267,16 @@ int stm32_bringup(void)
   /* Configure the zero-crossing driver */
 
   board_zerocross_initialize(0);
+#endif
+
+#ifdef CONFIG_SENSORS_MT6816
+  /* Initialize MT6816 as /dev/qe0 on SPI1 */
+
+  ret = board_mt6816_initialize(0, 1);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: board_mt6816_initialize failed: %d\n", ret);
+    }
 #endif
 
 #ifdef CONFIG_LEDS_MAX7219
@@ -476,7 +487,7 @@ int stm32_bringup(void)
     }
 #endif
 
-#ifdef CONFIG_SENSORS_QENCODER
+#if defined(CONFIG_STM32_QE) && defined(CONFIG_SENSORS_QENCODER)
   /* Initialize and register the qencoder driver */
 
   ret = board_qencoder_initialize(0, CONFIG_STM32F4DISCO_QETIMER);

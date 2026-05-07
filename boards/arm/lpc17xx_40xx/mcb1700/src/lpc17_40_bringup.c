@@ -56,29 +56,12 @@
 
 /* MMC/SD is on SSP port 1.  There is only a single slot, slot 0 */
 
-#ifdef CONFIG_NSH_ARCHINIT
-#  if !defined(CONFIG_NSH_MMCSDSPIPORTNO) || CONFIG_NSH_MMCSDSPIPORTNO != 1
-#    undef CONFIG_NSH_MMCSDSPIPORTNO
-#    define CONFIG_NSH_MMCSDSPIPORTNO 1
-#  endif
-
-#  if !defined(CONFIG_NSH_MMCSDSLOTNO) || CONFIG_NSH_MMCSDSLOTNO != 0
-#    undef CONFIG_NSH_MMCSDSLOTNO
-#    define CONFIG_NSH_MMCSDSLOTNO 0
-#  endif
-
-#  ifndef CONFIG_NSH_MMCSDMINOR
-#    define CONFIG_NSH_MMCSDMINOR 0
-#  endif
-
-#else
 #  undef  CONFIG_NSH_MMCSDSPIPORTNO
 #  define CONFIG_NSH_MMCSDSPIPORTNO 1
 #  undef  CONFIG_NSH_MMCSDSLOTNO
 #  define CONFIG_NSH_MMCSDSLOTNO 0
 #  undef  CONFIG_NSH_MMCSDMINOR
 #  define CONFIG_NSH_MMCSDMINOR 0
-#endif
 
 /* Can't support MMC/SD is SSP1 is not enabled */
 
@@ -319,9 +302,6 @@ static int nsh_usbhostinitialize(void)
  *
  *   CONFIG_BOARD_LATE_INITIALIZE=y :
  *     Called from board_late_initialize().
- *
- *   CONFIG_BOARD_LATE_INITIALIZE=y && CONFIG_BOARDCTL=y :
- *     Called from the NSH library
  *
  ****************************************************************************/
 
