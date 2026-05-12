@@ -249,6 +249,7 @@ static inline void rp23xx_clrpend(int irq)
 void up_irqinitialize(void)
 {
   uint32_t regaddr;
+  uint32_t regval;
   int i;
 
   /* Disable all interrupts */
@@ -280,9 +281,14 @@ void up_irqinitialize(void)
   arm_ramvec_initialize();
 #endif
 
-  /* Now set all of the interrupt lines to the default priority */
+  /* Set all of the interrupt lines to the default priority.
+   * NVIC_IRQ_PRIORITY(n) maps IRQ number n to its IPR register via
+   * (n >> 2); each 32-bit IPR covers four IRQs.  Step by four and bound
+   * the loop by RP23XX_IRQ_NEXTINT so that every IPR (covering IRQs
+   * 0..51) is written exactly once.
+   */
 
-  for (i = 0; i < 12; i++)
+  for (i = 0; i < RP23XX_IRQ_NEXTINT; i += 4)
     {
       regaddr = NVIC_IRQ_PRIORITY(i);
       putreg32(DEFPRIORITY32, regaddr);
@@ -298,6 +304,23 @@ void up_irqinitialize(void)
   irq_attach(RP23XX_IRQ_HARDFAULT, arm_hardfault, NULL);
 
   rp23xx_prioritize_syscall(NVIC_SYSH_SVCALL_PRIORITY);
+
+  /* Place PendSV at the lowest NVIC priority. This is the deferred
+   * half of the Cortex-M context-switch path: a higher-priority ISR
+   * that wakes a task sets PendSV pending and returns; after that
+   * PendSV does the actual register save/restore. For this pattern to
+   * work safely PendSV must run only after all peripheral ISRs have
+   * finished, i.e. at the lowest priority.
+   *
+   * Read-modify-write SHPR3 to lower just the PendSV byte to MIN
+   * (0XF0) without disturbing the SysTick and DebugMon bytes that
+   * share the same register.
+   */
+
+  regval  = getreg32(NVIC_SYSH12_15_PRIORITY);
+  regval &= ~NVIC_SYSH_PRIORITY_PR14_MASK;
+  regval |= (NVIC_SYSH_PRIORITY_MIN << NVIC_SYSH_PRIORITY_PR14_SHIFT);
+  putreg32(regval, NVIC_SYSH12_15_PRIORITY);
 
   /* Attach all other processor exceptions (except reset and sys tick) */
 
