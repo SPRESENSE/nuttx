@@ -266,11 +266,12 @@ tools/mkconfig$(HOSTEXEEXT): prebuild
 include/nuttx/config.h: $(TOPDIR)/.config tools/mkconfig$(HOSTEXEEXT)
 	$(Q) grep -v "CONFIG_BASE_DEFCONFIG" "$(TOPDIR)/.config" > "$(TOPDIR)/.config.tmp"
 	$(Q) if ! cmp -s "$(TOPDIR)/.config.tmp" "$(TOPDIR)/.config.orig" ; then \
-		sed -i.bak -e "/CONFIG_BASE_DEFCONFIG/ { /-dirty/! s/\"$$/-dirty\"/; }" "$(TOPDIR)/.config" ; \
+		sed -e "/CONFIG_BASE_DEFCONFIG/ { /-dirty/! s/\"$$/-dirty\"/; }" "$(TOPDIR)/.config" > "$(TOPDIR)/.config.dirty" ; \
 	else \
-		sed -i.bak "s/-dirty//g" "$(TOPDIR)/.config"; \
+		sed "s/-dirty//g" "$(TOPDIR)/.config" > "$(TOPDIR)/.config.dirty"; \
 	fi
-	$(Q) rm -f "$(TOPDIR)/.config.tmp" "$(TOPDIR)/.config.bak"
+	$(Q) rm -f "$(TOPDIR)/.config.tmp"
+	$(Q) $(call TESTANDREPLACEFILE, $(TOPDIR)/.config.dirty, $(TOPDIR)/.config)
 	$(Q) tools/mkconfig $(TOPDIR) > $@.tmp
 	$(Q) $(call TESTANDREPLACEFILE, $@.tmp, $@)
 
@@ -746,22 +747,34 @@ olddefconfig:
 menuconfig:
 	$(Q) $(MAKE) clean_context
 	$(Q) $(MAKE) apps_preconfig
+	$(Q) cp .config .config.tmp 2>/dev/null || true
 	$(Q) ${KCONFIG_ENV} ${KCONFIG_MENUCONFIG}
+	$(Q) cmp -s .config .config.tmp || $(MAKE) clean
+	$(Q) rm -f .config.tmp
 
 nconfig: apps_preconfig
 	$(Q) $(MAKE) clean_context
 	$(Q) $(MAKE) apps_preconfig
+	$(Q) cp .config .config.tmp
 	$(Q) ${KCONFIG_ENV} ${KCONFIG_NCONFIG}
+	$(Q) cmp -s .config .config.tmp || $(MAKE) clean
+	$(Q) rm -f .config.tmp
 
 qconfig: apps_preconfig
 	$(Q) $(MAKE) clean_context
 	$(Q) $(MAKE) apps_preconfig
+	$(Q) cp .config .config.tmp
 	$(Q) ${KCONFIG_ENV} ${KCONFIG_QCONFIG}
+	$(Q) cmp -s .config .config.tmp || $(MAKE) clean
+	$(Q) rm -f .config.tmp
 
 gconfig: apps_preconfig
-	$(Q) $(MAKE) clean_context
+	$(Q) $(MAKE) clean_context1
 	$(Q) $(MAKE) apps_preconfig
+	$(Q) cp .config .config.tmp
 	$(Q) ${KCONFIG_ENV} ${KCONFIG_GCONFIG}
+	$(Q) cmp -s .config .config.tmp || $(MAKE) clean
+	$(Q) rm -f .config.tmp
 
 savedefconfig: apps_preconfig
 	$(Q) ${KCONFIG_ENV} ${KCONFIG_SAVEDEFCONFIG}
