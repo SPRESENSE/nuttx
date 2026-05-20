@@ -735,7 +735,7 @@ static uint32_t IRAM_ATTR esp32c3_rtc_clk_cal_internal(
       expected_freq = RTC_SLOW_CLK_FREQ_90K;
     }
 
-  us_time_estimate = (uint32_t) (((uint64_t) slowclk_cycles) *
+  us_time_estimate = (uint32_t)(((uint64_t)slowclk_cycles) *
                                           MHZ / expected_freq);
 
   /* Start calibration */
@@ -2509,7 +2509,7 @@ uint64_t IRAM_ATTR esp32c3_rtc_time_get(void)
 
   modifyreg32(RTC_CNTL_TIME_UPDATE_REG, 0, RTC_CNTL_TIME_UPDATE);
   rtc_time = getreg32(RTC_CNTL_TIME0_REG);
-  rtc_time |= ((uint64_t) getreg32(RTC_CNTL_TIME1_REG)) << 32;
+  rtc_time |= ((uint64_t)getreg32(RTC_CNTL_TIME1_REG)) << 32;
 
   return rtc_time;
 }
@@ -3108,7 +3108,7 @@ time_t up_rtc_time(void)
 
   spin_unlock_irqrestore(&g_rtc_lock, flags);
 
-  return (time_t)(time_us / USEC_PER_SEC);
+  return time_us / USEC_PER_SEC;
 }
 #endif /* !CONFIG_RTC_HIRES */
 
@@ -3136,7 +3136,7 @@ int up_rtc_settime(const struct timespec *ts)
   DEBUGASSERT(ts != NULL && ts->tv_nsec < NSEC_PER_SEC);
   flags = spin_lock_irqsave(&g_rtc_lock);
 
-  now_us = ((uint64_t) ts->tv_sec) * USEC_PER_SEC +
+  now_us = ts->tv_sec * USEC_PER_SEC +
           ts->tv_nsec / NSEC_PER_USEC;
   if (g_rt_timer_enabled == true)
     {

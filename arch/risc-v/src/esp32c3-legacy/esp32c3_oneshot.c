@@ -28,6 +28,7 @@
 
 #include <sys/types.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <string.h>
 #include <assert.h>
 #include <errno.h>
@@ -258,9 +259,8 @@ int esp32c3_oneshot_start(struct esp32c3_oneshot_s *oneshot,
   uint64_t timeout_us;
   int ret = OK;
 
-  tmrinfo("handler=%p arg=%p, ts=(%lu, %lu)\n",
-          handler, arg, (unsigned long)ts->tv_sec,
-          (unsigned long)ts->tv_nsec);
+  tmrinfo("handler=%p arg=%p, ts=(%jd, %ld)\n",
+          handler, arg, (intmax_t)ts->tv_sec, ts->tv_nsec);
   DEBUGASSERT(oneshot != NULL);
   DEBUGASSERT(handler != NULL);
   DEBUGASSERT(ts != NULL);
@@ -283,8 +283,8 @@ int esp32c3_oneshot_start(struct esp32c3_oneshot_s *oneshot,
 
   /* Retrieve the duration from timespec in microsecond */
 
-  timeout_us = (uint64_t)ts->tv_sec * USEC_PER_SEC +
-               (uint64_t)(ts->tv_nsec / NSEC_PER_USEC);
+  timeout_us = ts->tv_sec * USEC_PER_SEC +
+               (ts->tv_nsec / NSEC_PER_USEC);
 
   /* Verify if it is a multiple of the configured resolution.
    * In case it isn't, warn the user.
@@ -452,7 +452,7 @@ int esp32c3_oneshot_current(struct esp32c3_oneshot_s *oneshot,
 
   ESP32C3_TIM_GETCTR(oneshot->tim, usec);
 
-  *usec = *usec * (uint64_t)oneshot->resolution;
+  *usec = *usec * oneshot->resolution;
 
   return OK;
 }

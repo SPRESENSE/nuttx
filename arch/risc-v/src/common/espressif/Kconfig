@@ -1553,6 +1553,14 @@ config PM_UART_WAKEUP_CHAR_SEQ
 
 endmenu # PM UART Wakeup Sources
 
+config PM_TOUCH_WAKEUP
+	bool "PM Touch Wakeup"
+	depends on ESPRESSIF_TOUCH
+	default n
+	---help---
+		Enable touch sensor wakeup functionality.
+		This allows the system to wake up from PM_STANDBY or PM_SLEEP
+
 config PM_ALARM_SEC
 	int "PM_STANDBY delay (seconds)"
 	default 15
@@ -1671,7 +1679,6 @@ config ESPRESSIF_LEDC
 	bool "LEDC (PWM)"
 	default n
 	select PWM
-	select ARCH_HAVE_PWM_MULTICHAN
 
 config ESPRESSIF_SHA_ACCELERATOR
 	bool "SHA Accelerator"
@@ -1684,6 +1691,13 @@ config ESPRESSIF_AES_ACCELERATOR
 	default n
 	---help---
 		Enable AES accelerator support.
+
+config ESPRESSIF_TOUCH
+	bool "Touch sensor"
+	default n
+	depends on ARCH_CHIP_ESP32P4
+	---help---
+		Enable touch sensor support.
 
 config ESPRESSIF_ADC
 	bool "Analog-to-digital converter (ADC)"
@@ -1784,11 +1798,27 @@ config ESPRESSIF_SPI_SLAVE
 
 config ESPRESSIF_SPI_PERIPH
 	bool
-	depends on ESPRESSIF_SPI2
+	depends on ESPRESSIF_SPI2 || ESPRESSIF_SPI3 || ESPRESSIF_LPSPI0
 	default n
 
 config ESPRESSIF_SPI2
 	bool "SPI 2"
+	default n
+	select ESPRESSIF_SPI
+	select SPI
+	select ESPRESSIF_SPI_PERIPH
+
+config ESPRESSIF_SPI3
+	bool "SPI 3"
+	depends on ARCH_CHIP_ESP32P4
+	default n
+	select ESPRESSIF_SPI
+	select SPI
+	select ESPRESSIF_SPI_PERIPH
+
+config ESPRESSIF_LPSPI0
+	bool "LP SPI0"
+	depends on ARCH_CHIP_ESP32P4
 	default n
 	select ESPRESSIF_SPI
 	select SPI
@@ -3389,6 +3419,104 @@ config ESPRESSIF_SPI2_MISOPIN
 
 endif # ESPRESSIF_SPI2
 
+if ESPRESSIF_SPI3
+
+config ESPRESSIF_SPI3_DMA
+	bool "SPI3 use GDMA"
+	default n
+	depends on ESPRESSIF_DMA
+	---help---
+		Enable support for transfers using the GDMA engine.
+
+config ESPRESSIF_SPI3_DMADESC_NUM
+	int "SPI3 Master GDMA maximum number of descriptors"
+	default 2
+	depends on ESPRESSIF_SPI3_DMA
+	---help---
+		Configure the maximum number of out-link/in-link descriptors to
+		be chained for a GDMA transfer.
+
+config ESPRESSIF_SPI3_DMATHRESHOLD
+	int "SPI3 GDMA threshold"
+	default 64
+	depends on ESPRESSIF_SPI3_DMA
+	---help---
+		When SPI GDMA is enabled, GDMA transfers whose size are below the
+		defined threshold will be performed by polling logic.
+
+choice ESPRESSIF_SPI3_MODE
+	prompt "SPI3 mode"
+	default ESPRESSIF_SPI3_MODE_MASTER
+
+config ESPRESSIF_SPI3_MODE_MASTER
+	bool "SPI3 Master mode"
+	depends on SPI_DRIVER
+	---help---
+		Configure SPI3 to operate in Master mode.
+
+config ESPRESSIF_SPI3_SLAVE
+	bool "SPI3 Slave mode"
+	depends on SPI_SLAVE
+	select ESPRESSIF_GPIO_IRQ
+	select ESPRESSIF_SPI_SLAVE
+	---help---
+		Configure SPI3 to operate in Slave mode.
+
+endchoice # ESPRESSIF_SPI3_MODE
+
+config ESPRESSIF_SPI3_SLAVE_BUFSIZE
+	int "SPI3 Slave buffer size"
+	default 2048
+	depends on ESPRESSIF_SPI3_SLAVE
+	---help---
+		Configure the size of SPI3 Slave controller's internal buffers.
+
+config ESPRESSIF_SPI3_CSPIN
+	int "SPI3 CS Pin"
+	default 20 if ARCH_CHIP_ESP32P4
+	range 0 54 if ARCH_CHIP_ESP32P4
+
+config ESPRESSIF_SPI3_CLKPIN
+	int "SPI3 CLK Pin"
+	default 22 if ARCH_CHIP_ESP32P4
+	range 0 54 if ARCH_CHIP_ESP32P4
+
+config ESPRESSIF_SPI3_MOSIPIN
+	int "SPI3 MOSI Pin"
+	default 21 if ARCH_CHIP_ESP32P4
+	range 0 54 if ARCH_CHIP_ESP32P4
+
+config ESPRESSIF_SPI3_MISOPIN
+	int "SPI3 MISO Pin"
+	default 27 if ARCH_CHIP_ESP32P4
+	range 0 54 if ARCH_CHIP_ESP32P4
+
+endif # ESPRESSIF_SPI3
+
+if ESPRESSIF_LPSPI0
+
+config ESPRESSIF_LPSPI0_CSPIN
+	int "LP SPI CS Pin"
+	default 4 if ARCH_CHIP_ESP32P4
+	range 0 15 if ARCH_CHIP_ESP32P4
+
+config ESPRESSIF_LPSPI0_CLKPIN
+	int "LP SPI CLK Pin"
+	default 8 if ARCH_CHIP_ESP32P4
+	range 0 15 if ARCH_CHIP_ESP32P4
+
+config ESPRESSIF_LPSPI0_MOSIPIN
+	int "LP SPI MOSI Pin"
+	default 7 if ARCH_CHIP_ESP32P4
+	range 0 15 if ARCH_CHIP_ESP32P4
+
+config ESPRESSIF_LPSPI0_MISOPIN
+	int "LP SPI MISO Pin"
+	default 6 if ARCH_CHIP_ESP32P4
+	range 0 15 if ARCH_CHIP_ESP32P4
+
+endif # ESPRESSIF_LPSPI0
+
 if ESPRESSIF_SPI_BITBANG
 
 choice ESPRESSIF_SPI_BITBANG_OPERATION_MODE
@@ -3677,8 +3805,8 @@ if ESPRESSIF_LEDC_TIMER0
 
 config ESPRESSIF_LEDC_TIMER0_CHANNELS
 	int "Number of Timer 0 channels"
-	default 2 if PWM_MULTICHAN && PWM_NCHANNELS > 1
-	default 1 if !PWM_MULTICHAN || PWM_NCHANNELS = 1
+	default 2 if PWM_NCHANNELS > 1
+	default 1 if PWM_NCHANNELS = 1
 	range 0 6
 
 config ESPRESSIF_LEDC_TIMER0_RESOLUTION
@@ -3701,8 +3829,8 @@ if ESPRESSIF_LEDC_TIMER1
 
 config ESPRESSIF_LEDC_TIMER1_CHANNELS
 	int "Number of Timer 1 channels"
-	default 2 if PWM_MULTICHAN && PWM_NCHANNELS > 1
-	default 1 if !PWM_MULTICHAN || PWM_NCHANNELS = 1
+	default 2 if PWM_NCHANNELS > 1
+	default 1 if PWM_NCHANNELS = 1
 	range 0 6
 
 config ESPRESSIF_LEDC_TIMER1_RESOLUTION
@@ -3725,8 +3853,8 @@ if ESPRESSIF_LEDC_TIMER2
 
 config ESPRESSIF_LEDC_TIMER2_CHANNELS
 	int "Number of Timer 2 channels"
-	default 2 if PWM_MULTICHAN && PWM_NCHANNELS > 1
-	default 1 if !PWM_MULTICHAN || PWM_NCHANNELS = 1
+	default 2 if PWM_NCHANNELS > 1
+	default 1 if PWM_NCHANNELS = 1
 	range 0 6
 
 config ESPRESSIF_LEDC_TIMER2_RESOLUTION
@@ -3749,8 +3877,8 @@ if ESPRESSIF_LEDC_TIMER3
 
 config ESPRESSIF_LEDC_TIMER3_CHANNELS
 	int "Number of Timer 3 channels"
-	default 2 if PWM_MULTICHAN && PWM_NCHANNELS > 1
-	default 1 if !PWM_MULTICHAN || PWM_NCHANNELS = 1
+	default 2 if PWM_NCHANNELS > 1
+	default 1 if PWM_NCHANNELS = 1
 	range 0 6
 
 config ESPRESSIF_LEDC_TIMER3_RESOLUTION
@@ -3781,7 +3909,7 @@ config ESPRESSIF_LEDC_CHANNEL3_PIN
 	int "Channel 3 pin"
 	default 5
 
-if PWM_MULTICHAN && PWM_NCHANNELS > 1
+if PWM_NCHANNELS > 1
 
 config ESPRESSIF_LEDC_CHANNEL4_PIN
 	int "Channel 4 pin"
@@ -3791,9 +3919,139 @@ config ESPRESSIF_LEDC_CHANNEL5_PIN
 	int "Channel 5 pin"
 	default 7
 
-endif # PWM_MULTICHAN && PWM_NCHANNELS > 1
+endif # PWM_NCHANNELS > 1
 
 endmenu # LEDC configuration
+
+menu "Touch Sensor Configuration"
+	depends on ESPRESSIF_TOUCH
+
+config ESP_TOUCH_CHANNEL1
+	bool "Touch Sensor Channel 1(IO2)"
+	default n
+	---help---
+		Enable touch sensor channel 1 (IO2).
+
+config ESP_TOUCH_CHANNEL2
+	bool "Touch Sensor Channel 2(IO3)"
+	default n
+	---help---
+		Enable touch sensor channel 2 (IO3).
+
+config ESP_TOUCH_CHANNEL3
+	bool "Touch Sensor Channel 3(IO4)"
+	default n
+	---help---
+		Enable touch sensor channel 3 (IO4).
+
+config ESP_TOUCH_CHANNEL4
+	bool "Touch Sensor Channel 4(IO5)"
+	default n
+	---help---
+		Enable touch sensor channel 4 (IO5).
+
+config ESP_TOUCH_CHANNEL5
+	bool "Touch Sensor Channel 5(IO6)"
+	default n
+	---help---
+		Enable touch sensor channel 5 (IO6).
+
+config ESP_TOUCH_CHANNEL6
+	bool "Touch Sensor Channel 6(IO7)"
+	default n
+	---help---
+		Enable touch sensor channel 6 (IO7).
+
+config ESP_TOUCH_CHANNEL7
+	bool "Touch Sensor Channel 7(IO8)"
+	default n
+	---help---
+		Enable touch sensor channel 7 (IO8).
+
+config ESP_TOUCH_CHANNEL8
+	bool "Touch Sensor Channel 8(IO9)"
+	default n
+	---help---
+		Enable touch sensor channel 8 (IO9).
+
+config ESP_TOUCH_CHANNEL9
+	bool "Touch Sensor Channel 9(IO10)"
+	default n
+	---help---
+		Enable touch sensor channel 9 (IO10).
+
+config ESP_TOUCH_CHANNEL10
+	bool "Touch Sensor Channel 10(IO11)"
+	default n
+	---help---
+		Enable touch sensor channel 10 (IO11).
+
+config ESP_TOUCH_CHANNEL11
+	bool "Touch Sensor Channel 11(IO12)"
+	default n
+	---help---
+		Enable touch sensor channel 11 (IO12).
+
+config ESP_TOUCH_CHANNEL12
+	bool "Touch Sensor Channel 12(IO13)"
+	default n
+	---help---
+		Enable touch sensor channel 12 (IO13).
+
+config ESP_TOUCH_CHANNEL13
+	bool "Touch Sensor Channel 13(IO14)"
+	default n
+	---help---
+		Enable touch sensor channel 13 (IO14).
+
+config ESP_TOUCH_CHANNEL14
+	bool "Touch Sensor Channel 14(IO15)"
+	default n
+	---help---
+		Enable touch sensor channel 14 (IO15).
+
+choice ESP_TOUCH_MODE
+	prompt "Touch Sensor Mode"
+	default ESP_TOUCH_MODE_CONTINUOUS
+	---help---
+		Select operating mode for touch sensor.
+
+config ESP_TOUCH_MODE_ONE_SHOT
+	bool "One-Shot Mode"
+
+config ESP_TOUCH_MODE_CONTINUOUS
+	bool "Continuous Mode"
+
+endchoice  # ESP_TOUCH_MODE
+
+config ESP_TOUCH_IRQ
+	bool "Enable touch pad interrupts"
+	depends on ARCH_IRQBUTTONS
+	default n
+	---help---
+		Enable interrupt support for the touch pads.
+
+config ESP_TOUCH_INVERTED
+	bool "Touch pad inverted threshold detection"
+	default n
+	---help---
+		Detect touch activity when read value is lower than threshold.
+
+config ESP_TOUCH_FILTER
+	bool "Touch pad filter"
+	default y
+	---help---
+		Enable internal filter for the touch pads.
+
+config ESP_TOUCH_DENOISE_LVL
+	int "Touch pad denoise level"
+	depends on ESP_TOUCH_FILTER
+	default 1
+	range 0 4
+	---help---
+		Internal denoise level for the touch pads.
+
+endmenu # Touch Sensor Configuration
 
 menu "I2S Configuration"
 	depends on ESPRESSIF_I2S

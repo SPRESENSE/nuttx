@@ -552,8 +552,8 @@ int up_timer_gettime(struct timespec *ts)
   ts->tv_sec  = sec;
   ts->tv_nsec = (usec - (sec * USEC_PER_SEC)) * NSEC_PER_USEC;
 
-  tmrinfo("usec=%llu ts=(%lu, %lu)\n",
-          usec, (unsigned long)ts->tv_sec, (unsigned long)ts->tv_nsec);
+  tmrinfo("usec=%llu ts=(%jd, %ld)\n",
+          usec, (intmax_t)ts->tv_sec, ts->tv_nsec);
 
   return OK;
 }
@@ -576,7 +576,7 @@ int up_timer_gettime(struct timespec *ts)
 
 int up_timer_gettick(clock_t *ticks)
 {
-  *ticks = (clock_t)STM32WB_TIM_GETCOUNTER(g_tickless.tch);
+  *ticks = STM32WB_TIM_GETCOUNTER(g_tickless.tch);
   return OK;
 }
 
@@ -735,11 +735,11 @@ int up_timer_cancel(struct timespec *ts)
       sec         = usec / USEC_PER_SEC;
       nsec        = (usec - (sec * USEC_PER_SEC)) * NSEC_PER_USEC;
 
-      ts->tv_sec  = (time_t)sec;
-      ts->tv_nsec = (unsigned long)nsec;
+      ts->tv_sec  = sec;
+      ts->tv_nsec = nsec;
 
-      tmrinfo("remaining (%lu, %lu)\n",
-              (unsigned long)ts->tv_sec, (unsigned long)ts->tv_nsec);
+      tmrinfo("remaining (%jd, %ld)\n",
+              (intmax_t)ts->tv_sec, ts->tv_nsec);
     }
 
   return OK;
@@ -777,8 +777,8 @@ int up_timer_start(const struct timespec *ts)
   uint32_t count;
   irqstate_t flags;
 
-  tmrinfo("ts=(%lu, %lu)\n",
-          (unsigned long)ts->tv_sec, (unsigned long)ts->tv_nsec);
+  tmrinfo("ts=(%jd, %ld)\n",
+          (intmax_t)ts->tv_sec, ts->tv_nsec);
   DEBUGASSERT(ts);
   DEBUGASSERT(g_tickless.tch);
 
@@ -795,8 +795,8 @@ int up_timer_start(const struct timespec *ts)
 
   /* Express the delay in microseconds */
 
-  usec = (uint64_t)ts->tv_sec * USEC_PER_SEC +
-         (uint64_t)(ts->tv_nsec / NSEC_PER_USEC);
+  usec = ts->tv_sec * USEC_PER_SEC +
+         (ts->tv_nsec / NSEC_PER_USEC);
 
   /* Get the timer counter frequency and determine the number of counts need
    * to achieve the requested delay.

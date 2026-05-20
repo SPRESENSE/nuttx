@@ -57,14 +57,6 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-/* CONFIG_LIBC_LONG_LONG is not a valid selection of the compiler does not
- * support long long types.
- */
-
-#ifndef CONFIG_HAVE_LONG_LONG
-#  undef CONFIG_LIBC_LONG_LONG
-#endif
-
 #define stream_putc(c,stream)  (total_len++, lib_stream_putc(stream, c))
 #define stream_puts(buf, len, stream) \
         (total_len += len, lib_stream_puts(stream, buf, len))
@@ -122,9 +114,7 @@ union arg_u
 {
   unsigned int u;
   unsigned long ul;
-#ifdef CONFIG_HAVE_LONG_LONG
   unsigned long long ull;
-#endif
   double d;
   FAR char *cp;
 };
@@ -165,11 +155,7 @@ static int vsprintf_internal(FAR struct lib_outstream_s *stream,
   int prec;
   union
   {
-#if defined (CONFIG_LIBC_LONG_LONG) || (ULONG_MAX > 4294967295UL)
     char __buf[22]; /* Size for -1 in octal, without '\0' */
-#else
-    char __buf[11]; /* Size for -1 in octal, without '\0' */
-#endif
 #ifdef CONFIG_LIBC_FLOATINGPOINT
     struct dtoa_s __dtoa;
 #endif
@@ -400,7 +386,7 @@ static int vsprintf_internal(FAR struct lib_outstream_s *stream,
                 {
                   c = 'l';
                 }
-#if defined(CONFIG_HAVE_LONG_LONG) && ULLONG_MAX != ULONG_MAX
+#if ULLONG_MAX != ULONG_MAX
               else if (sizeof(size_t) == sizeof(unsigned long long))
                 {
                   c = 'l';
@@ -410,13 +396,9 @@ static int vsprintf_internal(FAR struct lib_outstream_s *stream,
 #endif
               else
                 {
-                  /* The only known cases that the default will be hit are
-                   * (1) the eZ80 which has sizeof(size_t) = 3 which is the
-                   * same as the sizeof(int).  And (2) if
-                   * CONFIG_HAVE_LONG_LONG
-                   * is not enabled and sizeof(size_t) is equal to
-                   * sizeof(unsigned long long).  This latter case is an
-                   * error.
+                  /* The only known case that the default will be hit is
+                   * the eZ80 which has sizeof(size_t) = 3 which is the
+                   * same as the sizeof(int).
                    * Treat as integer with no size qualifier.
                    */
 
@@ -428,9 +410,7 @@ static int vsprintf_internal(FAR struct lib_outstream_s *stream,
             {
               /* Same as long long if available. Otherwise, long. */
 
-#ifdef CONFIG_HAVE_LONG_LONG
               flags |= FL_REPD_TYPE;
-#endif
               flags |= FL_LONG;
               flags &= ~FL_SHORT;
               continue;
@@ -482,13 +462,11 @@ static int vsprintf_internal(FAR struct lib_outstream_s *stream,
 
           flags &= ~(FL_LONG | FL_REPD_TYPE);
 
-#ifdef CONFIG_HAVE_LONG_LONG
           if (sizeof(FAR void *) == sizeof(unsigned long long))
             {
               flags |= (FL_LONG | FL_REPD_TYPE);
             }
           else
-#endif
           if (sizeof(FAR void *) == sizeof(unsigned long))
             {
               flags |= FL_LONG;
@@ -951,9 +929,6 @@ str_lpad:
 
       if (c == 'd' || c == 'i')
         {
-#ifndef CONFIG_HAVE_LONG_LONG
-          long x;
-#else
           long long x;
 
           if ((flags & FL_LONG) != 0 && (flags & FL_REPD_TYPE) != 0)
@@ -972,7 +947,6 @@ str_lpad:
 #endif
             }
           else
-#endif
           if ((flags & FL_LONG) != 0)
             {
 #ifdef CONFIG_LIBC_NUMBERED_ARGS
@@ -1018,11 +992,7 @@ str_lpad:
           flags &= ~(FL_NEGATIVE | FL_ALT);
           if (x < 0)
             {
-#ifndef CONFIG_HAVE_LONG_LONG
-              x = -(unsigned long)x;
-#else
               x = -(unsigned long long)x;
-#endif
               flags |= FL_NEGATIVE;
             }
 
@@ -1032,18 +1002,12 @@ str_lpad:
             }
           else
             {
-#if !defined(CONFIG_LIBC_LONG_LONG) && defined(CONFIG_HAVE_LONG_LONG)
-              DEBUGASSERT(x >= 0 && x <= ULONG_MAX);
-#endif
               c = __ultoa_invert(x, buf, 10) - buf;
             }
         }
       else
         {
           int base;
-#ifndef CONFIG_HAVE_LONG_LONG
-          unsigned long x;
-#else
           unsigned long long x;
 
           if ((flags & FL_LONG) != 0 && (flags & FL_REPD_TYPE) != 0)
@@ -1062,7 +1026,6 @@ str_lpad:
 #endif
             }
           else
-#endif
           if ((flags & FL_LONG) != 0)
             {
 #ifdef CONFIG_LIBC_NUMBERED_ARGS
@@ -1218,9 +1181,6 @@ str_lpad:
             }
           else
             {
-#if !defined(CONFIG_LIBC_LONG_LONG) && defined(CONFIG_HAVE_LONG_LONG)
-              DEBUGASSERT(x <= ULONG_MAX);
-#endif
               c = __ultoa_invert(x, buf, base) - buf;
             }
 
@@ -1355,10 +1315,8 @@ int lib_vsprintf(FAR struct lib_outstream_s *stream,
       switch (arglist.type[i])
         {
         case TYPE_LONG_LONG:
-#ifdef CONFIG_HAVE_LONG_LONG
           arglist.value[i].ull = va_arg(ap, unsigned long long);
           break;
-#endif
 
         case TYPE_LONG:
           arglist.value[i].ul = va_arg(ap, unsigned long);

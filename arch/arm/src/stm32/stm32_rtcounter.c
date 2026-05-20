@@ -296,7 +296,7 @@ static void stm32_rtc_breakout(const struct timespec *tp,
    * our use
    */
 
-  frac = ((uint64_t)tp->tv_nsec * CONFIG_RTC_FREQUENCY) / 1000000000;
+  frac = (tp->tv_nsec * CONFIG_RTC_FREQUENCY) / 1000000000;
   cnt  = (tp->tv_sec << RTC_CLOCKS_SHIFT) |
          ((uint32_t)frac & (CONFIG_RTC_FREQUENCY - 1));
   ovf  = (tp->tv_sec >> (32 - RTC_CLOCKS_SHIFT));
@@ -832,8 +832,8 @@ int stm32_rtc_rdalarm(FAR struct alm_rdalarm_s *alminfo)
           regvals.cnth = getreg16(STM32_RTC_ALRH);
           regvals.cntl = getreg16(STM32_RTC_ALRL);
           tp.tv_sec    = regvals.cnth << 16 | regvals.cntl;
-          memcpy(alminfo->ar_time, (FAR struct tm *)gmtime(&tp.tv_sec),
-                 sizeof(FAR struct tm));
+          memcpy(alminfo->ar_time, gmtime(&tp.tv_sec),
+                 sizeof(struct tm));
           ret = OK;
         }
         break;

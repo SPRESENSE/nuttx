@@ -398,7 +398,7 @@ int up_rtc_initialize(void)
 #ifndef CONFIG_RTC_HIRES
 time_t up_rtc_time(void)
 {
-  return (time_t)efm32_get_burtc_tick() / CONFIG_RTC_FREQUENCY;
+  return efm32_get_burtc_tick() / CONFIG_RTC_FREQUENCY;
 }
 #endif
 
@@ -431,7 +431,7 @@ int up_rtc_gettime(struct timespec *tp)
   tp->tv_nsec = (val % CONFIG_RTC_FREQUENCY) *
                 (NSEC_PER_SEC / CONFIG_RTC_FREQUENCY);
 
-  rtcinfo("Get RTC %u.%09u\n", tp->tv_sec, tp->tv_nsec);
+  rtcinfo("Get RTC %jd.%09ld\n", (intmax_t)tp->tv_sec, tp->tv_nsec);
 
   return OK;
 }
@@ -466,7 +466,7 @@ int up_rtc_settime(const struct timespec *tp)
 
   /* Compute Burtc offset because we cannot reset counter */
 
-  val = (((uint64_t)tp->tv_sec) * CONFIG_RTC_FREQUENCY) + \
+  val = (tp->tv_sec * CONFIG_RTC_FREQUENCY) + \
         (tp->tv_nsec / (NSEC_PER_SEC / CONFIG_RTC_FREQUENCY));
 
   if (val < cnt_reg)
@@ -481,8 +481,8 @@ int up_rtc_settime(const struct timespec *tp)
   cnt_carry = val / __CNT_TOP;
   cnt       = val % __CNT_TOP;
 
-  rtcinfo("Set RTC %u.%09u carry %u zero %u reg %u\n",
-           tp->tv_sec, tp->tv_nsec, cnt_carry, cnt, cnt_reg);
+  rtcinfo("Set RTC %jd.%09ld carry %u zero %u reg %u\n",
+           (intmax_t)tp->tv_sec, tp->tv_nsec, cnt_carry, cnt, cnt_reg);
 
   putreg32(cnt_carry, __CNT_CARRY_REG);
   putreg32(cnt      , __CNT_ZERO_REG);

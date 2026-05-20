@@ -5,7 +5,6 @@
 # You can then do "make savedefconfig" to generate a new defconfig file that includes your
 # modifications.
 #
-# CONFIG_LIBC_LONG_LONG is not set
 # CONFIG_NSH_ARGCAT is not set
 CONFIG_ARCH="arm"
 CONFIG_ARCH_BOARD="nucleo-g070rb"
@@ -50,7 +49,6 @@ CONFIG_POSIX_SPAWN_DEFAULT_STACKSIZE=1536
 CONFIG_PTHREAD_MUTEX_UNSAFE=y
 CONFIG_PTHREAD_STACK_DEFAULT=1536
 CONFIG_PWM=y
-CONFIG_PWM_MULTICHAN=y
 CONFIG_RAM_SIZE=20480
 CONFIG_RAM_START=0x20000000
 CONFIG_RAW_BINARY=y

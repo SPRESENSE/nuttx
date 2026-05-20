@@ -2263,7 +2263,7 @@ static void wifi_rtc_disable_iso(void)
 
 int64_t esp32_timer_get_time(void)
 {
-  return (int64_t)esp_hr_timer_time_us();
+  return esp_hr_timer_time_us();
 }
 
 /****************************************************************************
@@ -2594,8 +2594,8 @@ static int esp_get_time(void *t)
   ret = gettimeofday(&tv, NULL);
   if (!ret)
     {
-      time_adpt->sec  = (time_t)tv.tv_sec;
-      time_adpt->usec = (suseconds_t)tv.tv_usec;
+      time_adpt->sec  = tv.tv_sec;
+      time_adpt->usec = tv.tv_usec;
     }
   else
     {

@@ -629,8 +629,7 @@ static int esp_rtc_rdalarm(struct rtc_lowerhalf_s *lower,
   ts.tv_nsec = ((esp_hr_timer_time_us() + g_rtc_save->offset +
               cbinfo->deadline_us) % USEC_PER_SEC) * NSEC_PER_USEC;
 
-  localtime_r((const time_t *)&ts.tv_sec,
-              (struct tm *)alarminfo->time);
+  localtime_r(&ts.tv_sec, (struct tm *)alarminfo->time);
 
   spin_unlock_irqrestore(&priv->lock, flags);
 
@@ -698,7 +697,7 @@ time_t up_rtc_time(void)
 
   spin_unlock_irqrestore(&g_rtc_lowerhalf.lock, flags);
 
-  return (time_t)(time_us / USEC_PER_SEC);
+  return time_us / USEC_PER_SEC;
 }
 #endif /* !CONFIG_RTC_HIRES */
 
@@ -774,7 +773,7 @@ int up_rtc_settime(const struct timespec *ts)
 
   flags = spin_lock_irqsave(&g_rtc_lowerhalf.lock);
 
-  now_us = ((uint64_t) ts->tv_sec) * USEC_PER_SEC +
+  now_us = ts->tv_sec * USEC_PER_SEC +
           ts->tv_nsec / NSEC_PER_USEC;
 
 #ifdef CONFIG_RTC_DRIVER

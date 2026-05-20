@@ -191,7 +191,7 @@ static inline uint64_t up_tmr_getcounter(void)
 
 static inline uint64_t up_tmr_getalarmvalue(void)
 {
-  return ((uint64_t) getreg32(SYS_TIMER_SYSTIMER_TARGET0_HI_REG) << 32) \
+  return ((uint64_t)getreg32(SYS_TIMER_SYSTIMER_TARGET0_HI_REG) << 32) \
            | getreg32(SYS_TIMER_SYSTIMER_TARGET0_LO_REG);
 }
 
@@ -453,8 +453,8 @@ int IRAM_ATTR up_timer_start(const struct timespec *ts)
       up_timer_cancel(NULL);
     }
 
-  cpu_ticks = SEC_2_CTICK((uint64_t)ts->tv_sec) +
-              NSEC_2_CTICK((uint64_t)ts->tv_nsec);
+  cpu_ticks = SEC_2_CTICK(ts->tv_sec) +
+              NSEC_2_CTICK(ts->tv_nsec);
 
   up_tmr_setcounter(cpu_ticks);
   g_timer_started = true;

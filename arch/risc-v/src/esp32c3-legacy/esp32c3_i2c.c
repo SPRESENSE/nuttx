@@ -846,7 +846,7 @@ static int esp32c3_i2c_polling_waitdone(struct esp32c3_i2c_priv_s *priv)
    * and an error didn't occur within the timeout
    */
 
-  while ((sclock_t)(current - timeout) < 0 && (priv->error == 0))
+  while (current - timeout < 0 && priv->error == 0)
     {
       /* Check if any interrupt triggered, clear them
        * process the operation.
@@ -1281,7 +1281,7 @@ static void esp32c3_i2c_tracedump(struct esp32c3_i2c_priv_s *priv)
   struct esp32c3_trace_s *trace;
   int i;
 
-  syslog(LOG_DEBUG, "Elapsed time: %" PRIu32 "\n",
+  syslog(LOG_DEBUG, "Elapsed time: %" PRId64 "\n",
          (clock_systime_ticks() - priv->start_time));
 
   for (i = 0; i < priv->tndx; i++)
@@ -1289,7 +1289,7 @@ static void esp32c3_i2c_tracedump(struct esp32c3_i2c_priv_s *priv)
       trace = &priv->trace[i];
       syslog(LOG_DEBUG,
              "%2d. STATUS: %08" PRIx32 " COUNT: %3" PRIu32 " EVENT: %s(%2d)"
-             " PARM: %08" PRIx32 " TIME: %" PRIu32 "\n",
+             " PARM: %08" PRIx32 " TIME: %" PRId64 "\n",
              i + 1, trace->status, trace->count, g_trace_names[trace->event],
              trace->event, trace->parm, trace->time - priv->start_time);
     }
