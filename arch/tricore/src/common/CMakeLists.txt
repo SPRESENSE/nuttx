@@ -22,7 +22,6 @@
 
 set(SRCS
     tricore_allocateheap.c
-    tricore_backtrace.c
     tricore_cache.c
     tricore_checkstack.c
     tricore_createstack.c
@@ -35,6 +34,7 @@ set(SRCS
     tricore_irq.c
     tricore_main.c
     tricore_nputs.c
+    tricore_perf.c
     tricore_registerdump.c
     tricore_releasestack.c
     tricore_saveusercontext.c
@@ -44,6 +44,10 @@ set(SRCS
     tricore_trapcall.c
     tricore_systimer.c
     tricore_usestack.c)
+
+if(CONFIG_SCHED_BACKTRACE)
+  list(APPEND SRCS tricore_backtrace.c)
+endif()
 
 if(CONFIG_ENABLE_ALL_SIGNALS)
   list(APPEND SRCS tricore_schedulesigaction.c tricore_sigdeliver.c)
@@ -55,6 +59,10 @@ endif()
 
 if(CONFIG_ARCH_USE_MPU)
   list(APPEND SRCS tricore_mpu.c)
+endif()
+
+if(CONFIG_ARCH_HAVE_FPU)
+  list(APPEND SRCS tricore_fpu.c)
 endif()
 
 set(IFXFLAGS -DIFX_CFG_EXTEND_TRAP_HOOKS -DIFX_USE_SW_MANAGED_INT)
