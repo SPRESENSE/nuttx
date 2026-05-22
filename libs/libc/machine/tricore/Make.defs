@@ -1,5 +1,7 @@
 ############################################################################
-# arch/arm64/src/bcm2711/Make.defs
+# libs/libc/machine/tricore/Make.defs
+#
+# SPDX-License-Identifier: Apache-2.0
 #
 # Licensed to the Apache Software Foundation (ASF) under one or more
 # contributor license agreements.  See the NOTICE file distributed with
@@ -18,45 +20,9 @@
 #
 ############################################################################
 
-include common/Make.defs
-
-# BCM2711 specific C source files
-
-CHIP_CSRCS += bcm2711_boot.c
-CHIP_CSRCS += bcm2711_mailbox.c
-CHIP_CSRCS += bcm2711_serial.c
-CHIP_CSRCS += bcm2711_gpio.c
-
-ifeq ($(CONFIG_SMP),y)
-CHIP_CSRCS += bcm2711_cpustart.c
+ifeq ($(CONFIG_ARCH_SETJMP_H),y)
+CSRCS += arch_setjmp.c
 endif
 
-# Early boot logging
-
-ifeq ($(CONFIG_ARCH_EARLY_PRINT),y)
-CHIP_CSRCS += bcm2711_lowputc.c
-endif
-
-# I2C interfaces
-
-ifeq ($(CONFIG_BCM2711_I2C),y)
-CHIP_CSRCS += bcm2711_i2c.c
-endif
-
-# SPI interfaces
-
-ifeq ($(CONFIG_BCM2711_SPI),y)
-CHIP_CSRCS += bcm2711_spi.c
-endif
-
-# EMMC interfaces
-
-ifeq ($(CONFIG_BCM2711_EMMC),y)
-CHIP_CSRCS += bcm2711_sdio.c
-endif
-
-# Graphics
-
-ifeq ($(CONFIG_BCM2711_FRAMEBUFFER),y)
-CHIP_CSRCS += bcm2711_fb.c
-endif
+DEPPATH += --dep-path machine/tricore
+VPATH += :machine/tricore
