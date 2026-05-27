@@ -193,6 +193,36 @@ static int esp32_wdt_start(struct watchdog_lowerhalf_s *lower)
 
       ESP32_WDT_UNLOCK(priv->wdt);
 
+      /* Re-apply the prescaler for MWDT in case the Timer Group
+       * registers were reset after initialization (e.g. by a
+       * constructor function that resets the peripheral).
+       */
+
+      if (priv->peripheral == TIMER)
+        {
+          ESP32_WDT_PRE(priv->wdt, PRE_VALUE);
+        }
+
+      /* Re-apply the timeout value */
+
+      if (priv->timeout > 0)
+        {
+          if (priv->peripheral == TIMER)
+            {
+              ESP32_WDT_STO(priv->wdt,
+                            priv->timeout * MS_CYCLES_TIMER, STAGE_0);
+            }
+          else
+            {
+              uint16_t rtc_cycles = ESP32_RWDT_CLK(priv->wdt);
+              if (rtc_cycles > 0)
+                {
+                  ESP32_WDT_STO(priv->wdt,
+                                priv->timeout * rtc_cycles, STAGE_0);
+                }
+            }
+        }
+
       /* No User Handler */
 
       if (priv->handler == NULL)
@@ -225,6 +255,8 @@ static int esp32_wdt_start(struct watchdog_lowerhalf_s *lower)
 
           ESP32_WDT_ENABLEINT(priv->wdt);
         }
+
+      ESP32_WDT_FEED(priv->wdt);
 
       flags = spin_lock_irqsave(&priv->lock);
       priv->lastreset = clock_systime_ticks();
@@ -452,6 +484,12 @@ static int esp32_wdt_settimeout(struct watchdog_lowerhalf_s *lower,
   else
     {
       rtc_cycles = ESP32_RWDT_CLK(priv->wdt);
+      if (rtc_cycles == 0)
+        {
+          wderr("ERROR: RTC clock calibration returned 0 cycles/ms\n");
+          return -EIO;
+        }
+
       rtc_ms_max = (uint32_t)(FULL_STAGE / rtc_cycles);
 
       /* Is this timeout a valid value for RTC WDT? */
