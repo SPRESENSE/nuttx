@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/stm32l5/stm32l5.h
+ * arch/arm/src/stm32wb/stm32.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,8 +20,8 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_ARM_SRC_STM32L5_STM32L5_H
-#define __ARCH_ARM_SRC_STM32L5_STM32L5_H
+#ifndef __ARCH_ARM_SRC_STM32WB_STM32WB_H
+#define __ARCH_ARM_SRC_STM32WB_STM32WB_H
 
 /****************************************************************************
  * Included Files
@@ -37,14 +37,9 @@
 /* Peripherals **************************************************************/
 
 #include "chip.h"
-#include "stm32l5_dbgmcu.h"
-#include "stm32l5_flash.h"
-#include "stm32l5_gpio.h"
-#include "stm32l5_pwr.h"
-#include "stm32l5_rcc.h"
-#include "stm32l5_spi.h"
-#include "stm32l5_tim.h"
-#include "stm32l5_uart.h"
-#include "stm32l5_lowputc.h"
 
-#endif /* __ARCH_ARM_SRC_STM32L5_STM32L5_H */
+/****************************************************************************
+ * Pre-processor Definitions
+ ****************************************************************************/
+
+#endif /* __ARCH_ARM_SRC_STM32WB_STM32WB_H */

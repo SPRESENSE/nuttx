@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/stm32wl5/stm32wl5.h
+ * binfmt/binfmt_checkexec.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,48 +20,81 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_ARM_SRC_STM32WL5_STM32WL5_H
-#define __ARCH_ARM_SRC_STM32WL5_STM32WL5_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
-#include <sys/types.h>
-#include <stdint.h>
-#include <stdbool.h>
 
-#include "arm_internal.h"
+#include <sys/stat.h>
+#include <errno.h>
 
-/* Peripherals **************************************************************/
+#include <nuttx/sched.h>
+#include <nuttx/binfmt/binfmt.h>
 
-#include "chip.h"
-#include "stm32wl5_flash.h"
-#include "stm32wl5_gpio.h"
-#include "stm32wl5_lowputc.h"
-#include "stm32wl5_pwr.h"
-#include "stm32wl5_rcc.h"
-#include "stm32wl5_spi.h"
-#include "stm32wl5_tim.h"
-#include "stm32wl5_uart.h"
+#include "binfmt.h"
 
 /****************************************************************************
- * Pre-processor Definitions
+ * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Public Function Prototypes
- ****************************************************************************/
-
-/****************************************************************************
- * Name: stm32wl5_spidev_initialize
+ * Name: binfmt_checkexecperm
  *
  * Description:
- *   Called to configure SPI chip select GPIO pins.
+ *   Verify that the calling task has execute permission on the file
+ *   described by 'bin'.  The file owner, group, and mode must already be
+ *   populated in the binary_s structure before calling this function.
+ *
+ * Input Parameters:
+ *   bin - Pointer to the binary descriptor with uid, gid, and mode set.
+ *
+ * Returned Value:
+ *   Zero (OK) on success; -EACCES if execute permission is denied.
  *
  ****************************************************************************/
 
-void stm32wl5_spidev_initialize(void);
+int binfmt_checkexecperm(FAR struct binary_s *bin)
+{
+  FAR struct tcb_s *rtcb;
+  mode_t xbits;
 
-#endif /* __ARCH_ARM_SRC_STM32WL5_STM32WL5_H */
+  rtcb = nxsched_self();
+
+  if (bin == NULL || rtcb == NULL || rtcb->group == NULL)
+    {
+      return OK;
+    }
+
+  if (rtcb->group->tg_euid == 0)
+    {
+      /* Root can execute any file that has at least one execute bit set */
+
+      if ((bin->mode & (S_IXUSR | S_IXGRP | S_IXOTH)) == 0)
+        {
+          return -EACCES;
+        }
+
+      return OK;
+    }
+
+  if (rtcb->group->tg_euid == bin->uid)
+    {
+      xbits = S_IXUSR;
+    }
+  else if (rtcb->group->tg_egid == bin->gid)
+    {
+      xbits = S_IXGRP;
+    }
+  else
+    {
+      xbits = S_IXOTH;
+    }
+
+  if ((bin->mode & xbits) == 0)
+    {
+      return -EACCES;
+    }
+
+  return OK;
+}

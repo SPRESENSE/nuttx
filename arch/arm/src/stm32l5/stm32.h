@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/stm32wb/stm32wb_blehci.h
+ * arch/arm/src/stm32l5/stm32.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,8 +20,8 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_ARM_SRC_STM32WB_STM32WB_BLEHCI_H
-#define __ARCH_ARM_SRC_STM32WB_STM32WB_BLEHCI_H
+#ifndef __ARCH_ARM_SRC_STM32L5_STM32L5_H
+#define __ARCH_ARM_SRC_STM32L5_STM32L5_H
 
 /****************************************************************************
  * Included Files
@@ -29,42 +29,22 @@
 
 #include <nuttx/config.h>
 #include <sys/types.h>
+#include <stdint.h>
+#include <stdbool.h>
 
-/****************************************************************************
- * Public Data
- ****************************************************************************/
+#include "arm_internal.h"
 
-#ifndef __ASSEMBLY__
+/* Peripherals **************************************************************/
 
-#undef EXTERN
-#if defined(__cplusplus)
-#define EXTERN extern "C"
-extern "C"
-{
-#else
-#define EXTERN extern
-#endif
+#include "chip.h"
+#include "stm32l5_dbgmcu.h"
+#include "stm32l5_flash.h"
+#include "stm32l5_gpio.h"
+#include "stm32l5_pwr.h"
+#include "stm32l5_rcc.h"
+#include "stm32l5_spi.h"
+#include "stm32l5_tim.h"
+#include "stm32l5_uart.h"
+#include "stm32l5_lowputc.h"
 
-/****************************************************************************
- * Public Function Prototypes
- ****************************************************************************/
-
-/****************************************************************************
- * Name: stm32_blehci_initialize
- *
- * Description:
- *   Initialize and register BLE HCI driver which interfaces a BLE host
- *   stack to a BLE controller running on CPU2 via HCI protocol.  Driver
- *   registration occurs later when CPU2 notifies its ready status.
- *
- ****************************************************************************/
-
-void stm32_blehci_initialize(void);
-
-#undef EXTERN
-#if defined(__cplusplus)
-}
-#endif
-
-#endif /* __ASSEMBLY__ */
-#endif /* __ARCH_ARM_SRC_STM32WB_STM32WB_BLEHCI_H */
+#endif /* __ARCH_ARM_SRC_STM32L5_STM32L5_H */
