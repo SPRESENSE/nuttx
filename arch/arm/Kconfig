@@ -593,18 +593,21 @@ config ARCH_CHIP_STM32L1
 
 config ARCH_CHIP_STM32F0
 	bool "STMicro STM32 F0"
+	select ARCH_CHIP_STM32
 	select ARCH_CORTEXM0
 	---help---
 		STMicro STM32F0 architectures (ARM Cortex-M0).
 
 config ARCH_CHIP_STM32L0
 	bool "STMicro STM32 L0"
+	select ARCH_CHIP_STM32
 	select ARCH_CORTEXM0
 	---help---
 		STMicro STM32L0 architectures (ARM Cortex-M0+).
 
 config ARCH_CHIP_STM32G0
 	bool "STMicro STM32 G0"
+	select ARCH_CHIP_STM32
 	select ARCH_CORTEXM0
 	select ARCH_HAVE_PROGMEM
 	---help---
@@ -612,12 +615,14 @@ config ARCH_CHIP_STM32G0
 
 config ARCH_CHIP_STM32C0
 	bool "STMicro STM32 C0"
+	select ARCH_CHIP_STM32
 	select ARCH_CORTEXM0
 	---help---
 		STMicro STM32C0 architectures (ARM Cortex-M0+).
 
 config ARCH_CHIP_STM32F7
 	bool "STMicro STM32 F7"
+	select ARCH_CHIP_STM32
 	select ARCH_CORTEXM7
 	select ARCH_HAVE_MPU
 	select ARCH_HAVE_FETCHADD
@@ -634,6 +639,7 @@ config ARCH_CHIP_STM32F7
 
 config ARCH_CHIP_STM32H7
 	bool "STMicro STM32 H7"
+	select ARCH_CHIP_STM32
 	select ARCH_HAVE_MPU
 	select ARCH_HAVE_I2CRESET
 	select ARCH_HAVE_PROGMEM
@@ -649,6 +655,7 @@ config ARCH_CHIP_STM32H7
 
 config ARCH_CHIP_STM32L4
 	bool "STMicro STM32 L4"
+	select ARCH_CHIP_STM32
 	select ARCH_CORTEXM4
 	select ARCH_HAVE_MPU
 	select ARCH_HAVE_FETCHADD
@@ -664,6 +671,7 @@ config ARCH_CHIP_STM32L4
 
 config ARCH_CHIP_STM32H5
 	bool "STMicro STM32 H5"
+	select ARCH_CHIP_STM32
 	select ARCH_CORTEXM33
 	select ARCH_HAVE_MPU
 	select ARM_HAVE_DSP
@@ -679,6 +687,7 @@ config ARCH_CHIP_STM32H5
 
 config ARCH_CHIP_STM32N6
 	bool "STMicro STM32 N6"
+	select ARCH_CHIP_STM32
 	select ARCH_CORTEXM55
 	select ARCH_HAVE_FPU
 	select ARCH_HAVE_MPU
@@ -692,6 +701,7 @@ config ARCH_CHIP_STM32N6
 
 config ARCH_CHIP_STM32L5
 	bool "STMicro STM32 L5"
+	select ARCH_CHIP_STM32
 	select ARCH_CORTEXM33
 	select ARCH_HAVE_MPU
 	select ARM_HAVE_DSP
@@ -707,6 +717,7 @@ config ARCH_CHIP_STM32L5
 
 config ARCH_CHIP_STM32U5
 	bool "STMicro STM32 U5"
+	select ARCH_CHIP_STM32
 	select ARCH_CORTEXM33
 	select ARCH_HAVE_MPU
 	select ARM_HAVE_DSP
@@ -723,6 +734,7 @@ config ARCH_CHIP_STM32U5
 
 config ARCH_CHIP_STM32WB
 	bool "STMicro STM32 WB"
+	select ARCH_CHIP_STM32
 	select ARCH_CORTEXM4
 	select ARCH_HAVE_FPU
 	select ARCH_HAVE_MPU
@@ -739,6 +751,7 @@ config ARCH_CHIP_STM32WB
 
 config ARCH_CHIP_STM32WL5
 	bool "STMicro STM32 WL5"
+	select ARCH_CHIP_STM32
 	select ARCH_CORTEXM4
 	select ARCH_HAVE_MPU
 	select ARCH_HAVE_FETCHADD
@@ -1838,6 +1851,9 @@ source "arch/arm/src/stm32wb/Kconfig"
 endif
 if ARCH_CHIP_STM32WL5
 source "arch/arm/src/stm32wl5/Kconfig"
+endif
+if ARCH_CHIP_STM32
+source "arch/arm/src/common/stm32/Kconfig"
 endif
 if ARCH_CHIP_STR71X
 source "arch/arm/src/str71x/Kconfig"
