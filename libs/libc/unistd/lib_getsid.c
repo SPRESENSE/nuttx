@@ -1,5 +1,5 @@
 /****************************************************************************
- * include/grp.h
+ * libs/libc/unistd/lib_getsid.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,64 +20,56 @@
  *
  ****************************************************************************/
 
-#ifndef __INCLUDE_GRP_H
-#define __INCLUDE_GRP_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
-#include <nuttx/compiler.h>
+#include <unistd.h>
+#include <errno.h>
 
-#include <sys/types.h>
+#include <nuttx/sched.h>
+#include <nuttx/signal.h>
 
 /****************************************************************************
- * Pre-processor Definitions
+ * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Public Type Definitions
+ * Name: getsid
+ *
+ * Description:
+ *   Get the session ID of the process whose process ID is pid.  NuttX does
+ *   not implement sessions, so the session ID is the same as the process
+ *   ID, mirroring getpgid().
+ *
+ * Input Parameters:
+ *   pid - The process ID whose session ID is requested.  A value of zero
+ *         refers to the calling process.
+ *
+ * Returned Value:
+ *   The session ID is returned on success.  Otherwise, (pid_t)-1 is
+ *   returned and errno is set:  EINVAL if pid is negative, ESRCH if pid
+ *   does not refer to an existing process.
+ *
  ****************************************************************************/
 
-struct group
+pid_t getsid(pid_t pid)
 {
-  FAR char  *gr_name;
-  FAR char  *gr_passwd;
-  gid_t      gr_gid;
-  FAR char **gr_mem;
-};
+  if (pid < 0)
+    {
+      set_errno(EINVAL);
+      return (pid_t)-1;
+    }
 
-/****************************************************************************
- * Public Function Prototypes
- ****************************************************************************/
+  if (pid == 0)
+    {
+      return _SCHED_GETPID();
+    }
 
-#undef EXTERN
-#if defined(__cplusplus)
-#define EXTERN extern "C"
-extern "C"
-{
-#else
-#define EXTERN extern
-#endif
+  if (_SIG_KILL(pid, 0) < 0)
+    {
+      return (pid_t)-1;
+    }
 
-FAR struct group *getgrnam(FAR const char *name);
-FAR struct group *getgrgid(gid_t gid);
-int getgrnam_r(FAR const char *name,
-               FAR struct group *grp,
-               FAR char *buf,
-               size_t buflen,
-               FAR struct group **result);
-int getgrgid_r(gid_t gid, FAR struct group *grp,
-               FAR char *buf, size_t buflen,
-               FAR struct group **result);
-int initgroups(FAR const char *user, gid_t group);
-int getgrouplist(FAR const char *user, gid_t group, FAR gid_t *groups,
-                 FAR int *ngroups);
-
-#undef EXTERN
-#if defined(__cplusplus)
+  return pid;
 }
-#endif
-
-#endif /* __INCLUDE_GRP_H */

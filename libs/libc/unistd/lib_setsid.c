@@ -1,5 +1,5 @@
 /****************************************************************************
- * include/grp.h
+ * libs/libc/unistd/lib_setsid.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,64 +20,38 @@
  *
  ****************************************************************************/
 
-#ifndef __INCLUDE_GRP_H
-#define __INCLUDE_GRP_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
-#include <nuttx/compiler.h>
+#include <unistd.h>
 
-#include <sys/types.h>
+#include <nuttx/sched.h>
 
 /****************************************************************************
- * Pre-processor Definitions
+ * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Public Type Definitions
+ * Name: setsid
+ *
+ * Description:
+ *   Create a new session, if the calling process is not already a process
+ *   group leader.  NuttX does not implement sessions or process groups, so
+ *   each task is treated as its own session and process group.  This stub
+ *   therefore returns the caller's PID, which acts as the session ID.
+ *
+ * Input Parameters:
+ *   None
+ *
+ * Returned Value:
+ *   The session ID (the caller's PID) is returned.  A failure return of
+ *   (pid_t)-1 with errno set to EPERM is not possible here because there is
+ *   no process-group leadership to conflict with.
+ *
  ****************************************************************************/
 
-struct group
+pid_t setsid(void)
 {
-  FAR char  *gr_name;
-  FAR char  *gr_passwd;
-  gid_t      gr_gid;
-  FAR char **gr_mem;
-};
-
-/****************************************************************************
- * Public Function Prototypes
- ****************************************************************************/
-
-#undef EXTERN
-#if defined(__cplusplus)
-#define EXTERN extern "C"
-extern "C"
-{
-#else
-#define EXTERN extern
-#endif
-
-FAR struct group *getgrnam(FAR const char *name);
-FAR struct group *getgrgid(gid_t gid);
-int getgrnam_r(FAR const char *name,
-               FAR struct group *grp,
-               FAR char *buf,
-               size_t buflen,
-               FAR struct group **result);
-int getgrgid_r(gid_t gid, FAR struct group *grp,
-               FAR char *buf, size_t buflen,
-               FAR struct group **result);
-int initgroups(FAR const char *user, gid_t group);
-int getgrouplist(FAR const char *user, gid_t group, FAR gid_t *groups,
-                 FAR int *ngroups);
-
-#undef EXTERN
-#if defined(__cplusplus)
+  return _SCHED_GETPID();
 }
-#endif
-
-#endif /* __INCLUDE_GRP_H */

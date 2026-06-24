@@ -1,5 +1,5 @@
 /****************************************************************************
- * include/grp.h
+ * libs/libc/termios/lib_tcgetsid.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,64 +20,48 @@
  *
  ****************************************************************************/
 
-#ifndef __INCLUDE_GRP_H
-#define __INCLUDE_GRP_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
-#include <nuttx/compiler.h>
 
-#include <sys/types.h>
+#include <sys/ioctl.h>
+
+#include <termios.h>
+
+#include <nuttx/serial/tioctl.h>
 
 /****************************************************************************
- * Pre-processor Definitions
+ * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Public Type Definitions
+ * Name: tcgetsid
+ *
+ * Description:
+ *   Obtain the process group ID of the session for which the terminal is
+ *   the controlling terminal.
+ *
+ * Input Parameters:
+ *   fd - The 'fd' argument is an open file descriptor associated with a
+ *        terminal.
+ *
+ * Returned Value:
+ *   Upon successful completion, the session leader's process group ID is
+ *   returned.  Otherwise, (pid_t)-1 is returned and errno is set to
+ *   indicate the error.
+ *
  ****************************************************************************/
 
-struct group
+pid_t tcgetsid(int fd)
 {
-  FAR char  *gr_name;
-  FAR char  *gr_passwd;
-  gid_t      gr_gid;
-  FAR char **gr_mem;
-};
+  pid_t sid;
 
-/****************************************************************************
- * Public Function Prototypes
- ****************************************************************************/
+  if (ioctl(fd, TIOCGSID, &sid) < 0)
+    {
+      return (pid_t)-1;
+    }
 
-#undef EXTERN
-#if defined(__cplusplus)
-#define EXTERN extern "C"
-extern "C"
-{
-#else
-#define EXTERN extern
-#endif
-
-FAR struct group *getgrnam(FAR const char *name);
-FAR struct group *getgrgid(gid_t gid);
-int getgrnam_r(FAR const char *name,
-               FAR struct group *grp,
-               FAR char *buf,
-               size_t buflen,
-               FAR struct group **result);
-int getgrgid_r(gid_t gid, FAR struct group *grp,
-               FAR char *buf, size_t buflen,
-               FAR struct group **result);
-int initgroups(FAR const char *user, gid_t group);
-int getgrouplist(FAR const char *user, gid_t group, FAR gid_t *groups,
-                 FAR int *ngroups);
-
-#undef EXTERN
-#if defined(__cplusplus)
+  return sid;
 }
-#endif
-
-#endif /* __INCLUDE_GRP_H */

@@ -1,5 +1,5 @@
 /****************************************************************************
- * include/grp.h
+ * libs/libc/unistd/lib_setpgid.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,64 +20,68 @@
  *
  ****************************************************************************/
 
-#ifndef __INCLUDE_GRP_H
-#define __INCLUDE_GRP_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
-#include <nuttx/compiler.h>
+#include <unistd.h>
+#include <errno.h>
 
-#include <sys/types.h>
+#include <nuttx/sched.h>
+#include <nuttx/signal.h>
 
 /****************************************************************************
- * Pre-processor Definitions
+ * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Public Type Definitions
+ * Name: setpgid
+ *
+ * Description:
+ *   Set the process group ID of the process whose process ID is pid to
+ *   pgid.  NuttX does not implement process groups, so a process group
+ *   always contains a single member and its ID equals the process ID.
+ *   Consequently this stub only succeeds when the requested pgid matches
+ *   the target pid (or is zero, which selects the target pid itself).
+ *
+ * Input Parameters:
+ *   pid  - The process whose process group ID is to be changed.  A value of
+ *          zero refers to the calling process.
+ *   pgid - The new process group ID.  A value of zero uses the target pid.
+ *
+ * Returned Value:
+ *   Zero is returned on success.  Otherwise, -1 is returned and errno is
+ *   set:  EINVAL if pgid is negative, ESRCH if pid does not exist, EPERM if
+ *   the requested pgid cannot be honored by this single-member-group model.
+ *
  ****************************************************************************/
 
-struct group
+int setpgid(pid_t pid, pid_t pgid)
 {
-  FAR char  *gr_name;
-  FAR char  *gr_passwd;
-  gid_t      gr_gid;
-  FAR char **gr_mem;
-};
+  if (pgid < 0)
+    {
+      set_errno(EINVAL);
+      return -1;
+    }
 
-/****************************************************************************
- * Public Function Prototypes
- ****************************************************************************/
+  if (pid == 0)
+    {
+      pid = _SCHED_GETPID();
+    }
+  else if (_SIG_KILL(pid, 0) < 0)
+    {
+      return -1;
+    }
 
-#undef EXTERN
-#if defined(__cplusplus)
-#define EXTERN extern "C"
-extern "C"
-{
-#else
-#define EXTERN extern
-#endif
+  /* A process group can only contain the single member 'pid', so the only
+   * legal group ID is 'pid' itself (a zero pgid selects it implicitly).
+   */
 
-FAR struct group *getgrnam(FAR const char *name);
-FAR struct group *getgrgid(gid_t gid);
-int getgrnam_r(FAR const char *name,
-               FAR struct group *grp,
-               FAR char *buf,
-               size_t buflen,
-               FAR struct group **result);
-int getgrgid_r(gid_t gid, FAR struct group *grp,
-               FAR char *buf, size_t buflen,
-               FAR struct group **result);
-int initgroups(FAR const char *user, gid_t group);
-int getgrouplist(FAR const char *user, gid_t group, FAR gid_t *groups,
-                 FAR int *ngroups);
+  if (pgid != 0 && pgid != pid)
+    {
+      set_errno(EPERM);
+      return -1;
+    }
 
-#undef EXTERN
-#if defined(__cplusplus)
+  return 0;
 }
-#endif
-
-#endif /* __INCLUDE_GRP_H */

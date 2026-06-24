@@ -1,5 +1,5 @@
 /****************************************************************************
- * include/grp.h
+ * libs/libc/termios/lib_tcsetpgrp.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,64 +20,40 @@
  *
  ****************************************************************************/
 
-#ifndef __INCLUDE_GRP_H
-#define __INCLUDE_GRP_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
-#include <nuttx/compiler.h>
 
-#include <sys/types.h>
+#include <sys/ioctl.h>
+
+#include <unistd.h>
+
+#include <nuttx/serial/tioctl.h>
 
 /****************************************************************************
- * Pre-processor Definitions
+ * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Public Type Definitions
+ * Name: tcsetpgrp
+ *
+ * Description:
+ *   Set the foreground process group ID associated with the terminal.
+ *
+ * Input Parameters:
+ *   fd   - The 'fd' argument is an open file descriptor associated with a
+ *          terminal.
+ *   pgrp - The process group ID to be made the foreground process group.
+ *
+ * Returned Value:
+ *   Upon successful completion, 0 is returned.  Otherwise, -1 is returned
+ *   and errno is set to indicate the error.
+ *
  ****************************************************************************/
 
-struct group
+int tcsetpgrp(int fd, pid_t pgrp)
 {
-  FAR char  *gr_name;
-  FAR char  *gr_passwd;
-  gid_t      gr_gid;
-  FAR char **gr_mem;
-};
-
-/****************************************************************************
- * Public Function Prototypes
- ****************************************************************************/
-
-#undef EXTERN
-#if defined(__cplusplus)
-#define EXTERN extern "C"
-extern "C"
-{
-#else
-#define EXTERN extern
-#endif
-
-FAR struct group *getgrnam(FAR const char *name);
-FAR struct group *getgrgid(gid_t gid);
-int getgrnam_r(FAR const char *name,
-               FAR struct group *grp,
-               FAR char *buf,
-               size_t buflen,
-               FAR struct group **result);
-int getgrgid_r(gid_t gid, FAR struct group *grp,
-               FAR char *buf, size_t buflen,
-               FAR struct group **result);
-int initgroups(FAR const char *user, gid_t group);
-int getgrouplist(FAR const char *user, gid_t group, FAR gid_t *groups,
-                 FAR int *ngroups);
-
-#undef EXTERN
-#if defined(__cplusplus)
+  return ioctl(fd, TIOCSPGRP, &pgrp);
 }
-#endif
-
-#endif /* __INCLUDE_GRP_H */
