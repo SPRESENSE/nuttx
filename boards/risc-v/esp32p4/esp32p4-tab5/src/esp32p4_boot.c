@@ -1,5 +1,5 @@
 /****************************************************************************
- * include/nuttx/1wire/1wire_crc.h
+ * boards/risc-v/esp32p4/esp32p4-tab5/src/esp32p4_boot.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,101 +20,72 @@
  *
  ****************************************************************************/
 
-#ifndef __INCLUDE_NUTTX_1WIRE_1WIRE_CRC_H
-#define __INCLUDE_NUTTX_1WIRE_1WIRE_CRC_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
-#include <stdint.h>
+#include "esp32p4-tab5.h"
 
 /****************************************************************************
- * Public Types
+ * Pre-processor Definitions
  ****************************************************************************/
 
 /****************************************************************************
- * Public Function Prototypes
+ * Private Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: onewire_crc8
+ * Public Functions
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: esp_board_initialize
  *
  * Description:
- *   Compute a Dallas Semiconductor 8 bit CRC.
+ *   All Espressif boards must provide the following entry point.
+ *   This entry point is called early in the initialization -- after all
+ *   memory has been configured and mapped but before any devices have been
+ *   initialized.
  *
  * Input Parameters:
- *   input - Input buffer for crc calculation
- *   len   - Buffer len
+ *   None.
  *
  * Returned Value:
- *   Calculated crc8
+ *   None.
  *
  ****************************************************************************/
 
-uint8_t onewire_crc8(FAR const uint8_t *input, uint8_t len);
+void esp_board_initialize(void)
+{
+}
 
 /****************************************************************************
- * Name: onewire_crc16
+ * Name: board_late_initialize
  *
  * Description:
- *   Compute a Dallas Semiconductor 16 bit CRC. This is used to check
- *   the integrity of received data from many 1-wire devices.
- *
- *   Note: the CRC-16 computed here is not what you'll get from the 1-wire
- *   network, because:
- * - The CRC-16 is transmitted bitwise inverted.
- * - The binary representation of the return value may have a different
- *   byte order than the two bytes you get from 1-wire due to endian-ness.
+ *   If CONFIG_BOARD_LATE_INITIALIZE is selected, then an additional
+ *   initialization call will be performed in the boot-up sequence to a
+ *   function called board_late_initialize().  board_late_initialize() will
+ *   be called immediately after up_initialize() is called and just before
+ *   the initial application is started.  This additional initialization
+ *   phase may be used, for example, to initialize board-specific device
+ *   drivers.
  *
  * Input Parameters:
- *   input       - Input buffer for crc calculation
- *   len         - Buffer len
- *   initial_crc - Initial crc for calculation
+ *   None.
  *
  * Returned Value:
- *   Calculated crc16
+ *   None.
  *
  ****************************************************************************/
 
-uint16_t onewire_crc16(FAR const uint8_t *input, uint16_t len,
-                       uint16_t initial_crc);
+#ifdef CONFIG_BOARD_LATE_INITIALIZE
+void board_late_initialize(void)
+{
+  /* Perform board-specific initialization */
 
-/****************************************************************************
- * Name: onewire_valid_rom
- *
- * Description:
- *   Check CRC-8 of received input
- *
- * Input Parameters:
- *   rom   - 64-bit rom code
- *
- * Returned Value:
- *   true if CRC-8 of rom matches
- *
- ****************************************************************************/
-
-bool onewire_valid_rom(uint64_t rom);
-
-/****************************************************************************
- * Name: onewire_check_crc16
- *
- * Description:
- *   Check CRC-16 of received input
- *
- * Input Parameters:
- *   input         - Array of bytes to checksum
- *   len           - Length of input
- *   inverted_crc  - The two CRC16 bytes in the received data
- *
- * Returned Value:
- *   true if CRC-16 matches
- *
- ****************************************************************************/
-
-bool onewire_check_crc16(FAR const uint8_t *input, uint16_t len,
-                         FAR const uint8_t *inverted_crc);
-
-#endif /* __INCLUDE_NUTTX_1WIRE_1WIRE_CRC_H */
+  esp_bringup();
+}
+#endif
