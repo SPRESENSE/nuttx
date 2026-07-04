@@ -33,13 +33,11 @@ set(SRCS
     stm32wb_serial.c
     stm32wb_i2c.c
     stm32wb_start.c
-    stm32wb_waste.c
     stm32wb_rcc_lse.c
     stm32wb_rcc_lsi.c
     stm32wb_pwr.c
     stm32wb_tim.c
-    stm32wb_flash.c
-    stm32wb_uid.c)
+    stm32wb_flash.c)
 
 if(NOT CONFIG_ARCH_IDLE_CUSTOM)
   list(APPEND SRCS stm32wb_idle.c)
@@ -117,3 +115,5 @@ if(CONFIG_DEBUG_FEATURES)
 endif()
 
 target_sources(arch PRIVATE ${SRCS})
+
+add_subdirectory(${NUTTX_DIR}/arch/arm/src/common/stm32 stm32_common)

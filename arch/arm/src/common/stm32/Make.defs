@@ -37,6 +37,11 @@ ARCHXXINCLUDES += ${INCDIR_PREFIX}$(STM32_COMMON_SRCDIR)
 #    the M3/M4 block because the other Cortex-M4 families (L4/WB/WL5) include
 #    this file too but provide their own implementation.
 
+# Architecture-neutral sources used by every STM32 family
+
+CHIP_CSRCS += stm32_waste.c
+CHIP_CSRCS += stm32_uid.c
+
 ifeq ($(CONFIG_STM32_COMMON_LEGACY),y)
 
 CHIP_CSRCS += stm32_allocateheap_m3m4_v1.c
@@ -81,12 +86,8 @@ endif
 ifeq ($(CONFIG_STM32_HAVE_IP_TIMERS),y)
 CHIP_CSRCS += stm32_tim_m3m4_v1v2v3.c
 endif
-CHIP_CSRCS += stm32_waste_m3m4_v1.c
 ifeq ($(CONFIG_STM32_HAVE_IP_CCM_M3M4_V1),y)
 CHIP_CSRCS += stm32_ccm_m3m4_v1.c
-endif
-ifeq ($(CONFIG_STM32_HAVE_IP_UID_M3M4_V1),y)
-CHIP_CSRCS += stm32_uid_m3m4_v1v2.c
 endif
 CHIP_CSRCS += stm32_capture_m3m4_v1.c
 ifeq ($(CONFIG_STM32_HAVE_IP_DFUMODE_M3M4_V1),y)
@@ -418,9 +419,6 @@ ifeq ($(CONFIG_STM32_HAVE_IP_USART_V3),y)
 CHIP_CSRCS += stm32_serial_m0_v3.c
 else ifeq ($(CONFIG_STM32_HAVE_IP_USART_V4),y)
 CHIP_CSRCS += stm32_serial_m0_v4.c
-endif
-ifeq ($(CONFIG_STM32_HAVE_IP_UID_M0_V1),y)
-CHIP_CSRCS += stm32_uid_m0_v1.c
 endif
 
 ifneq ($(CONFIG_STM32_RTC_LSECLOCK)$(CONFIG_LCD_LSECLOCK),)

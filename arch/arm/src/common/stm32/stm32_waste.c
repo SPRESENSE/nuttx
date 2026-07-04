@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/stm32l5/stm32l5_waste.h
+ * arch/arm/src/common/stm32/stm32_waste.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,47 +20,25 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_ARM_SRC_STM32L5_STM32L5_WASTE_H
-#define __ARCH_ARM_SRC_STM32L5_STM32L5_WASTE_H
-
-/* Waste CPU Time */
-
 /****************************************************************************
- * Pre-processor Definitions
+ * Included Files
  ****************************************************************************/
 
-#ifndef __ASSEMBLY__
+#include <nuttx/config.h>
+#include <stdint.h>
+#include "stm32_waste.h"
 
-#undef EXTERN
-#if defined(__cplusplus)
-#define EXTERN extern "C"
-extern "C"
+/****************************************************************************
+ * Public Data
+ ****************************************************************************/
+
+uint32_t g_waste_counter = 0;
+
+/****************************************************************************
+ * Public Functions
+ ****************************************************************************/
+
+void stm32_waste(void)
 {
-#else
-#define EXTERN extern
-#endif
-
-/****************************************************************************
- * Public Function Prototypes
- ****************************************************************************/
-
-/* Waste CPU Time
- *
- * stm32_waste() is the logic that will be executed when portions of kernel
- * or user-app is polling some register or similar, waiting for desired
- * status. This time is wasted away. This function offers a measure of badly
- * written piece of software or some undesired behavior.
- *
- * At the same time this function adds to some IDLE time which portion
- * cannot be used for other purposes (yet).
- */
-
-void stm32_waste(void);
-
-#undef EXTERN
-#if defined(__cplusplus)
+  g_waste_counter++;
 }
-#endif
-
-#endif /* __ASSEMBLY__ */
-#endif /* __ARCH_ARM_SRC_STM32L5_STM32L5_WASTE_H */

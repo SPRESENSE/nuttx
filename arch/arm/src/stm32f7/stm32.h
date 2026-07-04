@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/stm32l4/stm32l4_waste.c
+ * arch/arm/src/stm32f7/stm32.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,25 +20,41 @@
  *
  ****************************************************************************/
 
+#ifndef __ARCH_ARM_SRC_STM32F7_STM32_H
+#define __ARCH_ARM_SRC_STM32F7_STM32_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
+#include <sys/types.h>
 #include <stdint.h>
-#include "stm32l4_waste.h"
+#include <stdbool.h>
 
-/****************************************************************************
- * Public Data
- ****************************************************************************/
+#include "arm_internal.h"
 
-uint32_t g_waste_counter = 0;
+/* Peripherals **************************************************************/
 
-/****************************************************************************
- * Public Functions
- ****************************************************************************/
+#include "chip.h"
+#include "stm32_adc.h"
+#include "stm32_can.h"
+#include "stm32_dbgmcu.h"
+#include "stm32_dma.h"
+#include "stm32_exti.h"
+#include "stm32_fmc.h"
+#include "stm32_gpio.h"
+#include "stm32_i2c.h"
+#include "stm32_ltdc.h"
+#include "stm32_pwr.h"
+#include "stm32_rcc.h"
+#include "stm32_rtc.h"
+#include "stm32_sdmmc.h"
+#include "stm32_spi.h"
+#include "stm32_i2s.h"
+#include "stm32_tim.h"
+#include "stm32_uart.h"
+#include "stm32_lowputc.h"
+#include "stm32_ethernet.h"
 
-void stm32_waste(void)
-{
-  g_waste_counter++;
-}
+#endif /* __ARCH_ARM_SRC_STM32F7_STM32_H */
