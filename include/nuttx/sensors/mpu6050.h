@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/arm/stm32f7/common/include/stm32_bh1750.h
+ * include/nuttx/sensors/mpu6050.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -13,70 +13,70 @@
  *   http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  ****************************************************************************/
 
-#ifndef __BOARDS_ARM_STM32F7_COMMON_INCLUDE_STM32_BH1750_H
-#define __BOARDS_ARM_STM32F7_COMMON_INCLUDE_STM32_BH1750_H
+#ifndef __INCLUDE_NUTTX_SENSORS_MPU6050_H
+#define __INCLUDE_NUTTX_SENSORS_MPU6050_H
 
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
+#include <nuttx/sensors/ioctl.h>
+#include <nuttx/sensors/sensor.h>
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
+/* MPU6050 I2C addresses */
+
+#define MPU6050_ADDR_LOW   0x68
+#define MPU6050_ADDR_HIGH  0x69
+
 /****************************************************************************
  * Public Types
  ****************************************************************************/
 
-/****************************************************************************
- * Public Data
- ****************************************************************************/
-
-#ifdef __cplusplus
-#define EXTERN extern "C"
-extern "C"
-{
-#else
-#define EXTERN extern
-#endif
-
-/****************************************************************************
- * Inline Functions
- ****************************************************************************/
+struct i2c_master_s;
 
 /****************************************************************************
  * Public Function Prototypes
  ****************************************************************************/
 
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+
 /****************************************************************************
- * Name: board_bh1750_initialize
+ * Name: mpu6050_register
  *
  * Description:
- *   Initialize and register the BH1750FVI Ambient Light driver.
+ *   Register the MPU6050 6-axis IMU sensor device with the NuttX uORB
+ *   sensor framework.
  *
  * Input Parameters:
- *   devno - The device number, used to build the device path as /dev/lightN
- *   busno - The I2C bus number
+ *   devno - Device number for sensor registration (e.g. 0)
+ *   i2c   - Pointer to the I2C master interface
+ *   addr  - I2C slave address of the MPU6050 device
  *
  * Returned Value:
  *   Zero (OK) on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
-int board_bh1750_initialize(int devno, int busno);
+int mpu6050_register(int devno, FAR struct i2c_master_s *i2c,
+                     uint8_t addr);
 
-#undef EXTERN
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* __BOARDS_ARM_STM32F7_COMMON_INCLUDE_STM32_BH1750_H */
+#endif /* __INCLUDE_NUTTX_SENSORS_MPU6050_H */

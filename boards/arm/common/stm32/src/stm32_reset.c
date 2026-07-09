@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/arm/stm32f7/common/include/stm32_spitest.h
+ * boards/arm/common/stm32/src/stm32_reset.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,57 +20,41 @@
  *
  ****************************************************************************/
 
-#ifndef __BOARDS_ARM_STM32F7_COMMON_INCLUDE_STM32_SPITEST_H
-#define __BOARDS_ARM_STM32F7_COMMON_INCLUDE_STM32_SPITEST_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
+#include <nuttx/arch.h>
+#include <nuttx/board.h>
+
 /****************************************************************************
- * Pre-processor Definitions
+ * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Public Types
- ****************************************************************************/
-
-/****************************************************************************
- * Public Data
- ****************************************************************************/
-
-#ifdef __cplusplus
-#define EXTERN extern "C"
-extern "C"
-{
-#else
-#define EXTERN extern
-#endif
-
-/****************************************************************************
- * Inline Functions
- ****************************************************************************/
-
-/****************************************************************************
- * Public Function Prototypes
- ****************************************************************************/
-
-/****************************************************************************
- * Name: stm32_spidev_bus_test
+ * Name: board_reset
  *
  * Description:
- *   Called to create the defined SPI buses and test them by initializing
- *   them and sending the CONFIG_STM32_SPI_TEST_MESSAGE (no chip select).
+ *   Reset board.  Support for this function is required by board-level
+ *   logic if CONFIG_BOARDCTL_RESET is selected.
+ *
+ * Input Parameters:
+ *   status - Status information provided with the reset event.  This
+ *            meaning of this status information is board-specific.  If not
+ *            used by a board, the value zero may be provided in calls to
+ *            board_reset().
+ *
+ * Returned Value:
+ *   If this function returns, then it was not possible to power-off the
+ *   board due to some constraints.  The return value int this case is a
+ *   board-specific reason for the failure to shutdown.
  *
  ****************************************************************************/
 
-int stm32_spidev_bus_test(void);
-
-#undef EXTERN
-#ifdef __cplusplus
+int board_reset(int status)
+{
+  up_systemreset();
+  return 0;
 }
-#endif
-
-#endif /* __BOARDS_ARM_STM32F7_COMMON_INCLUDE_STM32_SPITEST_H */

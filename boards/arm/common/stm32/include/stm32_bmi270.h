@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/arm/stm32f7/common/include/stm32_bmi270.h
+ * boards/arm/common/stm32/include/stm32_bmi270.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,8 +20,8 @@
  *
  ****************************************************************************/
 
-#ifndef __BOARDS_ARM_STM32F7_COMMON_INCLUDE_STM32_BMI270_H
-#define __BOARDS_ARM_STM32F7_COMMON_INCLUDE_STM32_BMI270_H
+#ifndef __BOARDS_ARM_COMMON_STM32_INCLUDE_STM32_BMI270_H
+#define __BOARDS_ARM_COMMON_STM32_INCLUDE_STM32_BMI270_H
 
 /****************************************************************************
  * Included Files
@@ -79,4 +79,4 @@ int board_bmi270_initialize(int devno, int busno);
 }
 #endif
 
-#endif /* __BOARDS_ARM_STM32F7_COMMON_INCLUDE_STM32_BMI270_H */
+#endif /* __BOARDS_ARM_COMMON_STM32_INCLUDE_STM32_BMI270_H */

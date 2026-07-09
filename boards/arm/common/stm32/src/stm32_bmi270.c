@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/arm/stm32f7/common/src/stm32_cansock_setup.c
+ * boards/arm/common/stm32/src/stm32_bmi270.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -26,60 +26,66 @@
 
 #include <nuttx/config.h>
 
+#include <errno.h>
 #include <nuttx/debug.h>
+#include <stdio.h>
 
-#include "stm32_can.h"
+#include <nuttx/spi/spi.h>
+#include <arch/board/board.h>
+#include <nuttx/sensors/bmi270.h>
+
+#include "stm32_i2c.h"
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
-/* Configuration ************************************************************/
-
-#if !defined(CONFIG_STM32_CAN1) && !defined(CONFIG_STM32_CAN2)
-#  error "No CAN is enable. Please enable at least one CAN device"
-#endif
+#define BMI270_I2C_ADDR    0x68
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: stm32_cansock_setup
+ * Name: board_bmi270_initialize
  *
  * Description:
- *  Initialize CAN socket interface
+ *   Initialize and register the BMI270 IMU device.
+ *
+ * Input Parameters:
+ *   devno - The device number, used to build the device path as /dev/imuN
+ *   busno - The I2C bus number
+ *
+ * Returned Value:
+ *   Zero (OK) on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
-int stm32_cansock_setup(void)
+int board_bmi270_initialize(int devno, int busno)
 {
-  int ret = OK;
+  struct i2c_master_s *i2c;
+  char devpath[16];
+  int ret;
 
-  UNUSED(ret);
+  sninfo("Initializing BMI270!\n");
 
-#ifdef CONFIG_STM32_CAN1
-  /* Call stm32_caninitialize() to get an instance of the CAN interface */
+  /* Initialize I2C */
 
-  ret = stm32_cansockinitialize(1);
+  i2c = stm32_i2cbus_initialize(busno);
+  if (!i2c)
+    {
+      return -ENODEV;
+    }
+
+  /* Then register the ambient light sensor */
+
+  snprintf(devpath, sizeof(devpath), "/dev/imu%d", devno);
+  ret = bmi270_register(devpath, i2c, BMI270_I2C_ADDR);
   if (ret < 0)
     {
-      canerr("ERROR:  Failed to get CAN interface %d\n", ret);
-      goto errout;
+      snerr("ERROR: Error registering BMI270\n");
     }
-#endif
 
-#ifdef CONFIG_STM32_CAN2
-  /* Call stm32_caninitialize() to get an instance of the CAN interface */
-
-  ret = stm32_cansockinitialize(2);
-  if (ret < 0)
-    {
-      canerr("ERROR:  Failed to get CAN interface %d\n", ret);
-      goto errout;
-    }
-#endif
-
-errout:
   return ret;
 }
+

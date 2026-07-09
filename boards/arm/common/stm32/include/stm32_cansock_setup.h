@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/arm/stm32f7/common/include/stm32_cs4344.h
+ * boards/arm/common/stm32/include/stm32_cansock_setup.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,8 +20,8 @@
  *
  ****************************************************************************/
 
-#ifndef __BOARDS_ARM_STM32F7_COMMON_INCLUDE_STM32_CS4344_H
-#define __BOARDS_ARM_STM32F7_COMMON_INCLUDE_STM32_CS4344_H
+#ifndef __BOARDS_ARM_COMMON_STM32_INCLUDE_STM32_CANSOCK_SETUP_H
+#define __BOARDS_ARM_COMMON_STM32_INCLUDE_STM32_CANSOCK_SETUP_H
 
 /****************************************************************************
  * Included Files
@@ -58,27 +58,16 @@ extern "C"
  ****************************************************************************/
 
 /****************************************************************************
- * Name: stm32_cs4344_initialize
- *
- * Description:
- *   This function is called by platform-specific, setup logic to configure
- *   and register the CS4344 device.  This function will register the driver
- *   as /dev/audio/pcm[x] where x is determined by the minor device number.
- *
- * Input Parameters:
- *   minor - The input device minor number
- *
- * Returned Value:
- *   Zero is returned on success.  Otherwise, a negated errno value is
- *   returned to indicate the nature of the failure.
- *
+ * Name: stm32_cansock_setup
  ****************************************************************************/
 
-int board_cs4344_initialize(int devno, int port);
+#ifdef CONFIG_STM32_CAN_SOCKET
+int stm32_cansock_setup(void);
+#endif
 
 #undef EXTERN
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* __BOARDS_ARM_STM32F7_COMMON_INCLUDE_STM32_CS4344_H */
+#endif /* __BOARDS_ARM_COMMON_STM32_INCLUDE_STM32_CANSOCK_SETUP_H */

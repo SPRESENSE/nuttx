@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/arm/stm32f7/common/include/stm32_cansock_setup.h
+ * boards/arm/common/stm32/include/stm32_can_setup.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,8 +20,8 @@
  *
  ****************************************************************************/
 
-#ifndef __BOARDS_ARM_STM32F7_COMMON_INCLUDE_STM32_CANSOCK_SETUP_H
-#define __BOARDS_ARM_STM32F7_COMMON_INCLUDE_STM32_CANSOCK_SETUP_H
+#ifndef __BOARDS_ARM_COMMON_STM32_INCLUDE_STM32_CAN_SETUP_H
+#define __BOARDS_ARM_COMMON_STM32_INCLUDE_STM32_CAN_SETUP_H
 
 /****************************************************************************
  * Included Files
@@ -58,11 +58,11 @@ extern "C"
  ****************************************************************************/
 
 /****************************************************************************
- * Name: stm32_cansock_setup
+ * Name: stm32_can_setup
  ****************************************************************************/
 
-#ifdef CONFIG_STM32_CAN_SOCKET
-int stm32_cansock_setup(void);
+#ifdef CONFIG_STM32_CAN_CHARDRIVER
+int stm32_can_setup(void);
 #endif
 
 #undef EXTERN
@@ -70,4 +70,4 @@ int stm32_cansock_setup(void);
 }
 #endif
 
-#endif /* __BOARDS_ARM_STM32F7_COMMON_INCLUDE_STM32_CANSOCK_SETUP_H */
+#endif /* __BOARDS_ARM_COMMON_STM32_INCLUDE_STM32_CAN_SETUP_H */

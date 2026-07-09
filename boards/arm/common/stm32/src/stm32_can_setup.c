@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/arm/stm32f7/common/src/stm32_can_setup.c
+ * boards/arm/common/stm32/src/stm32_can_setup.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -60,11 +60,10 @@
 
 int stm32_can_setup(void)
 {
-#if defined(CONFIG_STM32_CAN1)
   struct can_dev_s *can;
   int ret;
 
-  /* Call stm32f7can_initialize() to get an instance of the CAN interface */
+  /* Register the first enabled CAN interface at "/dev/can0" */
 
   can = stm32_caninitialize(CAN_PORT);
   if (can == NULL)
@@ -72,8 +71,6 @@ int stm32_can_setup(void)
       canerr("ERROR: Failed to get CAN interface\n");
       return -ENODEV;
     }
-
-  /* Register the CAN driver at "/dev/can0" */
 
   ret = can_register("/dev/can0", can);
   if (ret < 0)
@@ -82,23 +79,15 @@ int stm32_can_setup(void)
       return ret;
     }
 
-  return OK;
-#endif
+#if defined(CONFIG_STM32_CAN1) && defined(CONFIG_STM32_CAN2)
+  /* Both CAN1 and CAN2 are enabled: register CAN2 at "/dev/can1" */
 
-#if defined(CONFIG_STM32_CAN2)
-  struct can_dev_s *can;
-  int ret;
-
-  /* Call stm32f7can_initialize() to get an instance of the CAN interface */
-
-  can = stm32_caninitialize(CAN_PORT);
+  can = stm32_caninitialize(2);
   if (can == NULL)
     {
       canerr("ERROR: Failed to get CAN interface\n");
       return -ENODEV;
     }
-
-  /* Register the CAN driver at "/dev/can1" */
 
   ret = can_register("/dev/can1", can);
   if (ret < 0)
@@ -106,11 +95,9 @@ int stm32_can_setup(void)
       canerr("ERROR: can_register failed: %d\n", ret);
       return ret;
     }
+#endif
 
   return OK;
-#else
-  return -ENODEV;
-#endif
 }
 
 #endif /* CONFIG_CAN */

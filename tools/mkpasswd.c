@@ -22,31 +22,45 @@
 
 /****************************************************************************
  * Description:
- *   Host build tool that generates a NuttX /etc/passwd entry with a
- *   TEA-encrypted password hash.  This is a pure C replacement for the
- *   former tools/mkpasswd.py, removing the Python dependency from the build.
+ *   Host tool that writes one NuttX /etc/passwd line with a TEA-encrypted
+ *   password hash.  The plaintext password is never stored in the output.
  *
- *   The encryption algorithm and base64 encoding are identical to those
- *   used at runtime by:
- *     libs/libc/misc/lib_tea_encrypt.c
- *     apps/fsutils/passwd/passwd_encrypt.c
+ *   Build integration:
+ *     When ``CONFIG_BOARD_ETC_ROMFS_PASSWD_ENABLE=y``, ``boards/Board.mk``
+ *     invokes this program during the ROMFS etc/ image build.  The password
+ *     and TEA keys are taken from ``.config`` (see ``tools/passwd_keys.mk``,
+ *     ``tools/update_romfs_password.sh``, and
+ *     Documentation/components/tools/index.rst).
  *
- * Usage:
- *   mkpasswd --user <name> --password <pass> [options] [-o <output>]
+ *   Runtime compatibility:
+ *     The encryption algorithm and base64 encoding match:
+ *       libs/libc/misc/lib_tea_encrypt.c
+ *       apps/fsutils/passwd/passwd_encrypt.c
+ *
+ *   Security (enforced before writing output):
+ *     - Password must be non-empty and at least 8 characters.
+ *     - Password ``Administrator`` is rejected (legacy insecure default).
+ *     - The published default TEA key set (0x12345678 / 0x9abcdef0)
+ *       is rejected.  Use Kconfig keys or explicit --key options.
+ *
+ * Standalone usage (advanced / debugging only):
+ *   mkpasswd --user <name> --password <pass> \\
+ *            --key1 <hex> --key2 <hex> --key3 <hex> --key4 <hex> \\
+ *            [-o <output>]
  *
  * Options:
  *   --user     <str>  Username (required)
- *   --password <str>  Plaintext password (required, not stored in output)
+ *   --password <str>  Plaintext password (required, min 8 characters)
  *   --uid      <int>  User ID          (default: 0)
  *   --gid      <int>  Group ID         (default: 0)
  *   --home     <str>  Home directory   (default: /)
- *   --key1     <hex>  TEA key word 1   (default: 0x12345678)
- *   --key2     <hex>  TEA key word 2   (default: 0x9abcdef0)
- *   --key3     <hex>  TEA key word 3   (default: 0x12345678)
- *   --key4     <hex>  TEA key word 4   (default: 0x9abcdef0)
+ *   --key1     <hex>  TEA key word 1   (required for standalone use)
+ *   --key2     <hex>  TEA key word 2   (required for standalone use)
+ *   --key3     <hex>  TEA key word 3   (required for standalone use)
+ *   --key4     <hex>  TEA key word 4   (required for standalone use)
  *   -o         <path> Output file      (default: stdout)
  *
- * Output format (matches NuttX passwd file format):
+ * Output format:
  *   username:encrypted_hash:uid:gid:home
  *
  ****************************************************************************/
@@ -89,9 +103,9 @@
 #define MAX_PASSWORD   (3 * MAX_ENCRYPTED / 4) /* Max plaintext length */
 #define MIN_PASSWORD   8                       /* Minimum plaintext length for security */
 
-/* Default TEA key values - must match CONFIG_FSUTILS_PASSWD_KEY1-4 defaults
- * in apps/fsutils/passwd/Kconfig so that the generated hash verifies
- * correctly at runtime when the user has not changed the key config.
+/* Known-insecure TEA key values from legacy NuttX releases.  Used only to
+ * detect and reject the published default set in main(); normal builds pass
+ * keys from CONFIG_FSUTILS_PASSWD_KEY1..4 via boards/Board.mk.
  */
 
 #define DEFAULT_KEY1   0x12345678u
@@ -391,23 +405,28 @@ static int mkdir_p(const char *path)
 static void show_usage(const char *progname)
 {
   fprintf(stderr,
-          "Usage: %s --user <name> --password <pass> [options] [-o <file>]\n"
+          "Usage: %s --user <name> --password <pass>\n"
+          "          --key1 <hex> --key2 <hex> --key3 <hex> --key4 <hex>\n"
+          "          [options] [-o <file>]\n"
           "\n"
           "Options:\n"
           "  --user     <str>  Username (required)\n"
-          "  --password <str>  Plaintext password (required)\n"
+          "  --password <str>  Plaintext password (required, min %d chars)\n"
           "  --uid      <int>  User ID          (default: 0)\n"
           "  --gid      <int>  Group ID         (default: 0)\n"
           "  --home     <str>  Home directory   (default: /)\n"
-          "  --key1     <hex>  TEA key word 1   (default: 0x%08x)\n"
-          "  --key2     <hex>  TEA key word 2   (default: 0x%08x)\n"
-          "  --key3     <hex>  TEA key word 3   (default: 0x%08x)\n"
-          "  --key4     <hex>  TEA key word 4   (default: 0x%08x)\n"
+          "  --key1     <hex>  TEA key word 1\n"
+          "  --key2     <hex>  TEA key word 2   (all four required;\n"
+          "  --key3     <hex>  TEA key word 3    legacy defaults rejected)\n"
+          "  --key4     <hex>  TEA key word 4\n"
           "  -o         <path> Output file      (default: stdout)\n"
+          "\n"
+          "Rejected: empty password, \"Administrator\", default TEA keys.\n"
+          "See Documentation/components/tools/index.rst for normal builds.\n"
           "\n"
           "Output format:  username:encrypted_hash:uid:gid:home\n",
           progname,
-          DEFAULT_KEY1, DEFAULT_KEY2, DEFAULT_KEY3, DEFAULT_KEY4);
+          MIN_PASSWORD);
 }
 
 /****************************************************************************
@@ -529,7 +548,10 @@ int main(int argc, char **argv)
 
   if (password[0] == '\0')
     {
-      fprintf(stderr, "mkpasswd: --password must not be empty\n");
+      fprintf(stderr,
+              "mkpasswd: ERROR: password must not be empty.\n"
+              "  Set it in menuconfig: Board Selection -> "
+              "Auto-generate /etc/passwd -> Admin password\n");
       return 1;
     }
 
@@ -541,30 +563,35 @@ int main(int argc, char **argv)
       return 1;
     }
 
-  /* Warn if the board Kconfig default password is still being used. */
+  /* Reject the well-known default password.  The build system should have
+   * caught this already; mkpasswd is the last line of defence.
+   */
 
   if (strcmp(password, "Administrator") == 0)
     {
       fprintf(stderr,
-              ">>>> WARNING: YOU ARE USING THE DEFAULT ADMIN PASSWORD "
-              "(CONFIG_BOARD_ETC_ROMFS_"
-              "PASSWD_PASSWORD=\"Administrator\")!!! PLEASE CHANGE "
-              "IT!!! <<<<\n");
+              "mkpasswd: ERROR: password \"Administrator\" is not allowed.\n"
+              "  Set a unique password in menuconfig: Board Selection -> "
+              "Auto-generate /etc/passwd -> Admin password\n");
+      return 1;
     }
 
-  /* Warn when the user has not changed the default TEA keys.
-   * The default values are identical across all NuttX builds, so any
-   * attacker with access to the firmware image can recover the plaintext
-   * password.  This is a warning only; the build is not aborted.
+  /* Reject the default TEA keys.  Using the published defaults means any
+   * attacker who has a copy of the NuttX source can decrypt the password
+   * hash directly from the firmware image (CWE-321).
    */
 
   if (key[0] == DEFAULT_KEY1 && key[1] == DEFAULT_KEY2 &&
       key[2] == DEFAULT_KEY3 && key[3] == DEFAULT_KEY4)
     {
       fprintf(stderr,
-              ">>>> WARNING: YOU ARE USING DEFAULT PASSWORD KEYS "
-              "(CONFIG_FSUTILS_"
-              "PASSWD_KEY1-4)!!! PLEASE CHANGE IT!!! <<<<\n");
+              "mkpasswd: ERROR: default TEA encryption keys "
+              "are not allowed.\n"
+              "  Set keys in menuconfig: Application Configuration -> "
+              "File System Utilities -> Password file support\n"
+              "  Or enable random key generation under Board Selection -> "
+              "Auto-generate /etc/passwd\n");
+      return 1;
     }
 
   /* Encrypt the password using TEA + custom base64.

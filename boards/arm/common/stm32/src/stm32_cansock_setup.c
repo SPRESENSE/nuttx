@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/arm/stm32f7/common/src/stm32_bh1750.c
+ * boards/arm/common/stm32/src/stm32_cansock_setup.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -26,64 +26,60 @@
 
 #include <nuttx/config.h>
 
-#include <errno.h>
 #include <nuttx/debug.h>
-#include <stdio.h>
 
-#include <nuttx/spi/spi.h>
-#include <arch/board/board.h>
-#include <nuttx/sensors/bh1750fvi.h>
-
-#include "stm32_i2c.h"
+#include "stm32_can.h"
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
+
+/* Configuration ************************************************************/
+
+#if !defined(CONFIG_STM32_CAN1) && !defined(CONFIG_STM32_CAN2)
+#  error "No CAN is enable. Please enable at least one CAN device"
+#endif
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: stm32_bh1750initialize
+ * Name: stm32_cansock_setup
  *
  * Description:
- *   Initialize and register the BH1750FVI Ambient Light driver.
- *
- * Input Parameters:
- *   devno - The device number, used to build the device path as /dev/lightN
- *   busno - The I2C bus number
- *
- * Returned Value:
- *   Zero (OK) on success; a negated errno value on failure.
+ *  Initialize CAN socket interface
  *
  ****************************************************************************/
 
-int board_bh1750_initialize(int devno, int busno)
+int stm32_cansock_setup(void)
 {
-  struct i2c_master_s *i2c;
-  char devpath[16];
-  int ret;
+  int ret = OK;
 
-  sninfo("Initializing BH1750FVI!\n");
+  UNUSED(ret);
 
-  /* Initialize I2C */
+#ifdef CONFIG_STM32_CAN1
+  /* Call stm32_caninitialize() to get an instance of the CAN interface */
 
-  i2c = stm32_i2cbus_initialize(busno);
-  if (!i2c)
-    {
-      return -ENODEV;
-    }
-
-  /* Then register the ambient light sensor */
-
-  snprintf(devpath, sizeof(devpath), "/dev/light%d", devno);
-  ret = bh1750fvi_register(devpath, i2c, BH1750FVI_I2C_ADDR);
+  ret = stm32_cansockinitialize(1);
   if (ret < 0)
     {
-      snerr("ERROR: Error registering BH1750FVI\n");
+      canerr("ERROR:  Failed to get CAN interface %d\n", ret);
+      goto errout;
     }
+#endif
 
+#ifdef CONFIG_STM32_CAN2
+  /* Call stm32_caninitialize() to get an instance of the CAN interface */
+
+  ret = stm32_cansockinitialize(2);
+  if (ret < 0)
+    {
+      canerr("ERROR:  Failed to get CAN interface %d\n", ret);
+      goto errout;
+    }
+#endif
+
+errout:
   return ret;
 }
-

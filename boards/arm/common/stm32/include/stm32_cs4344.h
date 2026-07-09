@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/arm/stm32f7/common/src/stm32_bmi270.c
+ * boards/arm/common/stm32/include/stm32_cs4344.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,72 +20,65 @@
  *
  ****************************************************************************/
 
+#ifndef __BOARDS_ARM_COMMON_STM32_INCLUDE_STM32_CS4344_H
+#define __BOARDS_ARM_COMMON_STM32_INCLUDE_STM32_CS4344_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
-#include <errno.h>
-#include <nuttx/debug.h>
-#include <stdio.h>
-
-#include <nuttx/spi/spi.h>
-#include <arch/board/board.h>
-#include <nuttx/sensors/bmi270.h>
-
-#include "stm32_i2c.h"
-
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
-#define BMI270_I2C_ADDR    0x68
-
 /****************************************************************************
- * Public Functions
+ * Public Types
  ****************************************************************************/
 
 /****************************************************************************
- * Name: board_bmi270_initialize
+ * Public Data
+ ****************************************************************************/
+
+#ifdef __cplusplus
+#define EXTERN extern "C"
+extern "C"
+{
+#else
+#define EXTERN extern
+#endif
+
+/****************************************************************************
+ * Inline Functions
+ ****************************************************************************/
+
+/****************************************************************************
+ * Public Function Prototypes
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: stm32_cs4344_initialize
  *
  * Description:
- *   Initialize and register the BMI270 IMU device.
+ *   This function is called by platform-specific, setup logic to configure
+ *   and register the CS4344 device.  This function will register the driver
+ *   as /dev/audio/pcm[x] where x is determined by the minor device number.
  *
  * Input Parameters:
- *   devno - The device number, used to build the device path as /dev/imuN
- *   busno - The I2C bus number
+ *   minor - The input device minor number
  *
  * Returned Value:
- *   Zero (OK) on success; a negated errno value on failure.
+ *   Zero is returned on success.  Otherwise, a negated errno value is
+ *   returned to indicate the nature of the failure.
  *
  ****************************************************************************/
 
-int board_bmi270_initialize(int devno, int busno)
-{
-  struct i2c_master_s *i2c;
-  char devpath[16];
-  int ret;
+int board_cs4344_initialize(int devno, int port);
 
-  sninfo("Initializing BMI270!\n");
-
-  /* Initialize I2C */
-
-  i2c = stm32_i2cbus_initialize(busno);
-  if (!i2c)
-    {
-      return -ENODEV;
-    }
-
-  /* Then register the ambient light sensor */
-
-  snprintf(devpath, sizeof(devpath), "/dev/imu%d", devno);
-  ret = bmi270_register(devpath, i2c, BMI270_I2C_ADDR);
-  if (ret < 0)
-    {
-      snerr("ERROR: Error registering BMI270\n");
-    }
-
-  return ret;
+#undef EXTERN
+#ifdef __cplusplus
 }
+#endif
 
+#endif /* __BOARDS_ARM_COMMON_STM32_INCLUDE_STM32_CS4344_H */
