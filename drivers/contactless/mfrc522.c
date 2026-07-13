@@ -1480,6 +1480,7 @@ static ssize_t mfrc522_read(FAR struct file *filep, FAR char *buffer,
   FAR struct inode *inode;
   FAR struct mfrc522_dev_s *dev;
   FAR struct picc_uid_s uid;
+  int ret;
 
   inode = filep->f_inode;
 
@@ -1496,7 +1497,13 @@ static ssize_t mfrc522_read(FAR struct file *filep, FAR char *buffer,
 
   /* Now read the UID */
 
-  mfrc522_picc_select(dev, &uid, 0);
+  memset(&uid, 0, sizeof(uid));
+  ret = mfrc522_picc_select(dev, &uid, 0);
+  if (ret < 0)
+    {
+      ctlserr("Failed to select PICC: %d\n", ret);
+      return ret;
+    }
 
   if (uid.sak != PICC_TYPE_NOT_COMPLETE)
     {
@@ -1682,7 +1689,7 @@ int mfrc522_register(FAR const char *devpath, FAR struct spi_dev_s *spi)
 
   /* Register the character driver */
 
-  ret = register_driver(devpath, &g_mfrc522fops, 0666, dev);
+  ret = register_driver(devpath, &g_mfrc522fops, 0600, dev);
   if (ret < 0)
     {
       ctlserr("ERROR: Failed to register driver: %d\n", ret);

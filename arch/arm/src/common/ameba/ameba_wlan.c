@@ -226,8 +226,13 @@ static int ameba_wlan_transmit(struct netdev_lowerhalf_s *dev,
 
   if (ret != 0)
     {
-      /* NP skb pool full: let the upper half recycle the packet and pause
-       * the poll (backpressure).  Do NOT free here.
+      /* NP host skb pool full: recycle the packet (do NOT free) and
+       * let the upper half pause the poll -- genuine backpressure.
+       * This stays off the hot path because CONFIG_NET_SEND_BUFSIZE
+       * bounds a stream's in-flight data and the NP drains at line
+       * rate, so the transient host skb backlog stays well under the
+       * pool (skb_num_ap).  A momentary full pool just pauses here and
+       * resumes on the next poll.
        */
 
       return -EIO;
@@ -601,6 +606,14 @@ static int ameba_wlan_ioctl(struct netdev_lowerhalf_s *dev, int cmd,
 
           if (iwr->u.essid.flags == 0)
             {
+              /* Explicit disconnect: clear the stored passphrase so a later
+               * open-AP connect is not mis-driven as WPA2 by a stale psk.
+               * The psk is kept across normal (auto) reconnects and cleared
+               * only here, matching standard wapi disconnect semantics.
+               */
+
+              priv->psk_len = 0;
+              priv->psk[0]  = 0;
               return ameba_wifi_disconnect();
             }
 
