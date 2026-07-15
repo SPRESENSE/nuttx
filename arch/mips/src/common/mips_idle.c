@@ -60,5 +60,19 @@ void up_idle(void)
    * sleep in a reduced power mode until an interrupt occurs to save power
    */
 
+#  if defined(CONFIG_MIPS32_USE_WAIT_INSTRUCTION)
+
+    __asm__ __volatile__
+      (
+        ".set push\n"
+        ".set noreorder\n"
+        "wait\n"
+        "nop\n"
+        ".set pop"
+        : : : "memory"
+      );
+
+#  endif
+
 #endif
 }
