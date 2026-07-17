@@ -117,7 +117,14 @@ AMEBA_FWLIB_SRCS += $(TOPDIR)/arch/arm/src/rtl8720f/ameba_app_start.c \
 ifeq ($(CONFIG_RTL8720F_FLASH_FS),y)
 AMEBA_FWLIB_SRCS += $(AMEBA_SOC)/fwlib/ram_common/ameba_flash_ram.c
 endif
-AMEBA_FWLIB_INC  = -I$(TOPDIR)/arch/arm/src/common/ameba/sdk_shim \
+# -Wno-int-conversion: the vendored SDK passes NULL to irq_register()'s u32
+# "Data" (interrupt context) argument in many places -- an intentional
+# NULL-as-context idiom.  Silence -Wint-conversion for the SDK fwlib sources
+# here rather than editing every call site (which also re-breaks whenever a new
+# SDK file/site is added).  Scoped to this fwlib compile, so it never relaxes
+# NuttX's own warning set.
+AMEBA_FWLIB_INC  = -Wno-int-conversion \
+                   -I$(TOPDIR)/arch/arm/src/common/ameba/sdk_shim \
                    -I$(AMEBA_SOC)/fwlib/include \
                    -I$(AMEBA_SOC)/fwlib/include/rom \
                    -I$(AMEBA_SOC)/swlib \
@@ -228,8 +235,16 @@ AMEBA_BUILD_NP_SH = $(AMEBA_COMMON_DIR)$(DELIM)tools$(DELIM)ameba_build_np.sh
 # AMEBA_AP_PROJECT is the AP-core SDK project subdir (km4tz on RTL8720F).
 AMEBA_AP_PROJECT   = km4tz
 AMEBA_GEN_AUTOCONF = $(AMEBA_COMMON_DIR)$(DELIM)tools$(DELIM)ameba_gen_autoconf.sh
+
+# Board overlay applied on top of the SDK default config (prj.conf-style, e.g.
+# CONFIG_SHELL=n).  Fed to the SDK-config materializer (ameba_sdk_config.sh) via
+# the AMEBA_SDK_CONF env var, by both the PREBUILD autoconf gen and the NP build.
+# Edit it with `make ameba_menuconfig` (native SDK menuconfig UI).
+AMEBA_SDK_CONF     = $(BOARD_DIR)$(DELIM)ameba_sdk.conf
+
 AMEBA_NP_PREBUILD  = true
-AMEBA_NP_POSTBUILD = $(AMEBA_BUILD_NP_SH) $(AMEBA_SDK) $(AMEBA_PY_SOC) \
+AMEBA_NP_POSTBUILD = AMEBA_SDK_CONF=$(AMEBA_SDK_CONF) \
+                      $(AMEBA_BUILD_NP_SH) $(AMEBA_SDK) $(AMEBA_PY_SOC) \
                       $(AMEBA_PREBUILT) $(AMEBA_PKGDIR)$(DELIM)target_img2.asm \
                       km4ns $(AMEBA_AP_PROJECT)
 
@@ -245,14 +260,15 @@ AMEBA_NP_POSTBUILD = $(AMEBA_BUILD_NP_SH) $(AMEBA_SDK) $(AMEBA_PY_SOC) \
 define PREBUILD
 	$(Q) test -n "$(AMEBA_SDK)" || \
 	  { echo "ERROR: AMEBA_SDK is not set. Export it to your ameba-rtos checkout."; exit 1; }
-	$(Q) $(AMEBA_FETCH_TOOLCHAIN) $(AMEBA_SDK) $(AMEBA_TOOLCHAIN_DIR)
+	$(Q) $(AMEBA_FETCH_TOOLCHAIN) $(AMEBA_SDK) $(AMEBA_TOOLCHAIN_DIR) $(AMEBA_SOC_NAME)
 	$(Q) $(AMEBA_SETUP_ENV) $(AMEBA_SDK) $(AMEBA_TOOLCHAIN_DIR)
-	$(Q) $(AMEBA_GEN_AUTOCONF) $(AMEBA_SDK) $(AMEBA_PY_SOC) $(AMEBA_AP_PROJECT) \
+	$(Q) AMEBA_SDK_CONF=$(AMEBA_SDK_CONF) \
+	     $(AMEBA_GEN_AUTOCONF) $(AMEBA_SDK) $(AMEBA_PY_SOC) $(AMEBA_AP_PROJECT) \
 	     $(AMEBA_AUTOCONF)
 	$(Q) $(AMEBA_NP_PREBUILD)
 	$(Q) echo "GEN: libameba_fwlib.a (fwlib from SDK source)"
 	$(Q) mkdir -p $(AMEBA_PREBUILT_LIBS)$(DELIM)fwlib_obj
-	$(Q) rebuild_fwlib=0; \
+	$(Q) rebuild_fwlib=0; fwlib_objs=""; \
 	     for src in $(AMEBA_FWLIB_SRCS); do \
 	       obj=$(AMEBA_PREBUILT_LIBS)/fwlib_obj/`basename $$src .c`.o; \
 	       if [ "$$src" -nt "$$obj" ] 2>/dev/null || [ ! -f "$$obj" ]; then \
@@ -260,14 +276,16 @@ define PREBUILD
 	           $(AMEBA_FWLIB_INC) -c $$src -o $$obj || exit 1; \
 	         rebuild_fwlib=1; \
 	       fi; \
+	       fwlib_objs="$$fwlib_objs $$obj"; \
 	     done; \
 	     if [ "$$rebuild_fwlib" = "1" ] || [ ! -f "$(AMEBA_FWLIB_A)" ]; then \
-	       $(CROSSDEV)ar crs $(AMEBA_FWLIB_A) $(AMEBA_PREBUILT_LIBS)/fwlib_obj/*.o; \
+	       rm -f $(AMEBA_FWLIB_A); \
+	       $(CROSSDEV)ar crs $(AMEBA_FWLIB_A) $$fwlib_objs; \
 	     fi
 	$(Q) if [ "$(CONFIG_RTL8720F_WIFI)" = "y" ]; then \
 	       echo "GEN: libameba_wifi.a (WHC host glue from SDK source + NuttX shim)"; \
 	       mkdir -p $(AMEBA_PREBUILT_LIBS)$(DELIM)wifi_obj; \
-	       rebuild_wifi=0; \
+	       rebuild_wifi=0; wifi_objs=""; \
 	       for src in $(AMEBA_WIFI_SRCS); do \
 	         obj=$(AMEBA_PREBUILT_LIBS)/wifi_obj/`basename $$src .c`.o; \
 	         if [ "$$src" -nt "$$obj" ] 2>/dev/null || [ ! -f "$$obj" ]; then \
@@ -275,9 +293,11 @@ define PREBUILD
 	             $(AMEBA_WIFI_INC) -c $$src -o $$obj || exit 1; \
 	           rebuild_wifi=1; \
 	         fi; \
+	         wifi_objs="$$wifi_objs $$obj"; \
 	       done; \
 	       if [ "$$rebuild_wifi" = "1" ] || [ ! -f "$(AMEBA_WIFI_A)" ]; then \
-	         $(CROSSDEV)ar crs $(AMEBA_WIFI_A) $(AMEBA_PREBUILT_LIBS)/wifi_obj/*.o; \
+	         rm -f $(AMEBA_WIFI_A); \
+	         $(CROSSDEV)ar crs $(AMEBA_WIFI_A) $$wifi_objs; \
 	       fi; \
 	     fi
 	$(Q) echo "GEN: ld.script.gen (Ameba KM4 image2)"
