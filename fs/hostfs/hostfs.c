@@ -50,12 +50,6 @@
 #include "fs_heap.h"
 
 /****************************************************************************
- * Pre-processor Definitions
- ****************************************************************************/
-
-#define HOSTFS_RETRY_DELAY_MS       10
-
-/****************************************************************************
  * Private Types
  ****************************************************************************/
 
@@ -236,7 +230,7 @@ static void hostfs_mkpath(FAR struct hostfs_mountpt_s  *fs,
 
   if (depth >= 0)
     {
-      strlcat(path, &relpath[first], pathlen - strlen(path));
+      strlcat(path, &relpath[first], pathlen);
     }
 }
 
