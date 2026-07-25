@@ -41,6 +41,8 @@ Flash ROM Boot   Working       Does not require boot2 from pico-sdk
                                If picotool is available a nuttx.uf2 file will be created
 SRAM Boot        Working       Requires external SWD debugger
 PSRAM            Working       Three modes of heap allocation described below
+TRNG             Working       Hardware RNG at /dev/random and /dev/urandom
+Flash MTD        Working       Unused flash tail as an MTD device, answers BIOC_XIPBASE
 ==============   ============  =====
 
 Installation
@@ -202,6 +204,57 @@ GPIO 0 and 1 pins must be connected to the device such as USB-serial converter.
 
 The `usbnsh` configuration provides the console access by USB CDC/ACM serial
 device.  The console is available by using a terminal software on the USB host.
+
+TRNG
+====
+
+The rp2350 has a hardware true random number generator (TRNG).  Enabling
+``RP23XX_RNG`` builds the driver and selects ``ARCH_HAVE_RNG``, which in turn
+makes ``DEV_RANDOM`` available.
+
+With ``DEV_RANDOM`` enabled the driver registers ``/dev/random``.  Enabling
+``DEV_URANDOM`` additionally registers ``/dev/urandom``; when a hardware RNG is
+present the architecture source (``DEV_URANDOM_ARCH``) is selected by default,
+so ``/dev/urandom`` is served from the same TRNG rather than a software PRNG.
+
+Each read collects entropy from the TRNG's 192-bit entropy holding register
+(EHR): the source is enabled, the driver waits for ``TRNG_VALID``, reads the
+six 32-bit EHR words, and repeats until the request is satisfied.  For example::
+
+    nsh> dd if=/dev/random of=/dev/console bs=16 count=1
+
+Flash MTD
+=========
+
+The rp2350 executes in place from its external QSPI flash, and a NuttX image
+normally leaves most of that flash unused.  Enabling ``RP23XX_FLASH_MTD``
+exposes the unused region as an MTD device, registered by the common board
+bringup as ``/dev/rpflash``.
+
+The region is described by ``RP23XX_FLASH_MTD_OFFSET`` (byte offset from
+``0x10000000``) and ``RP23XX_FLASH_MTD_SIZE``, both of which must be multiples
+of the 4096 byte erase sector.  The driver refuses to initialize if the region
+would overlap the NuttX image (it checks ``__flash_binary_end``), so a bad
+offset fails at boot instead of corrupting the running firmware.
+
+Erase and program go through the bootrom flash routines.  Because those
+operations stall instruction fetch from the same flash, the driver runs them
+from SRAM with interrupts disabled and, on SMP builds, the other core parked;
+expect interrupt latency to suffer for the duration of a write.  Afterwards the
+QSPI interface is put back into execute-in-place mode -- by default restoring
+the fast read mode the bootrom set up at boot, or, with
+``RP23XX_FLASH_MTD_SAFE_XIP``, always through the bootrom
+``flash_enter_cmd_xip`` routine, which is slower to execute from but depends
+only on the documented bootrom entry point.
+
+The driver answers the ``BIOC_XIPBASE`` ioctl with the memory-mapped address of
+the region, so a filesystem that supports execute in place can hand out real
+flash pointers instead of copying into RAM.
+
+Any MTD-based filesystem can be layered on the device, for example::
+
+    nsh> mksmartfs /dev/rpflash
+    nsh> mount -t smartfs /dev/rpflash /mnt
 
 Supported Boards
 ================
