@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/risc-v/gd32vw55x/gd32vw553k-start/src/gd32vw553k-start.h
+ * arch/arm/src/rp23xx/rp23xx_oneshot.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,33 +20,52 @@
  *
  ****************************************************************************/
 
-#ifndef __BOARDS_RISCV_GD32VW55X_GD32VW553K_START_SRC_GD32VW553K_START_H
-#define __BOARDS_RISCV_GD32VW55X_GD32VW553K_START_SRC_GD32VW553K_START_H
+#ifndef __ARCH_ARM_SRC_RP23XX_RP23XX_ONESHOT_H
+#define __ARCH_ARM_SRC_RP23XX_RP23XX_ONESHOT_H
+
+/****************************************************************************
+ * Included Files
+ ****************************************************************************/
+
+#include <nuttx/config.h>
+#include <nuttx/timers/oneshot.h>
+
+#ifndef __ASSEMBLY__
+
+#undef EXTERN
+#if defined(__cplusplus)
+#define EXTERN extern "C"
+extern "C"
+{
+#else
+#define EXTERN extern
+#endif
 
 /****************************************************************************
  * Public Function Prototypes
  ****************************************************************************/
 
 /****************************************************************************
- * Name: gd32_bringup
+ * Name: rp23xx_oneshot_initialize
  *
  * Description:
- *   Perform architecture-specific initialization
+ *   Initialise the RP2350 system timer TIMER0 as a oneshot lower-half and
+ *   return it, ready to be handed to up_alarm_set_lowerhalf() to drive the
+ *   tickless scheduler.  TIMER0 is a free-running 64-bit microsecond counter
+ *   whose ALARM0 provides the compare event.
+ *
+ * Returned Value:
+ *   The oneshot lower-half instance on success; NULL never happens (the
+ *   instance is statically allocated).
  *
  ****************************************************************************/
 
-int gd32_bringup(void);
+FAR struct oneshot_lowerhalf_s *rp23xx_oneshot_initialize(void);
 
-/****************************************************************************
- * Name: gd32_spidev_initialize
- *
- * Description:
- *   Configure the SPI chip select GPIO(s) used by the board.
- *
- ****************************************************************************/
-
-#ifdef CONFIG_GD32VW55X_SPI
-void gd32_spidev_initialize(void);
+#undef EXTERN
+#if defined(__cplusplus)
+}
 #endif
 
-#endif /* __BOARDS_RISCV_GD32VW55X_GD32VW553K_START_SRC_GD32VW553K_START_H */
+#endif /* __ASSEMBLY__ */
+#endif /* __ARCH_ARM_SRC_RP23XX_RP23XX_ONESHOT_H */

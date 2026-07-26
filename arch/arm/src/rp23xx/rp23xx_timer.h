@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/risc-v/gd32vw55x/gd32vw553k-start/src/gd32vw553k-start.h
+ * arch/arm/src/rp23xx/rp23xx_timer.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,33 +20,55 @@
  *
  ****************************************************************************/
 
-#ifndef __BOARDS_RISCV_GD32VW55X_GD32VW553K_START_SRC_GD32VW553K_START_H
-#define __BOARDS_RISCV_GD32VW55X_GD32VW553K_START_SRC_GD32VW553K_START_H
+#ifndef __ARCH_ARM_SRC_RP23XX_RP23XX_TIMER_H
+#define __ARCH_ARM_SRC_RP23XX_RP23XX_TIMER_H
+
+/****************************************************************************
+ * Included Files
+ ****************************************************************************/
+
+#include <nuttx/config.h>
 
 /****************************************************************************
  * Public Function Prototypes
  ****************************************************************************/
 
-/****************************************************************************
- * Name: gd32_bringup
- *
- * Description:
- *   Perform architecture-specific initialization
- *
- ****************************************************************************/
+#ifndef __ASSEMBLY__
 
-int gd32_bringup(void);
-
-/****************************************************************************
- * Name: gd32_spidev_initialize
- *
- * Description:
- *   Configure the SPI chip select GPIO(s) used by the board.
- *
- ****************************************************************************/
-
-#ifdef CONFIG_GD32VW55X_SPI
-void gd32_spidev_initialize(void);
+#undef EXTERN
+#if defined(__cplusplus)
+#define EXTERN extern "C"
+extern "C"
+{
+#else
+#define EXTERN extern
 #endif
 
-#endif /* __BOARDS_RISCV_GD32VW55X_GD32VW553K_START_SRC_GD32VW553K_START_H */
+/****************************************************************************
+ * Name: rp23xx_timer_initialize
+ *
+ * Description:
+ *   Bind one of the two RP2350 system timer blocks (TIMER0 or TIMER1) to a
+ *   /dev/timerN device.  Each block is a free-running 64-bit microsecond
+ *   counter; this driver uses its ALARM0 to implement the NuttX timer
+ *   lower-half (single-shot and periodic timeouts, 1 us resolution, up to
+ *   2^32 - 1 us ~= 71.5 minutes per interval).
+ *
+ * Input Parameters:
+ *   devpath  - The full path to the timer device, e.g. "/dev/timer0".
+ *   instance - The timer block to use: 0 for TIMER0, 1 for TIMER1.
+ *
+ * Returned Value:
+ *   Zero (OK) on success; a negated errno value on failure.
+ *
+ ****************************************************************************/
+
+int rp23xx_timer_initialize(FAR const char *devpath, int instance);
+
+#undef EXTERN
+#if defined(__cplusplus)
+}
+#endif
+
+#endif /* __ASSEMBLY__ */
+#endif /* __ARCH_ARM_SRC_RP23XX_RP23XX_TIMER_H */

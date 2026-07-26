@@ -71,16 +71,60 @@
 #  define GPIO_SPI_SCK   GPIO_SPI_SCK_1    /* PA2, AF5 */
 #  define GPIO_SPI_MISO  GPIO_SPI_MISO_1   /* PA1, AF5 */
 #  define GPIO_SPI_MOSI  GPIO_SPI_MOSI_1   /* PA0, AF5 */
+
+/* SPI0 chip select for the SD card: a plain GPIO output on PA4 (J1),
+ * driven by gd32_spi0select().  Active low, idles high.
+ */
+
+#  define GPIO_SPI0_CSPIN (GPIO_CFG_MODE_OUTPUT | GPIO_CFG_PUPD_NONE | \
+                           GPIO_CFG_PP | GPIO_CFG_SPEED_MAX | \
+                           GPIO_CFG_OUTPUT_SET | GPIO_CFG_PORT_A | \
+                           GPIO_CFG_PIN_4)
 #endif
 
+/* I2C0 uses PA2 (SCL) / PA3 (SDA) on AF4, the pins broken out on the J1
+ * header (datasheet Table 2-5), so a sensor such as the SHT3x can be wired
+ * there directly.  When SPI is enabled it claims PA2 (SPI SCK), so I2C0
+ * falls back to PB0/PB1 (AF6); PB1 (SDA) is not broken out on J1/J2, so that
+ * pairing only registers the bus (the periph case).
+ */
+
 #ifdef CONFIG_GD32VW55X_I2C0
-#  define GPIO_I2C0_SCL  GPIO_I2C0_SCL_3   /* PB0, AF6 */
-#  define GPIO_I2C0_SDA  GPIO_I2C0_SDA_3   /* PB1, AF6 */
+#  ifdef CONFIG_GD32VW55X_SPI
+#    define GPIO_I2C0_SCL  GPIO_I2C0_SCL_3   /* PB0, AF6 */
+#    define GPIO_I2C0_SDA  GPIO_I2C0_SDA_3   /* PB1, AF6 (not on a header) */
+#  else
+#    define GPIO_I2C0_SCL  GPIO_I2C0_SCL_1   /* PA2, AF4 (J1) */
+#    define GPIO_I2C0_SDA  GPIO_I2C0_SDA_1   /* PA3, AF4 (J1) */
+#  endif
 #endif
 
 #ifdef CONFIG_GD32VW55X_I2C1
 #  define GPIO_I2C1_SCL  GPIO_I2C1_SCL_4   /* PB12, AF6 */
 #  define GPIO_I2C1_SDA  GPIO_I2C1_SDA_4   /* PB13, AF6 */
+#endif
+
+/* PWM.  The board bringup registers /dev/pwm0 on TIMER1.  Route its channel
+ * 0 (TIMER1_CH0) to PA0 on the J1 header (AF1; TIMER1 lives on AF1) so the
+ * output can be probed there.  The other channels stay unrouted.
+ */
+
+#ifdef CONFIG_GD32VW55X_PWM
+#  define GPIO_TIMER1_CH0OUT (GPIO_CFG_MODE_AF | GPIO_CFG_PUPD_NONE | \
+                              GPIO_CFG_PP | GPIO_CFG_SPEED_MAX | \
+                              GPIO_CFG_AF_1 | GPIO_CFG_PORT_A | GPIO_CFG_PIN_0)
+#endif
+
+/* ADC.  Route ADC channel 8 (ADC_IN8) to PB0 on the J1 header (datasheet
+ * Table 2-5) so an analog signal can be applied there.  When SPI is enabled
+ * PB0 is instead claimed by the I2C0 fallback (see above), so the analog pin
+ * is only routed when SPI is off.  The board bringup samples this channel
+ * when the macro is defined.
+ */
+
+#if defined(CONFIG_GD32VW55X_ADC) && !defined(CONFIG_GD32VW55X_SPI)
+#  define GPIO_ADC_IN8 (GPIO_CFG_MODE_ANALOG | GPIO_CFG_PUPD_NONE | \
+                        GPIO_CFG_PORT_B | GPIO_CFG_PIN_0)
 #endif
 
 /* LEDs *********************************************************************/

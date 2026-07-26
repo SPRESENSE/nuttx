@@ -9,6 +9,51 @@ config RP23XX_RP2350B
 	bool "Use RP2350B variant (QFN-80)"
 	default n
 
+config RP23XX_PSRAM
+	bool "External QSPI PSRAM"
+	default n
+	---help---
+		Enable support for external QSPI PSRAM connected to QMI chip
+		select 1, such as the 8 MiB APS6404 fitted on the Pimoroni Pico
+		Plus 2.  The chip is detected and switched to quad mode at boot,
+		after which it is directly addressable and writable at
+		0x11000000.  Configure the chip-select pin under the Board
+		Selection menu (RP23XX_PSRAM_CS1_GPIO).
+
+if RP23XX_PSRAM
+
+choice
+	prompt "PSRAM heap usage"
+	default RP23XX_PSRAM_HEAP_SINGLE
+	---help---
+		How the detected PSRAM is exposed to the memory manager.
+
+config RP23XX_PSRAM_HEAP_SINGLE
+	bool "Add PSRAM to the main heap"
+	depends on !MM_KERNEL_HEAP
+	---help---
+		Add the PSRAM region to the main heap.  Requires
+		CONFIG_MM_REGIONS greater than 1 so the extra region can be
+		registered.
+
+config RP23XX_PSRAM_HEAP_USER
+	bool "PSRAM as the user heap"
+	depends on MM_KERNEL_HEAP
+	---help---
+		Use the PSRAM as the (user) heap and the internal SRAM as the
+		kernel heap.
+
+config RP23XX_PSRAM_HEAP_SEPARATE
+	bool "Separate PSRAM heap"
+	select ARCH_HAVE_EXTRA_HEAPS
+	---help---
+		Expose the PSRAM as a separate named heap ("psram") rather than
+		adding it to the main heap.
+
+endchoice
+
+endif # RP23XX_PSRAM
+
 config RP23XX_DMAC
 	bool "DMAC support"
 	default y
@@ -22,6 +67,40 @@ config RP23XX_SYSTIMER_SYSTICK
 	select ARMV8M_SYSTICK
 	---help---
 		Use ARM SysTick.
+
+config RP23XX_SYSTIMER_TICKLESS
+	bool "Tickless OS using the RP2350 hardware TIMER"
+	default n
+	depends on !RP23XX_SYSTIMER_SYSTICK
+	select ONESHOT
+	select ONESHOT_COUNT
+	select ALARM_ARCH
+	---help---
+		Use an RP2350 system timer block (TIMER0 or TIMER1, chosen below)
+		as the OS time source and drive the scheduler through the
+		alarm/oneshot interface.  Each block is a free-running 64-bit
+		microsecond counter, independent of the ARM SysTick.  This is the
+		arch-side support required by CONFIG_SCHED_TICKLESS (with
+		CONFIG_SCHED_TICKLESS_ALARM) and gives long tickless idle intervals
+		-- up to ~71 minutes per alarm -- with 1 us resolution.
+
+choice
+	prompt "Tickless timer block"
+	default RP23XX_SYSTIMER_TICKLESS_TIMER0
+	depends on RP23XX_SYSTIMER_TICKLESS
+	---help---
+		Which RP2350 system timer block drives the tickless OS clock.  The
+		block used here is claimed exclusively by the scheduler; the other
+		block stays available for the /dev/timer driver (CONFIG_RP23XX_TIMER),
+		so both features can be enabled at once.
+
+config RP23XX_SYSTIMER_TICKLESS_TIMER0
+	bool "TIMER0"
+
+config RP23XX_SYSTIMER_TICKLESS_TIMER1
+	bool "TIMER1"
+
+endchoice
 
 #####################################################################
 #  UART Configuration
@@ -737,6 +816,46 @@ config RP23XX_SPISD_SPI_CH
 endif # SPISD Configuration
 
 #####################################################################
+#  Timer Configuration
+#####################################################################
+
+menuconfig RP23XX_TIMER
+	bool "System timer (/dev/timer) support"
+	default n
+	select TIMER
+	---help---
+		Build the /dev/timerN driver on top of the RP2350 system timer
+		blocks (TIMER0 and TIMER1).  Each block is a free-running 64-bit
+		microsecond counter, independent of the ARM SysTick that drives
+		the OS tick, so it is available for application timers.  The
+		driver uses ALARM0 of a block for a single-shot or periodic
+		timeout with 1 us resolution.
+
+		Enable one or both blocks below.  A block claimed by the tickless
+		oneshot (CONFIG_RP23XX_SYSTIMER_TICKLESS) is removed from the list
+		so the two features never collide on the same block.
+
+if RP23XX_TIMER
+
+config RP23XX_TIMER0
+	bool "Register TIMER0 as /dev/timer0"
+	default y
+	depends on !RP23XX_SYSTIMER_TICKLESS_TIMER0
+	---help---
+		Bind the TIMER0 block to /dev/timer0.  Unavailable when the
+		tickless oneshot is configured to use TIMER0.
+
+config RP23XX_TIMER1
+	bool "Register TIMER1 as /dev/timer1"
+	default n
+	depends on !RP23XX_SYSTIMER_TICKLESS_TIMER1
+	---help---
+		Bind the TIMER1 block to /dev/timer1.  Unavailable when the
+		tickless oneshot is configured to use TIMER1.
+
+endif # RP23XX_TIMER
+
+#####################################################################
 #  ADC Configuration
 #####################################################################
 
@@ -748,6 +867,16 @@ config RP23XX_RNG
 		Enable the RP2350 hardware true random number generator.  Provides
 		/dev/random (and /dev/urandom when CONFIG_DEV_URANDOM selects the
 		architecture source) via the TRNG entropy register (EHR).
+
+config RP23XX_RTC
+	bool "Enable RTC (POWMAN always-on timer)"
+	default n
+	select RTC
+	---help---
+		Use the RP2350 POWMAN always-on timer as the real-time clock backing
+		the system clock.  The RP2350 has no dedicated RTC block; the POWMAN
+		timer is a 64-bit millisecond counter clocked from the low-power
+		oscillator, so it keeps running across warm resets.
 
 config RP23XX_ADC
 	bool "Enable ADC Support"
