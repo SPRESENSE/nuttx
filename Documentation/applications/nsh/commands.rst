@@ -143,6 +143,23 @@ default gateway.
 removing the preceding path segments and (optionally) removing any
 trailing ``<suffix>``.
 
+.. _cmdboot:
+
+``boot`` Boot an Application Image
+==================================
+
+**Command Syntax**::
+
+  boot [<image path> [<header size>]]
+
+**Synopsis**. Boot a new application firmware image by invoking
+``boardctl(BOARDIOC_BOOT_IMAGE)``. The ``<image path>`` may be
+absolute or relative; relative paths are resolved against the NSH
+current working directory, consistent with ``cp``, ``cat``, and
+``rm``. This command depends on ``CONFIG_BOARDCTL_BOOT_IMAGE``; if
+the boot image cannot be started, ``boardctl()`` returns and an
+error is reported.
+
 .. _cmdbreak:
 
 ``break`` Terminate a Loop
@@ -430,6 +447,47 @@ buffer. Entering the ``dmesg`` command will dump the content of
 that in-memory, circular buffer to the NSH console output.
 ``dmesg`` has the side effect of clearing the buffered data so
 that entering ``dmesg`` again will show only newly buffered data.
+
+.. _cmddu:
+
+``du`` Estimate File Space Usage
+================================
+
+**Command Syntax**::
+
+  du [-h] [-s] [-a] [-d N] <path>...
+
+**Synopsis**. Recursively summarize the apparent size of each
+``<path>`` in 1K-blocks, or in human-readable form with ``-h``. If
+no ``<path>`` is given, the current working directory is used. As
+an example::
+
+  nsh> du
+  397449  /data/test/elf
+  71993   /data/test/coredump
+  5       /data/test/log2
+  3251    /data/test/log1
+  472700  /data/test
+  nsh> du -h
+  388.1M  /data/test/elf
+  70.3M   /data/test/coredump
+  4.1K    /data/test/log2
+  3.1M    /data/test/log1
+  461.6M  /data/test
+  nsh>
+
+**Options**
+
+========  ===========================================================
+``-s``    Summary only: print only the total for each ``<path>``.
+``-a``    List all files, not only directories.
+``-d N``  Print at most N directory depth levels.
+``-h``    Human-readable sizes (K/M/G, one decimal; ``B`` below 1K).
+========  ===========================================================
+
+Sizes are apparent sizes (``st_size``), not block usage. ``-h``
+prints one decimal using integer arithmetic and does not require
+float printf support.
 
 .. _cmdecho:
 

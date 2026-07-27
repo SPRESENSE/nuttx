@@ -83,7 +83,9 @@ extern "C"
  *
  ****************************************************************************/
 
+#ifdef CONFIG_DEV_GPIO
 int ameba_gpio_register(int minor, uint8_t pin, enum gpio_pintype_e pintype);
+#endif
 
 #undef EXTERN
 #ifdef __cplusplus
