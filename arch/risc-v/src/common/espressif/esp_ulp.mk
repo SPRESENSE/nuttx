@@ -63,6 +63,8 @@ ULP_INCLUDES += $(INCDIR_PREFIX)$(CHIP)$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)c
 ULP_INCLUDES += $(INCDIR_PREFIX)$(CHIP)$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)hal$(DELIM)include
 ULP_INCLUDES += $(INCDIR_PREFIX)$(CHIP)$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)hal$(DELIM)include
 ULP_INCLUDES += $(INCDIR_PREFIX)$(CHIP)$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)hal$(DELIM)platform_port$(DELIM)include
+ULP_INCLUDES += $(INCDIR_PREFIX)$(CHIP)$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)esp_hal_wdt$(DELIM)include
+ULP_INCLUDES += $(INCDIR_PREFIX)$(CHIP)$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)esp_hal_wdt$(DELIM)$(CHIP_SERIES)$(DELIM)include
 ULP_INCLUDES += $(INCDIR_PREFIX)$(CHIP)$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)log
 ULP_INCLUDES += $(INCDIR_PREFIX)$(CHIP)$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)log$(DELIM)include
 ULP_INCLUDES += $(INCDIR_PREFIX)$(CHIP)$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)riscv$(DELIM)include
@@ -141,10 +143,12 @@ ULP_CSOURCES += $(CHIP)$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM
 ULP_CSOURCES += $(CHIP)$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)lp_core$(DELIM)shared$(DELIM)ulp_lp_core_lp_adc_shared.c
 ULP_CSOURCES += $(CHIP)$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)lp_core$(DELIM)shared$(DELIM)ulp_lp_core_lp_vad_shared.c
 ULP_CSOURCES += $(CHIP)$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)lp_core$(DELIM)shared$(DELIM)ulp_lp_core_critical_section_shared.c
+ULP_CSOURCES += $(CHIP)$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)lp_core$(DELIM)lp_core$(DELIM)lp_core_mailbox.c
 ifeq ($(CONFIG_ARCH_CHIP_ESP32P4),y)
 	ULP_CSOURCES += $(CHIP)$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)lp_core$(DELIM)lp_core$(DELIM)lp_core_touch.c
 	ULP_CSOURCES += $(CHIP)$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)lp_core$(DELIM)lp_core$(DELIM)port$(DELIM)lp_core_mailbox_impl_hw.c
-	ULP_CSOURCES += $(CHIP)$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)lp_core$(DELIM)lp_core$(DELIM)lp_core_mailbox.c
+else
+	ULP_CSOURCES += $(CHIP)$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)ulp$(DELIM)lp_core$(DELIM)lp_core$(DELIM)port$(DELIM)lp_core_mailbox_impl_sw.c
 endif
 
 # Add ULP app source files and directories
@@ -159,8 +163,8 @@ else
 	ULP_BIN_FILE = $(ULP_FOLDER)$(DELIM)ulp.bin
 	ULP_BIN_FILE_PATH = $(ULP_BIN_FILE)
 
-	ULP_C_SRCS = $(addprefix $(ULP_APP_FOLDER)/,$(sort $(ULP_APP_C_SRCS)))
-	ULP_ASM_SRCS = $(addprefix $(ULP_APP_FOLDER)/,$(sort $(ULP_APP_ASM_SRCS)))
+	ULP_C_SRCS = $(foreach s,$(sort $(ULP_APP_C_SRCS)),$(if $(filter /%,$(s)),$(s),$(ULP_APP_FOLDER)/$(s)))
+	ULP_ASM_SRCS = $(foreach s,$(sort $(ULP_APP_ASM_SRCS)),$(if $(filter /%,$(s)),$(s),$(ULP_APP_FOLDER)/$(s)))
 
 	ULP_APP_OBJS = $(ULP_ASM_SRCS:.S=_ulp.o)
 	ULP_APP_OBJS += $(ULP_C_SRCS:.c=_ulp.o)
@@ -250,6 +254,17 @@ ULP_LDFLAGS :=										\
 	-Xlinker -Map=$(ULP_MAP_FILE)		\
 	$(ULP_LDINCLUDES)
 
+# Optional compile defines (e.g. -DNUTTX_ESP_BIST_MODULE) — after := above
+ULP_CFLAGS += $(ULP_EXTRA_DEFINES)
+ULP_ASFLAGS += $(ULP_EXTRA_DEFINES)
+
+# Default LP sections linker template; apps may override with ULP_CUSTOM_SECTIONS_LD
+ifeq ($(ULP_CUSTOM_SECTIONS_LD),)
+	ULP_SECTIONS_TEMPLATE = $(BOARD)$(DELIM)scripts$(DELIM)${CHIP_SERIES}_lpcore_sections.ld
+else
+	ULP_SECTIONS_TEMPLATE = $(ULP_CUSTOM_SECTIONS_LD)
+endif
+
 # Build rules
 
 .PHONY: context depend
@@ -261,14 +276,17 @@ checkpython3:
 		exit 1; \
 	fi
 
-%_ulp.o: %.c $(ULP_NUTTX_CONFIG)
+%_ulp.o: %.c $(ULP_NUTTX_CONFIG) $(ULP_FOLDER)$(DELIM)ulp_sections.ld
 	$(Q) echo "Compiling $< for ULP"
 	$(Q) $(CC) $(ULP_CFLAGS) -c $< -o $@
-	$(Q) $(CC) $(ULP_INCLUDES) -E -P -xc -o $(ULP_FOLDER)$(DELIM)ulp_sections.ld $(BOARD)$(DELIM)scripts$(DELIM)${CHIP_SERIES}_lpcore_sections.ld
 
 %_ulp.o: %.S $(ULP_NUTTX_CONFIG)
 	$(Q) echo "Compiling $< for ULP"
 	$(Q) $(CC) $(ULP_ASFLAGS) -c $< -o $@
+
+$(ULP_FOLDER)$(DELIM)ulp_sections.ld: $(ULP_NUTTX_CONFIG) $(ULP_SECTIONS_TEMPLATE)
+	$(Q) echo "Preprocessing ULP linker sections from $(ULP_SECTIONS_TEMPLATE)"
+	$(Q) $(CC) $(ULP_INCLUDES) -E -P -xc -o $@ $(ULP_SECTIONS_TEMPLATE)
 
 $(ULP_NUTTX_CONFIG): $(ULP_FOLDER)
 	$(Q) echo "Copying nuttx$(DELIM)config.h into $(ULP_FOLDER)$(DELIM)nuttx"
@@ -277,6 +295,7 @@ $(ULP_NUTTX_CONFIG): $(ULP_FOLDER)
 $(ULP_ELF_FILE): $(ULP_OBJS)
 	$(Q) echo "Linking for ULP"
 	$(Q) $(CC) $(ULP_LDFLAGS) $(ULP_OBJS) -o $@
+	$(ULP_POST_LINK)
 
 $(ULP_BIN_FILE): $(ULP_ELF_FILE) checkpython3
 	$(Q) \
@@ -288,6 +307,13 @@ ifneq ($(suffix $(ULP_APP_BIN)),.bin)
 	$(Q) $(OBJCOPY) -O binary $(ULP_ELF_FILE) $(ULP_BIN_FILE)
 	$(Q) $(ULP_READELF) -sW $(ULP_ELF_FILE) > $(ULP_SYM_FILE)
 	$(Q) python3 $(ULP_MAPGEN_TOOL_PATH) -s $(ULP_SYM_FILE) -o $(ULP_FOLDER)$(DELIM)ulp_main --base $(ULP_BASE) --prefix $(ULP_PREFIX)
+	$(Q) if grep -q 'g_lp_core_mailbox_impl_sw_ctx' $(ULP_FOLDER)$(DELIM)ulp_main.ld; then \
+		addr=$$(grep 'g_lp_core_mailbox_impl_sw_ctx' $(ULP_FOLDER)$(DELIM)ulp_main.ld | head -1 | \
+			sed -E 's/.*=[[:space:]]*([0x0-9a-fA-F]+);.*/\1/'); \
+		if ! grep -qE '^[[:space:]]*ulp_g_lp_core_mailbox_impl_sw_ctx[[:space:]]*=' $(ULP_FOLDER)$(DELIM)ulp_main.ld; then \
+			echo "ulp_g_lp_core_mailbox_impl_sw_ctx = $$addr;" >> $(ULP_FOLDER)$(DELIM)ulp_main.ld; \
+		fi; \
+	fi
 # Checking ULP linker script output and adding/changing related lines on common linker for HP core to access ULP core variables on HP core.
 	$(Q) grep -E '^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*[[:space:]]*=[[:space:]]*[0x]*[0-9a-fA-F]+;' $(ULP_FOLDER)$(DELIM)ulp_main.ld | while IFS= read -r line; do \
 		out_file=$(BOARD)$(DELIM)scripts$(DELIM)ulp_aliases.ld; \
@@ -317,7 +343,7 @@ ifneq ($(suffix $(ULP_APP_BIN)),.bin)
 								size=4; \
 				fi; \
 					sed -i "s/ };//" $(ULP_VAR_MAP_HEADER); \
-					echo -ne "  { .sym.sym_name = \"$${var}\", .sym.sym_value = &$${var}, .size = $${size}},\n };" >> $(ULP_VAR_MAP_HEADER); \
+					printf "  { .sym.sym_name = \"%s\", .sym.sym_value = &%s, .size = %s},\n };" "$${var}" "$${var}" "$${size}" >> $(ULP_VAR_MAP_HEADER); \
 			fi; \
 		done'
 endif
