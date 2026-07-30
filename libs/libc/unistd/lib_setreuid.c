@@ -43,7 +43,7 @@
  * Input Parameters:
  *   ruid - Real user identity to set.  The special value (uid_t)-1
  *          indicates that the real user ID should not be changed.
- *   ruid - Effective user identity to set.  The special value (uid_t)-1
+ *   euid - Effective user identity to set.  The special value (uid_t)-1
  *          indicates that the effective user ID should not be changed.
  *
  * Returned Value:
@@ -54,24 +54,18 @@
 
 int setreuid(uid_t ruid, uid_t euid)
 {
-  int ret = OK;
+  /* NuttX only supports the user identity 'root' with a uid value of 0. */
 
-  if (ruid != (uid_t)-1)
+  if ((ruid == (uid_t)-1 || ruid == 0) &&
+      (euid == (uid_t)-1 || euid == 0))
     {
-      /* Set the real user ID.  CAREFUL:  This exploits non-standard behavior
-       * of setuid():  setuid() should set the real, effective, and saved
-       * user ID.  Here we depend on it setting only the real user ID.
-       */
-
-      ret = setuid(ruid);
+      return 0;
     }
 
-  if (ret >= 0 && euid != (uid_t)-1)
-    {
-      /* Set the effective user ID */
+  /* All other uid values are considered invalid and not supported by the
+   * implementation.
+   */
 
-      ret = seteuid(euid);
-    }
-
-  return ret;
+  set_errno(EINVAL);
+  return -1;
 }

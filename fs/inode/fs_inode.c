@@ -229,6 +229,10 @@ void inode_runlock(void)
  *
  ****************************************************************************/
 
+/****************************************************************************
+ * Name: inode_checkperm
+ ****************************************************************************/
+
 int inode_checkperm(FAR struct inode *inode, int amode)
 {
 #ifdef CONFIG_FS_PERMISSION
@@ -271,7 +275,16 @@ int inode_checkopenperm(FAR struct inode *inode, int oflags)
 {
   FAR const struct file_operations *ops;
 
-  if (INODE_IS_PSEUDODIR(inode))
+  if (INODE_IS_NAMEDSEM(inode))
+    {
+#ifdef CONFIG_FS_PERMISSION
+      return inode_checkperm(inode, R_OK | W_OK);
+#else
+      return OK;
+#endif
+    }
+
+  if (INODE_IS_MQUEUE(inode) || INODE_IS_PSEUDODIR(inode))
     {
 #ifdef CONFIG_FS_PERMISSION
       return inode_checkperm(inode, fs_open_amode(oflags));

@@ -43,7 +43,7 @@
  * Input Parameters:
  *   rgid - Real group identity to set.  The special value (gid_t)-1
  *          indicates that the real group ID should not be changed.
- *   rgid - Effective group identity to set.  The special value (gid_t)-1
+ *   egid - Effective group identity to set.  The special value (gid_t)-1
  *          indicates that the effective group ID should not be changed.
  *
  * Returned Value:
@@ -54,25 +54,18 @@
 
 int setregid(gid_t rgid, gid_t egid)
 {
-  int ret = OK;
+  /* NuttX only supports the group identity 'root' with a gid value of 0. */
 
-  if (rgid != (gid_t)-1)
+  if ((rgid == (gid_t)-1 || rgid == 0) &&
+      (egid == (gid_t)-1 || egid == 0))
     {
-      /* Set the real group ID.  CAREFUL:  This exploits non-standard
-       * behavior of setgid():  setgid() should set the real, effective, and
-       * saved group ID.  Here we depend on it setting only the real group
-       * ID.
-       */
-
-      ret = setgid(rgid);
+      return 0;
     }
 
-  if (ret >= 0 && egid != (gid_t)-1)
-    {
-      /* Set the effective group ID */
+  /* All other gid values are considered invalid and not supported by the
+   * implementation.
+   */
 
-      ret = setegid(egid);
-    }
-
-  return ret;
+  set_errno(EINVAL);
+  return -1;
 }
