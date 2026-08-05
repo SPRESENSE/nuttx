@@ -43,6 +43,7 @@
 #include <nuttx/mutex.h>
 #include <nuttx/sensors/sensor.h>
 #include <nuttx/lib/lib.h>
+#include <nuttx/wdog.h>
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -96,12 +97,13 @@ struct sensor_user_s
   struct list_node node;       /* Node of users list */
   struct pollfd   *fds;        /* The poll structure of thread waiting events */
   sensor_role_t    role;       /* The is used to indicate user's role based on open flags */
+  struct wdog_s    wdog;       /* Paces POLLIN at the requested interval */
+  uint64_t         fetched;    /* When POLLIN was last reported, in usec */
   bool             changed;    /* This is used to indicate event happens and need to
                                 * asynchronous notify other users
                                 */
   unsigned int     event;      /* The event of this sensor, eg: SENSOR_EVENT_FLUSH_COMPLETE. */
   bool             flushing;   /* The is used to indicate user is flushing */
-  sem_t            buffersem;  /* Wakeup user waiting for data in circular buffer */
   size_t           bufferpos;  /* The index of user generation in buffer */
 
   /* The subscriber info
@@ -143,6 +145,7 @@ static int     sensor_poll(FAR struct file *filep, FAR struct pollfd *fds,
                            bool setup);
 static ssize_t sensor_push_event(FAR void *priv, FAR const void *data,
                                  size_t bytes);
+static void    sensor_fetch_expired(wdparm_t arg);
 
 /****************************************************************************
  * Private Data
@@ -688,6 +691,23 @@ static void sensor_pollnotify_one(FAR struct sensor_user_s *user,
   poll_notify(&user->fds, 1, eventset);
 }
 
+static void sensor_fetch_expired(wdparm_t arg)
+{
+  FAR struct sensor_user_s *user = (FAR struct sensor_user_s *)arg;
+
+  /* Timer context, so no lock: a teardown that raced us cleared fds, which
+   * makes both the notify and the re-arm below no-ops.
+   */
+
+  if (user->fds != NULL)
+    {
+      user->fetched = sensor_get_timestamp();
+      sensor_pollnotify_one(user, POLLIN, SENSOR_ROLE_RD);
+      wd_start(&user->wdog, USEC2TICK(user->state.interval),
+               sensor_fetch_expired, arg);
+    }
+}
+
 static void sensor_pollnotify(FAR struct sensor_upperhalf_s *upper,
                               pollevent_t eventset, sensor_role_t role)
 {
@@ -774,7 +794,6 @@ static int sensor_open(FAR struct file *filep)
   user->state.interval = UINT32_MAX;
   user->state.esize = upper->state.esize;
   user->state.nonwakeup = true;
-  nxsem_init(&user->buffersem, 0, 0);
   list_add_tail(&upper->userlist, &user->node);
 
   /* The new user generation, notify to other users */
@@ -835,7 +854,6 @@ static int sensor_close(FAR struct file *filep)
     }
 
   list_delete(&user->node);
-  nxsem_destroy(&user->buffersem);
 
   /* The user is closed, notify to other users */
 
@@ -871,24 +889,15 @@ static ssize_t sensor_read(FAR struct file *filep, FAR char *buffer,
           return -EINVAL;
         }
 
-      if (!(filep->f_oflags & O_NONBLOCK))
-        {
-          nxrmutex_unlock(&upper->lock);
-          ret = nxsem_wait_uninterruptible(&user->buffersem);
-          if (ret < 0)
-            {
-              return ret;
-            }
+      /* Read the device directly, there is nothing to wait for */
 
-          nxrmutex_lock(&upper->lock);
-        }
-      else if (!upper->state.nsubscribers)
+      if (!upper->state.nsubscribers)
         {
           ret = -EAGAIN;
           goto out;
         }
 
-        ret = lower->ops->fetch(lower, filep, buffer, len);
+      ret = lower->ops->fetch(lower, filep, buffer, len);
     }
   else if (circbuf_is_empty(&upper->buffer))
     {
@@ -1166,7 +1175,6 @@ static int sensor_poll(FAR struct file *filep,
   FAR struct sensor_lowerhalf_s *lower = upper->lower;
   FAR struct sensor_user_s *user = filep->f_priv;
   pollevent_t eventset = 0;
-  int semcount;
   int ret = 0;
 
   nxrmutex_lock(&upper->lock);
@@ -1184,18 +1192,29 @@ static int sensor_poll(FAR struct file *filep,
       fds->priv = filep;
       if (lower->ops->fetch)
         {
-          /* Always return POLLIN for fetch data directly(non-block) */
+          /* Always ready, unless a rate was requested: then once per
+           * interval, woken by sensor_fetch_expired().
+           */
 
-          if (filep->f_oflags & O_NONBLOCK)
+          if (user->state.interval == UINT32_MAX)
             {
               eventset |= POLLIN;
             }
           else
             {
-              nxsem_get_value(&user->buffersem, &semcount);
-              if (semcount > 0)
+              uint64_t now = sensor_get_timestamp();
+              uint64_t elapsed = now - user->fetched;
+
+              if (elapsed >= user->state.interval)
                 {
+                  user->fetched = now;
                   eventset |= POLLIN;
+                }
+              else
+                {
+                  wd_start(&user->wdog,
+                           USEC2TICK(user->state.interval - elapsed),
+                           sensor_fetch_expired, (wdparm_t)user);
                 }
             }
         }
@@ -1215,6 +1234,7 @@ static int sensor_poll(FAR struct file *filep,
     {
       user->fds = NULL;
       fds->priv = NULL;
+      wd_cancel(&user->wdog);
     }
 
 errout:
@@ -1229,7 +1249,6 @@ static ssize_t sensor_push_event(FAR void *priv, FAR const void *data,
   FAR struct sensor_lowerhalf_s *lower = upper->lower;
   FAR struct sensor_user_s *user;
   unsigned long envcount;
-  int semcount;
   int ret;
 
   nxrmutex_lock(&upper->lock);
@@ -1287,12 +1306,6 @@ static ssize_t sensor_push_event(FAR void *priv, FAR const void *data,
     {
       if (sensor_is_updated(upper, user))
         {
-          nxsem_get_value(&user->buffersem, &semcount);
-          if (semcount < 1)
-            {
-              nxsem_post(&user->buffersem);
-            }
-
           sensor_pollnotify_one(user, POLLIN, SENSOR_ROLE_RD);
         }
     }
@@ -1305,17 +1318,10 @@ static void sensor_notify_event(FAR void *priv)
 {
   FAR struct sensor_upperhalf_s *upper = priv;
   FAR struct sensor_user_s *user;
-  int semcount;
 
   nxrmutex_lock(&upper->lock);
   list_for_every_entry(&upper->userlist, user, struct sensor_user_s, node)
     {
-      nxsem_get_value(&user->buffersem, &semcount);
-      if (semcount < 1)
-        {
-          nxsem_post(&user->buffersem);
-        }
-
       sensor_pollnotify_one(user, POLLIN, SENSOR_ROLE_RD);
     }
 

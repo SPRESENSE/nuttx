@@ -31,6 +31,8 @@
  * Public Data
  ****************************************************************************/
 
+#if defined(CONFIG_BUILD_FLAT) || defined(__KERNEL__)
+
 extern const struct symtab_s g_allsyms[];
 extern const int             g_nallsyms;
 
@@ -59,9 +61,52 @@ allsyms_lookup(FAR const char *name, FAR void *value,
   else if (value)
     {
       symbol = symtab_findbyvalue(g_allsyms, value, g_nallsyms);
+
+      /* g_allsyms[0] and g_allsyms[g_nallsyms - 1] are boundary sentinels,
+       * not real symbols.  A match against either one means 'value' falls
+       * outside the range covered by real symbols, so treat it as not
+       * found instead of reporting a bogus name/offset.
+       */
+
+      if (symbol == &g_allsyms[0] ||
+          symbol == &g_allsyms[g_nallsyms - 1])
+        {
+          symbol = NULL;
+        }
     }
 
-  if (symbol && symbol != &g_allsyms[g_nallsyms - 1])
+  if (symbol == NULL)
+    {
+      *size = 0;
+      return NULL;
+    }
+
+#ifdef CONFIG_SYMTAB_ORDEREDBYNAME
+  /* g_allsyms is sorted by name here, not by value, so the physically
+   * next table entry is not necessarily the next symbol by address.
+   * Scan the real symbols (index 1..g_nallsyms - 2; 0 and g_nallsyms - 1
+   * are the boundary sentinels) for the smallest address greater than
+   * this symbol's, falling back to the high sentinel's now-meaningful
+   * value if none is closer.
+   */
+
+  {
+    FAR const struct symtab_s *next = &g_allsyms[g_nallsyms - 1];
+    int i;
+
+    for (i = 1; i < g_nallsyms - 1; i++)
+      {
+        if (g_allsyms[i].sym_value > symbol->sym_value &&
+            g_allsyms[i].sym_value < next->sym_value)
+          {
+            next = &g_allsyms[i];
+          }
+      }
+
+    *size = next->sym_value - symbol->sym_value;
+  }
+#else
+  if (symbol != &g_allsyms[g_nallsyms - 1])
     {
       *size = (symbol + 1)->sym_value - symbol->sym_value;
     }
@@ -69,6 +114,7 @@ allsyms_lookup(FAR const char *name, FAR void *value,
     {
       *size = 0;
     }
+#endif
 
   return symbol;
 }
@@ -115,3 +161,21 @@ FAR const struct symtab_s *allsyms_findbyvalue(FAR void *value,
 {
   return allsyms_lookup(NULL, value, size);
 }
+
+#else
+
+FAR const struct symtab_s *allsyms_findbyname(FAR const char *name,
+                                              FAR size_t *size)
+{
+  *size = 0;
+  return NULL;
+}
+
+FAR const struct symtab_s *allsyms_findbyvalue(FAR void *value,
+                                               FAR size_t *size)
+{
+  *size = 0;
+  return NULL;
+}
+
+#endif /* CONFIG_BUILD_FLAT || __KERNEL__ */

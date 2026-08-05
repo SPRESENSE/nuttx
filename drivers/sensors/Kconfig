@@ -861,17 +861,19 @@ config SENSORS_L3GD20
 	bool "STMicro L3GD20 Gyroscope Sensor support"
 	default n
 	select SPI
-	select SCHED_HPWORK if SENSORS_L3GD20_BUFFER_SIZE > 0
+	select SCHED_HPWORK
 	---help---
 		Enable driver support for the STMicro L3GD20 gyroscope sensor.
 
 config SENSORS_L3GD20_BUFFER_SIZE
 	int "size of buffer"
 	default 1
+	range 1 32
 	depends on SENSORS_L3GD20
 	---help---
-		The size of the circular buffer used. If the value equal to zero,
-		indicates that the circular buffer is disabled.
+		The number of events that the circular buffer can hold. The data
+		ready interrupt pushes each sample into it, so at least one event
+		is required.
 
 config SENSOR_KXTJ9
 	bool "Kionix KXTJ9 Accelerometer support"
@@ -1572,6 +1574,20 @@ config SENSORS_MPU6050
 	depends on I2C
 	---help---
 		Enable uORB driver support for Invensense MPU6050 6-axis MotionTracker device over I2C.
+
+if SENSORS_MPU6050
+
+config SENSORS_MPU6050_INT
+	bool "Deliver samples from the data ready interrupt"
+	default n
+	select SCHED_HPWORK
+	---help---
+		Take samples from the MPU6050 INT pin instead of reading the device
+		on demand, which timestamps them when they were actually measured.
+		The board must wire that pin and supply mpu6050_config_s::attach;
+		registration fails with -EINVAL otherwise.
+
+endif # SENSORS_MPU6050
 
 config SENSORS_MPU9250
 	bool "Invensense MPU9250 Sensor support"
