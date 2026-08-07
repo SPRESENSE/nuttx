@@ -278,6 +278,10 @@ struct nrf53_usbdev_s
   bool                    dmanow;        /* DMA transfer pending */
   uint16_t                dmaepinwait;   /* EP IN waiting for DMA */
   uint16_t                dmaepoutwait;  /* EP OUT waitning for DMA */
+  uint16_t                epinflight;    /* EP IN packet armed, awaiting
+                                          * host read (EPDATASTATUS) */
+  uint16_t                epoutpending;  /* EP OUT packet held in endpoint
+                                          * buffer, no read request yet */
 
   /* E0 SETUP data buffering.
    *
@@ -1054,6 +1058,22 @@ static void nrf53_epin_transfer(struct nrf53_ep_s *privep, uint8_t *buf,
 
   while (nrf53_getreg(NRF53_USBD_EVENTS_ENDEPIN(privep->epphy)) == 0 &&
          nrf53_getreg(NRF53_USBD_EVENTS_USBRESET) == 0);
+
+  /* For data endpoints the EasyDMA transfer into the endpoint buffer is now
+   * complete (busy-wait above), so errata 199 no longer applies. Clear the
+   * ENDEPIN event and release the DMA lock right away so that transfers on
+   * other endpoints can start without waiting for a separate ENDEPIN
+   * interrupt round-trip. Re-arming of this endpoint is prevented
+   * separately by priv->epinflight until the host reads the packet. EP0 is
+   * left to the normal interrupt flow (its control state machine depends on
+   * the ENDEPIN interrupt).
+   */
+
+  if (privep->epphy != EP0)
+    {
+      nrf53_putreg(0, NRF53_USBD_EVENTS_ENDEPIN(privep->epphy));
+      nrf53_startdma_ack(priv);
+    }
 }
 
 /****************************************************************************
@@ -1146,6 +1166,18 @@ static void nrf53_epin_request(struct nrf53_usbdev_s *priv,
       return;
     }
 
+  /* If a packet is already armed on this data endpoint and is still waiting
+   * to be read by the host, do not overwrite the endpoint buffer. The next
+   * packet is sent from nrf53_epdatainterrupt() once the host has read this
+   * one (EPDATASTATUS).
+   */
+
+  if (privep->epphy != EP0 &&
+      (priv->epinflight & (1 << privep->epphy)) != 0)
+    {
+      return;
+    }
+
   /* Check the request from the head of the endpoint request queue */
 
   privreq = nrf53_rqpeek(privep);
@@ -1188,6 +1220,16 @@ static void nrf53_epin_request(struct nrf53_usbdev_s *priv,
       buf = privreq->req.buf + privreq->req.xfrd;
       nrf53_epin_transfer(privep, buf, nbytes);
 
+      /* Mark the endpoint as having a packet awaiting host read. This must
+       * be set before nrf53_req_complete() below, which may re-enter this
+       * function through the class driver's completion callback.
+       */
+
+      if (privep->epphy != EP0)
+        {
+          priv->epinflight |= (1 << privep->epphy);
+        }
+
       /* Update for the next time through the loop */
 
       privreq->req.xfrd += nbytes;
@@ -1198,9 +1240,16 @@ static void nrf53_epin_request(struct nrf53_usbdev_s *priv,
 
       nrf53_epin_transfer(privep, NULL, 0);
 
-      /* ACK zero-length DMA transfer right away */
+      if (privep->epphy != EP0)
+        {
+          priv->epinflight |= (1 << privep->epphy);
+        }
+      else
+        {
+          /* ACK zero-length DMA transfer right away */
 
-      nrf53_startdma_ack(priv);
+          nrf53_startdma_ack(priv);
+        }
     }
 
   /* Has all the request data been sent? */
@@ -1417,8 +1466,14 @@ static void nrf53_epout_handle(struct nrf53_usbdev_s *priv,
       privreq = nrf53_rqpeek(privep);
       if (!privreq)
         {
+          /* The packet is already ACKed and held in the endpoint buffer.
+           * The host will not retransmit it, so keep it pending until the
+           * class driver submits a read request.
+           */
+
           usbtrace(TRACE_DEVERROR(NRF53_TRACEERR_EPOUTQEMPTY),
                    privep->epphy);
+          priv->epoutpending |= (1 << privep->epphy);
           return;
         }
 
@@ -1609,6 +1664,14 @@ static void nrf53_usbreset(struct nrf53_usbdev_s *priv)
 
   priv->epavail[0] = NRF53_EP_AVAILABLE;
   priv->epavail[1] = NRF53_EP_AVAILABLE;
+
+  /* Reset DMA and endpoint in-flight state */
+
+  priv->dmanow      = false;
+  priv->dmaepinwait = 0;
+  priv->dmaepoutwait = 0;
+  priv->epinflight  = 0;
+  priv->epoutpending = 0;
 
   /* Disable all end points */
 
@@ -1893,6 +1956,12 @@ static void nrf53_epdatainterrupt(struct nrf53_usbdev_s *priv)
 
       if (datastatus & USBD_EPDATASTATUS_EPIN(epno))
         {
+          /* The host has read the armed packet, so the endpoint buffer can
+           * be refilled with the next packet.
+           */
+
+          priv->epinflight &= ~(1 << epno);
+
           privep = &priv->epin[epno];
           nrf53_epin_request(priv, privep);
         }
@@ -2572,9 +2641,20 @@ static int nrf53_ep_submit(struct usbdev_ep_s *ep, struct usbdev_req_s *req)
             {
               usbtrace(TRACE_OUTREQQUEUED(privep->epphy), privreq->req.len);
 
-              /* Allow OUT traffic on this endpoint */
+              if (privep->epphy != EP0 &&
+                  (priv->epoutpending & (1 << privep->epphy)) != 0)
+                {
+                  /* Consume the packet held in the endpoint buffer */
 
-              nrf53_epout_allow(privep);
+                  priv->epoutpending &= ~(1 << privep->epphy);
+                  nrf53_epout_handle(priv, privep);
+                }
+              else
+                {
+                  /* Allow OUT traffic on this endpoint */
+
+                  nrf53_epout_allow(privep);
+                }
             }
         }
     }
