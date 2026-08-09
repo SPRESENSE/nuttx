@@ -62,6 +62,21 @@ config USBHOST_CONFIGURATION_SELECTION
 		choose by VID/PID or any other info it can acquire from a USB descriptor.
 		Board file must supply board_usbhost_select_configuration().
 
+config USBHOST_ANNOUNCE
+	bool "Report enumerated devices"
+	default n
+	---help---
+		Report every device the host enumerates with one syslog line,
+		naming the hub port it was found on, what it is, its vendor and
+		product, and whether a class driver claimed it.
+
+		A device that no driver claims is reported too.  That is the case
+		a user most needs to be told about and the one that otherwise
+		passes in silence.
+
+		The same information is available through CONFIG_DEBUG_USB_INFO,
+		among a great deal else.  This is the one line on its own.
+
 config USBHOST_WAITER
 	bool "USB Host Waiter Support"
 	default n
@@ -140,6 +155,21 @@ config USBHOST_MSC
 	depends on !BULK_DISABLE
 	---help---
 		Enable support for the mass storage class driver.
+
+config USBHOST_MSC_PARTITIONS
+	bool "Register partitions found on a drive"
+	default y
+	depends on USBHOST_MSC && !DISABLE_MOUNTPOINT
+	depends on MBR_PARTITION || GPT_PARTITION
+	---help---
+		Read the partition table of a mass storage device and register a
+		block device for each partition, /dev/sda1 beside /dev/sda and so
+		on.
+
+		Most drives that have been anywhere near another operating system
+		carry a partition table rather than a filesystem at sector zero,
+		so without this a perfectly good drive cannot be mounted.  The
+		whole-drive node stays where it was.
 
 config USBHOST_MSC_NOTIFIER
 	bool "Support USB Mass Storage notifications"
@@ -412,8 +442,13 @@ config HIDKBD_REPORT_MODIFIERS
 config HIDKBD_NOGETREPORT
 	bool "Use Interrupt pipe to get keys"
 	default n
+	select USBHOST_ASYNCH
 	---help---
 		Use the INTERRUPT IN pipe to get keyboard input reports.
+
+		This reads the pipe with DRVR_ASYNCH(), which only exists when
+		USBHOST_ASYNCH is set, so it is selected here rather than left
+		for a configuration to discover as a link failure.
 
 endif
 
