@@ -40,6 +40,14 @@
 #include "x86_64_internal.h"
 
 /****************************************************************************
+ * Pre-processor Definitions
+ ****************************************************************************/
+
+/* Red zone the System V AMD64 ABI reserves below the user stack pointer */
+
+#define X86_64_ABI_RED_ZONE 128
+
+/****************************************************************************
  * Private Types
  ****************************************************************************/
 
@@ -247,16 +255,24 @@ uint64_t *x86_64_syscall(uint64_t *regs)
             {
               uint64_t usp;
 
-              /* Copy "info" into user stack */
+              /* Save the kernel stack pointer to restore on handler
+               * return
+               */
 
-              usp = rtcb->xcp.saved_ursp - 8;
+              rtcb->xcp.kstkptr = (uintptr_t *)regs[REG_RSP];
 
-              /* Create a frame for info and copy the kernel info */
+              /* Create a 16 byte aligned frame for info below the red
+               * zone of the interrupted user code
+               */
 
-              usp = usp - sizeof(siginfo_t);
+              usp = (rtcb->xcp.saved_ursp - X86_64_ABI_RED_ZONE -
+                     sizeof(siginfo_t)) & ~0x0f;
               memcpy((void *)usp, (void *)regs[REG_RSI], sizeof(siginfo_t));
 
-              /* Now set the updated SP and user copy of "info" to RSI */
+              /* Set the new SP and the user copy of "info" to RSI.
+               * The naked trampoline is entered with SP 16 byte
+               * aligned; its call provides the return address slot.
+               */
 
               regs[REG_RSP] = usp;
               regs[REG_RSI] = usp;
@@ -290,12 +306,21 @@ uint64_t *x86_64_syscall(uint64_t *regs)
           DEBUGASSERT(rtcb->xcp.sigreturn != 0);
 
           regs[REG_RCX]       = rtcb->xcp.sigreturn;
-          regs[REG_RSP]       = rtcb->xcp.saved_rsp;
           rtcb->xcp.sigreturn = 0;
 
-          /* For kernel mode, we should be already on a correct kernel stack
-           * which was recovered in x86_64_syscall_entry.
-           */
+#ifdef CONFIG_ARCH_KERNEL_STACK
+          if (rtcb->xcp.kstack != NULL)
+            {
+              /* Return to the kernel stack saved at dispatch */
+
+              regs[REG_RSP]     = (uint64_t)rtcb->xcp.kstkptr;
+              rtcb->xcp.kstkptr = rtcb->xcp.ktopstk;
+            }
+          else
+#endif
+            {
+              regs[REG_RSP] = rtcb->xcp.saved_rsp;
+            }
 
           break;
         }
