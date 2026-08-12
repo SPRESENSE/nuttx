@@ -96,5 +96,46 @@ void ameba_ipc_initialize(void);
 int ameba_flash_fs_initialize(void);
 #endif
 
+#ifdef CONFIG_AMEBA_GPIO
+/****************************************************************************
+ * Name: rtl8720f_gpio_initialize
+ *
+ * Description:
+ *   Register the board's GPIO pins with the NuttX GPIO upper half
+ *   (boards/arm/rtl8720f/rtl8720f_evb/src/rtl8720f_gpio.c).
+ *
+ ****************************************************************************/
+
+int rtl8720f_gpio_initialize(void);
+#endif
+
+#ifdef CONFIG_AMEBA_UART
+/****************************************************************************
+ * Name: rtl8720f_uart_initialize
+ *
+ * Description:
+ *   Register the board's general-purpose UART ports with the NuttX serial
+ *   upper half at /dev/ttyS1 and up
+ *   (boards/arm/rtl8720f/rtl8720f_evb/src/rtl8720f_uart.c).
+ *
+ ****************************************************************************/
+
+int rtl8720f_uart_initialize(void);
+#endif
+
+#ifdef CONFIG_AMEBA_I2C
+/****************************************************************************
+ * Name: rtl8720f_i2c_initialize
+ *
+ * Description:
+ *   Register the board's I2C master buses with the NuttX I2C character
+ *   driver at /dev/i2cN
+ *   (boards/arm/rtl8720f/rtl8720f_evb/src/rtl8720f_i2c.c).
+ *
+ ****************************************************************************/
+
+int rtl8720f_i2c_initialize(void);
+#endif
+
 #endif /* __ASSEMBLY__ */
 #endif /* __BOARDS_ARM_RTL8720F_RTL8720F_EVB_SRC_RTL8720F_RTL8720F_EVB_H */

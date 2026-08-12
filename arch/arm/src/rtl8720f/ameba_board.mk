@@ -117,6 +117,25 @@ AMEBA_FWLIB_SRCS += $(TOPDIR)/arch/arm/src/rtl8720f/ameba_app_start.c \
 ifeq ($(CONFIG_RTL8720F_FLASH_FS),y)
 AMEBA_FWLIB_SRCS += $(AMEBA_SOC)/fwlib/ram_common/ameba_flash_ram.c
 endif
+
+# UART register layer.  The UART driver (arch/.../common/ameba/ameba_uart.c)
+# calls the fwlib UART API, all of which resolves to the ROM symbol table; but
+# the ROM routines index the fwlib data tables (UART_DEV_TABLE, APBPeriph_UARTx)
+# which live in this RAM source and must be compiled in (--gc-sections drops
+# the unused DMA/monitor helpers).
+ifeq ($(CONFIG_AMEBA_UART),y)
+AMEBA_FWLIB_SRCS += $(AMEBA_SOC)/fwlib/ram_common/ameba_uart.c
+endif
+
+# I2C register layer.  Like the UART one above, the I2C driver
+# (arch/.../common/ameba/ameba_i2c.c) calls the fwlib I2C API, which resolves
+# to the ROM symbol table; the ROM routines index the fwlib data tables that
+# live in this RAM source, so it must be compiled in (--gc-sections drops the
+# unused DMA/slave helpers).
+ifeq ($(CONFIG_AMEBA_I2C),y)
+AMEBA_FWLIB_SRCS += $(AMEBA_SOC)/fwlib/ram_common/ameba_i2c.c
+endif
+
 # -Wno-int-conversion: the vendored SDK passes NULL to irq_register()'s u32
 # "Data" (interrupt context) argument in many places -- an intentional
 # NULL-as-context idiom.  Silence -Wint-conversion for the SDK fwlib sources
