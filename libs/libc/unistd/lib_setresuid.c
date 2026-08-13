@@ -1,5 +1,5 @@
 /****************************************************************************
- * sched/group/group_setuid.c
+ * libs/libc/unistd/lib_setresuid.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -26,70 +26,43 @@
 
 #include <nuttx/config.h>
 
-#include <sys/types.h>
 #include <unistd.h>
-#include <assert.h>
 #include <errno.h>
-
-#include <sched/sched.h>
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: setuid
+ * Name: setresuid
  *
  * Description:
- *   The setuid() function sets the real user ID, effective user ID, and the
- *   saved set-user-ID of the calling process to uid, given appropriate
- *   privileges.
+ *   The setresuid() function sets the real, effective, and saved set-user-ID
+ *   of the calling process.  Stub when CONFIG_SCHED_USER_IDENTITY is
+ *   disabled: only root (0) or unchanged ((uid_t)-1) values are accepted.
  *
  * Input Parameters:
- *   uid - User identity to set the various process's user ID attributes to.
+ *   ruid - Real user ID, or (uid_t)-1 to leave unchanged.
+ *   euid - Effective user ID, or (uid_t)-1 to leave unchanged.
+ *   suid - Saved set-user-ID, or (uid_t)-1 to leave unchanged.
  *
  * Returned Value:
  *   Zero if successful and -1 in case of failure, in which case errno is set
- *   to one of he following values:
- *
- *   EINVAL - The value of the uid argument is invalid and not supported by
- *            the implementation.
- *   EPERM  - The process does not have appropriate privileges and uid does
- *            not match the real user ID or the saved set-user-ID.
+ *   appropriately.
  *
  ****************************************************************************/
 
-int setuid(uid_t uid)
+int setresuid(uid_t ruid, uid_t euid, uid_t suid)
 {
-  FAR struct tcb_s *rtcb;
-  FAR struct task_group_s *rgroup;
+  /* NuttX only supports the user identity 'root' with a uid value of 0. */
 
-  /* Get the currently executing thread's task group. */
-
-  rtcb   = this_task();
-  rgroup = rtcb->group;
-
-  DEBUGASSERT(rgroup != NULL);
-
-  if (rgroup->tg_euid == 0)
+  if ((ruid == (uid_t)-1 || ruid == 0) &&
+      (euid == (uid_t)-1 || euid == 0) &&
+      (suid == (uid_t)-1 || suid == 0))
     {
-      /* Root: set real, effective, and saved set-user-ID. */
-
-      rgroup->tg_uid  = uid;
-      rgroup->tg_euid = uid;
-      rgroup->tg_suid = uid;
-    }
-  else if (uid == rgroup->tg_uid || uid == rgroup->tg_suid)
-    {
-      /* Non-root: may only set effective UID to real or saved value. */
-
-      rgroup->tg_euid = uid;
-    }
-  else
-    {
-      set_errno(EPERM);
-      return ERROR;
+      return 0;
     }
 
-  return OK;
+  set_errno(EINVAL);
+  return ERROR;
 }

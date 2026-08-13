@@ -1,5 +1,5 @@
 /****************************************************************************
- * sched/group/group_setreuid.c
+ * sched/group/group_setresuid.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -38,106 +38,56 @@
  ****************************************************************************/
 
 /****************************************************************************
- * Name: setreuid
+ * Name: setresuid
  *
  * Description:
- *   The setreuid() function sets the real user ID and/or the effective user
- *   ID of the calling process.
- *
- * Input Parameters:
- *   ruid - Real user identity to set.  The special value (uid_t)-1
- *          indicates that the real user ID should not be changed.
- *   euid - Effective user identity to set.  The special value (uid_t)-1
- *          indicates that the effective user ID should not be changed.
- *
- * Returned Value:
- *   Zero if successful and -1 in case of failure, in which case errno is set
- *   appropriately.
+ *   setresuid() sets the real, effective, and saved set-user-IDs of the
+ *   calling process.  The value (uid_t)-1 for any argument leaves that
+ *   ID unchanged.
  *
  ****************************************************************************/
 
-int setreuid(uid_t ruid, uid_t euid)
+int setresuid(uid_t ruid, uid_t euid, uid_t suid)
 {
   FAR struct tcb_s *rtcb;
   FAR struct task_group_s *rgroup;
   uid_t old_ruid;
   uid_t old_euid;
   uid_t old_suid;
-
-  if (ruid == (uid_t)-1 && euid == (uid_t)-1)
-    {
-      return OK;
-    }
+  uid_t new_ruid;
+  uid_t new_euid;
+  uid_t new_suid;
 
   rtcb   = this_task();
   rgroup = rtcb->group;
-
   DEBUGASSERT(rgroup != NULL);
 
   old_ruid = rgroup->tg_uid;
   old_euid = rgroup->tg_euid;
   old_suid = rgroup->tg_suid;
 
-  if (old_euid == 0)
-    {
-      /* Super-user: may set any combination of real and effective IDs. */
+  new_ruid = (ruid == (uid_t)-1) ? old_ruid : ruid;
+  new_euid = (euid == (uid_t)-1) ? old_euid : euid;
+  new_suid = (suid == (uid_t)-1) ? old_suid : suid;
 
-      if (ruid != (uid_t)-1)
+  if (old_euid != 0)
+    {
+      /* Unprivileged: each new ID must be one of the current r/e/s UIDs. */
+
+      if ((new_ruid != old_ruid && new_ruid != old_euid &&
+           new_ruid != old_suid) ||
+          (new_euid != old_ruid && new_euid != old_euid &&
+           new_euid != old_suid) ||
+          (new_suid != old_ruid && new_suid != old_euid &&
+           new_suid != old_suid))
         {
-          rgroup->tg_uid = ruid;
-
-          if (euid == (uid_t)-1)
-            {
-              rgroup->tg_euid = ruid;
-              rgroup->tg_suid = ruid;
-            }
+          set_errno(EPERM);
+          return ERROR;
         }
-
-      if (euid != (uid_t)-1)
-        {
-          rgroup->tg_euid = euid;
-          rgroup->tg_suid = euid;
-        }
-
-      return OK;
     }
 
-  /* Non-super-user */
-
-  if (ruid != (uid_t)-1 &&
-      ruid != old_euid && ruid != old_suid)
-    {
-      set_errno(EPERM);
-      return ERROR;
-    }
-
-  if (euid != (uid_t)-1 &&
-      euid != old_euid && euid != old_suid && euid != old_ruid)
-    {
-      set_errno(EPERM);
-      return ERROR;
-    }
-
-  if (ruid != (uid_t)-1)
-    {
-      rgroup->tg_uid = ruid;
-    }
-
-  if (euid != (uid_t)-1)
-    {
-      rgroup->tg_euid = euid;
-    }
-
-  /* If the real user ID is being set, or the effective user ID is being
-   * changed to a value not equal to the real user ID, update the saved
-   * set-user-ID to the new effective user ID.
-   */
-
-  if ((ruid != (uid_t)-1 && rgroup->tg_uid != old_ruid) ||
-      (euid != (uid_t)-1 && rgroup->tg_euid != old_ruid))
-    {
-      rgroup->tg_suid = rgroup->tg_euid;
-    }
-
+  rgroup->tg_uid  = new_ruid;
+  rgroup->tg_euid = new_euid;
+  rgroup->tg_suid = new_suid;
   return OK;
 }

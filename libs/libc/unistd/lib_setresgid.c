@@ -1,5 +1,5 @@
 /****************************************************************************
- * sched/group/group_setuid.c
+ * libs/libc/unistd/lib_setresgid.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -26,70 +26,44 @@
 
 #include <nuttx/config.h>
 
-#include <sys/types.h>
 #include <unistd.h>
-#include <assert.h>
 #include <errno.h>
-
-#include <sched/sched.h>
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: setuid
+ * Name: setresgid
  *
  * Description:
- *   The setuid() function sets the real user ID, effective user ID, and the
- *   saved set-user-ID of the calling process to uid, given appropriate
- *   privileges.
+ *   The setresgid() function sets the real, effective, and saved
+ *   set-group-ID of the calling process.  Stub when
+ *   CONFIG_SCHED_USER_IDENTITY is disabled: only root (0) or unchanged
+ *   ((gid_t)-1) values are accepted.
  *
  * Input Parameters:
- *   uid - User identity to set the various process's user ID attributes to.
+ *   rgid - Real group ID, or (gid_t)-1 to leave unchanged.
+ *   egid - Effective group ID, or (gid_t)-1 to leave unchanged.
+ *   sgid - Saved set-group-ID, or (gid_t)-1 to leave unchanged.
  *
  * Returned Value:
  *   Zero if successful and -1 in case of failure, in which case errno is set
- *   to one of he following values:
- *
- *   EINVAL - The value of the uid argument is invalid and not supported by
- *            the implementation.
- *   EPERM  - The process does not have appropriate privileges and uid does
- *            not match the real user ID or the saved set-user-ID.
+ *   appropriately.
  *
  ****************************************************************************/
 
-int setuid(uid_t uid)
+int setresgid(gid_t rgid, gid_t egid, gid_t sgid)
 {
-  FAR struct tcb_s *rtcb;
-  FAR struct task_group_s *rgroup;
+  /* NuttX only supports the group identity 'root' with a gid value of 0. */
 
-  /* Get the currently executing thread's task group. */
-
-  rtcb   = this_task();
-  rgroup = rtcb->group;
-
-  DEBUGASSERT(rgroup != NULL);
-
-  if (rgroup->tg_euid == 0)
+  if ((rgid == (gid_t)-1 || rgid == 0) &&
+      (egid == (gid_t)-1 || egid == 0) &&
+      (sgid == (gid_t)-1 || sgid == 0))
     {
-      /* Root: set real, effective, and saved set-user-ID. */
-
-      rgroup->tg_uid  = uid;
-      rgroup->tg_euid = uid;
-      rgroup->tg_suid = uid;
-    }
-  else if (uid == rgroup->tg_uid || uid == rgroup->tg_suid)
-    {
-      /* Non-root: may only set effective UID to real or saved value. */
-
-      rgroup->tg_euid = uid;
-    }
-  else
-    {
-      set_errno(EPERM);
-      return ERROR;
+      return 0;
     }
 
-  return OK;
+  set_errno(EINVAL);
+  return ERROR;
 }

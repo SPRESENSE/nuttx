@@ -1,5 +1,5 @@
 /****************************************************************************
- * sched/group/group_setuid.c
+ * sched/group/group_setresgid.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -26,7 +26,6 @@
 
 #include <nuttx/config.h>
 
-#include <sys/types.h>
 #include <unistd.h>
 #include <assert.h>
 #include <errno.h>
@@ -38,58 +37,56 @@
  ****************************************************************************/
 
 /****************************************************************************
- * Name: setuid
+ * Name: setresgid
  *
  * Description:
- *   The setuid() function sets the real user ID, effective user ID, and the
- *   saved set-user-ID of the calling process to uid, given appropriate
- *   privileges.
- *
- * Input Parameters:
- *   uid - User identity to set the various process's user ID attributes to.
- *
- * Returned Value:
- *   Zero if successful and -1 in case of failure, in which case errno is set
- *   to one of he following values:
- *
- *   EINVAL - The value of the uid argument is invalid and not supported by
- *            the implementation.
- *   EPERM  - The process does not have appropriate privileges and uid does
- *            not match the real user ID or the saved set-user-ID.
+ *   setresgid() sets the real, effective, and saved set-group-IDs of the
+ *   calling process.  The value (gid_t)-1
+ *   for any argument leaves that ID unchanged.
  *
  ****************************************************************************/
 
-int setuid(uid_t uid)
+int setresgid(gid_t rgid, gid_t egid, gid_t sgid)
 {
   FAR struct tcb_s *rtcb;
   FAR struct task_group_s *rgroup;
-
-  /* Get the currently executing thread's task group. */
+  gid_t old_rgid;
+  gid_t old_egid;
+  gid_t old_sgid;
+  gid_t new_rgid;
+  gid_t new_egid;
+  gid_t new_sgid;
 
   rtcb   = this_task();
   rgroup = rtcb->group;
-
   DEBUGASSERT(rgroup != NULL);
 
-  if (rgroup->tg_euid == 0)
-    {
-      /* Root: set real, effective, and saved set-user-ID. */
+  old_rgid = rgroup->tg_gid;
+  old_egid = rgroup->tg_egid;
+  old_sgid = rgroup->tg_sgid;
 
-      rgroup->tg_uid  = uid;
-      rgroup->tg_euid = uid;
-      rgroup->tg_suid = uid;
-    }
-  else if (uid == rgroup->tg_uid || uid == rgroup->tg_suid)
-    {
-      /* Non-root: may only set effective UID to real or saved value. */
+  new_rgid = (rgid == (gid_t)-1) ? old_rgid : rgid;
+  new_egid = (egid == (gid_t)-1) ? old_egid : egid;
+  new_sgid = (sgid == (gid_t)-1) ? old_sgid : sgid;
 
-      rgroup->tg_euid = uid;
-    }
-  else
+  /* Non-root euid may only select among current real/effective/saved. */
+
+  if (rgroup->tg_euid != 0)
     {
-      set_errno(EPERM);
-      return ERROR;
+      if ((new_rgid != old_rgid && new_rgid != old_egid &&
+           new_rgid != old_sgid) ||
+          (new_egid != old_rgid && new_egid != old_egid &&
+           new_egid != old_sgid) ||
+          (new_sgid != old_rgid && new_sgid != old_egid &&
+           new_sgid != old_sgid))
+        {
+          set_errno(EPERM);
+          return ERROR;
+        }
     }
 
+  rgroup->tg_gid  = new_rgid;
+  rgroup->tg_egid = new_egid;
+  rgroup->tg_sgid = new_sgid;
   return OK;
 }
