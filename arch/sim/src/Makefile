@@ -37,12 +37,12 @@ ifeq ($(CONFIG_VIDEOUTILS_LIBX264),y)
 INCLUDES += ${INCDIR_PREFIX}$(APPSDIR)/videoutils/x264/x264
 endif
 
-ifeq ($(CONFIG_VIDEOUTILS_LIBMAD),y)
+ifeq ($(CONFIG_AUDIOUTILS_LIBMAD),y)
 INCLUDES += ${INCDIR_PREFIX}$(APPSDIR)/audioutils/libmad/libmad
 endif
 
-ifeq ($(CONFIG_VIDEOUTILS_LAME),y)
-INCLUDES += ${INCDIR_PREFIX}$(APPSDIR)/audioutils/lame/lame
+ifeq ($(CONFIG_AUDIOUTILS_LAME),y)
+INCLUDES += ${INCDIR_PREFIX}$(APPSDIR)/audioutils/lame/lame/include
 endif
 
 CPPFLAGS += $(INCLUDES)
