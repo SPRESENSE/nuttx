@@ -33,21 +33,6 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-/* Nonzero if either x or y is not aligned on a "long" boundary. */
-
-#define UNALIGNED(x, y) \
-  (((long)(uintptr_t)(x) & (sizeof(long) - 1)) | ((long)(uintptr_t)(y) & (sizeof(long) - 1)))
-
-/* Macros for detecting endchar */
-
-#if LONG_MAX == 2147483647
-#  define DETECTNULL(x) (((x) - 0x01010101) & ~(x) & 0x80808080)
-#elif LONG_MAX == 9223372036854775807
-/* Nonzero if x (a long int) contains a NULL byte. */
-
-#  define DETECTNULL(x) (((x) - 0x0101010101010101) & ~(x) & 0x8080808080808080)
-#endif
-
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
@@ -58,23 +43,15 @@ no_builtin("strcmp")
 nosanitize_address
 int strcmp(FAR const char *cs, FAR const char *ct)
 {
-  FAR unsigned long *a1;
-  FAR unsigned long *a2;
-
   /* If cs or ct are unaligned, then compare bytes. */
 
   if (!UNALIGNED(cs, ct))
     {
-      /* If cs and ct are word-aligned, compare them a word at a time. */
+      FAR libc_data_t *a1 = (FAR libc_data_t *)cs;
+      FAR libc_data_t *a2 = (FAR libc_data_t *)ct;
 
-      a1 = (FAR unsigned long *)cs;
-      a2 = (FAR unsigned long *)ct;
       while (*a1 == *a2)
         {
-          /* To get here, *a1 == *a2, thus if we find a null in *a1,
-           * then the strings must be equal, so return zero.
-           */
-
           if (DETECTNULL(*a1))
             {
               return 0;
@@ -84,9 +61,24 @@ int strcmp(FAR const char *cs, FAR const char *ct)
           a2++;
         }
 
-      /* A difference was detected in last few bytes of cs,
-       * so search bytewise.
-       */
+      cs = (FAR char *)a1;
+      ct = (FAR char *)a2;
+    }
+  else if (!UNALIGNED4(cs, ct))
+    {
+      FAR uint32_t *a1 = (FAR uint32_t *)cs;
+      FAR uint32_t *a2 = (FAR uint32_t *)ct;
+
+      while (*a1 == *a2)
+        {
+          if (DETECTNULL32(*a1))
+            {
+              return 0;
+            }
+
+          a1++;
+          a2++;
+        }
 
       cs = (FAR char *)a1;
       ct = (FAR char *)a2;

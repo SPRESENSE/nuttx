@@ -33,10 +33,6 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-#define LBLOCKSIZE     (sizeof(long))
-#define UNALIGNED(x)   ((long)(x) & (LBLOCKSIZE - 1))
-#define TOO_SMALL(len) ((len) < LBLOCKSIZE)
-
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
@@ -50,14 +46,14 @@
 no_builtin("memset")
 FAR void *memset(FAR void *m, int c, size_t n)
 {
-  FAR unsigned long *aligned_addr;
+  FAR libc_data_t *aligned_addr;
   FAR char *s = (FAR char *)m;
-  unsigned long buffer;
+  libc_data_t buffer;
   int i;
 
   /* To avoid sign extension, copy C to an unsigned variable.  */
 
-  while (UNALIGNED(s))
+  while (UNALIGNED(s, 0))
     {
       if (n--)
         {
@@ -69,33 +65,35 @@ FAR void *memset(FAR void *m, int c, size_t n)
         }
     }
 
+  buffer  = (uint8_t)c;
+  buffer |= (buffer << 8);
+  buffer |= (buffer << 16);
+  for (i = 32; i < LITTLEBLOCKSIZE * 8; i <<= 1)
+    {
+      buffer = (buffer << i) | buffer;
+    }
+
   if (!TOO_SMALL(n))
     {
       /* If we get this far, we know that n is large and s is word-aligned. */
 
-      aligned_addr = (FAR unsigned long *)s;
-      buffer = ((unsigned int)c << 8) | c;
-      buffer |= (buffer << 16);
-      for (i = 32; i < LBLOCKSIZE * 8; i <<= 1)
-        {
-          buffer = (buffer << i) | buffer;
-        }
+      aligned_addr = (FAR libc_data_t *)s;
 
       /* Unroll the loop.  */
 
-      while (n >= LBLOCKSIZE * 4)
+      while (n >= LITTLEBLOCKSIZE * 4)
         {
           *aligned_addr++ = buffer;
           *aligned_addr++ = buffer;
           *aligned_addr++ = buffer;
           *aligned_addr++ = buffer;
-          n -= 4 * LBLOCKSIZE;
+          n -= 4 * LITTLEBLOCKSIZE;
         }
 
-      while (n >= LBLOCKSIZE)
+      while (n >= LITTLEBLOCKSIZE)
         {
           *aligned_addr++ = buffer;
-          n -= LBLOCKSIZE;
+          n -= LITTLEBLOCKSIZE;
         }
 
       /* Pick up the remainder with a bytewise loop.  */
@@ -103,9 +101,35 @@ FAR void *memset(FAR void *m, int c, size_t n)
       s = (FAR char *)aligned_addr;
     }
 
-  while (n--)
+  /* Tail: here s is libc_data_t-aligned and n < LITTLEBLOCKSIZE.
+   * Fill with aligned stores of decreasing width - no unaligned access,
+   * no overlap, no over-write.
+   */
+
+  if (LITTLEBLOCKSIZE > 8 && n >= 8)
     {
-      *s++ = c;
+      *(FAR uint64_t *)s = (uint64_t)buffer;
+      s += 8;
+      n -= 8;
+    }
+
+  if (n >= 4)
+    {
+      *(FAR uint32_t *)s = (uint32_t)buffer;
+      s += 4;
+      n -= 4;
+    }
+
+  if (n >= 2)
+    {
+      *(FAR uint16_t *)s = (uint16_t)buffer;
+      s += 2;
+      n -= 2;
+    }
+
+  if (n)
+    {
+      *s = (uint8_t)buffer;
     }
 
   return m;

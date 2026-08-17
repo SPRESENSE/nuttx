@@ -33,21 +33,6 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-/* Nonzero if either x or y is not aligned on a "long" boundary. */
-
-#define UNALIGNED(x, y) \
-  (((long)(uintptr_t)(x) & (sizeof(long) - 1)) | ((long)(uintptr_t)(y) & (sizeof(long) - 1)))
-
-/* Macros for detecting endchar */
-
-#if LONG_MAX == 2147483647
-#  define DETECTNULL(x) (((x) - 0x01010101) & ~(x) & 0x80808080)
-#elif LONG_MAX == 9223372036854775807
-/* Nonzero if x (a long int) contains a NULL byte. */
-
-#  define DETECTNULL(x) (((x) - 0x0101010101010101) & ~(x) & 0x8080808080808080)
-#endif
-
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
@@ -72,21 +57,28 @@ FAR char *strcpy(FAR char *dest, FAR const char *src)
 {
   FAR char *dst0 = dest;
   FAR const char *src0 = src;
-  FAR unsigned long *aligned_dst;
-  FAR const unsigned long *aligned_src;
 
   /* If SRC or DEST is unaligned, then copy bytes. */
 
   if (!UNALIGNED(src0, dst0))
     {
-      aligned_dst = (FAR unsigned long *)dst0;
-      aligned_src = (FAR unsigned long *)src0;
-
-      /* SRC and DEST are both "long int" aligned, try to do "long int"
-       * sized copies.
-       */
+      FAR libc_data_t *aligned_dst = (FAR libc_data_t *)dst0;
+      FAR const libc_data_t *aligned_src = (FAR libc_data_t *)src0;
 
       while (!DETECTNULL(*aligned_src))
+        {
+          *aligned_dst++ = *aligned_src++;
+        }
+
+      dst0 = (FAR char *)aligned_dst;
+      src0 = (FAR char *)aligned_src;
+    }
+  else if (!UNALIGNED4(src0, dst0))
+    {
+      FAR uint32_t *aligned_dst = (FAR uint32_t *)dst0;
+      FAR const uint32_t *aligned_src = (FAR uint32_t *)src0;
+
+      while (!DETECTNULL32(*aligned_src))
         {
           *aligned_dst++ = *aligned_src++;
         }

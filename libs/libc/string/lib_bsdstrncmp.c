@@ -33,23 +33,6 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-#define LBLOCKSIZE (sizeof(long))
-
-/* Nonzero if either x or y is not aligned on a "long" boundary. */
-
-#define UNALIGNED(x, y) \
-  (((long)(uintptr_t)(x) & (sizeof(long) - 1)) | ((long)(uintptr_t)(y) & (sizeof(long) - 1)))
-
-/* Macros for detecting endchar */
-
-#if LONG_MAX == 2147483647
-#  define DETECTNULL(x) (((x) - 0x01010101) & ~(x) & 0x80808080)
-#elif LONG_MAX == 9223372036854775807
-/* Nonzero if x (a long int) contains a NULL byte. */
-
-#  define DETECTNULL(x) (((x) - 0x0101010101010101) & ~(x) & 0x8080808080808080)
-#endif
-
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
@@ -60,9 +43,6 @@ no_builtin("strncmp")
 nosanitize_address
 int strncmp(FAR const char *cs, FAR const char *ct, size_t nb)
 {
-  FAR unsigned long *a1;
-  FAR unsigned long *a2;
-
   if (nb == 0)
     {
       return 0;
@@ -72,17 +52,12 @@ int strncmp(FAR const char *cs, FAR const char *ct, size_t nb)
 
   if (!UNALIGNED(cs, ct))
     {
-      /* If cs and ct are word-aligned, compare them a word at a time. */
+      FAR libc_data_t *a1 = (FAR libc_data_t *)cs;
+      FAR libc_data_t *a2 = (FAR libc_data_t *)ct;
 
-      a1 = (FAR unsigned long *)cs;
-      a2 = (FAR unsigned long *)ct;
-      while (nb >= LBLOCKSIZE && *a1 == *a2)
+      while (nb >= LITTLEBLOCKSIZE && *a1 == *a2)
         {
-          nb -= LBLOCKSIZE;
-
-          /* If we've run out of bytes or hit a null, return zero
-           * since we already know *a1 == *a2.
-           */
+          nb -= LITTLEBLOCKSIZE;
 
           if (nb == 0 || DETECTNULL(*a1))
             {
@@ -93,9 +68,26 @@ int strncmp(FAR const char *cs, FAR const char *ct, size_t nb)
           a2++;
         }
 
-      /* A difference was detected in last few bytes of cs, so search
-       * bytewise.
-       */
+      cs = (FAR char *)a1;
+      ct = (FAR char *)a2;
+    }
+  else if (!UNALIGNED4(cs, ct))
+    {
+      FAR uint32_t *a1 = (FAR uint32_t *)cs;
+      FAR uint32_t *a2 = (FAR uint32_t *)ct;
+
+      while (nb >= LITTLEBLOCKSIZE4 && *a1 == *a2)
+        {
+          nb -= LITTLEBLOCKSIZE4;
+
+          if (nb == 0 || DETECTNULL32(*a1))
+            {
+              return 0;
+            }
+
+          a1++;
+          a2++;
+        }
 
       cs = (FAR char *)a1;
       ct = (FAR char *)a2;
@@ -103,10 +95,6 @@ int strncmp(FAR const char *cs, FAR const char *ct, size_t nb)
 
   while (nb-- > 0 && *cs == *ct)
     {
-      /* If we've run out of bytes or hit a null, return zero
-       * since we already know *cs == *ct.
-       */
-
       if (nb == 0 || *cs == '\0')
         {
           return 0;

@@ -27,30 +27,11 @@
 #include <sys/types.h>
 #include <string.h>
 
+#include "libc.h"
+
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
-
-/* Nonzero if either x or y is not aligned on a "long" boundary. */
-
-#define UNALIGNED(x, y) \
-  (((long)(uintptr_t)(x) & (sizeof(long) - 1)) | ((long)(uintptr_t)(y) & (sizeof(long) - 1)))
-
-/* How many bytes are loaded each iteration of the word copy loop. */
-
-#define LBLOCKSIZE (sizeof(long))
-
-/* Macros for detecting endchar */
-
-#if LONG_MAX == 2147483647
-#define DETECTNULL(x) (((x) - 0x01010101) & ~(x) & 0x80808080)
-#elif LONG_MAX == 9223372036854775807
-/* Nonzero if x (a long int) contains a NULL byte. */
-
-#define DETECTNULL(x) (((x) - 0x0101010101010101) & ~(x) & 0x8080808080808080)
-#endif
-
-#define TOO_SMALL(len) ((len) < sizeof(long))
 
 /****************************************************************************
  * Public Functions
@@ -85,23 +66,31 @@ no_builtin("stpncpy")
 FAR char *stpncpy(FAR char *dest, FAR const char *src, size_t n)
 {
   FAR char *ret = NULL;
-  FAR long *aligned_dst;
-  FAR const long *aligned_src;
 
   /* If src and dest is aligned and n large enough, then copy words. */
 
   if (!UNALIGNED(src, dest) && !TOO_SMALL(n))
     {
-      aligned_dst = (FAR long *)dest;
-      aligned_src = (FAR long *)src;
+      FAR libc_data_t *aligned_dst = (FAR libc_data_t *)dest;
+      FAR const libc_data_t *aligned_src = (FAR libc_data_t *)src;
 
-      /* src and dest are both "long int" aligned, try to do "long int"
-       * sized copies.
-       */
-
-      while (n >= LBLOCKSIZE && !DETECTNULL(*aligned_src))
+      while (n >= LITTLEBLOCKSIZE && !DETECTNULL(*aligned_src))
         {
-          n -= LBLOCKSIZE;
+          n -= LITTLEBLOCKSIZE;
+          *aligned_dst++ = *aligned_src++;
+        }
+
+      dest = (FAR char *)aligned_dst;
+      src = (FAR char *)aligned_src;
+    }
+  else if (!UNALIGNED4(src, dest) && !TOO_SMALL4(n))
+    {
+      FAR uint32_t *aligned_dst = (FAR uint32_t *)dest;
+      FAR const uint32_t *aligned_src = (FAR uint32_t *)src;
+
+      while (n >= LITTLEBLOCKSIZE4 && !DETECTNULL32(*aligned_src))
+        {
+          n -= LITTLEBLOCKSIZE4;
           *aligned_dst++ = *aligned_src++;
         }
 

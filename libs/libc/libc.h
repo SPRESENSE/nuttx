@@ -171,15 +171,63 @@
 #  define ARCH_LIBCFUN(x)  x
 #endif
 
+/* Nonzero if either x or y is not aligned on a "libc_data_t" boundary. */
+
+#define UNALIGNED_X(x) \
+  (((libc_data_t)(uintptr_t)(x) & (sizeof(libc_data_t) - 1)) != 0)
+
+#define UNALIGNED(x, y) ((UNALIGNED_X(x)) | (UNALIGNED_X(y)))
+
+#define ALIGNED(x) \
+  (((libc_data_t)(uintptr_t)(x) & (sizeof(libc_data_t) - 1)) == 0)
+
+/* How many bytes are copied each iteration of the word copy loop. */
+
+#define LITTLEBLOCKSIZE (sizeof(libc_data_t))
+#define BIGBLOCKSIZE    (sizeof(libc_data_t) << 2)
+
+/* Threshold for punting to the byte copier. */
+
+#define TOO_SMALL(len) ((len) < LITTLEBLOCKSIZE)
+
+/* Macros for detecting endchar */
+
+#define DETECTNULL(x) \
+     (((x) - 0x0101010101010101LL) & ~(x) & 0x8080808080808080LL)
+
+#define DETECTCHAR(x, mask) (DETECTNULL((x) ^ (mask)))
+
+/* 32-bit helpers for the 4-byte middle path on 64-bit platforms.
+ * When libc_data_t is 8 bytes, pointers that are 4-byte aligned
+ * but not 8-byte aligned would otherwise fall back to byte-at-a-time.
+ */
+
+#define DETECTNULL32(x) \
+     (((x) - (uint32_t)0x01010101) & ~(x) & (uint32_t)0x80808080)
+
+#define DETECTCHAR32(x, mask) (DETECTNULL32((x) ^ (mask)))
+
+#define UNALIGNED4(x, y) \
+     ((((uintptr_t)(x)) | ((uintptr_t)(y))) & 3)
+
+#define UNALIGNED4_X(x) (((uintptr_t)(x)) & 3)
+
+#define LITTLEBLOCKSIZE4 (sizeof(uint32_t))
+#define BIGBLOCKSIZE4    (sizeof(uint32_t) << 2)
+
+#define TOO_SMALL4(len) ((len) < LITTLEBLOCKSIZE4)
+
+#ifndef __ASSEMBLY__
+
 /****************************************************************************
  * Public Types
  ****************************************************************************/
 
+typedef unsigned long long libc_data_t;
+
 /****************************************************************************
  * Public Data
  ****************************************************************************/
-
-#ifndef __ASSEMBLY__
 
 #undef EXTERN
 #if defined(__cplusplus)
