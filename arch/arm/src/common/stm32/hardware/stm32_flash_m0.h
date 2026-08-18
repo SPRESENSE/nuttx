@@ -38,6 +38,8 @@
 #  include "hardware/stm32g0_flash.h"
 #elif defined(CONFIG_ARCH_CHIP_STM32C0)
 #  include "hardware/stm32c0_flash.h"
+#elif defined(CONFIG_ARCH_CHIP_STM32U0)
+#  include "hardware/stm32u0_flash.h"
 #else
 #  error "Unsupported STM32 M0 FLASH"
 #endif
