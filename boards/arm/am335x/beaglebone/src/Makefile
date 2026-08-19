@@ -1,5 +1,5 @@
 ############################################################################
-# boards/risc-v/eic7700x/starpro64/src/Makefile
+# boards/arm/am335x/beaglebone/src/Makefile
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -22,8 +22,6 @@
 
 include $(TOPDIR)/Make.defs
 
-RCSRCS = etc/init.d/rc.sysinit etc/init.d/rcS
-
-CSRCS = eic7700x_boardinit.c
+CSRCS = am335x_boot.c am335x_bringup.c am335x_leds.c
 
 include $(TOPDIR)/boards/Board.mk

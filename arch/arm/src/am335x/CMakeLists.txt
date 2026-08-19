@@ -47,4 +47,8 @@ if(CONFIG_AM335X_LCDC)
   list(APPEND SRCS am335x_lcdc.c am335x_edid.c)
 endif()
 
+if(CONFIG_MM_PGALLOC)
+  list(APPEND SRCS am335x_pgalloc.c)
+endif()
+
 target_sources(arch PRIVATE ${SRCS})

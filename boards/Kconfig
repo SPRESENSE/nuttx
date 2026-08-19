@@ -1702,6 +1702,15 @@ config ARCH_BOARD_PCDUINO_A10
 		the differences are cosmetic.  This port was developed on the v1 board,
 		but the others may be compatible.
 
+config ARCH_BOARD_BEAGLEBONE
+	bool "beaglebone"
+	depends on ARCH_CHIP_AM335X
+	select ARCH_HAVE_LEDS
+	select ARCH_HAVE_BUTTONS
+	select ARCH_HAVE_IRQBUTTONS
+	---help---
+		This is the port of NuttX to the original TI Beaglebone board.
+
 config ARCH_BOARD_BEAGLEBONE_BLACK
 	bool "beaglebone black"
 	depends on ARCH_CHIP_AM335X
@@ -2407,12 +2416,50 @@ config ARCH_BOARD_SG2000_MILKV_DUOS
 		This options selects support for NuttX on Milk-V Duo S based
 		on SOPHGO SG2000 SoC.
 
+config ARCH_BOARD_LICHEE_RV_86_PANEL
+	bool "Sipeed Lichee RV 86 Panel"
+	depends on ARCH_CHIP_ALLWINNER_D1
+	---help---
+		This selects the Sipeed Lichee RV 86 Panel / Lichee RV D1
+		platform based on the Allwinner D1 SoC.
+
 config ARCH_BOARD_EIC7700X_STARPRO64
 	bool "PINE64 StarPro64"
 	depends on ARCH_CHIP_EIC7700X
 	---help---
 		This options selects support for NuttX on PINE64 StarPro64 based
 		on ESWIN EIC7700X SoC.
+
+		UART0 is the console.  There is no USB serial bridge on the
+		board, so it comes out level shifted to 3.3V on the 40 pin GPIO
+		header, transmit on pin 8 and receive on pin 10, which is where
+		a Raspberry Pi puts them too.
+
+		UART1 carries the Bluetooth HCI of the on board AIC8800D80 WiFi
+		and Bluetooth combo, CTS and RTS included.
+
+		Nothing else here is a UART, in spite of the UART map on sheet 3
+		of the schematic.  That table came from ESWIN's reference design
+		and does not describe this board: GPIO62, which is the UART2_TX
+		pad, drives the system state LED, GPIO63 is unconnected, the
+		UART3 pads carry I2C8, and the UART4 pads go nowhere.
+
+config ARCH_BOARD_EIC7700X_EVB
+	bool "ESWIN EIC7700 EVB"
+	depends on ARCH_CHIP_EIC7700X
+	---help---
+		ESWIN's own evaluation board for the EIC7700X, which U-Boot
+		identifies as "ESWIN EIC7700 EVB" and whose schematic calls it
+		ESWIN-EIC7700FG-LP4X-A1.
+
+		UART0 is the console, on the FT4232 USB-C serial bridge.  UART1
+		goes to the Bluetooth M.2 Key-E connector, CTS and RTS included,
+		and is also broken out on the six pin header J97.  UART2 goes to
+		the RS232 transceiver and its DB9 connector.  UART3 and UART4
+		are unused.
+
+		The four boot select pads, GPIO107 to GPIO110, each drive a
+		system LED once the straps have been sampled.
 
 config ARCH_BOARD_S32K118EVB
 	bool "NXP S32K118EVB"
@@ -3978,6 +4025,7 @@ config ARCH_BOARD
 	default "or1k"                         if ARCH_BOARD_OR1K
 	default "p112"                         if ARCH_BOARD_P112
 	default "pcduino-a10"                  if ARCH_BOARD_PCDUINO_A10
+	default "beaglebone"                   if ARCH_BOARD_BEAGLEBONE
 	default "beaglebone-black"             if ARCH_BOARD_BEAGLEBONE_BLACK
 	default "pic32mx-starterkit"           if ARCH_BOARD_PIC32MX_STARTERKIT
 	default "pic32mx7mmb"                  if ARCH_BOARD_PIC32MX7MMB
@@ -4025,7 +4073,9 @@ config ARCH_BOARD
 	default "canmv230"                     if ARCH_BOARD_K230_CANMV
 	default "ox64"                         if ARCH_BOARD_BL808_OX64
 	default "milkv_duos"                   if ARCH_BOARD_SG2000_MILKV_DUOS
+	default "lichee-rv-86-panel"           if ARCH_BOARD_LICHEE_RV_86_PANEL
 	default "starpro64"                    if ARCH_BOARD_EIC7700X_STARPRO64
+	default "eic7700-evb"                  if ARCH_BOARD_EIC7700X_EVB
 	default "sabre-6quad"                  if ARCH_BOARD_SABRE_6QUAD
 	default "a2g-tc397-5v-tft"             if ARCH_BOARD_A2G_TC397_5V_TFT
 	default "triboard_tc4x9_com"           if ARCH_BOARD_TRIBOARD_TC4X9_COM
@@ -4203,6 +4253,9 @@ comment "Board-Specific Options"
 
 if ARCH_BOARD_PCDUINO_A10
 source "boards/arm/a1x/pcduino-a10/Kconfig"
+endif
+if ARCH_BOARD_BEAGLEBONE
+source "boards/arm/am335x/beaglebone/Kconfig"
 endif
 if ARCH_BOARD_BEAGLEBONE_BLACK
 source "boards/arm/am335x/beaglebone-black/Kconfig"
@@ -5122,8 +5175,14 @@ endif
 if ARCH_BOARD_SG2000_MILKV_DUOS
 source "boards/risc-v/sg2000/milkv_duos/Kconfig"
 endif
+if ARCH_BOARD_LICHEE_RV_86_PANEL
+source "boards/risc-v/allwinner-d1/lichee-rv-86-panel/Kconfig"
+endif
 if ARCH_BOARD_EIC7700X_STARPRO64
 source "boards/risc-v/eic7700x/starpro64/Kconfig"
+endif
+if ARCH_BOARD_EIC7700X_EVB
+source "boards/risc-v/eic7700x/eic7700-evb/Kconfig"
 endif
 if ARCH_BOARD_ESP32C3_LEGACY_DEVKIT
 source "boards/risc-v/esp32c3-legacy/esp32c3-legacy-devkit/Kconfig"

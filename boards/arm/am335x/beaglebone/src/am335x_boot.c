@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/risc-v/eic7700x/starpro64/src/eic7700x_boardinit.c
+ * boards/arm/am335x/beaglebone/src/am335x_boot.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -26,71 +26,67 @@
 
 #include <nuttx/config.h>
 
-#include <stdbool.h>
-#include <stdio.h>
-#include <syslog.h>
-#include <errno.h>
+#include <nuttx/debug.h>
 
 #include <nuttx/board.h>
-#include <nuttx/drivers/ramdisk.h>
-#include <sys/mount.h>
-#include <sys/boardctl.h>
-#include <arch/board/board_memorymap.h>
+
+#include "beaglebone.h"
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
-
-/* RAM Disk Definition */
-
-#define SECTORSIZE   512
-#define NSECTORS(b)  (((b) + SECTORSIZE - 1) / SECTORSIZE)
-#define RAMDISK_DEVICE_MINOR 0
 
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: mount_ramdisk
+ * Public Functions
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: am335x_memory_initialize
  *
  * Description:
- *  Mount a RAM Disk defined in ld.script to /dev/ramX.  The RAM Disk
- *  contains a ROMFS filesystem with applications that can be spawned at
- *  runtime.
+ *   All AM335X architectures must provide the following entry point.  This
+ *   entry point is called early in the initialization before memory has
+ *   been configured.  This board-specific function is responsible for
+ *   configuring any on-board memories.
+ *
+ *   Logic in am335x_memory_initialize must be careful to avoid using any
+ *   global variables because those will be uninitialized at the time this
+ *   function is called.
+ *
+ * Input Parameters:
+ *   None
  *
  * Returned Value:
- *   OK is returned on success.
- *   -ERRORNO is returned on failure.
+ *   None
  *
  ****************************************************************************/
 
-static int mount_ramdisk(void)
+void am335x_memory_initialize(void)
 {
-  int ret;
-  struct boardioc_romdisk_s desc;
-
-  desc.minor    = RAMDISK_DEVICE_MINOR;
-  desc.nsectors = NSECTORS((ssize_t)__ramdisk_size);
-  desc.sectsize = SECTORSIZE;
-  desc.image    = __ramdisk_start;
-
-  ret = boardctl(BOARDIOC_ROMDISK, (uintptr_t)&desc);
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "Ramdisk register failed: %s\n", strerror(errno));
-      syslog(LOG_ERR, "Ramdisk mountpoint /dev/ram%d\n",
-             RAMDISK_DEVICE_MINOR);
-      syslog(LOG_ERR, "Ramdisk length %lu, origin %lx\n",
-             (ssize_t)__ramdisk_size, (uintptr_t)__ramdisk_start);
-    }
-
-  return ret;
+  /* SDRAM was initialized by a bootloader in the supported configurations. */
 }
 
 /****************************************************************************
- * Public Functions
+ * Name: am335x_board_initialize
+ *
+ * Description:
+ *   All AM335x architectures must provide the following entry point.
+ *   This entry point is called early in the initialization -- after all
+ *   memory has been configured and mapped but before any devices have been
+ *   initialized.
+ *
  ****************************************************************************/
+
+void am335x_board_initialize(void)
+{
+  /* Configure on-board LEDs. */
+
+  am335x_led_initialize();
+}
 
 /****************************************************************************
  * Name: board_late_initialize
@@ -98,28 +94,18 @@ static int mount_ramdisk(void)
  * Description:
  *   If CONFIG_BOARD_LATE_INITIALIZE is selected, then an additional
  *   initialization call will be performed in the boot-up sequence to a
- *   function called board_late_initialize().  board_late_initialize() will
- *   be called after up_initialize() and board_early_initialize() and just
- *   before the initial application is started.  This additional
- *   initialization phase may be used, for example, to initialize board-
- *   specific device drivers for which board_early_initialize() is not
- *   suitable.
- *
- *   Waiting for events, use of I2C, SPI, etc are permissible in the context
- *   of board_late_initialize().  That is because board_late_initialize()
- *   will run on a temporary, internal kernel thread.
+ *   function called board_late_initialize(). board_late_initialize() will be
+ *   called immediately after up_initialize() is called and just before the
+ *   initial application is started.  This additional initialization phase
+ *   may be used, for example, to initialize board-specific device drivers.
  *
  ****************************************************************************/
 
 #ifdef CONFIG_BOARD_LATE_INITIALIZE
 void board_late_initialize(void)
 {
-  /* Mount the RAM Disk */
-
-  mount_ramdisk();
-
   /* Perform board-specific initialization */
 
-  mount(NULL, "/proc", "procfs", 0, NULL);
+  am335x_bringup();
 }
 #endif /* CONFIG_BOARD_LATE_INITIALIZE */

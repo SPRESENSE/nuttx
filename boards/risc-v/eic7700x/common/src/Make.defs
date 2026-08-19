@@ -1,5 +1,5 @@
 ############################################################################
-# boards/risc-v/eic7700x/starpro64/scripts/Make.defs
+# boards/risc-v/eic7700x/common/src/Make.defs
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -20,16 +20,14 @@
 #
 ############################################################################
 
-include $(TOPDIR)/.config
-include $(TOPDIR)/tools/Config.mk
-include $(TOPDIR)/arch/risc-v/src/common/Toolchain.defs
+ifeq ($(CONFIG_ARCH_BOARD_COMMON),y)
 
-LDSCRIPT = ld.script
-ARCHSCRIPT += $(BOARD_DIR)$(DELIM)scripts$(DELIM)$(LDSCRIPT)
+CSRCS += eic7700x_boot.c
 
-CFLAGS := $(ARCHCFLAGS) $(ARCHOPTIMIZATION) $(ARCHCPUFLAGS) $(ARCHINCLUDES) $(ARCHDEFINES) $(EXTRAFLAGS) -pipe
-CPICFLAGS = $(ARCHPICFLAGS) $(CFLAGS)
-CXXFLAGS := $(ARCHCXXFLAGS) $(ARCHOPTIMIZATION) $(ARCHCPUFLAGS) $(ARCHXXINCLUDES) $(ARCHDEFINES) $(EXTRAFLAGS) -pipe
-CXXPICFLAGS = $(ARCHPICFLAGS) $(CXXFLAGS)
-CPPFLAGS := $(ARCHINCLUDES) $(ARCHDEFINES) $(EXTRAFLAGS)
-AFLAGS += $(CFLAGS) -D__ASSEMBLY__
+RCSRCS = etc/init.d/rc.sysinit etc/init.d/rcS
+
+DEPPATH += --dep-path src
+VPATH += :src
+CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)board$(DELIM)src
+
+endif

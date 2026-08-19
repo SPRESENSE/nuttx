@@ -36,7 +36,7 @@
 #  endif
 #endif
 
-#if defined(__has_include) && !defined(CONFIG_LIBC_ARCH_ATOMIC)
+#if !defined(CONFIG_LIBC_ARCH_ATOMIC)
 #  if __has_include(<atomic>) && defined(__cplusplus)
 extern "C++"
 {
@@ -57,8 +57,7 @@ extern "C++"
   typedef volatile int32_t atomic_t;
   typedef volatile int64_t atomic64_t;
 }
-#  elif __has_include(<stdatomic.h>) && \
-        ((defined(__cplusplus) && __cplusplus >= 201103L) || \
+#  elif ((defined(__cplusplus) && __cplusplus >= 201103L) || \
          (defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L)) && \
          !defined(__STDC_NO_ATOMICS__)
 #    if !defined(__clang__) && defined(__cplusplus)
@@ -78,13 +77,31 @@ typedef volatile _Atomic int64_t atomic64_t;
 #  endif
 #endif
 
-#ifndef ATOMIC_FUNC
+#ifndef __ATOMIC_RELAXED
 #  define __ATOMIC_RELAXED 0
+#endif
+
+#ifndef __ATOMIC_CONSUME
 #  define __ATOMIC_CONSUME 1
+#endif
+
+#ifndef __ATOMIC_ACQUIRE
 #  define __ATOMIC_ACQUIRE 2
+#endif
+
+#ifndef __ATOMIC_RELEASE
 #  define __ATOMIC_RELEASE 3
+#endif
+
+#ifndef __ATOMIC_ACQ_REL
 #  define __ATOMIC_ACQ_REL 4
+#endif
+
+#ifndef __ATOMIC_SEQ_CST
 #  define __ATOMIC_SEQ_CST 5
+#endif
+
+#ifndef ATOMIC_FUNC
 
 #  define ATOMIC_FUNC(f, n) nx_atomic_##f##_##n
 

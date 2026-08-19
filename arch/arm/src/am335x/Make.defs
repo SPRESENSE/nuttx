@@ -39,3 +39,7 @@ endif
 ifeq ($(CONFIG_AM335X_LCDC),y)
 CHIP_CSRCS += am335x_lcdc.c am335x_edid.c
 endif
+
+ifeq ($(CONFIG_MM_PGALLOC),y)
+CHIP_CSRCS += am335x_pgalloc.c
+endif
