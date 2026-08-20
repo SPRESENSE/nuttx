@@ -81,7 +81,8 @@
 
 /* Initial interrupt mask: Reset + Suspend + Correct Transfer */
 
-#define STM32_CNTR_SETUP     (USB_CNTR_RESETM|USB_CNTR_SUSPM|USB_CNTR_CTRM)
+#define STM32_CNTR_SETUP     (USB_CNTR_RESETM|USB_CNTR_SUSPM|USB_CNTR_ERRM|\
+                              USB_CNTR_PMAOVRN|USB_CNTR_CTRM)
 
 /* Endpoint identifiers. The STM32 supports up to 16 mono-directional or 8
  * bidirectional endpoints.  However, when you take into account PMA buffer
@@ -722,7 +723,7 @@ static void stm32_dumpep(int epno)
 
 static inline void stm32_seteptxcount(uint8_t epno, uint16_t count)
 {
-  volatile uint32_t *epaddr = (uint32_t *)STM32_USB_COUNT_TX(epno);
+  volatile uint16_t *epaddr = (uint16_t *)STM32_USB_COUNT_TX(epno);
   *epaddr = count;
 }
 
@@ -732,7 +733,7 @@ static inline void stm32_seteptxcount(uint8_t epno, uint16_t count)
 
 static inline void stm32_seteptxaddr(uint8_t epno, uint16_t addr)
 {
-  volatile uint32_t *txaddr = (uint32_t *)STM32_USB_ADDR_TX(epno);
+  volatile uint16_t *txaddr = (uint16_t *)STM32_USB_ADDR_TX(epno);
   *txaddr = addr;
 }
 
@@ -742,7 +743,7 @@ static inline void stm32_seteptxaddr(uint8_t epno, uint16_t addr)
 
 static inline uint16_t stm32_geteptxaddr(uint8_t epno)
 {
-  volatile uint32_t *txaddr = (uint32_t *)STM32_USB_ADDR_TX(epno);
+  volatile uint16_t *txaddr = (uint16_t *)STM32_USB_ADDR_TX(epno);
   return (uint16_t)*txaddr;
 }
 
@@ -752,7 +753,7 @@ static inline uint16_t stm32_geteptxaddr(uint8_t epno)
 
 static void stm32_seteprxcount(uint8_t epno, uint16_t count)
 {
-  volatile uint32_t *epaddr = (uint32_t *)STM32_USB_COUNT_RX(epno);
+  volatile uint16_t *epaddr = (uint16_t *)STM32_USB_COUNT_RX(epno);
   uint32_t rxcount = 0;
   uint16_t nblocks;
 
@@ -801,7 +802,7 @@ static void stm32_seteprxcount(uint8_t epno, uint16_t count)
 
 static inline uint16_t stm32_geteprxcount(uint8_t epno)
 {
-  volatile uint32_t *epaddr = (uint32_t *)STM32_USB_COUNT_RX(epno);
+  volatile uint16_t *epaddr = (uint16_t *)STM32_USB_COUNT_RX(epno);
   return (*epaddr) & USB_COUNT_RX_MASK;
 }
 
@@ -811,7 +812,7 @@ static inline uint16_t stm32_geteprxcount(uint8_t epno)
 
 static inline void stm32_seteprxaddr(uint8_t epno, uint16_t addr)
 {
-  volatile uint32_t *rxaddr = (uint32_t *)STM32_USB_ADDR_RX(epno);
+  volatile uint16_t *rxaddr = (uint16_t *)STM32_USB_ADDR_RX(epno);
   *rxaddr = addr;
 }
 
@@ -821,7 +822,7 @@ static inline void stm32_seteprxaddr(uint8_t epno, uint16_t addr)
 
 static inline uint16_t stm32_geteprxaddr(uint8_t epno)
 {
-  volatile uint32_t *rxaddr = (uint32_t *)STM32_USB_ADDR_RX(epno);
+  volatile uint16_t *rxaddr = (uint16_t *)STM32_USB_ADDR_RX(epno);
   return (uint16_t)*rxaddr;
 }
 
@@ -1049,7 +1050,7 @@ static void stm32_copytopma(const uint8_t *buffer,
 
   /* Copy loop.  Source=user buffer, Dest=packet memory */
 
-  dest = (uint16_t *)(STM32_USBRAM_BASE + ((uint32_t)pma << 1));
+  dest = (uint16_t *)(STM32_USBRAM_BASE + (uint32_t)pma);
   for (i = nwords; i != 0; i--)
     {
       /* Read two bytes and pack into on 16-bit word */
@@ -1058,11 +1059,7 @@ static void stm32_copytopma(const uint8_t *buffer,
       ms = (uint16_t)(*buffer++);
       *dest = ms << 8 | ls;
 
-      /* Source address increments by 2*sizeof(uint8_t) = 2; Dest address
-       * increments by 2*sizeof(uint16_t) = 4.
-       */
-
-      dest += 2;
+      dest++;
     }
 }
 
@@ -1073,20 +1070,20 @@ static void stm32_copytopma(const uint8_t *buffer,
 static inline void
 stm32_copyfrompma(uint8_t *buffer, uint16_t pma, uint16_t nbytes)
 {
-  uint32_t *src;
+  uint16_t *src;
   int     nwords = (nbytes + 1) >> 1;
   int     i;
 
   /* Copy loop.  Source=packet memory, Dest=user buffer */
 
-  src = (uint32_t *)(STM32_USBRAM_BASE + ((uint32_t)pma << 1));
+  src = (uint16_t *)(STM32_USBRAM_BASE + (uint32_t)pma);
   for (i = nwords; i != 0; i--)
     {
       /* Copy 16-bits from packet memory to user buffer. */
 
       *(uint16_t *)buffer = *src++;
 
-      /* Source address increments by 1*sizeof(uint32_t) = 4; Dest address
+      /* Source address increments by 1*sizeof(uint16_t) = 2; Dest address
        * increments by 2*sizeof(uint8_t) = 2.
        */
 
@@ -2394,7 +2391,14 @@ static int stm32_usb_interrupt(int irq, void *context, void *arg)
 
       /* And handle the completion event */
 
-      stm32_epdone(priv, epno);
+      if (epno == EP0)
+        {
+          stm32_ep0done(priv, istr);
+        }
+      else
+        {
+          stm32_epdone(priv, epno);
+        }
 
       /* Fetch the status again for the next time through the loop */
 
@@ -2419,6 +2423,13 @@ static int stm32_usb_interrupt(int irq, void *context, void *arg)
 
       stm32_reset(priv);
       goto exit_interrupt;
+    }
+
+  if ((istr & (USB_ISTR_ERR | USB_ISTR_PMAOVRN)) != 0)
+    {
+      uint16_t errors = istr & (USB_ISTR_ERR | USB_ISTR_PMAOVRN);
+
+      stm32_putreg((uint16_t)~errors, STM32_USB_ISTR);
     }
 
   /* Handle Wakeup interrupts.
@@ -3673,20 +3684,19 @@ void arm_usbinitialize(void)
    */
 
   struct stm32_usbdev_s *priv = &g_usbdev;
-  uint32_t regval;
 
   usbtrace(TRACE_DEVINIT, 0);
 
   /* Configure USB GPIO alternate function pins */
-
+#ifndef CONFIG_STM32_STM32L0
   stm32_configgpio(GPIO_USB_DM);
   stm32_configgpio(GPIO_USB_DP);
+#endif
 
-  /* Enable clocking to the USB peripheral */
+  /* Reset the USB peripheral */
 
-  regval  = getreg32(STM32_RCC_APB1RSTR);
-  regval &= ~RCC_APB1ENR_USBEN;
-  putreg32(regval, STM32_RCC_APB1RSTR);
+  modifyreg32(STM32_RCC_APB1RSTR, 0, RCC_APB1RSTR_USBRST);
+  modifyreg32(STM32_RCC_APB1RSTR, RCC_APB1RSTR_USBRST, 0);
 
   /* Power up the USB controller, but leave it in the reset state */
 

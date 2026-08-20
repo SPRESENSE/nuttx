@@ -268,7 +268,7 @@ static inline void rcc_enableapb1(void)
   regval |= RCC_APB1ENR_USBEN;
 #endif
 
-#ifdef CONFIG_STM32_CRS
+#if defined(CONFIG_STM32_CRS) || defined(STM32_USE_HSI48)
   /* Clock recovery system clock enable */
 
   regval |= RCC_APB1ENR_CRSEN;
@@ -319,7 +319,9 @@ static inline void rcc_enableapb2(void)
 
   regval = getreg32(STM32_RCC_APB2ENR);
 
-#ifdef CONFIG_STM32_SYSCFG
+  /* VREFINT is configured through SYSCFG_CFGR3, so its clock is required */
+
+#if defined(CONFIG_STM32_SYSCFG) || defined(CONFIG_STM32_VREFINT)
   /* SYSCFG clock */
 
   regval |= RCC_APB2ENR_SYSCFGEN;
@@ -741,6 +743,8 @@ static void vrefint_enable(void)
 
   regval |= SYSCFG_CFGR3_ENBUFVREFINTHSI48;
 #endif
+
+  putreg32(regval, STM32_SYSCFG_CFGR3);
 
   /* Wait for VREFINT ready */
 
