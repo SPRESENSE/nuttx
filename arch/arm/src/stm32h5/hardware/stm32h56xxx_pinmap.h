@@ -29,7 +29,8 @@
 
 #include <nuttx/config.h>
 
-#if defined(CONFIG_STM32_STM32H563XX) || \
+#if defined(CONFIG_STM32_STM32H53XXX) || \
+    defined(CONFIG_STM32_STM32H563XX) || \
     defined(CONFIG_STM32_STM32H562XX)
 /****************************************************************************
  * Pre-processor Definitions
@@ -126,7 +127,8 @@
 
 /* Clocks outputs */
 
-#define GPIO_MCO_0             (GPIO_ALT|GPIO_AF0|GPIO_PORTA|GPIO_PIN8)
+#define GPIO_MCO1_0            (GPIO_ALT|GPIO_AF0|GPIO_PUSHPULL|GPIO_PORTA|GPIO_PIN8)
+#define GPIO_MCO2_0            (GPIO_ALT|GPIO_AF0|GPIO_PUSHPULL|GPIO_PORTC|GPIO_PIN9)
 
 /* I2C */
 
