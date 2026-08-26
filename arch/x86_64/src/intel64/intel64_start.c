@@ -92,8 +92,9 @@ static void x86_64_mb2_config(void)
 
           case MULTIBOOT_TAG_TYPE_ACPI_OLD:
             {
-              struct multiboot_tag_old_acpi *acpi
-                  = (struct multiboot_tag_old_acpi *)tag;
+              struct multiboot_tag_old_acpi *acpi =
+                (struct multiboot_tag_old_acpi *)tag;
+
               g_acpi_rsdp = (uintptr_t)acpi->rsdp;
               break;
             }
@@ -102,6 +103,7 @@ static void x86_64_mb2_config(void)
             {
               struct multiboot_tag_new_acpi *acpi =
                 (struct multiboot_tag_new_acpi *)tag;
+
               g_acpi_rsdp = (uintptr_t)acpi->rsdp;
               break;
             }
@@ -163,10 +165,10 @@ void __nxstart(void)
 #ifdef CONFIG_SCHED_THREAD_LOCAL
   /* Make sure that FS_BASE is not null */
 
-  write_fsbase((uintptr_t)(g_idle_topstack[0] -
-                           CONFIG_IDLETHREAD_STACKSIZE +
-                           sizeof(struct tls_info_s) +
-                           (_END_TBSS - _START_TDATA)));
+  write_fsbase(x86_64_idle_topstack(0) -
+               CONFIG_IDLETHREAD_STACKSIZE +
+               sizeof(struct tls_info_s) +
+               (_END_TBSS - _START_TDATA));
 #endif
 
   /* Low-level, pre-OS initialization */
