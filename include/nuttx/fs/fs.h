@@ -128,6 +128,7 @@
 #define   FSNODEFLAG_TYPE_SOCKET     0x00000009 /*   Socket                 */
 #define   FSNODEFLAG_TYPE_PIPE       0x0000000a /*   Pipe                   */
 #define   FSNODEFLAG_TYPE_NAMEDEVENT 0x0000000b /*   Named event group      */
+#define   FSNODEFLAG_TYPE_HARDLINK   0x0000000c /*   Hard link              */
 
 #define INODE_IS_TYPE(i,t) \
   (((i)->i_flags & FSNODEFLAG_TYPE_MASK) == (t))
@@ -144,6 +145,7 @@
 #define INODE_IS_SOCKET(i)     INODE_IS_TYPE(i,FSNODEFLAG_TYPE_SOCKET)
 #define INODE_IS_PIPE(i)       INODE_IS_TYPE(i,FSNODEFLAG_TYPE_PIPE)
 #define INODE_IS_NAMEDEVENT(i) INODE_IS_TYPE(i,FSNODEFLAG_TYPE_NAMEDEVENT)
+#define INODE_IS_HARDLINK(i)   INODE_IS_TYPE(i,FSNODEFLAG_TYPE_HARDLINK)
 
 #define INODE_GET_TYPE(i)     ((i)->i_flags & FSNODEFLAG_TYPE_MASK)
 #define INODE_SET_TYPE(i,t) \
@@ -164,6 +166,7 @@
 #define INODE_SET_SOCKET(i)     INODE_SET_TYPE(i,FSNODEFLAG_TYPE_SOCKET)
 #define INODE_SET_PIPE(i)       INODE_SET_TYPE(i,FSNODEFLAG_TYPE_PIPE)
 #define INODE_SET_NAMEDEVENT(i) INODE_SET_TYPE(i,FSNODEFLAG_TYPE_NAMEDEVENT)
+#define INODE_SET_HARDLINK(i)   INODE_SET_TYPE(i,FSNODEFLAG_TYPE_HARDLINK)
 
 /* The status change flags.
  * These should be or-ed together to figure out what want to change.
@@ -399,6 +402,20 @@ struct mountpt_operations
 
   CODE int     (*permission)(FAR struct inode *mountpt,
                              FAR const char *relpath, int amode);
+
+#ifdef CONFIG_FS_LINKS
+  CODE int     (*link)(FAR struct inode *mountpt, FAR const char *relpath1,
+                       FAR const char *relpath2);
+  CODE int     (*symlink)(FAR struct inode *mountpt,
+                          FAR const char *path1,
+                          FAR const char *relpath2);
+  CODE ssize_t (*readlink)(FAR struct inode *mountpt,
+                           FAR const char *relpath,
+                           FAR char *buf, size_t bufsize);
+  CODE int     (*lstat)(FAR struct inode *mountpt,
+                        FAR const char *relpath,
+                        FAR struct stat *buf);
+#endif
 };
 #endif /* CONFIG_DISABLE_MOUNTPOINT */
 
@@ -430,7 +447,7 @@ union inode_ops_u
 #ifdef CONFIG_FS_NAMED_EVENTS
   FAR struct nevent_inode_s            *i_nevent; /* Named event */
 #endif
-#ifdef CONFIG_PSEUDOFS_SOFTLINKS
+#ifdef CONFIG_FS_LINKS
   FAR char                             *i_link;   /* Full path to link target */
 #endif
 };

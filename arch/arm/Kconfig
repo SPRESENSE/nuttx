@@ -382,6 +382,8 @@ config ARCH_CHIP_RP2040
 	select ARCH_BOARD_COMMON
 	select ARCH_HAVE_CUSTOM_TESTSET
 	select ARCH_USBDEV_STALLQUEUE if USBDEV
+	select LIBC_ATOMIC_IRQ if !SMP
+	select LIBC_ATOMIC_HWSPINLOCK if SMP
 	---help---
 		Raspberry Pi RP2040 architectures (ARM dual Cortex-M0+).
 
@@ -755,6 +757,18 @@ config ARCH_CHIP_STM32U3
 	---help---
 		STMicro STM32 U3 architectures (ARM Cortex-M33).
 
+config ARCH_CHIP_STM32C5
+	bool "STMicro STM32 C5"
+	select ARCH_CHIP_STM32
+	select ARCH_CORTEXM33
+	select ARCH_HAVE_MPU
+	select ARM_HAVE_DSP
+	select ARCH_HAVE_FETCHADD
+	select ARCH_HAVE_HEAPCHECK
+	select ARM_HAVE_MPU_UNIFIED
+	---help---
+		STMicro STM32 C5 architectures (ARM Cortex-M33).
+
 config ARCH_CHIP_STM32WB
 	bool "STMicro STM32 WB"
 	select ARCH_CHIP_STM32
@@ -1064,7 +1078,7 @@ config ARCH_ARMV6M
 	bool
 	default n
 	select ARCH_HAVE_CPUINFO
-	select LIBC_ATOMIC_IRQ
+	select LIBC_ATOMIC_IRQ if !LIBC_ATOMIC_HWSPINLOCK
 
 config ARCH_CORTEXM0
 	bool
@@ -1394,6 +1408,7 @@ config ARCH_CHIP
 	default "stm32l5"	if ARCH_CHIP_STM32L5
 	default "stm32u5"	if ARCH_CHIP_STM32U5
 	default "stm32u3"	if ARCH_CHIP_STM32U3
+	default "stm32c5"	if ARCH_CHIP_STM32C5
 	default "stm32wb"	if ARCH_CHIP_STM32WB
 	default "stm32wl5"	if ARCH_CHIP_STM32WL5
 	default "str71x"	if ARCH_CHIP_STR71X
@@ -1946,6 +1961,9 @@ source "arch/arm/src/stm32u5/Kconfig"
 endif
 if ARCH_CHIP_STM32U3
 source "arch/arm/src/stm32u3/Kconfig"
+endif
+if ARCH_CHIP_STM32C5
+source "arch/arm/src/stm32c5/Kconfig"
 endif
 if ARCH_CHIP_STM32WB
 source "arch/arm/src/stm32wb/Kconfig"

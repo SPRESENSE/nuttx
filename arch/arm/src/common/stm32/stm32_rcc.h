@@ -27,13 +27,9 @@
  * Included Files
  ****************************************************************************/
 
-#if defined(CONFIG_ARCH_CHIP_STM32U3)
+#ifdef CONFIG_STM32_COMMON_M33
 
-#  include "stm32_rcc_m33_u3.h"
-
-#elif defined(CONFIG_ARCH_CHIP_STM32U5)
-
-#  include "stm32_rcc_m33_u5.h"
+#  include "stm32_rcc_m33.h"
 
 #else
 
@@ -234,5 +230,5 @@ void stm32_rcc_disablelsi(void);
 #endif
 #endif /* __ASSEMBLY__ */
 
-#endif /* CONFIG_ARCH_CHIP_STM32U5 */
+#endif /* CONFIG_STM32_COMMON_M33 */
 #endif /* __ARCH_ARM_SRC_COMMON_STM32_STM32_RCC_H */

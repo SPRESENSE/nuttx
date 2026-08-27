@@ -39,21 +39,24 @@ if(NOT CONFIG_ARCH_CUSTOM_PMINIT AND (CONFIG_STM32_COMMON_LEGACY
   list(APPEND SRCS stm32_pminitialize_default.c)
 endif()
 
-if(CONFIG_ARCH_CHIP_STM32U3 OR CONFIG_ARCH_CHIP_STM32U5)
-  list(
-    APPEND
-    SRCS
-    stm32_allocateheap_m33_u3u5.c
-    stm32_exti_gpio_m33_u3u5.c
-    stm32_gpio_m33_u3u5.c
-    stm32_irq_m33_u3u5.c
-    stm32_lowputc_m33_u3u5.c
-    stm32_serial_m33_u3u5.c
-    stm32_start_m33_u3u5.c
-    stm32_timerisr_m33_u3u5.c)
+if(CONFIG_STM32_HAVE_IP_USART_M33_V3)
+  list(APPEND SRCS stm32_lowputc_usart_m33_v3.c stm32_serial_m33_v3.c)
+endif()
+
+if(CONFIG_STM32_HAVE_IP_GPIO_M33_V1)
+  list(APPEND SRCS stm32_gpio_m33_v1.c)
+endif()
+
+if(CONFIG_STM32_HAVE_IP_EXTI_M33_V1)
+  list(APPEND SRCS stm32_exti_gpio_m33_v1.c)
+endif()
+
+if(CONFIG_STM32_COMMON_M33)
+  list(APPEND SRCS stm32_allocateheap_m33_v1.c stm32_irq_m33_v1.c
+       stm32_start_m33_v1.c stm32_timerisr_m33_v1.c)
 
   if(NOT CONFIG_ARCH_IDLE_CUSTOM)
-    list(APPEND SRCS stm32_idle_m33_u3u5.c)
+    list(APPEND SRCS stm32_idle_m33_v1.c)
   endif()
 endif()
 
