@@ -1,5 +1,5 @@
 /****************************************************************************
- * fs/hostfs/hostfs.h
+ * arch/arm/src/stm32h5/stm32_pm.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,8 +20,8 @@
  *
  ****************************************************************************/
 
-#ifndef __FS_HOSTFS_HOSTFS_H
-#define __FS_HOSTFS_HOSTFS_H
+#ifndef __ARCH_ARM_SRC_STM32H5_STM32_PM_H
+#define __ARCH_ARM_SRC_STM32H5_STM32_PM_H
 
 /****************************************************************************
  * Included Files
@@ -29,60 +29,63 @@
 
 #include <nuttx/config.h>
 
-#include <limits.h>
-#include <sys/types.h>
-#include <stdint.h>
 #include <stdbool.h>
 
-#include <nuttx/mutex.h>
+#include "chip.h"
+#include "arm_internal.h"
 
 /****************************************************************************
- * Pre-processor Definitions
+ * Public Function Prototypes
  ****************************************************************************/
 
-#define HOSTFS_MAX_PATH     PATH_MAX
-
-/****************************************************************************
- * Public Types
- ****************************************************************************/
-
-/* This structure describes the state of one open file.  This structure
- * is protected by the volume semaphore.
- */
-
-struct hostfs_ofile_s
+#ifndef __ASSEMBLY__
+#ifdef __cplusplus
+#define EXTERN extern "C"
+extern "C"
 {
-  struct hostfs_ofile_s    *fnext;   /* Supports a singly linked list */
-  int16_t                   crefs;   /* Reference count */
-  mode_t                    oflags;  /* Open mode */
-  int                       fd;
-  char                      relpath[1];
-};
-
-/* This structure represents the overall mountpoint state.  An instance of
- * this structure is retained as inode private data on each mountpoint that
- * is mounted with a hostfs filesystem.
- */
-
-struct hostfs_mountpt_s
-{
-  FAR struct hostfs_ofile_s *fs_head;      /* A singly-linked list of open files */
-  mutex_t                    fs_lock;
-  char                       fs_root[HOSTFS_MAX_PATH];
-};
+#else
+#define EXTERN extern
+#endif
 
 /****************************************************************************
- * Internal function prototypes
+ * Name: stm32_pmstop
+ *
+ * Description:
+ *   Enter STOP mode.
+ *
+ * Input Parameters:
+ *   svos5 - true: To further reduce power consumption in Stop mode, put the
+ *           internal voltage regulator in "stop mode voltage scaling"
+ *           scale 5 which is the lowest-power stop mode.
+ *           false: Use SVOS3 which is the default voltage scaling value.
+ *
+ * Returned Value:
+ *   None
+ *
  ****************************************************************************/
 
-/* Forward references for utility functions */
+void stm32_pmstop(bool svos5);
 
-struct hostfs_mountpt_s;
+/****************************************************************************
+ * Name: stm32_pmstandby
+ *
+ * Description:
+ *   Enter STANDBY mode.
+ *
+ * Input Parameters:
+ *   None
+ *
+ * Returned Value:
+ *   None
+ *
+ ****************************************************************************/
 
-struct file;        /* Forward references */
-struct inode;
-struct fs_dirent_s;
-struct statfs;
-struct stat;
+void stm32_pmstandby(void);
 
-#endif /* __FS_HOSTFS_HOSTFS_H */
+#undef EXTERN
+#ifdef __cplusplus
+}
+#endif
+#endif /* __ASSEMBLY__ */
+
+#endif /* __ARCH_ARM_SRC_STM32H5_STM32_PM_H */

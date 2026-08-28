@@ -1,5 +1,5 @@
 /****************************************************************************
- * fs/hostfs/hostfs.h
+ * arch/arm/src/stm32h5/stm32_pmstandby.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,69 +20,69 @@
  *
  ****************************************************************************/
 
-#ifndef __FS_HOSTFS_HOSTFS_H
-#define __FS_HOSTFS_HOSTFS_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
-#include <limits.h>
-#include <sys/types.h>
-#include <stdint.h>
 #include <stdbool.h>
 
-#include <nuttx/mutex.h>
+#include "arm_internal.h"
+#include "nvic.h"
+#include "stm32_rcc.h"
+#include "stm32_pwr.h"
+#include "stm32_pm.h"
 
 /****************************************************************************
- * Pre-processor Definitions
+ * Public Functions
  ****************************************************************************/
-
-#define HOSTFS_MAX_PATH     PATH_MAX
 
 /****************************************************************************
- * Public Types
+ * Name: stm32_pmstandby
+ *
+ * Description:
+ *   Enter STANDBY mode.
+ *
+ * Input Parameters:
+ *   None
+ *
+ * Returned Value:
+ *   None
+ *
  ****************************************************************************/
 
-/* This structure describes the state of one open file.  This structure
- * is protected by the volume semaphore.
- */
-
-struct hostfs_ofile_s
+void stm32_pmstandby(void)
 {
-  struct hostfs_ofile_s    *fnext;   /* Supports a singly linked list */
-  int16_t                   crefs;   /* Reference count */
-  mode_t                    oflags;  /* Open mode */
-  int                       fd;
-  char                      relpath[1];
-};
+  uint32_t regval;
 
-/* This structure represents the overall mountpoint state.  An instance of
- * this structure is retained as inode private data on each mountpoint that
- * is mounted with a hostfs filesystem.
- */
+  /* Clear the wake-up flags before resetting. */
 
-struct hostfs_mountpt_s
-{
-  FAR struct hostfs_ofile_s *fs_head;      /* A singly-linked list of open files */
-  mutex_t                    fs_lock;
-  char                       fs_root[HOSTFS_MAX_PATH];
-};
+  modifyreg32(STM32_PWR_PMCR, 0, PWR_PMCR_CSSF);
+  modifyreg32(STM32_PWR_WUSCR, 0, PWR_WUSCR_CWUF1 | PWR_WUSCR_CWUF2 |
+                                  PWR_WUSCR_CWUF3 | PWR_WUSCR_CWUF4 |
+                                  PWR_WUSCR_CWUF5 | PWR_WUSCR_CWUF6 |
+                                  PWR_WUSCR_CWUF7 | PWR_WUSCR_CWUF8);
 
-/****************************************************************************
- * Internal function prototypes
- ****************************************************************************/
+  /* Clear reset flags. */
 
-/* Forward references for utility functions */
+  modifyreg32(STM32_RCC_RSR, 0, RCC_RSR_RMVF);
 
-struct hostfs_mountpt_s;
+  /* Set the Low Power Mode to Standby in the Power Mode Control Register.
+   * Unlike H7 which has multiple power domains (D1, D2, D3), H5 uses a
+   * single bit in PMCR to select between Stop and Standby modes.
+   * Setting LPMS bit to 1 selects Standby mode.
+   */
 
-struct file;        /* Forward references */
-struct inode;
-struct fs_dirent_s;
-struct statfs;
-struct stat;
+  modifyreg32(STM32_PWR_PMCR, 0, PWR_PMCR_LPMS);
 
-#endif /* __FS_HOSTFS_HOSTFS_H */
+  /* Set SLEEPDEEP bit of Cortex System Control Register */
+
+  regval  = getreg32(NVIC_SYSCON);
+  regval |= NVIC_SYSCON_SLEEPDEEP;
+  putreg32(regval, NVIC_SYSCON);
+
+  /* Sleep until the wakeup reset occurs */
+
+  asm("wfi");
+}

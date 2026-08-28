@@ -815,56 +815,48 @@ static int libelf_relocatedyn(FAR struct module_s *modp,
 
               if (sym[idx_sym].st_shndx == SHN_UNDEF)
                 {
-                    FAR void *ep;
+                  FAR void *ep;
 
-                    ep = libelf_findglobal(modp, loadinfo, symhdr,
-                                           &sym[idx_sym]);
-                    if ((ep == NULL) && (ELF_ST_BIND(sym[idx_sym].st_info)
-                        != STB_WEAK))
-                      {
-                        berr("ERROR: Unable to resolve addr of ext ref %s\n",
-                             loadinfo->iobuffer);
-                        ret = -EINVAL;
-                        lib_free(sym);
-                        lib_free(rels);
-                        lib_free(dyn);
-                        return ret;
-                      }
+                  ep = libelf_findglobal(modp, loadinfo, symhdr,
+                                         &sym[idx_sym]);
+                  if ((ep == NULL) && (ELF_ST_BIND(sym[idx_sym].st_info)
+                      != STB_WEAK))
+                    {
+                      berr("ERROR: Unable to resolve addr of ext ref %s\n",
+                           loadinfo->iobuffer);
+                      ret = -EINVAL;
+                      lib_free(sym);
+                      lib_free(rels);
+                      lib_free(dyn);
+                      return ret;
+                    }
 
-                    addr = rel->r_offset + loadinfo->textalloc;
+                  addr = libelf_addr(loadinfo, rel->r_offset);
 
-                    if (reldata.relrela[idx_rel] == 1)
-                      {
-                        addr += rela->r_addend;
-                      }
+                  if (reldata.relrela[idx_rel] == 1)
+                    {
+                      addr += rela->r_addend;
+                    }
 
-                    *(FAR uintptr_t *)addr = (uintptr_t)ep;
+                  *(FAR uintptr_t *)addr = (uintptr_t)ep;
                 }
             }
           else
             {
               Elf_Sym dynsym =
-                {
-                  0
-                };
+              {
+                0
+              };
 
-              addr = rel->r_offset - loadinfo->datasec + loadinfo->datastart;
+              addr = libelf_addr(loadinfo, rel->r_offset);
 
               if (reldata.relrela[idx_rel] == 1)
                 {
                   addr += rela->r_addend;
                 }
 
-              if ((*(FAR uint32_t *)addr) < loadinfo->datasec)
-                {
-                  dynsym.st_value = *(FAR uint32_t *)addr +
-                                    loadinfo->textalloc;
-                }
-              else
-                {
-                  dynsym.st_value = *(FAR uint32_t *)addr -
-                                    loadinfo->datasec + loadinfo->datastart;
-                }
+              dynsym.st_value = libelf_addr(loadinfo,
+                                            *(FAR uint32_t *)addr);
 
               ret = up_relocate(rel, &dynsym, addr, ARCH_ELFDATA_PARM);
             }
@@ -951,6 +943,7 @@ int libelf_bind(FAR struct module_s *modp,
       /* Get the index to the relocation section */
 
       int infosec = loadinfo->shdr[i].sh_info;
+
       if (infosec >= loadinfo->ehdr.e_shnum)
         {
           continue;
@@ -968,23 +961,20 @@ int libelf_bind(FAR struct module_s *modp,
                 loadinfo->dsymtabidx = i;
                 break;
               case SHT_INIT_ARRAY:
-                loadinfo->initarr = loadinfo->shdr[i].sh_addr -
-                                    loadinfo->datasec +
-                                    loadinfo->datastart;
+                loadinfo->initarr = libelf_addr(loadinfo,
+                                                loadinfo->shdr[i].sh_addr);
                 loadinfo->ninit = loadinfo->shdr[i].sh_size /
                                   sizeof(uintptr_t);
                 break;
               case SHT_FINI_ARRAY:
-                loadinfo->finiarr = loadinfo->shdr[i].sh_addr -
-                                    loadinfo->datasec +
-                                    loadinfo->datastart;
+                loadinfo->finiarr = libelf_addr(loadinfo,
+                                                loadinfo->shdr[i].sh_addr);
                 loadinfo->nfini = loadinfo->shdr[i].sh_size /
                                   sizeof(uintptr_t);
                 break;
               case SHT_PREINIT_ARRAY:
-                loadinfo->preiarr = loadinfo->shdr[i].sh_addr -
-                                    loadinfo->datasec +
-                                    loadinfo->datastart;
+                loadinfo->preiarr = libelf_addr(loadinfo,
+                                                loadinfo->shdr[i].sh_addr);
                 loadinfo->nprei = loadinfo->shdr[i].sh_size /
                                   sizeof(uintptr_t);
                 break;
@@ -1085,6 +1075,7 @@ errout_with_addrenv:
   if (loadinfo->addrenv != NULL)
     {
       int status = libelf_addrenv_restore(loadinfo);
+
       if (status < 0)
         {
           berr("ERROR: libelf_addrenv_restore() failed: %d\n", status);

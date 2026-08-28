@@ -1,5 +1,5 @@
 /****************************************************************************
- * fs/hostfs/hostfs.h
+ * arch/arm/src/stm32h5/stm32_pminitialize.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,69 +20,45 @@
  *
  ****************************************************************************/
 
-#ifndef __FS_HOSTFS_HOSTFS_H
-#define __FS_HOSTFS_HOSTFS_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
+#include <nuttx/power/pm.h>
 
-#include <limits.h>
-#include <sys/types.h>
-#include <stdint.h>
-#include <stdbool.h>
+#include "arm_internal.h"
+#include "stm32_pm.h"
 
-#include <nuttx/mutex.h>
-
-/****************************************************************************
- * Pre-processor Definitions
- ****************************************************************************/
-
-#define HOSTFS_MAX_PATH     PATH_MAX
+#ifdef CONFIG_PM
 
 /****************************************************************************
- * Public Types
+ * Public Functions
  ****************************************************************************/
 
-/* This structure describes the state of one open file.  This structure
- * is protected by the volume semaphore.
- */
+/****************************************************************************
+ * Name: arm_pminitialize
+ *
+ * Description:
+ *   This function is called by MCU-specific logic at power-on reset in
+ *   order to provide one-time initialization the power management subsystem.
+ *   This function must be called *very* early in the initialization sequence
+ *   *before* any other device drivers are initialized (since they may
+ *   attempt to register with the power management subsystem).
+ *
+ * Input Parameters:
+ *   None.
+ *
+ * Returned Value:
+ *   None.
+ *
+ ****************************************************************************/
 
-struct hostfs_ofile_s
+void arm_pminitialize(void)
 {
-  struct hostfs_ofile_s    *fnext;   /* Supports a singly linked list */
-  int16_t                   crefs;   /* Reference count */
-  mode_t                    oflags;  /* Open mode */
-  int                       fd;
-  char                      relpath[1];
-};
+  /* Initialize the NuttX power management subsystem proper */
 
-/* This structure represents the overall mountpoint state.  An instance of
- * this structure is retained as inode private data on each mountpoint that
- * is mounted with a hostfs filesystem.
- */
+  pm_initialize();
+}
 
-struct hostfs_mountpt_s
-{
-  FAR struct hostfs_ofile_s *fs_head;      /* A singly-linked list of open files */
-  mutex_t                    fs_lock;
-  char                       fs_root[HOSTFS_MAX_PATH];
-};
-
-/****************************************************************************
- * Internal function prototypes
- ****************************************************************************/
-
-/* Forward references for utility functions */
-
-struct hostfs_mountpt_s;
-
-struct file;        /* Forward references */
-struct inode;
-struct fs_dirent_s;
-struct statfs;
-struct stat;
-
-#endif /* __FS_HOSTFS_HOSTFS_H */
+#endif /* CONFIG_PM */

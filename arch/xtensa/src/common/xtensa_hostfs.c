@@ -166,6 +166,7 @@ int host_fstat(int fd, struct stat *buf)
 
   off_t saved_off = host_lseek(fd, 0, 0, SEEK_CUR);
   off_t size = host_lseek(fd, 0, 0, SEEK_END);
+
   host_lseek(fd, 0, saved_off, SEEK_SET);
 
   memset(buf, 0, sizeof(*buf));
@@ -231,9 +232,11 @@ int host_rename(const char *oldpath, const char *newpath)
 int host_stat(const char *path, struct stat *buf)
 {
   int ret = host_open(path, O_RDONLY, 0);
+
   if (ret >= 0)
     {
       int fd = ret;
+
       ret = host_fstat(fd, buf);
       host_close(fd);
     }
@@ -256,3 +259,25 @@ int host_chstat(const char *path, const struct stat *buf, int flags)
 {
   return -ENOSYS;
 }
+
+#ifdef CONFIG_FS_LINKS
+int host_link(const char *path1, const char *path2)
+{
+  return -ENOSYS;
+}
+
+int host_symlink(const char *target, const char *linkpath)
+{
+  return -ENOSYS;
+}
+
+ssize_t host_readlink(const char *path, char *buf, size_t bufsize)
+{
+  return -ENOSYS;
+}
+
+int host_lstat(const char *path, struct stat *buf)
+{
+  return -ENOSYS;
+}
+#endif /* CONFIG_FS_LINKS */
