@@ -48,6 +48,7 @@ static int _inode_linktarget(FAR struct inode *inode,
 #endif
 static int _inode_search(FAR struct inode_search_s *desc);
 static FAR const char *_inode_getcwd(void);
+static int _inode_canonicalize(FAR char *path);
 
 /****************************************************************************
  * Public Data
@@ -58,16 +59,6 @@ FAR struct inode *g_root_inode = NULL;
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
-
-/****************************************************************************
- * Name: _inode_isdotdot
- ****************************************************************************/
-
-static inline bool _inode_isdotdot(FAR const char *name)
-{
-  return name[0] == '.' && name[1] == '.' &&
-         (name[2] == '\0' || name[2] == '/');
-}
 
 /****************************************************************************
  * Name: _inode_isdot
@@ -220,24 +211,114 @@ static int _compute_path_depth(FAR const char *path)
   FAR const char *name = path;
   int depth = 0;
 
+  /* After _inode_canonicalize(), path never contains ".." segments,
+   * so we only need to count path components.
+   */
+
   while (*name != '\0')
     {
-      if (_inode_isdotdot(name))
-        {
-          if (--depth < 0)
-            {
-              break;
-            }
-        }
-      else
-        {
-          depth++;
-        }
-
+      depth++;
       name = inode_nextname(name);
     }
 
   return depth;
+}
+
+/****************************************************************************
+ * Name: _inode_canonicalize
+ *
+ * Description:
+ *   Remove "." and ".." segments from an absolute path in-place.
+ *   The path MUST start with '/'.  Returns -EINVAL if ".." attempts
+ *   to ascend beyond the root directory, or -ENAMETOOLONG if the
+ *   canonicalized result is >= PATH_MAX bytes.
+ *
+ ****************************************************************************/
+
+static int _inode_canonicalize(FAR char *path)
+{
+  /* Skip the initial '/' -- caller guarantees absolute path */
+
+  FAR char *src = path + 1;
+  FAR char *dst = path + 1;
+
+  while (*src != '\0')
+    {
+      /* Skip duplicate slashes */
+
+      if (*src == '/')
+        {
+          src++;
+          continue;
+        }
+
+      /* Check for "." (current directory) */
+
+      if (src[0] == '.' && (src[1] == '/' || src[1] == '\0'))
+        {
+          src += (src[1] == '/') ? 2 : 1;
+          continue;
+        }
+
+      /* Check for ".." (parent directory) */
+
+      if (src[0] == '.' && src[1] == '.' &&
+          (src[2] == '/' || src[2] == '\0'))
+        {
+          /* Cannot go above root */
+
+          if (dst <= path + 1)
+            {
+              return -EINVAL;
+            }
+
+          /* Remove trailing slash first */
+
+          dst--;
+
+          /* Scan backward to find the previous '/' */
+
+          while (dst > path + 1 && *(dst - 1) != '/')
+            {
+              dst--;
+            }
+
+          src += (src[2] == '/') ? 3 : 2;
+          continue;
+        }
+
+      /* Regular path component: copy until end of segment (including '/') */
+
+      do
+        {
+          if (dst != src)
+            {
+              *dst = *src;
+            }
+
+          dst++;
+          src++;
+        }
+      while (*src != '\0' && *(src - 1) != '/');
+    }
+
+  /* Remove trailing slash (unless root "/") */
+
+  if (dst > path + 1 && *(dst - 1) == '/')
+    {
+      dst--;
+    }
+
+  *dst = '\0';
+
+  /* After canonicalization, check if the resolved path exceeds PATH_MAX */
+
+  if ((dst - path) >= PATH_MAX)
+    {
+      return -ENAMETOOLONG;
+    }
+
+  return 0;
 }
 
 /****************************************************************************
@@ -256,7 +337,7 @@ static int _inode_checkpath(const char *path)
 
   /* Check each segment of the path */
 
-  while (*path != '\0' && namelen <= NAME_MAX && pathlen < PATH_MAX)
+  while (*path != '\0' && pathlen < PATH_MAX)
     {
       if (*path == '/')
         {
@@ -264,14 +345,17 @@ static int _inode_checkpath(const char *path)
         }
       else
         {
-          namelen++;
+          if (++namelen > NAME_MAX)
+            {
+              return -ENAMETOOLONG;
+            }
         }
 
       path++;
       pathlen++;
     }
 
-  return *path != '\0' ? -ENAMETOOLONG : OK;
+  return pathlen >= PATH_MAX ? -ENAMETOOLONG : OK;
 }
 
 /****************************************************************************
@@ -310,18 +394,68 @@ static int _inode_search(FAR struct inode_search_s *desc)
       return ret;
     }
 
-  /* Convert the relative path to the absolute path */
+  /* Ensure we have a writable buffer for path manipulation */
 
-  if (*desc->path != '/')
+  if (desc->buffer == NULL)
     {
-      desc->buffer = lib_get_tempbuffer(PATH_MAX);
+      FAR const char *cwd = NULL;
+      size_t buflen;
+
+      /* For a relative path the absolute form is "<cwd>/<path>".  That
+       * concatenation can exceed PATH_MAX even when the relative path
+       * itself is within PATH_MAX: a relative path of PATH_MAX-1 bytes
+       * is legal per pathconf(_PC_PATH_MAX), but the prefix added by the
+       * cwd pushes the uncanonicalized form past the limit.  Size the
+       * buffer to hold the full absolute form so that ".." segments are
+       * collapsed against the correct suffix; truncating first could
+       * drop the trailing component and let ".." collapse the path onto
+       * a directory (yielding the wrong errno, e.g. EISDIR, instead of
+       * resolving the file).  _inode_canonicalize() still rejects any
+       * result whose canonicalized length reaches PATH_MAX.
+       */
+
+      if (*desc->path != '/')
+        {
+          cwd = _inode_getcwd();
+          buflen = strlen(cwd) + 1 + strlen(desc->path) + 1;
+        }
+      else
+        {
+          buflen = strlen(desc->path) + 1;
+        }
+
+      if (buflen < PATH_MAX)
+        {
+          buflen = PATH_MAX;
+        }
+
+      desc->buffer = lib_get_tempbuffer(buflen);
       if (desc->buffer == NULL)
         {
           return -ENOMEM;
         }
 
-      snprintf(desc->buffer, PATH_MAX, "%s/%s", _inode_getcwd(), desc->path);
+      if (cwd != NULL)
+        {
+          snprintf(desc->buffer, buflen, "%s/%s", cwd, desc->path);
+        }
+      else
+        {
+          strlcpy(desc->buffer, desc->path, buflen);
+        }
+
       desc->path = desc->buffer;
+    }
+
+  /* Canonicalize the path to remove "." and ".." segments.  This ensures
+   * that mountpoint relpath never contains ".." which most filesystems
+   * (tmpfs, romfs, etc.) cannot resolve.
+   */
+
+  ret = _inode_canonicalize(desc->buffer);
+  if (ret < 0)
+    {
+      return ret;
     }
 
   name = desc->path;
@@ -385,31 +519,6 @@ static int _inode_search(FAR struct inode_search_s *desc)
               relpath = name;
               ret = OK;
               break;
-            }
-          else if (_inode_isdotdot(name))
-            {
-              do
-                {
-                  if (above != NULL)
-                    {
-                      inode = above;
-                      above = above->i_parent;
-                    }
-
-                  name = inode_nextname(name);
-                }
-              while (_inode_isdotdot(name));
-
-              if (*name == '\0')
-                {
-                  relpath = name;
-                  ret = OK;
-                  break;
-                }
-
-              above = inode;
-              left  = NULL;
-              inode = inode->i_child;
             }
           else
             {

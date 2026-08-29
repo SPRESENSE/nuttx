@@ -290,6 +290,9 @@
 #ifndef CONFIG_STM32_ETH_NTXDESC
 #  define CONFIG_STM32_ETH_NTXDESC 4
 #endif
+#ifndef CONFIG_STM32_ETH_TXTIMEOUT
+#  define CONFIG_STM32_ETH_TXTIMEOUT 60
+#endif
 
 /* We need at least one more free buffer than transmit buffers */
 
@@ -350,9 +353,9 @@
 
 /* Timing *******************************************************************/
 
-/* TX timeout = 1 minute */
+/* TX timeout */
 
-#define STM32_TXTIMEOUT   (60*CLK_TCK)
+#define STM32_TXTIMEOUT   (CONFIG_STM32_ETH_TXTIMEOUT*CLK_TCK)
 
 /* PHY reset/configuration delays in milliseconds */
 
@@ -1960,7 +1963,7 @@ static void stm32_receive(struct stm32_ethmac_s *priv)
        * tap
        */
 
-     pkt_input(&priv->dev);
+      pkt_input(&priv->dev);
 #endif
 
       /* Check if the packet is a valid size for the network buffer
@@ -3094,6 +3097,7 @@ static int stm32_ioctl(struct net_driver_s *dev, int cmd, unsigned long arg)
         {
           struct mii_ioctl_data_s *req =
             (struct mii_ioctl_data_s *)((uintptr_t)arg);
+
           req->phy_id = CONFIG_STM32_PHYADDR;
           ret = OK;
         }
@@ -3103,6 +3107,7 @@ static int stm32_ioctl(struct net_driver_s *dev, int cmd, unsigned long arg)
         {
           struct mii_ioctl_data_s *req =
             (struct mii_ioctl_data_s *)((uintptr_t)arg);
+
           ret = mdio_read(priv->mdio,
             req->phy_id, req->reg_num, &req->val_out);
         }
@@ -3112,6 +3117,7 @@ static int stm32_ioctl(struct net_driver_s *dev, int cmd, unsigned long arg)
         {
           struct mii_ioctl_data_s *req =
             (struct mii_ioctl_data_s *)((uintptr_t)arg);
+
           ret = mdio_write(priv->mdio,
             req->phy_id, req->reg_num, req->val_in);
         }

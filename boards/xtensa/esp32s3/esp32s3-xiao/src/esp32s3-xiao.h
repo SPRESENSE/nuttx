@@ -70,5 +70,33 @@ int esp32s3_bringup(void);
 int esp32s3_gpio_init(void);
 #endif
 
+/****************************************************************************
+ * Name: board_i2c_init
+ ****************************************************************************/
+
+#ifdef CONFIG_I2C_DRIVER
+int board_i2c_init(void);
+#endif
+
+/****************************************************************************
+ * Name: board_lsm6ds3trc_initialize
+ *
+ * Description:
+ *   Initialize and register the LSM6DS3TR-C 6-axis IMU driver, exposing
+ *   it through uORB as /dev/uorb/sensor_accelN and /dev/uorb/sensor_gyroN.
+ *
+ * Input Parameters:
+ *   devno - The device number, used to build the uORB device paths
+ *   busno - The I2C bus number
+ *
+ * Returned Value:
+ *   Zero (OK) on success; a negated errno value on failure.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_SENSORS_LSM6DS3TRC
+int board_lsm6ds3trc_initialize(int devno, int busno);
+#endif
+
 #endif /* __ASSEMBLY__ */
 #endif /* __BOARDS_XTENSA_ESP32S3_ESP32S3_XIAO_SRC_ESP32S3_XIAO_H */
