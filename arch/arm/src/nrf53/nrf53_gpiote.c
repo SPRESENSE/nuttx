@@ -182,6 +182,7 @@ static int nrf53_gpiote_isr(int irq, void *context, void *arg)
 
               xcpt_t callback = g_gpiote_ch_callbacks[off].callback;
               void *cbarg = g_gpiote_ch_callbacks[off].arg;
+
               ret = callback(irq, context, cbarg);
 
               /* Clear event */
@@ -210,10 +211,11 @@ static int nrf53_gpiote_isr(int irq, void *context, void *arg)
             {
               case 0:
                 addr = NRF53_GPIO_P0_BASE + NRF53_GPIO_LATCH_OFFSET;
-              break;
+                break;
+
               case 1:
                 addr = NRF53_GPIO_P1_BASE + NRF53_GPIO_LATCH_OFFSET;
-              break;
+                break;
             }
 
           /* Retrieve LATCH register */
@@ -256,7 +258,7 @@ static int nrf53_gpiote_isr(int irq, void *context, void *arg)
               ret = callback(irq, context, cbarg);
             }
 #endif
-       }
+        }
     }
 
   return ret;
@@ -405,7 +407,7 @@ void nrf53_gpiote_set_ch_event(uint32_t pinset, int channel,
   inst = 0;
 #endif
 
-  rchan = (inst == 1) ? channel : (channel - GPIOTE_PER_CHANNEL);
+  rchan = (inst == 1) ? (channel - GPIOTE_PER_CHANNEL) : channel;
 
   /* NOTE: GPIOTE module has priority over GPIO module
    *       so GPIO configuration will be ignored
@@ -567,7 +569,7 @@ void nrf53_gpiote_set_task(uint32_t pinset, int channel,
   inst = 0;
 #endif
 
-  rchan = (inst == 1) ? channel : (channel - GPIOTE_PER_CHANNEL);
+  rchan = (inst == 1) ? (channel - GPIOTE_PER_CHANNEL) : channel;
 
   /* Select GPIOTE pin */
 
