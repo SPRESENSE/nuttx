@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/tricore/src/common/tricore_fpu.c
+ * boards/arm/rtl8720f/rtl8720f_evb/src/rtl8720f_timer.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -26,45 +26,50 @@
 
 #include <nuttx/config.h>
 
-#include <string.h>
+#include <syslog.h>
+#include <errno.h>
 
-#include <arch/irq.h>
+#include "ameba_timer.h"
+#include "rtl8720f_rtl8720f_evb.h"
+
+#ifdef CONFIG_AMEBA_TIMER
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: tricore_fpuinit
+ * Name: rtl8720f_timer_initialize
+ *
+ * Description:
+ *   Register the board's general-purpose timers.  Both timers are internal
+ *   (no board wiring), so this just binds the two exposed instances to their
+ *   device nodes: /dev/timer0 is TIM1 and /dev/timer1 is TIM2, both 32-bit
+ *   basic timers at 32.768 kHz.  TIM0 is reserved by the ROM as the system
+ *   timer and is not exposed.  A failure on either is logged but does not
+ *   abort the other.
+ *
  ****************************************************************************/
 
-void tricore_fpuinit(void)
+int rtl8720f_timer_initialize(void)
 {
-  /* FPU zero-divide trap enable */
+  int ret;
 
-  tricore_mtcr(FPU_SYNC_TRAP_REG, tricore_mfcr(FPU_SYNC_TRAP_REG) |
-                                  (1U << FPU_TRAP_FZE_SHIFT));
-}
-
-/****************************************************************************
- * Name: up_fpucmp
- ****************************************************************************/
-
-bool up_fpucmp(const void *saveregs1, const void *saveregs2)
-{
-  const uintptr_t *regs1 = (const uintptr_t *)saveregs1 + TC_CONTEXT_REGS;
-  const uintptr_t *regs2 = (const uintptr_t *)saveregs2 + TC_CONTEXT_REGS;
-
-  /* TriCore uses D8-D15 in upper CSA as FPU data registers.
-   * Skip A12-A15 (offsets 8-11) which naturally differ between saves.
-   */
-
-  if (memcmp(&regs1[REG_D8], &regs2[REG_D8],
-             4 * sizeof(uintptr_t)) != 0)
+  ret = ameba_timer_initialize("/dev/timer0", 0);
+  if (ret < 0)
     {
-      return false;
+      syslog(LOG_ERR,
+             "ERROR: ameba_timer_initialize(/dev/timer0) failed: %d\n", ret);
     }
 
-  return memcmp(&regs1[REG_D12], &regs2[REG_D12],
-                4 * sizeof(uintptr_t)) == 0;
+  ret = ameba_timer_initialize("/dev/timer1", 1);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR,
+             "ERROR: ameba_timer_initialize(/dev/timer1) failed: %d\n", ret);
+    }
+
+  return ret;
 }
+
+#endif /* CONFIG_AMEBA_TIMER */

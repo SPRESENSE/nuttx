@@ -474,12 +474,12 @@ static int mpfs_interrupt(int irq, void *context, void *arg);
 
 /* RX SW/HW filter related functions */
 
-#ifdef CONFIG_NETDEV_CAN_FILTER_IOCTL
+#ifdef CONFIG_NETDEV_CAN_IOCTL
 static uint8_t mpfs_can_add_filter(mpfs_can_instance_t *priv,
                                    uint8_t filter_type,
                                    uint32_t filter_id1,
                                    uint32_t filter_id2);
-#endif /* CONFIG_NETDEV_CAN_FILTER_IOCTL */
+#endif /* CONFIG_NETDEV_CAN_IOCTL */
 
 static uint8_t mpfs_can_reset_filter(mpfs_can_instance_t *priv);
 
@@ -523,7 +523,7 @@ static uint32_t mpfs_can_canid_to_msgid(uint32_t canid);
 static uint32_t mpfs_can_msgid_to_canid(uint32_t id, bool ide, bool rtr);
 static uint8_t mpfs_can_set_bitrate(mpfs_can_instance_t *priv,
                                     uint32_t bitrate);
-#if defined(CONFIG_DEBUG_NET_INFO) || defined(CONFIG_NETDEV_CAN_BITRATE_IOCTL)
+#if defined(CONFIG_DEBUG_NET_INFO) || defined(CONFIG_NETDEV_CAN_IOCTL)
 static uint32_t mpfs_can_get_sample_point(mpfs_can_instance_t *priv);
 #endif
 
@@ -1081,7 +1081,7 @@ static int mpfs_interrupt(int irq, void *context, void *arg)
  *
  ****************************************************************************/
 
-#ifdef CONFIG_NETDEV_CAN_FILTER_IOCTL
+#ifdef CONFIG_NETDEV_CAN_IOCTL
 static uint8_t mpfs_can_add_filter(mpfs_can_instance_t *priv,
                                       uint8_t filter_type,
                                       uint32_t filter_id1,
@@ -1137,7 +1137,7 @@ static uint8_t mpfs_can_add_filter(mpfs_can_instance_t *priv,
 
   return CAN_OK;
 }
-#endif /* CONFIG_NETDEV_CAN_FILTER_IOCTL */
+#endif /* CONFIG_NETDEV_CAN_IOCTL */
 
 /****************************************************************************
  * Name: mpfs_can_reset_filter
@@ -1371,6 +1371,7 @@ static void mpfs_can_set_int_ebl(mpfs_can_instance_t *priv,
                          uint32_t flag)
 {
   uint32_t reg = mpfs_can_get_int_ebl(priv);
+
   putreg32(reg | flag, priv->reg_base + MPFS_CAN_INT_ENABLE_OFFSET);
 }
 
@@ -1414,6 +1415,7 @@ static void mpfs_can_clear_int_ebl(mpfs_can_instance_t *priv,
                                    uint32_t flag)
 {
   uint32_t reg = mpfs_can_get_int_ebl(priv);
+
   putreg32(reg & ~flag, priv->reg_base + MPFS_CAN_INT_ENABLE_OFFSET);
 }
 
@@ -1530,6 +1532,7 @@ static uint32_t mpfs_can_get_int_status(mpfs_can_instance_t *priv)
 static uint8_t mpfs_can_get_error_status(mpfs_can_instance_t *priv)
 {
   uint32_t reg = getreg32(priv->reg_base + MPFS_CAN_ERROR_STATUS_OFFSET);
+
   reg = ((reg & MPFS_CAN_ERROR_STATUS_ERROR_STATE)
         >> MPFS_CAN_ERROR_STATUS_ERROR_STATE_SHIFT);
   return (uint8_t)reg;
@@ -1734,7 +1737,7 @@ static uint8_t mpfs_can_set_bitrate(mpfs_can_instance_t *priv,
   return CAN_OK;
 }
 
-#if defined(CONFIG_DEBUG_NET_INFO) || defined(CONFIG_NETDEV_CAN_BITRATE_IOCTL)
+#if defined(CONFIG_DEBUG_NET_INFO) || defined(CONFIG_NETDEV_CAN_IOCTL)
 /****************************************************************************
  * Name: mpfs_can_get_sample_point
  *
@@ -1760,12 +1763,14 @@ static uint8_t mpfs_can_set_bitrate(mpfs_can_instance_t *priv,
 static uint32_t mpfs_can_get_sample_point(mpfs_can_instance_t *priv)
 {
   uint32_t reg;
+
   reg = getreg32(priv->reg_base + MPFS_CAN_CAN_CONFIG_OFFSET);
   uint32_t tseg1 = ((reg & MPFS_CAN_CAN_CONFIG_CFG_TSEG1) >>
                    MPFS_CAN_CAN_CONFIG_CFG_TSEG1_SHIFT) + 1;
   uint32_t tseg2 = ((reg & MPFS_CAN_CAN_CONFIG_CFG_TSEG2) >>
                    MPFS_CAN_CAN_CONFIG_CFG_TSEG2_SHIFT) + 1;
   const uint32_t sync_seg = 1;
+
   return (sync_seg + tseg1) * 100 / (sync_seg + tseg1 + tseg2);
 }
 #endif
@@ -1838,7 +1843,7 @@ static uint8_t mpfs_can_config_buffer(mpfs_can_instance_t *priv)
           mpfs_can_config_buffer_n(priv, buffer_number, &canrxobj);
         }
 
-        success = CAN_OK;
+      success = CAN_OK;
     }
 
   return success;
@@ -1945,6 +1950,7 @@ mpfs_can_get_rx_buffer_status(mpfs_can_instance_t *priv)
 static uint32_t mpfs_can_get_rx_error_count(mpfs_can_instance_t *priv)
 {
   uint32_t reg = getreg32(priv->reg_base + MPFS_CAN_ERROR_STATUS_OFFSET);
+
   reg = ((reg & MPFS_CAN_ERROR_STATUS_RX_ERR_CNT)
         >> MPFS_CAN_ERROR_STATUS_RX_ERR_CNT_SHIFT);
   return reg;
@@ -1976,6 +1982,7 @@ static uint32_t mpfs_can_get_rx_error_count(mpfs_can_instance_t *priv)
 static inline bool mpfs_can_get_rx_gte96(mpfs_can_instance_t *priv)
 {
   uint32_t reg = getreg32(priv->reg_base + MPFS_CAN_ERROR_STATUS_OFFSET);
+
   reg &= MPFS_CAN_ERROR_STATUS_RXGTE96;
   return (bool)reg;
 }
@@ -2088,6 +2095,7 @@ static uint32_t mpfs_can_get_tx_buffer_status(mpfs_can_instance_t *priv)
 static uint32_t mpfs_can_get_tx_error_count(mpfs_can_instance_t *priv)
 {
   uint32_t reg = getreg32(priv->reg_base + MPFS_CAN_ERROR_STATUS_OFFSET);
+
   reg = ((reg & MPFS_CAN_ERROR_STATUS_TX_ERR_CNT)
         >> MPFS_CAN_ERROR_STATUS_TX_ERR_CNT_SHIFT);
   return reg;
@@ -2119,6 +2127,7 @@ static uint32_t mpfs_can_get_tx_error_count(mpfs_can_instance_t *priv)
 static inline bool mpfs_can_get_tx_gte96(mpfs_can_instance_t *priv)
 {
   uint32_t reg = getreg32(priv->reg_base + MPFS_CAN_ERROR_STATUS_OFFSET);
+
   reg &= MPFS_CAN_ERROR_STATUS_TXGTE96;
   return (bool)reg;
 }
@@ -2299,8 +2308,7 @@ static int mpfs_ioctl(struct netdev_lowerhalf_s *dev, int cmd,
 {
   ninfo("IOCTL received | cmd: %d arg: %ld\n", cmd, arg);
 
-#if defined(CONFIG_NETDEV_CAN_BITRATE_IOCTL) || \
-defined(CONFIG_NETDEV_CAN_FILTER_IOCTL)
+#ifdef CONFIG_NETDEV_CAN_IOCTL
   mpfs_can_instance_t *priv =
     (mpfs_can_instance_t *)dev;
 #endif
@@ -2308,73 +2316,72 @@ defined(CONFIG_NETDEV_CAN_FILTER_IOCTL)
 
   switch (cmd)
     {
-#ifdef CONFIG_NETDEV_CAN_BITRATE_IOCTL
-    case SIOCGCANBITRATE:
+#ifdef CONFIG_NETDEV_CAN_IOCTL
+      case SIOCGCANBITRATE:
 
-      /* Get bitrate from the CAN controller */
+        /* Get bitrate from the CAN controller */
 
-      {
-        struct can_ioctl_data_s *req =
-          (struct can_ioctl_data_s *)((uintptr_t)arg);
-        req->arbi_bitrate = priv->bitrate_value;
-        req->arbi_samplep = mpfs_can_get_sample_point(priv);
-        ret = CAN_OK;
-      }
-      break;
+        {
+          struct can_ioctl_data_s *req =
+            (struct can_ioctl_data_s *)((uintptr_t)arg);
 
-    case SIOCSCANBITRATE:
+          req->arbi_bitrate = priv->bitrate_value;
+          req->arbi_samplep = mpfs_can_get_sample_point(priv);
+          ret = CAN_OK;
+        }
+        break;
 
-      /* Set bitrate of the CAN controller */
+      case SIOCSCANBITRATE:
 
-      {
-        struct can_ioctl_data_s *req =
-          (struct can_ioctl_data_s *)((uintptr_t)arg);
+        /* Set bitrate of the CAN controller */
 
-        if (CAN_OK != mpfs_can_set_bitrate(priv, req->arbi_bitrate))
-          {
-            nerr("CAN controller bitrate set failed");
-            ret = -EAGAIN;
-            break;
-          }
+        {
+          struct can_ioctl_data_s *req =
+            (struct can_ioctl_data_s *)((uintptr_t)arg);
 
-        ret = CAN_OK;
-      }
-      break;
-#endif /* CONFIG_NETDEV_CAN_BITRATE_IOCTL */
+          if (CAN_OK != mpfs_can_set_bitrate(priv, req->arbi_bitrate))
+            {
+              nerr("CAN controller bitrate set failed");
+              ret = -EAGAIN;
+              break;
+            }
 
-#ifdef CONFIG_NETDEV_CAN_FILTER_IOCTL
-    case SIOCACANSTDFILTER:
-    case SIOCACANEXTFILTER:
+          ret = CAN_OK;
+        }
+        break;
 
-      {
-        struct can_ioctl_filter_s *req =
-          (struct can_ioctl_filter_s *)((uintptr_t)arg);
+      case SIOCACANSTDFILTER:
+      case SIOCACANEXTFILTER:
 
-        if (CAN_OK != mpfs_can_add_filter(priv, req->ftype,
-                                          req->fid1, req->fid2))
-          {
-            nerr("CAN filter add failed");
-            ret = -EINVAL;
-            break;
-          }
+        {
+          struct can_ioctl_filter_s *req =
+            (struct can_ioctl_filter_s *)((uintptr_t)arg);
 
-        ret = CAN_OK;
-      }
-      break;
+          if (CAN_OK != mpfs_can_add_filter(priv, req->ftype,
+                                            req->fid1, req->fid2))
+            {
+              nerr("CAN filter add failed");
+              ret = -EINVAL;
+              break;
+            }
 
-    case SIOCDCANSTDFILTER:
-    case SIOCDCANEXTFILTER:
+          ret = CAN_OK;
+        }
+        break;
 
-      {
-        mpfs_can_reset_filter(priv);
-        ret = CAN_OK;
-      }
-      break;
-#endif /* CONFIG_NETDEV_CAN_FILTER_IOCTL */
+      case SIOCDCANSTDFILTER:
+      case SIOCDCANEXTFILTER:
 
-    default:
-      ret = -ENOTTY;
-      break;
+        {
+          mpfs_can_reset_filter(priv);
+          ret = CAN_OK;
+        }
+        break;
+#endif /* CONFIG_NETDEV_CAN_IOCTL */
+
+      default:
+        ret = -ENOTTY;
+        break;
     }
 
   return ret;

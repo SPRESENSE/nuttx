@@ -554,7 +554,7 @@ static int  imx9_ioctl(struct net_driver_s *dev, int cmd,
 
 /* CAN ID filtering */
 
-#ifdef CONFIG_NETDEV_CAN_FILTER_IOCTL
+#ifdef CONFIG_NETDEV_CAN_IOCTL
 static uint32_t imx9_add_filter(struct imx9_driver_s *priv,
                                  uint8_t filter_type,
                                  bool ext_id,
@@ -594,6 +594,7 @@ static bool imx9_txringfull(struct imx9_driver_s *priv)
   for (mbi = RXMBCOUNT; mbi < TOTALMBCOUNT; mbi++)
     {
       volatile struct mb_s *mb = flexcan_get_mb(priv, mbi);
+
       if (CAN_MB_CS_CODE(mb->cs) != CAN_TXMB_DATAORREMOTE)
         {
           return false;
@@ -662,6 +663,7 @@ static int imx9_transmit(struct imx9_driver_s *priv)
 
 #ifdef CONFIG_NET_CAN_RAW_TX_DEADLINE
   struct timespec ts;
+
   clock_systime_timespec(&ts);
 
   if (priv->dev.d_sndlen > priv->dev.d_len)
@@ -702,6 +704,7 @@ static int imx9_transmit(struct imx9_driver_s *priv)
   if (priv->dev.d_len == sizeof(struct can_frame))
     {
       struct can_frame *frame = (struct can_frame *)priv->dev.d_buf;
+
       can_id = frame->can_id;
       len = 8;
       can_dlc = frame->can_dlc;
@@ -711,6 +714,7 @@ static int imx9_transmit(struct imx9_driver_s *priv)
   else
     {
       struct canfd_frame *frame = (struct canfd_frame *)priv->dev.d_buf;
+
       cs |= CAN_MB_CS_EDL;
       cs |= frame->flags & CANFD_BRS ? CAN_MB_CS_BRS : 0;
       can_id = frame->can_id;
@@ -898,6 +902,7 @@ static void imx9_receive(struct imx9_driver_s *priv)
   size_t frame_len;
 
   uint32_t flags = getreg32(priv->base + IMX9_CAN_IFLAG1_OFFSET);
+
   flags &= IFLAG1_RX;
 
   while (flags != 0)
@@ -1278,6 +1283,7 @@ static void imx9_txtimeout_work(void *arg)
   volatile struct mb_s *mb;
   struct timespec ts;
   struct timeval *now = (struct timeval *)&ts;
+
   clock_systime_timespec(&ts);
   now->tv_usec = ts.tv_nsec / 1000; /* timespec to timeval conversion */
 
@@ -1607,12 +1613,13 @@ static int imx9_ioctl(struct net_driver_s *dev, int cmd,
 
   switch (cmd)
     {
-#ifdef CONFIG_NETDEV_CAN_BITRATE_IOCTL
+#ifdef CONFIG_NETDEV_CAN_IOCTL
       case SIOCGCANBITRATE: /* Get bitrate from a CAN controller */
         {
           struct imx9_driver_s *priv = (struct imx9_driver_s *)dev;
           struct can_ioctl_data_s *req =
               (struct can_ioctl_data_s *)((uintptr_t)arg);
+
           req->arbi_bitrate = priv->arbi_timing.bitrate;
           req->arbi_samplep = priv->arbi_timing.samplep;
           if (priv->canfd_capable)
@@ -1654,26 +1661,25 @@ static int imx9_ioctl(struct net_driver_s *dev, int cmd,
 
               priv->arbi_timing = arbi_timing;
               if (priv->canfd_capable)
-              {
-                priv->data_timing = data_timing;
-              }
+                {
+                  priv->data_timing = data_timing;
+                }
             }
         }
         break;
-#endif
 
-#ifdef CONFIG_NETDEV_CAN_FILTER_IOCTL
       case SIOCACANSTDFILTER: /* Set STD ID CAN filter */
         {
           struct imx9_driver_s *priv = (struct imx9_driver_s *)dev;
           struct can_ioctl_filter_s *req =
             (struct can_ioctl_filter_s *)((uintptr_t)arg);
+
           if (!req)
             {
               return -EINVAL;
             }
 
-            ret = imx9_add_filter(priv, req->ftype, 0, req->fid1, req->fid2);
+          ret = imx9_add_filter(priv, req->ftype, 0, req->fid1, req->fid2);
         }
         break;
 
@@ -1682,12 +1688,13 @@ static int imx9_ioctl(struct net_driver_s *dev, int cmd,
           struct imx9_driver_s *priv = (struct imx9_driver_s *)dev;
           struct can_ioctl_filter_s *req =
             (struct can_ioctl_filter_s *)((uintptr_t)arg);
+
           if (!req)
             {
               return -EINVAL;
             }
 
-            ret = imx9_add_filter(priv, req->ftype, 1, req->fid1, req->fid2);
+          ret = imx9_add_filter(priv, req->ftype, 1, req->fid1, req->fid2);
         }
         break;
 
@@ -1695,6 +1702,7 @@ static int imx9_ioctl(struct net_driver_s *dev, int cmd,
       case SIOCDCANEXTFILTER: /* Reset EXT ID CAN filter */
         {
           struct imx9_driver_s *priv = (struct imx9_driver_s *)dev;
+
           ret = imx9_reset_filter(priv);
         }
         break;
@@ -1728,7 +1736,7 @@ static int imx9_ioctl(struct net_driver_s *dev, int cmd,
  *
  ****************************************************************************/
 
-#ifdef CONFIG_NETDEV_CAN_FILTER_IOCTL
+#ifdef CONFIG_NETDEV_CAN_IOCTL
 static uint32_t imx9_add_filter(struct imx9_driver_s *priv,
                                uint8_t filter_type,
                                bool ext_id,
@@ -1869,7 +1877,7 @@ static uint8_t imx9_reset_filter(struct imx9_driver_s *priv)
 
   return OK;
 }
-#endif /* CONFIG_NETDEV_CAN_FILTER_IOCTL */
+#endif /* CONFIG_NETDEV_CAN_IOCTL */
 
 /****************************************************************************
  * Function: imx9_init_eccram
@@ -2216,23 +2224,23 @@ int imx9_caninitialize(int intf)
   switch (intf)
     {
 #ifdef CONFIG_IMX9_FLEXCAN1
-    case 1:
-      imx9_ccm_configure_root_clock(CCM_CR_CAN1, SYS_PLL1PFD1DIV2, 5);
-      imx9_ccm_gate_on(CCM_LPCG_CAN1, true);
-      priv = &g_flexcan1;
-      break;
+      case 1:
+        imx9_ccm_configure_root_clock(CCM_CR_CAN1, SYS_PLL1PFD1DIV2, 5);
+        imx9_ccm_gate_on(CCM_LPCG_CAN1, true);
+        priv = &g_flexcan1;
+        break;
 #endif
 
 #ifdef CONFIG_IMX9_FLEXCAN2
-    case 2:
-      imx9_ccm_configure_root_clock(CCM_CR_CAN2, SYS_PLL1PFD1DIV2, 5);
-      imx9_ccm_gate_on(CCM_LPCG_CAN2, true);
-      priv = &g_flexcan2;
-      break;
+      case 2:
+        imx9_ccm_configure_root_clock(CCM_CR_CAN2, SYS_PLL1PFD1DIV2, 5);
+        imx9_ccm_gate_on(CCM_LPCG_CAN2, true);
+        priv = &g_flexcan2;
+        break;
 #endif
 
-    default:
-      return -ENODEV;
+      default:
+        return -ENODEV;
     }
 
   /* Get and store the clock (should be 80 MHz now) */

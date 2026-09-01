@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/tricore/src/common/tricore_fpu.c
+ * arch/arm/src/common/ameba/ameba_timer.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,51 +20,53 @@
  *
  ****************************************************************************/
 
+#ifndef __ARCH_ARM_SRC_COMMON_AMEBA_AMEBA_TIMER_H
+#define __ARCH_ARM_SRC_COMMON_AMEBA_AMEBA_TIMER_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
-#include <string.h>
-
-#include <arch/irq.h>
-
 /****************************************************************************
- * Public Functions
+ * Public Function Prototypes
  ****************************************************************************/
 
-/****************************************************************************
- * Name: tricore_fpuinit
- ****************************************************************************/
-
-void tricore_fpuinit(void)
+#ifdef __cplusplus
+#define EXTERN extern "C"
+extern "C"
 {
-  /* FPU zero-divide trap enable */
-
-  tricore_mtcr(FPU_SYNC_TRAP_REG, tricore_mfcr(FPU_SYNC_TRAP_REG) |
-                                  (1U << FPU_TRAP_FZE_SHIFT));
-}
+#else
+#define EXTERN extern
+#endif
 
 /****************************************************************************
- * Name: up_fpucmp
+ * Name: ameba_timer_initialize
+ *
+ * Description:
+ *   Bind one Ameba general-purpose timer instance to the NuttX timer
+ *   character driver and register it at the given path (typically
+ *   "/dev/timerN").  The instance index selects a row of the per-chip
+ *   AMEBA_TIMER_CONFIG_TABLE (0 == TIM1, 1 == TIM2, both @ 32.768 kHz on the
+ *   pke8721daf); its base, clock, RCC masks and IRQ come from that table, so
+ *   a board only names the device and the instance it wants.
+ *
+ * Input Parameters:
+ *   devpath  - The device path to register, e.g. "/dev/timer0".
+ *   instance - Index into the per-chip timer instance table
+ *              (0 .. AMEBA_TIMER_NINSTANCES - 1).
+ *
+ * Returned Value:
+ *   Zero (OK) on success; a negated errno value on failure.
+ *
  ****************************************************************************/
 
-bool up_fpucmp(const void *saveregs1, const void *saveregs2)
-{
-  const uintptr_t *regs1 = (const uintptr_t *)saveregs1 + TC_CONTEXT_REGS;
-  const uintptr_t *regs2 = (const uintptr_t *)saveregs2 + TC_CONTEXT_REGS;
+int ameba_timer_initialize(const char *devpath, int instance);
 
-  /* TriCore uses D8-D15 in upper CSA as FPU data registers.
-   * Skip A12-A15 (offsets 8-11) which naturally differ between saves.
-   */
-
-  if (memcmp(&regs1[REG_D8], &regs2[REG_D8],
-             4 * sizeof(uintptr_t)) != 0)
-    {
-      return false;
-    }
-
-  return memcmp(&regs1[REG_D12], &regs2[REG_D12],
-                4 * sizeof(uintptr_t)) == 0;
+#undef EXTERN
+#ifdef __cplusplus
 }
+#endif
+
+#endif /* __ARCH_ARM_SRC_COMMON_AMEBA_AMEBA_TIMER_H */
