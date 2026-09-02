@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/sim/sim/sim/src/etc/init.d/rcS
+ * boards/arm/qemu/qemu-armv7a/src/etc/init.d/init.rc
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -22,6 +22,12 @@
 
 #include <nuttx/config.h>
 
-#ifdef CONFIG_FS_HOSTFS
-mount -t hostfs -o fs=. /data
+#ifdef CONFIG_SYSTEM_NSH
+service console sh
+   restart_period 1000
+#endif
+
+on init
+#ifdef CONFIG_SYSTEM_NSH
+   start console
 #endif

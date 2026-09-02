@@ -95,6 +95,8 @@ static void restoremode(void)
 
 void host_uart_start(void)
 {
+  int nonblock = 1;
+
   /* Get the current stdin terminal mode */
 
   tcgetattr(0, &g_cooked);
@@ -102,6 +104,14 @@ void host_uart_start(void)
   /* Put stdin into raw mode */
 
   setrawmode(0);
+
+  host_uninterruptible_no_return(ioctl, 0, FIONBIO, &nonblock);
+
+  /* Set stdout to non-blocking to prevent write(1, ...) from blocking
+   * the entire sim process when the host pipe buffer is full.
+   */
+
+  host_uninterruptible_no_return(ioctl, 1, FIONBIO, &nonblock);
 
   /* Restore the original terminal mode before exit */
 
