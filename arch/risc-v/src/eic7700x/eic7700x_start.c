@@ -39,6 +39,9 @@
 #include "chip.h"
 #include "eic7700x_mm_init.h"
 #include "eic7700x_memorymap.h"
+#ifdef CONFIG_EIC7700X_CLK
+#  include "eic7700x_clk.h"
+#endif
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -105,6 +108,7 @@ static void eic7700x_copy_overlap(uint8_t *dest, const uint8_t *src,
   while (count--)
     {
       volatile uint8_t c = *s;  /* Prevent compiler optimization */
+
       *d = c;
       d--;
       s--;
@@ -157,6 +161,7 @@ static void eic7700x_copy_ramdisk(void)
   if (ramdisk_addr <= (uint8_t *)g_idle_topstack)
     {
       const size_t pad = (size_t)g_idle_topstack - (size_t)ramdisk_addr;
+
       _err("RAM Disk must be after Idle Stack. Increase initrd padding "
             "by %ul bytes.", pad);
       PANIC();
@@ -450,4 +455,26 @@ void riscv_earlyserialinit(void)
 void riscv_serialinit(void)
 {
   u16550_serialinit();
+}
+
+/****************************************************************************
+ * Name: riscv_soc_initialize
+ *
+ * Description:
+ *   SoC specific initialization, called from up_initialize() once the heap
+ *   and the serial driver are available.
+ *
+ *   This has to live in a file the linker is already pulling out of the
+ *   arch library.  up_initialize() reaches it through a weak undefined
+ *   reference, and the link uses neither --whole-archive nor a strong
+ *   reference elsewhere, so a member whose only symbol is this function
+ *   would never be extracted and the body would silently never run.
+ *
+ ****************************************************************************/
+
+void weak_function riscv_soc_initialize(void)
+{
+#ifdef CONFIG_EIC7700X_CLK
+  eic7700x_clk_initialize();
+#endif
 }

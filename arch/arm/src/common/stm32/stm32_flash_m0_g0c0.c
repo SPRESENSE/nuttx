@@ -373,6 +373,7 @@ static void flash_lock_cr(void)
 static bool flash_unlock_opt(void)
 {
   bool was_locked = false;
+
   flash_unlock_cr();
 
   if (getreg32(STM32_FLASH_CR) & FLASH_CR_OPTLOCK)
@@ -587,6 +588,97 @@ int stm32_flash_optmodify(uint32_t clear, uint32_t set)
   return 0;
 }
 
+/****************************************************************************
+ * Name: stm32_flash_optload
+ *
+ * Description:
+ *   Reload the flash option bytes. If an option-byte change affects the
+ *   flash-bank mapping, the reload immediately resets the system.
+ *
+ * Returned Value:
+ *   Zero or a negated errno value.
+ *
+ *   -EBUSY: Timeout waiting for a previous flash operation to finish.
+ *
+ ****************************************************************************/
+
+int stm32_flash_optload(void)
+{
+  int ret;
+  bool was_locked;
+
+  ret = flash_wait_for_operation();
+  if (ret != 0)
+    {
+      return -EBUSY;
+    }
+
+  was_locked = flash_unlock_opt();
+  modifyreg32(STM32_FLASH_SR, 0, FLASH_SR_CLEAR_ERROR_FLAGS);
+
+  ret = flash_wait_for_operation();
+  if (ret != 0)
+    {
+      ret = -EBUSY;
+      goto exit;
+    }
+
+  modifyreg32(STM32_FLASH_CR, 0, FLASH_CR_OBL_LAUNCH);
+
+  while (getreg32(STM32_FLASH_CR) & FLASH_CR_OBL_LAUNCH)
+    {
+    }
+
+exit:
+  if (was_locked)
+    {
+      flash_lock_opt();
+    }
+
+  return ret;
+}
+
+/****************************************************************************
+ * Name: stm32_flash_swapbanks
+ *
+ * Description:
+ *   Toggle the flash-bank mapping in the option bytes. The new mapping takes
+ *   effect after a power-on reset or a call to stm32_flash_optload().
+ *
+ * Returned Value:
+ *   Zero or a negated errno value.
+ *
+ *   -EBUSY: Timeout waiting for a previous flash operation to finish.
+ *   -EPERM: Bank swapping is prohibited by the boot lock.
+ *
+ ****************************************************************************/
+
+int stm32_flash_swapbanks(void)
+{
+  int ret = 0;
+
+#ifdef FLASH_DUAL_BANK
+  uint32_t reg;
+
+  if (getreg32(STM32_FLASH_SECR) & FLASH_SECR_BOOT_LOCK)
+    {
+      return -EPERM;
+    }
+
+  reg = getreg32(STM32_FLASH_OPTR);
+  if (reg & FLASH_OPTR_NSWAP_BANK)
+    {
+      ret = stm32_flash_optmodify(FLASH_OPTR_NSWAP_BANK, 0);
+    }
+  else
+    {
+      ret = stm32_flash_optmodify(0, FLASH_OPTR_NSWAP_BANK);
+    }
+#endif
+
+  return ret;
+}
+
 #ifdef CONFIG_ARCH_HAVE_PROGMEM
 
 /* up_progmem_x functions defined in nuttx/include/nuttx/progmem.h
@@ -688,6 +780,9 @@ ssize_t up_progmem_eraseblock(size_t block)
 {
   int ret;
   size_t block_address;
+#ifdef FLASH_DUAL_BANK
+  bool bank2;
+#endif
 
   ret = flash_verify_blocknum(block);
   if (ret < 0)
@@ -729,7 +824,17 @@ ssize_t up_progmem_eraseblock(size_t block)
    * match the correct bank.
    */
 
-  if (block >= flash_bank2_priv.stblock)
+  /* BKER selects a physical bank, while block numbers follow the memory map.
+   * Reverse the bank selection when the banks are swapped in the memory map.
+   */
+
+  bank2 = block >= flash_bank2_priv.stblock;
+  if ((getreg32(STM32_FLASH_OPTR) & FLASH_OPTR_NSWAP_BANK) == 0)
+    {
+      bank2 = !bank2;
+    }
+
+  if (bank2)
     {
       modifyreg32(STM32_FLASH_CR, 0, FLASH_CR_BKER);
     }
