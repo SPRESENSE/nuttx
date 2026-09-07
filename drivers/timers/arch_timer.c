@@ -30,6 +30,7 @@
 
 #include <nuttx/arch.h>
 #include <nuttx/clock.h>
+#include <nuttx/lib/math32.h>
 #include <nuttx/timers/arch_timer.h>
 
 /****************************************************************************
@@ -127,6 +128,7 @@ static uint64_t current_usec(void)
 static void udelay_accurate(useconds_t microseconds)
 {
   uint64_t start = current_usec();
+
   while (current_usec() - start < microseconds)
     {
       ; /* Wait until the timeout reach */
@@ -276,21 +278,12 @@ void up_timer_set_lowerhalf(FAR struct timer_lowerhalf_s *lower)
 
 void weak_function up_timer_getmask(FAR clock_t *mask)
 {
-  uint32_t maxticks;
+  uint32_t maxticks = 0u;
 
   TIMER_TICK_MAXTIMEOUT(g_timer.lower, &maxticks);
 
-  *mask = 0;
-  while (1)
-    {
-      clock_t next = (*mask << 1) | 1;
-      if (next > maxticks)
-        {
-          break;
-        }
-
-      *mask = next;
-    }
+  *mask = maxticks == 0u ? 0 :
+          UINT64_MAX >> (sizeof(clock_t) * 8u - flsx(maxticks));
 }
 
 int weak_function up_timer_gettick(FAR clock_t *ticks)

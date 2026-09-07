@@ -30,6 +30,7 @@
 
 #include <nuttx/arch.h>
 #include <nuttx/clock.h>
+#include <nuttx/lib/math32.h>
 #include <nuttx/timers/arch_alarm.h>
 
 /****************************************************************************
@@ -288,16 +289,8 @@ void weak_function up_timer_getmask(FAR clock_t *mask)
 
       ONESHOT_TICK_MAX_DELAY(g_oneshot_lower, &maxticks);
 
-      for (; ; )
-        {
-          clock_t next = (*mask << 1) | 1;
-          if (next > maxticks)
-            {
-              break;
-            }
-
-          *mask = next;
-        }
+      *mask = maxticks == 0 ? 0 :
+              UINT64_MAX >> (sizeof(clock_t) * 8u - flsx(maxticks));
     }
 }
 
