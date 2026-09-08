@@ -278,6 +278,18 @@ static inline void gd25_unlock(FAR struct spi_dev_s *spi)
 #endif /* CONFIG_GD25_QSPI */
 
 /***************************************************************************
+ * Name: gd25_purdid
+ ***************************************************************************/
+
+static inline void gd25_purdid(FAR struct gd25_dev_s *priv)
+{
+  SPI_SELECT(priv->spi, SPIDEV_FLASH(priv->spi_devid), true);
+  SPI_SEND(priv->spi, GD25_PURDID);
+  SPI_SELECT(priv->spi, SPIDEV_FLASH(priv->spi_devid), false);
+  nxsched_usleep(20);
+}
+
+/***************************************************************************
  * Name: gd25_readid
  ***************************************************************************/
 
@@ -308,6 +320,10 @@ static inline int gd25_readid(FAR struct gd25_dev_s *priv)
   /* Lock and configure the SPI bus */
 
   gd25_lock(priv->spi);
+
+  /* Make sure the device is not in power down mode */
+
+  gd25_purdid(priv);
 
   /* Select this FLASH part. */
 
@@ -511,6 +527,7 @@ static inline uint8_t gd25_rdsr(FAR struct gd25_dev_s *priv, uint32_t id)
 
 #ifdef CONFIG_GD25_QSPI
   struct qspi_cmdinfo_s cmdinfo;
+
   cmdinfo.flags   = QSPICMD_READDATA;
   cmdinfo.addrlen = 0;
   cmdinfo.cmd     = rdsr[id];
@@ -521,6 +538,7 @@ static inline uint8_t gd25_rdsr(FAR struct gd25_dev_s *priv, uint32_t id)
   return priv->cmdbuf[0];
 #else
   uint8_t status;
+
   SPI_SELECT(priv->spi, SPIDEV_FLASH(priv->spi_devid), true);
   SPI_SEND(priv->spi, rdsr[id]);
   status = SPI_SEND(priv->spi, GD25_DUMMY);
@@ -541,6 +559,7 @@ static inline bool gd25_4ben(FAR struct gd25_dev_s *priv)
 {
 #ifdef CONFIG_GD25_QSPI
   struct qspi_cmdinfo_s cmdinfo;
+
   cmdinfo.flags   = 0;
   cmdinfo.addrlen = 0;
   cmdinfo.cmd     = GD25_4BEN;
@@ -571,6 +590,7 @@ static inline void gd25_wren(FAR struct gd25_dev_s *priv)
 {
 #ifdef CONFIG_GD25_QSPI
   struct qspi_cmdinfo_s cmdinfo;
+
   cmdinfo.flags   = 0;
   cmdinfo.addrlen = 0;
   cmdinfo.cmd     = GD25_WREN;
@@ -593,6 +613,7 @@ static inline void gd25_wrdi(FAR struct gd25_dev_s *priv)
 {
 #ifdef CONFIG_GD25_QSPI
   struct qspi_cmdinfo_s cmdinfo;
+
   cmdinfo.flags   = 0;
   cmdinfo.addrlen = 0;
   cmdinfo.cmd     = GD25_WRDI;
@@ -1194,6 +1215,7 @@ static int gd25_ioctl(FAR struct mtd_dev_s *dev, int cmd, unsigned long arg)
         {
           FAR struct mtd_geometry_s *geo =
             (FAR struct mtd_geometry_s *)((uintptr_t)arg);
+
           if (geo)
             {
               memset(geo, 0, sizeof(*geo));
@@ -1214,6 +1236,7 @@ static int gd25_ioctl(FAR struct mtd_dev_s *dev, int cmd, unsigned long arg)
         {
           FAR struct partition_info_s *info =
             (FAR struct partition_info_s *)arg;
+
           if (info != NULL)
             {
               info->numsectors  = priv->nsectors *
@@ -1247,6 +1270,7 @@ static int gd25_ioctl(FAR struct mtd_dev_s *dev, int cmd, unsigned long arg)
       case MTDIOC_ERASESTATE:
         {
           FAR uint8_t *result = (FAR uint8_t *)arg;
+
           *result = GD25_ERASED_STATE;
 
           ret = OK;
@@ -1330,6 +1354,7 @@ FAR struct mtd_dev_s *gd25_initialize(FAR struct qspi_dev_s *qspi,
           priv->cmdbuf[1] = (sr2 & GD25_SR2_PRESERVE_MASK) | GD25_SR2_QE;
 
           struct qspi_cmdinfo_s cmdinfo;
+
           cmdinfo.flags   = QSPICMD_WRITEDATA;
           cmdinfo.addrlen = 0;
           cmdinfo.cmd     = GD25_WRSR;
