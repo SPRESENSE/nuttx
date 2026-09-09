@@ -29,6 +29,7 @@
 #include <sys/param.h>
 #include <sys/types.h>
 
+#include <inttypes.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -39,7 +40,9 @@
 #include <nuttx/debug.h>
 
 #include <nuttx/arch.h>
+#include <nuttx/fdpic.h>
 #include <nuttx/lib/elf.h>
+#include <nuttx/fs/fs.h>
 #include <nuttx/fs/ioctl.h>
 
 #include "libc.h"
@@ -239,6 +242,33 @@ static void libelf_elfsize(FAR struct mod_loadinfo_s *loadinfo, bool alloc)
         }
     }
 
+  /* Reserve the descriptor pool.  R_ARM_FUNCDESC asks the loader to
+   * manufacture a descriptor after the segment is placed, and a library
+   * publishes one per exported function for dlsym().  The relocation and
+   * dynamic symbol counts bound how many.
+   */
+
+  if (loadinfo->fdpic)
+    {
+      size_t nrels = 0;
+
+      for (i = 0; i < loadinfo->ehdr.e_shnum; i++)
+        {
+          FAR Elf_Shdr *shdr = &loadinfo->shdr[i];
+
+          if ((shdr->sh_type == SHT_REL || shdr->sh_type == SHT_DYNSYM) &&
+              shdr->sh_entsize != 0)
+            {
+              nrels += shdr->sh_size / shdr->sh_entsize;
+            }
+        }
+
+      loadinfo->ndesc = nrels;
+      datasize += nrels * sizeof(struct fdpic_desc_s);
+
+      binfo("fdpic: reserving %zu descriptors behind the data\n", nrels);
+    }
+
   /* An ET_DYN object is sized from its program headers, which give no
    * section alignment.  A word is enough.
    */
@@ -336,13 +366,19 @@ static void libelf_set_emptysect_vma(FAR struct mod_loadinfo_s *loadinfo,
  *   Read the section data into memory. Section addresses in the shdr[] are
  *   updated to point to the corresponding position in the memory.
  *
+ * Input Parameters:
+ *   loadinfo - The load state.
+ *   gotidx   - Section index of .got, which the caller has already looked
+ *              up, or a negative value if the object has none.
+ *
  * Returned Value:
  *   0 (OK) is returned on success and a negated errno is returned on
  *   failure.
  *
  ****************************************************************************/
 
-static inline int libelf_loadfile(FAR struct mod_loadinfo_s *loadinfo)
+static inline int libelf_loadfile(FAR struct mod_loadinfo_s *loadinfo,
+                                  int gotidx)
 {
   FAR uint8_t *text = (FAR uint8_t *)loadinfo->textalloc;
   FAR uint8_t *data = (FAR uint8_t *)loadinfo->datastart;
@@ -364,6 +400,13 @@ static inline int libelf_loadfile(FAR struct mod_loadinfo_s *loadinfo)
             {
               if (phdr->p_flags & PF_X)
                 {
+                  if (loadinfo->fdpic && loadinfo->xipbase != 0)
+                    {
+                      /* Mapped, not copied. */
+
+                      continue;
+                    }
+
                   ret = libelf_read(loadinfo, buffer_data_address(text),
                                     phdr->p_filesz,
                                     phdr->p_offset);
@@ -371,6 +414,7 @@ static inline int libelf_loadfile(FAR struct mod_loadinfo_s *loadinfo)
               else
                 {
                   size_t bsssize = phdr->p_memsz - phdr->p_filesz;
+
                   ret = libelf_read(loadinfo, data, phdr->p_filesz,
                                     phdr->p_offset);
                   memset(data + phdr->p_filesz, 0, bsssize);
@@ -508,13 +552,29 @@ skipload:
         }
     }
 
-  /* Update GOT table */
+  /* Note the GOT.  The sections are placed by now, thus .got carries the
+   * address it will be read at.  An FDPIC object's sections are never
+   * placed, and libelf_bind() takes its base from DT_PLTGOT instead.
+   */
 
-  if (loadinfo->gotindex >= 0)
+  if (gotidx >= 0)
     {
-      FAR Elf_Shdr *gotshdr = &loadinfo->shdr[loadinfo->gotindex];
-      FAR uintptr_t *got = (FAR uintptr_t *)gotshdr->sh_addr;
-      FAR uintptr_t *end = got + gotshdr->sh_size / sizeof(uintptr_t);
+      loadinfo->gotsize = loadinfo->shdr[gotidx].sh_size;
+
+      if (!loadinfo->fdpic)
+        {
+          loadinfo->gotbase = loadinfo->shdr[gotidx].sh_addr;
+        }
+    }
+
+  /* Update GOT table.  An FDPIC object's entries are relocated through its
+   * own relocations, so there is nothing to do for one here.
+   */
+
+  if (loadinfo->gotbase != 0)
+    {
+      FAR uintptr_t *got = (FAR uintptr_t *)loadinfo->gotbase;
+      FAR uintptr_t *end = got + loadinfo->gotsize / sizeof(uintptr_t);
 
       for (; got < end; got++)
         {
@@ -540,8 +600,111 @@ skipload:
 }
 
 /****************************************************************************
+ * Name: libelf_xipacquire
+ *
+ * Description:
+ *   Ask the filesystem for the address of this file on its media, so the
+ *   read-only part of the object can run where it lies.  Ask for a pin
+ *   first: a compacting filesystem is not safe without one.  Do not ask at
+ *   all if this build cannot hold a pin.
+ *
+ * Returned Value:
+ *   Zero if an address was obtained, a negated errno otherwise.  Callers
+ *   that can live without one may ignore the failure.
+ *
+ ****************************************************************************/
+
+#ifdef HAVE_LIBC_ELF_PIN
+static int libelf_pinhold(FAR struct mod_loadinfo_s *loadinfo)
+{
+  FAR struct file *filep;
+  int ret;
+
+  /* The descriptor belongs to the task that called the loader, and the
+   * unload runs on another task.  Hold the file instead.
+   */
+
+  loadinfo->pinfile = lib_zalloc(sizeof(struct file));
+  if (loadinfo->pinfile == NULL)
+    {
+      return -ENOMEM;
+    }
+
+  ret = file_get(loadinfo->filfd, &filep);
+  if (ret >= 0)
+    {
+      ret = file_dup2(filep, loadinfo->pinfile);
+      file_put(filep);
+    }
+
+  if (ret < 0)
+    {
+      lib_free(loadinfo->pinfile);
+      loadinfo->pinfile = NULL;
+    }
+
+  return ret;
+}
+
+#endif
+
+static int libelf_xipacquire(FAR struct mod_loadinfo_s *loadinfo)
+{
+  uintptr_t base = 0;
+
+#ifdef HAVE_LIBC_ELF_PIN
+  if (ioctl(loadinfo->filfd, XIPFSIOC_PIN, (unsigned long)&base) >= 0)
+    {
+      int ret = libelf_pinhold(loadinfo);
+
+      if (ret < 0)
+        {
+          berr("ERROR: Failed to hold the pinned file: %d\n", ret);
+          ioctl(loadinfo->filfd, XIPFSIOC_UNPIN, 0);
+          return ret;
+        }
+
+      loadinfo->xipbase = base;
+      binfo("pinned xipbase %" PRIxPTR "\n", loadinfo->xipbase);
+      return OK;
+    }
+#endif
+
+  if (ioctl(loadinfo->filfd, FIOC_XIPBASE, (unsigned long)&base) >= 0)
+    {
+      loadinfo->xipbase = base;
+      binfo("can use xipbase %" PRIxPTR "\n", loadinfo->xipbase);
+      return OK;
+    }
+
+  return -ENOTTY;
+}
+
+/****************************************************************************
  * Public Functions
  ****************************************************************************/
+
+#ifdef HAVE_LIBC_ELF_PIN
+/****************************************************************************
+ * Name: libelf_pinrelease
+ *
+ * Description:
+ *   Give back an XIP pin and the file it was held through, so the
+ *   filesystem can reclaim the extent.
+ *
+ ****************************************************************************/
+
+void libelf_pinrelease(FAR struct file **pinfile)
+{
+  if (*pinfile != NULL)
+    {
+      file_ioctl(*pinfile, XIPFSIOC_UNPIN, 0);
+      file_close(*pinfile);
+      lib_free(*pinfile);
+      *pinfile = NULL;
+    }
+}
+#endif
 
 /****************************************************************************
  * Name: libelf_load
@@ -558,7 +721,9 @@ skipload:
 
 int libelf_load(FAR struct mod_loadinfo_s *loadinfo)
 {
+  int gotidx;
   int ret;
+  int i;
 
   binfo("loadinfo: %p\n", loadinfo);
   DEBUGASSERT(loadinfo && loadinfo->filfd >= 0);
@@ -572,15 +737,16 @@ int libelf_load(FAR struct mod_loadinfo_s *loadinfo)
       goto errout_with_buffers;
     }
 
-  loadinfo->gotindex = libelf_findsection(loadinfo, ".got");
-  if (loadinfo->gotindex >= 0)
+  /* An object with a GOT is position independent, thus its read-only part
+   * may be able to stay where the filesystem holds it.  Keep the index:
+   * libelf_loadfile() notes the section once it has placed it.
+   */
+
+  gotidx = libelf_findsection(loadinfo, ".got");
+  if (gotidx >= 0)
     {
-      binfo("GOT section found! index %d\n", loadinfo->gotindex);
-      if (ioctl(loadinfo->filfd, FIOC_XIPBASE,
-                (unsigned long)&loadinfo->xipbase) >= 0)
-        {
-          binfo("can use xipbase %zu\n", loadinfo->xipbase);
-        }
+      binfo("GOT section found! index %d\n", gotidx);
+      libelf_xipacquire(loadinfo);
     }
 
   /* Determine total size to allocate */
@@ -647,28 +813,111 @@ int libelf_load(FAR struct mod_loadinfo_s *loadinfo)
     }
   else if (loadinfo->ehdr.e_type == ET_DYN)
     {
-      loadinfo->textalloc = (uintptr_t)lib_memalign(loadinfo->textalign,
-                                                    loadinfo->textsize +
-                                                    loadinfo->datasize +
-                                                    loadinfo->segpad);
-
-      if (!loadinfo->textalloc)
+      if (loadinfo->fdpic)
         {
-          berr("ERROR: Failed to allocate memory for the module\n");
-          ret = -ENOMEM;
-          goto errout_with_buffers;
-        }
+          /* The two segments are placed independently, thus only the
+           * writable segment is allocated, once per instance.
+           */
 
-      loadinfo->datastart = loadinfo->textalloc +
-                            loadinfo->textsize +
-                            loadinfo->segpad;
+          if (loadinfo->xipbase != 0)
+            {
+              /* The text stays on the media.  The media address is the base
+               * of the file, thus add the file offset of the segment.
+               */
+
+              for (i = 0; i < loadinfo->ehdr.e_phnum; i++)
+                {
+                  FAR Elf_Phdr *phdr = &loadinfo->phdr[i];
+
+                  if (phdr->p_type == PT_LOAD &&
+                      (phdr->p_flags & PF_X) != 0)
+                    {
+                      loadinfo->textalloc = loadinfo->xipbase +
+                                            phdr->p_offset;
+                      break;
+                    }
+                }
+            }
+          else if (loadinfo->textsize > 0)
+            {
+              /* The filesystem cannot show its media, thus copy the text
+               * to RAM.  The instances no longer share it.
+               */
+
+#  if defined(CONFIG_ARCH_USE_TEXT_HEAP) && \
+      defined(CONFIG_ARCH_USE_SEPARATED_SECTION)
+              loadinfo->textalloc = (uintptr_t)
+                                    up_textheap_memalign(".text",
+                                                         loadinfo->textalign,
+                                                         loadinfo->textsize);
+#  elif defined(CONFIG_ARCH_USE_TEXT_HEAP)
+              loadinfo->textalloc = (uintptr_t)
+                                    up_textheap_memalign(loadinfo->textalign,
+                                                         loadinfo->textsize);
+#  else
+              loadinfo->textalloc = (uintptr_t)
+                                    lib_memalign(loadinfo->textalign,
+                                                 loadinfo->textsize);
+#  endif
+              if (loadinfo->textalloc == 0)
+                {
+                  berr("ERROR: Failed to allocate the module's text\n");
+                  ret = -ENOMEM;
+                  goto errout_with_buffers;
+                }
+            }
+
+          if (loadinfo->datasize > 0)
+            {
+              loadinfo->datastart =
+                (uintptr_t)lib_memalign(loadinfo->dataalign,
+                                        loadinfo->datasize);
+              if (!loadinfo->datastart)
+                {
+                  berr("ERROR: Failed to allocate the module's data\n");
+                  ret = -ENOMEM;
+                  goto errout_with_buffers;
+                }
+            }
+
+          /* The pool was reserved at the end of the segment when it was
+           * sized, so it starts that many descriptors back from the end.
+           */
+
+          loadinfo->descpool = (FAR struct fdpic_desc_s *)
+                               (loadinfo->datastart + loadinfo->datasize) -
+                               loadinfo->ndesc;
+        }
+      else
+        {
+          /* Everything else keeps text and data adjacent: one allocation,
+           * data behind text.
+           */
+
+          loadinfo->textalloc = (uintptr_t)
+                                lib_memalign(loadinfo->textalign,
+                                             loadinfo->textsize +
+                                             loadinfo->datasize +
+                                             loadinfo->segpad);
+
+          if (!loadinfo->textalloc)
+            {
+              berr("ERROR: Failed to allocate memory for the module\n");
+              ret = -ENOMEM;
+              goto errout_with_buffers;
+            }
+
+          loadinfo->datastart = loadinfo->textalloc +
+                                loadinfo->textsize +
+                                loadinfo->segpad;
+        }
     }
 
 #endif /* CONFIG_LIBC_ELF_LOADTO_LMA */
 
   /* Load ELF section data into memory */
 
-  ret = libelf_loadfile(loadinfo);
+  ret = libelf_loadfile(loadinfo, gotidx);
   if (ret < 0)
     {
       berr("ERROR: libelf_loadfile failed: %d\n", ret);
@@ -714,6 +963,7 @@ errout_with_buffers:
 #ifdef CONFIG_ARCH_ADDRENV
 int libelf_load_with_addrenv(FAR struct mod_loadinfo_s *loadinfo)
 {
+  int gotidx;
   int ret;
 
   binfo("loadinfo: %p\n", loadinfo);
@@ -728,15 +978,16 @@ int libelf_load_with_addrenv(FAR struct mod_loadinfo_s *loadinfo)
       goto errout_with_buffers;
     }
 
-  loadinfo->gotindex = libelf_findsection(loadinfo, ".got");
-  if (loadinfo->gotindex >= 0)
+  /* An object with a GOT is position independent, thus its read-only part
+   * may be able to stay where the filesystem holds it.  Keep the index:
+   * libelf_loadfile() notes the section once it has placed it.
+   */
+
+  gotidx = libelf_findsection(loadinfo, ".got");
+  if (gotidx >= 0)
     {
-      binfo("GOT section found! index %d\n", loadinfo->gotindex);
-      if (ioctl(loadinfo->filfd, FIOC_XIPBASE,
-                (unsigned long)&loadinfo->xipbase) >= 0)
-        {
-          binfo("can use xipbase %zu\n", loadinfo->xipbase);
-        }
+      binfo("GOT section found! index %d\n", gotidx);
+      libelf_xipacquire(loadinfo);
     }
 
   /* Determine total size to allocate */
@@ -763,7 +1014,7 @@ int libelf_load_with_addrenv(FAR struct mod_loadinfo_s *loadinfo)
       goto errout_with_buffers;
     }
 
-  ret = libelf_loadfile(loadinfo);
+  ret = libelf_loadfile(loadinfo, gotidx);
   if (ret < 0)
     {
       berr("ERROR: libelf_loadfile failed: %d\n", ret);
