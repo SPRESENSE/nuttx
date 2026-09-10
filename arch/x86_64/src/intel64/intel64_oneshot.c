@@ -100,18 +100,21 @@ static int intel64_oneshot_handler(int irg_num, void * context, void *arg)
       INTEL64_TIM_ACKINT(oneshot->tch, oneshot->chan);
 #endif
 
-      /* The timer is no longer running */
+      /* The timer is no longer running.  Only pick up the handler here;
+       * it is owned by intel64_oneshot_start()/cancel(), which may be
+       * re-arming the timer on another CPU right now.  Clearing it from
+       * the ISR could leave a re-armed timer without a handler, and the
+       * next expiry would then jump through a NULL pointer.
+       */
 
       oneshot->running = false;
-
-      /* Forward the event, clearing out any vestiges */
-
       oneshot_handler  = (oneshot_handler_t)oneshot->handler;
-      oneshot->handler = NULL;
       oneshot_arg      = (void *)oneshot->arg;
-      oneshot->arg     = NULL;
 
-      oneshot_handler(oneshot_arg);
+      if (oneshot_handler != NULL)
+        {
+          oneshot_handler(oneshot_arg);
+        }
     }
   else
     {
@@ -301,10 +304,21 @@ int intel64_oneshot_start(struct intel64_oneshot_s *oneshot,
   flags = spin_lock_irqsave(&g_oneshot_spin);
   if (oneshot->running)
     {
-      /* Yes.. then cancel it */
+      /* Yes.. then stop it.  Do NOT call intel64_oneshot_cancel() here:
+       * it takes g_oneshot_spin, which we already hold, and spinlocks are
+       * not recursive, so that deadlocks the CPU.  Everything else that
+       * cancel would do (ISR, comparator, interrupt enable) is
+       * reprogrammed below anyway.
+       */
 
       tmrinfo("Already running... cancelling\n");
-      intel64_oneshot_cancel(oneshot, NULL);
+
+#ifndef CONFIG_INTEL64_HPET_FSB
+      INTEL64_TIM_DISABLEINT(oneshot->tch, oneshot->chan);
+      INTEL64_TIM_SETISR(oneshot->tch, oneshot->chan, NULL, NULL, false);
+#endif
+
+      oneshot->running = false;
     }
 
   /* Save the new handler and its argument */
