@@ -775,7 +775,7 @@ static inline int fat_createalias(FAR struct fat_dirinfo_s *dirinfo)
     }
   else
     {
-       src       = (FAR lfnchar *)dirinfo->fd_lfname;
+      src       = (FAR lfnchar *)dirinfo->fd_lfname;
     }
 
   /* Then copy the name and extension, handling upper case conversions and
@@ -1163,8 +1163,10 @@ static int fat_path2dirname(FAR const char **path,
           /* Get short file name for given path */
 
           char name[DIR_MAXFNAME];
+          FAR const char *tmp;
+
           memcpy(name, dirinfo->fd_lfname, DIR_MAXFNAME);
-          FAR const char *tmp = (FAR const char *)name;
+          tmp = (FAR const char *)name;
           if (fat_parsesfname(&tmp, dirinfo, NULL) != OK)
             {
               /* The name fits the short form's length but cannot be
@@ -2666,7 +2668,9 @@ int fat_finddirentry(FAR struct fat_mountpt_s *fs,
            *  - file created on Windows is written as SFN if it fits 8.3
            */
 
-          struct fat_dirinfo_s d = *dirinfo;
+          struct fat_dirinfo_s d;
+
+          d = *dirinfo;
           ret = fat_findlfnentry(fs, dirinfo);
           if (ret < 0)
             {
@@ -3178,6 +3182,10 @@ int fat_remove(FAR struct fat_mountpt_s *fs, FAR const char *relpath,
   struct fat_dirinfo_s dirinfo;
   uint32_t             dircluster;
   FAR uint8_t         *direntry;
+  FAR struct fat_shared_s *shared;
+  off_t                victimsector;
+  uint16_t             victimindex;
+  bool                 defer = false;
   int                  ret;
 
   /* Find the directory entry referring to the entry to be deleted */
@@ -3210,12 +3218,18 @@ int fat_remove(FAR struct fat_mountpt_s *fs, FAR const char *relpath,
     }
 
   /* Get the directory sector and cluster containing the entry to be
-   * deleted.
+   * deleted.  The sector/index pair identifies the entry for open
+   * handles; unlike the start cluster it is also valid for empty files
+   * (cluster 0).  It must be captured here because the empty-directory
+   * scan and freedirentry below change the sector cache.
    */
 
   dircluster =
       ((uint32_t)DIR_GETFSTCLUSTHI(direntry) << 16) |
       DIR_GETFSTCLUSTLO(direntry);
+
+  victimsector = fs->fs_currentsector;
+  victimindex  = dirinfo.dir.fd_index;
 
   /* Is this entry a directory? */
 
@@ -3320,12 +3334,39 @@ int fat_remove(FAR struct fat_mountpt_s *fs, FAR const char *relpath,
       return ret;
     }
 
-  /* And remove the cluster chain making up the subdirectory */
+  /* If the file is still open, only the name goes away now.  The shared
+   * object is marked pending (detached from the directory namespace) and
+   * the cluster chain is kept until the last reference is closed.  This
+   * deliberately also matches empty files: they have no chain yet, but
+   * clusters allocated by later writes belong to the pending file and
+   * are freed on close.
+   *
+   * NOTE: directories opened with opendir() are not tracked here, so
+   * rmdir() of a directory being iterated still frees immediately.
+   */
 
-  ret = fat_removechain(fs, dircluster);
-  if (ret < 0)
+  for (shared = fs->fs_shared; shared != NULL; shared = shared->s_next)
     {
-      return ret;
+      if (!shared->s_pending &&
+          shared->s_dirsector == victimsector &&
+          shared->s_dirindex == victimindex)
+        {
+          shared->s_pending = true;
+          defer = true;
+        }
+    }
+
+  /* And remove the cluster chain making up the file, unless an open
+   * handle still owns it.
+   */
+
+  if (!defer)
+    {
+      ret = fat_removechain(fs, dircluster);
+      if (ret < 0)
+        {
+          return ret;
+        }
     }
 
   /* Update the FSINFO sector (FAT32) */
