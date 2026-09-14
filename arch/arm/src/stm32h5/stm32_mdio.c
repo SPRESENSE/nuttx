@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/stm32h7/stm32_mdio.c
+ * arch/arm/src/stm32h5/stm32_mdio.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *

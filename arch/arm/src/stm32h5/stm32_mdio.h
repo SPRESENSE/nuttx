@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/sim/src/sim/sim_hosthcisocket.h
+ * arch/arm/src/stm32h5/stm32_mdio.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,25 +20,39 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_SIM_SRC_SIM_HOSTHCISOCKET_H
-#define __ARCH_SIM_SRC_SIM_HOSTHCISOCKET_H
+#ifndef __ARCH_ARM_SRC_STM32H5_STM32_MDIO_H
+#define __ARCH_ARM_SRC_STM32H5_STM32_MDIO_H
 
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#include <errno.h>
-#include <stdint.h>
+#include <nuttx/config.h>
+#include <nuttx/net/mdio.h>
+
+/****************************************************************************
+ * Pre-processor Definitions
+ ****************************************************************************/
+
+/****************************************************************************
+ * Public Types
+ ****************************************************************************/
 
 /****************************************************************************
  * Public Function Prototypes
  ****************************************************************************/
 
-int host_bthcisock_open(int dev_idx);
-int host_bthcisock_configure(const char *target);
-int host_bthcisock_send(int fd, const void *data, size_t len);
-int host_bthcisock_receive(int fd, void *data, size_t len);
-int host_bthcisock_avail(int fd);
-int host_bthcisock_close(int fd);
+/****************************************************************************
+ * Name: stm32_mdio_bus_initialize
+ *
+ * Description:
+ *   Initialize the MDIO bus
+ *
+ * Returned Value:
+ *   Initialized MDIO bus structure or NULL on failure
+ *
+ ****************************************************************************/
 
-#endif /* __ARCH_SIM_SRC_SIM_HOSTHCISOCKET_H */
+struct mdio_bus_s *stm32_mdio_bus_initialize(void);
+
+#endif /* __ARCH_ARM_SRC_STM32H5_STM32_MDIO_H */
