@@ -35,6 +35,10 @@
 #include "am67_gpio.h"
 #endif
 
+#if defined(CONFIG_AM67_I2C0) || defined(CONFIG_AM67_WKUP_I2C0)
+#include "am67_i2c.h"
+#endif
+
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
@@ -61,6 +65,10 @@ int am67_bringup(void)
   am67_sensors_power_enable(true);
   am67_spiinitialize();
   am67_spidev_initialize();
+#endif
+
+#if defined(CONFIG_AM67_I2C0) || defined(CONFIG_AM67_WKUP_I2C0)
+  am67_i2cdev_initialize();
 #endif
 
 #ifdef CONFIG_FS_PROCFS
