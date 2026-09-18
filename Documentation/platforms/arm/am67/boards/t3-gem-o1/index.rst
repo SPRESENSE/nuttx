@@ -101,6 +101,10 @@ main-domain R5F core:
 - **SPI:** MCU_MCSPI0 master, with the hardware chip-select driven per channel
   (used for the on-board ICM-20948 IMU and LPS22DF barometer).
 - **I2C:** WKUP_I2C0 master, registered as /dev/i2c2.
+- **PWM:** EPWM0 and EPWM1, channels A and B each, registered as /dev/pwm0
+  and /dev/pwm1.
+- **eCAP:** eCAP1 and eCAP2 in APWM mode, registered as /dev/ecap1 and
+  /dev/ecap2.
 
 Installation
 ============

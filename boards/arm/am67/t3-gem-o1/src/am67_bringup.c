@@ -39,6 +39,15 @@
 #include "am67_i2c.h"
 #endif
 
+#if defined(CONFIG_AM67_EPWM0) || defined(CONFIG_AM67_EPWM1)
+#include "am67_pwm.h"
+#endif
+
+#if defined(CONFIG_AM67_ECAP0) || defined(CONFIG_AM67_ECAP1) || \
+    defined(CONFIG_AM67_ECAP2)
+#include "am67_ecap.h"
+#endif
+
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
@@ -69,6 +78,15 @@ int am67_bringup(void)
 
 #if defined(CONFIG_AM67_I2C0) || defined(CONFIG_AM67_WKUP_I2C0)
   am67_i2cdev_initialize();
+#endif
+
+#if defined(CONFIG_AM67_EPWM0) || defined(CONFIG_AM67_EPWM1)
+  am67_pwmdev_initialize();
+#endif
+
+#if defined(CONFIG_AM67_ECAP0) || defined(CONFIG_AM67_ECAP1) || \
+    defined(CONFIG_AM67_ECAP2)
+  am67_ecapdev_initialize();
 #endif
 
 #ifdef CONFIG_FS_PROCFS
