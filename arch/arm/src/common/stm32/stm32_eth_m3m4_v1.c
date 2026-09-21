@@ -417,7 +417,7 @@
  */
 
 #ifdef CONFIG_NET_PROMISCUOUS
-#  define MACFFR_SET_BITS (ETH_MACFFR_PCF_PAUSE | ETH_MACFFR_PM)
+#  define MACFFR_SET_BITS (ETH_MACFFR_PCF_ALL | ETH_MACFFR_PM)
 #else
 #  define MACFFR_SET_BITS (ETH_MACFFR_PCF_PAUSE)
 #endif
@@ -635,6 +635,13 @@ struct stm32_ethmac_s
   uint32_t             rxtimelow;   /* Received packet timestamp subsecond */
   uint32_t             rxtimehigh;  /* Received packet timestamp seconds */
 #endif
+#ifdef CONFIG_STM32_ETH_TIMESTAMP_TX
+  struct iob_queue_s   txtstampq;   /* Pending TX timestamp loopback packets */
+
+  /* Per-descriptor TX clone */
+
+  struct iob_s        *txmeta[CONFIG_STM32_ETH_NTXDESC];
+#endif
 #if defined(CONFIG_STM32_ETH_PTP) && defined(CONFIG_PTP_CLOCK)
   struct ptp_lowerhalf_s ptp_lower; /* PTP hardware clock lower half */
 #endif
@@ -709,6 +716,9 @@ static int  stm32_recvframe(struct stm32_ethmac_s *priv);
 static void stm32_receive(struct stm32_ethmac_s *priv);
 static void stm32_freeframe(struct stm32_ethmac_s *priv);
 static void stm32_txdone(struct stm32_ethmac_s *priv);
+#ifdef CONFIG_STM32_ETH_TIMESTAMP_TX
+static void stm32_txtstamp_flush(struct stm32_ethmac_s *priv);
+#endif
 
 static void stm32_interrupt_work(void *arg);
 static int  stm32_interrupt(int irq, void *context, void *arg);
@@ -797,6 +807,14 @@ static void stm32_eth_ptp_convert_rxtime(struct stm32_ethmac_s *priv);
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
+
+#ifdef CONFIG_STM32_ETH_PTP
+static inline void ptp_to_timespec(uint64_t timestamp, struct timespec *ts)
+{
+  ts->tv_sec = (timestamp >> 32);
+  ts->tv_nsec = ((uint32_t)timestamp * (uint64_t)NSEC_PER_SEC) >> 32;
+}
+#endif
 
 /****************************************************************************
  * Name: stm32_getreg
@@ -1161,6 +1179,29 @@ static int stm32_transmit(struct stm32_ethmac_s *priv)
        */
 
       txdesc->tdes0 |= (ETH_TDES0_FS | ETH_TDES0_LS | ETH_TDES0_IC);
+
+#ifdef CONFIG_STM32_ETH_TIMESTAMP_TX
+      {
+        uint32_t txindex = txdesc - g_txtable;
+
+        priv->txmeta[txindex] = NULL;
+        if (priv->dev.d_iob != NULL && priv->dev.d_iob->io_conn != NULL)
+          {
+            struct iob_s *clone = netdev_iob_clone(&priv->dev, false);
+
+            if (clone != NULL)
+              {
+                clone->io_conn = priv->dev.d_iob->io_conn;
+                priv->txmeta[txindex] = clone;
+                txdesc->tdes0 |= ETH_TDES0_TTSE;
+              }
+            else
+              {
+                nerr("ERROR: Failed to clone IOB for TX timestamp\n");
+              }
+          }
+      }
+#endif
 
       /* Set frame size */
 
@@ -1701,6 +1742,46 @@ static int stm32_recvframe(struct stm32_ethmac_s *priv)
 }
 
 /****************************************************************************
+ * Function: stm32_txtstamp_flush
+ *
+ * Description:
+ *   Deliver pending TX hardware timestamp loopback packets to the network
+ *   stack.
+ *
+ * Input Parameters:
+ *   priv - Reference to the driver state structure
+ *
+ * Returned Value:
+ *   None
+ *
+ * Assumptions:
+ *   The network is locked.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_STM32_ETH_TIMESTAMP_TX
+static void stm32_txtstamp_flush(struct stm32_ethmac_s *priv)
+{
+  struct net_driver_s *dev = &priv->dev;
+
+  while (!IOB_QEMPTY(&priv->txtstampq))
+    {
+      struct iob_s *iob = iob_remove_queue(&priv->txtstampq);
+
+      dev->d_iob = iob;
+      dev->d_len = iob->io_pktlen;
+#ifdef CONFIG_NET_PKT
+      pkt_input(dev);
+#endif
+      dev->d_iob = NULL;
+      dev->d_len = 0;
+      iob->io_conn = NULL;
+      iob_free_chain(iob);
+    }
+}
+#endif
+
+/****************************************************************************
  * Function: stm32_receive
  *
  * Description:
@@ -1720,6 +1801,12 @@ static int stm32_recvframe(struct stm32_ethmac_s *priv)
 static void stm32_receive(struct stm32_ethmac_s *priv)
 {
   struct net_driver_s *dev = &priv->dev;
+
+#ifdef CONFIG_STM32_ETH_TIMESTAMP_TX
+  /* Return any TX hardware timestamp loopback packets first */
+
+  stm32_txtstamp_flush(priv);
+#endif
 
   /* Loop while while stm32_recvframe() successfully retrieves valid
    * Ethernet frames.
@@ -1833,7 +1920,18 @@ static void stm32_receive(struct stm32_ethmac_s *priv)
       else
 #endif
         {
-          nerr("ERROR: Dropped, Unknown type: %04x\n", BUF->type);
+#ifdef CONFIG_NET_PKT
+          /* Frames that packet sockets consume directly (PTP, Ethertype
+           * 0x88f7, and IPv6) were already delivered via pkt_input()
+           * above, so they are not "unknown" and must not be logged as
+           * dropped.
+           */
+
+          if (BUF->type != HTONS(0x88f7) && BUF->type != HTONS(ETHTYPE_IP6))
+#endif
+            {
+              nerr("ERROR: Dropped, Unknown type: %04x\n", BUF->type);
+            }
         }
 
       /* We are finished with the RX buffer.  NOTE:  If the buffer is
@@ -1912,6 +2010,29 @@ static void stm32_freeframe(struct stm32_ethmac_s *priv)
 
           if ((txdesc->tdes0 & ETH_TDES0_LS) != 0)
             {
+#ifdef CONFIG_STM32_ETH_TIMESTAMP_TX
+              uint32_t tail = txdesc - g_txtable;
+              struct iob_s *clone = priv->txmeta[tail];
+
+              priv->txmeta[tail] = NULL;
+              if (clone != NULL)
+                {
+                  if ((txdesc->tdes0 & ETH_TDES0_TTSS) != 0)
+                    {
+                      uint64_t hwtime = ((uint64_t)txdesc->tdes7 << 32)
+                                      | ((txdesc->tdes6 & ETH_PTPTSLR_MASK)
+                                         << 1);
+
+                      ptp_to_timespec(hwtime, &clone->io_time);
+                      iob_add_queue(clone, &priv->txtstampq);
+                    }
+                  else
+                    {
+                      iob_free_chain(clone);
+                    }
+                }
+#endif
+
               /* Yes.. Decrement the number of frames "in-flight". */
 
               priv->inflight--;
@@ -1974,6 +2095,12 @@ static void stm32_txdone(struct stm32_ethmac_s *priv)
   /* Scan the TX descriptor change, returning buffers to free list */
 
   stm32_freeframe(priv);
+
+#ifdef CONFIG_STM32_ETH_TIMESTAMP_TX
+  /* Deliver any pending TX hardware timestamp loopback packets */
+
+  stm32_txtstamp_flush(priv);
+#endif
 
   /* If no further xmits are pending, then cancel the TX timeout */
 
@@ -2341,6 +2468,9 @@ static int stm32_ifdown(struct net_driver_s *dev)
     (struct stm32_ethmac_s *)dev->d_private;
   irqstate_t flags;
   int ret = OK;
+#ifdef CONFIG_STM32_ETH_TIMESTAMP_TX
+  int i;
+#endif
 
   ninfo("Taking the network down\n");
 
@@ -2377,6 +2507,20 @@ static int stm32_ifdown(struct net_driver_s *dev)
       nerr("ERROR: stm32_ethreset failed (timeout), "
            "still assuming it's going down.\n");
     }
+
+#ifdef CONFIG_STM32_ETH_TIMESTAMP_TX
+  /* Drain any pending TX timestamp loopback packets and clones */
+
+  iob_free_queue(&priv->txtstampq);
+  for (i = 0; i < CONFIG_STM32_ETH_NTXDESC; i++)
+    {
+      if (priv->txmeta[i] != NULL)
+        {
+          iob_free_chain(priv->txmeta[i]);
+          priv->txmeta[i] = NULL;
+        }
+    }
+#endif
 
   /* Mark the device "down" */
 
@@ -3981,13 +4125,10 @@ static uint64_t stm32_eth_ptp_gettime(void)
 }
 #endif
 
-static inline void ptp_to_timespec(uint64_t timestamp, struct timespec *ts)
-{
-  ts->tv_sec = (timestamp >> 32);
-  ts->tv_nsec = ((uint32_t)timestamp * (uint64_t)NSEC_PER_SEC) >> 32;
-}
-
-/* Convert RX timestamp to CLOCK_REALTIME */
+/* Convert the RX timestamp of the MAC to a timespec. It is the value of the
+ * PTP counter of the MAC, which is the time base of /dev/ptp0, and not a
+ * value of CLOCK_REALTIME.
+ */
 #ifdef CONFIG_STM32_ETH_TIMESTAMP_RX
 static void stm32_eth_ptp_convert_rxtime(struct stm32_ethmac_s *priv)
 {
