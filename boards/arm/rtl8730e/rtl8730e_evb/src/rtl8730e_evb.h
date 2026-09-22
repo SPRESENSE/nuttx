@@ -57,5 +57,9 @@
 int rtl8730e_bringup(void);
 #endif
 
+#ifdef CONFIG_AMEBA_GPIO
+int rtl8730e_gpio_initialize(void);
+#endif
+
 #endif /* __ASSEMBLY__ */
 #endif /* __BOARDS_ARM_RTL8730E_RTL8730E_EVB_SRC_RTL8730E_EVB_H */

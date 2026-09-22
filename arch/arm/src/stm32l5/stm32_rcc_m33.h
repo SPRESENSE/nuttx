@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/stm32l5/stm32l5_rcc.h
+ * arch/arm/src/stm32l5/stm32_rcc_m33.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,8 +20,8 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_ARM_SRC_STM32L5_STM32L5_RCC_H
-#define __ARCH_ARM_SRC_STM32L5_STM32L5_RCC_H
+#ifndef __ARCH_ARM_SRC_STM32L5_STM32_RCC_M33_H
+#define __ARCH_ARM_SRC_STM32L5_STM32_RCC_M33_H
 
 /****************************************************************************
  * Included Files
@@ -41,6 +41,32 @@
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
+
+/* USART clock and RCC definitions */
+
+#define STM32_LPUART1_FREQUENCY  STM32_PCLK1_FREQUENCY
+#define STM32_LPUART1_RCC_REG    STM32_RCC_APB1ENR2
+#define STM32_LPUART1_RCC_EN     RCC_APB1ENR2_LPUART1EN
+
+#define STM32_USART1_FREQUENCY   STM32_PCLK2_FREQUENCY
+#define STM32_USART1_RCC_REG     STM32_RCC_APB2ENR
+#define STM32_USART1_RCC_EN      RCC_APB2ENR_USART1EN
+
+#define STM32_USART2_FREQUENCY   STM32_PCLK1_FREQUENCY
+#define STM32_USART2_RCC_REG     STM32_RCC_APB1ENR1
+#define STM32_USART2_RCC_EN      RCC_APB1ENR1_USART2EN
+
+#define STM32_USART3_FREQUENCY   STM32_PCLK1_FREQUENCY
+#define STM32_USART3_RCC_REG     STM32_RCC_APB1ENR1
+#define STM32_USART3_RCC_EN      RCC_APB1ENR1_USART3EN
+
+#define STM32_UART4_FREQUENCY    STM32_PCLK1_FREQUENCY
+#define STM32_UART4_RCC_REG      STM32_RCC_APB1ENR1
+#define STM32_UART4_RCC_EN       RCC_APB1ENR1_UART4EN
+
+#define STM32_UART5_FREQUENCY    STM32_PCLK1_FREQUENCY
+#define STM32_UART5_RCC_REG      STM32_RCC_APB1ENR1
+#define STM32_UART5_RCC_EN       RCC_APB1ENR1_UART5EN
 
 #ifndef __ASSEMBLY__
 
@@ -224,4 +250,4 @@ void stm32_rcc_enableperipherals(void);
 }
 #endif
 #endif /* __ASSEMBLY__ */
-#endif /* __ARCH_ARM_SRC_STM32L5_STM32L5_RCC_H */
+#endif /* __ARCH_ARM_SRC_STM32L5_STM32_RCC_M33_H */

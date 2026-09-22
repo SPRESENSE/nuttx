@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/stm32l5/stm32l5_idle.c
+ * boards/arm/rtl8730e/rtl8730e_evb/src/rtl8730e_gpio.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -24,79 +24,82 @@
  * Included Files
  ****************************************************************************/
 
-#include <arch/board/board.h>
 #include <nuttx/config.h>
-#include <nuttx/debug.h>
 
-#include <nuttx/arch.h>
-#include <nuttx/irq.h>
-#include <nuttx/board.h>
-#include <nuttx/power/pm.h>
+#include <sys/param.h>
+#include <syslog.h>
 
-#include "chip.h"
-#include "stm32l5_rcc.h"
-#include "arm_internal.h"
+#include <nuttx/ioexpander/gpio.h>
 
-/****************************************************************************
- * Pre-processor Definitions
- ****************************************************************************/
+#include "ameba_gpio.h"
+#include "rtl8730e_evb.h"
 
-/* Does the board support an IDLE LED to indicate that the board is in the
- * IDLE state?
- */
-
-#if defined(CONFIG_ARCH_LEDS) && defined(LED_IDLE)
-#  define BEGIN_IDLE() board_autoled_on(LED_IDLE)
-#  define END_IDLE()   board_autoled_off(LED_IDLE)
-#else
-#  define BEGIN_IDLE()
-#  define END_IDLE()
-#endif
+#ifdef CONFIG_AMEBA_GPIO
 
 /****************************************************************************
- * Private Functions
+ * Private Types
  ****************************************************************************/
 
-#define up_idlepm()
+struct rtl8730e_gpio_s
+{
+  uint8_t pin;                  /* AMEBA_PA()/AMEBA_PB() pin encoding */
+  enum gpio_pintype_e pintype;  /* Input, output or interrupt */
+};
+
+/****************************************************************************
+ * Private Data
+ ****************************************************************************/
+
+static const struct rtl8730e_gpio_s g_gpio_pins[] =
+{
+  { AMEBA_PB(19), GPIO_OUTPUT_PIN    },  /* /dev/gpio0: output    */
+  { AMEBA_PB(20), GPIO_INPUT_PIN     },  /* /dev/gpio1: input     */
+  { AMEBA_PB(11), GPIO_INTERRUPT_PIN },  /* /dev/gpio2: interrupt */
+};
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: up_idle
+ * Name: rtl8730e_gpio_initialize
  *
  * Description:
- *   up_idle() is the logic that will be executed when their is no other
- *   ready-to-run task.  This is processor idle time and will continue until
- *   some interrupt occurs to cause a context switch from the idle task.
- *
- *   Processing in this state may be processor-specific. e.g., this is where
- *   power management operations might be performed.
+ *   Register the board's GPIO pins with the NuttX GPIO upper half.
  *
  ****************************************************************************/
 
-void up_idle(void)
+int rtl8730e_gpio_initialize(void)
 {
-#if defined(CONFIG_SUPPRESS_INTERRUPTS) || defined(CONFIG_SUPPRESS_TIMER_INTS)
-  /* If the system is idle and there are no timer interrupts, then process
-   * "fake" timer interrupts. Hopefully, something will wake up.
+  int ret;
+  size_t i;
+
+  /* Initialise the ROM GPIO port-base lookup table.  lib_rom.a places
+   * GPIO_PORTx in .sramdram.only.data which NuttX's linker script does not
+   * copy, so the array is zero at boot.  Write the three port bases before
+   * any ROM GPIO function is called.
    */
 
-  nxsched_process_timer();
-#else
+  extern void *GPIO_PORTx[3];
 
-  /* Perform IDLE mode power management */
+  GPIO_PORTx[0] = (void *)0x4200d000u;  /* GPIOA */
+  GPIO_PORTx[1] = (void *)0x4200d400u;  /* GPIOB */
+  GPIO_PORTx[2] = (void *)0x4200d800u;  /* GPIOC */
 
-  up_idlepm();
+  for (i = 0; i < nitems(g_gpio_pins); i++)
+    {
+      ret = ameba_gpio_register(i, g_gpio_pins[i].pin,
+                                g_gpio_pins[i].pintype);
+      if (ret < 0)
+        {
+          syslog(LOG_ERR,
+                 "ERROR: ameba_gpio_register(/dev/gpio%zu) failed: %d\n",
+                 i, ret);
+          return ret;
+        }
+    }
 
-  /* Sleep until an interrupt occurs to save power. */
-
-#if !(defined(CONFIG_DEBUG_SYMBOLS) && defined(CONFIG_STM32_DISABLE_IDLE_SLEEP_DURING_DEBUG))
-  BEGIN_IDLE();
-  asm("WFI");
-  END_IDLE();
-#endif
-
-#endif
+  return OK;
 }
+
+#endif /* CONFIG_AMEBA_GPIO */
