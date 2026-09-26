@@ -1,7 +1,5 @@
 /****************************************************************************
- * arch/arm/src/imxrt/imxrt118x_trdc.h
- *
- * SPDX-License-Identifier: Apache-2.0
+ * arch/xtensa/src/esp32s3/esp32s3_wcl.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -19,110 +17,74 @@
  * under the License.
  *
  ****************************************************************************/
-#ifndef __ARCH_ARM_SRC_IMXRT_IMXRT118X_TRDC_H
-#define __ARCH_ARM_SRC_IMXRT_IMXRT118X_TRDC_H
+
+#ifndef __ARCH_XTENSA_SRC_ESP32S3_ESP32S3_WCL_H
+#define __ARCH_XTENSA_SRC_ESP32S3_ESP32S3_WCL_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
+
 #include <nuttx/config.h>
-#include <stdbool.h>
-#include "hardware/rt118x/imxrt118x_trdc.h"
+
+#include <stdint.h>
+
+/****************************************************************************
+ * Public Types
+ ****************************************************************************/
+
+/* The ESP32-S3 World Controller provides a binary privileged (WORLD_0,
+ * kernel) / non-privileged (WORLD_1, user) split.  The world identifier is
+ * shared vocabulary between the World Controller and the PMS permission
+ * subsystem, so it is defined here at the lowest layer.
+ */
+
+enum esp32s3_pms_world_e
+{
+  PMS_WORLD_0 = 0,
+  PMS_WORLD_1
+};
 
 /****************************************************************************
  * Public Function Prototypes
  ****************************************************************************/
-#define MBC_BLK_ALL 255
-#define MRC_REG_ALL 16
-
-/* TRDC MDA attribute encodings. */
-
-#define TRDC_MDA_DID_FROM_MDA       0
-#define TRDC_MDA_DID_FROM_INPUT     1
-#define TRDC_MDA_FORCE_SECURE       0
-#define TRDC_MDA_FORCE_NONSECURE    1
-#define TRDC_MDA_USE_MASTER_SECURE  2
-#define TRDC_MDA_FORCE_USER         0
-#define TRDC_MDA_FORCE_PRIVILEGE    1
-#define TRDC_MDA_USE_MASTER_PRIV    2
-
-struct trdc_glbac_config
-{
-  uint8_t mbc_mrc_id;
-  uint8_t glbac_id;
-  uint32_t glbac_val;
-};
-
-struct trdc_mbc_config
-{
-  uint8_t mbc_id;
-  uint8_t dom_id;
-  uint8_t mem_id;
-  uint8_t blk_id;
-  uint8_t glbac_id;
-  bool secure;
-};
-
-struct trdc_mrc_config
-{
-  uint8_t mrc_id;
-  uint8_t dom_id;
-  uint8_t region_id;
-  uint32_t region_start;
-  uint32_t region_size;
-  uint8_t glbac_id;
-  bool secure;
-};
-
-struct trdc_gpio_config
-{
-  uintptr_t address;
-  uint32_t value;
-};
-
-struct trdc_mda_config
-{
-  unsigned long trdc_base;
-  uint8_t mda_inst;
-  uint8_t mda_reg;
-  bool cpu;
-  bool did_bypass;
-  uint8_t did_sel;
-  uint8_t sa;
-  uint8_t pa;
-  uint8_t did;
-  bool lock;
-};
 
 /****************************************************************************
- * Name: imxrt118x_trdc_config
+ * Name: esp32s3_wcl_set_vecbase
  *
  * Description:
- *   Configure TRDC resource access.
+ *   Override the Vector Table base address for a given world via the World
+ *   Controller.
  *
  * Input Parameters:
- *   None
+ *   world   - World to which the vector table base address will apply.
+ *   vecbase - Vector table base address to set.
  *
  * Returned Value:
- *    None
+ *   None.
  *
  ****************************************************************************/
 
-void imxrt118x_trdc_config(void);
+void esp32s3_wcl_set_vecbase(enum esp32s3_pms_world_e world,
+                             uintptr_t vecbase);
 
 /****************************************************************************
- * Name: imxrt118x_trdc_init
+ * Name: esp32s3_wcl_set_world0_entry
  *
  * Description:
- *   Take ownership of the TRDCs.
+ *   Configure the World Controller to switch to World 0 whenever the CPU
+ *   performs an instruction fetch from a given address.
  *
  * Input Parameters:
- *   None
+ *   entry - Entry number.  Up to 13 entry addresses are supported.  Entry 0
+ *           is reserved and must be skipped.
+ *   addr  - Vector fetch address that triggers the switch to World 0.
  *
  * Returned Value:
- *   OK on success, a negated error value otherwise
+ *   None.
  *
  ****************************************************************************/
 
-int imxrt118x_trdc_init(void);
+void esp32s3_wcl_set_world0_entry(uint32_t entry, uintptr_t addr);
 
-#endif /* __ARCH_ARM_SRC_IMXRT_IMXRT118X_TRDC_H */
+#endif /* __ARCH_XTENSA_SRC_ESP32S3_ESP32S3_WCL_H */
