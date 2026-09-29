@@ -62,22 +62,6 @@
 #endif
 
 /****************************************************************************
- * Public Data
- ****************************************************************************/
-
-/* The module ABI marker.  Every module built by tools/nxflat/mknxflat
- * imports this, and a board's exported symbol table picks it up the same
- * way it picks up any other imported name, so nothing has to special-case
- * it in the build.  Its value is never used; only its presence matters.
- *
- * A module built against a newer ABI than the firmware therefore fails
- * with "Exported symbol __nxflat_abi_vN not found", which names the
- * problem, and a module built against an older one is caught below.
- */
-
-void *NXFLAT_ABI_MARKER;
-
-/****************************************************************************
  * Private Functions
  ****************************************************************************/
 
@@ -110,7 +94,7 @@ static inline int nxflat_bindrel32i(FAR struct nxflat_loadinfo_s *loadinfo,
     {
       addr = (FAR uint32_t *)(offset + loadinfo->dspace->region);
       binfo("  Before: %08" PRIx32 "\n", *addr);
-     *addr += (uint32_t)(loadinfo->ispace + sizeof(struct nxflat_hdr_s));
+      *addr += (uint32_t)(loadinfo->ispace + sizeof(struct nxflat_hdr_s));
       binfo("  After: %08" PRIx32 "\n", *addr);
       return OK;
     }
@@ -151,7 +135,7 @@ static inline int nxflat_bindrel32d(FAR struct nxflat_loadinfo_s *loadinfo,
     {
       addr = (FAR uint32_t *)(offset + loadinfo->dspace->region);
       binfo("  Before: %08" PRIx32 "\n", *addr);
-     *addr += (uint32_t)(loadinfo->dspace->region);
+      *addr += (uint32_t)(loadinfo->dspace->region);
       binfo("  After: %08" PRIx32 "\n", *addr);
       return OK;
     }
@@ -195,7 +179,7 @@ static inline int nxflat_bindrel32id(FAR struct nxflat_loadinfo_s *loadinfo,
       addr  = (FAR uint32_t *)(offset + loadinfo->dspace->region);
       binfo("  Before: %08x\n", *addr);
 
-     *addr += ((uint32_t)loadinfo->ispace -
+      *addr += ((uint32_t)loadinfo->ispace -
                (uint32_t)(loadinfo->dspace->region));
       binfo("  After: %08x\n", *addr);
 
@@ -287,61 +271,61 @@ static inline int nxflat_gotrelocs(FAR struct nxflat_loadinfo_s *loadinfo)
 
       switch (NXFLAT_RELOC_TYPE(reloc.r_info))
         {
-        /* NXFLAT_RELOC_TYPE_REL32I  Meaning: Object file contains a 32-bit
-         *                                    offset into I-Space at the
-         *                                    offset.
-         *                           Fixup:   Add mapped I-Space address
-         *                                    to the offset.
-         */
+          /* NXFLAT_RELOC_TYPE_REL32I  Meaning: Object file contains a 32-bit
+           *                                    offset into I-Space at the
+           *                                    offset.
+           *                           Fixup:   Add mapped I-Space address
+           *                                    to the offset.
+           */
 
-        case NXFLAT_RELOC_TYPE_REL32I:
-          {
-            result = nxflat_bindrel32i(loadinfo,
-                                       NXFLAT_RELOC_OFFSET(reloc.r_info));
-          }
-          break;
+          case NXFLAT_RELOC_TYPE_REL32I:
+            {
+              result = nxflat_bindrel32i(loadinfo,
+                                         NXFLAT_RELOC_OFFSET(reloc.r_info));
+            }
+            break;
 
-        /* NXFLAT_RELOC_TYPE_REL32D  Meaning: Object file contains a 32-bit
-         *                                    offset into D-Space at the
-         *                                    offset.
-         *                           Fixup:   Add allocated D-Space address
-         *                                    to the offset.
-         */
+          /* NXFLAT_RELOC_TYPE_REL32D  Meaning: Object file contains a 32-bit
+           *                                    offset into D-Space at the
+           *                                    offset.
+           *                           Fixup:   Add allocated D-Space address
+           *                                    to the offset.
+           */
 
-        case NXFLAT_RELOC_TYPE_REL32D:
-          {
-            result = nxflat_bindrel32d(loadinfo,
-                                       NXFLAT_RELOC_OFFSET(reloc.r_info));
-          }
-          break;
+          case NXFLAT_RELOC_TYPE_REL32D:
+            {
+              result = nxflat_bindrel32d(loadinfo,
+                                         NXFLAT_RELOC_OFFSET(reloc.r_info));
+            }
+            break;
 
-        /* NXFLAT_RELOC_TYPE_REL32ID Meaning: Object file contains a 32-bit
-         *                                    offset into I-Space at the
-         *                                    offset that will unfortunately
-         *                                    be references relative to the
-         *                                    GOT
-         *                           Fixup:   Add allocated the mapped
-         *                                    I-Space address MINUS the
-         *                                    allocated D-Space address to
-         *                                    the offset.
-         */
+          /* NXFLAT_RELOC_TYPE_REL32ID Meaning: Object file contains a 32-bit
+           *                                    offset into I-Space at the
+           *                                    offset that will
+           *                                    unfortunately be references
+           *                                    relative to the GOT
+           *                           Fixup:   Add allocated the mapped
+           *                                    I-Space address MINUS the
+           *                                    allocated D-Space address to
+           *                                    the offset.
+           */
 
 #ifdef NXFLAT_RELOC_TYPE_REL32ID
-        case NXFLAT_RELOC_TYPE_REL32ID:
-          {
-            result = nxflat_bindrel32id(loadinfo,
-                                        NXFLAT_RELOC_OFFSET(reloc.r_info));
-          }
-          break;
+          case NXFLAT_RELOC_TYPE_REL32ID:
+            {
+              result = nxflat_bindrel32id(loadinfo,
+                                          NXFLAT_RELOC_OFFSET(reloc.r_info));
+            }
+            break;
 #endif
 
-        default:
-          {
-            berr("ERROR: Unrecognized relocation type: %" PRId32 "\n",
-                 (uint32_t)NXFLAT_RELOC_TYPE(reloc.r_info));
-            result = -EINVAL;
-          }
-          break;
+          default:
+            {
+              berr("ERROR: Unrecognized relocation type: %" PRId32 "\n",
+                   (uint32_t)NXFLAT_RELOC_TYPE(reloc.r_info));
+              result = -EINVAL;
+            }
+            break;
         }
 
       /* Check for failures */
@@ -480,9 +464,9 @@ static inline int nxflat_bindimports(FAR struct nxflat_loadinfo_s *loadinfo,
             (offset + loadinfo->ispace + sizeof(struct nxflat_hdr_s));
 
           /* Note the ABI marker as it goes past.  It resolves like any
-           * other import -- the base firmware defines it below -- so the
-           * only thing special about it is that its absence means the
-           * module was built before the ABI it names.
+           * other import -- libc defines it -- so the only thing special
+           * about it is that its absence means the module was built before
+           * the ABI it names.
            */
 
           if (strcmp(symname, NXFLAT_ABI_SYMBOL) == 0)
@@ -637,6 +621,7 @@ int nxflat_bind(FAR struct nxflat_loadinfo_s *loadinfo,
    */
 
   int ret = nxflat_bindimports(loadinfo, exports, nexports);
+
   if (ret == OK)
     {
       /* Then bind all GOT relocations */

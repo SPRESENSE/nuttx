@@ -350,15 +350,33 @@ static int uart_handler(int irq, void *context, void *arg)
   uint32_t int_status = uart_hal_get_intsts_mask(priv->hal);
 
 #ifdef HAVE_RS485
-  if ((int_status & UART_INTR_TX_BRK_IDLE) != 0 &&
-      esp_txempty(dev))
+  /* Release the RS-485 driver once the frame has physically left the
+   * transmitter.  TX_DONE stays enabled while DIR is asserted (see
+   * esp_txint()): the upper half disables TX interrupts as soon as its
+   * software buffer drains, while the last bytes are still in the FIFO.
+   * TX_BRK_IDLE is not usable here: it belongs to the break feature
+   * (UART_TXD_BRK), which this driver never enables.
+   */
+
+  if (priv->rs485_dir_gpio != 0 &&
+      (int_status & UART_INTR_TX_DONE) != 0 &&
+      dev->xmit.tail == dev->xmit.head &&
+      uart_hal_get_txfifo_len(priv->hal) == SOC_UART_FIFO_LEN)
     {
-      uart_hal_clr_intsts_mask(priv->hal, UART_INTR_TX_BRK_IDLE);
-      if (dev->xmit.tail == dev->xmit.head)
+      /* TX_DONE can precede the transmitter FSM returning to idle by the
+       * tail of the last stop bit; wait for it (bounded) so the stop bit
+       * is not clipped.
+       */
+
+      int i;
+
+      for (i = 0; i < 1000 && !esp_txempty(dev); i++)
         {
-          esp_gpiowrite(priv->rs485_dir_gpio,
-                        !priv->rs485_dir_polarity);
+          up_udelay(1);
         }
+
+      esp_gpiowrite(priv->rs485_dir_gpio, !priv->rs485_dir_polarity);
+      uart_hal_disable_intr_mask(priv->hal, UART_INTR_TX_DONE);
     }
 #endif
 
@@ -579,7 +597,6 @@ static int esp_setup(uart_dev_t *dev)
     {
       uart_hal_set_tx_idle_num(priv->hal, 1);
     }
-  else
 #endif
 
   leave_critical_section(flags);
@@ -735,16 +752,6 @@ static void esp_txint(uart_dev_t *dev, bool enable)
 
   if (enable)
     {
-      /* After all bytes physically transmitted in the RS485 bus
-       * the TX_BRK_IDLE will indicate we can disable the TX pin.
-       */
-#ifdef HAVE_RS485
-      if (priv->rs485_dir_gpio != 0)
-        {
-          uart_hal_ena_intr_mask(priv->hal, UART_INTR_TX_BRK_IDLE);
-        }
-
-#endif
       /* Set to receive an interrupt when the TX holding register register
        * is empty
        */
@@ -755,9 +762,21 @@ static void esp_txint(uart_dev_t *dev, bool enable)
     }
   else
     {
-      /* Disable the TX interrupt */
+      /* Disable the TX interrupt.  In RS-485 mode keep TX_DONE enabled:
+       * uart_handler() needs it to release DIR once the FIFO has drained,
+       * and disables it itself when it does.
+       */
 
-      uart_hal_disable_intr_mask(priv->hal, ints_mask);
+#ifdef HAVE_RS485
+      if (priv->rs485_dir_gpio != 0)
+        {
+          uart_hal_disable_intr_mask(priv->hal, UART_INTR_TXFIFO_EMPTY);
+        }
+      else
+#endif
+        {
+          uart_hal_disable_intr_mask(priv->hal, ints_mask);
+        }
     }
 }
 
@@ -861,11 +880,11 @@ static bool esp_txempty(uart_dev_t *dev)
 {
   struct esp_uart_s *priv = dev->priv;
 
-#if defined(CONFIG_ARCH_CHIP_ESP32P4)
-  return priv->hal->dev->int_raw.txfifo_empty_int_raw != 0;
-#else
-  return priv->hal->dev->int_raw.txfifo_empty != 0;
-#endif
+  /* FIFO drained and the transmitter FSM idle.  The raw TXFIFO_EMPTY bit
+   * is not usable: it only means the FIFO is below its empty threshold.
+   */
+
+  return uart_hal_is_tx_idle(priv->hal);
 }
 
 /****************************************************************************
@@ -968,190 +987,192 @@ static int esp_ioctl(struct file *filep, int cmd, unsigned long arg)
     {
 #ifdef CONFIG_SERIAL_TIOCSERGSTRUCT
 
-    /* Get the internal driver data structure for debug purposes */
+      /* Get the internal driver data structure for debug purposes */
 
-    case TIOCSERGSTRUCT:
-      {
-         struct esp_uart_s *user = (struct esp_uart_s *)arg;
-         if (user == NULL)
-           {
-             ret = -EINVAL;
-           }
-         else
-           {
-             memcpy(user, dev->priv, sizeof(struct esp_uart_s));
-           }
-       }
-       break;
+      case TIOCSERGSTRUCT:
+        {
+          struct esp_uart_s *user = (struct esp_uart_s *)arg;
+
+          if (user == NULL)
+            {
+              ret = -EINVAL;
+            }
+          else
+            {
+              memcpy(user, dev->priv, sizeof(struct esp_uart_s));
+            }
+        }
+        break;
 #endif
 
 #ifdef CONFIG_SERIAL_TERMIOS
 
-    /* Fill a termios structure with the required information */
+      /* Fill a termios structure with the required information */
 
-    case TCGETS:
-      {
-        struct termios *termiosp = (struct termios *)arg;
-        struct esp_uart_s *priv  = (struct esp_uart_s *)dev->priv;
-        if (termiosp == NULL)
-          {
-            ret = -EINVAL;
-            break;
-          }
+      case TCGETS:
+        {
+          struct termios *termiosp = (struct termios *)arg;
+          struct esp_uart_s *priv  = (struct esp_uart_s *)dev->priv;
 
-        /* Return parity (0 = no parity, 1 = odd parity, 2 = even parity) */
-
-        termiosp->c_cflag = ((priv->parity != 0) ? PARENB : 0) |
-                            ((priv->parity == 1) ? PARODD : 0);
-
-        /* Return stop bits */
-
-        termiosp->c_cflag |= (priv->stop_b2) ? CSTOPB : 0;
-
-#ifdef CONFIG_SERIAL_OFLOWCONTROL
-        termiosp->c_cflag |= (priv->oflow) ? CCTS_OFLOW : 0;
-#endif
-#ifdef CONFIG_SERIAL_IFLOWCONTROL
-        termiosp->c_cflag |= (priv->iflow) ? CRTS_IFLOW : 0;
-#endif
-
-        /* Set the baud rate in termiosp using the cfsetispeed interface */
-
-        cfsetispeed(termiosp, priv->baud);
-
-        /* Return number of bits */
-
-        switch (priv->bits)
-          {
-            case 5:
-              termiosp->c_cflag |= CS5;
-              break;
-
-            case 6:
-              termiosp->c_cflag |= CS6;
-              break;
-
-            case 7:
-              termiosp->c_cflag |= CS7;
-              break;
-
-            case 8:
-            default:
-              termiosp->c_cflag |= CS8;
-              break;
-          }
-      }
-      break;
-
-    case TCSETS:
-      {
-        struct termios *termiosp = (struct termios *)arg;
-        struct esp_uart_s *priv  = (struct esp_uart_s *)dev->priv;
-        uint32_t baud;
-        uint32_t current_int_sts;
-        uint8_t  parity;
-        uint8_t  bits;
-        uint8_t  stop2;
-#ifdef CONFIG_SERIAL_IFLOWCONTROL
-        bool iflow;
-#endif
-#ifdef CONFIG_SERIAL_OFLOWCONTROL
-        bool oflow;
-#endif
-
-        if (termiosp == NULL)
-          {
-            ret = -EINVAL;
-            break;
-          }
-
-        /* Get the target baud rate to change */
-
-        baud = cfgetispeed(termiosp);
-
-        /* Decode number of bits */
-
-        switch (termiosp->c_cflag & CSIZE)
-          {
-            case CS5:
-              bits = 5;
-              break;
-
-            case CS6:
-              bits = 6;
-              break;
-
-            case CS7:
-              bits = 7;
-              break;
-
-            case CS8:
-              bits = 8;
-              break;
-
-            default:
+          if (termiosp == NULL)
+            {
               ret = -EINVAL;
               break;
-          }
+            }
 
-        /* Decode parity */
+          /* Return parity (0 = no parity, 1 = odd parity, 2 = even parity) */
 
-        if ((termiosp->c_cflag & PARENB) != 0)
-          {
-            parity = (termiosp->c_cflag & PARODD) ? 1 : 2;
-          }
-        else
-          {
-            parity = 0;
-          }
+          termiosp->c_cflag = ((priv->parity != 0) ? PARENB : 0) |
+                              ((priv->parity == 1) ? PARODD : 0);
 
-        /* Decode stop bits */
+          /* Return stop bits */
 
-        stop2 = (termiosp->c_cflag & CSTOPB) ? 1 : 0;
+          termiosp->c_cflag |= (priv->stop_b2) ? CSTOPB : 0;
 
+#ifdef CONFIG_SERIAL_OFLOWCONTROL
+          termiosp->c_cflag |= (priv->oflow) ? CCTS_OFLOW : 0;
+#endif
 #ifdef CONFIG_SERIAL_IFLOWCONTROL
-        iflow = (termiosp->c_cflag & CRTS_IFLOW) != 0;
+          termiosp->c_cflag |= (priv->iflow) ? CRTS_IFLOW : 0;
+#endif
+
+          /* Set the baud rate in termiosp using the cfsetispeed interface */
+
+          cfsetispeed(termiosp, priv->baud);
+
+          /* Return number of bits */
+
+          switch (priv->bits)
+            {
+              case 5:
+                termiosp->c_cflag |= CS5;
+                break;
+
+              case 6:
+                termiosp->c_cflag |= CS6;
+                break;
+
+              case 7:
+                termiosp->c_cflag |= CS7;
+                break;
+
+              case 8:
+              default:
+                termiosp->c_cflag |= CS8;
+                break;
+            }
+        }
+        break;
+
+      case TCSETS:
+        {
+          struct termios *termiosp = (struct termios *)arg;
+          struct esp_uart_s *priv  = (struct esp_uart_s *)dev->priv;
+          uint32_t baud;
+          uint32_t current_int_sts;
+          uint8_t  parity;
+          uint8_t  bits;
+          uint8_t  stop2;
+#ifdef CONFIG_SERIAL_IFLOWCONTROL
+          bool iflow;
 #endif
 #ifdef CONFIG_SERIAL_OFLOWCONTROL
-        oflow = (termiosp->c_cflag & CCTS_OFLOW) != 0;
+          bool oflow;
 #endif
 
-        /* Verify if all settings are valid before performing the changes */
+          if (termiosp == NULL)
+            {
+              ret = -EINVAL;
+              break;
+            }
 
-        if (ret == OK)
-          {
-            /* Fill the private struct fields */
+          /* Get the target baud rate to change */
 
-            priv->baud    = baud;
-            priv->parity  = parity;
-            priv->bits    = bits;
-            priv->stop_b2 = stop2;
+          baud = cfgetispeed(termiosp);
+
+          /* Decode number of bits */
+
+          switch (termiosp->c_cflag & CSIZE)
+            {
+              case CS5:
+                bits = 5;
+                break;
+
+              case CS6:
+                bits = 6;
+                break;
+
+              case CS7:
+                bits = 7;
+                break;
+
+              case CS8:
+                bits = 8;
+                break;
+
+              default:
+                ret = -EINVAL;
+                break;
+            }
+
+          /* Decode parity */
+
+          if ((termiosp->c_cflag & PARENB) != 0)
+            {
+              parity = (termiosp->c_cflag & PARODD) ? 1 : 2;
+            }
+          else
+            {
+              parity = 0;
+            }
+
+          /* Decode stop bits */
+
+          stop2 = (termiosp->c_cflag & CSTOPB) ? 1 : 0;
+
 #ifdef CONFIG_SERIAL_IFLOWCONTROL
-            priv->iflow   = iflow;
+          iflow = (termiosp->c_cflag & CRTS_IFLOW) != 0;
 #endif
 #ifdef CONFIG_SERIAL_OFLOWCONTROL
-            priv->oflow   = oflow;
+          oflow = (termiosp->c_cflag & CCTS_OFLOW) != 0;
 #endif
 
-            /* Effect the changes immediately - note that we do not implement
-             * TCSADRAIN or TCSAFLUSH, only TCSANOW option.
-             * See nuttx/libs/libc/termios/lib_tcsetattr.c
-             */
+          /* Verify if all settings are valid before performing the changes */
 
-            esp_lowputc_disable_all_uart_int(priv, &current_int_sts);
-            ret = esp_setup(dev);
+          if (ret == OK)
+            {
+              /* Fill the private struct fields */
 
-            /* Restore the interrupt state */
+              priv->baud    = baud;
+              priv->parity  = parity;
+              priv->bits    = bits;
+              priv->stop_b2 = stop2;
+#ifdef CONFIG_SERIAL_IFLOWCONTROL
+              priv->iflow   = iflow;
+#endif
+#ifdef CONFIG_SERIAL_OFLOWCONTROL
+              priv->oflow   = oflow;
+#endif
 
-            esp_lowputc_restore_all_uart_int(priv, &current_int_sts);
-          }
-      }
-      break;
+              /* Effect the changes immediately - note that we do not
+               * implement TCSADRAIN or TCSAFLUSH, only TCSANOW option.
+               * See nuttx/libs/libc/termios/lib_tcsetattr.c
+               */
+
+              esp_lowputc_disable_all_uart_int(priv, &current_int_sts);
+              ret = esp_setup(dev);
+
+              /* Restore the interrupt state */
+
+              esp_lowputc_restore_all_uart_int(priv, &current_int_sts);
+            }
+        }
+        break;
 #endif /* CONFIG_SERIAL_TERMIOS */
 
-    default:
-      ret = -ENOTTY;
-      break;
+      default:
+        ret = -ENOTTY;
+        break;
     }
 
   return ret;
