@@ -207,12 +207,18 @@ const struct trace_msg_t g_usb_trace_strings_intdecode[] =
 #endif
 
 #if defined(CONFIG_ARMV7M_DCACHE)
+#  define USB_DCACHE_LINESIZE ARMV7M_DCACHE_LINESIZE
+#elif defined(CONFIG_ARMV8M_DCACHE)
+#  define USB_DCACHE_LINESIZE ARMV8M_DCACHE_LINESIZE
+#endif
+
+#if defined(CONFIG_ARMV7M_DCACHE) || defined(CONFIG_ARMV8M_DCACHE)
 #  define cache_aligned_alloc(s) \
-     kmm_memalign(ARMV7M_DCACHE_LINESIZE, \
-                  (((s) + ARMV7M_DCACHE_LINESIZE - 1) & \
-                   ~(ARMV7M_DCACHE_LINESIZE - 1)))
-#  define CACHE_ALIGNED_DATA     aligned_data(ARMV7M_DCACHE_LINESIZE)
-#  define DCACHE_LINEMASK        (ARMV7M_DCACHE_LINESIZE - 1)
+     kmm_memalign(USB_DCACHE_LINESIZE, \
+                  (((s) + USB_DCACHE_LINESIZE - 1) & \
+                   ~(USB_DCACHE_LINESIZE - 1)))
+#  define CACHE_ALIGNED_DATA     aligned_data(USB_DCACHE_LINESIZE)
+#  define DCACHE_LINEMASK        (USB_DCACHE_LINESIZE - 1)
 #  define DCACHE_ALIGN_UP(a)     (((a) + DCACHE_LINEMASK) & ~DCACHE_LINEMASK)
 #  define IS_CACHE_ALIGNED(x,y) \
      (((uintptr_t)(x) & DCACHE_LINEMASK) == 0 && \
@@ -2997,10 +3003,15 @@ void arm_usbinitialize(void)
   imxrt_clockall_usboh3();
 
 #if defined(CONFIG_ARCH_FAMILY_IMXRT117x) || defined(CONFIG_ARCH_FAMILY_IMXRT118x)
-  up_mdelay(1);
+  putreg32(USBPHY_CTRL_SFTRST,
+           IMXRT_USBPHY_CTRL_CLR(0));
 
-  putreg32(USBPHY_PLL_SIC_PLL_POWER |
-           USBPHY_PLL_SIC_PLL_REG_ENABLE,
+  putreg32(USBPHY_PLL_SIC_PLL_REG_ENABLE,
+           IMXRT_USBPHY_PLL_SIC_SET(0));
+
+  up_udelay(15);
+
+  putreg32(USBPHY_PLL_SIC_PLL_POWER,
            IMXRT_USBPHY_PLL_SIC_SET(0));
 
   putreg32(USBPHY_PLL_SIC_PLL_DIV_SEL_MASK,

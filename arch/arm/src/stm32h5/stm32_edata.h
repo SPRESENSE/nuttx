@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/arm/ra8m1/ek-ra8m1/src/ra8m1_bringup.c
+ * arch/arm/src/stm32h5/stm32_edata.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,92 +20,65 @@
  *
  ****************************************************************************/
 
+#ifndef __ARCH_ARM_SRC_STM32H5_STM32_EDATA_H
+#define __ARCH_ARM_SRC_STM32H5_STM32_EDATA_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
-#include <stdio.h>
-#include <syslog.h>
-
-#include <nuttx/board.h>
-#include <nuttx/fs/fs.h>
-#include <nuttx/leds/userled.h>
-
-#include <arch/board/board.h>
-
-#include "ek_ra8m1.h"
-
-#ifdef CONFIG_RA_GPT_TIMER
-#  include "ra_gpt.h"
-#endif
-
 /****************************************************************************
- * Pre-processor Definitions
+ * Public Function Prototypes
  ****************************************************************************/
 
-#undef HAVE_LEDS
+#ifndef __ASSEMBLY__
 
-#if !defined(CONFIG_ARCH_LEDS) && defined(CONFIG_USERLED_LOWER)
-#  define HAVE_LEDS 1
+#undef EXTERN
+#if defined(__cplusplus)
+#define EXTERN extern "C"
+extern "C"
+{
+#else
+#define EXTERN extern
 #endif
 
-/****************************************************************************
- * Public Functions
- ****************************************************************************/
+struct mtd_dev_s;
 
 /****************************************************************************
- * Name: ra8m1_bringup
+ * Name: stm32_edata_initialize
  *
  * Description:
- *   Perform board-specific initialization.
+ *   Create an MTD device on the flash high-cycle data (EDATA) area of a
+ *   physical flash bank.
+ *
+ *   If the bank does not already have nsectors of EDATA, the option bytes
+ *   are reprogrammed and the affected sectors are erased.  The last
+ *   nsectors sectors of the bank are no longer usable as user flash, so the
+ *   firmware image and anything else using those sectors (such as a second
+ *   image bank) must stay clear of them.
+ *
+ *   The MTD device has 6 KiB erase blocks, 2 byte read/write blocks, and an
+ *   erase state of 0xff.  Each 2 byte block can be written only once after
+ *   the erase block that holds it is erased.
+ *
+ * Input Parameters:
+ *   bank     - The physical flash bank (1 or 2)
+ *   nsectors - The number of EDATA sectors (1..8)
+ *
+ * Returned Value:
+ *   The MTD device, or NULL on failure.
  *
  ****************************************************************************/
 
-int ra8m1_bringup(void)
-{
-  int ret = OK;
+FAR struct mtd_dev_s *stm32_edata_initialize(int bank,
+                                             unsigned int nsectors);
 
-#ifdef HAVE_LEDS
-  board_userled_initialize();
-
-  /* Register the LED driver */
-
-  ret = userled_lower_initialize(LED_DRIVER_PATH);
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: userled_lower_initialize() failed: %d\n", ret);
-    }
-#endif
-
-#ifdef CONFIG_RA_GPT0_GPT
-  /* GPT0 is a 32-bit timer */
-
-  ret = ra_gpt_timer_initialize("/dev/timer0", 0);
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: GPT0 timer failed: %d\n", ret);
-    }
-#endif
-
-#ifdef CONFIG_RA_GPT9_GPT
-  /* GPT9 is a 16-bit timer */
-
-  ret = ra_gpt_timer_initialize("/dev/timer1", 9);
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: GPT9 timer failed: %d\n", ret);
-    }
-#endif
-
-#ifdef CONFIG_DEV_GPIO
-  ret = ra8m1_gpio_initialize();
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: ra8m1_gpio_initialize() failed: %d\n", ret);
-    }
-#endif
-
-  return ret;
+#undef EXTERN
+#if defined(__cplusplus)
 }
+#endif
+
+#endif /* __ASSEMBLY__ */
+#endif /* __ARCH_ARM_SRC_STM32H5_STM32_EDATA_H */

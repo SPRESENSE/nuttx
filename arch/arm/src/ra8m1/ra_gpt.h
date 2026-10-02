@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/arm/ra8m1/ek-ra8m1/src/ra8m1_bringup.c
+ * arch/arm/src/ra8m1/ra_gpt.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,92 +20,68 @@
  *
  ****************************************************************************/
 
+#ifndef __ARCH_ARM_SRC_RA8M1_RA_GPT_H
+#define __ARCH_ARM_SRC_RA8M1_RA_GPT_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
-#include <stdio.h>
-#include <syslog.h>
-
-#include <nuttx/board.h>
-#include <nuttx/fs/fs.h>
-#include <nuttx/leds/userled.h>
-
-#include <arch/board/board.h>
-
-#include "ek_ra8m1.h"
-
-#ifdef CONFIG_RA_GPT_TIMER
-#  include "ra_gpt.h"
-#endif
-
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
-#undef HAVE_LEDS
+/* GPT channels: GPT32 = channels 0-7 (32-bit), GPT16 = channels 8-13
+ * (16-bit).
+ */
 
-#if !defined(CONFIG_ARCH_LEDS) && defined(CONFIG_USERLED_LOWER)
-#  define HAVE_LEDS 1
-#endif
+#define RA_GPT32_FIRST   0
+#define RA_GPT32_LAST    7
+#define RA_GPT16_FIRST   8
+#define RA_GPT16_LAST    13
 
 /****************************************************************************
- * Public Functions
+ * Public Function Prototypes
  ****************************************************************************/
 
+#ifndef __ASSEMBLY__
+#ifdef __cplusplus
+#define EXTERN extern "C"
+extern "C"
+{
+#else
+#define EXTERN extern
+#endif
+
+#ifdef CONFIG_RA_GPT_TIMER
+
 /****************************************************************************
- * Name: ra8m1_bringup
+ * Name: ra_gpt_timer_initialize
  *
  * Description:
- *   Perform board-specific initialization.
+ *   Bind a GPT channel to the upper-half timer driver and register it as
+ *   a character device (e.g. "/dev/timer0").
+ *
+ * Input Parameters:
+ *   devpath - The device path to register.
+ *   channel - GPT channel number, 0-7 (GPT32) or 8-13 (GPT16).  The
+ *             channel must be enabled with CONFIG_RA_GPTn_GPT.
+ *
+ * Returned Value:
+ *   Zero (OK) on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
-int ra8m1_bringup(void)
-{
-  int ret = OK;
+int ra_gpt_timer_initialize(const char *devpath, int channel);
 
-#ifdef HAVE_LEDS
-  board_userled_initialize();
+#endif /* CONFIG_RA_GPT_TIMER */
 
-  /* Register the LED driver */
-
-  ret = userled_lower_initialize(LED_DRIVER_PATH);
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: userled_lower_initialize() failed: %d\n", ret);
-    }
-#endif
-
-#ifdef CONFIG_RA_GPT0_GPT
-  /* GPT0 is a 32-bit timer */
-
-  ret = ra_gpt_timer_initialize("/dev/timer0", 0);
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: GPT0 timer failed: %d\n", ret);
-    }
-#endif
-
-#ifdef CONFIG_RA_GPT9_GPT
-  /* GPT9 is a 16-bit timer */
-
-  ret = ra_gpt_timer_initialize("/dev/timer1", 9);
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: GPT9 timer failed: %d\n", ret);
-    }
-#endif
-
-#ifdef CONFIG_DEV_GPIO
-  ret = ra8m1_gpio_initialize();
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: ra8m1_gpio_initialize() failed: %d\n", ret);
-    }
-#endif
-
-  return ret;
+#undef EXTERN
+#ifdef __cplusplus
 }
+#endif
+#endif /* __ASSEMBLY__ */
+
+#endif /* __ARCH_ARM_SRC_RA8M1_RA_GPT_H */
