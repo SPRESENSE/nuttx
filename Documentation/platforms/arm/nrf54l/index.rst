@@ -21,8 +21,8 @@ PWM         Yes
 QDEC        No
 RADIO       Yes     Bluetooth LE through SDC
 RRAMC       Yes     Progmem erase/write interface
-SAADC       No
-SPIM        No
+SAADC       Yes
+SPIM        Yes
 TIMER       Yes
 TWIM        No
 UARTE       Yes     No hardware flow control
@@ -82,6 +82,35 @@ RRAMC
 ``CONFIG_NRF54L_PROGMEM`` enables the progmem interface. RRAM supports
 overwriting either bit value; erase operations fill emulated 4 KiB blocks
 with ``0xff``. Writes require word-aligned addresses and lengths.
+
+SAADC
+-----
+
+``nrf54l_adcinitialize()`` provides the ADC lower half, with up to eight
+single-ended or differential channels, 8/10/12/14-bit resolution and
+optional oversampling. Each ``ANIOC_TRIGGER`` collects one result per
+channel. The local timer supports a single channel; scanning with
+oversampling requires burst mode on every channel.
+
+The internal reference is 0.9 V. Available gains range from 1/4 to 2.
+External analog and reference pins must have their digital input buffers,
+outputs and pulls disconnected before opening the device. AIN0 through
+AIN7 map to P1.04/05/06/07/11/12/13/14 on L15 and
+P1.00/31/30/29/06/05/04/03 on LM20.
+
+SPIM
+----
+
+SPI0 through SPI4 correspond to SPIM20, SPIM21, SPIM22, SPIM30 and SPIM00.
+nRF54LM20 also provides SPI5 and SPI6 using SPIM23 and SPIM24. Each bus
+requires ``BOARD_SPIn_SCK_PIN`` and the applicable ``BOARD_SPIn_MOSI_PIN``
+and ``BOARD_SPIn_MISO_PIN`` definitions. Boards provide the select, status
+and optional command/data callbacks declared in ``nrf54l_spi.h``.
+
+The driver supports 8-bit transfers, modes 0 through 3 and configurable
+bit order. SPI4 supports up to 32 MHz; other instances support up to 8 MHz.
+``SPI_SETFREQUENCY()`` returns the clock selected using the hardware divider.
+SPI and UART cannot use the same SERIAL instance concurrently.
 
 TIMER
 -----

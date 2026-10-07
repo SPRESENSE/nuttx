@@ -48,6 +48,7 @@
 #include <errno.h>
 #include <inttypes.h>
 #include <string.h>
+#include <syslog.h>
 #include <sys/param.h>
 
 #include "hardware/stm32_flash.h"
@@ -203,6 +204,58 @@ struct stm32h5_flash_priv_s * flash_bank(size_t address)
     }
 
   return priv;
+}
+
+/****************************************************************************
+ * Name: flash_icache_suspend
+ *
+ * Description:
+ *   Disable the ICACHE before flash is modified (RM0481 8.4.5).  This also
+ *   invalidates it.  Must be called with g_lock held.
+ *
+ * Returned Value:
+ *   true if the ICACHE was enabled and must be restored with
+ *   flash_icache_resume(); false otherwise.
+ *
+ ****************************************************************************/
+
+static bool flash_icache_suspend(void)
+{
+#ifdef CONFIG_STM32_ICACHE
+  if (stm32_icache_enabled())
+    {
+      stm32_disable_icache();
+      return true;
+    }
+#endif
+
+  return false;
+}
+
+/****************************************************************************
+ * Name: flash_icache_resume
+ *
+ * Description:
+ *   Enable the ICACHE again if flash_icache_suspend() disabled it.  Must be
+ *   called with g_lock held.
+ *
+ * Input Parameters:
+ *   enabled - The value returned by flash_icache_suspend()
+ *
+ ****************************************************************************/
+
+static void flash_icache_resume(bool enabled)
+{
+#ifdef CONFIG_STM32_ICACHE
+  if (enabled && stm32_enable_icache() != OK)
+    {
+      /* The ICACHE stays off, which is safe but slower */
+
+      syslog(LOG_ERR, "ICACHE invalidate timed out, ICACHE left off\n");
+    }
+#else
+  UNUSED(enabled);
+#endif
 }
 
 /****************************************************************************
@@ -374,12 +427,11 @@ static void flash_lock_opt(void)
  * Name: flash_read_eccsafe16
  *
  * Description:
- *   Read one 16-bit half-word of EDATA or OTP.  Both only support 16 and
- *   32-bit reads, so the ICACHE, which would fill whole lines, is disabled
- *   for the read.  Reading a blank (erased, never programmed) half-word
- *   raises the Flash ECC NMI, which is masked in the SBS first and handled
- *   instead by checking ECCDETR afterwards.  Both are restored before
- *   returning.
+ *   Read one 16-bit half-word of EDATA or OTP.  Both areas are mapped
+ *   non-cacheable by the ICACHE driver, so the read bypasses the ICACHE.
+ *   Reading a blank (erased, never programmed) half-word raises the Flash
+ *   ECC NMI, which is masked in the SBS first and handled instead by
+ *   checking ECCDETR afterwards.  The mask is restored before returning.
  *
  * Input Parameters:
  *   addr    - Address of the half-word
@@ -398,19 +450,8 @@ static uint16_t flash_read_eccsafe16(uintptr_t addr, uint32_t eccd,
   irqstate_t flags;
   uint16_t   value;
   uint32_t   eccnmir;
-#ifdef CONFIG_STM32_ICACHE
-  bool       icache;
-#endif
 
   flags = up_irq_save();
-
-#ifdef CONFIG_STM32_ICACHE
-  icache = stm32_icache_enabled();
-  if (icache)
-    {
-      stm32_disable_icache();
-    }
-#endif
 
   eccnmir = getreg32(STM32_SBS_ECCNMIR);
   putreg32(eccnmir | SBS_ECCNMIR_ECCNMI_MASK_EN, STM32_SBS_ECCNMIR);
@@ -426,13 +467,6 @@ static uint16_t flash_read_eccsafe16(uintptr_t addr, uint32_t eccd,
     }
 
   putreg32(eccnmir, STM32_SBS_ECCNMIR);
-
-#ifdef CONFIG_STM32_ICACHE
-  if (icache)
-    {
-      stm32_enable_icache();
-    }
-#endif
 
   up_irq_restore(flags);
 
@@ -1943,6 +1977,7 @@ ssize_t up_progmem_eraseblock(size_t block)
 {
   bool bank_swap;
   bool phy_bank1;
+  bool icache;
   int ret;
   size_t block_address = STM32_FLASH_BASE + (block * FLASH_BLOCK_SIZE);
 
@@ -1979,6 +2014,8 @@ ssize_t up_progmem_eraseblock(size_t block)
     {
       return (ssize_t)ret;
     }
+
+  icache = flash_icache_suspend();
 
   if (flash_wait_for_operation())
     {
@@ -2021,6 +2058,7 @@ exit_with_unlock:
   flash_lock_nscr();
 
 exit_with_lock:
+  flash_icache_resume(icache);
   nxmutex_unlock(&g_lock);
 
   /* Verify */
@@ -2046,6 +2084,7 @@ ssize_t up_progmem_write(size_t addr, const void *buf, size_t count)
   uint32_t     *ll        = (uint32_t *)buf;
   size_t       faddr;
   size_t       written    = count;
+  bool         icache;
   int          ret;
   const size_t pagesize   = up_progmem_pagesize(0); /* 128bit, 16 bytes per page */
   const size_t llperpage  = pagesize / sizeof(uint32_t);
@@ -2076,6 +2115,8 @@ ssize_t up_progmem_write(size_t addr, const void *buf, size_t count)
 
   DEBUGASSERT(!(addr % pagesize));
   DEBUGASSERT(!(count % pagesize));
+
+  icache = flash_icache_suspend();
 
   if (flash_wait_for_operation())
     {
@@ -2168,6 +2209,7 @@ exit_with_unlock:
     }
 
 exit_with_lock:
+  flash_icache_resume(icache);
   nxmutex_unlock(&g_lock);
   return written;
 }

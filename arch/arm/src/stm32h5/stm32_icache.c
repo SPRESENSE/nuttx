@@ -34,6 +34,7 @@
 #include <stdint.h>
 
 #include "arm_internal.h"
+#include "mpu.h"
 #include "stm32.h"
 
 /****************************************************************************
@@ -42,6 +43,15 @@
 
 #define STM32_ICACHE_INTERRUPT  (defined(CONFIG_STM32_ICACHE_INV_INT) ||\
                                    defined(CONFIG_STM32_ICACHE_ERR_INT))
+
+/* The OTP (0x08fff000), read-only (0x08fff800, UID) and EDATA
+ * (0x09000000-0x09017fff) flash areas only accept 16/32-bit accesses
+ * (RM0481 Table 77) and must be mapped non-cacheable (RM0481 7.3.2).  They
+ * are contiguous, so one MPU region covers them.
+ */
+
+#define STM32_ICACHE_NC_BASE      0x08fff000
+#define STM32_ICACHE_NC_END       0x09018000
 
 /****************************************************************************
  * Private Types
@@ -217,6 +227,10 @@ static inline void stm32_icache_disable_monitors(void)
   putreg32(regval, STM32_ICACHE_CR);
 }
 
+#if defined(CONFIG_STM32_ICACHE_REGION0) || \
+    defined(CONFIG_STM32_ICACHE_REGION1) || \
+    defined(CONFIG_STM32_ICACHE_REGION2) || \
+    defined(CONFIG_STM32_ICACHE_REGION3)
 static void stm32_icache_setup_region(struct stm32_icache_region region)
 {
   uint32_t regval = 0;
@@ -232,10 +246,51 @@ static void stm32_icache_setup_region(struct stm32_icache_region region)
 
   putreg32(regval, STM32_ICACHE_CRR(region.num));
 }
+#endif
+
+static bool stm32_icache_wait_invalidate(void)
+{
+  uint32_t timeout = STM32_ICACHE_BUSY_TIMEOUT;
+
+  /* Wait for a running invalidate (after reset, CACHEINV or EN=0) to end;
+   * the ICACHE should not be enabled before (RM0481 8.4.5).  Returns false
+   * on timeout.
+   */
+
+  while ((getreg32(STM32_ICACHE_SR) & ICACHE_SR_BUSYF) != 0)
+    {
+      if (--timeout == 0)
+        {
+          return false;
+        }
+    }
+
+  return true;
+}
+
+static void stm32_icache_mpu_setup(void)
+{
+  /* Non-cacheable, execute-never.  stm32_mpuinitialize() enabled the MPU. */
+
+  DEBUGASSERT((getreg32(MPU_CTRL) & MPU_CTRL_ENABLE) != 0);
+
+  mpu_configure_region(STM32_ICACHE_NC_BASE,
+                       STM32_ICACHE_NC_END - STM32_ICACHE_NC_BASE,
+                       MPU_RBAR_XN | MPU_RBAR_AP_RWRW | MPU_RBAR_SH_NO,
+                       MPU_RLAR_NONCACHEABLE);
+}
 
 void stm32_icache_initialize(void)
 {
+#ifdef CONFIG_STM32_ICACHE_DIRECT
   uint32_t regval;
+#endif
+
+  /* The flash areas that cannot be cached must be excluded before the
+   * ICACHE is enabled.
+   */
+
+  stm32_icache_mpu_setup();
 
   /* Set associativity */
 
@@ -281,14 +336,14 @@ void stm32_icache_initialize(void)
 
   if (ret == OK)
     {
-      regval = 0;
+      uint32_t ier = 0;
 #  ifdef CONFIG_STM32_ICACHE_INV_INT
-      regval |= ICACHE_IER_BSYENDIE;
+      ier |= ICACHE_IER_BSYENDIE;
 #  endif
 #  ifdef CONFIG_STM32_ICACHE_ERR_INT
-      regval |= ICACHE_IER_ERRIE;
+      ier |= ICACHE_IER_ERRIE;
 #  endif
-      stm32_icache_set_ier(regval);
+      stm32_icache_set_ier(ier);
 
       up_enable_irq(STM32_IRQ_ICACHE);
     }
@@ -327,6 +382,14 @@ void stm32_disable_icache(void)
   regval = getreg32(STM32_ICACHE_CR);
   regval &= ~(ICACHE_CR_EN);
   putreg32(regval, STM32_ICACHE_CR);
+
+  /* Disabling the ICACHE starts a full invalidate, wait for it to finish.
+   * The ICACHE is disabled whether or not the wait times out, so there is
+   * nothing to report: stm32_enable_icache() waits again before enabling.
+   */
+
+  stm32_icache_wait_invalidate();
+  putreg32(ICACHE_FCR_CBSYENDF | ICACHE_FCR_CERRF, STM32_ICACHE_FCR);
 }
 
 bool stm32_icache_enabled(void)
@@ -334,14 +397,28 @@ bool stm32_icache_enabled(void)
   return (getreg32(STM32_ICACHE_CR) & ICACHE_CR_EN) != 0;
 }
 
-void stm32_enable_icache(void)
+int stm32_enable_icache(void)
 {
   uint32_t regval;
 
   if (icache1.initialized != true)
     {
+      /* A bootloader may have left the ICACHE enabled.  Disable it, which
+       * also invalidates it: WAYSEL and the region registers can only be
+       * written while EN=0 (RM0481 8.4.4, 8.4.7).
+       */
+
+      stm32_disable_icache();
+
       stm32_icache_initialize();
       icache1.initialized = true;
+    }
+
+  /* If the invalidate times out, leave the ICACHE disabled */
+
+  if (!stm32_icache_wait_invalidate())
+    {
+      return -ETIMEDOUT;
     }
 
   /* Enable the ICACHE */
@@ -349,6 +426,7 @@ void stm32_enable_icache(void)
   regval = getreg32(STM32_ICACHE_CR);
   regval |= ICACHE_CR_EN;
   putreg32(regval, STM32_ICACHE_CR);
+  return OK;
 }
 
 void stm32_invalidate_icache(void)

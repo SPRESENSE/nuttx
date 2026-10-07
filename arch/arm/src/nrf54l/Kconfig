@@ -25,6 +25,12 @@ endchoice # nRF54L Chip Selection
 
 # Peripheral Selection
 
+config NRF54L_SPI_MASTER
+	bool
+	default n
+	select SPI
+	select ARCH_HAVE_SPI_BITORDER
+
 config NRF54L_UART
 	bool
 	default n
@@ -42,6 +48,48 @@ menu "nRF54L Peripheral Selection"
 config NRF54L_GPIOTE
 	bool "GPIOTE (GPIO interrupts)"
 	default n
+
+config NRF54L_SPI0_MASTER
+	bool "SPI0 Master (SPIM20)"
+	default n
+	depends on !NRF54L_UART0
+	select NRF54L_SPI_MASTER
+
+config NRF54L_SPI1_MASTER
+	bool "SPI1 Master (SPIM21)"
+	default n
+	depends on !NRF54L_UART1
+	select NRF54L_SPI_MASTER
+
+config NRF54L_SPI2_MASTER
+	bool "SPI2 Master (SPIM22)"
+	default n
+	depends on !NRF54L_UART2
+	select NRF54L_SPI_MASTER
+
+config NRF54L_SPI3_MASTER
+	bool "SPI3 Master (SPIM30)"
+	default n
+	depends on !NRF54L_UART3
+	select NRF54L_SPI_MASTER
+
+config NRF54L_SPI4_MASTER
+	bool "SPI4 Master (SPIM00)"
+	default n
+	depends on !NRF54L_UART4
+	select NRF54L_SPI_MASTER
+
+config NRF54L_SPI5_MASTER
+	bool "SPI5 Master (SPIM23)"
+	default n
+	depends on !ARCH_CHIP_NRF54L15 && !NRF54L_UART5
+	select NRF54L_SPI_MASTER
+
+config NRF54L_SPI6_MASTER
+	bool "SPI6 Master (SPIM24)"
+	default n
+	depends on !ARCH_CHIP_NRF54L15 && !NRF54L_UART6
+	select NRF54L_SPI_MASTER
 
 config NRF54L_UART0
 	bool "UART0"
@@ -161,6 +209,10 @@ config NRF54L_PWM2
 	bool "PWM2 (PWM22)"
 	select NRF54L_PWM
 	depends on PWM
+	default n
+
+config NRF54L_SAADC
+	bool "SAADC"
 	default n
 
 config NRF54L_GRTC
@@ -368,6 +420,81 @@ endif # !NRF54L_PWM_MULTICHAN
 endif # NRF54L_PWM
 
 endmenu # PWM configuration
+
+menu "SAADC Configuration"
+
+if NRF54L_SAADC
+
+choice
+	prompt "SAADC trigger selection"
+	default NRF54L_SAADC_TASK
+
+config NRF54L_SAADC_TASK
+	bool "SAADC Task trigger"
+
+config NRF54L_SAADC_TIMER
+	bool "SAADC Timer trigger"
+	---help---
+		Use the local timer for a single channel. Each ANIOC_TRIGGER
+		collects one result and then stops the timer.
+
+endchoice # SAADC trigger selection
+
+if NRF54L_SAADC_TIMER
+
+config NRF54L_SAADC_TIMER_CC
+	int "SAADC Timer CC"
+	default 192
+	range 8 2047
+	---help---
+		Sample rate is 16 MHz / CC. The period must accommodate the
+		channel acquisition time plus 2 us conversion time, multiplied
+		by the oversampling factor when burst is enabled.
+
+endif # NRF54L_SAADC_TIMER
+
+config NRF54L_SAADC_OVERSAMPLE
+	int "SAADC oversample"
+	default 0
+	range 0 8
+	---help---
+		Zero disables oversampling; values 1 through 8 select 2 through
+		256 samples per result. Scanning multiple channels requires
+		burst mode on every channel when oversampling is enabled.
+
+config NRF54L_SAADC_RESOLUTION
+	int "SAADC resolution"
+	default 0
+	range 0 3
+	---help---
+		SAADC resolution: 0 - 8 bits, 1 - 10 bits, 2 - 12 bits, 3 - 14 bits.
+
+config NRF54L_SAADC_CHANNELS
+	int "SAADC channels"
+	default 8
+	range 1 8
+
+config NRF54L_SAADC_LIMITS
+	bool "SAADC limits enable"
+	default n
+	---help---
+		Configure the high and low limit events for each channel.
+
+endif # NRF54L_SAADC
+
+endmenu # SAADC Configuration
+
+menu "SPI Configuration"
+
+if NRF54L_SPI_MASTER
+
+config NRF54L_SPI_MASTER_INTERRUPTS
+	bool "SPI Master interrupts support"
+	default n
+
+endif # NRF54L_SPI_MASTER
+
+endmenu # SPI Configuration
 
 menuconfig NRF54L_SOFTDEVICE_CONTROLLER
 	bool "SoftDevice Controller"

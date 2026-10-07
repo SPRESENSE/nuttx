@@ -44,6 +44,8 @@
 
 #include <nuttx/irq.h>
 
+#include <arch/board/board.h>
+
 #include "arm_internal.h"
 #include "rp23xx_gpio.h"
 #include "rp23xx_psram.h"
@@ -73,18 +75,51 @@
 
 #define QMI_DIRECT_TX_IWIDTH_Q    (2 << RP23XX_QMI_DIRECT_TX_IWIDTH_SHIFT)
 
-/* Final QMI M1 register values for the APS6404 in quad mode.  Computed from
- * the field layout in the RP2350 datasheet to match the Pico SDK:
+/* APS6404 limits, as in the Pico SDK: 133 MHz SCK, 8 us maximum chip
+ * select time (refresh), 18 ns minimum deselect time.
+ */
+
+#define PSRAM_MAX_FREQ            133000000
+#define PSRAM_MAX_SELECT_NS       8000ull
+#define PSRAM_MIN_DESELECT_NS     18ull
+
+/* QMI M1 timing for clk_sys, computed as the Pico SDK does.  Do not use a
+ * divisor of 1 above 100 MHz, and add one RX delay step above 100 MHz SCK.
+ */
+
+#define PSRAM_CLKDIV_MIN \
+  ((BOARD_SYS_FREQ + PSRAM_MAX_FREQ - 1) / PSRAM_MAX_FREQ)
+#define PSRAM_CLKDIV \
+  (PSRAM_CLKDIV_MIN == 1 && BOARD_SYS_FREQ > 100000000 ? 2 : PSRAM_CLKDIV_MIN)
+#define PSRAM_RXDELAY \
+  (PSRAM_CLKDIV + (BOARD_SYS_FREQ / PSRAM_CLKDIV > 100000000 ? 1 : 0))
+#define PSRAM_MAX_SELECT \
+  (PSRAM_MAX_SELECT_NS * BOARD_SYS_FREQ / (64 * 1000000000ull))
+#define PSRAM_MIN_DESELECT \
+  ((PSRAM_MIN_DESELECT_NS * BOARD_SYS_FREQ + 999999999) / 1000000000 - \
+   (PSRAM_CLKDIV + 1) / 2)
+
+#if PSRAM_CLKDIV > 255 || PSRAM_RXDELAY > 7 || PSRAM_MAX_SELECT > 63 || \
+    PSRAM_MIN_DESELECT > 31
+#  error "BOARD_SYS_FREQ is out of range for the PSRAM timing"
+#endif
+
+/* Final QMI M1 register values for the APS6404 in quad mode:
  *
- * TIMING: COOLDOWN=1, PAGEBREAK=1024, SELECT_HOLD=3, MAX_SELECT=16,
- *         MIN_DESELECT=7, RXDELAY=1, CLKDIV=2.
+ * TIMING: COOLDOWN=1, PAGEBREAK=1024, and the values above.
  * RFMT:   quad prefix/addr/suffix/dummy/data, 8-bit prefix, 24 dummy bits.
  * RCMD:   read prefix 0xeb.
  * WFMT:   quad prefix/addr/suffix/dummy/data, 8-bit prefix, no dummy.
  * WCMD:   write prefix 0x38.
  */
 
-#define RP23XX_PSRAM_M1_TIMING    0x61a07102
+#define RP23XX_PSRAM_M1_TIMING \
+  ((1 << RP23XX_QMI_TIMING_COOLDOWN_SHIFT) | \
+   (2 << RP23XX_QMI_TIMING_PAGEBREAK_SHIFT) | \
+   ((uint32_t)PSRAM_MAX_SELECT << RP23XX_QMI_TIMING_MAX_SELECT_SHIFT) | \
+   ((uint32_t)PSRAM_MIN_DESELECT << RP23XX_QMI_TIMING_MIN_DESELECT_SHIFT) | \
+   (PSRAM_RXDELAY << RP23XX_QMI_TIMING_RXDELAY_SHIFT) | \
+   PSRAM_CLKDIV)
 #define RP23XX_PSRAM_M1_RFMT      0x000612aa
 #define RP23XX_PSRAM_M1_RCMD      0x000000eb
 #define RP23XX_PSRAM_M1_WFMT      0x000012aa
@@ -108,6 +143,22 @@ static size_t g_psram_size;
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
+
+/****************************************************************************
+ * Name: rp23xx_psram_wait_busy
+ *
+ * Description:
+ *   Wait until the QMI direct mode is idle.  Runs from RAM.
+ *
+ ****************************************************************************/
+
+static void RP23XX_PSRAM_RAMFUNC
+rp23xx_psram_wait_busy(void)
+{
+  while ((getreg32(RP23XX_QMI_DIRECT_CSR) & RP23XX_QMI_DIRECT_CSR_BUSY) != 0)
+    {
+    }
+}
 
 /****************************************************************************
  * Name: rp23xx_psram_apply_format
@@ -152,13 +203,13 @@ rp23xx_psram_detect(void)
   size_t size;
   size_t i;
 
-  /* Enable direct mode at a conservative clock divisor.  No BUSY wait is
-   * needed for the previous XIP transfer's cooldown: it drains before the
-   * first chip-select assertion below (verified on hardware).
+  /* Enable direct mode at a conservative clock divisor, and wait for any
+   * XIP transfer still in its cooldown to finish (datasheet 12.14.5).
    */
 
   putreg32((30 << RP23XX_QMI_DIRECT_CSR_CLKDIV_SHIFT) |
            RP23XX_QMI_DIRECT_CSR_EN, RP23XX_QMI_DIRECT_CSR);
+  rp23xx_psram_wait_busy();
 
   /* Nudge the part out of any quad-continuation mode left by a prior init by
    * clocking one quad byte with CS asserted.
@@ -175,9 +226,7 @@ rp23xx_psram_detect(void)
    * detection fails (verified on hardware).
    */
 
-  while ((getreg32(RP23XX_QMI_DIRECT_CSR) & RP23XX_QMI_DIRECT_CSR_BUSY) != 0)
-    {
-    }
+  rp23xx_psram_wait_busy();
 
   (void)getreg32(RP23XX_QMI_DIRECT_RX);
   putreg32(getreg32(RP23XX_QMI_DIRECT_CSR) &
@@ -199,10 +248,7 @@ rp23xx_psram_detect(void)
        * ahead of it is redundant -- BUSY already covers the whole transfer.
        */
 
-      while ((getreg32(RP23XX_QMI_DIRECT_CSR) &
-              RP23XX_QMI_DIRECT_CSR_BUSY) != 0)
-        {
-        }
+      rp23xx_psram_wait_busy();
 
       if (i == 5)
         {
@@ -231,6 +277,7 @@ rp23xx_psram_detect(void)
 
   putreg32((30 << RP23XX_QMI_DIRECT_CSR_CLKDIV_SHIFT) |
            RP23XX_QMI_DIRECT_CSR_EN, RP23XX_QMI_DIRECT_CSR);
+  rp23xx_psram_wait_busy();
 
   for (i = 0; i < 3; i++)
     {
@@ -256,10 +303,7 @@ rp23xx_psram_detect(void)
        * the QMI's own minimum-deselect timing covers it.
        */
 
-      while ((getreg32(RP23XX_QMI_DIRECT_CSR) &
-              RP23XX_QMI_DIRECT_CSR_BUSY) != 0)
-        {
-        }
+      rp23xx_psram_wait_busy();
 
       putreg32(getreg32(RP23XX_QMI_DIRECT_CSR) &
                ~RP23XX_QMI_DIRECT_CSR_ASSERT_CS1N, RP23XX_QMI_DIRECT_CSR);
