@@ -58,6 +58,11 @@
 #  include "rp23xx_flash_mtd.h"
 #endif
 
+#if defined(CONFIG_RP23XX_RTC) && defined(CONFIG_RTC_DRIVER)
+#  include <nuttx/timers/rtc.h>
+#  include "rp23xx_rtc.h"
+#endif
+
 #ifdef CONFIG_RP23XX_OTP
 #  include "rp23xx_otp.h"
 #endif
@@ -424,34 +429,34 @@ int rp23xx_common_bringup(void)
    * execute-in-place mappings straight out of flash.
    */
 
-    {
-      struct mtd_dev_s *mtd = rp23xx_flash_mtd_initialize();
+  {
+    struct mtd_dev_s *mtd = rp23xx_flash_mtd_initialize();
 
-      if (mtd == NULL)
-        {
-          serr("ERROR: Failed to initialize the flash MTD device\n");
-        }
-      else
-        {
-          ret = register_mtddriver("/dev/rpflash", mtd, 0755, NULL);
-          if (ret < 0)
-            {
-              serr("ERROR: Failed to register /dev/rpflash: %d\n", ret);
-            }
+    if (mtd == NULL)
+      {
+        serr("ERROR: Failed to initialize the flash MTD device\n");
+      }
+    else
+      {
+        ret = register_mtddriver("/dev/rpflash", mtd, 0755, NULL);
+        if (ret < 0)
+          {
+            serr("ERROR: Failed to register /dev/rpflash: %d\n", ret);
+          }
 #ifdef CONFIG_FS_XIPFS
-          else
-            {
-              ret = nx_mount("/dev/rpflash", "/mnt/xipfs", "xipfs", 0,
-                             "autoformat");
-              if (ret < 0)
-                {
-                  serr("ERROR: Failed to mount xipfs at /mnt/xipfs: %d\n",
-                       ret);
-                }
-            }
+        else
+          {
+            ret = nx_mount("/dev/rpflash", "/mnt/xipfs", "xipfs", 0,
+                           "autoformat");
+            if (ret < 0)
+              {
+                serr("ERROR: Failed to mount xipfs at /mnt/xipfs: %d\n",
+                     ret);
+              }
+          }
 #endif
-        }
-    }
+      }
+  }
 #endif
 
 #ifdef CONFIG_RP23XX_OTP
@@ -460,6 +465,27 @@ int rp23xx_common_bringup(void)
     {
       syslog(LOG_ERR, "Failed to initialize the OTP: %d\n", ret);
     }
+#endif
+
+#if defined(CONFIG_RP23XX_RTC) && defined(CONFIG_RTC_DRIVER)
+  /* Register the always-on timer as /dev/rtc0 */
+
+  {
+    FAR struct rtc_lowerhalf_s *rtclower = rp23xx_rtc_lowerhalf();
+
+    if (rtclower == NULL)
+      {
+        syslog(LOG_ERR, "Failed to instantiate the RTC lower half\n");
+      }
+    else
+      {
+        ret = rtc_initialize(0, rtclower);
+        if (ret < 0)
+          {
+            syslog(LOG_ERR, "Failed to bind /dev/rtc0: %d\n", ret);
+          }
+      }
+  }
 #endif
 
 #ifdef CONFIG_RP23XX_I2S

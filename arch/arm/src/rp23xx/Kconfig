@@ -878,6 +878,9 @@ config RP23XX_RTC
 		timer is a 64-bit millisecond counter clocked from the low-power
 		oscillator, so it keeps running across warm resets.
 
+		The always-on timer also has one alarm comparator.  Select
+		RTC_ALARM to expose it through /dev/rtc0.
+
 config RP23XX_ADC
 	bool "Enable ADC Support"
 	default n
@@ -1217,8 +1220,9 @@ config RP23XX_FLASH_MTD
 
 		Note that erasing or programming this flash stalls all instruction
 		fetches from it.  The driver therefore runs those operations from
-		SRAM with interrupts disabled and the other core parked, which will
-		visibly affect interrupt latency for the duration.
+		SRAM with interrupts disabled and the other core parked, one 64K
+		block erase or one 256 byte page program at a time.  This will
+		visibly affect interrupt latency.
 
 if RP23XX_FLASH_MTD
 
@@ -1237,21 +1241,22 @@ config RP23XX_FLASH_MTD_SIZE
 	---help---
 		Size of the MTD region in bytes.  Must be a multiple of the 4096
 		byte erase sector, and must fit within the flash fitted to the
-		board.
+		board.  The driver reads the flash size from its JEDEC ID, and
+		refuses to initialize if the region does not fit.
 
 config RP23XX_FLASH_MTD_SAFE_XIP
 	bool "Always restore XIP with the bootrom command mode"
 	default n
 	---help---
 		After each erase or program the QSPI interface must be put back
-		into execute-in-place mode.  By default the driver restores the
-		fast read mode the bootrom configured at boot, which is what code
-		executing in place from this flash needs.
+		into execute-in-place mode.  By default the driver runs a copy of
+		the XIP setup function that the bootrom leaves in boot RAM, as the
+		Pico SDK does.  It restores the read mode and clock divisor that
+		the bootrom found at boot.
 
 		Enable this to always use the bootrom flash_enter_cmd_xip routine
-		instead.  That is slower to execute from, but depends on nothing
-		beyond the documented bootrom entry point, so it is the safe
-		choice when bringing up a new board.
+		instead.  That gives a slow 03h serial read mode, but depends on
+		nothing beyond the documented bootrom entry point.
 
 endif # RP23XX_FLASH_MTD
 

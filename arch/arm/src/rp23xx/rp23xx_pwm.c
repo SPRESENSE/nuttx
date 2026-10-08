@@ -26,6 +26,8 @@
 
 #include <nuttx/config.h>
 
+#include <inttypes.h>
+
 #include <sys/types.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -129,7 +131,7 @@ struct rp23xx_pwm_lowerhalf_s *rp23xx_pwm_initialize(int      port,
         {
           data->pin[0] = pin_a;
         }
-        else
+      else
         {
           data->pin[0] = -1;
         }
@@ -138,7 +140,7 @@ struct rp23xx_pwm_lowerhalf_s *rp23xx_pwm_initialize(int      port,
         {
           data->pin[1] = pin_b;
         }
-        else
+      else
         {
           data->pin[1] = -1;
         }
@@ -147,7 +149,7 @@ struct rp23xx_pwm_lowerhalf_s *rp23xx_pwm_initialize(int      port,
         {
           data->pin = pin;
         }
-        else
+      else
         {
           data->pin = -1;
         }
@@ -425,31 +427,31 @@ int pwm_ioctl(struct pwm_lowerhalf_s  * dev,
 
   switch (cmd)
     {
-    case PWMIOC_RP23XX_SETINVERTPULSE:
-      priv->flags &= ~(RP23XX_PWM_CSR_B_INV | RP23XX_PWM_CSR_A_INV);
-      priv->flags |= (arg & 0x03) << 2;
+      case PWMIOC_RP23XX_SETINVERTPULSE:
+        priv->flags &= ~(RP23XX_PWM_CSR_B_INV | RP23XX_PWM_CSR_A_INV);
+        priv->flags |= (arg & 0x03) << 2;
 
-      setup_period(priv);
-      setup_pulse(priv);
+        setup_period(priv);
+        setup_pulse(priv);
 
-      return 0;
+        return 0;
 
-    case PWMIOC_RP23XX_GETINVERTPULSE:
-      return (priv->flags &  (RP23XX_PWM_CSR_B_INV
-                            | RP23XX_PWM_CSR_A_INV)) >> 2;
+      case PWMIOC_RP23XX_GETINVERTPULSE:
+        return (priv->flags &  (RP23XX_PWM_CSR_B_INV
+                              | RP23XX_PWM_CSR_A_INV)) >> 2;
 
-    case PWMIOC_RP23XX_SETPHASECORRECT:
-      priv->flags &= ~(RP23XX_PWM_CSR_PH_CORRECT);
-      priv->flags |= (arg != 0) ? RP23XX_PWM_CSR_PH_CORRECT : 0x00;
+      case PWMIOC_RP23XX_SETPHASECORRECT:
+        priv->flags &= ~(RP23XX_PWM_CSR_PH_CORRECT);
+        priv->flags |= (arg != 0) ? RP23XX_PWM_CSR_PH_CORRECT : 0x00;
 
-      setup_period(priv);
-      setup_pulse(priv);
+        setup_period(priv);
+        setup_pulse(priv);
 
-      return 0;
+        return 0;
 
-    case PWMIOC_RP23XX_GETPHASECORRECT:
-      return (priv->flags & RP23XX_PWM_CSR_PH_CORRECT) ? 1 : 0;
-  }
+      case PWMIOC_RP23XX_GETPHASECORRECT:
+        return (priv->flags & RP23XX_PWM_CSR_PH_CORRECT) ? 1 : 0;
+    }
 
   return -ENOTTY;
 }
@@ -527,7 +529,7 @@ void setup_period(struct rp23xx_pwm_lowerhalf_s *priv)
   priv->top     = top;
   priv->divisor = div16;
 
-  pwminfo("PWM%d freq=%lu top=%lu div=%lu\n",
+  pwminfo("PWM%u freq=%" PRIu32 " top=%u div=%" PRIu32 "\n",
          priv->num,
          priv->frequency,
          priv->top,

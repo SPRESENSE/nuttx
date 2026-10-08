@@ -36,6 +36,7 @@
 #include <nuttx/arch.h>
 #include <nuttx/board.h>
 #include <arch/board/board.h>
+#include <sched/sched.h>
 
 #include "mips_internal.h"
 #include "jz4780_gpio.h"
@@ -82,6 +83,7 @@ uint32_t *jz4780_decodeirq(uint32_t *regs)
   unsigned int source1 = getreg32(ICPR1);
 
   int irq = -1;
+
   if (source != 0)
     {
       irq = 31 - __builtin_clz(source);
@@ -112,6 +114,7 @@ uint32_t *jz4780_decodeirq(uint32_t *regs)
   else if (irq == JZ4780_IRQ_TCU2)
     {
       uint32_t tfcr = getreg32(TFR) & 0xdf;
+
       if (!tfcr)
         {
           irq = -1;
@@ -119,6 +122,7 @@ uint32_t *jz4780_decodeirq(uint32_t *regs)
       else
         {
           int n = 31 - __builtin_clz(tfcr);
+
           putreg32(TFCR_FFCL(n), TFCR);
           irq = IRQ_TMR0 + n;
         }
@@ -147,6 +151,12 @@ uint32_t *jz4780_decodeirq(uint32_t *regs)
    */
 
   regs = up_current_regs();
+
+  /* Record the task that will run when the interrupt returns.  Its state
+   * is saved to its TCB on the next interrupt entry (see above).
+   */
+
+  *running_task = this_task();
 
 #if defined(CONFIG_ARCH_FPU) || defined(CONFIG_ARCH_ADDRENV)
   /* Check for a context switch.  If a context switch occurred, then

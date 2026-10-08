@@ -39,7 +39,8 @@
  *      boot by the linker script, which is the same mechanism the Pico SDK
  *      spells __not_in_flash_func(),
  *   2. runs with interrupts disabled, because an ISR vector or handler
- *      living in flash would be fetched mid-erase, and
+ *      living in flash would be fetched mid-erase -- one 64K block erase
+ *      or one 256 byte page program at a time, and
  *   3. parks the other core, because it is very likely executing from
  *      flash as well.
  *
@@ -74,6 +75,9 @@
 #include "rp23xx_flash_mtd.h"
 #include "rp23xx_rom.h"
 #include "hardware/rp23xx_memorymap.h"
+#include "hardware/rp23xx_pads_qspi.h"
+#include "hardware/rp23xx_qmi.h"
+#include "hardware/rp23xx_xip.h"
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -87,21 +91,46 @@
 
 #define RP23XX_XIP_NOCACHE_BASE   0x14000000
 
+/* XIP cache maintenance window.  A clean by set/way must use the top of the
+ * window to avoid erratum RP2350-E11, as the Pico SDK does.
+ */
+
+#define RP23XX_XIP_MAINT_BASE     0x18000000
+#define XIP_CACHE_SIZE            (16 * 1024)
+#define XIP_CACHE_LINE_SIZE       8
+#define XIP_CACHE_CLEAN_SET_WAY   1
+#define XIP_CACHE_CLEAN_BASE      (RP23XX_XIP_MAINT_BASE + 0x04000000 - \
+                                   XIP_CACHE_SIZE + XIP_CACHE_CLEAN_SET_WAY)
+
+/* QSPI pads (SCLK, SD0-SD3, SS) and QMI window 1 registers (TIMING, RFMT,
+ * RCMD, WFMT, WCMD).  The bootrom flash functions change both.
+ */
+
+#define QSPI_PAD_COUNT            6
+#define QMI_M1_REG_COUNT          5
+
+/* True for an address in the XIP space (flash or PSRAM), which cannot be
+ * accessed while the QMI is in direct mode.
+ */
+
+#define IS_XIP_ADDR(a) \
+  ((uintptr_t)(a) >= RP23XX_FLASH_BASE && (uintptr_t)(a) < RP23XX_SRAM_BASE)
+
+/* SRAM stack for a flash operation called with its stack in PSRAM */
+
+#define FLASH_OP_STACK_SIZE       1024
+
 /* Largest flash the XIP window can address, used only to sanity check a
  * pointer before it is called with the flash interface torn down.
  */
 
 #define RP23XX_FLASH_MAX_SIZE     0x04000000
 
-/* Bootrom XIP read modes, and the clock divisor to run them at.  Quad is
- * the fast one; the bootrom validates the part can do it.
+/* Size of the XIP setup function the bootrom leaves at the start of boot
+ * RAM (datasheet 5.2.7).
  */
 
-#define RP23XX_XIP_MODE_03H_SERIAL 0
-#define RP23XX_XIP_MODE_0BH_SERIAL 1
-#define RP23XX_XIP_MODE_BBH_DUAL   2
-#define RP23XX_XIP_MODE_EBH_QUAD   3
-#define RP23XX_XIP_CLKDIV          4
+#define XIP_SETUP_WORDS           64
 
 /* Smallest unit that can be programmed, and smallest that can be erased */
 
@@ -112,6 +141,11 @@
 
 #define FLASH_BLOCK_SIZE          65536
 #define FLASH_BLOCK_ERASE_CMD     0xd8
+
+/* JEDEC ID: command, manufacturer, memory type, capacity (log2 bytes) */
+
+#define FLASH_READ_ID_CMD         0x9f
+#define FLASH_READ_ID_SIZE        4
 
 #define FS_OFFSET                 CONFIG_RP23XX_FLASH_MTD_OFFSET
 #define FS_SIZE                   CONFIG_RP23XX_FLASH_MTD_SIZE
@@ -136,13 +170,32 @@ struct rp23xx_flash_dev_s
   mutex_t          lock;
 };
 
+/* One flash operation.  It is static, so that it is in SRAM. */
+
+struct rp23xx_flash_op_s
+{
+  CODE void (*func)(FAR struct rp23xx_flash_op_s *op);
+  uint32_t addr;
+  FAR uint8_t *data;
+  size_t count;
+};
+
+/* QSPI state saved over a flash operation */
+
+struct rp23xx_qspi_state_s
+{
+  uint32_t pads[QSPI_PAD_COUNT];
+  uint32_t m1[QMI_M1_REG_COUNT];
+  uint32_t xip_ctrl;
+};
+
 typedef void (*connect_internal_flash_f)(void);
 typedef void (*flash_exit_xip_f)(void);
 typedef void (*flash_range_erase_f)(uint32_t, size_t, uint32_t, uint8_t);
 typedef void (*flash_range_program_f)(uint32_t, const uint8_t *, size_t);
 typedef void (*flash_flush_cache_f)(void);
 typedef void (*flash_enter_cmd_xip_f)(void);
-typedef bool (*select_xip_read_mode_f)(uint32_t mode, uint8_t clkdiv);
+typedef void (*xip_setup_f)(void);
 
 #ifdef CONFIG_SMP
 /* Locks coordinating "pause" and "resume" with the handler that blocks a
@@ -206,6 +259,20 @@ static struct rp23xx_flash_dev_s g_flash_dev =
 
 static bool g_initialized = false;
 
+static struct rp23xx_flash_op_s g_flash_op;
+
+/* SRAM copy of a page whose source is in the XIP space */
+
+static uint8_t g_flash_page[FLASH_PAGE_SIZE] aligned_data(4);
+
+#ifdef CONFIG_RP23XX_PSRAM
+static uint64_t g_flash_stack[FLASH_OP_STACK_SIZE / 8];
+#endif
+
+#ifdef CONFIG_SMP
+static struct smp_isolation_s g_smp_isolation;
+#endif
+
 static struct
 {
   connect_internal_flash_f connect_internal_flash;
@@ -215,14 +282,17 @@ static struct
   flash_flush_cache_f      flash_flush_cache;
   flash_enter_cmd_xip_f    flash_enter_cmd_xip;
 
-  /* Restores a fast XIP read mode.  flash_enter_cmd_xip works everywhere
-   * but leaves the flash in a slow 03h serial mode, which costs roughly an
-   * order of magnitude of read bandwidth -- and the base firmware executes
-   * from this same flash, so it is not a cost confined to the filesystem.
+  /* SRAM copy of the bootrom XIP setup function.  It restores the read
+   * mode and clock divisor found at boot.  NULL if there is none:
+   * flash_enter_cmd_xip then gives a slow 03h serial mode.
    */
 
-  select_xip_read_mode_f   select_xip_read_mode;
+  xip_setup_f              xip_setup;
 } g_rom;
+
+#ifndef CONFIG_RP23XX_FLASH_MTD_SAFE_XIP
+static uint32_t g_xip_setup[XIP_SETUP_WORDS];
+#endif
 
 /* End of the NuttX image in flash, provided by the linker script.  Declared
  * weak so that a RAM-only memory map, which does not define it, still
@@ -311,11 +381,11 @@ static void enter_smp_isolation(struct smp_isolation_s *const data)
           spin_lock(&cpu_data->cpu_wait);
           spin_lock(&cpu_data->cpu_pause);
           spin_unlock(&cpu_data->cpu_resume);
-        }
 
-      nxsched_smp_call_init(&cpu_data->call_data, pause_cpu_handler,
-                            cpu_data);
-      nxsched_smp_call_single_async(other_cpuid, &cpu_data->call_data);
+          nxsched_smp_call_init(&cpu_data->call_data, pause_cpu_handler,
+                                cpu_data);
+          nxsched_smp_call_single_async(other_cpuid, &cpu_data->call_data);
+        }
     }
 
   /* Wait until every other CPU has actually parked */
@@ -368,89 +438,289 @@ static void leave_smp_isolation(struct smp_isolation_s *const data)
 #endif /* CONFIG_SMP */
 
 /****************************************************************************
- * Name: rp23xx_flash_restore_xip
+ * Name: rp23xx_flash_begin
  *
  * Description:
- *   Put the QSPI interface back into execute-in-place mode.  Must run from
- *   RAM: until it returns, nothing can be fetched from flash.
+ *   Save the QSPI state and put the flash in serial command mode, as the
+ *   Pico SDK does.  Must run from RAM: XIP is not available until
+ *   rp23xx_flash_end() returns.
  *
  ****************************************************************************/
 
-static void RAM_CODE(rp23xx_flash_restore_xip)(void)
+static void RAM_CODE(rp23xx_flash_begin)(struct rp23xx_qspi_state_s *state)
 {
+  int i;
+
+  /* Write back dirty PSRAM lines.  flash_flush_cache() discards them. */
+
+  for (i = 0; i < XIP_CACHE_SIZE; i += XIP_CACHE_LINE_SIZE)
+    {
+      putreg8(0, XIP_CACHE_CLEAN_BASE + i);
+    }
+
+  UP_DSB();
+  UP_ISB();
+
+  for (i = 0; i < QSPI_PAD_COUNT; i++)
+    {
+      state->pads[i] = getreg32(RP23XX_PADS_QSPI_GPIO_QSPI_SCLK + 4 * i);
+    }
+
+  for (i = 0; i < QMI_M1_REG_COUNT; i++)
+    {
+      state->m1[i] = getreg32(RP23XX_QMI_M1_TIMING + 4 * i);
+    }
+
+  state->xip_ctrl = getreg32(RP23XX_XIP_CTRL_BASE);
+
+  __asm__ volatile ("" : : : "memory");
+
+  g_rom.connect_internal_flash();
+  g_rom.flash_exit_xip();
+}
+
+/****************************************************************************
+ * Name: rp23xx_flash_end
+ *
+ * Description:
+ *   Put the QSPI interface back into execute-in-place mode, then restore
+ *   the pads and the chip select 1 (PSRAM) window that the bootrom reset.
+ *
+ ****************************************************************************/
+
+static void RAM_CODE(rp23xx_flash_end)(struct rp23xx_qspi_state_s *state)
+{
+  int i;
+
   g_rom.flash_flush_cache();
 
-  /* Ask the bootrom to put the flash back into a fast quad read mode.  It
-   * reports whether it managed to, so a part that cannot do quad falls
-   * back rather than leaving the interface unusable.
-   */
-
-  if (g_rom.select_xip_read_mode == NULL ||
-      !g_rom.select_xip_read_mode(RP23XX_XIP_MODE_EBH_QUAD,
-                                  RP23XX_XIP_CLKDIV))
+  if (g_rom.xip_setup != NULL)
+    {
+      g_rom.xip_setup();
+    }
+  else
     {
       g_rom.flash_enter_cmd_xip();
     }
+
+  for (i = 0; i < QSPI_PAD_COUNT; i++)
+    {
+      putreg32(state->pads[i], RP23XX_PADS_QSPI_GPIO_QSPI_SCLK + 4 * i);
+    }
+
+  for (i = 0; i < QMI_M1_REG_COUNT; i++)
+    {
+      putreg32(state->m1[i], RP23XX_QMI_M1_TIMING + 4 * i);
+    }
+
+  putreg32(getreg32(RP23XX_XIP_CTRL_BASE) |
+           (state->xip_ctrl & RP23XX_XIP_CTRL_WRITABLE_M1),
+           RP23XX_XIP_CTRL_BASE);
 }
 
 /****************************************************************************
  * Name: do_erase
  *
  * Description:
- *   Erase a byte range.  Runs from RAM with interrupts already disabled and
- *   the other core already parked.
+ *   Erase one sector or block.  Runs from RAM with interrupts disabled and
+ *   the other core parked.
  *
  ****************************************************************************/
 
-static void RAM_CODE(do_erase)(uint32_t addr, size_t count)
+static void RAM_CODE(do_erase)(FAR struct rp23xx_flash_op_s *op)
 {
-  __asm__ volatile ("" : : : "memory");
+  struct rp23xx_qspi_state_s state;
 
-  g_rom.connect_internal_flash();
-  g_rom.flash_exit_xip();
-
-  /* The bootrom erases whole 64K blocks where address and length allow it
-   * and falls back to 4K sectors otherwise.
-   */
-
-  g_rom.flash_range_erase(addr, count, FLASH_BLOCK_SIZE,
+  rp23xx_flash_begin(&state);
+  g_rom.flash_range_erase(op->addr, op->count, FLASH_BLOCK_SIZE,
                           FLASH_BLOCK_ERASE_CMD);
-
-  rp23xx_flash_restore_xip();
+  rp23xx_flash_end(&state);
 }
 
 /****************************************************************************
  * Name: do_write
  ****************************************************************************/
 
-static void RAM_CODE(do_write)(uint32_t addr, const uint8_t *data,
-                               size_t count)
+static void RAM_CODE(do_write)(FAR struct rp23xx_flash_op_s *op)
 {
-  __asm__ volatile ("" : : : "memory");
+  struct rp23xx_qspi_state_s state;
 
-  g_rom.connect_internal_flash();
-  g_rom.flash_exit_xip();
+  rp23xx_flash_begin(&state);
+  g_rom.flash_range_program(op->addr, op->data, op->count);
+  rp23xx_flash_end(&state);
+}
 
-  g_rom.flash_range_program(addr, data, count);
+/****************************************************************************
+ * Name: do_read_id
+ *
+ * Description:
+ *   Read the JEDEC ID in QMI direct mode, as the Pico SDK flash_do_cmd()
+ *   does.
+ *
+ ****************************************************************************/
 
-  rp23xx_flash_restore_xip();
+static void RAM_CODE(do_read_id)(FAR struct rp23xx_flash_op_s *op)
+{
+  struct rp23xx_qspi_state_s state;
+  size_t tx = 0;
+  size_t rx = 0;
+  uint32_t csr;
+
+  rp23xx_flash_begin(&state);
+
+  putreg32(getreg32(RP23XX_QMI_DIRECT_CSR) |
+           RP23XX_QMI_DIRECT_CSR_ASSERT_CS0N, RP23XX_QMI_DIRECT_CSR);
+  putreg32(getreg32(RP23XX_QMI_DIRECT_CSR) | RP23XX_QMI_DIRECT_CSR_EN,
+           RP23XX_QMI_DIRECT_CSR);
+
+  while ((getreg32(RP23XX_QMI_DIRECT_CSR) & RP23XX_QMI_DIRECT_CSR_BUSY) != 0)
+    {
+    }
+
+  while (tx < op->count || rx < op->count)
+    {
+      csr = getreg32(RP23XX_QMI_DIRECT_CSR);
+
+      if ((csr & RP23XX_QMI_DIRECT_CSR_TXFULL) == 0 && tx < op->count)
+        {
+          putreg32(tx == 0 ? FLASH_READ_ID_CMD : 0, RP23XX_QMI_DIRECT_TX);
+          tx++;
+        }
+
+      if ((csr & RP23XX_QMI_DIRECT_CSR_RXEMPTY) == 0 && rx < op->count)
+        {
+          op->data[rx++] = (uint8_t)getreg32(RP23XX_QMI_DIRECT_RX);
+        }
+    }
+
+  /* BUSY stays high for half an SCK after the last bit, for CS timing */
+
+  while ((getreg32(RP23XX_QMI_DIRECT_CSR) & RP23XX_QMI_DIRECT_CSR_BUSY) != 0)
+    {
+    }
+
+  putreg32(getreg32(RP23XX_QMI_DIRECT_CSR) & ~RP23XX_QMI_DIRECT_CSR_EN,
+           RP23XX_QMI_DIRECT_CSR);
+  putreg32(getreg32(RP23XX_QMI_DIRECT_CSR) &
+           ~RP23XX_QMI_DIRECT_CSR_ASSERT_CS0N, RP23XX_QMI_DIRECT_CSR);
+
+  rp23xx_flash_end(&state);
+}
+
+/****************************************************************************
+ * Name: rp23xx_flash_call
+ *
+ * Description:
+ *   Call g_flash_op.func.  PSRAM is not accessible during the operation,
+ *   so if the stack is in PSRAM, switch to an SRAM stack first.
+ *
+ ****************************************************************************/
+
+static void rp23xx_flash_call(void)
+{
+#ifdef CONFIG_RP23XX_PSRAM
+  if (IS_XIP_ADDR(up_getsp()))
+    {
+      __asm__ __volatile__
+      (
+        "mov r4, sp\n\t"
+        "mov sp, %[top]\n\t"
+        "mov r0, %[op]\n\t"
+        "blx %[func]\n\t"
+        "mov sp, r4\n\t"
+        :
+        : [top] "r" (&g_flash_stack[FLASH_OP_STACK_SIZE / 8]),
+          [op] "r" (&g_flash_op),
+          [func] "r" (g_flash_op.func)
+        : "r0", "r1", "r2", "r3", "r4", "r12", "lr", "memory", "cc"
+      );
+
+      return;
+    }
+#endif
+
+  g_flash_op.func(&g_flash_op);
+}
+
+/****************************************************************************
+ * Name: rp23xx_flash_run
+ *
+ * Description:
+ *   Run g_flash_op with interrupts disabled and the other core parked.
+ *   The caller holds the device lock.
+ *
+ ****************************************************************************/
+
+static void rp23xx_flash_run(void)
+{
+  irqstate_t flags;
+
+#ifdef CONFIG_SMP
+  init_smp_isolation(&g_smp_isolation);
+  enter_smp_isolation(&g_smp_isolation);
+#endif
+
+  flags = enter_critical_section();
+  rp23xx_flash_call();
+  leave_critical_section(flags);
+
+#ifdef CONFIG_SMP
+  leave_smp_isolation(&g_smp_isolation);
+#endif
+}
+
+/****************************************************************************
+ * Name: rp23xx_flash_size
+ *
+ * Description:
+ *   Return the flash size from its JEDEC ID, or 0 if the ID is not valid.
+ *
+ ****************************************************************************/
+
+static size_t rp23xx_flash_size(void)
+{
+  FAR uint8_t *id = g_flash_page;
+
+  if (nxmutex_lock(&g_flash_dev.lock) < 0)
+    {
+      return 0;
+    }
+
+  g_flash_op.func  = do_read_id;
+  g_flash_op.data  = id;
+  g_flash_op.count = FLASH_READ_ID_SIZE;
+
+  rp23xx_flash_run();
+  nxmutex_unlock(&g_flash_dev.lock);
+
+  finfo("rp23xx_flash: JEDEC ID %02x %02x %02x\n", id[1], id[2], id[3]);
+
+  /* Accept a capacity from 64K to 64M */
+
+  if (id[1] == 0x00 || id[1] == 0xff || id[3] < 16 || id[3] > 26)
+    {
+      return 0;
+    }
+
+  return (size_t)1 << id[3];
 }
 
 /****************************************************************************
  * Name: rp23xx_flash_erase
+ *
+ * Description:
+ *   Erase one 64K block or 4K sector at a time, so that interrupts are
+ *   disabled for one block erase at most.
+ *
  ****************************************************************************/
 
 static int rp23xx_flash_erase(struct mtd_dev_s *dev, off_t startblock,
                               size_t nblocks)
 {
   struct rp23xx_flash_dev_s *priv = (struct rp23xx_flash_dev_s *)dev;
-  irqstate_t flags;
+  uint32_t addr;
+  uint32_t end;
   int ret;
-
-#ifdef CONFIG_SMP
-  struct smp_isolation_s smp_isolation;
-  init_smp_isolation(&smp_isolation);
-#endif
 
   if (startblock < 0 || startblock + nblocks > FS_SECTORS)
     {
@@ -465,20 +735,23 @@ static int rp23xx_flash_erase(struct mtd_dev_s *dev, off_t startblock,
       return ret;
     }
 
-#ifdef CONFIG_SMP
-  enter_smp_isolation(&smp_isolation);
-#endif
+  addr = FS_OFFSET + startblock * FLASH_SECTOR_SIZE;
+  end  = addr + nblocks * FLASH_SECTOR_SIZE;
 
-  flags = enter_critical_section();
+  while (addr < end)
+    {
+      g_flash_op.func  = do_erase;
+      g_flash_op.addr  = addr;
+      g_flash_op.count = FLASH_SECTOR_SIZE;
 
-  do_erase(FS_OFFSET + startblock * FLASH_SECTOR_SIZE,
-           nblocks * FLASH_SECTOR_SIZE);
+      if ((addr % FLASH_BLOCK_SIZE) == 0 && end - addr >= FLASH_BLOCK_SIZE)
+        {
+          g_flash_op.count = FLASH_BLOCK_SIZE;
+        }
 
-  leave_critical_section(flags);
-
-#ifdef CONFIG_SMP
-  leave_smp_isolation(&smp_isolation);
-#endif
+      rp23xx_flash_run();
+      addr += g_flash_op.count;
+    }
 
   nxmutex_unlock(&priv->lock);
   return nblocks;
@@ -521,19 +794,19 @@ static ssize_t rp23xx_flash_bread(struct mtd_dev_s *dev, off_t startblock,
 
 /****************************************************************************
  * Name: rp23xx_flash_bwrite
+ *
+ * Description:
+ *   Program one page at a time, so that interrupts are disabled for one
+ *   page program at most.  Copy a page from flash or PSRAM to SRAM first.
+ *
  ****************************************************************************/
 
 static ssize_t rp23xx_flash_bwrite(struct mtd_dev_s *dev, off_t startblock,
                                    size_t nblocks, const uint8_t *buffer)
 {
   struct rp23xx_flash_dev_s *priv = (struct rp23xx_flash_dev_s *)dev;
-  irqstate_t flags;
+  size_t i;
   int ret;
-
-#ifdef CONFIG_SMP
-  struct smp_isolation_s smp_isolation;
-  init_smp_isolation(&smp_isolation);
-#endif
 
   if (startblock < 0 || startblock + nblocks > FS_PAGES)
     {
@@ -546,20 +819,21 @@ static ssize_t rp23xx_flash_bwrite(struct mtd_dev_s *dev, off_t startblock,
       return ret;
     }
 
-#ifdef CONFIG_SMP
-  enter_smp_isolation(&smp_isolation);
-#endif
+  for (i = 0; i < nblocks; i++)
+    {
+      g_flash_op.func  = do_write;
+      g_flash_op.addr  = FS_OFFSET + (startblock + i) * FLASH_PAGE_SIZE;
+      g_flash_op.data  = (FAR uint8_t *)buffer + i * FLASH_PAGE_SIZE;
+      g_flash_op.count = FLASH_PAGE_SIZE;
 
-  flags = enter_critical_section();
+      if (IS_XIP_ADDR(g_flash_op.data))
+        {
+          memcpy(g_flash_page, g_flash_op.data, FLASH_PAGE_SIZE);
+          g_flash_op.data = g_flash_page;
+        }
 
-  do_write(FS_OFFSET + startblock * FLASH_PAGE_SIZE, buffer,
-           nblocks * FLASH_PAGE_SIZE);
-
-  leave_critical_section(flags);
-
-#ifdef CONFIG_SMP
-  leave_smp_isolation(&smp_isolation);
-#endif
+      rp23xx_flash_run();
+    }
 
   finfo("write page %ld count %zu\n", (long)startblock, nblocks);
 
@@ -682,6 +956,11 @@ static int rp23xx_flash_ioctl(struct mtd_dev_s *dev, int cmd,
 
 struct mtd_dev_s *rp23xx_flash_mtd_initialize(void)
 {
+  size_t size;
+#ifndef CONFIG_RP23XX_FLASH_MTD_SAFE_XIP
+  int i;
+#endif
+
   if (g_initialized)
     {
       set_errno(EBUSY);
@@ -732,25 +1011,47 @@ struct mtd_dev_s *rp23xx_flash_mtd_initialize(void)
       return NULL;
     }
 
-  /* Resolve the fast XIP read mode selector.  Unlike the bootrom's saved
-   * XIP setup pointer -- which is a data table entry whose semantics this
-   * driver got wrong, and calling it with flash torn down hangs the core
-   * unrecoverably -- this is an ordinary ROM function looked up exactly
-   * like the others above, and it returns a status.
+  /* Copy the bootrom XIP setup function out of boot RAM, which is not
+   * executable, as the Pico SDK does.  Boot RAM is empty when the image
+   * was not started by a flash boot.
    */
 
 #ifndef CONFIG_RP23XX_FLASH_MTD_SAFE_XIP
-  g_rom.select_xip_read_mode =
-    rom_func_lookup(ROM_FUNC_FLASH_SELECT_XIP_READ_MODE);
-
-  if (g_rom.select_xip_read_mode == NULL)
+  for (i = 0; i < XIP_SETUP_WORDS; i++)
     {
-      fwarn("rp23xx_flash: no fast XIP selector; reads will be slow after "
-            "every flash operation\n");
+      g_xip_setup[i] = getreg32(RP23XX_BOOTRAM_BASE + 4 * i);
     }
-#else
-  g_rom.select_xip_read_mode = NULL;
+
+  UP_DSB();
+  UP_ISB();
+
+  if (g_xip_setup[0] != 0)
+    {
+      g_rom.xip_setup = (xip_setup_f)((uintptr_t)g_xip_setup | 1);
+    }
+  else
+    {
+      fwarn("rp23xx_flash: no XIP setup function in boot RAM; reads will "
+            "be slow after every flash operation\n");
+    }
 #endif
+
+  /* An address past the end of the flash wraps around to the start, where
+   * the NuttX image is.  Refuse a region that does not fit.
+   */
+
+  size = rp23xx_flash_size();
+  if (size == 0)
+    {
+      fwarn("rp23xx_flash: unknown flash size; not checked\n");
+    }
+  else if (FS_OFFSET + FS_SIZE > size)
+    {
+      merr("ERROR: flash MTD region ends at 0x%08x, past the end of the "
+           "%zu byte flash\n", (unsigned)(FS_OFFSET + FS_SIZE), size);
+      set_errno(EINVAL);
+      return NULL;
+    }
 
   g_initialized = true;
 

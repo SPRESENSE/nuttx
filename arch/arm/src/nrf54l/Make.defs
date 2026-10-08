@@ -46,6 +46,10 @@ ifeq ($(CONFIG_NRF54L_UART),y)
 CHIP_CSRCS += nrf54l_serial.c
 endif
 
+ifeq ($(CONFIG_NRF54L_I2C_MASTER),y)
+CHIP_CSRCS += nrf54l_i2c.c
+endif
+
 ifeq ($(CONFIG_NRF54L_SPI_MASTER),y)
 CHIP_CSRCS += nrf54l_spi.c
 endif
@@ -75,6 +79,10 @@ endif
 
 ifeq ($(CONFIG_PM),y)
 CHIP_CSRCS += nrf54l_pminitialize.c
+endif
+
+ifeq ($(CONFIG_USBDEV),y)
+CHIP_CSRCS += nrf54l_usbhs.c nrf54l_usbd.c
 endif
 
 ifeq ($(CONFIG_NRF54L_SOFTDEVICE_CONTROLLER),y)
