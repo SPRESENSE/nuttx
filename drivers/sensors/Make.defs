@@ -226,6 +226,10 @@ ifeq ($(CONFIG_SENSORS_BME688),y)
   CSRCS += bme688_uorb.c
 endif
 
+ifeq ($(CONFIG_SENSORS_CCS811),y)
+  CSRCS += ccs811_uorb.c
+endif
+
 ifeq ($(CONFIG_SENSORS_ISL29023),y)
   CSRCS += isl29023.c
 endif
@@ -287,7 +291,11 @@ ifeq ($(CONFIG_SENSORS_INA219),y)
 endif
 
 ifeq ($(CONFIG_SENSORS_INA226),y)
+ifeq ($(CONFIG_SENSORS_INA226_UORB),y)
+  CSRCS += ina226_uorb.c
+else
   CSRCS += ina226.c
+endif
 endif
 
 ifeq ($(CONFIG_SENSORS_INA3221),y)

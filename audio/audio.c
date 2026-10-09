@@ -609,7 +609,11 @@ static int audio_start(FAR struct file *filep)
 #ifndef CONFIG_AUDIO_EXCLUDE_PAUSE_RESUME
   else if (upper->status->state == AUDIO_STATE_PAUSED)
     {
+#ifdef CONFIG_AUDIO_MULTI_SESSION
+      return audio_resume(filep, session);
+#else
       return audio_resume(filep);
+#endif
     }
 #endif /* CONFIG_AUDIO_EXCLUDE_PAUSE_RESUME */
 
@@ -691,7 +695,11 @@ static int audio_stop(FAR struct file *filep)
 #ifndef CONFIG_AUDIO_EXCLUDE_PAUSE_RESUME
   else if (nstate == AUDIO_STATE_PAUSED)
     {
+#ifdef CONFIG_AUDIO_MULTI_SESSION
+      ret = audio_pause(filep, session);
+#else
       ret = audio_pause(filep);
+#endif
       if (ret != OK)
         {
           return ret;
@@ -895,6 +903,7 @@ static int audio_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
         {
           FAR struct audio_caps_s *caps =
                      (FAR struct audio_caps_s *)((uintptr_t)arg);
+
           DEBUGASSERT(lower->ops->getcaps != NULL);
 
           audinfo("AUDIOIOC_GETCAPS: Device=%d\n", caps->ac_type);
@@ -1342,6 +1351,7 @@ static int audio_poll(FAR struct file *filep,
       /* This is a request to tear down the poll. */
 
       FAR struct pollfd **slot = (FAR struct pollfd **)fds->priv;
+
       *slot = NULL;
       fds->priv = NULL;
     }

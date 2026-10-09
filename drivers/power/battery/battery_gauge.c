@@ -312,80 +312,152 @@ static int bat_gauge_ioctl(FAR struct file *filep,
       case BATIOC_STATE:
         {
           FAR int *ptr = (FAR int *)((uintptr_t)arg);
-          if (ptr)
+
+          if (ptr == NULL)
             {
-              ret = dev->ops->state(dev, ptr);
+              break;
             }
+
+          if (dev->ops->state == NULL)
+            {
+              ret = -ENOTTY;
+              break;
+            }
+
+          ret = dev->ops->state(dev, ptr);
         }
         break;
 
       case BATIOC_ONLINE:
         {
           FAR bool *ptr = (FAR bool *)((uintptr_t)arg);
-          if (ptr)
+
+          if (ptr == NULL)
             {
-              ret = dev->ops->online(dev, ptr);
+              break;
             }
+
+          if (dev->ops->online == NULL)
+            {
+              ret = -ENOTTY;
+              break;
+            }
+
+          ret = dev->ops->online(dev, ptr);
         }
         break;
 
       case BATIOC_VOLTAGE:
         {
           FAR int *ptr = (FAR int *)((uintptr_t)arg);
-          if (ptr)
+
+          if (ptr == NULL)
             {
-              ret = dev->ops->voltage(dev, ptr);
+              break;
             }
+
+          if (dev->ops->voltage == NULL)
+            {
+              ret = -ENOTTY;
+              break;
+            }
+
+          ret = dev->ops->voltage(dev, ptr);
         }
         break;
 
       case BATIOC_CAPACITY:
         {
           FAR int *ptr = (FAR int *)((uintptr_t)arg);
-          if (ptr)
+
+          if (ptr == NULL)
             {
-              ret = dev->ops->capacity(dev, ptr);
+              break;
             }
+
+          if (dev->ops->capacity == NULL)
+            {
+              ret = -ENOTTY;
+              break;
+            }
+
+          ret = dev->ops->capacity(dev, ptr);
         }
         break;
 
-        case BATIOC_CURRENT:
+      case BATIOC_CURRENT:
         {
           FAR int *ptr = (FAR int *)((uintptr_t)arg);
-          if (ptr)
+
+          if (ptr == NULL)
             {
-              ret = dev->ops->current(dev, ptr);
+              break;
             }
+
+          if (dev->ops->current == NULL)
+            {
+              ret = -ENOTTY;
+              break;
+            }
+
+          ret = dev->ops->current(dev, ptr);
         }
         break;
 
-        case BATIOC_TEMPERATURE:
+      case BATIOC_TEMPERATURE:
         {
           FAR int *ptr = (FAR int *)((uintptr_t)arg);
-          if (ptr)
+
+          if (ptr == NULL)
             {
-              ret = dev->ops->temp(dev, ptr);
+              break;
             }
+
+          if (dev->ops->temp == NULL)
+            {
+              ret = -ENOTTY;
+              break;
+            }
+
+          ret = dev->ops->temp(dev, ptr);
         }
         break;
 
       case BATIOC_CHIPID:
         {
           FAR unsigned int *ptr = (FAR unsigned int *)((uintptr_t)arg);
-          if (ptr)
+
+          if (ptr == NULL)
             {
-              ret = dev->ops->chipid(dev, ptr);
+              break;
             }
+
+          if (dev->ops->chipid == NULL)
+            {
+              ret = -ENOTTY;
+              break;
+            }
+
+          ret = dev->ops->chipid(dev, ptr);
         }
         break;
 
       case BATIOC_OPERATE:
         {
           FAR int *ptr = (FAR int *)((uintptr_t)arg);
-          if (ptr)
+
+          if (ptr == NULL)
             {
-              ret = dev->ops->operate(dev, ptr);
+              break;
             }
+
+          if (dev->ops->operate == NULL)
+            {
+              ret = -ENOTTY;
+              break;
+            }
+
+          ret = dev->ops->operate(dev, ptr);
         }
         break;
 

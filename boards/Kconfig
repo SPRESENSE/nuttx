@@ -805,6 +805,16 @@ config ARCH_BOARD_CHIPKIT_WIFIRE
 		board is a chipKIT Arduino-compatible board. This board
 		features the Microchip PIC32MZ2048EFG100 MCU running at 200 MHz.
 
+config ARCH_BOARD_EV49N51A
+	bool "Microchip EV49N51A Ethernet to Wi-Fi Bridge (WFI32E01PE)"
+	depends on ARCH_CHIP_WFI32E01
+	select ARCH_HAVE_LEDS
+	---help---
+		This option selects the Microchip EV49N51A Ethernet to Wi-Fi
+		Bridge board, built around the WFI32E01PE module (PIC32MZ-W1
+		family, MIPS32 M-Class core with integrated 802.11n Wi-Fi)
+		running at 200 MHz, with a LAN8720A Ethernet PHY.
+
 config ARCH_BOARD_FLIPNCLICK_PIC32MZ
 	bool "Mikroe Flip&Click PIC32MZ"
 	depends on ARCH_CHIP_PIC32MZ2048EFH
@@ -1556,6 +1566,22 @@ config ARCH_BOARD_THINGY53
 	select ARCH_HAVE_BUTTONS
 	---help---
 		This option selects the Thingy:53 multi-protocol IoT prototyping platform
+
+config ARCH_BOARD_NRF54L15_TAG
+	bool "Nordic nRF54L15 Tag"
+	depends on ARCH_CHIP_NRF54L15
+	select ARCH_HAVE_LEDS
+	select ARCH_HAVE_BUTTONS
+	select ARCH_HAVE_IRQBUTTONS
+	---help---
+		This option selects the nRF54L15 Tag
+
+config ARCH_BOARD_NRF54LM20_DK
+	bool "Nordic nRF54LM20 Development Kit"
+	depends on ARCH_CHIP_NRF54LM20A || ARCH_CHIP_NRF54LM20B
+	select ARCH_HAVE_LEDS
+	---help---
+		This option selects the nRF54LM20 Development Kit
 
 config ARCH_BOARD_NRF9160_DK
 	bool "Nordic nRF9160 Development Kit (PCA10090)"
@@ -4047,6 +4073,7 @@ config ARCH_BOARD
 	default "ez80f910200zco"               if ARCH_BOARD_EZ80F910200ZCO
 	default "fire-stm32v2"                 if ARCH_BOARD_FIRE_STM32
 	default "chipkit-wifire"               if ARCH_BOARD_CHIPKIT_WIFIRE
+	default "ev49n51a"                     if ARCH_BOARD_EV49N51A
 	default "flipnclick-pic32mz"           if ARCH_BOARD_FLIPNCLICK_PIC32MZ
 	default "flipnclick-sam3x"             if ARCH_BOARD_FLIPNCLICK_SAM3X
 	default "freedom-k28f"                 if ARCH_BOARD_FREEDOM_K28F
@@ -4123,6 +4150,8 @@ config ARCH_BOARD
 	default "nrf5340-dk"                   if ARCH_BOARD_NRF5340_DK
 	default "nrf5340-audio-dk"             if ARCH_BOARD_NRF5340_AUDIO_DK
 	default "thingy53"                     if ARCH_BOARD_THINGY53
+	default "nrf54l15-tag"                 if ARCH_BOARD_NRF54L15_TAG
+	default "nrf54lm20-dk"                 if ARCH_BOARD_NRF54LM20_DK
 	default "nrf9160-dk"                   if ARCH_BOARD_NRF9160_DK
 	default "thingy91"                     if ARCH_BOARD_THINGY91
 	default "thingy91-nrf52"               if ARCH_BOARD_THINGY91_NRF52
@@ -5333,6 +5362,9 @@ source "boards/mips/pic32mx/ubw32/Kconfig"
 endif
 if ARCH_BOARD_CHIPKIT_WIFIRE
 source "boards/mips/pic32mz/chipkit-wifire/Kconfig"
+endif
+if ARCH_BOARD_EV49N51A
+source "boards/mips/pic32mz/ev49n51a/Kconfig"
 endif
 if ARCH_BOARD_FLIPNCLICK_PIC32MZ
 source "boards/mips/pic32mz/flipnclick-pic32mz/Kconfig"

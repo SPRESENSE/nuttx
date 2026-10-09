@@ -98,7 +98,7 @@ static void led_pm_notify(struct pm_callback_s *cb, int domain,
         {
           /* Restore normal LEDs operation */
 
-          board_userled(BOARD_LED, true);
+          board_userled(BOARD_LED1, true);
         }
         break;
 
@@ -106,7 +106,7 @@ static void led_pm_notify(struct pm_callback_s *cb, int domain,
         {
           /* Entering IDLE mode - Turn leds off */
 
-          board_userled(BOARD_LED, false);
+          board_userled(BOARD_LED1, false);
         }
         break;
 
@@ -204,6 +204,7 @@ void rp23xx_led_pminitialize(void)
   /* Register to receive power management callbacks */
 
   int ret = pm_register(&g_ledscb);
+
   if (ret != OK)
     {
       board_autoled_on(LED_ASSERTION);

@@ -152,6 +152,7 @@ static inline void set_dr0(uint64_t dr0)
 static inline uint64_t get_dr0(void)
 {
   uint64_t regval;
+
   __asm__ volatile("\tmov %%dr0, %0\n" : "=r" (regval));
   return regval;
 }
@@ -164,6 +165,7 @@ static inline void set_dr1(uint64_t dr1)
 static inline uint64_t get_dr1(void)
 {
   uint64_t regval;
+
   __asm__ volatile("\tmov %%dr1, %0\n" : "=r" (regval));
   return regval;
 }
@@ -176,6 +178,7 @@ static inline void set_dr2(uint64_t dr2)
 static inline uint64_t get_dr2(void)
 {
   uint64_t regval;
+
   __asm__ volatile("\tmov %%dr2, %0\n" : "=r" (regval));
   return regval;
 }
@@ -188,6 +191,7 @@ static inline void set_dr3(uint64_t dr3)
 static inline uint64_t get_dr3(void)
 {
   uint64_t regval;
+
   __asm__ volatile("\tmov %%dr3, %0\n" : "=r" (regval));
   return regval;
 }
@@ -200,6 +204,7 @@ static inline void set_dr6(uint64_t dr6)
 static inline uint64_t get_dr6(void)
 {
   uint64_t regval;
+
   __asm__ volatile("\tmov %%dr6, %0\n" : "=r" (regval));
   return regval;
 }
@@ -212,6 +217,7 @@ static inline void set_dr7(uint64_t dr7)
 static inline uint64_t get_dr7(void)
 {
   uint64_t regval;
+
   __asm__ volatile("\tmov %%dr7, %0\n" : "=r" (regval));
   return regval;
 }
@@ -512,10 +518,15 @@ int up_debugpoint_remove(int type, void *addr, size_t size)
 
 void x86_64_hwdebug_init(void)
 {
-  /* Attach debug interrupt and breakpoint interrupt */
+  /* Attach debug interrupt and breakpoint interrupt.  The vector table is
+   * shared by all CPUs, so do this only once.
+   */
 
-  irq_attach(ISR1, x86_64_debug_handler, NULL);
-  irq_attach(ISR3, x86_64_debug_handler, NULL);
+  if (this_cpu() == 0)
+    {
+      irq_attach(ISR1, x86_64_debug_handler, NULL);
+      irq_attach(ISR3, x86_64_debug_handler, NULL);
+    }
 
   /* Disable all breakpoints */
 

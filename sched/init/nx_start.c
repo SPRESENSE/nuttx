@@ -81,8 +81,8 @@
  * and by a series of task lists.  All of these tasks lists are declared
  * below. Although it is not always necessary, most of these lists are
  * prioritized so that common list handling logic can be used (only the
- * g_readytorun, the g_pendingtasks, and the g_waitingforsemaphore lists
- * need to be prioritized).
+ * g_readytorun and g_pendingtasks lists, and the wait lists in each
+ * semaphore, event and message queue, need to be prioritized).
  */
 
 /* This is the list of all tasks that are ready to run.  This is a
@@ -476,6 +476,7 @@ static void idle_group_initialize(void)
 
       group_initialize(tcb);
       tcb->group->tg_flags = GROUP_FLAG_NOCLDWAIT | GROUP_FLAG_PRIVILEGED;
+      tcb->group->tg_caps  = PR_CAP_ALL;
     }
 }
 
@@ -541,38 +542,38 @@ void nx_start(void)
     defined(CONFIG_MM_PGALLOC)
   /* Initialize the memory manager */
 
-    {
-      FAR void *heap_start;
-      size_t heap_size;
+  {
+    FAR void *heap_start;
+    size_t heap_size;
 
 #ifdef MM_KERNEL_USRHEAP_INIT
-      /* Get the user-mode heap from the platform specific code and configure
-       * the user-mode memory allocator.
-       */
+    /* Get the user-mode heap from the platform specific code and configure
+     * the user-mode memory allocator.
+     */
 
-      up_allocate_heap(&heap_start, &heap_size);
-      kumm_initialize(heap_start, heap_size);
+    up_allocate_heap(&heap_start, &heap_size);
+    kumm_initialize(heap_start, heap_size);
 #endif
 
 #ifdef CONFIG_MM_KERNEL_HEAP
-      /* Get the kernel-mode heap from the platform specific code and
-       * configure the kernel-mode memory allocator.
-       */
+    /* Get the kernel-mode heap from the platform specific code and
+     * configure the kernel-mode memory allocator.
+     */
 
-      up_allocate_kheap(&heap_start, &heap_size);
-      kmm_initialize(heap_start, heap_size);
+    up_allocate_kheap(&heap_start, &heap_size);
+    kmm_initialize(heap_start, heap_size);
 #endif
 
 #ifdef CONFIG_MM_PGALLOC
-      /* If there is a page allocator in the configuration, then get the page
-       * heap information from the platform-specific code and configure the
-       * page allocator.
-       */
+    /* If there is a page allocator in the configuration, then get the page
+     * heap information from the platform-specific code and configure the
+     * page allocator.
+     */
 
-      up_allocate_pgheap(&heap_start, &heap_size);
-      mm_pginitialize(heap_start, heap_size);
+    up_allocate_pgheap(&heap_start, &heap_size);
+    mm_pginitialize(heap_start, heap_size);
 #endif
-    }
+  }
 #endif
 
 #ifdef CONFIG_MM_KMAP

@@ -722,6 +722,23 @@ config SENSORS_BME688_THREAD_STACKSIZE
 
 endif # SENSORS_BME688
 
+config SENSORS_CCS811
+	bool "ams CCS811 Gas Sensor"
+	default n
+	select I2C
+	---help---
+		Enable driver for the ams CCS811 digital gas sensor for monitoring
+		indoor air quality (eCO2 and TVOC).
+
+if SENSORS_CCS811
+
+config CCS811_I2C_FREQUENCY
+	int "CCS811 I2C frequency"
+	default 100000
+	range 1 400000
+
+endif # SENSORS_CCS811
+
 config SENSORS_DHTXX
 	bool "DHTxx humidity/temperature Sensor support"
 	default n
@@ -1253,6 +1270,25 @@ config SENSORS_INA226
 	select I2C
 	---help---
 		Enable driver support for the Texas Instruments INA226/INA230 power monitor.
+
+config SENSORS_INA226_UORB
+	bool "INA226 UORB Interface"
+	default n
+	depends on SENSORS_INA226 && UORB
+	---help---
+		Build the sensor framework version of this driver rather than
+		the character device one.  The part then publishes voltage,
+		current and power as uORB topics that the common sensor tools
+		can read, instead of a node returning a structure only code
+		written for this part understands.
+
+		All three come from one reading and share its timestamp, so
+		the power is the product of a voltage and a current measured
+		at the same instant rather than at three different ones.
+
+		The two versions cannot be built together and take different
+		arguments, so a board choosing this must call
+		ina226_register_uorb() rather than ina226_register().
 
 config INA226_I2C_FREQUENCY
 	int "INA226 I2C frequency"

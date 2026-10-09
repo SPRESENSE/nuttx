@@ -50,4 +50,17 @@
  * Public Functions Prototypes
  ****************************************************************************/
 
+/****************************************************************************
+ * Name: rp23xx_serial_resume
+ *
+ * Description:
+ *   Set up the UARTs again after a suspend to RAM, in place of
+ *   arm_earlyserialinit().
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_RP23XX_PM_SUSPEND
+void rp23xx_serial_resume(void);
+#endif
+
 #endif /* __ARCH_ARM_SRC_RP23XX_RP23XX_SERIAL_H */

@@ -302,6 +302,7 @@ static void kvaser_putreg_sja(FAR struct kvaser_sja_s *priv,
                               uint8_t value)
 {
   uintptr_t addr = priv->base + offset;
+
   pci_write_io_byte(priv->pcidev, addr, value);
 }
 
@@ -328,6 +329,7 @@ static void kvaser_putreg_s5920(FAR struct kvaser_driver_s *priv,
                                 uint32_t value)
 {
   uintptr_t addr = priv->s5920_base + offset;
+
   pci_write_io_dword(priv->pcidev, addr, value);
 }
 
@@ -1262,7 +1264,7 @@ static FAR netpkt_t *kvaser_sock_recv(FAR struct netdev_lowerhalf_s *dev)
 
       kvaser_putreg_sja(priv, SJA1000_CMD_REG, SJA1000_RELEASE_BUF);
 
-      netpkt_free(dev, pkt);
+      netpkt_free(dev, pkt, NETPKT_RX);
       return NULL;
 #endif
     }
@@ -1663,12 +1665,6 @@ static int kvaser_probe(FAR struct pci_device_s *dev)
       netdev->quota[NETPKT_RX] = KVASER_RX_QUOTA;
       netdev->ops = &g_kvaser_net_ops;
 
-      /* Put the interface in the down state.  This usually amounts to
-       * resetting the device and/or calling kvaser_sock_ifdown().
-       */
-
-      kvaser_sock_ifdown(&priv->sja[i].dev);
-
       /* Register the network interface. */
 
       ret = netdev_lower_register(netdev, NET_LL_CAN);
@@ -1677,6 +1673,12 @@ static int kvaser_probe(FAR struct pci_device_s *dev)
           pcierr("ERROR: failed to register count=%d, %d\n", i, ret);
           goto errout;
         }
+
+      /* Put the interface in the down state.  This usually amounts to
+       * resetting the device and/or calling kvaser_sock_ifdown().
+       */
+
+      kvaser_sock_ifdown(&priv->sja[i].dev);
 #endif
     }
 

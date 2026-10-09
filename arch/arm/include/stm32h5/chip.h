@@ -79,7 +79,7 @@
 
 #if defined(CONFIG_STM32_STM32H56XXX) || defined(CONFIG_STM32_STM32H57XXX)
 #  define STM32_NUART                  (6)   /* UART 4-5, 7-8, 9, 12 */
-#  define STM32_NUSART                 (5)   /* USART 1-3, 6, 10-11 */
+#  define STM32_NUSART                 (6)   /* USART 1-3, 6, 10-11 */
 #elif defined(CONFIG_STM32_STM32H52XXX) || defined(CONFIG_STM32_STM32H53XXX)
 #  define STM32_NUART                  (2)   /* UART 4-5 */
 #  define STM32_NUSART                 (4)   /* USART 1-3, 6*/
@@ -141,6 +141,10 @@
 #define STM32_NCRC                     (1)   /* CRC */
 #define STM32_NCOMP                    (0)   /* Comparators */
 #define STM32_NOPAMP                   (0)   /* Operational Amplifiers */
+
+/* Keep the primary heap within the configured SRAM range. */
+
+#define STM32_PRIMARY_SRAM_SIZE        (CONFIG_RAM_END - STM32_SRAM1_BASE)
 
 /* NVIC priority levels *****************************************************/
 

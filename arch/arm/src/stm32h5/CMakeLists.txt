@@ -37,25 +37,11 @@ endif()
 list(
   APPEND
   SRCS
-  stm32_gpio.c
-  stm32_irq.c
-  stm32_lowputc.c
   stm32_rcc.c
-  stm32_start.c
   stm32_pwr.c
-  stm32_timerisr.c
   stm32_lse.c
   stm32_lsi.c
-  stm32_exti_gpio.c
   stm32_sdmmc.c)
-
-if(CONFIG_STM32_USART)
-  list(APPEND SRCS stm32_serial.c)
-endif()
-
-if(NOT CONFIG_ARCH_IDLE_CUSTOM)
-  list(APPEND SRCS stm32_idle.c)
-endif()
 
 if(CONFIG_TIMER)
   list(APPEND SRCS stm32_tim_lowerhalf.c)
@@ -135,10 +121,6 @@ endif()
 
 if(CONFIG_STM32_IWDG)
   list(APPEND SRCS stm32_iwdg.c)
-endif()
-
-if(CONFIG_ARM_MPU)
-  list(APPEND SRCS stm32_mpuinit.c)
 endif()
 
 # Required chip type specific files
