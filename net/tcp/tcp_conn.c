@@ -596,7 +596,6 @@ FAR struct tcp_conn_s *tcp_alloc(uint8_t domain)
 
   conn = NET_BUFPOOL_TRYALLOC(g_tcp_connections);
 
-#ifndef CONFIG_NET_SOLINGER
   /* Is the free list empty? */
 
   if (!conn)
@@ -649,13 +648,9 @@ FAR struct tcp_conn_s *tcp_alloc(uint8_t domain)
            * of active connections and release all resources held by the
            * connection.
            *
-           * REVISIT:  Could there be any higher level, socket interface
-           * that needs to be informed that we did this to them?
-           *
-           * Actually yes. When CONFIG_NET_SOLINGER is enabled there is a
-           * pending callback in netclose_disconnect waiting for getting
-           * woken up.  Otherwise there's the callback too, but no one is
-           * waiting for it.
+           * No socket refers to it any more (crefs == 0) and close()
+           * does not wait for the close callback, also not with
+           * SO_LINGER, so nobody needs to be informed.
            */
 
           tcp_free(conn);
@@ -670,7 +665,6 @@ FAR struct tcp_conn_s *tcp_alloc(uint8_t domain)
           conn = NET_BUFPOOL_TRYALLOC(g_tcp_connections);
         }
     }
-#endif
 
   tcp_conn_list_unlock();
 
@@ -1024,6 +1018,7 @@ FAR struct tcp_conn_s *tcp_alloc_accept(FAR struct net_driver_s *dev,
 
 #if defined(CONFIG_NET_IPv4) && defined(CONFIG_NET_IPv6)
   bool ipv6 = IFF_IS_IPv6(dev->d_flags);
+
   domain = ipv6 ? PF_INET6 : PF_INET;
 #elif defined(CONFIG_NET_IPv4)
   domain = PF_INET;
@@ -1377,6 +1372,7 @@ int tcp_connect(FAR struct tcp_conn_s *conn, FAR const struct sockaddr *addr)
       if (net_ipv6addr_cmp(addr, g_ipv6_unspecaddr))
         {
           struct in6_addr loopback_sin6_addr = IN6ADDR_LOOPBACK_INIT;
+
           net_ipv6addr_copy(conn->u.ipv6.raddr,
                             loopback_sin6_addr.s6_addr16);
         }

@@ -26,6 +26,7 @@
 
 #include <nuttx/config.h>
 #include <nuttx/debug.h>
+#include <sys/param.h>
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
@@ -91,7 +92,7 @@ static int esp_ulp_ioctl(struct file *filep, int cmd, unsigned long arg)
   int ret = 0;
   int index = -1;
   struct symtab_s *sym = (struct symtab_s *)arg;
-  int var_map_size = sizeof(ulp_var_map) / sizeof(ulp_var_map[0]);
+  int var_map_size = nitems(ulp_var_map);
 
   DEBUGASSERT(sym);
 
@@ -198,6 +199,7 @@ static void esp_ulp_register(void)
 int esp_ulp_load_bin(const char *buffer, size_t buflen)
 {
   int ret = ERROR;
+
   ulp_riscv_halt();
   ulp_riscv_reset();
   ret = ulp_riscv_load_binary((const uint8_t *)buffer, buflen);

@@ -63,6 +63,9 @@ extern "C"
 
 FAR struct group *getgrnam(FAR const char *name);
 FAR struct group *getgrgid(gid_t gid);
+FAR struct group *getgrent(void);
+void setgrent(void);
+void endgrent(void);
 int getgrnam_r(FAR const char *name,
                FAR struct group *grp,
                FAR char *buf,

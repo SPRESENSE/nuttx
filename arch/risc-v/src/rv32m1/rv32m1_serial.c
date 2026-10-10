@@ -26,6 +26,7 @@
 
 #include <nuttx/config.h>
 
+#include <sys/param.h>
 #include <sys/types.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -479,6 +480,7 @@ static void up_set_format(struct uart_dev_s *dev)
       /* Calculate the temporary sbr value */
 
       uint32_t tsbr = freq / (priv->baud * tosr);
+
       if (tsbr == 0)
         {
           tsbr = 1;
@@ -889,6 +891,7 @@ static bool up_rxavailable(struct uart_dev_s *dev)
   /* Return true is data is available in the receive data buffer */
 
   uint32_t fifo = up_getreg(priv, RV32M1_LPUART_FIFO_OFFSET);
+
   return (fifo & LPUART_FIFO_RXEMPT) == 0;
 }
 
@@ -903,6 +906,7 @@ static bool up_rxavailable(struct uart_dev_s *dev)
 static void up_send(struct uart_dev_s *dev, int ch)
 {
   struct up_dev_s *priv = (struct up_dev_s *)dev->priv;
+
   up_putreg(priv, RV32M1_LPUART_DATA_OFFSET, (uint32_t)ch & 0x0ff);
 }
 
@@ -1073,7 +1077,7 @@ void riscv_serialinit(void)
     },
   };
 
-  nuart = (int)(sizeof(ttydevs) / sizeof(ttydevs[0]));
+  nuart = (int)(nitems(ttydevs));
 
   /* Register the console */
 
@@ -1116,6 +1120,7 @@ void riscv_serialinit(void)
           /* There is one pre-condition that devno doesn't exceed 100 */
 
           int d = devno / 10;
+
           devpath[9] = d + '0';
 
           d = devno - d * 10;

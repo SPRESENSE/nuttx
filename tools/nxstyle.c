@@ -336,6 +336,12 @@ static const char *g_white_prefix[] =
   "kSE05x_",
   "smStatus_t",
   "pScp03_",
+
+  /* Ref:  arch/mips/src/pic32mz/pic32mz_w1_wlan.c, callbacks of Microchip's
+   * PIC32MZ-W1 WLAN library
+   */
+
+  "DRV_PIC32MZW_",
   NULL
 };
 
@@ -866,6 +872,14 @@ static const char *g_white_files[] =
   "phy62xx/phyplus_tim.c",
   "phy62xx/start.c",
   "lpc4370-link2/src/lpc43_spifilib_init.c",
+
+  /* Skip Mixed case in the NXP LPC43xx SPIFI family command set
+   * (vendor SDK code).
+   * Ref:
+   * arch/arm/src/lpc43xx/spifi/src/spifilib_fam_standard_cmd.c
+   */
+
+  "lpc43xx/spifi/src/spifilib_fam_standard_cmd.c",
 
   /* Skip infineon illd files
    * Ref:

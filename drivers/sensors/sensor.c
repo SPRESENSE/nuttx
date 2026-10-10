@@ -26,6 +26,7 @@
 
 #include <nuttx/config.h>
 
+#include <sys/param.h>
 #include <sys/types.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -231,6 +232,7 @@ static const struct sensor_meta_s g_sensor_meta[] =
   {sizeof(struct sensor_conductivity),        "conductivity"},
   {sizeof(struct sensor_energy),              "energy"},
   {sizeof(struct sensor_charge),              "charge"},
+  {sizeof(struct sensor_inclinometer),        "inclinometer"},
 };
 
 static const struct file_operations g_sensor_fops =
@@ -1366,7 +1368,7 @@ void sensor_remap_vector_raw16(FAR const int16_t *in, FAR int16_t *out,
   FAR const struct sensor_axis_map_s *remap;
   int16_t tmp[3];
 
-  DEBUGASSERT(place < (sizeof(g_remap_tbl) / sizeof(g_remap_tbl[0])));
+  DEBUGASSERT(place < (nitems(g_remap_tbl)));
 
   remap = &g_remap_tbl[place];
   tmp[0] = in[remap->src_x] * remap->sign_x;

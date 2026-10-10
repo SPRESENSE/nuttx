@@ -26,6 +26,7 @@
 
 #include <nuttx/config.h>
 
+#include <sys/param.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <stdio.h>
@@ -369,7 +370,8 @@ static int check_forceusbboot(void)
   /* wait for adc done */
 
   while ((getreg32(ADCSTS) & ADCSTS_ADCMPL) == 0)
-    ;
+    {
+    }
 
   val = getreg32(ADC0DT);
   val1 = getreg32(ADC1DT);
@@ -428,6 +430,7 @@ static void sysreset(void)
 static int get_config(int num, char *buf)
 {
   int ret;
+
   ret = blk_read(buf, 512, CONFIG_MTD_CONFIG_DEVPATH, num * 512);
   return ret;
 }
@@ -439,6 +442,7 @@ static int get_config(int num, char *buf)
 static int set_config(int num, char *buf)
 {
   int ret;
+
   ret = blk_write(buf, 512, CONFIG_MTD_CONFIG_DEVPATH, num * 512);
   return ret;
 }
@@ -512,7 +516,7 @@ static void chg_disable(void)
 
       if (ret == OK && freq == R2A20056BM_SCL)
         {
-          ret = I2C_TRANSFER(i2c, msg, sizeof(msg) / sizeof(msg[0]));
+          ret = I2C_TRANSFER(i2c, msg, nitems(msg));
 
           if (ret != OK)
             {

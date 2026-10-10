@@ -26,6 +26,7 @@
 
 #include <nuttx/config.h>
 
+#include <sys/param.h>
 #include <sys/types.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -814,6 +815,7 @@ static int imx9_dshot_send_command(struct dshot_lowerhalf_s *dev,
       if ((ch_mask & (1 << i)) != 0)
         {
           bool telemetry = (packets[i] & (1 << TELEM_BIT)) != 0;
+
           ch = &priv->chan[i];
 
           /* If telemetry is requested from this channel, set the state to
@@ -1095,6 +1097,7 @@ static int imx9_dshot_get_raw_telemetry(struct dshot_lowerhalf_s *dev,
       if ((ch_mask & (1u << i)) != 0)
         {
           irqstate_t flags = spin_lock_irqsave(&priv->spinlock);
+
           raw[i].raw = priv->chan[i].rx_raw;
           raw[i].timestamp = priv->chan[i].ts_raw;
           spin_unlock_irqrestore(&priv->spinlock, flags);
@@ -1113,7 +1116,7 @@ struct dshot_lowerhalf_s *imx9_flexio_dshot_init(flexio_dshot_id_t id)
   struct imx9_flexio_dshot_s *priv = NULL;
   int i;
 
-  for (i = 0; i < sizeof(g_dshot_dev) / sizeof(g_dshot_dev[0]); i++)
+  for (i = 0; i < nitems(g_dshot_dev); i++)
     {
       if (g_dshot_dev[i].id == id)
         {

@@ -42,6 +42,7 @@
 
 #include <nuttx/config.h>
 
+#include <sys/param.h>
 #include <sys/types.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -80,7 +81,7 @@
 #define R_H564 0x80
 #define R_H600 0x80
 
-#define SZ(x) (sizeof(x)/sizeof(x[0]))
+#define SZ(x) (nitems(x))
 
 #define VGA_XRES         320
 #define VGA_YRES         240
@@ -570,6 +571,7 @@ static off_t vga_seek(struct file *filp, off_t offset, int whence)
 struct lcd_dev_s *qemu_vga_initialize(void)
 {
   int ret = init_graph_vga(VGA_XRES, VGA_YRES, 1);
+
   if (ret < 0)
     {
       gerr("ERROR: init_graph_vga returned %d\n", ret);
@@ -582,6 +584,7 @@ struct lcd_dev_s *qemu_vga_initialize(void)
 int qemu_vga(void)
 {
   int ret = init_graph_vga(VGA_XRES, VGA_YRES, 1);
+
   if (ret < 0)
     {
       gerr("ERROR: init_graph_vga returned %d\n", ret);

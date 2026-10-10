@@ -26,6 +26,7 @@
 
 #include <nuttx/config.h>
 
+#include <sys/param.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <fixedmath.h>
@@ -106,10 +107,6 @@
 
 #define SETMODECONTROL_TYPE_PS        0
 #define SETMODECONTROL_TYPE_ALS       1
-
-#ifndef itemsof
-#  define itemsof(array) (sizeof(array)/sizeof(array[0]))
-#endif
 
 /****************************************************************************
  * Private Types
@@ -447,7 +444,7 @@ static int rpr0521rsals_seqinit(struct rpr0521rs_dev_s *priv)
 
   seq_setinstruction(priv->seq,
                      g_rpr0521rsalsinst,
-                     itemsof(g_rpr0521rsalsinst));
+                     nitems(g_rpr0521rsalsinst));
   seq_setsample(priv->seq,
                 RPR0521RS_ALS_BYTESPERSAMPLE,
                 0,
@@ -486,7 +483,7 @@ static int rpr0521rsps_seqinit(struct rpr0521rs_dev_s *priv)
 
   seq_setinstruction(priv->seq,
                      g_rpr0521rspsinst,
-                     itemsof(g_rpr0521rspsinst));
+                     nitems(g_rpr0521rspsinst));
   seq_setsample(priv->seq,
                 RPR0521RS_PS_BYTESPERSAMPLE,
                 0,
@@ -796,6 +793,7 @@ static int rpr0521rs_ioctl_ps(struct file *filep,
         {
           uint8_t intstatus = rpr0521rs_getreg8(priv,
                                                 RPR0521RS_INTERRUPT);
+
           *(uint8_t *)(uintptr_t)arg = intstatus;
           sninfo("Get proximity IntStatus 0x%02x\n", intstatus);
         }

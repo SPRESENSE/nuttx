@@ -83,6 +83,7 @@
 #include <nuttx/config.h>
 
 #include <stdbool.h>
+#include <sys/param.h>
 #include <sys/types.h>
 #include <assert.h>
 #include <nuttx/debug.h>
@@ -287,8 +288,8 @@ static int ee24xx_waitwritecomplete(FAR struct ee24xx_dev_s *eedev,
 
   do
     {
-     ret = I2C_TRANSFER(eedev->i2c, msgs, 1);
-     retries--;
+      ret = I2C_TRANSFER(eedev->i2c, msgs, 1);
+      retries--;
     }
   while (ret != 0 && retries > 0);
 
@@ -585,36 +586,36 @@ static off_t ee24xx_seek(FAR struct file *filep, off_t offset, int whence)
 
   switch (whence)
     {
-    case SEEK_CUR:
-      newpos = filep->f_pos + offset;
-      if (newpos < 0 || newpos > eedev->size)
-        {
-          return -EINVAL;
-        }
-      break;
+      case SEEK_CUR:
+        newpos = filep->f_pos + offset;
+        if (newpos < 0 || newpos > eedev->size)
+          {
+            return -EINVAL;
+          }
+        break;
 
-    case SEEK_SET:
-      newpos = offset;
-      if (newpos < 0 || newpos > eedev->size)
-        {
-          return -EINVAL;
-        }
-      break;
+      case SEEK_SET:
+        newpos = offset;
+        if (newpos < 0 || newpos > eedev->size)
+          {
+            return -EINVAL;
+          }
+        break;
 
-    case SEEK_END:
-      newpos = eedev->size + offset;
-      if (newpos < 0 || newpos > eedev->size)
-        {
-          return -EINVAL;
-        }
-      break;
+      case SEEK_END:
+        newpos = eedev->size + offset;
+        if (newpos < 0 || newpos > eedev->size)
+          {
+            return -EINVAL;
+          }
+        break;
 
-    default:
+      default:
 
-      /* Return EINVAL if the whence argument is invalid */
+        /* Return EINVAL if the whence argument is invalid */
 
-      nxmutex_unlock(&eedev->lock);
-      return -EINVAL;
+        nxmutex_unlock(&eedev->lock);
+        return -EINVAL;
     }
 
   /* Opengroup.org:
@@ -950,6 +951,7 @@ static int ee24xx_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
         {
           FAR struct eeprom_geometry_s *geo =
             (FAR struct eeprom_geometry_s *)arg;
+
           if (geo != NULL)
             {
               geo->npages   = 0;
@@ -970,10 +972,10 @@ static int ee24xx_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
         {
           ret = nxmutex_lock(&eedev->lock);
           if (ret == OK)
-          {
-            eedev->freq = (uint32_t)arg;
-            nxmutex_unlock(&eedev->lock);
-          }
+            {
+              eedev->freq = (uint32_t)arg;
+              nxmutex_unlock(&eedev->lock);
+            }
         }
         break;
 
@@ -1021,7 +1023,7 @@ int ee24xx_initialize(FAR struct i2c_master_s *bus, uint8_t devaddr,
   /* Check device type early */
 
   if ((devtype < 0) ||
-      (devtype >= sizeof(g_ee24xx_devices) / sizeof(g_ee24xx_devices[0])))
+      (devtype >= nitems(g_ee24xx_devices)))
     {
       return -EINVAL;
     }
