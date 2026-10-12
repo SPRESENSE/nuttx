@@ -35,11 +35,8 @@
 
 /* NOTE: elf64.h and elf32.h refer EI_NIDENT defined above */
 
-#ifdef CONFIG_ARCH_64BIT
-#  include <elf64.h>
-#else
-#  include <elf32.h>
-#endif
+#include <elf32.h>
+#include <elf64.h>
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -119,6 +116,7 @@
 #define ELFMAG2            'L'
 #define ELFMAG3            'F'
 #define ELFMAG             "\177ELF"
+#define SELFMAG            4
 
 /* Table 3. Values for EI_CLASS */
 
@@ -160,10 +158,13 @@
 /* Table 7: Special Section Indexes */
 
 #define SHN_UNDEF          0
+#define SHN_LORESERVE      0xff00
 #define SHN_LOPROC         0xff00
 #define SHN_HIPROC         0xff1f
 #define SHN_ABS            0xfff1
 #define SHN_COMMON         0xfff2
+#define SHN_XINDEX         0xffff
+#define SHN_HIRESERVE      0xffff
 
 /* Figure 4-9: Section Types, sh_type */
 
@@ -182,6 +183,8 @@
 #define SHT_INIT_ARRAY     14
 #define SHT_FINI_ARRAY     15
 #define SHT_PREINIT_ARRAY  16
+#define SHT_GROUP          17
+#define SHT_SYMTAB_SHNDX   18
 #define SHT_LOPROC         0x70000000
 #define SHT_HIPROC         0x7fffffff
 #define SHT_LOUSER         0x80000000
@@ -393,6 +396,48 @@
 #  define ELF_DATA         ELFDATA2MSB
 #else
 #  define ELF_DATA         ELFDATA2LSB
+#endif
+
+/* Generic ELF type aliases based on architecture */
+
+#ifdef CONFIG_ARCH_64BIT
+#  define ELF_CLASS            ELFCLASS64
+#  define ELF_ST_TYPE(a)       ELF64_ST_TYPE(a)
+#  define ELF_ST_BIND(a)       ELF64_ST_BIND(a)
+#  define ELF_ST_VISIBILITY(o) ELF64_ST_VISIBILITY(o)
+#  define ELF_R_SYM(i)         ELF64_R_SYM(i)
+#  define ELF_R_TYPE(i)        ELF64_R_TYPE(i)
+
+typedef Elf64_Addr  Elf_Addr;
+typedef Elf64_Ehdr  Elf_Ehdr;
+typedef Elf64_Rel   Elf_Rel;
+typedef Elf64_Rela  Elf_Rela;
+typedef Elf64_Nhdr  Elf_Nhdr;
+typedef Elf64_Phdr  Elf_Phdr;
+typedef Elf64_Sym   Elf_Sym;
+typedef Elf64_Shdr  Elf_Shdr;
+typedef Elf64_Off   Elf_Off;
+typedef Elf64_Word  Elf_Word;
+typedef Elf64_Dyn   Elf_Dyn;
+#else
+#  define ELF_CLASS            ELFCLASS32
+#  define ELF_ST_TYPE(a)       ELF32_ST_TYPE(a)
+#  define ELF_ST_BIND(a)       ELF32_ST_BIND(a)
+#  define ELF_ST_VISIBILITY(o) ELF32_ST_VISIBILITY(o)
+#  define ELF_R_SYM(i)         ELF32_R_SYM(i)
+#  define ELF_R_TYPE(i)        ELF32_R_TYPE(i)
+
+typedef Elf32_Addr  Elf_Addr;
+typedef Elf32_Ehdr  Elf_Ehdr;
+typedef Elf32_Rel   Elf_Rel;
+typedef Elf32_Rela  Elf_Rela;
+typedef Elf32_Nhdr  Elf_Nhdr;
+typedef Elf32_Phdr  Elf_Phdr;
+typedef Elf32_Sym   Elf_Sym;
+typedef Elf32_Shdr  Elf_Shdr;
+typedef Elf32_Off   Elf_Off;
+typedef Elf32_Word  Elf_Word;
+typedef Elf32_Dyn   Elf_Dyn;
 #endif
 
 #endif /* __INCLUDE_ELF_H */

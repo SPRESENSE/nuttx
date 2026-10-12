@@ -66,6 +66,7 @@ static inline int libelf_fileinfo(FAR struct mod_loadinfo_s *loadinfo)
   if (ret < 0)
     {
       int errval = _NX_GETERRNO(ret);
+
       berr("ERROR: Failed to stat file: %d\n", errval);
       return -errval;
     }
@@ -113,6 +114,7 @@ int libelf_initialize(FAR const char *filename,
   if (loadinfo->filfd < 0)
     {
       int errval = _NX_GETERRNO(loadinfo->filfd);
+
       berr("ERROR: Failed to open ELF binary %s: %d\n", filename, errval);
       return -errval;
     }
@@ -132,8 +134,10 @@ int libelf_initialize(FAR const char *filename,
                     sizeof(Elf_Ehdr), 0);
   if (ret < 0)
     {
+      /* A file that is shorter than an ELF header is not an ELF file */
+
       berr("ERROR: Failed to read ELF header: %d\n", ret);
-      return ret;
+      return ret == -ENODATA ? -ENOEXEC : ret;
     }
 
   libelf_dumpbuffer("ELF header", (FAR const uint8_t *)&loadinfo->ehdr,
