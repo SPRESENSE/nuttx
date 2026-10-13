@@ -33,6 +33,7 @@
 #include <stdio.h>
 #include <errno.h>
 #include <nuttx/debug.h>
+#include <nuttx/kmalloc.h>
 
 #ifdef CONFIG_MTD_AM29LV
 #  include <nuttx/mtd/mtd.h>
@@ -105,6 +106,7 @@ int bm3823_am29lv_initialize(int minor)
 #if defined(CONFIG_RAMMTD) && defined(CONFIG_XX3823_RAMMTD)
 
   uint8_t *start = kmm_malloc(CONFIG_XX3823_RAMMTD_SIZE * 1024);
+
   mtd = rammtd_initialize(start, CONFIG_XX3823_RAMMTD_SIZE * 1024);
   mtd->ioctl(mtd, MTDIOC_BULKERASE, 0);
 

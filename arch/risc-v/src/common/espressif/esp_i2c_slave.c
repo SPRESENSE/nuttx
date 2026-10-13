@@ -43,6 +43,7 @@
 #include <nuttx/arch.h>
 #include <nuttx/irq.h>
 #include <nuttx/clock.h>
+#include <nuttx/kmalloc.h>
 #include <nuttx/signal.h>
 #include <nuttx/mutex.h>
 #include <nuttx/semaphore.h>
@@ -864,17 +865,17 @@ struct i2c_slave_s *esp_i2cbus_slave_initialize(int port, int addr)
   switch (port)
     {
 #ifdef CONFIG_ESPRESSIF_I2C0_SLAVE_MODE
-    case ESPRESSIF_I2C0_SLAVE:
-      priv = &esp_i2c0_priv;
-      break;
+      case ESPRESSIF_I2C0_SLAVE:
+        priv = &esp_i2c0_priv;
+        break;
 #endif
 #ifdef CONFIG_ESPRESSIF_I2C1_SLAVE_MODE
-    case ESPRESSIF_I2C1_SLAVE:
-      priv = &esp_i2c1_priv;
-      break;
+      case ESPRESSIF_I2C1_SLAVE:
+        priv = &esp_i2c1_priv;
+        break;
 #endif
-    default:
-      return NULL;
+      default:
+        return NULL;
     }
 
   nxmutex_lock(&priv->lock);

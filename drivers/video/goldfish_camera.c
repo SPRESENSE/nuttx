@@ -31,6 +31,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <nuttx/kmalloc.h>
 #include <nuttx/nuttx.h>
 #include <nuttx/kthread.h>
 #include <nuttx/video/imgsensor.h>
@@ -173,6 +174,7 @@ static int goldfish_camera_read_fully(FAR struct file *file,
   while (size > 0)
     {
       ssize_t n = file_read(file, p, size);
+
       if (n < 0)
         {
           return n;
@@ -194,6 +196,7 @@ static int goldfish_camera_write_fully(FAR struct file *file,
   while (size > 0)
     {
       ssize_t n = file_write(file, p, size);
+
       if (n < 0)
         {
           return n;
@@ -536,6 +539,7 @@ goldfish_camera_get_driver_name(FAR struct imgsensor_s *sensor)
   FAR goldfish_camera_priv_t *priv = container_of(sensor,
                                                   goldfish_camera_priv_t,
                                                   sensor);
+
   return priv->info.name;
 }
 

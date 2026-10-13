@@ -39,6 +39,7 @@
 #include <nuttx/analog/adc.h>
 #include <nuttx/analog/ioctl.h>
 #include <nuttx/analog/ads7046.h>
+#include <nuttx/kmalloc.h>
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -192,6 +193,7 @@ static int ads7046_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
       case ANIOC_ADS7046_READ:
         {
           FAR uint16_t *data = (FAR uint16_t *)((uintptr_t)arg);
+
           ads7046_read_conversion_result(priv, data, false);
           break;
         }
@@ -203,6 +205,7 @@ static int ads7046_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
       case ANIOC_ADS7046_READ_FASTUNSAFE:
         {
           FAR uint16_t *data = (FAR uint16_t *)((uintptr_t)arg);
+
           ads7046_read_conversion_result(priv, data, true);
           break;
         }
@@ -258,6 +261,7 @@ int ads7046_register(FAR const char *devpath, FAR struct spi_dev_s *spi,
   /* Initialize the ADS7046 device structure */
 
   struct ads7046_dev_s *priv = kmm_malloc(sizeof(struct ads7046_dev_s));
+
   if (priv == NULL)
     {
       aerr("ERROR: Failed to allocate instance %s (%d)\n", strerror(errno),
@@ -271,6 +275,7 @@ int ads7046_register(FAR const char *devpath, FAR struct spi_dev_s *spi,
   /* Register the character driver */
 
   int ret = register_driver(devpath, &ads7046_fops, 0600, priv);
+
   if (ret < 0)
     {
       aerr("ERROR: Failed to register driver: %s (%d)\n", strerror(-ret),

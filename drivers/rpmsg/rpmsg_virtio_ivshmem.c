@@ -31,6 +31,7 @@
 #include <stdio.h>
 
 #include <nuttx/drivers/addrenv.h>
+#include <nuttx/kmalloc.h>
 #include <nuttx/pci/pci_ivshmem.h>
 #include <nuttx/rpmsg/rpmsg_virtio_ivshmem.h>
 #include <nuttx/rpmsg/rpmsg_virtio_lite.h>
@@ -120,6 +121,7 @@ rpmsg_virtio_ivshmem_get_cpuname(FAR struct rpmsg_virtio_lite_s *dev)
 {
   FAR struct rpmsg_virtio_ivshmem_dev_s *priv =
     (FAR struct rpmsg_virtio_ivshmem_dev_s *)dev;
+
   return priv->cpuname;
 }
 
@@ -182,6 +184,7 @@ rpmsg_virtio_ivshmem_is_master(FAR struct rpmsg_virtio_lite_s *dev)
 {
   FAR struct rpmsg_virtio_ivshmem_dev_s *priv =
     (FAR struct rpmsg_virtio_ivshmem_dev_s *)dev;
+
   return priv->master;
 }
 
@@ -346,6 +349,7 @@ int pci_register_rpmsg_virtio_ivshmem_driver(void)
 
       FAR struct rpmsg_virtio_ivshmem_dev_s * priv =
         kmm_zalloc(sizeof(*priv));
+
       if (priv == NULL)
         {
           return -ENOMEM;

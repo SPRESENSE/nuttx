@@ -30,6 +30,7 @@
 #include <errno.h>
 
 #include <nuttx/kmalloc.h>
+#include <nuttx/lib/lib.h>
 
 #include "esp32s3_spiflash_mtd.h"
 #include "esp32s3_partition.h"
@@ -335,7 +336,7 @@ static int ota_set_bootseq(struct mtd_dev_priv_s *dev, int num)
         return -EINVAL;
     }
 
-    return 0;
+  return 0;
 }
 
 /****************************************************************************
@@ -382,7 +383,7 @@ static int ota_invalidate_bootseq(struct mtd_dev_priv_s *dev, int num)
         return -EINVAL;
     }
 
-    return 0;
+  return 0;
 }
 
 /****************************************************************************
@@ -647,8 +648,10 @@ static int partition_get_offset(const char *label, size_t size)
   uint8_t *pbuf;
   int partion_offset;
   const struct partition_info_priv_s *info;
+
   DEBUGASSERT(label != NULL);
   struct mtd_dev_s *mtd = esp32s3_spiflash_encrypt_mtd();
+
   if (!mtd)
     {
       ferr("ERROR: Failed to get SPI flash MTD\n");
@@ -908,8 +911,10 @@ int esp32s3_partition_read(const char *label, size_t offset, void *buf,
 {
   int ret;
   int partion_offset;
+
   DEBUGASSERT(label != NULL && buf != NULL);
   struct mtd_dev_s *mtd = esp32s3_spiflash_mtd();
+
   if (!mtd)
     {
       ferr("ERROR: Failed to get SPI flash MTD\n");
@@ -956,8 +961,10 @@ int esp32s3_partition_read_decrypt(const char *label, size_t offset,
 {
   int ret;
   int partion_offset;
+
   DEBUGASSERT(label != NULL && buf != NULL);
   struct mtd_dev_s *mtd = esp32s3_spiflash_encrypt_mtd();
+
   if (!mtd)
     {
       ferr("ERROR: Failed to get SPI flash MTD\n");
@@ -1004,8 +1011,10 @@ int esp32s3_partition_write(const char *label, size_t offset, void *buf,
 {
   int ret;
   int partion_offset;
+
   DEBUGASSERT(label != NULL && buf != NULL);
   struct mtd_dev_s *mtd = esp32s3_spiflash_mtd();
+
   if (!mtd)
     {
       ferr("ERROR: Failed to get SPI flash MTD\n");

@@ -32,6 +32,7 @@
 
 #include <nuttx/coredump.h>
 #include <nuttx/elf.h>
+#include <nuttx/lib/lib.h>
 #include <nuttx/nuttx.h>
 #include <nuttx/sched.h>
 
@@ -374,7 +375,7 @@ static void elf_emit_note(FAR struct elf_dumpinfo_s *cinfo)
 
   if (cinfo->pid == INVALID_PROCESS_ID)
     {
-     FAR struct tcb_s *rtcb = running_task();
+      FAR struct tcb_s *rtcb = running_task();
 
       /* Emit the current (typically crashing) task first so that GDB's
        * default thread selection shows the crashing backtrace on the initial

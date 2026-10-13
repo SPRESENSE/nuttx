@@ -27,6 +27,7 @@
 #include <nuttx/config.h>
 #include <nuttx/i2c/i2c_master.h>
 #include <nuttx/fs/ioctl.h>
+#include <nuttx/kmalloc.h>
 #include <nuttx/leds/ktd2052.h>
 
 #include <stdio.h>
@@ -483,6 +484,7 @@ static int ktd2052_open(FAR struct file *filep)
 
   uint8_t reg_val;
   int ret = ktd2052_read_reg(priv, KTD2052_ID_REG, &reg_val);
+
   if (ret < 0)
     {
       return ret;
@@ -611,6 +613,7 @@ static int ktd2052_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
            */
 
           FAR uint8_t *mrgb = (FAR uint8_t *)arg;
+
           if (mrgb == NULL)
             {
               ret = -EINVAL;
@@ -626,6 +629,7 @@ static int ktd2052_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
           /* Set operating mode */
 
           FAR struct ktd2052_mode_s *mode = (FAR struct ktd2052_mode_s *)arg;
+
           if (mode == NULL)
             {
               ret = -EINVAL;
@@ -643,6 +647,7 @@ static int ktd2052_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 
           FAR struct ktd2052_pattern_s *pattern =
             (FAR struct ktd2052_pattern_s *)arg;
+
           if (pattern == NULL)
             {
               ret = -EINVAL;
@@ -662,6 +667,7 @@ static int ktd2052_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 
           FAR struct ktd2052_slots_s *slots =
                                           (FAR struct ktd2052_slots_s *)arg;
+
           if (slots == NULL)
             {
               ret = -EINVAL;
@@ -677,6 +683,7 @@ static int ktd2052_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
           /* Get monitor register status */
 
           FAR uint8_t *status = (FAR uint8_t *)arg;
+
           if (status == NULL)
             {
               ret = -EINVAL;
@@ -692,6 +699,7 @@ static int ktd2052_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
           /* Update watchdog register */
 
           uint8_t wd = (uint8_t)arg;
+
           ret = ktd2052_write_watchdog(priv, wd);
         }
         break;

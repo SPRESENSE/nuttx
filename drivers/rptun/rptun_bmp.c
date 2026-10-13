@@ -24,6 +24,7 @@
  * Included Files
  ****************************************************************************/
 
+#include <nuttx/kmalloc.h>
 #include <nuttx/rptun/rptun.h>
 #include <nuttx/rptun/rptun_bmp.h>
 #include <nuttx/sched.h>
@@ -89,6 +90,7 @@ static const struct rptun_ops_s g_rptun_bmp_ops =
 static FAR const char *rptun_bmp_get_cpuname(FAR struct rptun_dev_s *dev)
 {
   FAR struct rptun_bmp_dev_s *priv = (FAR struct rptun_bmp_dev_s *)dev;
+
   return priv->cpuname;
 }
 
@@ -96,6 +98,7 @@ static FAR struct resource_table *
 rptun_bmp_get_resource(FAR struct rptun_dev_s *dev)
 {
   FAR struct rptun_bmp_dev_s *priv = (FAR struct rptun_bmp_dev_s *)dev;
+
   return &priv->rsc->rsc_tbl_hdr;
 }
 
@@ -107,6 +110,7 @@ static bool rptun_bmp_is_autostart(FAR struct rptun_dev_s *dev)
 static bool rptun_bmp_is_master(FAR struct rptun_dev_s *dev)
 {
   FAR struct rptun_bmp_dev_s *priv = (FAR struct rptun_bmp_dev_s *)dev;
+
   return priv->master;
 }
 

@@ -35,6 +35,7 @@
 
 #include <nuttx/debug.h>
 #include <nuttx/fs/fs.h>
+#include <nuttx/kmalloc.h>
 #ifdef CONFIG_MTD_AM29LV
 #  include <nuttx/mtd/mtd.h>
 #  include <nuttx/fs/nxffs.h>
@@ -99,24 +100,24 @@ int bm3803_am29lv_initialize(int minor)
     }
 #if defined(CONFIG_XX3803_FLASH_PARA)
 
-      /* Register the MTD as the System Parameter device */
+  /* Register the MTD as the System Parameter device */
 
-      ret = mtdpara_register(mtd);
-      if (ret < 0)
-        {
-          _err("ERROR: Failed to register the /dev/para: %d\n", errno);
-          return ret;
-        }
+  ret = mtdpara_register(mtd);
+  if (ret < 0)
+    {
+      _err("ERROR: Failed to register the /dev/para: %d\n", errno);
+      return ret;
+    }
 #endif
 
 #ifdef CONFIG_MTD_PARTITION
 
-      mtd = mtd_partition(mtd, 48, 79);
-      if (!mtd)
-        {
-          _err("ERROR: mtd_partition failed\n");
-          return ret;
-        }
+  mtd = mtd_partition(mtd, 48, 79);
+  if (!mtd)
+    {
+      _err("ERROR: mtd_partition failed\n");
+      return ret;
+    }
 #endif
 
 #ifdef CONFIG_FS_LITTLEFS
@@ -150,6 +151,7 @@ int bm3803_am29lv_initialize(int minor)
 
 #if defined(CONFIG_RAMMTD) && defined(CONFIG_XX3803_RAMMTD)
   uint8_t *start = kmm_malloc(CONFIG_XX3803_RAMMTD_SIZE * 1024);
+
   mtd = rammtd_initialize(start, CONFIG_XX3803_RAMMTD_SIZE * 1024);
   mtd->ioctl(mtd, MTDIOC_BULKERASE, 0);
 #endif /* CONFIG_RAMMTD && CONFIG_XX3803_RAMMTD */
