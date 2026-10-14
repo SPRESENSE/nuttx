@@ -40,14 +40,6 @@
 
 #include "stm32_i2c.h"
 
-#ifdef CONFIG_STM32_CAN_CHARDRIVER
-#  include "stm32_can_setup.h"
-#endif
-
-#ifdef CONFIG_STM32_CAN_SOCKET
-#  include "stm32_cansock_setup.h"
-#endif
-
 #ifdef CONFIG_STM32_ROMFS
 #  include "stm32_romfs.h"
 #endif
@@ -63,6 +55,8 @@
 #ifdef CONFIG_INPUT_BUTTONS
 #  include <nuttx/input/buttons.h>
 #endif
+
+#include "board_common.h"
 
 /****************************************************************************
  * Public Functions
@@ -83,6 +77,15 @@ int stm32_bringup(void)
 {
   int ret;
 
+  /* Initialize the board features common to all STM32 boards */
+
+  ret = stm32_common_initialize();
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: stm32_common_initialize() failed: %d\n",
+             ret);
+    }
+
 #ifdef CONFIG_INPUT_BUTTONS
   /* Register the BUTTON driver */
 
@@ -99,17 +102,6 @@ int stm32_bringup(void)
 #ifdef CONFIG_MPU60X0_I2C
   struct mpu_config_s *mpu_config;
 #endif
-#endif
-
-#ifdef CONFIG_FS_PROCFS
-  /* Mount the procfs file system */
-
-  ret = nx_mount(NULL, STM32_PROCFS_MOUNTPOINT, "procfs", 0, NULL);
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: Failed to mount procfs at %s: %d\n",
-             STM32_PROCFS_MOUNTPOINT, ret);
-    }
 #endif
 
 #ifdef CONFIG_STM32_ROMFS
@@ -251,23 +243,6 @@ int stm32_bringup(void)
     }
 #endif
 
-#endif
-
-#ifdef CONFIG_STM32_CAN_CHARDRIVER
-  ret = stm32_can_setup();
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: stm32f7_can_setup failed: %d\n", ret);
-      return ret;
-    }
-#endif
-
-#ifdef CONFIG_STM32_CAN_SOCKET
-  ret = stm32_cansock_setup();
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: stm32_cansock_setup failed: %d\n", ret);
-    }
 #endif
 
 #if defined(CONFIG_I2C) && defined(CONFIG_STM32_I2C1)

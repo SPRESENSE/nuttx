@@ -118,10 +118,6 @@ if(CONFIG_USBHOST)
   endif()
 endif()
 
-if(CONFIG_STM32_TIM)
-  list(APPEND SRCS stm32_tim.c stm32_tim_lowerhalf.c)
-endif()
-
 if(CONFIG_STM32_ADC)
   list(APPEND SRCS stm32_adc.c)
 endif()
@@ -152,10 +148,6 @@ endif()
 
 if(CONFIG_STM32_DMA2D)
   list(APPEND SRCS stm32_dma2d.c)
-endif()
-
-if(CONFIG_SENSORS_QENCODER)
-  list(APPEND SRCS stm32_qencoder.c)
 endif()
 
 if(CONFIG_STM32_CAN_CHARDRIVER)

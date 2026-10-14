@@ -53,6 +53,7 @@
 
 #include "arm_internal.h"
 #include "nucleo-wl55jc.h"
+#include "board_common.h"
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -108,6 +109,15 @@ void board_late_initialize(void)
 {
   int ret;
 
+  /* Initialize the board features common to all STM32 boards */
+
+  ret = stm32_common_initialize();
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: stm32_common_initialize() failed: %d\n",
+             ret);
+    }
+
 #if defined(CONFIG_STM32_SPI1) || defined(CONFIG_STM32_SPI2S2)
   stm32_spidev_initialize();
 #endif
@@ -121,20 +131,6 @@ void board_late_initialize(void)
   if (ret < 0)
     {
       syslog(LOG_ERR, "ERROR: fb_register() failed: %d\n", ret);
-    }
-#endif
-
-#ifdef HAVE_PROC
-  /* Mount the proc filesystem */
-
-  syslog(LOG_INFO, "Mounting procfs to /proc\n");
-
-  ret = nx_mount(NULL, CONFIG_NSH_PROC_MOUNTPOINT, "procfs", 0, NULL);
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: Failed to mount the PROC filesystem: %d\n",
-             ret);
-      return;
     }
 #endif
 

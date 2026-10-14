@@ -68,6 +68,7 @@
 #  include "stm32_romfs.h"
 #endif
 #include "nucleo-f446re.h"
+#include "board_common.h"
 
 /****************************************************************************
  * Public Functions
@@ -91,16 +92,14 @@ int stm32_bringup(void)
 #endif
   int ret = OK;
 
-#ifdef CONFIG_FS_PROCFS
-  /* Mount the procfs file system */
+  /* Initialize the board features common to all STM32 boards */
 
-  ret = nx_mount(NULL, STM32_PROCFS_MOUNTPOINT, "procfs", 0, NULL);
+  ret = stm32_common_initialize();
   if (ret < 0)
     {
-      syslog(LOG_ERR,
-             "ERROR: Failed to mount the PROC filesystem: %d\n",  ret);
+      syslog(LOG_ERR, "ERROR: stm32_common_initialize() failed: %d\n",
+             ret);
     }
-#endif /* CONFIG_FS_PROCFS */
 
 #ifdef CONFIG_STM32_ROMFS
   ret = stm32_romfs_initialize();
@@ -187,26 +186,6 @@ int stm32_bringup(void)
     {
       syslog(LOG_ERR, "ERROR: pulsecount_register failed: %d\n", ret);
       return ret;
-    }
-#endif
-
-#ifdef CONFIG_STM32_CAN_CHARDRIVER
-  /* Initialize CAN and register the CAN driver. */
-
-  ret = stm32_can_setup();
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: stm32_can_setup failed: %d\n", ret);
-    }
-#endif
-
-#ifdef CONFIG_STM32_CAN_SOCKET
-  /* Initialize CAN socket interface */
-
-  ret = stm32_cansock_setup();
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: stm32_cansock_setup failed: %d\n", ret);
     }
 #endif
 

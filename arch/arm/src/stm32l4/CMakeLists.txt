@@ -37,7 +37,6 @@ list(
   stm32l4_i2c.c
   stm32l4_lse.c
   stm32l4_pwr.c
-  stm32l4_tim.c
   stm32l4_flash.c
   stm32l4_dfumode.c)
 
@@ -45,22 +44,10 @@ if(NOT CONFIG_ARCH_IDLE_CUSTOM)
   list(APPEND SRCS stm32l4_idle.c)
 endif()
 
-if(CONFIG_TIMER)
-  list(APPEND SRCS stm32l4_tim_lowerhalf.c)
-endif()
-
 if(NOT CONFIG_SCHED_TICKLESS)
   list(APPEND SRCS stm32l4_timerisr.c)
 else()
   list(APPEND SRCS stm32l4_tickless.c)
-endif()
-
-if(CONFIG_STM32_ONESHOT)
-  list(APPEND SRCS stm32l4_oneshot.c stm32l4_oneshot_lowerhalf.c)
-endif()
-
-if(CONFIG_STM32_FREERUN)
-  list(APPEND SRCS stm32l4_freerun.c)
 endif()
 
 if(CONFIG_BUILD_PROTECTED)
@@ -159,10 +146,6 @@ endif()
 
 if(CONFIG_STM32_PWM)
   list(APPEND SRCS stm32l4_pwm.c)
-endif()
-
-if(CONFIG_SENSORS_QENCODER)
-  list(APPEND SRCS stm32l4_qencoder.c)
 endif()
 
 if(CONFIG_STM32_QSPI)

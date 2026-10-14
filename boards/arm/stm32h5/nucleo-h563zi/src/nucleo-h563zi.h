@@ -39,17 +39,7 @@
 
 /* Configuration ************************************************************/
 
-#define HAVE_PROC             1
 #define HAVE_RTC_DRIVER       1
-
-#if !defined(CONFIG_FS_PROCFS)
-#  undef HAVE_PROC
-#endif
-
-#if defined(HAVE_PROC) && defined(CONFIG_DISABLE_MOUNTPOINT)
-#  warning Mountpoints disabled.  No procfs support
-#  undef HAVE_PROC
-#endif
 
 /* Check if we can support the RTC driver */
 
@@ -153,18 +143,6 @@ int stm32_adc_setup(void);
 
 #ifdef CONFIG_STM32_DTS
 int stm32_dts_setup(int devno);
-#endif
-
-/****************************************************************************
- * Name: stm32_can_setup
- *
- * Description:
- *  Initialize CAN and register the CAN device
- *
- ****************************************************************************/
-
-#ifdef CONFIG_STM32_FDCAN_CHARDRIVER
-int stm32_can_setup(uint8_t port);
 #endif
 
 /****************************************************************************

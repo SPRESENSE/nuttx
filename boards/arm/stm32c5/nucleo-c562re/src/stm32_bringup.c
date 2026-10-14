@@ -26,11 +26,11 @@
 
 #include <nuttx/config.h>
 
-#include <sys/mount.h>
-
 #include <nuttx/debug.h>
 #include <nuttx/board.h>
 #include <nuttx/input/buttons.h>
+
+#include "board_common.h"
 
 /****************************************************************************
  * Public Functions
@@ -40,13 +40,14 @@ int stm32_bringup(void)
 {
   int ret;
 
-#ifdef CONFIG_FS_PROCFS
-  ret = mount(NULL, "/proc", "procfs", 0, NULL);
+  /* Initialize the board features common to all STM32 boards */
+
+  ret = stm32_common_initialize();
   if (ret < 0)
     {
-      return ret;
+      syslog(LOG_ERR, "ERROR: stm32_common_initialize() failed: %d\n",
+             ret);
     }
-#endif
 
 #ifdef CONFIG_INPUT_BUTTONS
   /* Register the BUTTON lower-half driver. */

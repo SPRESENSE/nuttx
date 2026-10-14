@@ -53,6 +53,8 @@
 #  include "stm32l4_rtc.h"
 #endif
 
+#include "board_common.h"
+
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
@@ -94,19 +96,14 @@ int stm32_bringup(void)
 #endif
   int ret = OK;
 
-#ifdef HAVE_PROC
-  /* Mount the proc filesystem */
+  /* Initialize the board features common to all STM32 boards */
 
-  syslog(LOG_INFO, "Mounting procfs to /proc\n");
-
-  ret = nx_mount(NULL, CONFIG_NSH_PROC_MOUNTPOINT, "procfs", 0, NULL);
+  ret = stm32_common_initialize();
   if (ret < 0)
     {
-      syslog(LOG_ERR, "ERROR: Failed to mount the PROC filesystem: %d\n",
+      syslog(LOG_ERR, "ERROR: stm32_common_initialize() failed: %d\n",
              ret);
-      return ret;
     }
-#endif
 
 #if !defined(CONFIG_ARCH_LEDS) && defined(CONFIG_USERLED_LOWER)
   /* Register the LED driver */

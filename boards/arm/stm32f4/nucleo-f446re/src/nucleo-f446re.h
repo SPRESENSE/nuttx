@@ -40,16 +40,6 @@
 
 /* Configuration ************************************************************/
 
-/* procfs File System */
-
-#ifdef CONFIG_FS_PROCFS
-#  ifdef CONFIG_NSH_PROC_MOUNTPOINT
-#    define STM32_PROCFS_MOUNTPOINT CONFIG_NSH_PROC_MOUNTPOINT
-#  else
-#    define STM32_PROCFS_MOUNTPOINT "/proc"
-#  endif
-#endif
-
 #define HAVE_MMCSD 1
 #if !defined(CONFIG_STM32_SDIO) || !defined(CONFIG_MMCSD) || \
     !defined(CONFIG_MMCSD_SDIO)
@@ -309,30 +299,6 @@ void stm32_usbinitialize(void);
 
 #ifdef CONFIG_ADC
 int stm32_adc_setup(void);
-#endif
-
-/****************************************************************************
- * Name: stm32_can_setup
- *
- * Description:
- *  Initialize CAN and register the CAN device
- *
- ****************************************************************************/
-
-#ifdef CONFIG_STM32_CAN_CHARDRIVER
-int stm32_can_setup(void);
-#endif
-
-/****************************************************************************
- * Name: stm32_cansock_setup
- *
- * Description:
- *  Initialize CAN socket interface
- *
- ****************************************************************************/
-
-#ifdef CONFIG_STM32_CAN_SOCKET
-int stm32_cansock_setup(void);
 #endif
 
 /****************************************************************************

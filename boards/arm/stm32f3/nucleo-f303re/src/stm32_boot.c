@@ -34,6 +34,7 @@
 #include <nuttx/leds/userled.h>
 
 #include "nucleo-f303re.h"
+#include "board_common.h"
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -112,6 +113,15 @@ void board_late_initialize(void)
 {
   int ret;
 
+  /* Initialize the board features common to all STM32 boards */
+
+  ret = stm32_common_initialize();
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: stm32_common_initialize() failed: %d\n",
+             ret);
+    }
+
 #ifdef HAVE_LEDS
   /* Register the LED driver */
 
@@ -153,16 +163,6 @@ void board_late_initialize(void)
   if (ret < 0)
     {
       syslog(LOG_ERR, "ERROR: stm32_adc_setup failed: %d\n", ret);
-    }
-#endif
-
-#ifdef CONFIG_STM32_CAN_CHARDRIVER
-  /* Initialize CAN and register the CAN driver. */
-
-  ret = stm32_can_setup();
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: stm32_can_setup failed: %d\n", ret);
     }
 #endif
 

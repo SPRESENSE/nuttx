@@ -81,6 +81,21 @@ ifeq ($(CONFIG_AMEBA_I2C),y)
 AMEBA_FWLIB_SRCS += $(AMEBA_SOC)/fwlib/ram_common/ameba_i2c.c
 endif
 
+# Likewise the whole amebasmart SPI (DesignWare SSI) fwlib -- SSI_StructInit/
+# Init/SetRole/WriteData/... plus the SPI_DEV_TABLE the AP ROM has no copy of
+# -- lives in ram_hp/ameba_spi.c rather than lib_rom.a.
+ifeq ($(CONFIG_AMEBA_SPI),y)
+AMEBA_FWLIB_SRCS += $(AMEBA_SOC)/fwlib/ram_hp/ameba_spi.c
+endif
+
+# The AP ROM carries only part of the RTIM API (Cmd/TimeBaseInit/INT*);
+# RTIM_PrescalerConfig/ChangePeriod/CCStructInit/CCxInit/CCRxSet/CCxCmd,
+# which the PWM driver needs, live in ram_common/ameba_tim.c, so that file
+# must be compiled into libameba_fwlib.a whenever PWM is enabled.
+ifeq ($(CONFIG_AMEBA_PWM),y)
+AMEBA_FWLIB_SRCS += $(AMEBA_SOC)/fwlib/ram_common/ameba_tim.c
+endif
+
 # Include paths scoped to the fwlib compile only (never leaked to NuttX core).
 # -DCONFIG_ARM_CORE_CA32 activates the CA32 code paths in ameba_flash_ram.c.
 # No -mcmse (that is Cortex-M33 TrustZone; CA32 is ARMv7-A non-secure EL1).

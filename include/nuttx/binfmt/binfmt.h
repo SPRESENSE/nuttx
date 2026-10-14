@@ -111,6 +111,15 @@ struct binary_s
   FAR void *stackaddr;                 /* Task stack address */
 #endif
 
+  FAR char **argv;                     /* Arguments in place of argv[0],
+                                        * from the loader, or NULL: for
+                                        * example the interpreter of a
+                                        * script, its argument and the
+                                        * script.  Freed by unload_module() */
+#ifdef CONFIG_BINFMT_SCRIPT
+  uint8_t scriptdepth;                 /* Scripts being loaded */
+#endif
+
   /* Unload module callback */
 
   CODE int (*unload)(FAR struct binary_s *bin);

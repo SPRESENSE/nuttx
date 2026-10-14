@@ -212,7 +212,7 @@ int exec_module(FAR struct binary_s *binp,
       return -ENOMEM;
     }
 
-  ret = binfmt_copyargv(&argv, argv);
+  ret = binfmt_copyargv(&argv, binp->argv, argv);
   if (ret < 0)
     {
       goto errout_with_tcb;
@@ -301,8 +301,13 @@ int exec_module(FAR struct binary_s *binp,
   /* The copied argv and envp can now be released */
 
   binfmt_freeactions(actions);
-  binfmt_freeargv(argv);
+  binfmt_freeargv(argv, binp->argv);
   binfmt_freeenv(envp);
+
+  /* The task has its arguments: the list of the loader is not needed */
+
+  kmm_free(binp->argv);
+  binp->argv = NULL;
 
 #ifdef CONFIG_PIC
   /* Add the D-Space address as the PIC base address.  By convention, this
@@ -414,7 +419,7 @@ errout_with_actions:
 errout_with_envp:
   binfmt_freeenv(envp);
 errout_with_args:
-  binfmt_freeargv(argv);
+  binfmt_freeargv(argv, binp->argv);
 errout_with_tcb:
   kmm_free(tcb);
   return ret;

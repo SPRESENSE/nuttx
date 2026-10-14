@@ -26,7 +26,6 @@
 
 #include <nuttx/config.h>
 
-#include <sys/mount.h>
 #include <sys/types.h>
 #include <nuttx/debug.h>
 
@@ -53,6 +52,8 @@ struct i2c_master_s *i2c2_m;
 #  endif /* CONFIG_RTC_DSXXXX */
 
 #endif /* CONFIG_I2C */
+
+#include "board_common.h"
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -91,15 +92,14 @@ int stm32_bringup(void)
 {
   int ret;
 
-#ifdef CONFIG_FS_PROCFS
-  /* Mount the procfs file system */
+  /* Initialize the board features common to all STM32 boards */
 
-  ret = mount(NULL, "/proc", "procfs", 0, NULL);
+  ret = stm32_common_initialize();
   if (ret < 0)
     {
-      ferr("ERROR: Failed to mount procfs at /proc: %d\n", ret);
+      syslog(LOG_ERR, "ERROR: stm32_common_initialize() failed: %d\n",
+             ret);
     }
-#endif
 
 #if defined(CONFIG_I2C)
   i2c1_m = stm32_i2cbus_initialize(1);

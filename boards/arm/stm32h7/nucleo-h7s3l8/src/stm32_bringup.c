@@ -39,6 +39,7 @@
 #endif
 
 #include "nucleo-h7s3l8.h"
+#include "board_common.h"
 
 /****************************************************************************
  * Public Functions
@@ -59,18 +60,16 @@ int stm32_bringup(void)
 {
   int ret;
 
-  UNUSED(ret);
+  /* Initialize the board features common to all STM32 boards */
 
-#ifdef CONFIG_FS_PROCFS
-  /* Mount the procfs file system */
-
-  ret = nx_mount(NULL, STM32_PROCFS_MOUNTPOINT, "procfs", 0, NULL);
+  ret = stm32_common_initialize();
   if (ret < 0)
     {
-      syslog(LOG_ERR,
-             "ERROR: Failed to mount the PROC filesystem: %d\n", ret);
+      syslog(LOG_ERR, "ERROR: stm32_common_initialize() failed: %d\n",
+             ret);
     }
-#endif /* CONFIG_FS_PROCFS */
+
+  UNUSED(ret);
 
 #if !defined(CONFIG_ARCH_LEDS) && defined(CONFIG_USERLED_LOWER)
   /* Register the LED driver */

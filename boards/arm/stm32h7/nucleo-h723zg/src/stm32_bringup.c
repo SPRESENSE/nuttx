@@ -49,6 +49,7 @@
 #endif
 
 #include "stm32.h"
+#include "board_common.h"
 
 /****************************************************************************
  * Private Functions
@@ -131,22 +132,20 @@ int stm32_bringup(void)
 {
   int ret = OK;
 
+  /* Initialize the board features common to all STM32 boards */
+
+  ret = stm32_common_initialize();
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: stm32_common_initialize() failed: %d\n",
+             ret);
+    }
+
   UNUSED(ret);
 
 #if defined(CONFIG_I2C) && defined(CONFIG_SYSTEM_I2CTOOL)
   stm32_i2ctool();
 #endif
-
-#ifdef CONFIG_FS_PROCFS
-  /* Mount the procfs file system */
-
-  ret = nx_mount(NULL, STM32_PROCFS_MOUNTPOINT, "procfs", 0, NULL);
-  if (ret < 0)
-    {
-      syslog(LOG_ERR,
-             "ERROR: Failed to mount the PROC filesystem: %d\n",  ret);
-    }
-#endif /* CONFIG_FS_PROCFS */
 
 #ifdef CONFIG_INPUT_BUTTONS
   /* Register the BUTTON driver */

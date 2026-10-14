@@ -44,6 +44,12 @@
 #  include "hardware/stm32_tim.h"
 #endif
 
+/* All H7 timers have the TIMER IP version 2 extensions */
+
+#ifndef HAVE_IP_TIMERS_V2
+#  define HAVE_IP_TIMERS_V2 1
+#endif
+
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/

@@ -37,6 +37,8 @@
 #  include "stm32_usbhost.h"
 #endif
 
+#include "board_common.h"
+
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
@@ -56,6 +58,15 @@ int stm32_bringup(void)
 {
   int ret = OK;
 
+  /* Initialize the board features common to all STM32 boards */
+
+  ret = stm32_common_initialize();
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: stm32_common_initialize() failed: %d\n",
+             ret);
+    }
+
 #if defined(CONFIG_STM32_OTGFS) && defined(CONFIG_USBHOST)
   /* Initialize USB host operation.  stm32_usbhost_initialize() starts a
    * thread will monitor for USB connection and disconnection events.
@@ -66,17 +77,6 @@ int stm32_bringup(void)
     {
       uerr("ERROR: Failed to initialize USB host: %d\n", ret);
       return ret;
-    }
-#endif
-
-#ifdef CONFIG_FS_PROCFS
-  /* Mount the procfs file system */
-
-  ret = nx_mount(NULL, STM32_PROCFS_MOUNTPOINT, "procfs", 0, NULL);
-  if (ret < 0)
-    {
-      ferr("ERROR: Failed to mount procfs at %s: %d\n",
-           STM32_PROCFS_MOUNTPOINT, ret);
     }
 #endif
 

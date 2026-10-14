@@ -63,10 +63,6 @@
 #  include "stm32_capture.h"
 #endif
 
-#ifdef CONFIG_STM32_IWDG
-#  include "stm32_wdg.h"
-#endif
-
 #ifdef CONFIG_RNDIS
 #  include <nuttx/usb/rndis.h>
 #endif
@@ -76,6 +72,7 @@
 #endif
 
 #include "stm32_gpio.h"
+#include "board_common.h"
 
 /****************************************************************************
  * Private Functions
@@ -258,32 +255,19 @@ int stm32_bringup(void)
   struct rtc_lowerhalf_s *lower;
 #endif
 
+  /* Initialize the board features common to all STM32 boards */
+
+  ret = stm32_common_initialize();
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: stm32_common_initialize() failed: %d\n",
+             ret);
+    }
+
   UNUSED(ret);
 
 #if defined(CONFIG_I2C) && defined(CONFIG_SYSTEM_I2CTOOL)
   stm32_i2ctool();
-#endif
-
-#ifdef CONFIG_FS_PROCFS
-  /* Mount the procfs file system */
-
-  ret = nx_mount(NULL, STM32_PROCFS_MOUNTPOINT, "procfs", 0, NULL);
-  if (ret < 0)
-    {
-      syslog(LOG_ERR,
-             "ERROR: Failed to mount the PROC filesystem: %d\n",  ret);
-    }
-#endif /* CONFIG_FS_PROCFS */
-
-#ifdef CONFIG_FS_TMPFS
-  /* Mount the tmpfs file system */
-
-  ret = nx_mount(NULL, CONFIG_LIBC_TMPDIR, "tmpfs", 0, NULL);
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: Failed to mount tmpfs at %s: %d\n",
-             CONFIG_LIBC_TMPDIR, ret);
-    }
 #endif
 
 #ifdef CONFIG_STM32_ROMFS
@@ -492,12 +476,6 @@ int stm32_bringup(void)
     }
 #endif /* HAVE_PROGMEM_CHARDEV */
 #endif /* CONFIG_MTD */
-
-#ifdef CONFIG_STM32_IWDG
-  /* Initialize the watchdog timer */
-
-  stm32_iwdginitialize("/dev/watchdog0", STM32_LSI_FREQUENCY);
-#endif
 
   return OK;
 }

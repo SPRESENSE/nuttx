@@ -45,6 +45,7 @@
 #endif
 
 #include "nucleo-g431rb.h"
+#include "board_common.h"
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -75,16 +76,14 @@ int stm32_bringup(void)
 {
   int ret;
 
-#ifdef CONFIG_FS_PROCFS
-  /* Mount the procfs file system */
+  /* Initialize the board features common to all STM32 boards */
 
-  ret = nx_mount(NULL, STM32_PROCFS_MOUNTPOINT, "procfs", 0, NULL);
+  ret = stm32_common_initialize();
   if (ret < 0)
     {
-      syslog(LOG_ERR,
-             "ERROR: Failed to mount the PROC filesystem: %d\n",  ret);
+      syslog(LOG_ERR, "ERROR: stm32_common_initialize() failed: %d\n",
+             ret);
     }
-#endif /* CONFIG_FS_PROCFS */
 
 #ifdef CONFIG_INPUT_BUTTONS
   /* Register the BUTTON driver */
@@ -157,26 +156,6 @@ int stm32_bringup(void)
              "ERROR: Failed to register the qencoder: %d\n",
              ret);
       return ret;
-    }
-#endif
-
-#ifdef CONFIG_STM32_FDCAN_CHARDRIVER
-  /* Initialize CAN and register the CAN driver. */
-
-  ret = stm32_can_setup();
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: stm32_fdcan_setup failed: %d\n", ret);
-    }
-#endif
-
-#ifdef CONFIG_STM32_FDCAN_SOCKET
-  /* Initialize CAN socket interface */
-
-  ret = stm32_cansock_setup();
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: stm32_cansock_setup failed: %d\n", ret);
     }
 #endif
 

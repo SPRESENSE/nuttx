@@ -65,6 +65,8 @@
 #include "stm32_mpu9250.h"
 #endif
 
+#include "board_common.h"
+
 /****************************************************************************
  * Private Data
  ****************************************************************************/
@@ -161,19 +163,14 @@ int stm32_bringup(void)
 #endif
   int ret = OK;
 
-#ifdef HAVE_PROC
-  /* Mount the proc filesystem */
+  /* Initialize the board features common to all STM32 boards */
 
-  syslog(LOG_INFO, "Mounting procfs to /proc\n");
-
-  ret = nx_mount(NULL, CONFIG_NSH_PROC_MOUNTPOINT, "procfs", 0, NULL);
+  ret = stm32_common_initialize();
   if (ret < 0)
     {
-      syslog(LOG_ERR,
-             "ERROR: Failed to mount the PROC filesystem: %d\n", ret);
-      return ret;
+      syslog(LOG_ERR, "ERROR: stm32_common_initialize() failed: %d\n",
+             ret);
     }
-#endif
 
 #ifdef HAVE_RTC_DRIVER
   /* Instantiate the STM32L4 lower-half RTC driver */
@@ -275,15 +272,6 @@ int stm32_bringup(void)
   if (ret < 0)
     {
       syslog(LOG_ERR, "ERROR: stm32_adc_setup failed: %d\n", ret);
-    }
-#endif
-
-#ifdef CONFIG_CAN
-  ret = stm32_can_setup();
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: stm32_can_setup failed: %d\n", ret);
-      return ret;
     }
 #endif
 

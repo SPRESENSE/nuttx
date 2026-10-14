@@ -44,6 +44,10 @@
 #  include "hardware/stm32_tim.h"
 #endif
 
+/* The H5 timers have the TIMER IP version 2 extensions */
+
+#define HAVE_IP_TIMERS_V2 1
+
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/

@@ -29,7 +29,6 @@
 #include <nuttx/debug.h>
 
 #include <sys/types.h>
-#include <sys/mount.h>
 #include <stdio.h>
 #include <syslog.h>
 #include <errno.h>
@@ -40,7 +39,7 @@
 
 #include <arch/board/board.h>
 
-#include "stm32wb_tim.h"
+#include "stm32_tim.h"
 
 #ifdef CONFIG_RTC_DRIVER
 #  include <nuttx/timers/rtc.h>
@@ -52,6 +51,7 @@
 #endif
 
 #include "nucleo-wb55rg.h"
+#include "board_common.h"
 
 /****************************************************************************
  * Public Functions
@@ -113,20 +113,14 @@ void board_late_initialize(void)
 #endif
   int ret = OK;
 
-#ifdef HAVE_PROC
-  /* Mount the proc filesystem */
+  /* Initialize the board features common to all STM32 boards */
 
-  syslog(LOG_INFO, "Mounting procfs to /proc\n");
-
-  ret = nx_mount(NULL, CONFIG_NSH_PROC_MOUNTPOINT, "procfs", 0, NULL);
+  ret = stm32_common_initialize();
   if (ret < 0)
     {
-      syslog(LOG_ERR,
-             "ERROR: Failed to mount the PROC filesystem: %d (%d)\n",
-             ret, errno);
-      return;
+      syslog(LOG_ERR, "ERROR: stm32_common_initialize() failed: %d\n",
+             ret);
     }
-#endif
 
 #ifdef CONFIG_RTC_DRIVER
   /* Instantiate the STM32WB lower-half RTC driver */

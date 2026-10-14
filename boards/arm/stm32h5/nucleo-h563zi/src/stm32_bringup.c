@@ -26,7 +26,6 @@
 
 #include <nuttx/config.h>
 
-#include <sys/mount.h>
 #include <sys/types.h>
 #include <nuttx/debug.h>
 
@@ -38,9 +37,7 @@
 
 #include <arch/board/board.h>
 
-#ifdef CONFIG_STM32_IWDG
-#  include "stm32_wdg.h"
-#endif
+#include "board_common.h"
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -65,21 +62,14 @@ int stm32_bringup(void)
 {
   int ret;
 
-#ifdef CONFIG_STM32_IWDG
-  /* Initialize the watchdog timer */
+  /* Initialize the board features common to all STM32 boards */
 
-  stm32_iwdginitialize("/dev/watchdog0", STM32_LSI_FREQUENCY);
-#endif
-
-#ifdef CONFIG_FS_PROCFS
-  /* Mount the procfs file system */
-
-  ret = mount(NULL, "/proc", "procfs", 0, NULL);
+  ret = stm32_common_initialize();
   if (ret < 0)
     {
-      ferr("ERROR: Failed to mount procfs at /proc: %d\n", ret);
+      syslog(LOG_ERR, "ERROR: stm32_common_initialize() failed: %d\n",
+             ret);
     }
-#endif
 
 #if !defined(CONFIG_ARCH_LEDS) && defined(CONFIG_USERLED_LOWER)
   /* Register the LED driver */
@@ -125,25 +115,6 @@ int stm32_bringup(void)
     {
       syslog(LOG_ERR, "ERROR: stm32_adc_setup failed: %d\n", ret);
     }
-#endif
-
-#ifdef CONFIG_STM32_FDCAN_CHARDRIVER
-  /* Initialize CAN and register the CAN driver. */
-# ifdef CONFIG_STM32_FDCAN1
-  ret = stm32_can_setup(1);
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: FDCAN1 stm32_fdcan_setup failed: %d\n", ret);
-    }
-# endif
-
-# ifdef CONFIG_STM32_FDCAN2
-  ret = stm32_can_setup(2);
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: FDCAN2 stm32_fdcan_setup failed: %d\n", ret);
-    }
-# endif
 #endif
 
 #ifdef CONFIG_STM32_SPI

@@ -39,10 +39,6 @@
 #  include <nuttx/leds/userled.h>
 #endif
 
-#ifdef CONFIG_STM32_IWDG
-#  include <stm32_wdg.h>
-#endif
-
 #ifdef CONFIG_PULSECOUNT
 #  include "stm32_pulsecount.h"
 #endif
@@ -58,6 +54,7 @@
 #include <arch/board/board.h>
 
 #include "nucleo-c092rc.h"
+#include "board_common.h"
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -85,11 +82,14 @@ int stm32_bringup(void)
 #endif
   int ret;
 
-#ifdef CONFIG_STM32_IWDG
-  /* Initialize the watchdog timer */
+  /* Initialize the board features common to all STM32 boards */
 
-  stm32_iwdginitialize("/dev/watchdog0", STM32_LSI_FREQUENCY);
-#endif
+  ret = stm32_common_initialize();
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: stm32_common_initialize() failed: %d\n",
+             ret);
+    }
 
 #ifdef CONFIG_PULSECOUNT
   /* Initialize and register the pulse count driver. */
@@ -147,26 +147,6 @@ int stm32_bringup(void)
   if (ret < 0)
     {
       syslog(LOG_ERR, "ERROR: stm32_pwm_setup failed: %d\n", ret);
-    }
-#endif
-
-#ifdef CONFIG_STM32_FDCAN_CHARDRIVER
-  /* Initialize CAN and register the CAN driver. */
-
-  ret = stm32_can_setup();
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: stm32_fdcan_setup failed: %d\n", ret);
-    }
-#endif
-
-#ifdef CONFIG_STM32_FDCAN_SOCKET
-  /* Initialize CAN socket interface */
-
-  ret = stm32_cansock_setup();
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: stm32_cansock_setup failed: %d\n", ret);
     }
 #endif
 

@@ -38,6 +38,7 @@
 #include "stm32_i2c.h"
 
 #include "nucleo-l152re.h"
+#include "board_common.h"
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -114,6 +115,15 @@ void board_late_initialize(void)
   struct i2c_master_s *i2c2;
 #endif
 
+  /* Initialize the board features common to all STM32 boards */
+
+  ret = stm32_common_initialize();
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: stm32_common_initialize() failed: %d\n",
+             ret);
+    }
+
 #ifdef CONFIG_STM32_I2C1
   /* Get the I2C lower half instance */
 
@@ -166,17 +176,6 @@ void board_late_initialize(void)
     {
       syslog(LOG_ERR, "ERROR: userled_lower_initialize() failed: %d\n", ret);
       return;
-    }
-#endif
-
-#ifdef CONFIG_FS_PROCFS
-  /* Mount the procfs file system */
-
-  ret = nx_mount(0, STM32_PROCFS_MOUNTPOINT, "procfs", 0, 0);
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: Failed to mount procfs at %s: %d\n",
-             STM32_PROCFS_MOUNTPOINT, ret);
     }
 #endif
 

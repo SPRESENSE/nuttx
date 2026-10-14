@@ -73,13 +73,17 @@
 #define IGB_EEDIAG                (0x01038)  /* EEPROM Diagnostic */
 #define IGB_VPDDIAG               (0x01060)  /* VPD Diagnostic */
 
-/* Interrupt registers */
+/* Interrupt registers.
+ *
+ * ICR, ICS, IMS, IMC and IAM are accessed at their alias offsets
+ * 0x00c0-0x00e0.  The QEMU igb model does not decode them at 0x1500-0x1510.
+ */
 
-#define IGB_ICR                   (0x1500)   /* Interrupt Cause Read */
-#define IGB_ICS                   (0x1504)   /* Interrupt Cause Set */
-#define IGB_IMS                   (0x1508)   /* Interrupt Mask Set */
-#define IGB_IMC                   (0x150c)   /* Interrupt Mask Clear */
-#define IGB_IAM                   (0x1510)   /* Interrupt Acknowledge Auto–Mask */
+#define IGB_ICR                   (0x00c0)   /* Interrupt Cause Read */
+#define IGB_ICS                   (0x00c8)   /* Interrupt Cause Set */
+#define IGB_IMS                   (0x00d0)   /* Interrupt Mask Set */
+#define IGB_IMC                   (0x00d8)   /* Interrupt Mask Clear */
+#define IGB_IAM                   (0x00e0)   /* Interrupt Acknowledge Auto–Mask */
 #define IGB_EICS                  (0x1520)   /* Extended Interrupt Cause Set */
 #define IGB_EIMS                  (0x1524)   /* Extended Interrupt Mask Set/Read */
 #define IGB_EIMC                  (0x1528)   /* Extended Interrupt Mask Clear */
@@ -305,6 +309,20 @@
 #define IGB_CTRL_VME              (1 << 30)  /* Bit 30: VLAN Mode Enable */
 #define IGB_CTRL_PHYRST           (1 << 31)  /* Bit 31: PHY Reset */
 
+/* MDI Control Register */
+
+#define IGB_MDIC_DATA_MASK        (0xffff)   /* Bits 0-15: Data */
+#define IGB_MDIC_REGADD_SHIFT     (16)       /* Bits 16-20: PHY register address */
+#define IGB_MDIC_PHYADD_SHIFT     (21)       /* Bits 21-25: PHY address */
+#define IGB_MDIC_OP_WRITE         (1 << 26)  /* Bits 26-27: 01b: MDI write */
+#define IGB_MDIC_OP_READ          (2 << 26)  /* Bits 26-27: 10b: MDI read */
+#define IGB_MDIC_READY            (1 << 28)  /* Bit 28: Ready */
+#define IGB_MDIC_ERROR            (1 << 30)  /* Bit 30: Error */
+
+/* Address of the internal copper PHY */
+
+#define IGB_PHY_ADDR              (1)
+
 /* Device Status Regiuster */
 
 #define IGB_STATUS_FD             (1 << 0)   /* Bit 0: Full Duplex */
@@ -448,7 +466,7 @@
 #define IGB_IVAR0_RXQ0_SHIFT      (0)        /* Bits 0-4: MSI-X vector assigned to RxQ0 */
 #define IGB_IVAR0_RXQ0_VAL        (1 << 7)   /* Bit 7: Valid bit for RxQ0 */
 #define IGB_IVAR0_TXQ0_SHIFT      (8)        /* Bits 8-12: MSI-X vector assigned to TxQ0 */
-#define IGB_IVAR0_TXQ0_VAL        (1 << 7)   /* Bit 7: Valid bit for TxQ0 */
+#define IGB_IVAR0_TXQ0_VAL        (1 << 15)  /* Bit 15: Valid bit for TxQ0 */
 
 /* Interrupt Vector Allocation Registers - Misc */
 

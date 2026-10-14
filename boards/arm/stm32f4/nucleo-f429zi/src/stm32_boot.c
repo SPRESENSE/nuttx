@@ -51,6 +51,8 @@
 #  include "stm32_i2c.h"
 #endif
 
+#include "board_common.h"
+
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
@@ -140,16 +142,14 @@ void board_late_initialize(void)
 {
   int ret;
 
-#ifdef CONFIG_FS_PROCFS
-  /* Mount the procfs file system */
+  /* Initialize the board features common to all STM32 boards */
 
-  ret = nx_mount(NULL, STM32_PROCFS_MOUNTPOINT, "procfs", 0, NULL);
+  ret = stm32_common_initialize();
   if (ret < 0)
     {
-      syslog(LOG_ERR, "ERROR: Failed to mount procfs at %s: %d\n",
-             STM32_PROCFS_MOUNTPOINT, ret);
+      syslog(LOG_ERR, "ERROR: stm32_common_initialize() failed: %d\n",
+             ret);
     }
-#endif
 
 #ifdef CONFIG_STM32_ROMFS
   /* Mount the romfs partition */

@@ -34,6 +34,8 @@
 #include <nuttx/usb/cdcacm.h>
 
 #include "nucleo-l073rz.h"
+#include "board_common.h"
+#include "stm32_mfrc522.h"
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -73,6 +75,15 @@
 int stm32_bringup(void)
 {
   int ret;
+
+  /* Initialize the board features common to all STM32 boards */
+
+  ret = stm32_common_initialize();
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: stm32_common_initialize() failed: %d\n",
+             ret);
+    }
 
 #ifdef HAVE_LEDS
   /* Register the LED driver */
