@@ -35,6 +35,7 @@
 #include <debug.h>
 
 #include "arm_internal.h"
+#include "imxrt_dtcm.h"
 #include "hardware/rt118x/imxrt118x_memorymap.h"
 #include "imxrt118x_ele.h"
 
@@ -62,9 +63,6 @@
 #  define DCACHE_LINESIZE ARMV7M_DCACHE_LINESIZE
 #endif
 
-#define upper_32_bits(n) ((uint32_t)(((n) >> 16) >> 16))
-#define lower_32_bits(n) ((uint32_t)(n))
-
 #define ELE_RNG_TIMEOUT_US    5000
 #define ELE_RNG_SLEEP_US      100
 #define ELE_TRNG_STATUS_READY 0x3
@@ -86,6 +84,8 @@ struct ele_trng_state
  ****************************************************************************/
 
 static struct ele_msg g_msg;
+static uint8_t g_info[ELE_GET_INFO_BYTES]
+  aligned_data(DCACHE_LINESIZE);
 
 #ifdef CONFIG_IMXRT_ELE_LOAD_FW
 /* Embeds the NXP EdgeLock Enclave firmware AHAB container (path from
@@ -178,6 +178,47 @@ static void imxrt118x_ele_receivemsg(struct ele_msg *msg_ptr)
 }
 
 /****************************************************************************
+ * Name: imxrt118x_ele_get_info
+ *
+ * Description:
+ *   Query the device information from the EdgeLock Enclave.
+ *
+ ****************************************************************************/
+
+static int imxrt118x_ele_get_info(void)
+{
+  uint32_t addr;
+
+  if (!imxrt_dma_address(g_info, sizeof(g_info), &addr))
+    {
+      return -EFAULT;
+    }
+
+  g_msg.header.version = ELE_VERSION;
+  g_msg.header.tag = ELE_CMD_TAG;
+  g_msg.header.size = 4;
+  g_msg.header.command = ELE_GET_INFO_REQ;
+  g_msg.data[0] = 0;
+  g_msg.data[1] = addr;
+  g_msg.data[2] = sizeof(g_info);
+
+  up_invalidate_dcache((uintptr_t)g_info,
+                       (uintptr_t)g_info + sizeof(g_info));
+
+  imxrt118x_ele_sendmsg(&g_msg);
+  imxrt118x_ele_receivemsg(&g_msg);
+
+  if ((g_msg.data[0] & 0xff) != ELE_OK)
+    {
+      return -EIO;
+    }
+
+  up_invalidate_dcache((uintptr_t)g_info,
+                       (uintptr_t)g_info + sizeof(g_info));
+  return 0;
+}
+
+/****************************************************************************
  * Public Functions
  ****************************************************************************/
 
@@ -197,6 +238,8 @@ void imxrt118x_ele_init(void)
 
 int imxrt118x_ele_load_fw(uint32_t fw_addr)
 {
+  imxrt_dma_address((const void *)(uintptr_t)fw_addr, 0, &fw_addr);
+
   g_msg.header.version = ELE_VERSION;
   g_msg.header.tag = ELE_CMD_TAG;
   g_msg.header.size = 4;
@@ -259,6 +302,9 @@ uint32_t imxrt118x_ele_read_common_fuse(uint32_t fuse_id)
 int imxrt118x_ele_get_key(uint8_t *key, size_t key_size,
                           uint8_t *ctx, size_t ctx_size)
 {
+  uint32_t dma_key;
+  uint32_t dma_ctx;
+
   if (!key)
     {
       _err("Invalid key parameter\n");
@@ -289,14 +335,20 @@ int imxrt118x_ele_get_key(uint8_t *key, size_t key_size,
       return -EINVAL;
     }
 
+  if (!imxrt_dma_address(key, key_size, &dma_key) ||
+      !imxrt_dma_address(ctx, ctx_size, &dma_ctx))
+    {
+      return -EFAULT;
+    }
+
   g_msg.header.version = ELE_VERSION;
   g_msg.header.tag = ELE_CMD_TAG;
   g_msg.header.size = 7;
   g_msg.header.command = ELE_DERIVE_KEY_REQ;
-  g_msg.data[0] = upper_32_bits((uintptr_t)key);
-  g_msg.data[1] = lower_32_bits((uintptr_t)key);
-  g_msg.data[2] = upper_32_bits((uintptr_t)ctx);
-  g_msg.data[3] = lower_32_bits((uintptr_t)ctx);
+  g_msg.data[0] = 0;
+  g_msg.data[1] = dma_key;
+  g_msg.data[2] = 0;
+  g_msg.data[3] = dma_ctx;
   g_msg.data[4] = ((ctx_size << 16) | key_size);
 
   uint32_t crc = g_msg.header.data;
@@ -379,42 +431,49 @@ int imxrt118x_ele_close_device(void)
 
 uint32_t imxrt118x_ele_get_lifecycle(void)
 {
-  static uint8_t info[ELE_GET_INFO_BYTES]
-    aligned_data(DCACHE_LINESIZE);
-
-  uint32_t addr = (uint32_t)(uintptr_t)info;
-
-  g_msg.header.version = ELE_VERSION;
-  g_msg.header.tag = ELE_CMD_TAG;
-  g_msg.header.size = 4;
-  g_msg.header.command = ELE_GET_INFO_REQ;
-  g_msg.data[0] = upper_32_bits(addr);
-  g_msg.data[1] = lower_32_bits(addr);
-  g_msg.data[2] = sizeof(info);
-
-  up_invalidate_dcache(addr, addr + sizeof(info));
-
-  imxrt118x_ele_sendmsg(&g_msg);
-  imxrt118x_ele_receivemsg(&g_msg);
-
-  if ((g_msg.data[0] & 0xff) != ELE_OK)
+  if (imxrt118x_ele_get_info() < 0)
     {
       return 0;
     }
 
-  up_invalidate_dcache(addr, addr + sizeof(info));
+  return ((uint32_t *)g_info)[ELE_GET_INFO_LC_WORD] &
+         ELE_GET_INFO_LC_MASK;
+}
 
-  return ((uint32_t *)info)[ELE_GET_INFO_LC_WORD] & ELE_GET_INFO_LC_MASK;
+int imxrt118x_ele_get_soc_revision(uint8_t *revision)
+{
+  uint32_t soc;
+  int ret;
+
+  if (revision == NULL)
+    {
+      return -EINVAL;
+    }
+
+  ret = imxrt118x_ele_get_info();
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  soc = ((uint32_t *)g_info)[ELE_GET_INFO_SOC_WORD];
+  *revision = (soc >> ELE_GET_INFO_SOC_REV_SHIFT) &
+              ELE_GET_INFO_SOC_REV_MASK;
+  return 0;
 }
 
 int imxrt118x_ele_auth_oem_ctnr(unsigned long ctnr_addr, uint32_t *response)
 {
+  uint32_t addr;
+
+  imxrt_dma_address((const void *)ctnr_addr, 0, &addr);
+
   g_msg.header.version = ELE_VERSION;
   g_msg.header.tag = ELE_CMD_TAG;
   g_msg.header.size = 3;
   g_msg.header.command = ELE_OEM_CNTN_AUTH_REQ;
-  g_msg.data[0] = upper_32_bits(ctnr_addr);
-  g_msg.data[1] = lower_32_bits(ctnr_addr);
+  g_msg.data[0] = 0;
+  g_msg.data[1] = addr;
 
   imxrt118x_ele_sendmsg(&g_msg);
   imxrt118x_ele_receivemsg(&g_msg);
@@ -533,11 +592,17 @@ int imxrt118x_ele_get_random(uint32_t paddr, size_t len)
 {
   uint16_t counter = 0;
   uint16_t max_tries = ELE_RNG_TIMEOUT_US / ELE_RNG_SLEEP_US;
+  uint32_t addr;
 
   if (paddr == 0 || len == 0)
     {
       _err("Wrong input parameters!\n");
       return -EINVAL;
+    }
+
+  if (!imxrt_dma_address((const void *)(uintptr_t)paddr, len, &addr))
+    {
+      return -EFAULT;
     }
 
   while ((imxrt118x_ele_get_trng_state() != 0))
@@ -561,7 +626,7 @@ int imxrt118x_ele_get_random(uint32_t paddr, size_t len)
   g_msg.header.size = 4;
   g_msg.header.command = ELE_GET_RNG_REQ;
   g_msg.data[0] = 0;
-  g_msg.data[1] = paddr;
+  g_msg.data[1] = addr;
   g_msg.data[2] = len;
 
   imxrt118x_ele_sendmsg(&g_msg);

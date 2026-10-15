@@ -113,6 +113,12 @@ int task_reparent(pid_t ppid, pid_t chpid)
       /* Get the grandparent task's task group (pgrp) */
 
       ppid = ogrp->tg_ppid;
+      if (ppid <= 0)
+        {
+          ret = -ESRCH;
+          goto errout_with_ints;
+        }
+
       pgrp = task_getgroup(ppid);
     }
   else
@@ -140,8 +146,6 @@ int task_reparent(pid_t ppid, pid_t chpid)
    * parent of the task. Rather, we change the parent task group for
    * all members of the child's task group.
    */
-
-  chgrp->tg_ppid = ppid;
 
 #ifdef CONFIG_SCHED_CHILD_STATUS
   /* Remove the child status entry from old parent task group */
@@ -187,6 +191,11 @@ int task_reparent(pid_t ppid, pid_t chpid)
   ret = OK;
 
 #endif /* CONFIG_SCHED_CHILD_STATUS */
+
+  if (ret == OK)
+    {
+      chgrp->tg_ppid = ppid;
+    }
 
 errout_with_ints:
   leave_critical_section(flags);
@@ -241,6 +250,11 @@ int task_reparent(pid_t ppid, pid_t chpid)
   if (ppid == 0)
     {
       ppid = otcb->group->tg_ppid;
+      if (ppid <= 0)
+        {
+          ret = -ESRCH;
+          goto errout_with_ints;
+        }
     }
 
   /* Get the new parent task's TCB (ptcb) */
@@ -255,8 +269,6 @@ int task_reparent(pid_t ppid, pid_t chpid)
   /* Then reparent the child.  The task specified by ppid is the new
    * parent.
    */
-
-  chtcb->group->tg_ppid = ppid;
 
 #ifdef CONFIG_SCHED_CHILD_STATUS
   /* Remove the child status entry from old parent TCB */
@@ -303,6 +315,11 @@ int task_reparent(pid_t ppid, pid_t chpid)
   ret = OK;
 
 #endif /* CONFIG_SCHED_CHILD_STATUS */
+
+  if (ret == OK)
+    {
+      chtcb->group->tg_ppid = ppid;
+    }
 
 errout_with_ints:
   leave_critical_section(flags);

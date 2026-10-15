@@ -610,8 +610,8 @@ static int ctucanfd_chrdev_send(FAR struct can_dev_s *dev,
 #ifdef CONFIG_CAN_EXTID
   if (msg->cm_hdr.ch_extid)
     {
-      fmt.s.ide   = 1;
-      id.s.id_ext = msg->cm_hdr.ch_id;
+      fmt.s.ide = 1;
+      id.u32    = msg->cm_hdr.ch_id & CAN_MAX_EXTMSGID;
     }
   else
 #endif
@@ -793,7 +793,8 @@ static void ctucanfd_chardev_receive(FAR struct ctucanfd_can_s *priv)
 
       if (hdr.ch_extid)
         {
-          hdr.ch_id = frame->id.id_ext;
+          hdr.ch_id = ((uint32_t)frame->id.id << CTUCANFD_ID_EXT_BITS) |
+                      frame->id.id_ext;
         }
       else
         {
@@ -930,6 +931,10 @@ static void ctucanfd_chardev_interrupt(FAR struct ctucanfd_driver_s *priv)
       stat = ctucanfd_getreg(&priv->devs[i], CTUCANFD_INTSTAT);
       if (stat == 0)
         {
+          /* Re-enable RX/TX interrupts */
+
+          ctucanfd_txint(&priv->devs[i], true);
+          ctucanfd_rxint(&priv->devs[i], true);
           continue;
         }
 
@@ -1126,8 +1131,8 @@ static int ctucanfd_sock_transmit(FAR struct netdev_lowerhalf_s *dev,
 #ifdef CONFIG_NET_CAN_EXTID
       if (frame->can_id & CAN_EFF_FLAG)
         {
-          fmt.s.ide   = 1;
-          id.s.id_ext = (frame->can_id & 0x1ffffff);
+          fmt.s.ide = 1;
+          id.u32    = frame->can_id & CAN_EFF_MASK;
         }
       else
 #endif
@@ -1172,8 +1177,8 @@ static int ctucanfd_sock_transmit(FAR struct netdev_lowerhalf_s *dev,
 #ifdef CONFIG_NET_CAN_EXTID
       if (frame->can_id & CAN_EFF_FLAG)
         {
-          fmt.s.ide   = 1;
-          id.s.id_ext = (frame->can_id & 0x1ffffff);
+          fmt.s.ide = 1;
+          id.u32    = frame->can_id & CAN_EFF_MASK;
         }
       else
 #endif
@@ -1295,7 +1300,8 @@ static FAR netpkt_t *ctucanfd_sock_recv(FAR struct netdev_lowerhalf_s *dev)
 
       if (rxframe->fmt.ide)
         {
-          frame->can_id = rxframe->id.id_ext;
+          frame->can_id = ((uint32_t)rxframe->id.id <<
+                           CTUCANFD_ID_EXT_BITS) | rxframe->id.id_ext;
           frame->can_id |= CAN_EFF_FLAG;
         }
       else
@@ -1360,7 +1366,8 @@ static FAR netpkt_t *ctucanfd_sock_recv(FAR struct netdev_lowerhalf_s *dev)
 
       if (rxframe->fmt.ide)
         {
-          frame->can_id = rxframe->id.id_ext;
+          frame->can_id = ((uint32_t)rxframe->id.id <<
+                           CTUCANFD_ID_EXT_BITS) | rxframe->id.id_ext;
           frame->can_id |= CAN_EFF_FLAG;
         }
       else
@@ -1483,6 +1490,10 @@ static void ctucanfd_sock_interrupt(FAR struct ctucanfd_driver_s *priv)
       stat = ctucanfd_getreg(&priv->devs[i], CTUCANFD_INTSTAT);
       if (stat == 0)
         {
+          /* Re-enable RX/TX interrupts */
+
+          ctucanfd_txint(&priv->devs[i], true);
+          ctucanfd_rxint(&priv->devs[i], true);
           continue;
         }
 
@@ -1544,21 +1555,11 @@ static int ctucanfd_interrupt(int irq, FAR void *context, FAR void *arg)
 
   DEBUGASSERT(priv != NULL);
 
+  /* Check for any pending interrupt */
+
   for (i = 0; i < priv->count; i++)
     {
       regval |= ctucanfd_getreg(&priv->devs[i], CTUCANFD_INTSTAT);
-
-      /* Break now if interrupt is pending */
-
-      if (regval != 0)
-        {
-          /* Disable RX/TX interrupts until we are done */
-
-          ctucanfd_rxint(&priv->devs[i], false);
-          ctucanfd_txint(&priv->devs[i], false);
-
-          break;
-        }
     }
 
   /* Check for pending interrupts for this card */
@@ -1566,6 +1567,19 @@ static int ctucanfd_interrupt(int irq, FAR void *context, FAR void *arg)
   if (regval == 0)
     {
       return OK;
+    }
+
+  else
+    {
+      /* Disable all RX/TX interrupts for this card until all pending
+       * interrupts are handled.
+       */
+
+      for (i = 0; i < priv->count; i++)
+        {
+          ctucanfd_rxint(&priv->devs[i], false);
+          ctucanfd_txint(&priv->devs[i], false);
+        }
     }
 
 #ifdef CONFIG_CAN_CTUCANFD_CHARDEV

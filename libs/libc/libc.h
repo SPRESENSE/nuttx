@@ -334,7 +334,13 @@ int lib_restoredir(void);
 
 /* Defined in lib_cxx_initialize.c */
 
+#ifdef CONFIG_HAVE_CXXINITIALIZE
 void lib_cxx_initialize(void);
+#else
+static inline void lib_cxx_initialize(void)
+{
+}
+#endif
 
 #undef EXTERN
 #if defined(__cplusplus)

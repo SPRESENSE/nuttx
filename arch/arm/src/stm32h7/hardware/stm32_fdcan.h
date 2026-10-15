@@ -214,7 +214,7 @@
 #define FDCAN_DBTP_DTSEG2_MASK    (0xFU << FDCAN_DBTP_DTSEG2_SHIFT)             /* 0x000000F0 */
 #define FDCAN_DBTP_DTSEG2         FDCAN_DBTP_DTSEG2_MASK                        /* Data time segment after sample point    */
 #define FDCAN_DBTP_DTSEG1_SHIFT   (8U)
-#define FDCAN_DBTP_DTSEG1_MASK    (0xFU << FDCAN_DBTP_DTSEG1_SHIFT)             /* 0x00000F00 */
+#define FDCAN_DBTP_DTSEG1_MASK    (0x1FU << FDCAN_DBTP_DTSEG1_SHIFT)            /* 0x00001F00 */
 #define FDCAN_DBTP_DTSEG1         FDCAN_DBTP_DTSEG1_MASK                        /* Data time segment before sample point   */
 #define FDCAN_DBTP_DBRP_SHIFT     (16U)
 #define FDCAN_DBTP_DBRP_MASK      (0x1FU << FDCAN_DBTP_DBRP_SHIFT)              /* 0x001F0000 */
@@ -963,7 +963,7 @@
 
 /* ***************  Bit definition for FDCAN_RXF1C register  ****************/
 #define FDCAN_RXF1C_F1SA_SHIFT    (2U)
-#define FDCAN_RXF1C_F1SA_MASK     (0x3FU << FDCAN_RXF1C_F1SA_SHIFT)             /* 0x000000FC */
+#define FDCAN_RXF1C_F1SA_MASK     (0x3FFFU << FDCAN_RXF1C_F1SA_SHIFT)           /* 0x0000FFFC */
 #define FDCAN_RXF1C_F1SA          FDCAN_RXF1C_F1SA_MASK                         /* Rx FIFO 1 Start Address                   */
 #define FDCAN_RXF1C_F1S_SHIFT     (16U)
 #define FDCAN_RXF1C_F1S_MASK      (0x7FU << FDCAN_RXF1C_F1S_SHIFT)              /* 0x007F0000 */
@@ -1078,7 +1078,7 @@
 
 /* ***************  Bit definition for FDCAN_TXEFC register  ****************/
 #define FDCAN_TXEFC_EFSA_SHIFT    (2U)
-#define FDCAN_TXEFC_EFSA_MASK     (0x3FU << FDCAN_TXEFC_EFSA_SHIFT)             /* 0x000000FC */
+#define FDCAN_TXEFC_EFSA_MASK     (0x3FFFU << FDCAN_TXEFC_EFSA_SHIFT)           /* 0x0000FFFC */
 #define FDCAN_TXEFC_EFSA          FDCAN_TXEFC_EFSA_MASK                         /* Event FIFO Start Address                  */
 #define FDCAN_TXEFC_EFS_SHIFT     (8U)
 #define FDCAN_TXEFC_EFS_MASK      (0x3FU << FDCAN_TXEFC_EFS_SHIFT)              /* 0x00003F00 */
@@ -1588,5 +1588,137 @@
 #define FDCANCCU_IE_CSCE_SHIFT       (1U)
 #define FDCANCCU_IE_CSCE_MASK        (0x1U << FDCANCCU_IE_CSCE_SHIFT)           /* 0x00000002 */
 #define FDCANCCU_IE_CSCE             FDCANCCU_IE_CSCE_MASK                      /* Calibration State Changed Enable       */
+
+/* Message RAM Definitions **************************************************/
+
+/* Common Buffer and FIFO element bit definitions:
+ *
+ *   --------------- ------------------- --------------------------------
+ *   RESOURCE               R0                        R1
+ *   --------------- ------------------- --------------------------------
+ *   RX FIFO:        ESI, XTD, RTR, ID,  ANMF, FIDX, EDL, BRS, DLC, RXTS
+ *   TX buffer:           XTD, RTR, ID,  MM,   EFC,            DLC
+ *   TX Event FIFO:  ESI, XTD, RTR, ID,  MM,   ET,   EDL, BRS, DLC, TXTS
+ *   --------------- ------------------- --------------------------------
+ */
+
+/* Common */
+
+#define BUFFER_R0_EXTID_SHIFT      (0)                                     /* Bits 0-28: Extended identifier */
+#define BUFFER_R0_EXTID_MASK       (0x1fffffff << BUFFER_R0_EXTID_SHIFT)
+#  define BUFFER_R0_EXTID(n)       ((uint32_t)(n) << BUFFER_R0_EXTID_SHIFT)
+#define BUFFER_R0_STDID_SHIFT      (18)                                    /* Bits 18-28: Standard identifier */
+#define BUFFER_R0_STDID_MASK       (0x7ff << BUFFER_R0_STDID_SHIFT)
+#  define BUFFER_R0_STDID(n)       ((uint32_t)(n) << BUFFER_R0_STDID_SHIFT)
+#define BUFFER_R0_RTR              (1 << 29)                               /* Bit 29: Remote Transmission Request */
+#define BUFFER_R0_XTD              (1 << 30)                               /* Bit 30: Extended Identifier */
+#define BUFFER_R0_ESI              (1 << 31)                               /* Bit 31: Error State Indicator */
+
+/* Common */
+
+#define BUFFER_R1_DLC_SHIFT        (16)                                    /* Bits 16-19: Date length code */
+#define BUFFER_R1_DLC_MASK         (15 << BUFFER_R1_DLC_SHIFT)
+#  define BUFFER_R1_DLC(n)         ((uint32_t)(n) << BUFFER_R1_DLC_SHIFT)
+#define BUFFER_R1_BRS              (1 << 20)                               /* Bit 20: Bit Rate Switch */
+#define BUFFER_R1_FDF              (1 << 21)                               /* Bit 21: FD Format */
+
+/* RX buffer/RX FIFOs */
+
+#define BUFFER_R1_RXTS_SHIFT       (0)                                     /* Bits 0-15: RX Timestamp */
+#define BUFFER_R1_RXTS_MASK        (0xffff << BUFFER_R1_RXTS_SHIFT)
+#  define BUFFER_R1_RXTS(n)        ((uint32_t)(n) << BUFFER_R1_RXTS_SHIFT)
+#define BUFFER_R1_FIDX_SHIFT       (24)                                    /* Bits 24-30: Filter index */
+#define BUFFER_R1_FIDX_MASK        (0x7f << BUFFER_R1_FIDX_SHIFT)
+#  define BUFFER_R1_FIDX(n)        ((uint32_t)(n) << BUFFER_R1_FIDX_SHIFT)
+#define BUFFER_R1_ANMF             (1 << 31)                               /* Bit 31: Accepted Non-matching Frame */
+
+/* TX buffer/TX Event FIFO */
+
+#define BUFFER_R1_MM_SHIFT         (24)                                    /* Bits 24-31: Message Marker */
+#define BUFFER_R1_MM_MASK          (0xff << BUFFER_R1_MM_SHIFT)
+#  define BUFFER_R1_MM(n)          ((uint32_t)(n) << BUFFER_R1_MM_SHIFT)
+
+/* TX buffer */
+
+#define BUFFER_R1_EFC              (1 << 23)                               /* Bit 23: Event FIFO Control */
+
+/* TX Event FIFO */
+
+#define BUFFER_R1_TXTS_SHIFT       (0)                                     /* Bits 0-15: TX Timestamp */
+#define BUFFER_R1_TXTS_MASK        (0xffff << BUFFER_R1_TXTS_SHIFT)
+#  define BUFFER_R1_TXTS(n)        ((uint32_t)(n) << BUFFER_R1_TXTS_SHIFT)
+#define BUFFER_R1_EDL              (1 << 21)                               /* Bit 21: Extended Data Length */
+#define BUFFER_R1_ET_SHIFT         (22)                                    /* Bits 22-23: Event Type */
+#define BUFFER_R1_ET_MASK          (3 << BUFFER_R1_ET_SHIFT)
+#  define BUFFER_R1_ET_TXEVENT     (1 << BUFFER_R1_ET_SHIFT)               /* Tx event */
+#  define BUFFER_R1_ET_TXCANCEL    (2 << BUFFER_R1_ET_SHIFT)               /* Transmission despite cancellation */
+
+/* Standard Message ID Filter Element */
+
+#define STDFILTER_S0_SFID2_SHIFT      (0)                                  /* Bits 0-10: Standard Filter ID 2 */
+#define STDFILTER_S0_SFID2_MASK       (0x7ff << STDFILTER_S0_SFID2_SHIFT)
+#  define STDFILTER_S0_SFID2(n   )    ((uint32_t)(n) << STDFILTER_S0_SFID2_SHIFT)
+#define STDFILTER_S0_BUFFER_SHIFT     (0)                                  /* Bits 0-5: RX buffer start address */
+#define STDFILTER_S0_BUFFER_MASK      (63 << STDFILTER_S0_BUFFER_SHIFT)
+#  define STDFILTER_S0_BUFFER(n)      ((uint32_t)(n) << STDFILTER_S0_BUFFER_SHIFT)
+#define STDFILTER_S0_ACTION_SHIFT     (9)                                  /* Bits 9-10: Action taken */
+#define STDFILTER_S0_ACTION_MASK      (3 << STDFILTER_S0_ACTION_SHIFT)
+#  define STDFILTER_S0_RXBUFFER       (0 << STDFILTER_S0_ACTION_SHIFT)     /* Store message in a Rx buffer */
+#  define STDFILTER_S0_DEBUGA         (1 << STDFILTER_S0_ACTION_SHIFT)     /* Debug Message A */
+#  define STDFILTER_S0_DEBUGB         (2 << STDFILTER_S0_ACTION_SHIFT)     /* Debug Message B */
+#  define STDFILTER_S0_DEBUGC         (3 << STDFILTER_S0_ACTION_SHIFT)     /* Debug Message C */
+#define STDFILTER_S0_SFID1_SHIFT      (16)                                 /* Bits 16-26: Standard Filter ID 2 */
+#define STDFILTER_S0_SFID1_MASK       (0x7ff << STDFILTER_S0_SFID1_SHIFT)
+#  define STDFILTER_S0_SFID1(n)       ((uint32_t)(n) << STDFILTER_S0_SFID1_SHIFT)
+#define STDFILTER_S0_SFEC_SHIFT       (27)                                 /* Bits 27-29: Standard Filter Element Configuration */
+#define STDFILTER_S0_SFEC_MASK        (7 << STDFILTER_S0_SFEC_SHIFT)
+#  define STDFILTER_S0_SFEC_DISABLE   (0 << STDFILTER_S0_SFEC_SHIFT)       /* Disable filter element */
+#  define STDFILTER_S0_SFEC_FIFO0     (1 << STDFILTER_S0_SFEC_SHIFT)       /* Store in Rx FIFO 0 on match */
+#  define STDFILTER_S0_SFEC_FIFO1     (2 << STDFILTER_S0_SFEC_SHIFT)       /* Store in Rx FIFO 1 on match */
+#  define STDFILTER_S0_SFEC_REJECT    (3 << STDFILTER_S0_SFEC_SHIFT)       /* Reject ID on match */
+#  define STDFILTER_S0_SFEC_PRIORITY  (4 << STDFILTER_S0_SFEC_SHIFT)       /* Set priority ion match */
+#  define STDFILTER_S0_SFEC_PRIOFIFO0 (5 << STDFILTER_S0_SFEC_SHIFT)       /* Set priority and store in FIFO 0 on match */
+#  define STDFILTER_S0_SFEC_PRIOFIFO1 (6 << STDFILTER_S0_SFEC_SHIFT)       /* Set priority and store in FIFO 1 on match */
+#  define STDFILTER_S0_SFEC_BUFFER    (7 << STDFILTER_S0_SFEC_SHIFT)       /* Store into Rx Buffer or as debug message */
+#define STDFILTER_S0_SFT_SHIFT        (30)                                 /* Bits 30-31: Standard Filter Type */
+#define STDFILTER_S0_SFT_MASK         (3 << STDFILTER_S0_SFT_SHIFT)
+#  define STDFILTER_S0_SFT_RANGE      (0 << STDFILTER_S0_SFT_SHIFT)        /* Range filter from SF1ID to SF2ID */
+#  define STDFILTER_S0_SFT_DUAL       (1 << STDFILTER_S0_SFT_SHIFT)        /* Dual ID filter for SF1ID or SF2ID */
+#  define STDFILTER_S0_SFT_CLASSIC    (2 << STDFILTER_S0_SFT_SHIFT)        /* Classic filter: SF1ID=filter SF2ID=mask */
+
+/* Extended Message ID Filter Element */
+
+#define EXTFILTER_F0_EFID1_SHIFT      (0)                                  /* Bits 0-28: Extended Filter ID 1 */
+#define EXTFILTER_F0_EFID1_MASK       (0x1fffffff << EXTFILTER_F0_EFID1_SHIFT)
+#  define EXTFILTER_F0_EFID1(n)       ((uint32_t)(n) << EXTFILTER_F0_EFID1_SHIFT)
+#define EXTFILTER_F0_EFEC_SHIFT       (29)                                 /* Bits 29-31: Extended Filter Element Configuration */
+#define EXTFILTER_F0_EFEC_MASK        (7 << EXTFILTER_F0_EFEC_SHIFT)
+#  define EXTFILTER_F0_EFEC_DISABLE   (0 << EXTFILTER_F0_EFEC_SHIFT)       /* Disable filter element */
+#  define EXTFILTER_F0_EFEC_FIFO0     (1 << EXTFILTER_F0_EFEC_SHIFT)       /* Store in Rx FIFO 0 on match */
+#  define EXTFILTER_F0_EFEC_FIFO1     (2 << EXTFILTER_F0_EFEC_SHIFT)       /* Store in Rx FIFO 1 on match */
+#  define EXTFILTER_F0_EFEC_REJECT    (3 << EXTFILTER_F0_EFEC_SHIFT)       /* Reject ID on match */
+#  define EXTFILTER_F0_EFEC_PRIORITY  (4 << EXTFILTER_F0_EFEC_SHIFT)       /* Set priority on match */
+#  define EXTFILTER_F0_EFEC_PRIOFIFO0 (5 << EXTFILTER_F0_EFEC_SHIFT)       /* Set priority and store in FIFO 0 on match */
+#  define EXTFILTER_F0_EFEC_PRIOFIFO1 (6 << EXTFILTER_F0_EFEC_SHIFT)       /* Set priority and store in FIFO 1 on match */
+#  define EXTFILTER_F0_EFEC_BUFFER    (7 << EXTFILTER_F0_EFEC_SHIFT)       /* Store into Rx Buffer or as debug message */
+
+#define EXTFILTER_F1_EFID2_SHIFT      (0)                                  /* Bits 0-28: Extended Filter ID 2 */
+#define EXTFILTER_F1_EFID2_MASK       (0x1fffffff << EXTFILTER_F1_EFID2_SHIFT)
+#  define EXTFILTER_F1_EFID2(n)       ((uint32_t)(n) << EXTFILTER_F1_EFID2_SHIFT)
+#define EXTFILTER_F1_BUFFER_SHIFT     (0)                                  /* Bits 0-5: RX buffer start address */
+#define EXTFILTER_F1_BUFFER_MASK      (63 << EXTFILTER_F1_BUFFER_SHIFT)
+#  define EXTFILTER_F1_BUFFER(n)      ((uint32_t)(n) << EXTFILTER_F1_BUFFER_SHIFT)
+#define EXTFILTER_F1_ACTION_SHIFT     (9)                                  /* Bits 9-10: Action taken */
+#define EXTFILTER_F1_ACTION_MASK      (3 << EXTFILTER_F1_ACTION_SHIFT)
+#  define EXTFILTER_F1_RXBUFFER       (0 << EXTFILTER_F1_ACTION_SHIFT)     /* Store message in a Rx buffer */
+#  define EXTFILTER_F1_DEBUGA         (1 << EXTFILTER_F1_ACTION_SHIFT)     /* Debug Message A */
+#  define EXTFILTER_F1_DEBUGB         (2 << EXTFILTER_F1_ACTION_SHIFT)     /* Debug Message B */
+#  define EXTFILTER_F1_DEBUGC         (3 << EXTFILTER_F1_ACTION_SHIFT)     /* Debug Message C */
+#define EXTFILTER_F1_EFT_SHIFT        (30)                                 /* Bits 30-31: Extended Filter Type */
+#define EXTFILTER_F1_EFT_MASK         (3 << EXTFILTER_F1_EFT_SHIFT)
+#  define EXTFILTER_F1_EFT_RANGE      (0 << EXTFILTER_F1_EFT_SHIFT)        /* Range filter from SF1ID to SF2ID */
+#  define EXTFILTER_F1_EFT_DUAL       (1 << EXTFILTER_F1_EFT_SHIFT)        /* Dual ID filter for SF1ID or SF2ID */
+#  define EXTFILTER_F1_EFT_CLASSIC    (2 << EXTFILTER_F1_EFT_SHIFT)        /* Classic filter: SF1ID=filter SF2ID=mask */
+#  define EXTFILTER_F1_EFT_NOXIDAM    (3 << EXTFILTER_F1_EFT_SHIFT)        /* Range filter from EF1ID to EF2ID, no XIDAM */
 
 #endif /* __ARCH_ARM_SRC_STM32H7_HARDWARE_STM32_FDCAN_H */
