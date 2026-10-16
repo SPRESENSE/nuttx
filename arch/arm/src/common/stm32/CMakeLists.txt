@@ -48,6 +48,10 @@ if(CONFIG_STM32_HAVE_IP_GPIO_M33_V1)
   list(APPEND SRCS stm32_gpio_m33_v1.c)
 endif()
 
+if(CONFIG_STM32_HAVE_IP_DMA_GPDMA AND CONFIG_STM32_DMA)
+  list(APPEND SRCS stm32_dma_gpdma.c)
+endif()
+
 if(CONFIG_STM32_HAVE_IP_EXTI_M33_V1)
   list(APPEND SRCS stm32_exti_gpio_m33_v1.c)
 endif()
@@ -86,6 +90,10 @@ endif()
 
 if(CONFIG_STM32_PULSECOUNT)
   list(APPEND SRCS stm32_pulsecount.c)
+endif()
+
+if(CONFIG_STM32_1WIREDRIVER)
+  list(APPEND SRCS stm32_1wire_m3m4_v1.c)
 endif()
 
 if(CONFIG_STM32_COMMON_LEGACY)
@@ -288,10 +296,6 @@ if(CONFIG_STM32_COMMON_LEGACY)
 
   if(CONFIG_STM32_HRTIM AND CONFIG_STM32_HAVE_IP_HRTIM_M3M4_V1)
     list(APPEND SRCS stm32_hrtim_m3m4_v1.c)
-  endif()
-
-  if(CONFIG_STM32_1WIREDRIVER)
-    list(APPEND SRCS stm32_1wire_m3m4_v1.c)
   endif()
 
   if(CONFIG_STM32_HCIUART)

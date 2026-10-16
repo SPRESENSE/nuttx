@@ -41,18 +41,20 @@
 
 #include <nuttx/arch.h>
 #include <nuttx/irq.h>
+#include <nuttx/nuttx.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/clock.h>
 #include <nuttx/mutex.h>
 #include <nuttx/semaphore.h>
+#include <nuttx/power/pm.h>
 #include <nuttx/1wire/1wire.h>
 
 #include <arch/board/board.h>
 
 #include "arm_internal.h"
-#include "stm32_rcc.h"
+#include "chip.h"
+#include "stm32.h"
 #include "stm32_1wire.h"
-#include "stm32_rcc.h"
 
 #ifdef HAVE_1WIREDRIVER
 
@@ -126,6 +128,9 @@ struct stm32_1wire_priv_s
   uint8_t *byte;                             /* Current byte */
   uint8_t  bit;                              /* Current bit */
   volatile int result;                       /* Exchange result */
+#ifdef CONFIG_PM
+  struct pm_callback_s pm_cb;                /* PM callbacks */
+#endif
 };
 
 /* 1-Wire device, Instance */
@@ -166,6 +171,10 @@ static int stm32_1wire_exchange(struct onewire_dev_s *dev, bool reset,
 static int stm32_1wire_writebit(struct onewire_dev_s *dev,
                                 const uint8_t *bit);
 static int stm32_1wire_readbit(struct onewire_dev_s *dev, uint8_t *bit);
+#ifdef CONFIG_PM
+static int stm32_1wire_pm_prepare(struct pm_callback_s *cb, int domain,
+                                  enum pm_state_e pmstate);
+#endif
 
 /****************************************************************************
  * Private Data
@@ -413,13 +422,25 @@ static void stm32_1wire_send(struct stm32_1wire_priv_s *priv, int ch)
 
 static void stm32_1wire_set_baud(struct stm32_1wire_priv_s *priv)
 {
+  uint32_t cr1;
+  bool enabled;
+
+  /* BRR can only be written while the USART is disabled */
+
+  cr1 = stm32_1wire_in(priv, STM32_USART_CR1_OFFSET);
+  enabled = (cr1 & USART_CR1_UE) != 0;
+  if (enabled)
+    {
+      cr1 &= ~USART_CR1_UE;
+      stm32_1wire_out(priv, STM32_USART_CR1_OFFSET, cr1);
+    }
+
 #if defined(CONFIG_STM32_STM32F30XX) || defined(CONFIG_STM32_STM32F37XX)
   /* This first implementation is for U[S]ARTs that support oversampling
    * by 8 in additional to the standard oversampling by 16.
    */
 
   uint32_t usartdiv8;
-  uint32_t cr1;
   uint32_t brr;
 
   /* In case of oversampling by 8, the equation is:
@@ -441,7 +462,6 @@ static void stm32_1wire_set_baud(struct stm32_1wire_priv_s *priv)
 
   /* Use oversamply by 8 only if the divisor is small.  But what is small? */
 
-  cr1 = stm32_1wire_in(priv, STM32_USART_CR1_OFFSET);
   if (usartdiv8 > 100)
     {
       /* Use usartdiv16 */
@@ -508,6 +528,12 @@ static void stm32_1wire_set_baud(struct stm32_1wire_priv_s *priv)
   brr       |= fraction << USART_BRR_FRAC_SHIFT;
   stm32_1wire_out(priv, STM32_USART_BRR_OFFSET, brr);
 #endif
+
+  if (enabled)
+    {
+      cr1 |= USART_CR1_UE;
+      stm32_1wire_out(priv, STM32_USART_CR1_OFFSET, cr1);
+    }
 }
 
 /****************************************************************************
@@ -533,56 +559,56 @@ static void stm32_1wire_set_apb_clock(struct stm32_1wire_priv_s *priv,
 
   switch (config->usartbase)
     {
-    default:
-      return;
+      default:
+        return;
 
 #ifdef CONFIG_STM32_USART1_1WIREDRIVER
-    case STM32_USART1_BASE:
-      rcc_en = RCC_APB2ENR_USART1EN;
-      regaddr = STM32_RCC_APB2ENR;
-      break;
+      case STM32_USART1_BASE:
+        rcc_en = RCC_APB2ENR_USART1EN;
+        regaddr = STM32_RCC_APB2ENR;
+        break;
 #endif
 #ifdef CONFIG_STM32_USART2_1WIREDRIVER
-    case STM32_USART2_BASE:
-      rcc_en = RCC_APB1ENR_USART2EN;
-      regaddr = STM32_RCC_APB1ENR;
-      break;
+      case STM32_USART2_BASE:
+        rcc_en = RCC_APB1ENR_USART2EN;
+        regaddr = STM32_RCC_APB1ENR;
+        break;
 #endif
 #ifdef CONFIG_STM32_USART3_1WIREDRIVER
-    case STM32_USART3_BASE:
-      rcc_en = RCC_APB1ENR_USART3EN;
-      regaddr = STM32_RCC_APB1ENR;
-      break;
+      case STM32_USART3_BASE:
+        rcc_en = RCC_APB1ENR_USART3EN;
+        regaddr = STM32_RCC_APB1ENR;
+        break;
 #endif
 #ifdef CONFIG_STM32_UART4_1WIREDRIVER
-    case STM32_UART4_BASE:
-      rcc_en = RCC_APB1ENR_UART4EN;
-      regaddr = STM32_RCC_APB1ENR;
-      break;
+      case STM32_UART4_BASE:
+        rcc_en = RCC_APB1ENR_UART4EN;
+        regaddr = STM32_RCC_APB1ENR;
+        break;
 #endif
 #ifdef CONFIG_STM32_UART5_1WIREDRIVER
-    case STM32_UART5_BASE:
-      rcc_en = RCC_APB1ENR_UART5EN;
-      regaddr = STM32_RCC_APB1ENR;
-      break;
+      case STM32_UART5_BASE:
+        rcc_en = RCC_APB1ENR_UART5EN;
+        regaddr = STM32_RCC_APB1ENR;
+        break;
 #endif
 #ifdef CONFIG_STM32_USART6_1WIREDRIVER
-    case STM32_USART6_BASE:
-      rcc_en = RCC_APB2ENR_USART6EN;
-      regaddr = STM32_RCC_APB2ENR;
-      break;
+      case STM32_USART6_BASE:
+        rcc_en = RCC_APB2ENR_USART6EN;
+        regaddr = STM32_RCC_APB2ENR;
+        break;
 #endif
 #ifdef CONFIG_STM32_UART7_1WIREDRIVER
-    case STM32_UART7_BASE:
-      rcc_en = RCC_APB1ENR_UART7EN;
-      regaddr = STM32_RCC_APB1ENR;
-      break;
+      case STM32_UART7_BASE:
+        rcc_en = RCC_APB1ENR_UART7EN;
+        regaddr = STM32_RCC_APB1ENR;
+        break;
 #endif
 #ifdef CONFIG_STM32_UART8_1WIREDRIVER
-    case STM32_UART8_BASE:
-      rcc_en = RCC_APB1ENR_UART8EN;
-      regaddr = STM32_RCC_APB1ENR;
-      break;
+      case STM32_UART8_BASE:
+        rcc_en = RCC_APB1ENR_UART8EN;
+        regaddr = STM32_RCC_APB1ENR;
+        break;
 #endif
     }
 
@@ -634,7 +660,11 @@ static int stm32_1wire_init(struct stm32_1wire_priv_s *priv)
 
   regval  = stm32_1wire_in(priv, STM32_USART_CR1_OFFSET);
   regval &= ~(USART_CR1_TE | USART_CR1_RE | USART_CR1_ALLINTS |
-              USART_CR1_PCE | USART_CR1_PS | USART_CR1_M);
+              USART_CR1_PCE | USART_CR1_PS | USART_CR1_M
+#ifdef USART_CR1_M1
+              | USART_CR1_M1
+#endif
+             );
   regval |= USART_CR1_RXNEIE;
   stm32_1wire_out(priv, STM32_USART_CR1_OFFSET, regval);
 
@@ -747,73 +777,73 @@ static int stm32_1wire_process(struct stm32_1wire_priv_s *priv,
     {
       switch (msgs[index].task)
         {
-        case ONEWIRETASK_NONE:
-          priv->result = OK;
-          break;
+          case ONEWIRETASK_NONE:
+            priv->result = OK;
+            break;
 
-        case ONEWIRETASK_RESET:
+          case ONEWIRETASK_RESET:
 
-          /* Set baud rate */
+            /* Set baud rate */
 
-          priv->baud = RESET_BAUD;
-          stm32_1wire_set_baud(priv);
+            priv->baud = RESET_BAUD;
+            stm32_1wire_set_baud(priv);
 
-          /* Atomic */
+            /* Atomic */
 
-          irqs = enter_critical_section();
-          priv->msgs = &msgs[index];
-          stm32_1wire_send(priv, RESET_TX);
-          leave_critical_section(irqs);
+            irqs = enter_critical_section();
+            priv->msgs = &msgs[index];
+            stm32_1wire_send(priv, RESET_TX);
+            leave_critical_section(irqs);
 
-          /* Wait.  Break on timeout if TX line closed to GND */
+            /* Wait.  Break on timeout if TX line closed to GND */
 
-          nxsem_tickwait(&priv->sem_isr, SEC2TICK(BUS_TIMEOUT));
-          break;
+            nxsem_tickwait(&priv->sem_isr, SEC2TICK(BUS_TIMEOUT));
+            break;
 
-        case ONEWIRETASK_WRITE:
-        case ONEWIRETASK_WRITEBIT:
+          case ONEWIRETASK_WRITE:
+          case ONEWIRETASK_WRITEBIT:
 
-          /* Set baud rate */
+            /* Set baud rate */
 
-          priv->baud = TIMESLOT_BAUD;
-          stm32_1wire_set_baud(priv);
+            priv->baud = TIMESLOT_BAUD;
+            stm32_1wire_set_baud(priv);
 
-          /* Atomic */
+            /* Atomic */
 
-          irqs = enter_critical_section();
-          priv->msgs = &msgs[index];
-          priv->byte = priv->msgs->buffer;
-          priv->bit = 0;
-          stm32_1wire_send(priv, (*priv->byte & (1 << priv->bit)) ?
-                           WRITE_TX1 : WRITE_TX0);
-          leave_critical_section(irqs);
+            irqs = enter_critical_section();
+            priv->msgs = &msgs[index];
+            priv->byte = priv->msgs->buffer;
+            priv->bit = 0;
+            stm32_1wire_send(priv, (*priv->byte & (1 << priv->bit)) ?
+                             WRITE_TX1 : WRITE_TX0);
+            leave_critical_section(irqs);
 
-          /* Wait.  Break on timeout if TX line closed to GND */
+            /* Wait.  Break on timeout if TX line closed to GND */
 
-          nxsem_tickwait(&priv->sem_isr, SEC2TICK(BUS_TIMEOUT));
-          break;
+            nxsem_tickwait(&priv->sem_isr, SEC2TICK(BUS_TIMEOUT));
+            break;
 
-        case ONEWIRETASK_READ:
-        case ONEWIRETASK_READBIT:
+          case ONEWIRETASK_READ:
+          case ONEWIRETASK_READBIT:
 
-          /* Set baud rate */
+            /* Set baud rate */
 
-          priv->baud = TIMESLOT_BAUD;
-          stm32_1wire_set_baud(priv);
+            priv->baud = TIMESLOT_BAUD;
+            stm32_1wire_set_baud(priv);
 
-          /* Atomic */
+            /* Atomic */
 
-          irqs = enter_critical_section();
-          priv->msgs = &msgs[index];
-          priv->byte = priv->msgs->buffer;
-          priv->bit = 0;
-          stm32_1wire_send(priv, READ_TX);
-          leave_critical_section(irqs);
+            irqs = enter_critical_section();
+            priv->msgs = &msgs[index];
+            priv->byte = priv->msgs->buffer;
+            priv->bit = 0;
+            stm32_1wire_send(priv, READ_TX);
+            leave_critical_section(irqs);
 
-          /* Wait.  Break on timeout if TX line closed to GND */
+            /* Wait.  Break on timeout if TX line closed to GND */
 
-          nxsem_tickwait(&priv->sem_isr, SEC2TICK(BUS_TIMEOUT));
-          break;
+            nxsem_tickwait(&priv->sem_isr, SEC2TICK(BUS_TIMEOUT));
+            break;
         }
 
       if (priv->result != OK) /* break if error */
@@ -864,71 +894,71 @@ static int stm32_1wire_isr(int irq, void *context, void *arg)
         {
           switch (priv->msgs->task)
             {
-            case ONEWIRETASK_NONE:
-              break;
+              case ONEWIRETASK_NONE:
+                break;
 
-            case ONEWIRETASK_RESET:
-              priv->msgs = NULL;
-              priv->result = (dr != RESET_TX) ? OK : -ENODEV; /* if read RESET_TX then no slave */
-              nxsem_post(&priv->sem_isr);
-              break;
+              case ONEWIRETASK_RESET:
+                priv->msgs = NULL;
+                priv->result = (dr != RESET_TX) ? OK : -ENODEV; /* if read RESET_TX then no slave */
+                nxsem_post(&priv->sem_isr);
+                break;
 
-            case ONEWIRETASK_WRITE:
-              if (++priv->bit >= 8)
-                {
-                  priv->bit = 0;
-                  if (++priv->byte >= (priv->msgs->buffer + priv->msgs->buflen)) /* Done? */
-                    {
-                      priv->msgs = NULL;
-                      priv->result = OK;
-                      nxsem_post(&priv->sem_isr);
-                      break;
-                    }
-                }
+              case ONEWIRETASK_WRITE:
+                if (++priv->bit >= 8)
+                  {
+                    priv->bit = 0;
+                    if (++priv->byte >= (priv->msgs->buffer + priv->msgs->buflen)) /* Done? */
+                      {
+                        priv->msgs = NULL;
+                        priv->result = OK;
+                        nxsem_post(&priv->sem_isr);
+                        break;
+                      }
+                  }
 
-              /* Send next bit */
+                /* Send next bit */
 
-              stm32_1wire_send(priv, (*priv->byte & (1 << priv->bit)) ?
-                               WRITE_TX1 : WRITE_TX0);
-              break;
+                stm32_1wire_send(priv, (*priv->byte & (1 << priv->bit)) ?
+                                 WRITE_TX1 : WRITE_TX0);
+                break;
 
-            case ONEWIRETASK_READ:
-              if (dr == READ_RX1)
-                {
-                  *priv->byte |= (1 << priv->bit);
-                }
-              else
-                {
-                  *priv->byte &= ~(1 << priv->bit);
-                }
+              case ONEWIRETASK_READ:
+                if (dr == READ_RX1)
+                  {
+                    *priv->byte |= (1 << priv->bit);
+                  }
+                else
+                  {
+                    *priv->byte &= ~(1 << priv->bit);
+                  }
 
-              if (++priv->bit >= 8)
-                {
-                  priv->bit = 0;
-                  if (++priv->byte >= (priv->msgs->buffer + priv->msgs->buflen)) /* Done? */
-                    {
-                      priv->msgs = NULL;
-                      priv->result = OK;
-                      nxsem_post(&priv->sem_isr);
-                      break;
-                    }
-                }
+                if (++priv->bit >= 8)
+                  {
+                    priv->bit = 0;
+                    if (++priv->byte >= (priv->msgs->buffer + priv->msgs->buflen)) /* Done? */
+                      {
+                        priv->msgs = NULL;
+                        priv->result = OK;
+                        nxsem_post(&priv->sem_isr);
+                        break;
+                      }
+                  }
 
-              /* Recv next bit */
+                /* Recv next bit */
 
-              stm32_1wire_send(priv, READ_TX);
-              break;
+                stm32_1wire_send(priv, READ_TX);
+                break;
 
-            case ONEWIRETASK_READBIT:
-              *priv->byte = (dr == READ_RX1) ? 1 : 0;
+              case ONEWIRETASK_READBIT:
+                *priv->byte = (dr == READ_RX1) ? 1 : 0;
 
-              /* Fall through */
+                /* Fall through */
 
-            case ONEWIRETASK_WRITEBIT:
-              priv->msgs = NULL;
-              priv->result = OK;
-              nxsem_post(&priv->sem_isr);
-              break;
+              case ONEWIRETASK_WRITEBIT:
+                priv->msgs = NULL;
+                priv->result = OK;
+                nxsem_post(&priv->sem_isr);
+                break;
             }
         }
     }
@@ -937,7 +967,7 @@ static int stm32_1wire_isr(int irq, void *context, void *arg)
 
   if ((sr & (USART_SR_ORE | USART_SR_NE | USART_SR_FE)) != 0)
     {
-#if defined(CONFIG_STM32_STM32F30XX) || defined(CONFIG_STM32_STM32F37XX)
+#ifdef STM32_USART_ICR_OFFSET
       /* These errors are cleared by writing the corresponding bit to the
        * interrupt clear register (ICR).
        */
@@ -968,8 +998,16 @@ static int stm32_1wire_isr(int irq, void *context, void *arg)
 
   if ((sr & USART_SR_LBD) != 0)
     {
+#ifdef STM32_USART_ICR_OFFSET
+      /* The LIN break flag is cleared by writing LBDCF to the interrupt
+       * clear register (ICR); the status register is read-only.
+       */
+
+      stm32_1wire_out(priv, STM32_USART_ICR_OFFSET, USART_ICR_LBDCF);
+#else
       sr &= ~USART_SR_LBD;
       stm32_1wire_out(priv, STM32_USART_SR_OFFSET, sr);
+#endif
 
       if (priv->msgs != NULL)
         {
@@ -1144,6 +1182,77 @@ static int stm32_1wire_readbit(struct onewire_dev_s *dev, uint8_t *bit)
 }
 
 /****************************************************************************
+ * Name: stm32_1wire_pm_prepare
+ *
+ * Description:
+ *   Request the driver to prepare for a new power state. This is a
+ *   warning that the system is about to enter into a new power state.  The
+ *   driver should begin whatever operations that may be required to enter
+ *   power state.  The driver may abort the state change mode by returning
+ *   a non-zero value from the callback function.
+ *
+ * Input Parameters:
+ *   cb      - Returned to the driver.  The driver version of the callback
+ *             structure may include additional, driver-specific state
+ *             data at the end of the structure.
+ *   domain  - Identifies the activity domain of the state change
+ *   pmstate - Identifies the new PM state
+ *
+ * Returned Value:
+ *   0 (OK) means the event was successfully processed and that the driver
+ *   is prepared for the PM state change.  Non-zero means that the driver
+ *   is not prepared to perform the tasks needed achieve this power setting
+ *   and will cause the state change to be aborted.  NOTE:  The prepare
+ *   method will also be recalled when reverting from lower back to higher
+ *   power consumption modes (say because another driver refused a lower
+ *   power state change).  Drivers are not permitted to return non-zero
+ *   values when reverting back to higher power consumption modes!
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_PM
+static int stm32_1wire_pm_prepare(struct pm_callback_s *cb, int domain,
+                                  enum pm_state_e pmstate)
+{
+  struct stm32_1wire_priv_s *priv =
+    container_of(cb, struct stm32_1wire_priv_s, pm_cb);
+
+  /* Logic to prepare for a reduced power state goes here. */
+
+  switch (pmstate)
+    {
+      case PM_NORMAL:
+      case PM_IDLE:
+        break;
+
+      case PM_STANDBY:
+      case PM_SLEEP:
+
+        /* Check if exclusive lock for 1-Wire bus is held. */
+
+        if (nxmutex_is_locked(&priv->lock))
+          {
+            /* Exclusive lock is held, do not allow entry to deeper PM
+             * states.
+             */
+
+            return -EBUSY;
+          }
+
+        break;
+
+      default:
+
+        /* Should not get here */
+
+        break;
+    }
+
+  return OK;
+}
+#endif
+
+/****************************************************************************
  * Public Functions
  ****************************************************************************/
 
@@ -1174,47 +1283,47 @@ struct onewire_dev_s *stm32_1wireinitialize(int port)
   switch (port)
     {
 #ifdef CONFIG_STM32_USART1_1WIREDRIVER
-    case 1:
-      priv = &stm32_1wire1_priv;
-      break;
+      case 1:
+        priv = &stm32_1wire1_priv;
+        break;
 #endif
 #ifdef CONFIG_STM32_USART2_1WIREDRIVER
-    case 2:
-      priv = &stm32_1wire2_priv;
-      break;
+      case 2:
+        priv = &stm32_1wire2_priv;
+        break;
 #endif
 #ifdef CONFIG_STM32_USART3_1WIREDRIVER
-    case 3:
-      priv = &stm32_1wire3_priv;
-      break;
+      case 3:
+        priv = &stm32_1wire3_priv;
+        break;
 #endif
 #ifdef CONFIG_STM32_UART4_1WIREDRIVER
-    case 4:
-      priv = &stm32_1wire4_priv;
-      break;
+      case 4:
+        priv = &stm32_1wire4_priv;
+        break;
 #endif
 #ifdef CONFIG_STM32_UART5_1WIREDRIVER
-    case 5:
-      priv = &stm32_1wire5_priv;
-      break;
+      case 5:
+        priv = &stm32_1wire5_priv;
+        break;
 #endif
 #ifdef CONFIG_STM32_USART6_1WIREDRIVER
-    case 6:
-      priv = &stm32_1wire6_priv;
-      break;
+      case 6:
+        priv = &stm32_1wire6_priv;
+        break;
 #endif
 #ifdef CONFIG_STM32_UART7_1WIREDRIVER
-    case 7:
-      priv = &stm32_1wire7_priv;
-      break;
+      case 7:
+        priv = &stm32_1wire7_priv;
+        break;
 #endif
 #ifdef CONFIG_STM32_UART8_1WIREDRIVER
-    case 8:
-      priv = &stm32_1wire8_priv;
-      break;
+      case 8:
+        priv = &stm32_1wire8_priv;
+        break;
 #endif
-    default:
-      return NULL;
+      default:
+        return NULL;
     }
 
   /* Allocate instance */
@@ -1238,6 +1347,13 @@ struct onewire_dev_s *stm32_1wireinitialize(int port)
   if (priv->refs++ == 0)
     {
       stm32_1wire_init(priv);
+
+#ifdef CONFIG_PM
+      /* Register to receive power management callbacks */
+
+      priv->pm_cb.prepare = stm32_1wire_pm_prepare;
+      DEBUGVERIFY(pm_register(&priv->pm_cb));
+#endif
     }
 
   nxmutex_unlock(&priv->lock);
@@ -1276,12 +1392,20 @@ int stm32_1wireuninitialize(struct onewire_dev_s *dev)
   if (--priv->refs)
     {
       nxmutex_unlock(&priv->lock);
+      kmm_free(dev);
       return OK;
     }
 
   /* Disable power and other HW resource (GPIO's) */
 
   stm32_1wire_deinit(priv);
+
+#ifdef CONFIG_PM
+  /* Unregister power management callbacks */
+
+  pm_unregister(&priv->pm_cb);
+#endif
+
   nxmutex_unlock(&priv->lock);
 
   /* Free instance */

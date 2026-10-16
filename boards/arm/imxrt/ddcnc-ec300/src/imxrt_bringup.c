@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/stm32l4/stm32l4_1wire.h
+ * boards/arm/imxrt/ddcnc-ec300/src/imxrt_bringup.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,55 +20,52 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_ARM_SRC_STM32L4_STM32L4_1WIRE_H
-#define __ARCH_ARM_SRC_STM32L4_STM32L4_1WIRE_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
-#include "stm32l4_uart.h"
+#include <sys/types.h>
+#include <syslog.h>
+
+#include <nuttx/fs/fs.h>
+
+#include "ddcnc-ec300.h"
+
+#include <arch/board/board.h>  /* Must always be included last */
 
 /****************************************************************************
- * Public Function Prototypes
+ * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: stm32_1wireinitialize
+ * Name: imxrt_bringup
  *
  * Description:
- *   Initialize the selected 1-Wire port. And return a unique instance of
- *   struct struct onewire_dev_s.  This function may be called to obtain
- *   multiple instances of the interface, each of which may be set up with a
- *   different frequency and slave address.
- *
- * Input Parameters:
- *   Port number (for hardware that has multiple 1-Wire interfaces)
- *
- * Returned Value:
- *   Valid 1-Wire device structure reference on success; a NULL on failure
+ *   Bring up board features
  *
  ****************************************************************************/
 
-struct onewire_dev_s *stm32_1wireinitialize(int port);
+int imxrt_bringup(void)
+{
+  int ret;
 
-/****************************************************************************
- * Name: stm32_1wireuninitialize
- *
- * Description:
- *   De-initialize the selected 1-Wire port, and power down the device.
- *
- * Input Parameters:
- *   Device structure as returned by the stm32_1wireinitialize()
- *
- * Returned Value:
- *   OK on success, ERROR when internal reference count mismatch or dev
- *   points to invalid hardware device.
- *
- ****************************************************************************/
+#ifdef CONFIG_FS_PROCFS
+  /* Mount the procfs file system */
 
-int stm32_1wireuninitialize(struct onewire_dev_s *dev);
+  ret = nx_mount(NULL, "/proc", "procfs", 0, NULL);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: Failed to mount procfs at /proc: %d\n", ret);
+    }
+#endif
 
-#endif /* __ARCH_ARM_SRC_STM32L4_STM32L4_1WIRE_H */
+  /* If we got here then perhaps not all initialization was successful, but
+   * at least enough succeeded to bring-up NSH with perhaps reduced
+   * capabilities.
+   */
+
+  UNUSED(ret);
+  return OK;
+}
