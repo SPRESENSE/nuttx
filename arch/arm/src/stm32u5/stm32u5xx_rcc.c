@@ -92,7 +92,7 @@ static inline void rcc_enableahb1(void)
 
   regval = getreg32(STM32_RCC_AHB1ENR);
 
-#ifdef CONFIG_STM32_GPDMA1
+#ifdef CONFIG_STM32_DMA1
   regval |= RCC_AHB1ENR_GPDMA1EN;
 #endif
 
@@ -315,7 +315,7 @@ static inline void rcc_enableahb3(void)
   regval |= RCC_AHB3ENR_DAC1EN;
 #endif
 
-#ifdef CONFIG_STM32_LPDMA1
+#ifdef CONFIG_STM32_DMA2
   regval |= RCC_AHB3ENR_LPDMA1EN;
 #endif
 

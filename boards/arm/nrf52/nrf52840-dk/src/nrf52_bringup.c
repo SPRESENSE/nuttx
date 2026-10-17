@@ -229,7 +229,7 @@ int nrf52_bringup(void)
     }
 #endif /* CONFIG_LPWAN_SX127X */
 
-#if defined(CONFIG_TIMER) && defined(CONFIG_NRF52_TIMER)
+#if defined(CONFIG_TIMER) && defined(CONFIG_NRF52_TIMER2)
   /* Configure TIMER driver */
 
   ret = nrf52_timer_driver_setup("/dev/timer0", NRF52_TIMER);
@@ -277,6 +277,7 @@ int nrf52_bringup(void)
 
 #if defined(CONFIG_RNDIS) && !defined(CONFIG_RNDIS_COMPOSITE)
   uint8_t mac[6];
+
   mac[0] = 0xa0; /* TODO */
   mac[1] = (CONFIG_NETINIT_MACADDR_2 >> (8 * 0)) & 0xff;
   mac[2] = (CONFIG_NETINIT_MACADDR_1 >> (8 * 3)) & 0xff;

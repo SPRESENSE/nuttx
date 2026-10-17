@@ -77,5 +77,13 @@ int rtl8730e_spi_initialize(void);
 int rtl8730e_pwm_initialize(void);
 #endif
 
+#ifdef CONFIG_AMEBA_TIMER
+int rtl8730e_timer_initialize(void);
+#endif
+
+#ifdef CONFIG_AMEBA_WDG
+int rtl8730e_wdg_initialize(void);
+#endif
+
 #endif /* __ASSEMBLY__ */
 #endif /* __BOARDS_ARM_RTL8730E_RTL8730E_EVB_SRC_RTL8730E_EVB_H */
