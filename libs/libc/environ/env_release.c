@@ -1,5 +1,5 @@
 /****************************************************************************
- * sched/environ/env_putenv.c
+ * libs/libc/environ/env_release.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -24,81 +24,54 @@
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
+#include <assert.h>
 
-#ifndef CONFIG_DISABLE_ENVIRON
+#include <nuttx/tls.h>
 
-#include <stdlib.h>
-#include <sched.h>
-#include <string.h>
-#include <errno.h>
-
-#include <nuttx/lib/lib.h>
+#include "environ/environ.h"
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: putenv
+ * Name: env_release
  *
  * Description:
- *   The putenv() function adds or changes the value of environment
- *   variables.
- *   The argument string is of the form name=value. If name does not already
- *   exist in  the  environment, then string is added to the environment. If
- *   name does exist, then the value of name in the environment is changed to
- *   value.
+ *   env_release() is called only from task_uninit_info() when the task is
+ *   uninit. The env_release() function clears the environment of all
+ *   name-value pairs and sets the value of the external variable
+ *   environ to NULL.
  *
  * Input Parameters:
- *   name=value string describing the environment setting to add/modify
+ *   info - Identifies the task containing the environment structure
+ *          to be released.
  *
  * Returned Value:
- *   Zero on success
+ *   None
  *
  * Assumptions:
  *   Not called from an interrupt handler
  *
  ****************************************************************************/
 
-int putenv(FAR const char *string)
+void env_release(FAR struct task_info_s *info)
 {
-  FAR char *pname;
-  FAR char *pequal;
-  int ret = OK;
+  DEBUGASSERT(info != NULL);
 
-  /* Verify that a string was passed */
+  /* Free every block that libc allocated for the environment */
 
-  if (!string)
+  while (info->ta_envmem != NULL)
     {
-      ret = EINVAL;
-      goto errout;
+      env_free(info, info->ta_envmem);
     }
 
-  /* Parse the name=value string */
+  /* In any event, make sure that all environment-related variables in the
+   * task group structure are reset to initial values.
+   */
 
-  pname = strdup(string);
-  if (!pname)
-    {
-      ret = ENOMEM;
-      goto errout;
-    }
-
-  pequal = strchr(pname, '=');
-  if (pequal)
-    {
-      /* Then let setenv do all of the work */
-
-      *pequal = '\0';
-      ret = setenv(pname, pequal + 1, TRUE);
-    }
-
-  kmm_free(pname);
-  return ret;
-
-errout:
-  set_errno(ret);
-  return ERROR;
+  info->ta_envp   = NULL;
+  info->ta_envarr = NULL;
+  info->ta_envpc  = 0;
+  info->ta_envc   = 0;
 }
-
-#endif /* CONFIG_DISABLE_ENVIRON */

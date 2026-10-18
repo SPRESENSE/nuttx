@@ -1,5 +1,5 @@
 /****************************************************************************
- * sched/environ/env_dup.c
+ * libs/libc/environ/env_dup.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -24,19 +24,13 @@
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
-
-#ifndef CONFIG_DISABLE_ENVIRON
-
-#include <sys/types.h>
-#include <sched.h>
 #include <string.h>
 #include <assert.h>
 #include <errno.h>
 
-#include <nuttx/kmalloc.h>
+#include <nuttx/mutex.h>
+#include <nuttx/tls.h>
 
-#include "sched/sched.h"
 #include "environ/environ.h"
 
 /****************************************************************************
@@ -52,7 +46,7 @@
  *   private, exact duplicate of the parent task's environment.
  *
  * Input Parameters:
- *   group - The child task group to receive the newly allocated copy of
+ *   info  - The child task to receive the newly allocated copy of
  *           the parent task groups environment structure.
  *   envcp - Pointer to the environment strings to copy.
  * Returned Value:
@@ -63,34 +57,29 @@
  *
  ****************************************************************************/
 
-int env_dup(FAR struct task_group_s *group, FAR char * const *envcp)
+int env_dup(FAR struct task_info_s *info, FAR char * const *envcp)
 {
-  FAR char **envp = NULL;
+  FAR char **envp;
+  FAR char *str;
   size_t envc = 0;
-  size_t size;
+  size_t size = 0;
+  size_t i;
   int ret = OK;
 
-  DEBUGASSERT(group != NULL);
+  DEBUGASSERT(info != NULL);
 
   /* Is there an environment ? */
 
-  if (envcp != NULL && group->tg_envp == NULL)
+  if (envcp != NULL && info->ta_envp == NULL)
     {
-      /* Pre-emption must be disabled throughout the following because the
-       * environment may be shared.
-       */
+      nxrmutex_lock(&info->ta_lock);
 
-      nxrmutex_lock(&group->tg_mutex);
-
-      /* Count the strings */
+      /* Count the strings and their size */
 
       while (envcp[envc] != NULL)
         {
-          envc++;
+          size += strlen(envcp[envc++]) + 1;
         }
-
-      group->tg_envc = envc;
-      group->tg_envpc = (envc + SCHED_ENVIRON_RESERVED + 1);
 
       /* A special case is that the parent has an "empty" environment
        * allocation, i.e., there is an allocation in place but it
@@ -99,52 +88,51 @@ int env_dup(FAR struct task_group_s *group, FAR char * const *envcp)
 
       if (envc > 0)
         {
-          /* There is an environment, duplicate it */
+          /* Duplicate the parent environment: one block for the array and
+           * one for all of the strings.
+           */
 
-          envp = group_malloc(group, sizeof(*envp) * group->tg_envpc);
-          if (envp == NULL)
+          info->ta_envpc = envc + SCHED_ENVIRON_RESERVED + 1;
+          envp = env_alloc(info, sizeof(*envp) * info->ta_envpc);
+          str  = env_alloc(info, size);
+          if (envp == NULL || str == NULL)
             {
               /* The parent's environment can not be inherited due to a
                * failure in the allocation of the child environment.
                */
 
+              if (envp != NULL)
+                {
+                  env_free(info, envp);
+                }
+
+              if (str != NULL)
+                {
+                  env_free(info, str);
+                }
+
+              info->ta_envpc = 0;
               ret = -ENOMEM;
             }
           else
             {
-              envp[envc] = NULL;
-
-              /* Duplicate the parent environment. */
-
-              while (envc-- > 0)
+              for (i = 0; i < envc; i++)
                 {
-                  size = strlen(envcp[envc]) + 1;
-                  envp[envc] = group_malloc(group, size);
-                  if (envp[envc] == NULL)
-                    {
-                      while (envp[++envc] != NULL)
-                        {
-                          group_free(group, envp[envc]);
-                        }
-
-                      group_free(group, envp);
-                      envp = NULL;
-                      ret = -ENOMEM;
-                      break;
-                    }
-
-                  strlcpy(envp[envc], envcp[envc], size);
+                  size = strlen(envcp[i]) + 1;
+                  memcpy(str, envcp[i], size);
+                  envp[i] = str;
+                  str += size;
                 }
+
+              envp[envc]      = NULL;
+              info->ta_envp   = envp;
+              info->ta_envarr = envp;
+              info->ta_envc   = envc;
             }
         }
 
-      /* Save the child environment allocation. */
-
-      group->tg_envp = envp;
-      nxrmutex_unlock(&group->tg_mutex);
+      nxrmutex_unlock(&info->ta_lock);
     }
 
   return ret;
 }
-
-#endif /* CONFIG_DISABLE_ENVIRON */

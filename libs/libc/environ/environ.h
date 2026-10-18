@@ -1,5 +1,5 @@
 /****************************************************************************
- * sched/environ/environ.h
+ * libs/libc/environ/environ.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,24 +20,24 @@
  *
  ****************************************************************************/
 
-#ifndef __SCHED_ENVIRON_ENVIRON_H
-#define __SCHED_ENVIRON_ENVIRON_H
+#ifndef __LIBS_LIBC_ENVIRON_ENVIRON_H
+#define __LIBS_LIBC_ENVIRON_ENVIRON_H
 
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
-#include <nuttx/sched.h>
+
+#include <sys/types.h>
+
+#include <nuttx/lib/lib.h>
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
-#ifdef CONFIG_DISABLE_ENVIRON
-#  define env_dup(group, envp) (0)
-#  define env_release(group)   ((void)0)
-#else
+#ifndef CONFIG_DISABLE_ENVIRON
 
 #  define SCHED_ENVIRON_RESERVED (4)
 
@@ -58,66 +58,6 @@ extern "C"
  ****************************************************************************/
 
 /****************************************************************************
- * Name: env_dup
- *
- * Description:
- *   Copy the internal environment structure of a task.  This is the action
- *   that is performed when a new task is created:
- *   The new task has a private, exact duplicate of the parent task's
- *    environment.
- *
- * Input Parameters:
- *   group - The child task group to receive the newly allocated copy of the
- *           parent task groups environment structure.
- *   envp  - Pointer to the environment strings.
- *
- * Returned Value:
- *   zero on success
- *
- * Assumptions:
- *   Not called from an interrupt handler.
- *
- ****************************************************************************/
-
-int env_dup(FAR struct task_group_s *group, FAR char * const *envp);
-
-/****************************************************************************
- * Name: env_release
- *
- * Description:
- *   env_release() is called only from group_leave() when the last member of
- *   a task group exits.  The env_release() function clears the environment
- *   of all name-value pairs and sets the value of the external variable
- *   environ to NULL.
- *
- * Input Parameters:
- *   group - Identifies the task group containing the environment structure
- *           to be released.
- *
- * Returned Value:
- *   None
- *
- * Assumptions:
- *   Not called from an interrupt handler
- *
- ****************************************************************************/
-
-void env_release(FAR struct task_group_s *group);
-
-#ifdef CONFIG_SCHED_USER_IDENTITY
-/****************************************************************************
- * Name: env_sanitize_secure
- *
- * Description:
- *   Remove environment variables that must not be inherited by a secure
- *   (set-user-ID or set-group-ID) executable.
- *
- ****************************************************************************/
-
-void env_sanitize_secure(FAR struct task_group_s *group);
-#endif
-
-/****************************************************************************
  * Name: env_findvar
  *
  * Description:
@@ -125,8 +65,9 @@ void env_sanitize_secure(FAR struct task_group_s *group);
  *   specified name.
  *
  * Input Parameters:
- *   group - The task group containing environment array to be searched.
- *   pname - The variable name to find
+ *   info    - The task containing environment array to be searched.
+ *   pname   - The variable name to find.  It needs no terminating NUL.
+ *   namelen - The length of the name.
  *
  * Returned Value:
  *   A index to the name=value string in the environment
@@ -137,7 +78,85 @@ void env_sanitize_secure(FAR struct task_group_s *group);
  *
  ****************************************************************************/
 
-ssize_t env_findvar(FAR struct task_group_s *group, FAR const char *pname);
+ssize_t env_findvar(FAR struct task_info_s *info, FAR const char *pname,
+                    size_t namelen);
+
+/****************************************************************************
+ * Name: env_setvar
+ *
+ * Description:
+ *   setenv() with the length of the name, so that putenv() can pass the
+ *   name part of its string without a copy.  An empty value removes the
+ *   variable, as in setenv().
+ *
+ * Input Parameters:
+ *   name      - The name of the variable.  It needs no terminating NUL.
+ *   namelen   - The length of the name.
+ *   value     - The new value of the variable.
+ *   overwrite - Replace any existing value if non-zero.
+ *
+ * Returned Value:
+ *   Zero (OK) on success; a negated errno value on failure.
+ *
+ ****************************************************************************/
+
+int env_setvar(FAR const char *name, size_t namelen,
+               FAR const char *value, int overwrite);
+
+/****************************************************************************
+ * Name: env_alloc
+ *
+ * Description:
+ *   Allocate a block for the environment of a task.  The block goes on a
+ *   list of the task, and env_release() frees it when the task exits.
+ *   libc does not free the strings before then, so a pointer that getenv()
+ *   returned stays valid, and the program can keep a string or an array
+ *   that it took from environ.
+ *
+ * Input Parameters:
+ *   info - The task that owns the environment.
+ *   size - The size of the block.
+ *
+ * Returned Value:
+ *   The block, or NULL if there is no memory.
+ *
+ ****************************************************************************/
+
+FAR void *env_alloc(FAR struct task_info_s *info, size_t size);
+
+/****************************************************************************
+ * Name: env_free
+ *
+ * Description:
+ *   Free a block from env_alloc().  Before the task exits, only for a block
+ *   that nothing else can reach.
+ *
+ ****************************************************************************/
+
+void env_free(FAR struct task_info_s *info, FAR void *mem);
+
+/****************************************************************************
+ * Name: env_reserve
+ *
+ * Description:
+ *   Make environ an array that libc allocated, with room for more entries.
+ *   The program can assign environ, as POSIX allows.  Then the array is
+ *   copied, and the array of the program is not changed.  The strings are
+ *   not copied.
+ *
+ * Input Parameters:
+ *   info - The task whose environment is changed.
+ *   more - The number of entries to add.
+ *
+ * Returned Value:
+ *   Zero (OK) on success; -ENOMEM if there is no memory.
+ *
+ * Assumptions:
+ *   The caller holds ta_lock.
+ *
+ ****************************************************************************/
+
+int env_reserve(FAR struct task_info_s *info, size_t more);
 
 /****************************************************************************
  * Name: env_removevar
@@ -146,7 +165,7 @@ ssize_t env_findvar(FAR struct task_group_s *group, FAR const char *pname);
  *   Remove the referenced name=value pair from the environment
  *
  * Input Parameters:
- *   group - The task group with the environment containing the name=value
+ *   info  - The task with the environment containing the name=value
  *           pair
  *   index - A index to the name=value pair in the restroom
  *
@@ -155,12 +174,11 @@ ssize_t env_findvar(FAR struct task_group_s *group, FAR const char *pname);
  *
  * Assumptions:
  *   - Not called from an interrupt handler
- *   - Caller has pre-emption disabled
- *   - Caller will reallocate the environment structure to the correct size
+ *   - The caller holds ta_lock and called env_reserve()
  *
  ****************************************************************************/
 
-void env_removevar(FAR struct task_group_s *group, ssize_t index);
+void env_removevar(FAR struct task_info_s *info, size_t index);
 
 #undef EXTERN
 #ifdef __cplusplus
@@ -168,4 +186,4 @@ void env_removevar(FAR struct task_group_s *group, ssize_t index);
 #endif
 
 #endif /* !CONFIG_DISABLE_ENVIRON */
-#endif /* __SCHED_ENVIRON_ENVIRON_H */
+#endif /* __LIBS_LIBC_ENVIRON_ENVIRON_H */

@@ -1,5 +1,5 @@
 /****************************************************************************
- * sched/environ/env_release.c
+ * libs/libc/environ/env_putenv.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -24,70 +24,68 @@
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
-
-#ifndef CONFIG_DISABLE_ENVIRON
-
-#include <sched.h>
-#include <assert.h>
+#include <string.h>
 #include <errno.h>
 
-#include <nuttx/kmalloc.h>
+#include <nuttx/tls.h>
 
-#include "environ/environ.h"
+#include "environ.h"
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: env_release
+ * Name: putenv
  *
  * Description:
- *   env_release() is called only from group_leave() when the last member of
- *   a task group exits.  The env_release() function clears the environment
- *   of all name-value pairs and sets the value of the external variable
- *   environ to NULL.
+ *   The putenv() function adds or changes the value of environment
+ *   variables.
+ *   The argument string is of the form name=value. If name does not already
+ *   exist in  the  environment, then string is added to the environment. If
+ *   name does exist, then the value of name in the environment is changed to
+ *   value.
  *
  * Input Parameters:
- *   group - Identifies the task group containing the environment structure
- *           to be released.
+ *   name=value string describing the environment setting to add/modify
  *
  * Returned Value:
- *   None
+ *   Zero on success
  *
  * Assumptions:
  *   Not called from an interrupt handler
  *
  ****************************************************************************/
 
-void env_release(FAR struct task_group_s *group)
+int putenv(FAR const char *string)
 {
-  int i;
+  FAR const char *pequal;
+  int ret;
 
-  DEBUGASSERT(group != NULL);
+  /* Verify that a string was passed */
 
-  if (group->tg_envp)
+  if (!string)
     {
-      /* Free any allocate environment strings */
-
-      for (i = 0; group->tg_envp[i] != NULL; i++)
-        {
-          group_free(group, group->tg_envp[i]);
-        }
-
-      /* Free the environment */
-
-      group_free(group, group->tg_envp);
+      set_errno(EINVAL);
+      return ERROR;
     }
 
-  /* In any event, make sure that all environment-related variables in the
-   * task group structure are reset to initial values.
-   */
+  /* Parse the name=value string */
 
-  group->tg_envp  = NULL;
-  group->tg_envpc = 0;
-  group->tg_envc  = 0;
+  pequal = strchr(string, '=');
+  if (pequal == NULL)
+    {
+      return OK;
+    }
+
+  /* Then let env_setvar do all of the work */
+
+  ret = env_setvar(string, pequal - string, pequal + 1, TRUE);
+  if (ret < 0)
+    {
+      set_errno(-ret);
+      return ERROR;
+    }
+
+  return OK;
 }
-
-#endif /* CONFIG_DISABLE_ENVIRON */

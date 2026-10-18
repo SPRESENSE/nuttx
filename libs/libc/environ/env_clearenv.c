@@ -1,5 +1,5 @@
 /****************************************************************************
- * sched/environ/env_getenvironptr.c
+ * libs/libc/environ/env_clearenv.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -24,41 +24,52 @@
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
+#include <nuttx/environ.h>
+#include <nuttx/tls.h>
 
-#ifndef CONFIG_DISABLE_ENVIRON
-
-#include <sched.h>
-#include <stdlib.h>
-#include "sched/sched.h"
-
-#undef get_environ_ptr
+#include "environ/environ.h"
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: get_environ_ptr
+ * Name: clearenv
  *
  * Description:
- *   Return a pointer to the thread specific environ variable.
+ *   The clearenv() function clears the environment of all name-value pairs
+ *   and sets the value of the external variable environ to NULL.
  *
  * Input Parameters:
  *   None
  *
  * Returned Value:
- *   A pointer to the per-thread environ variable.
+ *   None
  *
  * Assumptions:
+ *   Not called from an interrupt handler
  *
  ****************************************************************************/
 
-FAR char **get_environ_ptr(void)
+int clearenv(void)
 {
-  FAR struct tcb_s *tcb = this_task();
+  FAR struct task_info_s *info = task_get_info();
 
-  return tcb->group->tg_envp;
+  nxrmutex_lock(&info->ta_lock);
+
+  /* Free the array of libc if environ still names it.  The strings stay
+   * until exit, as a pointer that getenv() returned can still be in use.
+   */
+
+  if (info->ta_envarr != NULL && info->ta_envp == info->ta_envarr)
+    {
+      env_free(info, info->ta_envarr);
+    }
+
+  info->ta_envp   = NULL;
+  info->ta_envarr = NULL;
+  info->ta_envpc  = 0;
+  info->ta_envc   = 0;
+  nxrmutex_unlock(&info->ta_lock);
+  return OK;
 }
-
-#endif /* CONFIG_DISABLE_ENVIRON */

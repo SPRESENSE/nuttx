@@ -366,6 +366,9 @@ struct child_status_s
   uint8_t ch_flags;                 /* Child status:  See CHILD_FLAG_* defines */
   pid_t   ch_pid;                   /* Child task ID                           */
   int     ch_status;                /* Child exit status                       */
+#ifdef CONFIG_SCHED_USER_IDENTITY
+  uid_t   ch_uid;                   /* Child real user ID at exit              */
+#endif
 };
 #endif
 
@@ -533,14 +536,6 @@ struct task_group_s
 #endif /* !CONFIG_DISABLE_ALL_SIGNALS */
 #ifdef CONFIG_SIG_DEFAULT
   sigset_t tg_sigdefault;           /* Set of signals set to the default action */
-#endif
-
-#ifndef CONFIG_DISABLE_ENVIRON
-  /* Environment variables **************************************************/
-
-  FAR char **tg_envp;               /* Allocated environment strings        */
-  ssize_t    tg_envpc;              /* Maximum entries of environment array */
-  ssize_t    tg_envc;               /* Number of environment strings        */
 #endif
 
 #ifndef CONFIG_DISABLE_POSIX_TIMERS

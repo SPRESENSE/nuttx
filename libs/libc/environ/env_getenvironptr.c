@@ -1,5 +1,5 @@
 /****************************************************************************
- * sched/environ/env_foreach.c
+ * libs/libc/environ/env_getenvironptr.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -24,80 +24,31 @@
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
+#include <nuttx/tls.h>
 
-#ifndef CONFIG_DISABLE_ENVIRON
-
-#include <stdbool.h>
-#include <string.h>
-#include <sched.h>
-#include <assert.h>
-
-#include <nuttx/environ.h>
-
-#include "environ/environ.h"
+#undef get_environ_ptr
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: env_foreach
+ * Name: get_environ_ptr
  *
  * Description:
- *   Visit each name-value pair in the environment.
+ *   Return a pointer to the thread specific environ variable.
  *
  * Input Parameters:
- *   group - The task group containing environment array to be searched.
- *   cb    - The callback function to be invoked for each environment
- *           variable.
+ *   None
  *
  * Returned Value:
- *   Zero if the all environment variables have been traversed.  A non-zero
- *   value means that the callback function requested early termination by
- *   returning a nonzero value.
+ *   A pointer to the per-thread environ variable.
  *
  * Assumptions:
- *   - Not called from an interrupt handler
- *   - Pre-emptions is disabled by caller
  *
  ****************************************************************************/
 
-int env_foreach(FAR struct task_group_s *group,
-                env_foreach_t cb,
-                FAR void *arg)
+FAR char ***get_environ_ptr(void)
 {
-  int ret = OK;
-  size_t i;
-
-  /* Verify input parameters */
-
-  DEBUGASSERT(group != NULL && cb != NULL);
-
-  if (group->tg_envp == NULL)
-    {
-      return ret;
-    }
-
-  for (i = 0; group->tg_envp[i] != NULL; i++)
-    {
-      /* Perform the callback */
-
-      ret = cb(arg, group->tg_envp[i]);
-
-      /* Terminate the traversal early if the callback so requests by
-       * returning a non-zero value.
-       */
-
-      if (ret != 0)
-        {
-          break;
-        }
-    }
-
-  DEBUGASSERT(ret != OK || group->tg_envc == i);
-
-  return ret;
+  return &(task_get_info()->ta_envp);
 }
-
-#endif /* CONFIG_DISABLE_ENVIRON */

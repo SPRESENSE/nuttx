@@ -1,5 +1,5 @@
 /****************************************************************************
- * sched/environ/env_clearenv.c
+ * libs/libc/environ/env_foreach.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -24,15 +24,11 @@
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
-
-#ifndef CONFIG_DISABLE_ENVIRON
-
-#include <sched.h>
-#include <stdlib.h>
 #include <assert.h>
 
-#include "sched/sched.h"
+#include <nuttx/environ.h>
+#include <nuttx/tls.h>
+
 #include "environ/environ.h"
 
 /****************************************************************************
@@ -40,34 +36,58 @@
  ****************************************************************************/
 
 /****************************************************************************
- * Name: clearenv
+ * Name: env_foreach
  *
  * Description:
- *   The clearenv() function clears the environment of all name-value pairs
- *   and sets the value of the external variable environ to NULL.
+ *   Visit each name-value pair in the environment.
  *
  * Input Parameters:
- *   None
+ *   info  - The task containing environment array to be searched.
+ *   cb    - The callback function to be invoked for each environment
+ *           variable.
  *
  * Returned Value:
- *   None
+ *   Zero if the all environment variables have been traversed.  A non-zero
+ *   value means that the callback function requested early termination by
+ *   returning a nonzero value.
  *
  * Assumptions:
- *   Not called from an interrupt handler
+ *   - Not called from an interrupt handler
+ *   - Pre-emptions is disabled by caller
  *
  ****************************************************************************/
 
-int clearenv(void)
+int env_foreach(FAR struct task_info_s *info,
+                env_foreach_t cb,
+                FAR void *arg)
 {
-  FAR struct tcb_s *tcb = this_task();
-  FAR struct task_group_s *group = tcb->group;
+  int ret = OK;
+  size_t i;
 
-  DEBUGASSERT(group);
+  /* Verify input parameters */
 
-  nxrmutex_lock(&group->tg_mutex);
-  env_release(group);
-  nxrmutex_unlock(&group->tg_mutex);
-  return OK;
+  DEBUGASSERT(info != NULL && cb != NULL);
+
+  if (info->ta_envp == NULL)
+    {
+      return ret;
+    }
+
+  for (i = 0; info->ta_envp[i] != NULL; i++)
+    {
+      /* Perform the callback */
+
+      ret = cb(arg, info->ta_envp[i]);
+
+      /* Terminate the traversal early if the callback so requests by
+       * returning a non-zero value.
+       */
+
+      if (ret != 0)
+        {
+          break;
+        }
+    }
+
+  return ret;
 }
-
-#endif /* CONFIG_DISABLE_ENVIRON */

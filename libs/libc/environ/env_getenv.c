@@ -1,5 +1,5 @@
 /****************************************************************************
- * sched/environ/env_getenv.c
+ * libs/libc/environ/env_getenv.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -24,16 +24,12 @@
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
-
-#ifndef CONFIG_DISABLE_ENVIRON
-
-#include <sched.h>
-#include <string.h>
-#include <stdlib.h>
 #include <errno.h>
+#include <string.h>
 
-#include "sched/sched.h"
+#include <nuttx/mutex.h>
+#include <nuttx/tls.h>
+
 #include "environ/environ.h"
 
 /****************************************************************************
@@ -60,48 +56,38 @@
 
 FAR char *getenv(FAR const char *name)
 {
-  FAR struct tcb_s *rtcb;
-  FAR struct task_group_s *group;
+  FAR struct task_info_s *info = task_get_info();
   FAR char *pvalue = NULL;
   ssize_t ret = OK;
 
   /* Verify that a string was passed */
 
-  if (name == NULL || up_interrupt_context())
+  if (name == NULL || info == NULL
+#if defined(CONFIG_BUILD_FLAT) || defined(__KERNEL__)
+      || up_interrupt_context() || sched_idletask()
+#endif
+     )
     {
       ret = -EINVAL;
       goto errout;
     }
 
-  /* Get a reference to the thread-private environ in the TCB. */
-
-  rtcb  = this_task();
-  group = rtcb->group;
-
-  /* Check if the variable exists */
-
-  if (group == NULL)
-    {
-      goto errout;
-    }
-
-  nxrmutex_lock(&group->tg_mutex);
-  ret = env_findvar(group, name);
+  nxrmutex_lock(&info->ta_lock);
+  ret = env_findvar(info, name, strlen(name));
   if (ret < 0)
     {
-      nxrmutex_unlock(&group->tg_mutex);
+      nxrmutex_unlock(&info->ta_lock);
       goto errout;
     }
 
   /* It does!  Get the value sub-string from the name=value string */
 
-  pvalue = strchr(group->tg_envp[ret], '=');
+  pvalue = strchr(info->ta_envp[ret], '=');
   if (pvalue == NULL)
     {
-      nxrmutex_unlock(&group->tg_mutex);
-
       /* The name=value string has no '='  This is a bug! */
 
+      nxrmutex_unlock(&info->ta_lock);
       ret = -EINVAL;
       goto errout;
     }
@@ -109,12 +95,10 @@ FAR char *getenv(FAR const char *name)
   /* Adjust the pointer so that it points to the value right after the '=' */
 
   pvalue++;
-  nxrmutex_unlock(&group->tg_mutex);
+  nxrmutex_unlock(&info->ta_lock);
   return pvalue;
 
 errout:
   set_errno(-ret);
   return NULL;
 }
-
-#endif /* CONFIG_DISABLE_ENVIRON */

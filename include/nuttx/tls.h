@@ -137,7 +137,7 @@ struct pthread_atfork_s
 
 struct task_info_s
 {
-  mutex_t         ta_lock;
+  rmutex_t        ta_lock;
 #if CONFIG_TLS_TASK_NELEM > 0
   uintptr_t       ta_telem[CONFIG_TLS_TASK_NELEM]; /* Task local storage elements */
 #endif
@@ -162,6 +162,17 @@ struct task_info_s
   struct list_node ta_atfork; /* Holds the pthread_atfork_s list */
 #endif
   pid_t ta_pid; /* Process ID */
+#ifndef CONFIG_DISABLE_ENVIRON
+  /* Environment variables **************************************************/
+
+  FAR char            **ta_envp;    /* The array that environ names         */
+  FAR char            **ta_envarr;  /* The array that libc allocated        */
+  FAR void             *ta_envmem;  /* Blocks that libc allocated, freed at
+                                     * exit
+                                     */
+  size_t                ta_envpc;   /* Maximum entries of environment array */
+  size_t                ta_envc;    /* Number of environment strings        */
+#endif
 };
 
 /* struct tls_cleanup_s *****************************************************/

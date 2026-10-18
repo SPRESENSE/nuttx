@@ -1,5 +1,5 @@
 /****************************************************************************
- * sched/environ/env_removevar.c
+ * libs/libc/environ/env_unsetenv.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -24,15 +24,11 @@
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
-
-#ifndef CONFIG_DISABLE_ENVIRON
-
+#include <errno.h>
 #include <string.h>
-#include <sched.h>
-#include <assert.h>
 
-#include <nuttx/kmalloc.h>
+#include <nuttx/mutex.h>
+#include <nuttx/tls.h>
 
 #include "environ/environ.h"
 
@@ -41,66 +37,55 @@
  ****************************************************************************/
 
 /****************************************************************************
- * Name: env_removevar
+ * Name: unsetenv
  *
  * Description:
- *   Remove the referenced name=value pair from the environment
+ *   The unsetenv() function deletes the variable name from the environment.
  *
  * Input Parameters:
- *   group - The task group with the environment containing the name=value
- *           pair
- *   index - A index to the name=value pair in the restroom
+ *   name - The name of the variable to delete
  *
  * Returned Value:
- *   None
+ *   Zero on success
  *
  * Assumptions:
- *   - Not called from an interrupt handler
- *   - Caller has pre-emption disabled
- *   - Caller will reallocate the environment structure to the correct size
+ *   Not called from an interrupt handler
  *
  ****************************************************************************/
 
-void env_removevar(FAR struct task_group_s *group, ssize_t index)
+int unsetenv(FAR const char *name)
 {
-  DEBUGASSERT(group != NULL && index >= 0 && index < group->tg_envc);
+  FAR struct task_info_s *info = task_get_info();
+  ssize_t idx;
+  int ret;
 
-  /* Free the allocate environment string */
+  /* Check the incoming parameter */
 
-  group_free(group, group->tg_envp[index]);
-
-  /* Exchange the last env and the index env */
-
-  group->tg_envc--;
-  if (index == group->tg_envc)
+  if (name == NULL || *name == '\0' || strchr(name, '=') != NULL)
     {
-      group->tg_envp[index] = NULL;
-    }
-  else
-    {
-      group->tg_envp[index] = group->tg_envp[group->tg_envc];
-      group->tg_envp[group->tg_envc] = NULL;
+      set_errno(EINVAL);
+      return ERROR;
     }
 
-  /* Free the old environment (if there was one) */
+  nxrmutex_lock(&info->ta_lock);
 
-  if (group->tg_envc == 0)
+  /* Check if the variable exists */
+
+  if ((idx = env_findvar(info, name, strlen(name))) >= 0)
     {
-      group_free(group, group->tg_envp);
-      group->tg_envp = NULL;
-      group->tg_envpc = 0;
-    }
-  else if (group->tg_envc <=
-           (group->tg_envpc - SCHED_ENVIRON_RESERVED * 2))
-    {
-      /* Reallocate the environment to reclaim a little memory */
+      /* It does!  Remove the name=value pair from an array of libc. */
 
-      group->tg_envpc = group->tg_envc + SCHED_ENVIRON_RESERVED + 1;
+      ret = env_reserve(info, 0);
+      if (ret < 0)
+        {
+          nxrmutex_unlock(&info->ta_lock);
+          set_errno(-ret);
+          return ERROR;
+        }
 
-      group->tg_envp = group_realloc(group, group->tg_envp,
-         sizeof(*group->tg_envp) * group->tg_envpc);
-      DEBUGASSERT(group->tg_envp != NULL);
+      env_removevar(info, idx);
     }
+
+  nxrmutex_unlock(&info->ta_lock);
+  return OK;
 }
-
-#endif /* CONFIG_DISABLE_ENVIRON */

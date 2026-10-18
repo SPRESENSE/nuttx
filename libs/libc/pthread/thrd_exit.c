@@ -1,5 +1,5 @@
 /****************************************************************************
- * sched/environ/env_unsetenv.c
+ * libs/libc/pthread/thrd_exit.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -26,67 +26,30 @@
 
 #include <nuttx/config.h>
 
-#ifndef CONFIG_DISABLE_ENVIRON
-
-#include <sched.h>
-#include <string.h>
-#include <assert.h>
-#include <errno.h>
-
-#include <nuttx/kmalloc.h>
-
-#include "sched/sched.h"
-#include "environ/environ.h"
+#include <stdint.h>
+#include <pthread.h>
+#include <threads.h>
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: unsetenv
+ * Name: thrd_exit
  *
  * Description:
- *   The unsetenv() function deletes the variable name from the environment.
+ *   Terminate the calling thread.  thrd_join() of this thread gets res as
+ *   the result of the thread.
  *
  * Input Parameters:
- *   name - The name of the variable to delete
+ *   res - The result of the thread
  *
  * Returned Value:
- *   Zero on success
- *
- * Assumptions:
- *   Not called from an interrupt handler
+ *   This function does not return.
  *
  ****************************************************************************/
 
-int unsetenv(FAR const char *name)
+void thrd_exit(int res)
 {
-  FAR struct tcb_s *rtcb = this_task();
-  FAR struct task_group_s *group = rtcb->group;
-  ssize_t idx;
-
-  DEBUGASSERT(group);
-
-  /* Check the incoming parameter */
-
-  if (name == NULL || *name == '\0' || strchr(name, '=') != NULL)
-    {
-      set_errno(EINVAL);
-      return ERROR;
-    }
-
-  /* Check if the variable exists */
-
-  nxrmutex_lock(&group->tg_mutex);
-  if (group && (idx = env_findvar(group, name)) >= 0)
-    {
-      /* It does!  Remove the name=value pair from the environment. */
-
-      env_removevar(group, idx);
-    }
-
-  nxrmutex_unlock(&group->tg_mutex);
-  return OK;
+  pthread_exit((pthread_addr_t)(intptr_t)res);
 }
-
-#endif /* CONFIG_DISABLE_ENVIRON */

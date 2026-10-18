@@ -1,5 +1,5 @@
 /****************************************************************************
- * sched/environ/env_findvar.c
+ * libs/libc/environ/env_secureexec.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -26,12 +26,13 @@
 
 #include <nuttx/config.h>
 
-#ifndef CONFIG_DISABLE_ENVIRON
-
 #include <stdbool.h>
 #include <string.h>
-#include <sched.h>
+#include <stdlib.h>
 #include <assert.h>
+
+#include <nuttx/environ.h>
+#include <nuttx/tls.h>
 
 #include "environ/environ.h"
 
@@ -39,76 +40,109 @@
  * Private Functions
  ****************************************************************************/
 
+#ifdef CONFIG_SCHED_USER_IDENTITY
+
 /****************************************************************************
- * Name: env_cmpname
+ * Name: env_is_unsafe
+ *
+ * Description:
+ *   Return true if the "NAME=value" pair must not be inherited by a secure
+ *   (set-user-ID or set-group-ID) executable.
+ *
  ****************************************************************************/
 
-static bool env_cmpname(const char *pszname, const char *peqname)
+static bool env_is_unsafe(FAR const char *pair)
 {
-  /* Search until we find anything different in the two names */
-
-  for (; *pszname == *peqname; pszname++, peqname++)
+  static FAR const char * const names[] =
     {
+      "IFS=",
+      "CDPATH=",
+      "ENV=",
+      "BASH_ENV=",
+      "PATH=",
+      "HOSTALIASES=",
+      "LOCPATH=",
+      "GCONV_PATH=",
+      "TZDIR=",
+      "LOCALDOMAIN=",
+      "NLSPATH=",
+      NULL
+    };
+
+  FAR const char * const *name;
+
+  for (name = names; *name != NULL; name++)
+    {
+      if (pair != NULL && strncmp(pair, *name, strlen(*name)) == 0)
+        {
+          return true;
+        }
     }
 
-  /* On success, pszname will end with '\0' and peqname with '=' */
-
-  if (*pszname == '\0' && *peqname == '=')
+  if (pair == NULL)
     {
-      return true;
+      return false;
     }
 
-  return false;
+  return strncmp(pair, "LD_", 3) == 0 ||
+         strncmp(pair, "MALLOC_", 7) == 0;
 }
+
+#endif /* CONFIG_SCHED_USER_IDENTITY */
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: env_findvar
- *
- * Description:
- *   Search the provided environment structure for the variable of the
- *   specified name.
- *
- * Input Parameters:
- *   group - The task group containing environment array to be searched.
- *   pname - The variable name to find
- *
- * Returned Value:
- *   A index to the name=value string in the environment
- *
- * Assumptions:
- *   - Not called from an interrupt handler
- *   - Pre-emption is disabled by caller
- *
+ * Name: env_sanitize_secure
  ****************************************************************************/
 
-ssize_t env_findvar(FAR struct task_group_s *group, FAR const char *pname)
+#ifdef CONFIG_SCHED_USER_IDENTITY
+void env_sanitize_secure(FAR struct task_info_s *info)
 {
-  ssize_t i;
+  size_t index;
 
-  /* Verify input parameters */
+  DEBUGASSERT(info != NULL);
 
-  DEBUGASSERT(group != NULL && pname != NULL);
+  nxrmutex_lock(&info->ta_lock);
 
-  if (group->tg_envp == NULL)
+  if (env_reserve(info, 0) < 0)
     {
-      return -ENOENT;
+      /* Without an array of libc to change, drop the whole environment */
+
+      info->ta_envp = NULL;
+      info->ta_envc = 0;
     }
 
-  /* Search for a name=value string with matching name */
+  /* Walk down from the last entry.  env_removevar() moves the last entry
+   * into the removed one, so the same index is checked again.
+   */
 
-  for (i = 0; group->tg_envp[i] != NULL; i++)
+  index = info->ta_envc;
+  while (index > 0)
     {
-      if (env_cmpname(pname, group->tg_envp[i]))
+      FAR char *pair = info->ta_envp[index - 1];
+
+      if (pair != NULL && env_is_unsafe(pair))
         {
-          return i;
+          env_removevar(info, index - 1);
+        }
+      else
+        {
+          index--;
         }
     }
 
-  return -ENOENT;
+  nxrmutex_unlock(&info->ta_lock);
 }
+#endif
 
-#endif /* CONFIG_DISABLE_ENVIRON */
+/****************************************************************************
+ * Name: secure_getenv
+ ****************************************************************************/
+
+FAR char *secure_getenv(FAR const char *name)
+{
+  return issetugid() ? NULL : getenv(name);
+}
