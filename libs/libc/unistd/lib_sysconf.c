@@ -28,6 +28,7 @@
 
 #include <nuttx/atexit.h>
 
+#include <sys/resource.h>
 #include <unistd.h>
 #include <limits.h>
 #include <sched.h>
@@ -225,9 +226,11 @@ long sysconf(int name)
       case _SC_PRIORITIZED_IO:
         return _POSIX_PRIORITIZED_IO;
       case _SC_AIO_MAX:
-        return _POSIX_AIO_MAX;
-#ifdef CONFIG_LIBC_PASSWD_LINESIZE
+        return AIO_MAX;
       case _SC_GETPW_R_SIZE_MAX:
+#ifdef CONFIG_LIBC_PASSWD_LINESIZE
+        return CONFIG_LIBC_PASSWD_LINESIZE;
+#else
         return _POSIX_GETPW_R_SIZE_MAX;
 #endif
       case _SC_CPUTIME:
@@ -243,7 +246,18 @@ long sysconf(int name)
         return ARG_MAX;
 
       case _SC_OPEN_MAX:
-        return OPEN_MAX;
+        {
+          struct rlimit rlim;
+
+          /* The soft limit of the process, which setrlimit() can change */
+
+          if (getrlimit(RLIMIT_NOFILE, &rlim) == 0)
+            {
+              return rlim.rlim_cur;
+            }
+
+          return OPEN_MAX;
+        }
 
       case _SC_NGROUPS_MAX:
         return NGROUPS_MAX;

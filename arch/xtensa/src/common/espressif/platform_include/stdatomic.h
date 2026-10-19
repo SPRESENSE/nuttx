@@ -1,5 +1,5 @@
 /****************************************************************************
- * libs/libc/unistd/lib_setrlimit.c
+ * arch/xtensa/src/common/espressif/platform_include/stdatomic.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,36 +20,22 @@
  *
  ****************************************************************************/
 
+#pragma once
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
-
-#include <string.h>
-#include <errno.h>
-
-#include <sys/resource.h>
+#include_next <stdatomic.h>
 
 /****************************************************************************
- * Public Functions
+ * Pre-processor Definitions
  ****************************************************************************/
 
-/****************************************************************************
- * Name: setrlimit
- *
- * Description:
- *   The getrlimit() and setrlimit() system calls get and
- *   set resource limits respectively.
- *
- ****************************************************************************/
+/* ATOMIC_VAR_INIT was deprecated in C17 and removed in C23 / GCC 15.
+ * Provide compatibility definition for external HAL components.
+ */
 
-int setrlimit(int resource, FAR const struct rlimit *rlp)
-{
-  /* This is a dummy realization to make the compiler happy */
-
-  UNUSED(resource);
-  UNUSED(rlp);
-
-  return OK;
-}
+#ifndef ATOMIC_VAR_INIT
+#  define ATOMIC_VAR_INIT(value) (value)
+#endif

@@ -1,5 +1,5 @@
 /****************************************************************************
- * libs/libc/unistd/lib_getrlimit.c
+ * sched/module/mod_registry.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -26,68 +26,62 @@
 
 #include <nuttx/config.h>
 
-#include <string.h>
 #include <errno.h>
 
-#include <sys/resource.h>
-#include <pthread.h>
+#include <nuttx/list.h>
+#include <nuttx/mutex.h>
+
+#include "module/module.h"
+
+/****************************************************************************
+ * Private Data
+ ****************************************************************************/
+
+/* The kernel modules that insmod() loads.  What dlopen() loads is on the
+ * registry of the task group.
+ */
+
+static rmutex_t g_mod_lock = NXRMUTEX_INITIALIZER;
+static struct list_node g_mod_registry = LIST_INITIAL_VALUE(g_mod_registry);
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: getrlimit
+ * Name: mod_registry_lock
  *
  * Description:
- *   The getrlimit() and setrlimit() system calls get and
- *   set resource limits respectively.
+ *   Lock the registry of the kernel modules that insmod() loads, and
+ *   return it.  The lock is recursive: the constructors of a module run
+ *   with it held.
  *
  ****************************************************************************/
 
-int getrlimit(int resource, FAR struct rlimit *rlp)
+FAR struct list_node *mod_registry_lock(void)
 {
-  UNUSED(resource);
+  int ret;
 
-  if (rlp == NULL)
+  /* A signal must not make the caller run without the lock */
+
+  do
     {
-      set_errno(EINVAL);
-      return ERROR;
+      ret = nxrmutex_lock(&g_mod_lock);
     }
+  while (ret == -EINTR);
 
-  /* This is a dummy realization to make the compiler happy */
+  return &g_mod_registry;
+}
 
-  memset(rlp, 0, sizeof(*rlp));
+/****************************************************************************
+ * Name: mod_registry_unlock
+ *
+ * Description:
+ *   Unlock the registry of the kernel modules.
+ *
+ ****************************************************************************/
 
-  switch (resource)
-    {
-      case RLIMIT_NOFILE:
-        {
-          rlp->rlim_cur = OPEN_MAX;
-          rlp->rlim_max = OPEN_MAX;
-        }
-        break;
-      case RLIMIT_STACK:
-        {
-          rlp->rlim_cur = PTHREAD_STACK_DEFAULT;
-          rlp->rlim_max = RLIM_INFINITY;
-        }
-        break;
-      case RLIMIT_RTPRIO:
-        {
-          rlp->rlim_cur = SCHED_PRIORITY_DEFAULT;
-          rlp->rlim_max = SCHED_PRIORITY_MAX;
-        }
-        break;
-      case RLIMIT_RTTIME:
-        {
-          rlp->rlim_cur = UINT32_MAX;
-          rlp->rlim_max = UINT32_MAX;
-        }
-        break;
-      default:
-        break;
-    }
-
-  return OK;
+void mod_registry_unlock(void)
+{
+  nxrmutex_unlock(&g_mod_lock);
 }

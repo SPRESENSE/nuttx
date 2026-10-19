@@ -32,6 +32,7 @@
 #include <sys/types.h>
 #include <stdarg.h>
 #include <time.h>
+#include <limits.h>
 
 #include <nuttx/mutex.h>
 #include <nuttx/queue.h>
@@ -51,8 +52,8 @@
 
 /* File System Definitions **************************************************/
 
-#define FILENAME_MAX _POSIX_NAME_MAX
-#define FOPEN_MAX    _POSIX_STREAM_MAX
+#define FILENAME_MAX PATH_MAX
+#define FOPEN_MAX    STREAM_MAX
 
 /* The (default) size of the I/O buffers */
 
@@ -375,8 +376,8 @@ int       remove(FAR const char *path);
 
 FAR char *ctermid(FAR char *s);
 
-/* Shell operations.  These are not actually implemented in the OS.  See
- * apps/system/popen for implementation.
+/* Shell operations.  libc has them when pipes, posix_spawn() and
+ * waitpid() are enabled.
  */
 
 #ifndef __KERNEL__
