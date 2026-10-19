@@ -34,6 +34,7 @@
 #include <nuttx/arch.h>
 #include <nuttx/spi/spi.h>
 #include <nuttx/kmalloc.h>
+#include <nuttx/lib/lib.h>
 #include <nuttx/kthread.h>
 #include <nuttx/mutex.h>
 #include <nuttx/wireless/nrc7292.h>
