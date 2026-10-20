@@ -29,8 +29,10 @@
 #include <nuttx/debug.h>
 #include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <sys/param.h>
 
+#include <nuttx/arch.h>
 #include <nuttx/wqueue.h>
 #include <nuttx/mm/iob.h>
 
@@ -48,6 +50,10 @@
 /* Constant from NRF52 manual */
 
 #define NRF52_ED_RSSISCALE            (4)
+
+/* One ED iteration lasts 8 symbols (128 us) */
+
+#define NRF52_ED_ITER_SYMBOLS         (8)
 
 /* ED configuration:
  *   - IRQ on EDEND event (sampling of energy detection complete)
@@ -324,7 +330,9 @@ static void nrf52_radioi8_rx_parse(struct nrf52_radioi8_dev_s *dev,
 
   if (smode != IEEE802154_ADDRMODE_NONE)
     {
-      if (!panid_comp)
+      /* PAN ID compression applies only when both addresses are present */
+
+      if (!panid_comp || dmode == IEEE802154_ADDRMODE_NONE)
         {
           i += IEEE802154_PANIDSIZE;
         }
@@ -442,6 +450,7 @@ static bool nrf52_radioi8_filter(struct nrf52_radioi8_dev_s *dev)
   struct ieee802154_addr_s  addr;
   uint8_t                  *rx = &dev->radio->rxbuf[1];
   uint16_t                 *fc = (uint16_t *)&rx[0];
+  int                       i;
 
   /* Promiscuous mode */
 
@@ -469,7 +478,14 @@ static bool nrf52_radioi8_filter(struct nrf52_radioi8_dev_s *dev)
     }
   else if (addr.mode == IEEE802154_ADDRMODE_EXTENDED)
     {
-      IEEE802154_EADDRCOPY(addr.eaddr, &rx[5]);
+      /* Sent least significant octet first, eaddr[0] is the most
+       * significant octet
+       */
+
+      for (i = 0; i < IEEE802154_EADDRSIZE; i++)
+        {
+          addr.eaddr[i] = rx[5 + IEEE802154_EADDRSIZE - 1 - i];
+        }
     }
 
   /* PAN ID match */
@@ -723,9 +739,34 @@ static int nrf52_radioi8_energydetect(struct nrf52_radioi8_dev_s *dev,
                                       uint32_t nsymbols)
 {
   struct nrf52_radio_dev_s *lower = NULL;
+  uint32_t                  edcnt = 0;
 
   DEBUGASSERT(dev);
   lower = dev->radio->lower;
+
+  /* ED lasts (EDCNT + 1) iterations */
+
+  edcnt = nsymbols / NRF52_ED_ITER_SYMBOLS;
+  if (edcnt > 0)
+    {
+      edcnt -= 1;
+    }
+
+  if (edcnt > RADIO_EDCNT_MASK)
+    {
+      edcnt = RADIO_EDCNT_MASK;
+    }
+
+  /* ED starts on the READY event, RXEN has no effect if RX is active */
+
+  if (dev->radio->state.rxenabled)
+    {
+      dev->radio->state.edrestore = true;
+      dev->radio->ops->rxenable(dev, false);
+    }
+
+  while (NRF52_RADIO_GETREG(lower, NRF52_RADIO_STATE_OFFSET) !=
+         RADIO_STATE_DISABLED);
 
   /* Clear events */
 
@@ -740,7 +781,7 @@ static int nrf52_radioi8_energydetect(struct nrf52_radioi8_dev_s *dev,
 
   /* Configure ED symbols */
 
-  NRF52_RADIO_PUTREG(lower, NRF52_RADIO_EDCNT_OFFSET, nsymbols);
+  NRF52_RADIO_PUTREG(lower, NRF52_RADIO_EDCNT_OFFSET, edcnt);
 
   /* Set state to ENERGY_DETECT (ED) */
 
@@ -768,11 +809,31 @@ static int nrf52_radioi8_setchannel(struct nrf52_radioi8_dev_s *dev,
 {
   struct nrf52_radio_dev_s *lower = NULL;
   uint32_t                  freq  = 2405 + 5 * (chan - 11);
+  int                       ret;
 
   DEBUGASSERT(dev);
   lower = dev->radio->lower;
 
-  return NRF52_RADIO_FREQSET(lower, freq);
+  ret = NRF52_RADIO_FREQSET(lower, freq);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  /* Restart an active receiver on the new channel */
+
+  if (dev->radio->state.state == NRF52_RADIO_STATE_RX &&
+      dev->radio->state.rxenabled)
+    {
+      dev->radio->ops->rxenable(dev, false);
+
+      while (NRF52_RADIO_GETREG(lower, NRF52_RADIO_STATE_OFFSET) !=
+             RADIO_STATE_DISABLED);
+
+      dev->radio->ops->rxenable(dev, true);
+    }
+
+  return OK;
 }
 
 /****************************************************************************
@@ -800,7 +861,7 @@ static int nrf52_radioi8_setcca(struct nrf52_radioi8_dev_s *dev,
     {
       c.mode = NRF52_RADIO_CCA_ED;
     }
-  else if (~cca->use_ed && cca->use_cs)
+  else if (!cca->use_ed && cca->use_cs)
     {
       c.mode = NRF52_RADIO_CCA_CARRIER;
     }
@@ -972,7 +1033,7 @@ static void nrf52_radioi8_trg_csma(struct nrf52_radioi8_dev_s *dev)
 
       /* Get random unit backoff period delay */
 
-      delay = rand() % ((1 << dev->radio->state.BE) - 1);
+      delay = rand() % (1 << dev->radio->state.BE);
 
       /* TODO:
        *  - locate backoff period boundary
@@ -999,7 +1060,7 @@ static void nrf52_radioi8_trg_csma(struct nrf52_radioi8_dev_s *dev)
 
       /* Get random unit backoff period delay */
 
-      delay = rand() % ((1 << dev->radio->state.BE) - 1);
+      delay = rand() % (1 << dev->radio->state.BE);
     }
 
   /* CSMA is in use */
@@ -1217,9 +1278,58 @@ errout:
  *
  ****************************************************************************/
 
+static void nrf52_radioi8_rxrestore(struct nrf52_radioi8_dev_s *dev)
+{
+  /* Enable RX only if no transaction is armed or in progress */
+
+  if (dev->radio->state.state == NRF52_RADIO_STATE_DISABLED)
+    {
+      dev->macops.rxenable((struct ieee802154_radio_s *)dev, true);
+    }
+}
+
+static void nrf52_radioi8_txpending(struct nrf52_radioi8_dev_s *dev)
+{
+  irqstate_t flags;
+
+  /* Start the no CSMA transaction that waited for the CSMA transaction */
+
+  if (dev->state.txdelayed_pending)
+    {
+      flags = enter_critical_section();
+
+      dev->state.txdelayed_pending = false;
+      dev->state.txdelayed_busy    = true;
+
+      /* An ACK TX in progress starts it when done */
+
+      if (dev->radio->state.state == NRF52_RADIO_STATE_ACKTX)
+        {
+          leave_critical_section(flags);
+          return;
+        }
+
+      nrf52_radioi8_norm_setup(dev, dev->state.txdelayed_desc->frame,
+                               false);
+
+      if (dev->state.txdelayed_delay == 0)
+        {
+          nrf52_radioi8_norm_trigger(dev);
+        }
+      else
+        {
+          dev->tim->ops->setup(dev, NRF52_TIMER_CHAN_TXDELAY,
+                               dev->state.txdelayed_delay);
+        }
+
+      leave_critical_section(flags);
+    }
+}
+
 void nrf52_radioi8_dopoll_csma(void *arg)
 {
   struct nrf52_radioi8_dev_s *dev = (struct nrf52_radioi8_dev_s *)arg;
+  irqstate_t                  flags;
   int                         len = 0;
 
   /* Get exclusive access to the driver */
@@ -1230,7 +1340,8 @@ void nrf52_radioi8_dopoll_csma(void *arg)
 
   /* If this a CSMA transaction and we have room in the CSMA */
 
-  if (!dev->radio->state.csma_busy)
+  if (!dev->radio->state.csma_busy && !dev->state.csma_pending &&
+      !dev->state.txdelayed_busy && !dev->state.txdelayed_pending)
     {
       wlinfo("Polling for frame\n");
       len = dev->radiocb->poll(dev->radiocb, false, &dev->state.csma_desc);
@@ -1239,14 +1350,28 @@ void nrf52_radioi8_dopoll_csma(void *arg)
         {
           wlinfo("Frame received. Frame length: %d\n", len);
 
-          /* Setup the CSMA transaction */
+          flags = enter_critical_section();
 
-          dev->radio->ops->norm_setup(dev, dev->state.csma_desc->frame,
-                                      true);
-          dev->radio->ops->norm_trigger(dev);
+          /* An ACK TX in progress starts the transaction when done */
+
+          if (dev->radio->state.state == NRF52_RADIO_STATE_ACKTX)
+            {
+              dev->state.csma_pending = true;
+            }
+          else
+            {
+              /* Setup the CSMA transaction */
+
+              dev->radio->ops->norm_setup(dev, dev->state.csma_desc->frame,
+                                          true);
+              dev->radio->ops->norm_trigger(dev);
+            }
+
+          leave_critical_section(flags);
         }
     }
 
+  nrf52_radioi8_rxrestore(dev);
   nxmutex_unlock(&dev->lock);
 }
 
@@ -1354,26 +1479,39 @@ static void nrf52_radioi8_work_noack(void *arg)
 
       NRF52_RADIO_PUTREG(lower, NRF52_RADIO_TASKS_DISABLE_OFFSET, 1);
 
-      /* Try again */
+      /* Try again, CSMA-CA starts again for each attempt */
 
       tx->retrycount -= 1;
       nrf52_radioi8_trace_put(RADIO_TRACE_TXRETRY, tx->retrycount);
+      dev->radio->state.NB = 0;
+      dev->radio->state.BE = dev->radio->state.min_be;
       nrf52_radioi8_norm_setup(dev, tx->frame, csma);
       nrf52_radioi8_norm_trigger(dev);
+      nxmutex_unlock(&dev->lock);
+      return;
+    }
+
+  nrf52_radioi8_trace_put(RADIO_TRACE_NOACK, 0);
+
+  tx->conf->status = IEEE802154_STATUS_NO_ACK;
+  tx->framepending = false;
+  dev->radiocb->txdone(dev->radiocb, tx);
+  *busy = false;
+
+  if (csma)
+    {
+      dev->state.csma_desc = NULL;
+      nrf52_radioi8_txpending(dev);
     }
   else
     {
-      nrf52_radioi8_trace_put(RADIO_TRACE_NOACK, 0);
-
-      tx->conf->status = IEEE802154_STATUS_NO_ACK;
-      tx->framepending = false;
-      dev->radiocb->txdone(dev->radiocb, tx);
-      *busy = false;
+      dev->state.txdelayed_desc = NULL;
     }
 
-  /* Unlock the radio device */
+  /* Unlock the radio device and poll for the next CSMA transaction */
 
   nxmutex_unlock(&dev->lock);
+  nrf52_radioi8_dopoll_csma(dev);
 }
 
 /****************************************************************************
@@ -1424,10 +1562,15 @@ static void nrf52_radioi8_work_rx(void *arg)
 
   prim->type = IEEE802154_PRIMITIVE_IND_DATA;
 
-  /* Allocate an IOB to put the frame into */
+  /* Allocate an IOB to put the frame into, never block the work queue */
 
-  ind->frame = iob_alloc(false);
-  DEBUGASSERT(ind->frame != NULL);
+  ind->frame = iob_tryalloc(false);
+  if (ind->frame == NULL)
+    {
+      wlerr("ERROR: Unable to allocate IOB. Discarding frame\n");
+      ieee802154_primitive_free(prim);
+      goto out;
+    }
 
   /* First byte is the PHR */
 
@@ -1465,14 +1608,9 @@ static void nrf52_radioi8_work_rx(void *arg)
 
 out:
 
-  /* Re-Enable RX if not handling ACK TX now */
+  /* Re-Enable RX if the radio is idle */
 
-  if (dev->radio->state.state != NRF52_RADIO_STATE_ACKTX)
-    {
-      /* Enable packet reception */
-
-      dev->macops.rxenable((struct ieee802154_radio_s *)dev, true);
-    }
+  nrf52_radioi8_rxrestore(dev);
 
   /* Unlock the radio device */
 
@@ -1530,28 +1668,15 @@ static void nrf52_radioi8_work_tx(void *arg)
       /* We are now done with the transaction */
 
       dev->radio->state.csma_busy = false;
-
-      /* Must unlock the radio before calling poll */
-
-      nxmutex_unlock(&dev->lock);
-      nrf52_radioi8_dopoll_csma(dev);
-      while (nxmutex_lock(&dev->lock) < 0)
-        {
-        }
+      nrf52_radioi8_txpending(dev);
     }
 
-  /* Re-Enable RX if not handling ACK TX now */
-
-  if (dev->radio->state.state != NRF52_RADIO_STATE_ACKTX)
-    {
-      /* Enable packet reception */
-
-      dev->macops.rxenable((struct ieee802154_radio_s *)dev, true);
-    }
-
-  /* Unlock the radio device */
+  /* Unlock the radio device and poll for the next CSMA transaction, RX is
+   * restored there if the radio is idle.
+   */
 
   nxmutex_unlock(&dev->lock);
+  nrf52_radioi8_dopoll_csma(dev);
 }
 
 /****************************************************************************
@@ -1574,14 +1699,20 @@ static void nrf52_radioi8_work_busy(void *arg)
     {
     }
 
-  dev->state.txdelayed_desc->conf->status =
+  /* CSMA-CA failed for the CSMA transaction */
+
+  dev->state.csma_desc->conf->status =
     IEEE802154_STATUS_CHANNEL_ACCESS_FAILURE;
+  dev->state.csma_desc->framepending = false;
+  dev->radiocb->txdone(dev->radiocb, dev->state.csma_desc);
+  dev->state.csma_desc = NULL;
+  dev->radio->state.csma_busy = false;
+  nrf52_radioi8_txpending(dev);
 
-  dev->radiocb->txdone(dev->radiocb, dev->state.txdelayed_desc);
-
-  /* Unlock the radio device */
+  /* Unlock the radio device and poll for the next CSMA transaction */
 
   nxmutex_unlock(&dev->lock);
+  nrf52_radioi8_dopoll_csma(dev);
 }
 
 /****************************************************************************
@@ -1614,6 +1745,15 @@ static void nrf52_radioi8_work_ed(void *arg)
   /* Callback the receiver in the next highest layer */
 
   dev->radiocb->edresult(dev->radiocb, ed);
+
+  /* Restore RX if it was enabled and no next ED was started */
+
+  if (dev->radio->state.edrestore &&
+      dev->radio->state.state != NRF52_RADIO_STATE_ED)
+    {
+      dev->radio->state.edrestore = false;
+      dev->radio->ops->rxenable(dev, true);
+    }
 }
 
 /****************************************************************************
@@ -1628,11 +1768,14 @@ static void nrf52_radioi8_state_rx(struct nrf52_radioi8_dev_s *dev)
 {
   uint8_t *rxbuf = dev->radio->rxbuf;
 
-  /* Frame filter */
+  /* Frame filter, a frame with a CRC error is not acknowledged */
 
   if (dev->radio->state.waitack == false)
     {
-      if (!nrf52_radioi8_filter(dev))
+      if ((dev->state.rxmode != NRF52_RXMODE_NOCRC &&
+           !NRF52_RADIO_GETREG(dev->radio->lower,
+                               NRF52_RADIO_CRCSTATUS_OFFSET)) ||
+          !nrf52_radioi8_filter(dev))
         {
           nrf52_radioi8_trace_put(RADIO_TRACE_DROPFRAME, 0);
 
@@ -1666,9 +1809,12 @@ static void nrf52_radioi8_state_rx(struct nrf52_radioi8_dev_s *dev)
     }
 #endif
 
-  /* Start ACK handling now - this must be done in isr */
+  /* Start ACK handling now - this must be done in isr.  Frames are not
+   * filtered while we wait for our ACK, so they are not acknowledged.
+   */
 
-  if (dev->state.rxmode == NRF52_RXMODE_NORMAL &&
+  if (dev->radio->state.waitack == false &&
+      dev->state.rxmode == NRF52_RXMODE_NORMAL &&
       rxbuf[1] & IEEE802154_FRAMECTRL_ACKREQ &&
       rxbuf[0] != IEEE802154_ACK_FRAME_SIZE)
     {
@@ -1694,10 +1840,21 @@ static void nrf52_radioi8_state_rx(struct nrf52_radioi8_dev_s *dev)
         }
     }
 
-  /* We wait for TX ACK and this frame is ACK - confirm TX to MAC */
+  /* We wait for TX ACK and this is not a valid ACK frame - ignore it and
+   * keep waiting for the ACK (IEEE 802.15.4-2011 5.1.6.2, 5.1.6.4.3).
+   */
 
-  else if (rxbuf[0] == IEEE802154_ACK_FRAME_SIZE &&
-           dev->radio->state.waitack == true)
+  else if (rxbuf[0] != IEEE802154_ACK_FRAME_SIZE ||
+           (rxbuf[1] & IEEE802154_FRAMECTRL_FTYPE) != IEEE802154_FRAME_ACK ||
+           !NRF52_RADIO_GETREG(dev->radio->lower,
+                               NRF52_RADIO_CRCSTATUS_OFFSET))
+    {
+      dev->macops.rxenable((struct ieee802154_radio_s *)dev, true);
+    }
+
+  /* We wait for TX ACK and this is our ACK - confirm TX to MAC */
+
+  else if (rxbuf[3] == dev->radio->txbuf[3])
     {
       nrf52_radioi8_trace_put(RADIO_TRACE_IRQ_RXACKDONE, 0);
 
@@ -1722,13 +1879,16 @@ static void nrf52_radioi8_state_rx(struct nrf52_radioi8_dev_s *dev)
         }
     }
 
-  /* We wait for TX ACK and this is not ACK - notify TX failure */
+  /* We wait for TX ACK and the ACK has another sequence number - notify TX
+   * failure
+   */
 
   else
     {
-      /* Clear flag */
+      /* Clear flag and stop the ACK wait timer */
 
       dev->radio->state.waitack = false;
+      dev->tim->ops->stop(dev);
 
       /* And notify MAC */
 
@@ -1753,28 +1913,6 @@ static void nrf52_radioi8_state_tx(struct nrf52_radioi8_dev_s *dev)
   DEBUGASSERT(dev);
   lower = dev->radio->lower;
 
-  if (dev->radio->state.waitack == true)
-    {
-      nrf52_radioi8_trace_put(RADIO_TRACE_IRQ_WAITACK, 0);
-
-      /* Start timer and wait for ACK */
-
-      dev->tim->ops->setup(dev, NRF52_TIMER_CHAN_WAITACK,
-                           IEEE802154_ACK_WAIT);
-    }
-  else
-    {
-      nrf52_radioi8_trace_put(RADIO_TRACE_IRQ_TXDONE, 0);
-
-      /* Transmit DONE */
-
-      if (work_available(&dev->radio->irqwork))
-        {
-          work_queue(HPWORK, &dev->radio->irqwork,
-                     nrf52_radioi8_work_tx, (void *)dev, 0);
-        }
-    }
-
   /* CCABUSY event for TX */
 
   if (NRF52_RADIO_GETREG(lower, NRF52_RADIO_EVENTS_CCABUSY_OFFSET))
@@ -1796,19 +1934,23 @@ static void nrf52_radioi8_state_tx(struct nrf52_radioi8_dev_s *dev)
 
           if (dev->radio->state.NB > dev->radio->state.max_csma_backoffs)
             {
-              /* Return failure to MAC */
+              /* Return failure to MAC, no frame was sent */
+
+              dev->radio->state.waitack = false;
 
               if (work_available(&dev->radio->irqwork))
                 {
                   work_queue(HPWORK, &dev->radio->irqwork,
                              nrf52_radioi8_work_busy, (void *)dev, 0);
                 }
+
+              goto out;
             }
           else
             {
-              /* Try again */
+              /* Try again, shorts and interrupts were reset in ISR */
 
-              dev->radio->state.state = NRF52_RADIO_STATE_TX_CSMA;
+              nrf52_radioi8_norm_setup_buf(dev, dev->radio->txbuf, true);
               nrf52_radioi8_norm_trigger(dev);
 
               /* Do not restore RX */
@@ -1826,25 +1968,29 @@ static void nrf52_radioi8_state_tx(struct nrf52_radioi8_dev_s *dev)
         {
           /* Update backoff */
 
-          dev->radio->state.NB -= 1;
+          dev->radio->state.NB += 1;
           dev->radio->state.BE = MIN(dev->radio->state.BE + 1,
                                      dev->radio->state.max_be);
 
           if (dev->radio->state.NB > dev->radio->state.max_csma_backoffs)
             {
-              /* Return failure to MAC */
+              /* Return failure to MAC, no frame was sent */
+
+              dev->radio->state.waitack = false;
 
               if (work_available(&dev->radio->irqwork))
                 {
                   work_queue(HPWORK, &dev->radio->irqwork,
                              nrf52_radioi8_work_busy, (void *)dev, 0);
                 }
+
+              goto out;
             }
           else
             {
-              /* Try again */
+              /* Try again, shorts and interrupts were reset in ISR */
 
-              dev->radio->state.state = NRF52_RADIO_STATE_TX_CSMA;
+              nrf52_radioi8_norm_setup_buf(dev, dev->radio->txbuf, true);
               nrf52_radioi8_norm_trigger(dev);
 
               /* Do not restore RX */
@@ -1894,6 +2040,32 @@ static void nrf52_radioi8_state_tx(struct nrf52_radioi8_dev_s *dev)
         }
     }
 
+  /* TX done event */
+
+  if (dev->radio->state.waitack == true)
+    {
+      nrf52_radioi8_trace_put(RADIO_TRACE_IRQ_WAITACK, 0);
+
+      /* Start timer and wait for ACK */
+
+      dev->tim->ops->setup(dev, NRF52_TIMER_CHAN_WAITACK,
+                           IEEE802154_ACK_WAIT);
+    }
+  else
+    {
+      nrf52_radioi8_trace_put(RADIO_TRACE_IRQ_TXDONE, 0);
+
+      /* Transmit DONE */
+
+      if (work_available(&dev->radio->irqwork))
+        {
+          work_queue(HPWORK, &dev->radio->irqwork,
+                     nrf52_radioi8_work_tx, (void *)dev, 0);
+        }
+    }
+
+out:
+
   /* Restore RX */
 
   if (dev->radio->state.rxrestore | dev->radio->state.waitack)
@@ -1935,6 +2107,15 @@ static void nrf52_radioi8_state_acktx(struct nrf52_radioi8_dev_s *dev)
           dev->tim->ops->setup(dev, NRF52_TIMER_CHAN_TXDELAY,
                                IEEE802154_SIFS_SYMBOLS);
         }
+    }
+
+  /* Start the CSMA transaction that waited for the ACK TX */
+
+  else if (dev->state.csma_pending)
+    {
+      dev->state.csma_pending = false;
+      nrf52_radioi8_norm_setup(dev, dev->state.csma_desc->frame, true);
+      nrf52_radioi8_norm_trigger(dev);
     }
 
   /* Restore RX */
