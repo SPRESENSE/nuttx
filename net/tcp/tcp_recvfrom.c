@@ -423,6 +423,7 @@ static uint32_t tcp_recvhandler(FAR struct net_driver_s *dev,
               iob_reserve(iob, CONFIG_NET_LL_GUARDSIZE);
               int ret = iob_clone_partial(dev->d_iob, dev->d_iob->io_pktlen,
                                           0, iob, 0, false, false);
+
               if (ret < 0)
                 {
                   iob_free_chain(iob);
@@ -504,7 +505,12 @@ static uint32_t tcp_recvhandler(FAR struct net_driver_s *dev,
               tcp_lost_connection(conn, pstate->ir_cb, flags);
             }
 
-          pstate->ir_result = -ENOTCONN;
+          /* Report a timed out connection (too many retransmissions or
+           * unanswered keep-alive probes) as ETIMEDOUT.
+           */
+
+          pstate->ir_result = (flags & TCP_TIMEDOUT) != 0 ? -ETIMEDOUT :
+                                                            -ENOTCONN;
 
           /* Wake up the waiting thread */
 
