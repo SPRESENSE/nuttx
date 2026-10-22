@@ -1026,7 +1026,12 @@ static int nrc7292_write_slot_data(FAR struct nrc7292_dev_s *dev,
     {
       uint16_t _len;
 
-      if (slot_size <= rem_len)
+      /* Compare with the payload size, not the slot size.  Otherwise
+       * rem_len between them overflows the slot and makes memset() size
+       * negative, which wipes out the whole RAM.
+       */
+
+      if ((slot_size - HSPI_SLOT_HDR_SIZE) <= rem_len)
         {
           _len = slot_size - HSPI_SLOT_HDR_SIZE;
         }
