@@ -34,6 +34,7 @@ config STM32_H5_PERIPHERALS
 	select STM32_HAVE_USBFS_MODE
 	select STM32_HAVE_USBDRD_HOST
 	select STM32_HAVE_ADC_H5
+	select STM32_HAVE_DAC1
 	select STM32_HAVE_USART_H5
 	select STM32_HAVE_USART_WUS
 	select STM32_HAVE_I2C_H5
@@ -269,6 +270,7 @@ comment "STM32H5 OTP Options"
 config STM32H5_OTP_WORD
 	bool "OTP word read/write"
 	default n
+	select STM32_SBS
 	---help---
 		Build stm32_otp_word_read16()/read32() (and, with
 		STM32H5_OTP_WRITE below, write16()/write32()) in

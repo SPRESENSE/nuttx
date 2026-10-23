@@ -73,6 +73,7 @@
  *   - IRQ on END event (packet recveived)
  *   - shortcut between RXREADY and START
  *   - shortcut between END and DISABLE
+ *   - shortcut between ADDRESS and RSSISTART
  *
  * Set in nrf53_radioi8_rxenable() reset in nrf53_radioi8_rxenable().
  *
@@ -82,7 +83,8 @@
 
 #define IEEE802154_RX_INT              (RADIO_INT_END)
 #define IEEE802154_RX_SHORTS           (RADIO_SHORTS_RXREADY_START |  \
-                                        RADIO_SHORTS_END_DISABLE)
+                                        RADIO_SHORTS_END_DISABLE |    \
+                                        RADIO_SHORTS_ADDRESS_RSSISTART)
 
 /* NOTE: for TX we trigger interrupts on PHYEND event, not END! */
 
@@ -200,6 +202,8 @@ static int nrf53_radioi8_gtspoll(struct nrf53_radioi8_dev_s *dev);
 
 /* Interrupts logic */
 
+static void nrf53_radioi8_txnext(struct nrf53_radioi8_dev_s *dev,
+                                 uint32_t mindelay);
 static void nrf53_radioi8_work_noack(void *arg);
 static void nrf53_radioi8_work_rx(void *arg);
 static void nrf53_radioi8_work_tx(void *arg);
@@ -247,6 +251,7 @@ static struct nrf53_radioi8_radio_ops_s g_radioi8_radio_ops =
   .setcca       = nrf53_radioi8_setcca,
   .norm_setup   = nrf53_radioi8_norm_setup,
   .norm_trigger = nrf53_radioi8_norm_trigger,
+  .txnext       = nrf53_radioi8_txnext,
 #ifdef CONFIG_NRF53_RADIO_IEEE802154_SUPERFRAME
   .beacon_setup = nrf53_radioi8_beacon_setup,
   .beacon_tx    = nrf53_radioi8_beacon_tx,
@@ -459,12 +464,15 @@ static bool nrf53_radioi8_filter(struct nrf53_radioi8_dev_s *dev)
       return true;
     }
 
-  /* Beacon frame */
+  /* Beacon frame, the source PAN ID must match macPANId unless macPANId
+   * is the broadcast PAN ID (IEEE 802.15.4-2003 7.5.6.2)
+   */
 
-  if (((*fc & IEEE802154_FRAMECTRL_FTYPE) == IEEE802154_FRAME_BEACON) &&
-      IEEE802154_PANIDCMP(IEEE802154_PANID_UNSPEC, &dev->state.addr.panid))
+  if ((*fc & IEEE802154_FRAMECTRL_FTYPE) == IEEE802154_FRAME_BEACON)
     {
-      return true;
+      return IEEE802154_PANIDCMP(IEEE802154_PANID_UNSPEC,
+                                 dev->state.addr.panid) ||
+             IEEE802154_PANIDCMP(&rx[3], dev->state.addr.panid);
     }
 
   /* Get destination address */
@@ -488,12 +496,28 @@ static bool nrf53_radioi8_filter(struct nrf53_radioi8_dev_s *dev)
         }
     }
 
-  /* PAN ID match */
+  /* The destination PAN ID must match macPANId or be the broadcast PAN
+   * ID
+   */
 
   if (!IEEE802154_PANIDCMP(IEEE802154_PANID_UNSPEC, dev->state.addr.panid) &&
+      !IEEE802154_PANIDCMP(IEEE802154_PANID_UNSPEC, addr.panid) &&
       !IEEE802154_PANIDCMP(addr.panid, &dev->state.addr.panid))
     {
       return false;
+    }
+
+  /* Only source addressing fields in a data or MAC command frame, for
+   * the PAN coordinator of the source PAN
+   */
+
+  if (addr.mode == IEEE802154_ADDRMODE_NONE)
+    {
+      return ((*fc & IEEE802154_FRAMECTRL_FTYPE) == IEEE802154_FRAME_DATA ||
+              (*fc & IEEE802154_FRAMECTRL_FTYPE) ==
+              IEEE802154_FRAME_COMMAND) &&
+             dev->state.devmode == NRF53_DEVMODE_PANCOORD &&
+             IEEE802154_PANIDCMP(&rx[3], dev->state.addr.panid);
     }
 
   /* Destination address match */
@@ -1271,10 +1295,10 @@ errout:
 }
 
 /****************************************************************************
- * Name: nrf53_radioi8_dopoll_csma
+ * Name: nrf53_radioi8_rxrestore
  *
  * Description:
- *   Out-of-sequence TX poll.
+ *   Enable RX if the radio is idle.
  *
  ****************************************************************************/
 
@@ -1288,48 +1312,87 @@ static void nrf53_radioi8_rxrestore(struct nrf53_radioi8_dev_s *dev)
     }
 }
 
-static void nrf53_radioi8_txpending(struct nrf53_radioi8_dev_s *dev)
+/****************************************************************************
+ * Name: nrf53_radioi8_txnext
+ *
+ * Description:
+ *   Start the next frame if the radio is free: the delayed TX that waits,
+ *   else the CSMA TX that waits, else restore RX.  mindelay is the IFS a
+ *   delayed TX keeps after the ACK TX that deferred it.
+ *
+ ****************************************************************************/
+
+static void nrf53_radioi8_txnext(struct nrf53_radioi8_dev_s *dev,
+                                 uint32_t mindelay)
 {
   irqstate_t flags;
+  uint32_t   delay;
 
-  /* Start the no CSMA transaction that waited for the CSMA transaction */
+  flags = enter_critical_section();
+
+  /* A frame on the air, an armed frame, an ACK TX, an energy detection
+   * or a CSMA transaction between its backoffs owns the radio.
+   */
+
+  if (dev->radio->state.csma_busy ||
+      (dev->state.txdelayed_busy && !dev->state.txdelayed_pending) ||
+      (dev->radio->state.state != NRF53_RADIO_STATE_DISABLED &&
+       dev->radio->state.state != NRF53_RADIO_STATE_RX))
+    {
+      leave_critical_section(flags);
+      return;
+    }
+
+  /* The delayed TX first, it can be the response to a received frame */
 
   if (dev->state.txdelayed_pending)
     {
-      flags = enter_critical_section();
-
       dev->state.txdelayed_pending = false;
-      dev->state.txdelayed_busy    = true;
-
-      /* An ACK TX in progress starts it when done */
-
-      if (dev->radio->state.state == NRF53_RADIO_STATE_ACKTX)
-        {
-          leave_critical_section(flags);
-          return;
-        }
-
       nrf53_radioi8_norm_setup(dev, dev->state.txdelayed_desc->frame,
                                false);
 
-      if (dev->state.txdelayed_delay == 0)
+      delay = MAX(dev->state.txdelayed_delay, mindelay);
+      if (delay == 0)
         {
           nrf53_radioi8_norm_trigger(dev);
         }
       else
         {
-          dev->tim->ops->setup(dev, NRF53_TIMER_CHAN_TXDELAY,
-                               dev->state.txdelayed_delay);
+          dev->tim->ops->setup(dev, NRF53_TIMER_CHAN_TXDELAY, delay);
         }
-
-      leave_critical_section(flags);
     }
+
+  /* Then the CSMA TX, its backoff keeps the IFS */
+
+  else if (dev->state.csma_pending)
+    {
+      dev->state.csma_pending = false;
+      nrf53_radioi8_norm_setup(dev, dev->state.csma_desc->frame, true);
+      nrf53_radioi8_norm_trigger(dev);
+    }
+
+  /* Nothing to send, restore RX */
+
+  else if (dev->radio->state.rxrestore)
+    {
+      dev->macops.rxenable((struct ieee802154_radio_s *)dev, true);
+      dev->radio->state.rxrestore = false;
+    }
+
+  leave_critical_section(flags);
 }
+
+/****************************************************************************
+ * Name: nrf53_radioi8_dopoll_csma
+ *
+ * Description:
+ *   Out-of-sequence TX poll.
+ *
+ ****************************************************************************/
 
 void nrf53_radioi8_dopoll_csma(void *arg)
 {
   struct nrf53_radioi8_dev_s *dev = (struct nrf53_radioi8_dev_s *)arg;
-  irqstate_t                  flags;
   int                         len = 0;
 
   /* Get exclusive access to the driver */
@@ -1341,7 +1404,7 @@ void nrf53_radioi8_dopoll_csma(void *arg)
   /* If this a CSMA transaction and we have room in the CSMA */
 
   if (!dev->radio->state.csma_busy && !dev->state.csma_pending &&
-      !dev->state.txdelayed_busy && !dev->state.txdelayed_pending)
+      !dev->state.txdelayed_busy)
     {
       wlinfo("Polling for frame\n");
       len = dev->radiocb->poll(dev->radiocb, false, &dev->state.csma_desc);
@@ -1350,24 +1413,8 @@ void nrf53_radioi8_dopoll_csma(void *arg)
         {
           wlinfo("Frame received. Frame length: %d\n", len);
 
-          flags = enter_critical_section();
-
-          /* An ACK TX in progress starts the transaction when done */
-
-          if (dev->radio->state.state == NRF53_RADIO_STATE_ACKTX)
-            {
-              dev->state.csma_pending = true;
-            }
-          else
-            {
-              /* Setup the CSMA transaction */
-
-              dev->radio->ops->norm_setup(dev, dev->state.csma_desc->frame,
-                                          true);
-              dev->radio->ops->norm_trigger(dev);
-            }
-
-          leave_critical_section(flags);
+          dev->state.csma_pending = true;
+          nrf53_radioi8_txnext(dev, 0);
         }
     }
 
@@ -1444,13 +1491,11 @@ static int nrf53_radioi8_gtspoll(struct nrf53_radioi8_dev_s *dev)
 static void nrf53_radioi8_work_noack(void *arg)
 {
   struct nrf53_radioi8_dev_s *dev   = (struct nrf53_radioi8_dev_s *)arg;
-  struct nrf53_radio_dev_s   *lower = NULL;
   struct ieee802154_txdesc_s *tx    = NULL;
   bool                       *busy  = NULL;
   bool                        csma  = false;
 
   DEBUGASSERT(dev);
-  lower = dev->radio->lower;
 
   nrf53_radioi8_trace_put(RADIO_TRACE_WORK_NOACK, 0);
 
@@ -1460,7 +1505,9 @@ static void nrf53_radioi8_work_noack(void *arg)
     {
     }
 
-  if (dev->state.txdelayed_busy)
+  /* The frame on the air, a delayed TX may still wait for the radio */
+
+  if (dev->state.txdelayed_busy && !dev->state.txdelayed_pending)
     {
       tx   = dev->state.txdelayed_desc;
       busy = &dev->state.txdelayed_busy;
@@ -1475,18 +1522,25 @@ static void nrf53_radioi8_work_noack(void *arg)
 
   if (tx->retrycount > 0)
     {
-      /* Disable RX */
-
-      NRF53_RADIO_PUTREG(lower, NRF53_RADIO_TASKS_DISABLE_OFFSET, 1);
-
-      /* Try again, CSMA-CA starts again for each attempt */
+      /* Try again as a new transaction once the radio is free, CSMA-CA
+       * starts again for each attempt
+       */
 
       tx->retrycount -= 1;
       nrf53_radioi8_trace_put(RADIO_TRACE_TXRETRY, tx->retrycount);
-      dev->radio->state.NB = 0;
-      dev->radio->state.BE = dev->radio->state.min_be;
-      nrf53_radioi8_norm_setup(dev, tx->frame, csma);
-      nrf53_radioi8_norm_trigger(dev);
+
+      if (csma)
+        {
+          dev->radio->state.csma_busy = false;
+          dev->state.csma_pending     = true;
+        }
+      else
+        {
+          dev->state.txdelayed_pending = true;
+          dev->state.txdelayed_delay   = 0;
+        }
+
+      nrf53_radioi8_txnext(dev, 0);
       nxmutex_unlock(&dev->lock);
       return;
     }
@@ -1501,12 +1555,13 @@ static void nrf53_radioi8_work_noack(void *arg)
   if (csma)
     {
       dev->state.csma_desc = NULL;
-      nrf53_radioi8_txpending(dev);
     }
   else
     {
       dev->state.txdelayed_desc = NULL;
     }
+
+  nrf53_radioi8_txnext(dev, 0);
 
   /* Unlock the radio device and poll for the next CSMA transaction */
 
@@ -1592,15 +1647,14 @@ static void nrf53_radioi8_work_rx(void *arg)
   ind->frame->io_data[index + 1] = 0;
   ind->frame->io_data[index + 2] = 0;
 
-  /* LQI is the last byte in RAM */
+  /* LQI is the last byte in RAM, scaled to 0-255 like the ED result */
 
-  ind->lqi = dev->radio->rxbuf[index + 1];
+  ind->lqi = MIN(dev->radio->rxbuf[index + 1] * NRF53_ED_RSSISCALE, 255);
 
-  /* RSSI is non-standard field and is not supported here.
-   * TODO: get RSSI from LQI ?
-   */
+  /* RSSI sampled after the SFD, the signal strength is -rssi dBm */
 
-  ind->rssi = 0;
+  ind->rssi = NRF53_RADIO_GETREG(lower, NRF53_RADIO_RSSISAMPLE_OFFSET) &
+              RADIO_RSSISAMPLE_MASK;
 
   /* Callback the receiver in the next highest layer */
 
@@ -1646,7 +1700,9 @@ static void nrf53_radioi8_work_tx(void *arg)
 
   status = IEEE802154_STATUS_SUCCESS;
 
-  if (dev->state.txdelayed_busy)
+  /* The frame on the air, a delayed TX may still wait for the radio */
+
+  if (dev->state.txdelayed_busy && !dev->state.txdelayed_pending)
     {
       /* Inform the next layer of the transmission success/failure */
 
@@ -1668,8 +1724,9 @@ static void nrf53_radioi8_work_tx(void *arg)
       /* We are now done with the transaction */
 
       dev->radio->state.csma_busy = false;
-      nrf53_radioi8_txpending(dev);
     }
+
+  nrf53_radioi8_txnext(dev, 0);
 
   /* Unlock the radio device and poll for the next CSMA transaction, RX is
    * restored there if the radio is idle.
@@ -1707,7 +1764,7 @@ static void nrf53_radioi8_work_busy(void *arg)
   dev->radiocb->txdone(dev->radiocb, dev->state.csma_desc);
   dev->state.csma_desc = NULL;
   dev->radio->state.csma_busy = false;
-  nrf53_radioi8_txpending(dev);
+  nrf53_radioi8_txnext(dev, 0);
 
   /* Unlock the radio device and poll for the next CSMA transaction */
 
@@ -2087,44 +2144,11 @@ static void nrf53_radioi8_state_acktx(struct nrf53_radioi8_dev_s *dev)
 {
   nrf53_radioi8_trace_put(RADIO_TRACE_IRQ_ACKTX, 0);
 
-  /* Handle pending TX */
+  /* Start the TX that waited for the ACK TX, after the IFS */
 
-  if (dev->state.txdelayed_busy)
-    {
-      nrf53_radioi8_norm_setup(dev,
-                               dev->state.txdelayed_desc->frame,
-                               false);
-
-      /* Send with timer to keep IFS */
-
-      if (dev->radio->state.rxlong)
-        {
-          dev->tim->ops->setup(dev, NRF53_TIMER_CHAN_TXDELAY,
-                               IEEE802154_LIFS_SYMBOLS);
-        }
-      else
-        {
-          dev->tim->ops->setup(dev, NRF53_TIMER_CHAN_TXDELAY,
-                               IEEE802154_SIFS_SYMBOLS);
-        }
-    }
-
-  /* Start the CSMA transaction that waited for the ACK TX */
-
-  else if (dev->state.csma_pending)
-    {
-      dev->state.csma_pending = false;
-      nrf53_radioi8_norm_setup(dev, dev->state.csma_desc->frame, true);
-      nrf53_radioi8_norm_trigger(dev);
-    }
-
-  /* Restore RX */
-
-  else if (dev->radio->state.rxrestore)
-    {
-      dev->macops.rxenable((struct ieee802154_radio_s *)dev, true);
-      dev->radio->state.rxrestore = false;
-    }
+  nrf53_radioi8_txnext(dev, dev->radio->state.rxlong ?
+                            IEEE802154_LIFS_SYMBOLS :
+                            IEEE802154_SIFS_SYMBOLS);
 }
 
 /****************************************************************************
@@ -2275,10 +2299,6 @@ nrf53_radioi8_radio_init(struct nrf53_radioi8_dev_s *dev,
 
   irq_attach(radio->irq, nrf53_radioi8_isr_radio, dev);
   up_enable_irq(radio->irq);
-
-  /* Set interrupts priority */
-
-  up_prioritize_irq(radio->irq, 0);
 
   /* Connect radioer */
 

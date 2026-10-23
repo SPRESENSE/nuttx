@@ -1,5 +1,5 @@
 /****************************************************************************
- * include/nuttx/rpmsg/rpmsg_ping.h
+ * boards/arm/stm32h5/nucleo-h563zi/src/stm32_dac.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,30 +20,64 @@
  *
  ****************************************************************************/
 
-#ifndef __INCLUDE_NUTTX_RPMSG_RPMSG_PING_H
-#define __INCLUDE_NUTTX_RPMSG_RPMSG_PING_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
-#ifdef CONFIG_RPMSG_PING
+#include <stdbool.h>
+#include <errno.h>
+#include <nuttx/debug.h>
+
+#include <nuttx/analog/dac.h>
+
+#include "stm32.h"
+#include "nucleo-h563zi.h"
+
+#if defined(CONFIG_DAC) && defined(CONFIG_STM32_DAC1)
 
 /****************************************************************************
- * Public Function Prototypes
+ * Public Functions
  ****************************************************************************/
 
-/* used for ioctl RPMSGIOC_PING */
+/****************************************************************************
+ * Name: stm32_dac_setup
+ *
+ * Description:
+ *   Initialize the DAC and register the DAC driver.  DAC1_OUT2 (PA5) is
+ *   registered as /dev/dac0.
+ *
+ ****************************************************************************/
 
-struct rpmsg_ping_s
+int stm32_dac_setup(void)
 {
-  int  times;
-  int  len;
-  int  cmd;
-  int  sleep; /* unit: ms */
-};
+  static bool initialized = false;
+  struct dac_dev_s *dac;
+  int ret;
 
-#endif /* CONFIG_RPMSG_PING */
-#endif /* __INCLUDE_NUTTX_RPMSG_RPMSG_PING_H */
+  if (!initialized)
+    {
+#ifdef CONFIG_STM32_DAC1CH2
+      dac = stm32_dacinitialize(1);
+      if (dac == NULL)
+        {
+          aerr("ERROR: Failed to get DAC1 channel 2\n");
+          return -ENODEV;
+        }
+
+      ret = dac_register("/dev/dac0", dac);
+      if (ret < 0)
+        {
+          aerr("ERROR: dac_register /dev/dac0 failed: %d\n", ret);
+          return ret;
+        }
+#endif
+
+      initialized = true;
+    }
+
+  return OK;
+}
+
+#endif /* CONFIG_DAC && CONFIG_STM32_DAC1 */
