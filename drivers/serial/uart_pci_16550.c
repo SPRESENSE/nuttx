@@ -592,7 +592,14 @@ legacy_irq:
 
   /* Get legacy IRQ if MSI not supported */
 
-  priv->common.irq = pci_get_irq(dev);
+  ret = pci_get_irq(dev);
+  if (ret < 0)
+    {
+      pcierr("Failed to get legacy IRQ %d\n", ret);
+      return ret;
+    }
+
+  priv->common.irq = ret;
 
   return OK;
 }
@@ -659,9 +666,11 @@ static int pci_u16550_probe(FAR struct pci_device_s *dev)
   FAR uart_dev_t                     *udev = NULL;
   FAR struct pci_u16550_priv_s       *priv = NULL;
   uintptr_t                           base = 0;
+  uintptr_t                           portbase;
   size_t                              i;
   uint8_t                             port;
   uint8_t                             ports;
+  unsigned int                        registered = 0;
   bool                                mmio = false;
   int                                 ret;
 
@@ -706,7 +715,7 @@ static int pci_u16550_probe(FAR struct pci_device_s *dev)
     {
       /* Get port address */
 
-      base += type->portincr * port;
+      portbase = base + type->portincr * port;
 
       /* Take the instance that matches the configuration */
 
@@ -729,11 +738,11 @@ static int pci_u16550_probe(FAR struct pci_device_s *dev)
           priv = NULL;
         }
 
-      /* Not found */
+      /* Not configured: skip this port, others may still be configured */
 
       if (udev == NULL)
         {
-          return -ENODEV;
+          continue;
         }
 
       /* Device already registered */
@@ -745,7 +754,7 @@ static int pci_u16550_probe(FAR struct pci_device_s *dev)
 
       /* Initialize device */
 
-      ret = pci_u16550_initialize(priv, type, base, dev, mmio);
+      ret = pci_u16550_initialize(priv, type, portbase, dev, mmio);
       if (ret < 0)
         {
           return ret;
@@ -758,9 +767,13 @@ static int pci_u16550_probe(FAR struct pci_device_s *dev)
         {
           return ret;
         }
+
+      registered++;
     }
 
-  return OK;
+  /* Fail only if no port of this device is configured */
+
+  return registered > 0 ? OK : -ENODEV;
 }
 
 /*****************************************************************************

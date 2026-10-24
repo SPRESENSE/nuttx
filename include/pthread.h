@@ -486,9 +486,9 @@ int pthread_attr_setschedpolicy(FAR pthread_attr_t *attr, int policy);
 int pthread_attr_getschedpolicy(FAR const pthread_attr_t *attr,
                                 FAR int *policy);
 int pthread_attr_setschedparam(FAR pthread_attr_t *attr,
-                               FAR const struct sched_param *param);
+                               FAR const struct sched_param *);
 int pthread_attr_getschedparam(FAR const pthread_attr_t *attr,
-                               FAR struct sched_param *param);
+                               FAR struct sched_param *);
 int pthread_attr_setinheritsched(FAR pthread_attr_t *attr,
                                  int inheritsched);
 int pthread_attr_getinheritsched(FAR const pthread_attr_t *attr,
@@ -575,16 +575,12 @@ int  pthread_setcanceltype(int type, FAR int *oldtype);
 void pthread_testcancel(void);
 
 /* A thread may set up cleanup functions to execute when the thread exits or
- * is canceled.
+ * is canceled.  They need CONFIG_TLS_NCLEANUP > 0: without it, a program
+ * that calls them does not link.
  */
 
-#if CONFIG_TLS_NCLEANUP > 0
 void pthread_cleanup_pop(int execute);
 void pthread_cleanup_push(pthread_cleanup_t routine, FAR void *arg);
-#else
-#  define pthread_cleanup_pop(execute) ((void)(execute))
-#  define pthread_cleanup_push(routine,arg) ((void)(routine), (void)(arg))
-#endif
 
 /* A thread can await termination of another thread and retrieve the return
  * value of the thread.
@@ -610,9 +606,9 @@ int pthread_equal(pthread_t t1, pthread_t t2);
 /* Thread scheduling parameters */
 
 int pthread_getschedparam(pthread_t thread, FAR int *policy,
-                          FAR struct sched_param *param);
+                          FAR struct sched_param *);
 int pthread_setschedparam(pthread_t thread, int policy,
-                          FAR const struct sched_param *param);
+                          FAR const struct sched_param *);
 int pthread_setschedprio(pthread_t thread, int prio);
 
 #ifdef CONFIG_SMP

@@ -53,14 +53,6 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-/* Are any UARTs enabled? */
-
-#undef HAVE_16550_UART
-#if defined(CONFIG_16550_UART0) || defined(CONFIG_16550_UART1)  \
-  || defined(CONFIG_16550_UART2) || defined(CONFIG_16550_UART3)
-#  define HAVE_16550_UART 1
-#endif
-
 /* Timeout for UART Busy Wait, in milliseconds */
 
 #define UART_TIMEOUT_MS 100
@@ -115,23 +107,29 @@ static bool u16550_txready(FAR struct uart_dev_s *dev);
 static bool u16550_txempty(FAR struct uart_dev_s *dev);
 
 /****************************************************************************
- * Private Data
+ * Public Data
  ****************************************************************************/
 
-#ifdef HAVE_16550_UART
-static const struct u16550_ops_s g_u16550_ops =
+/* Default UART 16550 ops.  These are built even when no static UART is
+ * enabled so that a board which defines its own ports can reuse them.
+ */
+
+const struct u16550_ops_s g_u16550_ops =
 {
   .isr        = u16550_interrupt,
   .getreg     = u16550_getreg,
   .putreg     = u16550_putreg,
-#  ifdef CONFIG_SERIAL_UART_ARCH_IOCTL
+#ifdef CONFIG_SERIAL_UART_ARCH_IOCTL
   .ioctl      = uart_ioctl,
-#  endif
-#  ifdef HAVE_16550_UART_DMA
-  .dmachan    = uart_dmachan,
-#  endif
-};
 #endif
+#ifdef HAVE_16550_UART_DMA
+  .dmachan    = uart_dmachan,
+#endif
+};
+
+/****************************************************************************
+ * Private Data
+ ****************************************************************************/
 
 static const struct uart_ops_s g_uart_ops =
 {
@@ -985,22 +983,35 @@ static int u16550_attach(struct uart_dev_s *dev)
 
   /* Attach and enable the IRQ */
 
-  ret = irq_attach(priv->irq, priv->ops->isr, dev);
-#ifndef CONFIG_ARCH_NOINTC
-  if (ret == OK)
+  if (priv->ops->attach != NULL)
     {
-      /* Enable the interrupt (RX and TX interrupts are still disabled
-       * in the UART
-       */
+      ret = priv->ops->attach(priv, dev);
+    }
+  else if (priv->irq < 0)
+    {
+      /* No interrupt: the board polls the UART */
 
-      up_enable_irq(priv->irq);
-
-#ifdef HAVE_16550_UART_DMA
-      if (priv->chanrx)
+      ret = OK;
+    }
+  else
+    {
+      ret = irq_attach(priv->irq, priv->ops->isr, dev);
+#ifndef CONFIG_ARCH_NOINTC
+      if (ret == OK)
         {
-          DMA_RESUME(priv->chanrx);
+          /* Enable the interrupt (RX and TX interrupts are still disabled
+           * in the UART
+           */
+
+          up_enable_irq(priv->irq);
         }
 #endif
+    }
+
+#ifdef HAVE_16550_UART_DMA
+  if (ret == OK && priv->chanrx)
+    {
+      DMA_RESUME(priv->chanrx);
     }
 #endif
 
@@ -1028,8 +1039,15 @@ static void u16550_detach(FAR struct uart_dev_s *dev)
     }
 #endif
 
-  up_disable_irq(priv->irq);
-  irqchain_detach(priv->irq, priv->ops->isr, dev);
+  if (priv->ops->detach != NULL)
+    {
+      priv->ops->detach(priv, dev);
+    }
+  else if (priv->irq >= 0)
+    {
+      up_disable_irq(priv->irq);
+      irqchain_detach(priv->irq, priv->ops->isr, dev);
+    }
 
 #ifdef CONFIG_CLK
   /* Clk disaable */
@@ -1624,7 +1642,23 @@ static void u16550_txint(struct uart_dev_s *dev, bool enable)
 
   if (enable)
     {
-#ifdef CONFIG_16550_POLLING
+#ifndef CONFIG_16550_POLLING
+      if (priv->irq >= 0)
+        {
+          flags = enter_critical_section();
+          priv->ier |= UART_IER_ETBEI;
+          u16550_serialout(priv, UART_IER_OFFSET, priv->ier);
+
+          /* Fake a TX interrupt here by just calling uart_xmitchars() with
+           * interrupts disabled (note this may recurse).
+           */
+
+          uart_xmitchars(dev);
+          leave_critical_section(flags);
+          return;
+        }
+#endif
+
       /* In polling mode, we loop until the buffer is empty */
 
       while (dev->xmit.head != dev->xmit.tail)
@@ -1635,18 +1669,6 @@ static void u16550_txint(struct uart_dev_s *dev, bool enable)
 
           uart_xmitchars(dev);
         }
-#else
-      flags = enter_critical_section();
-      priv->ier |= UART_IER_ETBEI;
-      u16550_serialout(priv, UART_IER_OFFSET, priv->ier);
-
-      /* Fake a TX interrupt here by just calling uart_xmitchars() with
-       * interrupts disabled (note this may recurse).
-       */
-
-      uart_xmitchars(dev);
-      leave_critical_section(flags);
-#endif
     }
   else
     {
@@ -1901,6 +1923,29 @@ void u16550_putc(FAR struct u16550_s *priv, int ch)
 {
   while ((u16550_serialin(priv, UART_LSR_OFFSET) & UART_LSR_THRE) == 0);
   u16550_serialout(priv, UART_THR_OFFSET, (uart_datawidth_t)ch);
+}
+
+/****************************************************************************
+ * Name: u16550_rxpoll
+ *
+ * Description:
+ *   Poll the UART for received data.  If the Data Ready bit is set in the
+ *   Line Status Register, pass the received characters to the upper half
+ *   with uart_recvchars(), exactly as the RX interrupt would do.
+ *
+ ****************************************************************************/
+
+void u16550_rxpoll(FAR uart_dev_t *dev)
+{
+  FAR struct u16550_s *priv;
+
+  DEBUGASSERT(dev != NULL && dev->priv != NULL);
+  priv = (FAR struct u16550_s *)dev->priv;
+
+  if ((u16550_serialin(priv, UART_LSR_OFFSET) & UART_LSR_DR) != 0)
+    {
+      uart_recvchars(dev);
+    }
 }
 
 #endif /* CONFIG_16550_UART */

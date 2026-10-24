@@ -205,6 +205,31 @@
 #define TICK2HSEC(tick)       div_const_roundnearest(tick, TICK_PER_HSEC)
 #define TICK2SEC(tick)        div_const_roundnearest(tick, TICK_PER_SEC)
 
+/* CLOCK2TICK converts a value of clock() (CLOCKS_PER_SEC units) to system
+ * ticks (CLK_TCK units).  It is for code that cannot call
+ * clock_systime_ticks(), such as user space in a protected or kernel
+ * build.
+ */
+
+#if CLOCKS_PER_SEC == CLK_TCK
+#  define CLOCK2TICK(clk)     (clk)
+#else
+#  define CLOCK2TICK(clk)     ((clk) / (CLOCKS_PER_SEC / CLK_TCK))
+#endif
+
+/* CLOCK2USEC and CLOCK2MSEC convert a value of clock() (CLOCKS_PER_SEC
+ * units), for example the difference of two calls, to microseconds and
+ * milliseconds.
+ */
+
+#define CLOCK2USEC(clk)       ((clk) * (USEC_PER_SEC / CLOCKS_PER_SEC))
+
+#if CLOCKS_PER_SEC >= MSEC_PER_SEC
+#  define CLOCK2MSEC(clk)     div_const(clk, CLOCKS_PER_SEC / MSEC_PER_SEC)
+#else
+#  define CLOCK2MSEC(clk)     ((clk) * (MSEC_PER_SEC / CLOCKS_PER_SEC))
+#endif
+
 /* MSEC2SEC */
 
 #define MSEC2SEC(msec)        div_const(msec, MSEC_PER_SEC)

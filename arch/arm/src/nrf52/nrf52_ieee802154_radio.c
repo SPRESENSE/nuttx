@@ -160,6 +160,18 @@
 #define IEEE802154_ACKTX_INT            (RADIO_INT_PHYEND)
 #define IEEE802154_ACKTX_SHORTS         (RADIO_SHORTS_PHYEND_DISABLE)
 
+/* aUnitBackoffPeriod in us */
+
+#define NRF52_BACKOFF_US                (IEEE802154_UNIT_BACKOFF_PERIOD * \
+                                         IEEE802154_SYMBOL_US)
+
+/* Time to set up a slotted CSMA-CA step before its boundary: the ramp-up
+ * and two timer ticks
+ */
+
+#define NRF52_SLOTTED_GUARD_US          (NRF52_RADIOI8_RAMPUP_US + \
+                                         2 * IEEE802154_SYMBOL_US)
+
 /****************************************************************************
  * Private Function Prototypes
  ****************************************************************************/
@@ -168,6 +180,9 @@ static void nrf52_radioi8_rx_parse(struct nrf52_radioi8_dev_s *dev,
                                    uint8_t *ftype, uint8_t *cmdtype);
 static void nrf52_radioi8_ack_transmit(struct nrf52_radioi8_dev_s *dev);
 static bool nrf52_radioi8_filter(struct nrf52_radioi8_dev_s *dev);
+#ifdef CONFIG_NRF52_RADIO_IEEE802154_SUPERFRAME
+static bool nrf52_radioi8_coordbeacon(struct nrf52_radioi8_dev_s *dev);
+#endif
 #if NRF52_GTS_SLOTS > 0
 static void nrf52_radioi8_gts_setup(struct nrf52_radioi8_dev_s *dev,
                                     uint8_t fifo, struct iob_s *frame);
@@ -192,6 +207,12 @@ static void nrf52_radioi8_norm_setup(struct nrf52_radioi8_dev_s *dev,
                                      struct iob_s *frame, bool csma);
 static void nrf52_radioi8_norm_trigger(struct nrf52_radioi8_dev_s *dev);
 #ifdef CONFIG_NRF52_RADIO_IEEE802154_SUPERFRAME
+static void nrf52_radioi8_slotted_at(struct nrf52_radioi8_dev_s *dev,
+                                     uint8_t chan);
+static void nrf52_radioi8_slotted_pause(struct nrf52_radioi8_dev_s *dev);
+static void nrf52_radioi8_slotted_backoff(struct nrf52_radioi8_dev_s *dev,
+                                          uint32_t guard);
+static void nrf52_radioi8_slotted_resume(struct nrf52_radioi8_dev_s *dev);
 static void nrf52_radioi8_beacon_setup(struct nrf52_radioi8_dev_s *dev,
                                        uint8_t *data, uint8_t len);
 static void nrf52_radioi8_beacon_tx(struct nrf52_radioi8_dev_s *dev);
@@ -212,6 +233,9 @@ static void nrf52_radioi8_work_ed(void *arg);
 static void nrf52_radioi8_state_rx(struct nrf52_radioi8_dev_s *dev);
 static void nrf52_radioi8_state_tx(struct nrf52_radioi8_dev_s *dev);
 static void nrf52_radioi8_state_acktx(struct nrf52_radioi8_dev_s *dev);
+#ifdef CONFIG_NRF52_RADIO_IEEE802154_SUPERFRAME
+static void nrf52_radioi8_state_beacontx(struct nrf52_radioi8_dev_s *dev);
+#endif
 static void nrf52_radioi8_state_ed(struct nrf52_radioi8_dev_s *dev);
 static int nrf52_radioi8_isr_radio(int irq, void *context, void *arg);
 
@@ -556,6 +580,52 @@ static bool nrf52_radioi8_filter(struct nrf52_radioi8_dev_s *dev)
   return false;
 }
 
+#ifdef CONFIG_NRF52_RADIO_IEEE802154_SUPERFRAME
+/****************************************************************************
+ * Name: nrf52_radioi8_coordbeacon
+ *
+ * Description:
+ *   The received frame is a beacon of our coordinator (IEEE 802.15.4-2003
+ *   7.5.4.1).
+ *
+ ****************************************************************************/
+
+static bool nrf52_radioi8_coordbeacon(struct nrf52_radioi8_dev_s *dev)
+{
+  uint8_t *rx = &dev->radio->rxbuf[1];
+  uint8_t  eaddr[IEEE802154_EADDRSIZE];
+  uint8_t  mode;
+  int      i;
+
+  if ((rx[0] & IEEE802154_FRAMECTRL_FTYPE) != IEEE802154_FRAME_BEACON ||
+      !IEEE802154_PANIDCMP(&rx[3], dev->state.addr.panid))
+    {
+      return false;
+    }
+
+  mode = ((rx[1] << 8) & IEEE802154_FRAMECTRL_SADDR) >>
+         IEEE802154_FRAMECTRL_SHIFT_SADDR;
+
+  if (mode == IEEE802154_ADDRMODE_SHORT)
+    {
+      return IEEE802154_SADDRCMP(&rx[5], dev->state.coordaddr.saddr);
+    }
+  else if (mode == IEEE802154_ADDRMODE_EXTENDED)
+    {
+      /* Sent least significant octet first */
+
+      for (i = 0; i < IEEE802154_EADDRSIZE; i++)
+        {
+          eaddr[i] = rx[5 + IEEE802154_EADDRSIZE - 1 - i];
+        }
+
+      return IEEE802154_EADDRCMP(eaddr, dev->state.coordaddr.eaddr);
+    }
+
+  return false;
+}
+#endif
+
 #if NRF52_GTS_SLOTS > 0
 /****************************************************************************
  * Name: nrf52_radioi8_gts_setup
@@ -650,6 +720,16 @@ static void nrf52_radioi8_ccastart(struct nrf52_radioi8_dev_s *dev)
 
   DEBUGASSERT(dev);
   lower = dev->radio->lower;
+
+#ifdef CONFIG_NRF52_RADIO_IEEE802154_SUPERFRAME
+  /* Slotted CCA starts with the RXREADY-CCASTART short */
+
+  if (dev->radio->state.slotted)
+    {
+      NRF52_RADIO_PUTREG(lower, NRF52_RADIO_TASKS_RXEN_OFFSET, 1);
+      return;
+    }
+#endif
 
   NRF52_RADIO_PUTREG(lower, NRF52_RADIO_TASKS_CCASTART_OFFSET, 1);
 }
@@ -1010,10 +1090,189 @@ static void nrf52_radioi8_norm_setup(struct nrf52_radioi8_dev_s *dev,
 
   memcpy(&dev->radio->txbuf[1], &frame->io_data[0], frame->io_len);
 
+  /* The radio numbers the beacons (macBSN) */
+
+  if ((frame->io_data[0] & IEEE802154_FRAMECTRL_FTYPE) ==
+      IEEE802154_FRAME_BEACON)
+    {
+      dev->radio->txbuf[3] = dev->radio->state.bsn++;
+    }
+
   /* Setup buffer */
 
   nrf52_radioi8_norm_setup_buf(dev, dev->radio->txbuf, csma);
 }
+
+#ifdef CONFIG_NRF52_RADIO_IEEE802154_SUPERFRAME
+/****************************************************************************
+ * Name: nrf52_radioi8_slotted_at
+ *
+ * Description:
+ *   Run the next slotted CSMA-CA step on its backoff period boundary, the
+ *   radio ramps up before it.
+ *
+ ****************************************************************************/
+
+static void nrf52_radioi8_slotted_at(struct nrf52_radioi8_dev_s *dev,
+                                     uint8_t chan)
+{
+  uint32_t elapsed = 0;
+  uint32_t at;
+
+  at = dev->radio->state.boundary * NRF52_BACKOFF_US -
+       NRF52_RADIOI8_RAMPUP_US;
+
+  dev->rtc->ops->elapsed(dev, &elapsed);
+
+  dev->tim->ops->setup(dev, chan, at > elapsed ?
+                       (at - elapsed) / IEEE802154_SYMBOL_US : 0);
+}
+
+/****************************************************************************
+ * Name: nrf52_radioi8_slotted_pause
+ *
+ * Description:
+ *   Wait for the next CAP, receive in the meantime.
+ *
+ ****************************************************************************/
+
+static void nrf52_radioi8_slotted_pause(struct nrf52_radioi8_dev_s *dev)
+{
+  struct nrf52_radio_dev_s *lower = dev->radio->lower;
+
+  nrf52_radioi8_trace_put(RADIO_TRACE_CSMAPAUSE,
+                          dev->radio->state.backoffs);
+
+  dev->radio->state.csma_paused = true;
+  dev->radio->state.waitack     = false;
+  dev->radio->state.state       = NRF52_RADIO_STATE_DISABLED;
+
+  NRF52_RADIO_INTCLR(lower, 0xffffffff);
+  NRF52_RADIO_SHRTSET(lower, 0);
+
+  if (dev->radio->state.rxrestore)
+    {
+      dev->radio->state.rxrestore = false;
+
+      while (NRF52_RADIO_GETREG(lower, NRF52_RADIO_STATE_OFFSET) !=
+             RADIO_STATE_DISABLED);
+
+      dev->macops.rxenable((struct ieee802154_radio_s *)dev, true);
+    }
+}
+
+/****************************************************************************
+ * Name: nrf52_radioi8_slotted_backoff
+ *
+ * Description:
+ *   Count down the backoff periods in the CAP and schedule the first CCA
+ *   (IEEE 802.15.4-2003 7.5.1.3).
+ *
+ ****************************************************************************/
+
+static void nrf52_radioi8_slotted_backoff(struct nrf52_radioi8_dev_s *dev,
+                                          uint32_t guard)
+{
+  struct nrf52_radioi8_radio_data_s *state   = &dev->radio->state;
+  struct nrf52_radioi8_rtc_s        *rtc     = dev->rtc;
+  uint32_t                           elapsed = 0;
+  uint32_t                           end;
+  uint32_t                           b;
+  uint32_t                           need;
+
+  /* Not synchronized or the CAP is over */
+
+  if (!rtc->ops->elapsed(dev, &elapsed) || elapsed >= rtc->cap)
+    {
+      nrf52_radioi8_slotted_pause(dev);
+      return;
+    }
+
+  /* The first boundary after the beacon IFS that can still be set up */
+
+  b = (MAX(elapsed + guard, rtc->capstart) + NRF52_BACKOFF_US - 1) /
+      NRF52_BACKOFF_US;
+
+  /* The last boundary of the countdown and of the TX start: the CAP end,
+   * with battery life extension the sixth full backoff period after the
+   * beacon IFS
+   */
+
+  end = rtc->cap / NRF52_BACKOFF_US;
+  if (state->ble)
+    {
+      end = MIN(end, (rtc->capstart + NRF52_BACKOFF_US - 1) /
+                     NRF52_BACKOFF_US + 5);
+    }
+
+  /* Pause the countdown at the end of the CAP */
+
+  if (b + state->backoffs > end)
+    {
+      if (end > b)
+        {
+          state->backoffs -= end - b;
+        }
+
+      nrf52_radioi8_slotted_pause(dev);
+      return;
+    }
+
+  b += state->backoffs;
+  state->backoffs = 0;
+
+  /* The CCAs, the frame, its ACK and the IFS must end before the end of
+   * the CAP (7.5.1.1.1), otherwise evaluate again in the next CAP
+   */
+
+  need = state->CW * NRF52_BACKOFF_US +
+         NRF52_RADIOI8_FRAME_US(dev->radio->txbuf[0]) +
+         NRF52_RADIOI8_IFS_US(dev->radio->txbuf[0]);
+  if (dev->radio->txbuf[1] & IEEE802154_FRAMECTRL_ACKREQ)
+    {
+      need += IEEE802154_ACK_WAIT * IEEE802154_SYMBOL_US;
+    }
+
+  if (b * NRF52_BACKOFF_US + need > rtc->cap || b + state->CW > end)
+    {
+      nrf52_radioi8_slotted_pause(dev);
+      return;
+    }
+
+  /* CCA on the boundary */
+
+  state->boundary = b;
+  nrf52_radioi8_slotted_at(dev, NRF52_TIMER_CHAN_CSMADELAY);
+}
+
+/****************************************************************************
+ * Name: nrf52_radioi8_slotted_resume
+ *
+ * Description:
+ *   Continue the slotted CSMA-CA paused for this CAP.  Must be called with
+ *   the radio locked.
+ *
+ ****************************************************************************/
+
+static void nrf52_radioi8_slotted_resume(struct nrf52_radioi8_dev_s *dev)
+{
+  uint32_t elapsed = 0;
+
+  /* Not in a CAP, stay paused */
+
+  if (!dev->rtc->ops->elapsed(dev, &elapsed) || elapsed >= dev->rtc->cap)
+    {
+      return;
+    }
+
+  dev->radio->state.csma_paused = false;
+
+  nrf52_radioi8_norm_setup_buf(dev, dev->radio->txbuf, true);
+  dev->radio->state.state = NRF52_RADIO_STATE_TX;
+
+  nrf52_radioi8_slotted_backoff(dev, NRF52_SLOTTED_GUARD_US);
+}
+#endif
 
 /****************************************************************************
  * Name: nrf52_radioi8_trg_csma
@@ -1038,33 +1297,29 @@ static void nrf52_radioi8_trg_csma(struct nrf52_radioi8_dev_s *dev)
 #ifdef CONFIG_NRF52_RADIO_IEEE802154_SUPERFRAME
       if (!dev->radio->state.csma_busy)
         {
-          /* Initial backoff state */
+          /* Initial backoff state, battery life extension limits BE
+           * (IEEE 802.15.4-2003 7.5.1.3)
+           */
 
           dev->radio->state.NB = 0;
-          dev->radio->state.CW = IEEE802154_CW0;
+          dev->radio->state.BE = dev->radio->state.ble ?
+                                 MIN(2, dev->radio->state.min_be) :
+                                 dev->radio->state.min_be;
         }
 
-      /* Battery life extension */
+      /* CW is reset for each attempt */
 
-      if (dev->radio->state.ble)
-        {
-          dev->radio->state.BE = MIN(2, dev->radio->state.min_be);
-        }
-      else
-        {
-          dev->radio->state.BE = dev->radio->state.min_be;
-        }
+      dev->radio->state.CW       = IEEE802154_CW0;
+      dev->radio->state.backoffs = rand() % (1 << dev->radio->state.BE);
 
-      /* Get random unit backoff period delay */
+      /* CSMA is in use */
 
-      delay = rand() % (1 << dev->radio->state.BE);
+      dev->radio->state.csma_busy = true;
+      nrf52_radioi8_trace_put(RADIO_TRACE_CSMATRIGGER,
+                              dev->radio->state.backoffs);
 
-      /* TODO:
-       *  - locate backoff period boundary
-       *  - perform CCA on backoff period boundary
-       */
-
-      ASSERT(0);
+      nrf52_radioi8_slotted_backoff(dev, NRF52_SLOTTED_GUARD_US);
+      return;
 #else
       ASSERT(0);
 #endif
@@ -1132,6 +1387,19 @@ static void nrf52_radioi8_trg_nocsma(struct nrf52_radioi8_dev_s *dev)
 
 static void nrf52_radioi8_norm_trigger(struct nrf52_radioi8_dev_s *dev)
 {
+#ifdef CONFIG_NRF52_RADIO_IEEE802154_SUPERFRAME
+  /* The beacon is not acknowledged and keeps its state */
+
+  if (dev->radio->state.state == NRF52_RADIO_STATE_BEACONTX)
+    {
+      nrf52_radioi8_trace_put(RADIO_TRACE_BEACONTX,
+                              dev->radio->beaconbuf[3]);
+      NRF52_RADIO_PUTREG(dev->radio->lower, NRF52_RADIO_TASKS_TXEN_OFFSET,
+                         1);
+      return;
+    }
+#endif
+
   /* Wait for ACK */
 
   if (dev->radio->txbuf[1] & IEEE802154_FRAMECTRL_ACKREQ)
@@ -1194,13 +1462,12 @@ static void nrf52_radioi8_beacon_setup(struct nrf52_radioi8_dev_s *dev,
 
 static void nrf52_radioi8_beacon_tx(struct nrf52_radioi8_dev_s *dev)
 {
-  /* Beacon buffer is ready to send - transmit as non CSMA-CA */
+  /* The beacon has priority over all other operations (IEEE 802.15.4-2003
+   * 7.5.2.4), only a frame on the air completes first
+   */
 
-  nrf52_radioi8_norm_setup_buf(dev, dev->radio->beaconbuf, false);
-
-  /* Send now */
-
-  nrf52_radioi8_norm_trigger(dev);
+  dev->radio->state.beacon_pending = true;
+  nrf52_radioi8_txnext(dev, 0);
 }
 #endif
 
@@ -1316,9 +1583,9 @@ static void nrf52_radioi8_rxrestore(struct nrf52_radioi8_dev_s *dev)
  * Name: nrf52_radioi8_txnext
  *
  * Description:
- *   Start the next frame if the radio is free: the delayed TX that waits,
- *   else the CSMA TX that waits, else restore RX.  mindelay is the IFS a
- *   delayed TX keeps after the ACK TX that deferred it.
+ *   Start the next frame if the radio is free: the beacon that waits, else
+ *   the delayed TX that waits, else the CSMA TX that waits, else restore
+ *   RX.  mindelay is the IFS a frame keeps after the TX that deferred it.
  *
  ****************************************************************************/
 
@@ -1330,14 +1597,49 @@ static void nrf52_radioi8_txnext(struct nrf52_radioi8_dev_s *dev,
 
   flags = enter_critical_section();
 
-  /* A frame on the air, an armed frame, an ACK TX, an energy detection
-   * or a CSMA transaction between its backoffs owns the radio.
+  /* A frame on the air, an ACK TX, an energy detection or a timed step
+   * owns the radio
    */
 
-  if (dev->radio->state.csma_busy ||
-      (dev->state.txdelayed_busy && !dev->state.txdelayed_pending) ||
-      (dev->radio->state.state != NRF52_RADIO_STATE_DISABLED &&
-       dev->radio->state.state != NRF52_RADIO_STATE_RX))
+  if ((dev->radio->state.state != NRF52_RADIO_STATE_DISABLED &&
+       dev->radio->state.state != NRF52_RADIO_STATE_RX) ||
+      dev->tim->tim_pending)
+    {
+      leave_critical_section(flags);
+      return;
+    }
+
+#ifdef CONFIG_NRF52_RADIO_IEEE802154_SUPERFRAME
+  /* The beacon first, it preempts the receiver */
+
+  if (dev->radio->state.beacon_pending)
+    {
+      dev->radio->state.beacon_pending = false;
+      dev->radio->beaconbuf[3]         = dev->radio->state.bsn++;
+
+      nrf52_radioi8_norm_setup_buf(dev, dev->radio->beaconbuf, false);
+      dev->radio->state.state = NRF52_RADIO_STATE_BEACONTX;
+
+      if (mindelay == 0)
+        {
+          nrf52_radioi8_norm_trigger(dev);
+        }
+      else
+        {
+          dev->tim->ops->setup(dev, NRF52_TIMER_CHAN_TXDELAY, mindelay);
+        }
+
+      leave_critical_section(flags);
+      return;
+    }
+#endif
+
+  /* An armed frame or a CSMA transaction between its backoffs owns the
+   * radio, a slotted one paused for the next CAP does not.
+   */
+
+  if ((dev->radio->state.csma_busy && !dev->radio->state.csma_paused) ||
+      (dev->state.txdelayed_busy && !dev->state.txdelayed_pending))
     {
       leave_critical_section(flags);
       return;
@@ -1370,6 +1672,15 @@ static void nrf52_radioi8_txnext(struct nrf52_radioi8_dev_s *dev,
       nrf52_radioi8_norm_setup(dev, dev->state.csma_desc->frame, true);
       nrf52_radioi8_norm_trigger(dev);
     }
+
+#ifdef CONFIG_NRF52_RADIO_IEEE802154_SUPERFRAME
+  /* Then the slotted CSMA TX paused for this CAP */
+
+  else if (dev->radio->state.csma_paused)
+    {
+      nrf52_radioi8_slotted_resume(dev);
+    }
+#endif
 
   /* Nothing to send, restore RX */
 
@@ -1845,24 +2156,16 @@ static void nrf52_radioi8_state_rx(struct nrf52_radioi8_dev_s *dev)
     }
 
 #ifdef CONFIG_NRF52_RADIO_IEEE802154_SUPERFRAME
-  /* TODO: resync with beacon ? */
+  /* The superframe started with the SHR of the coordinator beacon */
 
-  if (dev->radio->state.wait_for_beacon == true)
+  if (dev->radio->state.sftrack && dev->radio->state.waitack == false &&
+      nrf52_radioi8_coordbeacon(dev))
     {
-      uint16_t *fc = (uint16_t *)&rxbuf[0];
+      dev->rtc->ops->sync(dev, rxbuf[0]);
 
-      /* TODO: NOT TESTES, should we check panid here ? */
+      /* The CAP starts, continue the TX that waited for it */
 
-      if (((*fc & IEEE802154_FRAMECTRL_FTYPE) == IEEE802154_FRAME_BEACON) &&
-          IEEE802154_PANIDCMP(IEEE802154_PANID_UNSPEC,
-                              &dev->state.addr.panid))
-        {
-          /* Start RTC */
-
-          dev->rtc->ops->start(dev);
-
-          dev->radio->state.wait_for_beacon = false;
-        }
+      nrf52_radioi8_txnext(dev, 0);
     }
 #endif
 
@@ -1980,80 +2283,36 @@ static void nrf52_radioi8_state_tx(struct nrf52_radioi8_dev_s *dev)
 
       NRF52_RADIO_PUTREG(lower, NRF52_RADIO_EVENTS_CCABUSY_OFFSET, 0);
 
-      /* Slotted CSMA-CA */
+      /* Update backoff */
 
-      if (dev->radio->state.slotted == true)
+      dev->radio->state.NB += 1;
+      dev->radio->state.BE = MIN(dev->radio->state.BE + 1,
+                                 dev->radio->state.max_be);
+
+      if (dev->radio->state.NB > dev->radio->state.max_csma_backoffs)
         {
-#ifdef CONFIG_NRF52_RADIO_IEEE802154_SUPERFRAME
-          dev->radio->state.NB += 1;
-          dev->radio->state.CW = IEEE802154_CW0;
-          dev->radio->state.BE = MIN(2, dev->radio->state.min_be);
+          /* Return failure to MAC, no frame was sent */
 
-          if (dev->radio->state.NB > dev->radio->state.max_csma_backoffs)
+          dev->radio->state.waitack = false;
+
+          if (work_available(&dev->radio->irqwork))
             {
-              /* Return failure to MAC, no frame was sent */
-
-              dev->radio->state.waitack = false;
-
-              if (work_available(&dev->radio->irqwork))
-                {
-                  work_queue(HPWORK, &dev->radio->irqwork,
-                             nrf52_radioi8_work_busy, (void *)dev, 0);
-                }
-
-              goto out;
+              work_queue(HPWORK, &dev->radio->irqwork,
+                         nrf52_radioi8_work_busy, (void *)dev, 0);
             }
-          else
-            {
-              /* Try again, shorts and interrupts were reset in ISR */
 
-              nrf52_radioi8_norm_setup_buf(dev, dev->radio->txbuf, true);
-              nrf52_radioi8_norm_trigger(dev);
-
-              /* Do not restore RX */
-
-              return;
-            }
-#else
-          ASSERT(0);
-#endif
+          goto out;
         }
-
-      /* Un-slotted CSMA-CA */
-
       else
         {
-          /* Update backoff */
+          /* Try again, shorts and interrupts were reset in ISR */
 
-          dev->radio->state.NB += 1;
-          dev->radio->state.BE = MIN(dev->radio->state.BE + 1,
-                                     dev->radio->state.max_be);
+          nrf52_radioi8_norm_setup_buf(dev, dev->radio->txbuf, true);
+          nrf52_radioi8_norm_trigger(dev);
 
-          if (dev->radio->state.NB > dev->radio->state.max_csma_backoffs)
-            {
-              /* Return failure to MAC, no frame was sent */
+          /* Do not restore RX */
 
-              dev->radio->state.waitack = false;
-
-              if (work_available(&dev->radio->irqwork))
-                {
-                  work_queue(HPWORK, &dev->radio->irqwork,
-                             nrf52_radioi8_work_busy, (void *)dev, 0);
-                }
-
-              goto out;
-            }
-          else
-            {
-              /* Try again, shorts and interrupts were reset in ISR */
-
-              nrf52_radioi8_norm_setup_buf(dev, dev->radio->txbuf, true);
-              nrf52_radioi8_norm_trigger(dev);
-
-              /* Do not restore RX */
-
-              return;
-            }
+          return;
         }
     }
 
@@ -2070,20 +2329,30 @@ static void nrf52_radioi8_state_tx(struct nrf52_radioi8_dev_s *dev)
       if (dev->radio->state.slotted == true)
         {
 #ifdef CONFIG_NRF52_RADIO_IEEE802154_SUPERFRAME
-          dev->radio->state.CW -= 1;
+          /* The next step starts on the next boundary */
+
+          dev->radio->state.CW       -= 1;
+          dev->radio->state.boundary += 1;
 
           if (dev->radio->state.CW == 0)
             {
-              /* Enable TX - short TXREADY-START is enabled */
+              /* Transmit, the ACK wait starts with the TX */
 
-              NRF52_RADIO_PUTREG(lower, NRF52_RADIO_TASKS_TXEN_OFFSET, 1);
+              nrf52_radioi8_norm_setup_buf(dev, dev->radio->txbuf, false);
+              nrf52_radioi8_slotted_at(dev, NRF52_TIMER_CHAN_TXDELAY);
             }
           else
             {
-              /* Do not restore RX */
+              /* Next CCA */
 
-              return;
+              nrf52_radioi8_norm_setup_buf(dev, dev->radio->txbuf, true);
+              dev->radio->state.state = NRF52_RADIO_STATE_TX;
+              nrf52_radioi8_slotted_at(dev, NRF52_TIMER_CHAN_CSMADELAY);
             }
+
+          /* Do not restore RX */
+
+          return;
 #else
           ASSERT(0);
 #endif
@@ -2150,6 +2419,37 @@ static void nrf52_radioi8_state_acktx(struct nrf52_radioi8_dev_s *dev)
                             IEEE802154_LIFS_SYMBOLS :
                             IEEE802154_SIFS_SYMBOLS);
 }
+
+#ifdef CONFIG_NRF52_RADIO_IEEE802154_SUPERFRAME
+/****************************************************************************
+ * Name: nrf52_radioi8_state_beacontx
+ *
+ * Description:
+ *   Handle radio interrupt for BEACONTX state.
+ *
+ ****************************************************************************/
+
+static void nrf52_radioi8_state_beacontx(struct nrf52_radioi8_dev_s *dev)
+{
+  nrf52_radioi8_trace_put(RADIO_TRACE_IRQ_BEACONTX, 0);
+
+  /* Arm the beacon updated during the TX */
+
+  if (dev->state.beacon_next != NULL)
+    {
+      nrf52_radioi8_beacon_setup(dev, dev->state.beacon_next->bf_data,
+                                 dev->state.beacon_next->bf_len);
+      dev->state.beacon_next = NULL;
+    }
+
+  /* Start the TX that waited for the beacon, after the IFS */
+
+  nrf52_radioi8_txnext(dev, dev->radio->beaconbuf[0] >
+                            IEEE802154_MAX_SIFS_FRAME_SIZE ?
+                            IEEE802154_LIFS_SYMBOLS :
+                            IEEE802154_SIFS_SYMBOLS);
+}
+#endif
 
 /****************************************************************************
  * Name: nrf52_radioi8_state_ed
@@ -2245,6 +2545,15 @@ static int nrf52_radioi8_isr_radio(int irq, void *context, void *arg)
           break;
         }
 
+#ifdef CONFIG_NRF52_RADIO_IEEE802154_SUPERFRAME
+      case NRF52_RADIO_STATE_BEACONTX:
+        {
+          nrf52_radioi8_state_beacontx(dev);
+
+          break;
+        }
+#endif
+
       case NRF52_RADIO_STATE_ED:
         {
           /* Clear event */
@@ -2262,6 +2571,15 @@ static int nrf52_radioi8_isr_radio(int irq, void *context, void *arg)
           break;
         }
     }
+
+#ifdef CONFIG_NRF52_RADIO_IEEE802154_SUPERFRAME
+  /* The beacon that waited for the frame on the air */
+
+  if (dev->radio->state.beacon_pending)
+    {
+      nrf52_radioi8_txnext(dev, 0);
+    }
+#endif
 
   leave_critical_section(flags);
 

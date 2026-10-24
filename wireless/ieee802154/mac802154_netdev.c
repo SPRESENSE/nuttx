@@ -599,7 +599,10 @@ static int macnet_coord_saddr(FAR struct radio_driver_s *radio,
       return ret;
     }
 
-  IEEE802154_SADDRCOPY(saddr, arg.getreq.attrval.mac.saddr);
+  /* Network layers expect address in Network Order (Big Endian) */
+
+  saddr[0] = arg.getreq.attrval.mac.coordsaddr[1];
+  saddr[1] = arg.getreq.attrval.mac.coordsaddr[0];
   return OK;
 }
 #endif
@@ -684,6 +687,7 @@ static int macnet_ifup(FAR struct net_driver_s *dev)
              dev->d_mac.radio.nv_addr[0], dev->d_mac.radio.nv_addr[1]);
 #endif
 
+      netdev_carrier_on(dev);
       ret = OK;
     }
 
@@ -722,6 +726,7 @@ static int macnet_ifdown(FAR struct net_driver_s *dev)
   /* Mark the device "down" */
 
   priv->md_bifup = false;
+  netdev_carrier_off(dev);
 
   return OK;
 }

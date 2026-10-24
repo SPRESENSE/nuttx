@@ -56,6 +56,21 @@
                                        IEEE802154_TURN_AROUND_TIME +    \
                                        10 + 12)
 
+/* RADIO ramp-up time in fast ramp-up mode */
+
+#define NRF52_RADIOI8_RAMPUP_US       (40)
+
+/* Air time of a frame with the given PHR: SHR, PHR and PSDU, 32 us/octet */
+
+#define NRF52_RADIOI8_FRAME_US(phr)   (((phr) + 6) * 2 * IEEE802154_SYMBOL_US)
+
+/* IFS after a frame with the given PHR */
+
+#define NRF52_RADIOI8_IFS_US(phr)                       \
+  (((phr) > IEEE802154_MAX_SIFS_FRAME_SIZE ?            \
+    IEEE802154_LIFS_SYMBOLS : IEEE802154_SIFS_SYMBOLS) * \
+   IEEE802154_SYMBOL_US)
+
 /****************************************************************************
  * Public Types
  ****************************************************************************/
@@ -71,6 +86,7 @@ enum nrf52_radioi8_state_e
   NRF52_RADIO_STATE_RX,            /* RX active */
   NRF52_RADIO_STATE_ACKTX,         /* Transmitting ACK now */
   NRF52_RADIO_STATE_ED,            /* Energy detection now */
+  NRF52_RADIO_STATE_BEACONTX,      /* Transmitting beacon now */
 };
 
 /* Radio data */
@@ -98,8 +114,10 @@ struct nrf52_radioi8_radio_data_s
 
   bool     waitack;             /* TX needs ACK */
   bool     framepending;        /* Frame pending from the last TX ACK */
-  bool     csma_busy;           /* Un-slotted CSMA busy */
+  bool     csma_busy;           /* CSMA-CA transaction in progress */
+  bool     csma_paused;         /* Slotted CSMA-CA waits for the next CAP */
   bool     slotted;             /* Slotted CSMA-CA */
+  uint8_t  bsn;                 /* macBSN, the beacon sequence number */
 
   /* Radio configuration */
 
@@ -111,8 +129,11 @@ struct nrf52_radioi8_radio_data_s
 #ifdef CONFIG_NRF52_RADIO_IEEE802154_SUPERFRAME
   /* Superframe data */
 
-  bool    wait_for_beacon;      /* Device wait for beacon */
-  bool    ble;                  /* Batter life extension */
+  bool     sftrack;             /* Device tracks the beacons */
+  bool     ble;                 /* Battery life extension */
+  bool     beacon_pending;      /* A beacon waits for the radio */
+  uint8_t  backoffs;            /* Backoff periods before the next CCA */
+  uint32_t boundary;            /* Backoff period boundary of the next step */
 #endif
 };
 

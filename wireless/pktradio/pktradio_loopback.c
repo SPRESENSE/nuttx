@@ -432,6 +432,7 @@ static int lo_ifup(FAR struct net_driver_s *dev)
 #endif
 
   priv->lo_bifup = true;
+  netdev_carrier_on(dev);
   return OK;
 }
 
@@ -460,6 +461,7 @@ static int lo_ifdown(FAR struct net_driver_s *dev)
   /* Mark the device "down" */
 
   priv->lo_bifup = false;
+  netdev_carrier_off(dev);
   return OK;
 }
 
@@ -698,7 +700,7 @@ static int lo_ioctl(FAR struct net_driver_s *dev, int cmd,
               ret = -EINVAL;
             }
           else
-           {
+            {
               FAR struct netdev_varaddr_s *devaddr = &dev->d_mac.radio;
 
               devaddr->nv_addrlen = 1;

@@ -335,6 +335,15 @@ struct u16550_ops_s
   CODE int (*ioctl)(FAR struct u16550_s *priv, int cmd, unsigned long arg);
   CODE FAR struct dma_chan_s *(*dmachan)(FAR struct u16550_s *priv,
                                          unsigned int ident);
+
+  /* Optional interrupt registration hooks.  If attach is NULL the driver
+   * calls irq_attach() with the isr above and up_enable_irq().  If detach
+   * is NULL it calls up_disable_irq() and irqchain_detach().  RX and TX
+   * interrupts are not enabled in the UART by either hook.
+   */
+
+  CODE int (*attach)(FAR struct u16550_s *priv, FAR uart_dev_t *dev);
+  CODE void (*detach)(FAR struct u16550_s *priv, FAR uart_dev_t *dev);
 };
 
 /* UART 16550 private data */
@@ -367,7 +376,7 @@ struct u16550_s
   FAR struct clk_s      *mclk;      /* UART clock descriptor */
 #endif
   uart_datawidth_t       ier;       /* Saved IER value */
-  int                    irq;       /* IRQ associated with this UART */
+  int                    irq;       /* IRQ associated with this UART, <0: none (polled) */
 #ifndef CONFIG_16550_SUPRESS_CONFIG
   uint8_t                parity;    /* 0=none, 1=odd, 2=even */
   uint8_t                bits;      /* Number of bits (7 or 8) */
@@ -379,6 +388,14 @@ struct u16550_s
   uart_datawidth_t       rxtrigger; /* RX trigger level */
   spinlock_t             lock;      /* Spinlock */
 };
+
+/* Default UART 16550 ops: getreg/putreg access the registers either through
+ * the memory mapping (CONFIG_SERIAL_UART_ARCH_MMIO) or through the
+ * uart_getreg()/uart_putreg() provided by the arch.  A board that registers
+ * its own ports can point struct u16550_s::ops at this table.
+ */
+
+extern const struct u16550_ops_s g_u16550_ops;
 
 /****************************************************************************
  * Public Functions Definitions
@@ -439,6 +456,18 @@ int u16550_interrupt(int irq, FAR void *context, FAR void *arg);
  ****************************************************************************/
 
 void u16550_putc(FAR struct u16550_s *priv, int ch);
+
+/****************************************************************************
+ * Name: u16550_rxpoll
+ *
+ * Description:
+ *   Poll the UART for received data and pass it to the upper half, like the
+ *   RX interrupt does.  Intended for a UART without an interrupt (see
+ *   struct u16550_s::irq).  Call it periodically from a thread or a timer.
+ *
+ ****************************************************************************/
+
+void u16550_rxpoll(FAR uart_dev_t *dev);
 
 /****************************************************************************
  * Name: uart_getreg(), uart_putreg(), uart_ioctl()

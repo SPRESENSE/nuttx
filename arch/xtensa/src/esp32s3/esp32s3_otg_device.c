@@ -63,14 +63,18 @@
 
 /* USB hardware definition */
 
-#define ESP32S3_FIFO_SIZE       (1280)
+/* GHWCFG3 reports a 200-word data FIFO.  Sizing past it places the IN
+ * TxFIFOs beyond the FIFO RAM, where they alias the RxFIFO.
+ */
+
+#define ESP32S3_FIFO_SIZE       (800)
 #define ESP32S3_FIFO_WORDS      (ESP32S3_FIFO_SIZE >> 2)
 
 /* EP0 + additional EP */
 
 #define ESP32S3_ENDPOINT_NUM    (CONFIG_ESP32S3_OTG_ENDPOINT_NUM + 1)
 
-/* There is 1.25Kb of FIFO memory.  The default partitions this memory
+/* There are 800 bytes of FIFO memory.  The default partitions this memory
  * so that there is a TxFIFO allocated for each endpoint and with more
  * memory provided for the common RxFIFO.  A more knowledge-able
  * configuration would not allocate any TxFIFO space to OUT endpoints.
@@ -1180,6 +1184,7 @@ static void esp32s3_epin_transfer(struct esp32s3_ep_s *privep,
        */
 
       uint32_t status = esp32s3_getreg(ESP32S3_OTG_DSTS);
+
       if ((status & OTG_DSTS_SOFFN0) == OTG_DSTS_SOFFN_EVEN)
         {
           regval |= OTG_DIEPCTL_SEVNFRM;
@@ -1376,6 +1381,7 @@ static void esp32s3_epin_request(struct esp32s3_usbdev_s *priv,
            */
 
           uint32_t empmsk = esp32s3_getreg(ESP32S3_OTG_DIEPEMPMSK);
+
           empmsk |= OTG_DIEPEMPMSK(privep->epphy);
           esp32s3_putreg(empmsk, ESP32S3_OTG_DIEPEMPMSK);
 
@@ -1512,6 +1518,7 @@ static void esp32s3_rxfifo_discard(struct esp32s3_ep_s *privep, int len)
       for (i = 0; i < len; i += 4)
         {
           volatile uint32_t data = esp32s3_getreg(regaddr);
+
           UNUSED(data);
         }
     }
@@ -1598,6 +1605,7 @@ static inline void esp32s3_ep0out_receive(struct esp32s3_ep_s *privep,
       /* Read the data into our special buffer for SETUP data */
 
       int readlen = MIN(ESP32S3_CDCACM_EP0MAXPACKET, bcnt);
+
       esp32s3_rxfifo_read(privep, priv->ep0data, readlen);
 
       /* Do we have to discard any excess bytes? */
@@ -1901,6 +1909,7 @@ static void esp32s3_req_complete(struct esp32s3_ep_s *privep,
    */
 
   bool stalled = privep->stalled;
+
   if (privep->epphy == EP0)
     {
       privep->stalled = privep->dev->stalled;
@@ -2295,6 +2304,7 @@ static void esp32s3_ep0out_stdrequest(struct esp32s3_usbdev_s *priv,
           if (priv->addressed != 0 && ctrlreq->len == 0)
             {
               uint8_t recipient = ctrlreq->type & USB_REQ_RECIPIENT_MASK;
+
               if (recipient == USB_REQ_RECIPIENT_ENDPOINT &&
                   ctrlreq->value == USB_FEATURE_ENDPOINTHALT &&
                   (privep = esp32s3_ep_findbyaddr(priv, ctrlreq->index))
@@ -2336,6 +2346,7 @@ static void esp32s3_ep0out_stdrequest(struct esp32s3_usbdev_s *priv,
           if (priv->addressed != 0 && ctrlreq->len == 0)
             {
               uint8_t recipient = ctrlreq->type & USB_REQ_RECIPIENT_MASK;
+
               if (recipient == USB_REQ_RECIPIENT_ENDPOINT &&
                   ctrlreq->value == USB_FEATURE_ENDPOINTHALT &&
                   (privep = esp32s3_ep_findbyaddr(priv, ctrlreq->index))
@@ -2490,6 +2501,7 @@ static void esp32s3_ep0out_stdrequest(struct esp32s3_usbdev_s *priv,
               if (ret == OK)
                 {
                   uint8_t cfg = (uint8_t)ctrlreq->value;
+
                   if (cfg != 0)
                     {
                       priv->devstate = DEVSTATE_CONFIGURED;
@@ -2833,6 +2845,7 @@ static inline void esp32s3_epout_interrupt(struct esp32s3_usbdev_s *priv)
 static inline void esp32s3_epin_runtestmode(struct esp32s3_usbdev_s *priv)
 {
   uint32_t regval = esp32s3_getreg(ESP32S3_OTG_DCTL);
+
   regval &= OTG_DCTL_TCTL_MASK;
   regval |= (uint32_t)priv->testmode << OTG_DCTL_TCTL_SHIFT;
   esp32s3_putreg(regval, ESP32S3_OTG_DCTL);
@@ -4913,6 +4926,7 @@ static struct usbdev_ep_s *esp32s3_ep_alloc(struct usbdev_s *dev,
       for (epno = 1; epno < ESP32S3_ENDPOINT_NUM; epno++)
         {
           uint8_t bit = 1 << epno;
+
           if ((epavail & bit) != 0)
             {
               /* Mark the endpoint no longer available */
@@ -5070,6 +5084,7 @@ static int esp32s3_pullup(struct usbdev_s *dev, bool enable)
   usbtrace(TRACE_DEVPULLUP, (uint16_t)enable);
 
   irqstate_t flags = enter_critical_section();
+
   if (enable)
     {
       /* Connect the device by clearing the soft disconnect bit in the DCTL

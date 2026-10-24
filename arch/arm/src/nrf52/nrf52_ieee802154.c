@@ -27,6 +27,7 @@
 #include <nuttx/config.h>
 
 #include <nuttx/debug.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include <nuttx/kmalloc.h>
@@ -36,7 +37,7 @@
 #include <nuttx/mm/iob.h>
 
 #include "arm_internal.h"
-#include "hardware/nrf52_ficr.h"
+#include "nrf52_uid.h"
 
 #include "nrf52_ieee802154_trace.h"
 
@@ -298,29 +299,6 @@ static int nrf52_radioi8_bind(struct ieee802154_radio_s *radio,
 }
 
 /****************************************************************************
- * Name: nrf52_radioi8_eui64
- *
- * Description:
- *   EUI-64 from the Nordic OUI and the FICR device identifier.
- *
- ****************************************************************************/
-
-static void nrf52_radioi8_eui64(uint8_t *eaddr)
-{
-  uint32_t id0 = getreg32(NRF52_FICR_DEVICEID0);
-  uint32_t id1 = getreg32(NRF52_FICR_DEVICEID1);
-
-  eaddr[0] = 0xf4;
-  eaddr[1] = 0xce;
-  eaddr[2] = 0x36;
-  eaddr[3] = id1 & 0xff;
-  eaddr[4] = (id1 >> 8) & 0xff;
-  eaddr[5] = (id1 >> 16) & 0xff;
-  eaddr[6] = (id1 >> 24) & 0xff;
-  eaddr[7] = id0 & 0xff;
-}
-
-/****************************************************************************
  * Name: nrf52_radioi8_reset
  *
  * Description:
@@ -346,7 +324,7 @@ static int nrf52_radioi8_reset(struct ieee802154_radio_s *radio)
 
   /* Unique default extended address */
 
-  nrf52_radioi8_eui64(dev->state.addr.eaddr);
+  nrf52_eui64(dev->state.addr.eaddr);
 
   /* Initialize radio in IEEE 802.15.4 mode */
 
@@ -355,6 +333,10 @@ static int nrf52_radioi8_reset(struct ieee802154_radio_s *radio)
     {
       goto errout;
     }
+
+  /* macBSN starts from a random value */
+
+  dev->radio->state.bsn = rand();
 
   /* Reset TIMER */
 
@@ -751,6 +733,7 @@ nrf52_radioi8_beaconstart(struct ieee802154_radio_s *radio,
 #ifdef CONFIG_NRF52_RADIO_IEEE802154_SUPERFRAME
   struct nrf52_radioi8_dev_s *dev = (struct nrf52_radioi8_dev_s *)radio;
   irqstate_t                  flags;
+  int                         ret;
 
   if (sfspec->pancoord)
     {
@@ -761,17 +744,26 @@ nrf52_radioi8_beaconstart(struct ieee802154_radio_s *radio,
       memcpy(&dev->state.sf, (void *)sfspec,
              sizeof(struct ieee802154_superframespec_s));
 
-      /* Setup beacon transmission */
+      /* Configure the superframe timings */
 
-      dev->radio->ops->beacon_setup(dev, beacon->bf_data, beacon->bf_len);
+      ret = dev->rtc->ops->setup(dev, &dev->state.sf);
+      if (ret == OK)
+        {
+          /* Setup beacon transmission */
 
-      /* Configure RTC events */
+          dev->radio->ops->beacon_setup(dev, beacon->bf_data,
+                                        beacon->bf_len);
 
-      dev->rtc->ops->setup(dev, &dev->state.sf);
+          /* Slotted CSMA-CA in the CAP */
 
-      /* Start RTC */
+          dev->radio->state.slotted = true;
+          dev->radio->state.ble     = sfspec->ble;
 
-      dev->rtc->ops->start(dev);
+          /* The PAN coordinator defines the superframe */
+
+          dev->radio->state.sftrack = false;
+          dev->rtc->ops->start(dev);
+        }
 
       leave_critical_section(flags);
     }
@@ -779,10 +771,10 @@ nrf52_radioi8_beaconstart(struct ieee802154_radio_s *radio,
     {
       /* TODO: missing logic for non-PAN coord */
 
-      return -ENOTTY;
+      ret = -ENOTTY;
     }
 
-  return OK;
+  return ret;
 #else
   return -ENOTSUP;
 #endif
@@ -806,13 +798,16 @@ nrf52_radioi8_beaconupdate(struct ieee802154_radio_s *radio,
 
   flags = enter_critical_section();
 
-  /* Arm the beacon TX buffer */
+  /* The beacon on the air is replaced when it is sent */
 
-  memcpy(&dev->radio->beaconbuf[1], beacon->bf_data, beacon->bf_len);
-
-  /* Length = Frame data + CRC */
-
-  dev->radio->beaconbuf[0] = beacon->bf_len + 2;
+  if (dev->radio->state.state == NRF52_RADIO_STATE_BEACONTX)
+    {
+      dev->state.beacon_next = beacon;
+    }
+  else
+    {
+      dev->radio->ops->beacon_setup(dev, beacon->bf_data, beacon->bf_len);
+    }
 
   leave_critical_section(flags);
 
@@ -821,6 +816,31 @@ nrf52_radioi8_beaconupdate(struct ieee802154_radio_s *radio,
   return -ENOTSUP;
 #endif
 }
+
+#ifdef CONFIG_NRF52_RADIO_IEEE802154_SUPERFRAME
+/****************************************************************************
+ * Name: nrf52_radioi8_unslotted
+ *
+ * Description:
+ *   Switch to un-slotted CSMA-CA, a transaction paused for the next CAP
+ *   starts again un-slotted.  Must be called with the radio locked.
+ *
+ ****************************************************************************/
+
+static void nrf52_radioi8_unslotted(struct nrf52_radioi8_dev_s *dev)
+{
+  dev->radio->state.slotted = false;
+  dev->radio->state.sftrack = false;
+
+  if (dev->radio->state.csma_paused)
+    {
+      dev->radio->state.csma_paused = false;
+      dev->radio->state.csma_busy   = false;
+      dev->state.csma_pending       = true;
+      dev->radio->ops->txnext(dev, 0);
+    }
+}
+#endif
 
 /****************************************************************************
  * Name: nrf52_radioi8_beaconstop
@@ -841,6 +861,7 @@ static int nrf52_radioi8_beaconstop(struct ieee802154_radio_s *radio)
   /* Stop RTC */
 
   dev->rtc->ops->stop(dev);
+  nrf52_radioi8_unslotted(dev);
 
   leave_critical_section(flags);
 
@@ -865,6 +886,7 @@ nrf52_radioi8_sfupdate(struct ieee802154_radio_s *radio,
 #ifdef CONFIG_NRF52_RADIO_IEEE802154_SUPERFRAME
   struct nrf52_radioi8_dev_s *dev = (struct nrf52_radioi8_dev_s *)radio;
   irqstate_t                  flags;
+  int                         ret = OK;
 
   flags = enter_critical_section();
 
@@ -877,28 +899,32 @@ nrf52_radioi8_sfupdate(struct ieee802154_radio_s *radio,
 
   if (sfspec->beaconorder < 15)
     {
-      /* Need slotted CSMA-CA */
+      /* Configure the superframe timings */
 
-      dev->radio->state.slotted = true;
+      ret = dev->rtc->ops->setup(dev, &dev->state.sf);
+      if (ret == OK)
+        {
+          /* Need slotted CSMA-CA */
 
-      /* Configure RTC */
+          dev->radio->state.slotted = true;
+          dev->radio->state.ble     = sfspec->ble;
 
-      dev->rtc->ops->setup(dev, &dev->state.sf);
+          /* Sync with the beacons */
 
-      /* Wait for beacon to sync */
-
-      dev->radio->state.wait_for_beacon = true;
+          dev->radio->state.sftrack = true;
+        }
     }
   else
     {
       /* Need un-slotted CSMA-CA */
 
-      dev->radio->state.slotted = false;
+      dev->rtc->ops->stop(dev);
+      nrf52_radioi8_unslotted(dev);
     }
 
   leave_critical_section(flags);
 
-  return OK;
+  return ret;
 #else
   return -ENOTSUP;
 #endif
@@ -980,8 +1006,10 @@ nrf52_radioi8_register(struct nrf52_radio_board_s *board)
 
   DEBUGASSERT(dev->rtc->ops->setup);
   DEBUGASSERT(dev->rtc->ops->start);
+  DEBUGASSERT(dev->rtc->ops->sync);
   DEBUGASSERT(dev->rtc->ops->stop);
   DEBUGASSERT(dev->rtc->ops->reset);
+  DEBUGASSERT(dev->rtc->ops->elapsed);
 #endif
 
   /* Connect MAC ops */
