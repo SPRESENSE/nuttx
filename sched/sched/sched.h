@@ -321,6 +321,7 @@ void nxsched_remove_self(FAR struct tcb_s *rtrtcb);
 void nxsched_add_blocked(FAR struct tcb_s *btcb, tstate_t task_state);
 void nxsched_remove_blocked(FAR struct tcb_s *btcb);
 int  nxsched_set_priority(FAR struct tcb_s *tcb, int sched_priority);
+void nxsched_releasepid(pid_t pid);
 
 /* Release the vfork() parent suspended on this child, if there is one.
  * Called from nxsched_release_tcb(), the last point in the child's life --
@@ -458,6 +459,12 @@ void nxsched_critmon_preemption(FAR struct tcb_s *tcb, bool state,
 #if CONFIG_SCHED_CRITMONITOR_MAXTIME_CSECTION >= 0
 void nxsched_critmon_csection(FAR struct tcb_s *tcb, bool state,
                               FAR void *caller);
+#endif
+
+#ifdef CONFIG_SCHED_CAPABILITIES
+bool nxsched_may_control(pid_t pid);
+#else
+#  define nxsched_may_control(pid) true
 #endif
 
 /* TCB operations */
@@ -639,4 +646,5 @@ static inline_function int nxsched_select_cpu(cpu_set_t affinity)
   return cpu;
 }
 #  endif
+
 #endif /* __SCHED_SCHED_SCHED_H */

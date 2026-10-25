@@ -1,5 +1,5 @@
 /****************************************************************************
- * libs/libc/builtin/lib_builtin_setlist.c
+ * boards/xtensa/esp32/heltec_wifi_lora32/src/esp32_userleds.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -26,50 +26,65 @@
 
 #include <nuttx/config.h>
 
-#include <nuttx/lib/builtin.h>
+#include <stdbool.h>
 
-#if defined(CONFIG_BUILD_PROTECTED) && defined(__KERNEL__)
+#include <nuttx/board.h>
+#include <arch/board/board.h>
 
-/****************************************************************************
- * Public Functions
- ****************************************************************************/
-
-FAR const struct builtin_s *g_builtins;
-int g_builtin_count;
+#include "espressif/esp_gpio.h"
+#include "heltec_wifi_lora32.h"
 
 /****************************************************************************
- * Public Functions
+ * Private Data
  ****************************************************************************/
 
-/****************************************************************************
- * Name: builtin_setlist
- *
- * Description:
- *   Saves the user-space list of built-in applications for use by BINFS in
- *   protected mode.  Normally this is small set of globals provided by
- *   user-space logic.  It provides name-value pairs for associating
- *   built-in application names with user-space entry point addresses.
- *   These globals are only needed for use by BINFS which executes built-in
- *   applications from kernel-space in PROTECTED mode.  In the FLAT build,
- *   the user space globals are readily available.  (BINFS is not
- *   supportable in KERNEL mode since user-space address have no general
- *   meaning that configuration).
- *
- * Input Parameters:
- *   builtins - The list of built-in functions.  Each entry is a name-value
- *              pair that maps a built-in function name to its user-space
- *              entry point address.
- *   count    - The number of name-value pairs in the built-in list.
- *
- * Returned Value:
- *   None
- *
- ****************************************************************************/
-
-void builtin_setlist(FAR const struct builtin_s *builtins, int count)
+static const uint32_t g_ledcfg[BOARD_NLEDS] =
 {
-  g_builtins      = builtins;
-  g_builtin_count = count;
+  GPIO_LED1,
+};
+
+/****************************************************************************
+ * Public Functions
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: board_userled_initialize
+ ****************************************************************************/
+
+uint32_t board_userled_initialize(void)
+{
+  int i;
+
+  for (i = 0; i < BOARD_NLEDS; i++)
+    {
+      esp_configgpio(g_ledcfg[i], OUTPUT);
+    }
+
+  return BOARD_NLEDS;
 }
 
-#endif /* CONFIG_BUILD_PROTECTED && __KERNEL__ */
+/****************************************************************************
+ * Name: board_userled
+ ****************************************************************************/
+
+void board_userled(int led, bool ledon)
+{
+  if ((unsigned int)led < BOARD_NLEDS)
+    {
+      esp_gpiowrite(g_ledcfg[led], ledon);
+    }
+}
+
+/****************************************************************************
+ * Name: board_userled_all
+ ****************************************************************************/
+
+void board_userled_all(uint32_t ledset)
+{
+  int i;
+
+  for (i = 0; i < BOARD_NLEDS; i++)
+    {
+      esp_gpiowrite(g_ledcfg[i], (ledset & (1 << i)) != 0);
+    }
+}
