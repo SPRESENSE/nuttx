@@ -405,6 +405,15 @@
 #  define ADC_DIFSEL_ALL_DIFF     0x7ffff
 #endif
 
+#if defined(HAVE_IP_ADC_V2) && \
+    (defined(CONFIG_STM32_ADC1_OVERSAMPLE) || \
+     defined(CONFIG_STM32_ADC2_OVERSAMPLE) || \
+     defined(CONFIG_STM32_ADC3_OVERSAMPLE) || \
+     defined(CONFIG_STM32_ADC4_OVERSAMPLE) || \
+     defined(CONFIG_STM32_ADC5_OVERSAMPLE))
+#  define ADC_HAVE_OVERSAMPLE
+#endif
+
 /****************************************************************************
  * Private Types
  ****************************************************************************/
@@ -672,6 +681,9 @@ static void adc_sampletime_write(struct stm32_adc_dev_s *dev);
 static void adc_llops_dumpregs(struct stm32_adc_dev_s *dev);
 static int  adc_llops_multicfg(struct stm32_adc_dev_s *dev, uint8_t mode);
 static void adc_llops_enable(struct stm32_adc_dev_s *dev, bool enable);
+#  ifdef HAVE_IP_ADC_V2
+static int  adc_llops_calibrate(struct stm32_adc_dev_s *dev);
+#  endif
 #endif
 
 /****************************************************************************
@@ -727,7 +739,10 @@ static const struct stm32_adc_ops_s g_adc_llops =
 #  endif
   .dump_regs     = adc_llops_dumpregs,
   .multi_cfg     = adc_llops_multicfg,
-  .enable        = adc_llops_enable
+  .enable        = adc_llops_enable,
+#  ifdef HAVE_IP_ADC_V2
+  .calibrate     = adc_llops_calibrate
+#  endif
 };
 #endif
 
@@ -2608,6 +2623,15 @@ static void adc_mode_cfg(struct stm32_dev_s *priv)
  ****************************************************************************/
 
 #if defined(HAVE_IP_ADC_V2)
+
+/* ADC voltage regulator start-up time (tADCVREG_STUP) */
+
+#  ifdef CONFIG_STM32_STM32G4XXX
+#    define ADC_VREG_STARTUP_US 20
+#  else
+#    define ADC_VREG_STARTUP_US 10
+#  endif
+
 static void adc_voltreg_cfg(struct stm32_dev_s *priv)
 {
   /* Set ADC voltage regulator to intermediate state */
@@ -2622,7 +2646,7 @@ static void adc_voltreg_cfg(struct stm32_dev_s *priv)
 
   /* Wait for the ADC voltage regulator to startup */
 
-  up_udelay(10);
+  up_udelay(ADC_VREG_STARTUP_US);
 }
 #else
 static void adc_voltreg_cfg(struct stm32_dev_s *priv)
@@ -2892,6 +2916,83 @@ static void adc_dma_start(struct adc_dev_s *dev)
 }
 #endif /* ADC_HAVE_DMA */
 
+#ifdef ADC_HAVE_OVERSAMPLE
+/****************************************************************************
+ * Name: adc_oversample_set
+ *
+ * Description:
+ *   Configure the regular group hardware oversampler (CFGR2).  The fields
+ *   can only be written while ADSTART is 0, which is the case here because
+ *   the ADC is configured before the first conversion is started.
+ *
+ ****************************************************************************/
+
+static void adc_oversample_set(struct stm32_dev_s *priv)
+{
+  uint32_t regval = 0;
+
+  switch (priv->intf)
+    {
+#ifdef CONFIG_STM32_ADC1_OVERSAMPLE
+      case 1:
+        regval = ADC_CFGR2_ROVSE |
+                 (CONFIG_STM32_ADC1_OVSR << ADC_CFGR2_OVSR_SHIFT) |
+                 (CONFIG_STM32_ADC1_OVSS << ADC_CFGR2_OVSS_SHIFT);
+#  ifdef CONFIG_STM32_ADC1_TROVS
+        regval |= ADC_CFGR2_TROVS;
+#  endif
+        break;
+#endif
+#ifdef CONFIG_STM32_ADC2_OVERSAMPLE
+      case 2:
+        regval = ADC_CFGR2_ROVSE |
+                 (CONFIG_STM32_ADC2_OVSR << ADC_CFGR2_OVSR_SHIFT) |
+                 (CONFIG_STM32_ADC2_OVSS << ADC_CFGR2_OVSS_SHIFT);
+#  ifdef CONFIG_STM32_ADC2_TROVS
+        regval |= ADC_CFGR2_TROVS;
+#  endif
+        break;
+#endif
+#ifdef CONFIG_STM32_ADC3_OVERSAMPLE
+      case 3:
+        regval = ADC_CFGR2_ROVSE |
+                 (CONFIG_STM32_ADC3_OVSR << ADC_CFGR2_OVSR_SHIFT) |
+                 (CONFIG_STM32_ADC3_OVSS << ADC_CFGR2_OVSS_SHIFT);
+#  ifdef CONFIG_STM32_ADC3_TROVS
+        regval |= ADC_CFGR2_TROVS;
+#  endif
+        break;
+#endif
+#ifdef CONFIG_STM32_ADC4_OVERSAMPLE
+      case 4:
+        regval = ADC_CFGR2_ROVSE |
+                 (CONFIG_STM32_ADC4_OVSR << ADC_CFGR2_OVSR_SHIFT) |
+                 (CONFIG_STM32_ADC4_OVSS << ADC_CFGR2_OVSS_SHIFT);
+#  ifdef CONFIG_STM32_ADC4_TROVS
+        regval |= ADC_CFGR2_TROVS;
+#  endif
+        break;
+#endif
+#ifdef CONFIG_STM32_ADC5_OVERSAMPLE
+      case 5:
+        regval = ADC_CFGR2_ROVSE |
+                 (CONFIG_STM32_ADC5_OVSR << ADC_CFGR2_OVSR_SHIFT) |
+                 (CONFIG_STM32_ADC5_OVSS << ADC_CFGR2_OVSS_SHIFT);
+#  ifdef CONFIG_STM32_ADC5_TROVS
+        regval |= ADC_CFGR2_TROVS;
+#  endif
+        break;
+#endif
+      default:
+        break;
+    }
+
+  adc_modifyreg(priv, STM32_ADC_CFGR2_OFFSET,
+                ADC_CFGR2_ROVSE | ADC_CFGR2_OVSR_MASK |
+                ADC_CFGR2_OVSS_MASK | ADC_CFGR2_TROVS, regval);
+}
+#endif /* ADC_HAVE_OVERSAMPLE */
+
 /****************************************************************************
  * Name: adc_configure
  ****************************************************************************/
@@ -2975,6 +3076,12 @@ static void adc_configure(struct adc_dev_s *dev)
   /* Configure differential mode */
 
   adc_putreg(priv, STM32_ADC_DIFSEL_OFFSET, priv->difsel);
+#endif
+
+#ifdef ADC_HAVE_OVERSAMPLE
+  /* Configure hardware oversampling */
+
+  adc_oversample_set(priv);
 #endif
 
   /* Enable ADC */
@@ -4974,6 +5081,52 @@ static void adc_llops_enable(struct stm32_adc_dev_s *dev, bool enable)
 
   adc_enable(priv, enable);
 }
+
+/****************************************************************************
+ * Name: adc_llops_calibrate
+ *
+ * Description:
+ *   Run the calibration again, for example after a large temperature
+ *   change.  The ADC is disabled for the calibration and enabled again if
+ *   it was enabled before.
+ *
+ * Returned Value:
+ *   OK on success, -EBUSY if a conversion is in progress.
+ *
+ ****************************************************************************/
+
+#  ifdef HAVE_IP_ADC_V2
+static int adc_llops_calibrate(struct stm32_adc_dev_s *dev)
+{
+  struct stm32_dev_s *priv = (struct stm32_dev_s *)dev;
+  irqstate_t flags;
+  uint32_t regval;
+  bool enabled;
+
+  flags = enter_critical_section();
+
+  regval = adc_getreg(priv, STM32_ADC_CR_OFFSET);
+  if ((regval & (ADC_CR_ADSTART | ADC_CR_JADSTART)) != 0)
+    {
+      leave_critical_section(flags);
+      return -EBUSY;
+    }
+
+  enabled = (regval & ADC_CR_ADEN) != 0;
+
+  adc_enable(priv, false);
+  adc_voltreg_cfg(priv);
+  adc_calibrate(priv);
+
+  if (enabled)
+    {
+      adc_enable(priv, true);
+    }
+
+  leave_critical_section(flags);
+  return OK;
+}
+#  endif
 
 #endif /* CONFIG_STM32_ADC_LL_OPS */
 

@@ -26,10 +26,22 @@
 
 #include <nuttx/config.h>
 
+#include <arch/irq.h>
 #include <arch/syscall.h>
 #include <arch/xtensa/xtensa_abi.h>
 
 #ifdef CONFIG_LIB_SYSCALL
+
+/****************************************************************************
+ * Pre-processor Definitions
+ ****************************************************************************/
+
+/* The stack that the dispatch uses below SP: the register frame of the
+ * system call and 16 bytes for parm5, rounded up to the 16-byte alignment
+ * of SP.
+ */
+
+#define DISPATCH_STACK ((XCPTCONTEXT_SIZE + 31) & ~15)
 
 /****************************************************************************
  * File info
@@ -68,27 +80,44 @@
   .align  4
 
 xtensa_dispatch_syscall:
-  /* Allocate parm5 in stack */
+  /* Allocate parm5 in stack.  The word at SP belongs to the frame of the
+   * caller (or lies above the kernel stack), and the register frame of
+   * this system call is just below SP, where fork() reads it while the
+   * stub runs.  So move SP below both first.
+   */
 
+  movi   a9, DISPATCH_STACK
+  sub    sp, sp, a9
   s32i   a8, sp, LOCAL_OFFSET(0)
 
   mov    a11, a7 /* Move parm4 into callee's a7 */
   mov    a10, a6 /* Move parm3 into callee's a6 */
   mov    a9, a5  /* Move parm2 into callee's a5 */
   mov    a8, a4  /* Move parm1 into callee's a4 */
-  mov    a7, a3  /* Move parm0 into callee's a3 */
   mov    a6, a2  /* Move SYS_ call number into callee's a2 */
 
-  /* Load the stub address into A3 */
+  /* Load the stub address into A4 */
 
-  movi   a3, g_stublookup
-  slli   a2, a2, 2
-  add    a3, a3, a2
-  l32i   a3, a3, 0
+  movi   a4, g_stublookup
+  addx4  a4, a2, a4
+  l32i   a4, a4, 0
+
+  /* Keep the A7 of the caller in A2: A7 can be its frame pointer, and
+   * CALLX4 does not change A0-A3.
+   */
+
+  mov    a2, a7
+  mov    a7, a3  /* Move parm0 into callee's a3 */
 
   /* Call the stub */
 
-  callx4 a3
+  callx4 a4
+
+  /* Restore SP and A7 */
+
+  movi   a4, DISPATCH_STACK
+  add    sp, sp, a4
+  mov    a7, a2
 
   /* Move into A3 the return value from the stub */
 

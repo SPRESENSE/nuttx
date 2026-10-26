@@ -79,6 +79,16 @@ config GD32VW55X_UART2
 		UART2 on APB2 (160 MHz kernel clock).  TX=PA6 (AF10), RX=PA7 (AF8).
 		This UART is wired to the GD-Link VCP on the START board.
 
+config GD32VW55X_SERIAL_RXDMA_BUFFER_SIZE
+	int "Rx DMA buffer size"
+	default 64
+	depends on SERIAL_RXDMA
+	---help---
+		Size of the circular buffer that the DMA fills with the received
+		characters of each UART with Rx DMA (USART0_RXDMA, UART1_RXDMA,
+		UART2_RXDMA).  They are handed to the serial driver at the half
+		and the end of the buffer and when the line goes idle.
+
 config GD32VW55X_DMA
 	bool "DMA"
 	default n
@@ -345,6 +355,32 @@ config GD32VW55X_PROGMEM_SIZE
 		Must be a multiple of 4096 (the erase page size).
 
 endmenu # Program memory Configuration
+
+menu "Power Management Configuration"
+	depends on PM
+
+config GD32VW55X_PM_WAKEUP_MS
+	int "Longest deep-sleep (ms)"
+	default 1000
+	range 2 29000
+	depends on RTC
+	---help---
+		In the PM_STANDBY state the chip is in deep-sleep, where the
+		system timer stops.  The RTC wake-up timer ends the deep-sleep
+		at the next timer event, or after this period if it comes
+		later, and the time spent asleep is added to the system timer.
+		Besides, any EXTI interrupt wakes the chip up.  Without the RTC
+		the core only waits for an interrupt.  The radios are not
+		supported in deep-sleep.
+
+config GD32VW55X_PM_SERIAL_ACTIVITY
+	int "PM serial activity"
+	default 10
+	---help---
+		PM activity reported to the power management logic on every
+		received character.
+
+endmenu # Power Management Configuration
 
 menuconfig GD32VW55X_WIFI
 	bool "Wi-Fi 802.11ax support"
