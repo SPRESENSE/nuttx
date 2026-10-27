@@ -413,10 +413,23 @@
  * GD32_DMA_REQUEST() macro above.
  */
 
+#define DMA_REQ_USART0_RX     GD32_DMA_REQUEST(GD32_DMA_SUBPERI4, \
+                                               GD32_DMA1_CH(2))
+#define DMA_REQ_UART1_RX      GD32_DMA_REQUEST(GD32_DMA_SUBPERI4, \
+                                               GD32_DMA_CH5)
 #define DMA_REQ_UART2_RX      GD32_DMA_REQUEST(GD32_DMA_SUBPERI4, \
                                                GD32_DMA_CH1)
 #define DMA_REQ_UART2_TX      GD32_DMA_REQUEST(GD32_DMA_SUBPERI4, \
                                                GD32_DMA_CH3)
+
+/* The UART transmit requests of USART0 and UART1, from the peripheral
+ * request tables of the user manual.
+ */
+
+#define DMA_REQ_USART0_TX     GD32_DMA_REQUEST(GD32_DMA_SUBPERI4, \
+                                               GD32_DMA1_CH(7))
+#define DMA_REQ_UART1_TX      GD32_DMA_REQUEST(GD32_DMA_SUBPERI4, \
+                                               GD32_DMA_CH6)
 
 #define DMA_REQ_SPI_RX        GD32_DMA_REQUEST(GD32_DMA_SUBPERI3, \
                                                GD32_DMA1_CH(2))
@@ -427,5 +440,12 @@
                                                GD32_DMA_CH3)
 #define DMA_REQ_SPI1_TX       GD32_DMA_REQUEST(GD32_DMA_SUBPERI0, \
                                                GD32_DMA_CH4)
+
+/* The user manual also lists DMA1 channel 1 for the QSPI, but that channel
+ * gets no request on the GD32W515.
+ */
+
+#define DMA_REQ_QSPI          GD32_DMA_REQUEST(GD32_DMA_SUBPERI5, \
+                                               GD32_DMA1_CH(0))
 
 #endif /* __ARCH_ARM_SRC_GD32W51X_HARDWARE_GD32W51X_DMA_H */

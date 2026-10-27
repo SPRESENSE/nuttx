@@ -347,7 +347,8 @@ static int sixlowpan_pktradio_metadata(FAR struct radio_driver_s *radio,
  *   called from send event handler when a TX poll is received.  It
  *   formats the list of frames to be sent by the IEEE802.15.4 MAC driver.
  *
- *   The payload data is in the caller 'buf' and is of length 'buflen'.
+ *   The payload data is in the IOB chain 'pkt' at 'offset' and is of
+ *   length 'buflen'.
  *   Compressed headers will be added and if necessary the packet is
  *   fragmented. The resulting packet/fragments are submitted to the MAC
  *   where they are queue for transfer.
@@ -355,9 +356,9 @@ static int sixlowpan_pktradio_metadata(FAR struct radio_driver_s *radio,
  * Input Parameters:
  *   radio   - The radio network driver instance
  *   ipv6    - IPv6 header followed by TCP, UDP, or ICMPv6 header.
- *   buf     - Beginning of the packet packet to send (with IPv6 + protocol
- *             headers)
- *   buflen  - Length of data to send (includes IPv6 and protocol headers)
+ *   pkt     - The IOB chain holding the payload
+ *   offset  - The offset of the payload in pkt
+ *   buflen  - Length of the payload
  *   destmac - The IEEE802.15.4 MAC address of the destination
  *
  * Returned Value:
@@ -373,7 +374,8 @@ static int sixlowpan_pktradio_metadata(FAR struct radio_driver_s *radio,
 
 int sixlowpan_queue_frames(FAR struct radio_driver_s *radio,
                            FAR const struct ipv6_hdr_s *ipv6,
-                           FAR const void *buf, size_t buflen,
+                           FAR struct iob_s *pkt, unsigned int offset,
+                           size_t buflen,
                            FAR const struct netdev_varaddr_s *destmac)
 {
   union sixlowpan_metadata_u meta;
@@ -525,17 +527,11 @@ int sixlowpan_queue_frames(FAR struct radio_driver_s *radio,
        * added at qtail.
        */
 
-      FAR struct sixlowpan_reassbuf_s *reass;
       FAR struct iob_s *qhead;
       FAR struct iob_s *qtail;
       FAR uint8_t *frame1;
       FAR uint8_t *fragptr;
       uint16_t frag1_hdrlen;
-
-      /* Recover the reassembly buffer from the driver d_buf. */
-
-      reass = (FAR struct sixlowpan_reassbuf_s *)radio->r_dev.d_buf;
-      DEBUGASSERT(reass != NULL);
 
       /* The outbound IPv6 packet is too large to fit into a single 15.4
        * packet, so we fragment it into multiple packets and send them.
@@ -574,7 +570,7 @@ int sixlowpan_queue_frames(FAR struct radio_driver_s *radio,
       pktlen = buflen + g_uncomp_hdrlen + protosize;
       PUTHOST16(fragptr, SIXLOWPAN_FRAG_DISPATCH_SIZE,
                 ((SIXLOWPAN_DISPATCH_FRAG1 << 8) | pktlen));
-      PUTHOST16(fragptr, SIXLOWPAN_FRAG_TAG, reass->rb_dgramtag);
+      PUTHOST16(fragptr, SIXLOWPAN_FRAG_TAG, radio->r_dgramtag);
 
       g_frame_hdrlen += SIXLOWPAN_FRAG1_HDR_LEN;
 
@@ -585,6 +581,7 @@ int sixlowpan_queue_frames(FAR struct radio_driver_s *radio,
       if (protosize > 0)
         {
           FAR uint8_t *src = (FAR uint8_t *)ipv6 + IPv6_HDRLEN;
+
           memcpy(fptr + g_frame_hdrlen, src, protosize);
         }
 
@@ -593,7 +590,8 @@ int sixlowpan_queue_frames(FAR struct radio_driver_s *radio,
        */
 
       paysize = (framelen - g_frame_hdrlen) & ~7;
-      memcpy(fptr + g_frame_hdrlen + protosize, buf, paysize - protosize);
+      iob_copyout(fptr + g_frame_hdrlen + protosize, pkt,
+                  paysize - protosize, offset);
 
       /* Set outlen to what we already sent from the IP payload */
 
@@ -601,7 +599,7 @@ int sixlowpan_queue_frames(FAR struct radio_driver_s *radio,
       outlen         = paysize;
 
       ninfo("First fragment: length %d, tag %d\n",
-            paysize, reass->rb_dgramtag);
+            paysize, radio->r_dgramtag);
       sixlowpan_dumpbuffer("Outgoing frame",
                            (FAR const uint8_t *)iob->io_data, iob->io_len);
 
@@ -653,7 +651,7 @@ int sixlowpan_queue_frames(FAR struct radio_driver_s *radio,
 
           PUTHOST16(fragptr, SIXLOWPAN_FRAG_DISPATCH_SIZE,
                     ((SIXLOWPAN_DISPATCH_FRAGN << 8) | pktlen));
-          PUTHOST16(fragptr, SIXLOWPAN_FRAG_TAG, reass->rb_dgramtag);
+          PUTHOST16(fragptr, SIXLOWPAN_FRAG_TAG, radio->r_dgramtag);
           fragptr[SIXLOWPAN_FRAG_OFFSET] = outlen >> 3;
 
           fragn_hdrlen += SIXLOWPAN_FRAGN_HDR_LEN;
@@ -671,15 +669,16 @@ int sixlowpan_queue_frames(FAR struct radio_driver_s *radio,
               paysize = buflen - outlen + protosize;
             }
 
-          memcpy(fptr + fragn_hdrlen, buf + outlen - protosize, paysize);
+          iob_copyout(fptr + fragn_hdrlen, pkt, paysize,
+                      offset + outlen - protosize);
 
           /* Set outlen to what we already sent from the IP payload */
 
           iob->io_len = paysize + fragn_hdrlen;
           outlen     += paysize;
 
-          ninfo("Fragment offset=%d, paysize=%d, rb_dgramtag=%d\n",
-                outlen >> 3, paysize, reass->rb_dgramtag);
+          ninfo("Fragment offset=%d, paysize=%d, dgramtag=%d\n",
+                outlen >> 3, paysize, radio->r_dgramtag);
 
           sixlowpan_dumpbuffer("Outgoing frame",
                                (FAR const uint8_t *)iob->io_data,
@@ -722,7 +721,7 @@ int sixlowpan_queue_frames(FAR struct radio_driver_s *radio,
 
       /* Update the datagram TAG value */
 
-      reass->rb_dgramtag++;
+      radio->r_dgramtag++;
     }
   else
     {
@@ -737,12 +736,13 @@ int sixlowpan_queue_frames(FAR struct radio_driver_s *radio,
       if (protosize > 0)
         {
           FAR uint8_t *src = (FAR uint8_t *)ipv6 + IPv6_HDRLEN;
+
           memcpy(fptr + g_frame_hdrlen, src, protosize);
         }
 
       /* Copy the payload into the frame. */
 
-      memcpy(fptr + g_frame_hdrlen + protosize, buf, buflen);
+      iob_copyout(fptr + g_frame_hdrlen + protosize, pkt, buflen, offset);
       iob->io_len    = buflen + g_frame_hdrlen + protosize;
       iob->io_pktlen = iob->io_len;
 

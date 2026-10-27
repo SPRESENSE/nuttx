@@ -851,6 +851,7 @@ static int xbeenet_addmac(FAR struct net_driver_s *dev,
    * with IEEE 802.15.4 radios.
    */
 
+  UNUSED(priv);
   return -ENOSYS;
 }
 #endif
@@ -884,6 +885,7 @@ static int xbeenet_rmmac(FAR struct net_driver_s *dev,
    * used with IEEE 802.15.4 radios.
    */
 
+  UNUSED(priv);
   return -ENOSYS;
 }
 #endif
@@ -1037,9 +1039,9 @@ static int xbeenet_ioctl(FAR struct net_driver_s *dev, int cmd,
    */
 
   else
-   {
-     ret = xbee_ioctl(priv->xd_mac, cmd, arg);
-   }
+    {
+      ret = xbee_ioctl(priv->xd_mac, cmd, arg);
+    }
 
   nxmutex_unlock(&priv->xd_lock);
   return ret;

@@ -76,6 +76,16 @@ config GD32W51X_UART2
 		shared with the GD32VW55x driver.  The pins are chosen by the
 		board (board.h).
 
+config GD32W51X_SERIAL_RXDMA_BUFFER_SIZE
+	int "Rx DMA buffer size"
+	default 64
+	depends on SERIAL_RXDMA
+	---help---
+		Size of the circular buffer that the DMA fills with the received
+		characters of each UART with Rx DMA (USART0_RXDMA, UART1_RXDMA,
+		UART2_RXDMA).  They are handed to the serial driver at the half
+		and the end of the buffer and when the line goes idle.
+
 config GD32W51X_DMA
 	bool "DMA"
 	default n
@@ -122,6 +132,23 @@ config GD32W51X_QSPI
 		NOR flash (e.g. with the GD25 MTD driver in QSPI mode).  The QSPI
 		is a secure peripheral: its pins are marked secure when it is
 		initialized.
+
+config GD32W51X_QSPI_DMA
+	bool "QSPI DMA reads"
+	default n
+	depends on GD32W51X_QSPI && GD32W51X_DMA
+	---help---
+		Move the data of the longer reads with DMA1 channel 0 instead of
+		polling the FIFO.  The calling thread sleeps until the transfer
+		ends.
+
+config GD32W51X_QSPI_DMATHRESHOLD
+	int "QSPI DMA threshold (bytes)"
+	default 64
+	depends on GD32W51X_QSPI_DMA
+	---help---
+		Reads shorter than this are done by polling: setting up DMA costs
+		more than moving a few bytes.
 
 config GD32W51X_TSI
 	bool "TSI"
@@ -356,3 +383,25 @@ config GD32W51X_PROGMEM_SIZE
 
 endmenu # Program memory Configuration
 
+menu "Power Management Configuration"
+	depends on PM
+
+config GD32W51X_PM_WAKEUP_MS
+	int "Wake-up period in standby (ms)"
+	default 1000
+	range 0 32000
+	depends on RTC
+	---help---
+		In the PM_STANDBY state the chip is in deep-sleep, where the
+		system timer stops.  Besides any EXTI interrupt, the RTC wake-up
+		timer ends the deep-sleep after this period, so that the timers
+		still run, late by at most this period.  0 disables it.
+
+config GD32W51X_PM_SERIAL_ACTIVITY
+	int "PM serial activity"
+	default 10
+	---help---
+		PM activity reported to the power management logic on every
+		received character.
+
+endmenu # Power Management Configuration

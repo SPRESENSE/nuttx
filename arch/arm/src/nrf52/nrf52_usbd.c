@@ -43,6 +43,8 @@
 #include <nuttx/usb/usbdev_trace.h>
 
 #include <nuttx/irq.h>
+#include <nuttx/clock.h>
+#include <nuttx/wdog.h>
 
 #include "arm_internal.h"
 #include "nrf52_usbd.h"
@@ -54,6 +56,10 @@
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
+
+/* VBUS poll period */
+
+#define NRF52_VBUS_POLL    MSEC2TICK(500)
 
 /* USB trace ****************************************************************/
 
@@ -282,6 +288,12 @@ struct nrf52_usbdev_s
                                           * host read (EPDATASTATUS) */
   uint16_t                epoutpending;  /* EP OUT packet held in endpoint
                                           * buffer, no read request yet */
+
+  /* VBUS tracking: the USBD runs only while VBUS is present */
+
+  struct wdog_s           vbuswdog;      /* Polls VBUS */
+  bool                    usbdon;        /* USBD enabled */
+  bool                    pulledup;      /* D+ pull-up connected */
 
   /* E0 SETUP data buffering.
    *
@@ -718,241 +730,246 @@ nrf52_ep0out_stdrequest(struct nrf52_usbdev_s *priv,
 
   switch (ctrlreq->req)
     {
-    case USB_REQ_GETSTATUS:
-      {
-        /* type:  device-to-host; recipient = device, interface, endpoint
-         * value: 0
-         * index: zero interface endpoint
-         * len:   2; data = status
-         */
+      case USB_REQ_GETSTATUS:
+        {
+          /* type:  device-to-host; recipient = device, interface, endpoint
+           * value: 0
+           * index: zero interface endpoint
+           * len:   2; data = status
+           */
 
-        usbtrace(TRACE_INTDECODE(NRF52_TRACEINTID_GETSTATUS), 0);
-        if (!priv->addressed || ctrlreq->len != 2 ||
-            USB_REQ_ISOUT(ctrlreq->type) || ctrlreq->value != 0)
-          {
-            priv->stalled = true;
-          }
-        else
-          {
-            switch (ctrlreq->type & USB_REQ_RECIPIENT_MASK)
-              {
-              case USB_REQ_RECIPIENT_ENDPOINT:
+          usbtrace(TRACE_INTDECODE(NRF52_TRACEINTID_GETSTATUS), 0);
+          if (!priv->addressed || ctrlreq->len != 2 ||
+              USB_REQ_ISOUT(ctrlreq->type) || ctrlreq->value != 0)
+            {
+              priv->stalled = true;
+            }
+          else
+            {
+              switch (ctrlreq->type & USB_REQ_RECIPIENT_MASK)
                 {
-                  usbtrace(TRACE_INTDECODE(NRF52_TRACEINTID_EPGETSTATUS), 0);
-                  privep = nrf52_ep_findbyaddr(priv, ctrlreq->index);
-                  if (!privep)
+                  case USB_REQ_RECIPIENT_ENDPOINT:
                     {
-                      usbtrace(
-                        TRACE_DEVERROR(NRF52_TRACEERR_BADEPGETSTATUS), 0);
+                      usbtrace(TRACE_INTDECODE(NRF52_TRACEINTID_EPGETSTATUS),
+                               0);
+                      privep = nrf52_ep_findbyaddr(priv, ctrlreq->index);
+                      if (!privep)
+                        {
+                          usbtrace(
+                            TRACE_DEVERROR(NRF52_TRACEERR_BADEPGETSTATUS),
+                            0);
+                          priv->stalled = true;
+                        }
+                      break;
+                    }
+
+                  case USB_REQ_RECIPIENT_DEVICE:
+                  case USB_REQ_RECIPIENT_INTERFACE:
+                    {
+                      if (ctrlreq->index == 0)
+                        {
+                          usbtrace(TRACE_INTDECODE(
+                                     NRF52_TRACEINTID_DEVGETSTATUS), 0);
+                        }
+                      else
+                        {
+                          usbtrace(TRACE_DEVERROR(
+                                   NRF52_TRACEERR_BADDEVGETSTATUS), 0);
+                          priv->stalled = true;
+                        }
+                      break;
+                    }
+
+                  default:
+                    {
+                      usbtrace(TRACE_DEVERROR(NRF52_TRACEERR_BADGETSTATUS),
+                               0);
                       priv->stalled = true;
+                      break;
                     }
-                  break;
                 }
+            }
+          break;
+        }
 
-              case USB_REQ_RECIPIENT_DEVICE:
-              case USB_REQ_RECIPIENT_INTERFACE:
+      case USB_REQ_CLEARFEATURE:
+        {
+          /* type:  host-to-device; recipient = device, interface or endpoint
+           * value: feature selector
+           * index: zero interface endpoint;
+           * len:   zero, data = none
+           */
+
+          usbtrace(TRACE_INTDECODE(NRF52_TRACEINTID_CLEARFEATURE), 0);
+          if (priv->addressed != 0 && ctrlreq->len == 0)
+            {
+              recipient = ctrlreq->type & USB_REQ_RECIPIENT_MASK;
+              if (recipient == USB_REQ_RECIPIENT_ENDPOINT &&
+                  ctrlreq->value == USB_FEATURE_ENDPOINTHALT &&
+                  (privep = nrf52_ep_findbyaddr(priv,
+                                                ctrlreq->index)) != NULL)
                 {
-                  if (ctrlreq->index == 0)
-                    {
-                      usbtrace(TRACE_INTDECODE(
-                                 NRF52_TRACEINTID_DEVGETSTATUS), 0);
-                    }
-                  else
-                    {
-                      usbtrace(TRACE_DEVERROR(
-                               NRF52_TRACEERR_BADDEVGETSTATUS), 0);
-                      priv->stalled = true;
-                    }
-                  break;
+                  nrf52_ep_clrstall(privep);
                 }
-
-              default:
+              else if (recipient == USB_REQ_RECIPIENT_DEVICE &&
+                       ctrlreq->value == USB_FEATURE_REMOTEWAKEUP)
                 {
-                  usbtrace(TRACE_DEVERROR(NRF52_TRACEERR_BADGETSTATUS), 0);
+                  priv->wakeup = false;
+                }
+              else
+                {
+                  nrf52_req_dispatch(priv, &priv->ctrlreq);
+                }
+            }
+          else
+            {
+              usbtrace(TRACE_DEVERROR(NRF52_TRACEERR_BADCLEARFEATURE), 0);
+              priv->stalled = true;
+            }
+          break;
+        }
+
+      case USB_REQ_SETFEATURE:
+        {
+          /* type:  host-to-device; recipient = device, interface, endpoint
+           * value: feature selector
+           * index: zero interface endpoint;
+           * len:   0; data = none
+           */
+
+          usbtrace(TRACE_INTDECODE(NRF52_TRACEINTID_SETFEATURE), 0);
+          if (priv->addressed != 0 && ctrlreq->len == 0)
+            {
+              recipient = ctrlreq->type & USB_REQ_RECIPIENT_MASK;
+              if (recipient == USB_REQ_RECIPIENT_ENDPOINT &&
+                  ctrlreq->value == USB_FEATURE_ENDPOINTHALT &&
+                  (privep = nrf52_ep_findbyaddr(priv,
+                                                ctrlreq->index)) != NULL)
+                {
+                  nrf52_ep_setstall(privep);
+                }
+              else if (recipient == USB_REQ_RECIPIENT_DEVICE &&
+                       ctrlreq->value == USB_FEATURE_REMOTEWAKEUP)
+                {
+                  priv->wakeup = true;
+                }
+              else if (recipient == USB_REQ_RECIPIENT_DEVICE &&
+                       ctrlreq->value == USB_FEATURE_TESTMODE &&
+                       ((ctrlreq->index & 0xff) == 0))
+                {
+                  usbtrace(TRACE_INTDECODE(NRF52_TRACEINTID_TESTMODE), 0);
+                }
+              else
+                {
+                  usbtrace(TRACE_DEVERROR(NRF52_TRACEERR_BADSETFEATURE), 0);
                   priv->stalled = true;
-                  break;
                 }
-              }
-          }
-        break;
-      }
+            }
+          else
+            {
+              usbtrace(TRACE_DEVERROR(NRF52_TRACEERR_BADSETFEATURE), 0);
+              priv->stalled = true;
+            }
+          break;
+        }
 
-    case USB_REQ_CLEARFEATURE:
-      {
-        /* type:  host-to-device; recipient = device, interface or endpoint
-         * value: feature selector
-         * index: zero interface endpoint;
-         * len:   zero, data = none
+      case USB_REQ_SETADDRESS:
+        {
+          /* type:  host-to-device; recipient = device
+           * value: device address
+           * index: 0
+           * len:   0; data = none
+           */
+
+          usbtrace(TRACE_INTDECODE(NRF52_TRACEINTID_SETADDRESS),
+                    ctrlreq->value);
+          nrf52_setaddress(priv, (uint16_t)priv->ctrlreq.value[0]);
+
+          /* NOTE: The USBD peripheral handles the SetAddress
+           * transfer by itself.
+           *
+           * REVISTI: Documentation states that we shall not handle this
+           *          command in the software at all, but if we don't
+           *          send EP0STATUS response then enumeration fails.
+           */
+
+          break;
+        }
+
+      case USB_REQ_GETDESCRIPTOR:
+        /* type:  device-to-host; recipient = device
+         * value: descriptor type and index
+         * index: 0 or language ID;
+         * len:   descriptor len; data = descriptor
          */
 
-        usbtrace(TRACE_INTDECODE(NRF52_TRACEINTID_CLEARFEATURE), 0);
-        if (priv->addressed != 0 && ctrlreq->len == 0)
-          {
-            recipient = ctrlreq->type & USB_REQ_RECIPIENT_MASK;
-            if (recipient == USB_REQ_RECIPIENT_ENDPOINT &&
-                ctrlreq->value == USB_FEATURE_ENDPOINTHALT &&
-                (privep = nrf52_ep_findbyaddr(priv, ctrlreq->index)) != NULL)
-              {
-                nrf52_ep_clrstall(privep);
-              }
-            else if (recipient == USB_REQ_RECIPIENT_DEVICE &&
-                     ctrlreq->value == USB_FEATURE_REMOTEWAKEUP)
-              {
-                priv->wakeup = false;
-              }
-            else
-              {
-                nrf52_req_dispatch(priv, &priv->ctrlreq);
-              }
-          }
-        else
-          {
-            usbtrace(TRACE_DEVERROR(NRF52_TRACEERR_BADCLEARFEATURE), 0);
-            priv->stalled = true;
-          }
-        break;
-      }
-
-    case USB_REQ_SETFEATURE:
-      {
-        /* type:  host-to-device; recipient = device, interface, endpoint
-         * value: feature selector
-         * index: zero interface endpoint;
-         * len:   0; data = none
-         */
-
-        usbtrace(TRACE_INTDECODE(NRF52_TRACEINTID_SETFEATURE), 0);
-        if (priv->addressed != 0 && ctrlreq->len == 0)
-          {
-            recipient = ctrlreq->type & USB_REQ_RECIPIENT_MASK;
-            if (recipient == USB_REQ_RECIPIENT_ENDPOINT &&
-                ctrlreq->value == USB_FEATURE_ENDPOINTHALT &&
-                (privep = nrf52_ep_findbyaddr(priv, ctrlreq->index)) != NULL)
-              {
-                nrf52_ep_setstall(privep);
-              }
-            else if (recipient == USB_REQ_RECIPIENT_DEVICE &&
-                     ctrlreq->value == USB_FEATURE_REMOTEWAKEUP)
-              {
-                priv->wakeup = true;
-              }
-            else if (recipient == USB_REQ_RECIPIENT_DEVICE &&
-                     ctrlreq->value == USB_FEATURE_TESTMODE &&
-                     ((ctrlreq->index & 0xff) == 0))
-              {
-                usbtrace(TRACE_INTDECODE(NRF52_TRACEINTID_TESTMODE), 0);
-              }
-            else
-              {
-                usbtrace(TRACE_DEVERROR(NRF52_TRACEERR_BADSETFEATURE), 0);
-                priv->stalled = true;
-              }
-          }
-        else
-          {
-            usbtrace(TRACE_DEVERROR(NRF52_TRACEERR_BADSETFEATURE), 0);
-            priv->stalled = true;
-          }
-        break;
-      }
-
-    case USB_REQ_SETADDRESS:
-      {
+      case USB_REQ_SETDESCRIPTOR:
         /* type:  host-to-device; recipient = device
-         * value: device address
-         * index: 0
+         * value: descriptor type and index
+         * index: 0 or language ID;
+         * len:   descriptor len; data = descriptor
+         */
+
+        {
+          usbtrace(TRACE_INTDECODE(NRF52_TRACEINTID_GETSETDESC),
+                   priv->ctrlreq.req);
+          nrf52_req_dispatch(priv, &priv->ctrlreq);
+          break;
+        }
+
+      case USB_REQ_GETCONFIGURATION:
+        /* type:  device-to-host; recipient = device
+         * value: 0;
+         * index: 0;
+         * len:   1; data = configuration value
+         */
+
+      case USB_REQ_SETCONFIGURATION:
+        /* type:  host-to-device; recipient = device
+         * value: configuration value
+         * index: 0;
          * len:   0; data = none
          */
 
-        usbtrace(TRACE_INTDECODE(NRF52_TRACEINTID_SETADDRESS),
-                  ctrlreq->value);
-        nrf52_setaddress(priv, (uint16_t)priv->ctrlreq.value[0]);
-
-        /* NOTE: The USBD peripheral handles the SetAddress
-         * transfer by itself.
-         *
-         * REVISTI: Documentation states that we shall not handle this
-         *          command in the software at all, but if we don't
-         *          send EP0STATUS response then enumeration fails.
+      case USB_REQ_GETINTERFACE:
+        /* type:  device-to-host; recipient = interface
+         * value: 0
+         * index: interface;
+         * len:   1; data = alt interface
          */
 
+      case USB_REQ_SETINTERFACE:
+        /* type:  host-to-device; recipient = interface
+         * value: alternate setting
+         * index: interface;
+         * len:   0; data = none
+         */
+
+        {
+          usbtrace(TRACE_INTDECODE(NRF52_TRACEINTID_GETSETIFCONFIG),
+                   priv->ctrlreq.req);
+          nrf52_req_dispatch(priv, &priv->ctrlreq);
+          break;
+        }
+
+      case USB_REQ_SYNCHFRAME:
+        /* type:  device-to-host; recipient = endpoint
+         * value: 0
+         * index: endpoint;
+         * len:   2; data = frame number
+         */
+
+        {
+          usbtrace(TRACE_INTDECODE(NRF52_TRACEINTID_SYNCHFRAME), 0);
+          break;
+        }
+
+      default:
+        {
+          usbtrace(TRACE_DEVERROR(NRF52_TRACEERR_INVALIDCTRLREQ), 0);
+          priv->stalled = true;
+        }
         break;
-      }
-
-    case USB_REQ_GETDESCRIPTOR:
-      /* type:  device-to-host; recipient = device
-       * value: descriptor type and index
-       * index: 0 or language ID;
-       * len:   descriptor len; data = descriptor
-       */
-
-    case USB_REQ_SETDESCRIPTOR:
-      /* type:  host-to-device; recipient = device
-       * value: descriptor type and index
-       * index: 0 or language ID;
-       * len:   descriptor len; data = descriptor
-       */
-
-      {
-        usbtrace(TRACE_INTDECODE(NRF52_TRACEINTID_GETSETDESC),
-                 priv->ctrlreq.req);
-        nrf52_req_dispatch(priv, &priv->ctrlreq);
-        break;
-      }
-
-    case USB_REQ_GETCONFIGURATION:
-      /* type:  device-to-host; recipient = device
-       * value: 0;
-       * index: 0;
-       * len:   1; data = configuration value
-       */
-
-    case USB_REQ_SETCONFIGURATION:
-      /* type:  host-to-device; recipient = device
-       * value: configuration value
-       * index: 0;
-       * len:   0; data = none
-       */
-
-    case USB_REQ_GETINTERFACE:
-      /* type:  device-to-host; recipient = interface
-       * value: 0
-       * index: interface;
-       * len:   1; data = alt interface
-       */
-
-    case USB_REQ_SETINTERFACE:
-      /* type:  host-to-device; recipient = interface
-       * value: alternate setting
-       * index: interface;
-       * len:   0; data = none
-       */
-
-      {
-        usbtrace(TRACE_INTDECODE(NRF52_TRACEINTID_GETSETIFCONFIG),
-                 priv->ctrlreq.req);
-        nrf52_req_dispatch(priv, &priv->ctrlreq);
-        break;
-      }
-
-    case USB_REQ_SYNCHFRAME:
-      /* type:  device-to-host; recipient = endpoint
-       * value: 0
-       * index: endpoint;
-       * len:   2; data = frame number
-       */
-
-      {
-        usbtrace(TRACE_INTDECODE(NRF52_TRACEINTID_SYNCHFRAME), 0);
-        break;
-      }
-
-    default:
-      {
-        usbtrace(TRACE_DEVERROR(NRF52_TRACEERR_INVALIDCTRLREQ), 0);
-        priv->stalled = true;
-      }
-      break;
     }
 }
 
@@ -3132,11 +3149,6 @@ static void nrf52_swinitialize(struct nrf52_usbdev_s *priv)
 
 static void nrf52_hwinitialize(struct nrf52_usbdev_s *priv)
 {
-  /* Wait for VBUS */
-
-  while ((getreg32(NRF52_POWER_USBREGSTATUS) &
-          NRF52_POWER_USBREGSTATUS_VBUSDETECT) == 0) ;
-
   /* Errata [187] USBD: USB cannot be enabled */
 
   *(volatile uint32_t *)0x4006ec00 = 0x00009375;
@@ -3161,6 +3173,89 @@ static void nrf52_hwinitialize(struct nrf52_usbdev_s *priv)
 }
 
 /****************************************************************************
+ * Name: nrf52_usbd_start
+ *
+ * Description:
+ *   Enable the USBD once VBUS is present.  Enabling it starts the USB
+ *   regulator; nrf52_vbus_poll() connects the pull-up once the regulator
+ *   is ready.
+ *
+ ****************************************************************************/
+
+static void nrf52_usbd_start(struct nrf52_usbdev_s *priv)
+{
+  nrf52_hwinitialize(priv);
+  nrf52_pullup(&priv->usbdev, false);
+  nrf52_usbreset(priv);
+  priv->usbdon = true;
+  up_enable_irq(NRF52_IRQ_USBD);
+}
+
+/****************************************************************************
+ * Name: nrf52_usbd_stop
+ *
+ * Description:
+ *   Disconnect and disable the USBD after VBUS is removed.  An enabled
+ *   USBD keeps drawing current without VBUS.
+ *
+ ****************************************************************************/
+
+static void nrf52_usbd_stop(struct nrf52_usbdev_s *priv)
+{
+  nrf52_pullup(&priv->usbdev, false);
+  up_disable_irq(NRF52_IRQ_USBD);
+
+  /* Disconnects the class driver and returns its requests */
+
+  nrf52_usbreset(priv);
+  nrf52_putreg(0, NRF52_USBD_INTEN);
+  nrf52_putreg(USBD_ENABLE_DISABLE, NRF52_USBD_ENABLE);
+  priv->usbdon   = false;
+  priv->pulledup = false;
+}
+
+/****************************************************************************
+ * Name: nrf52_vbus_poll
+ *
+ * Description:
+ *   Follow VBUS: enable the USBD when VBUS appears, connect the pull-up
+ *   once the USB regulator is ready and a class driver is bound, and
+ *   disable the USBD when VBUS goes away.  This is the sequence in the
+ *   nRF52840 Product Specification (USBD, "USB power").
+ *
+ *   VBUS is polled rather than taken from the POWER USBDETECTED and
+ *   USBREMOVED events, because their POWER_CLOCK interrupt belongs to the
+ *   SoftDevice Controller when BLE is enabled (nrf52_sdc.c).
+ *
+ ****************************************************************************/
+
+static void nrf52_vbus_poll(wdparm_t arg)
+{
+  struct nrf52_usbdev_s *priv = (struct nrf52_usbdev_s *)arg;
+  bool vbus = (getreg32(NRF52_POWER_USBREGSTATUS) &
+               NRF52_POWER_USBREGSTATUS_VBUSDETECT) != 0;
+
+  if (vbus && !priv->usbdon)
+    {
+      nrf52_usbd_start(priv);
+    }
+  else if (!vbus && priv->usbdon)
+    {
+      nrf52_usbd_stop(priv);
+    }
+
+  if (priv->usbdon && !priv->pulledup && priv->driver != NULL &&
+      (getreg32(NRF52_POWER_USBREGSTATUS) &
+       NRF52_POWER_USBREGSTATUS_OUTPUTRDY) != 0)
+    {
+      nrf52_pullup(&priv->usbdev, true);
+      priv->pulledup = true;
+    }
+
+  wd_start(&priv->vbuswdog, NRF52_VBUS_POLL, nrf52_vbus_poll, arg);
+}
+
+/****************************************************************************
  * Public Functions
  ****************************************************************************/
 
@@ -3175,6 +3270,7 @@ static void nrf52_hwinitialize(struct nrf52_usbdev_s *priv)
 void arm_usbinitialize(void)
 {
   struct nrf52_usbdev_s *priv = &g_usbdev;
+  irqstate_t             flags;
   int                    ret  = 0;
 
   usbtrace(TRACE_DEVINIT, 0);
@@ -3198,21 +3294,11 @@ void arm_usbinitialize(void)
       goto errout;
     }
 
-  /* Initialize the USB core */
+  /* Start the USB core now if VBUS is there, then follow VBUS */
 
-  nrf52_hwinitialize(priv);
-
-  /* Disconnect device */
-
-  nrf52_pullup(&priv->usbdev, false);
-
-  /* Reset/Re-initialize the USB hardware */
-
-  nrf52_usbreset(priv);
-
-  /* Enable USB controller interrupts at the NVIC */
-
-  up_enable_irq(NRF52_IRQ_USBD);
+  flags = enter_critical_section();
+  nrf52_vbus_poll((wdparm_t)priv);
+  leave_critical_section(flags);
   return;
 
 errout:
@@ -3233,6 +3319,10 @@ void arm_usbuninitialize(void)
   irqstate_t             flags;
 
   usbtrace(TRACE_DEVUNINIT, 0);
+
+  wd_cancel(&priv->vbuswdog);
+  priv->usbdon   = false;
+  priv->pulledup = false;
 
   if (priv->driver)
     {
@@ -3274,6 +3364,7 @@ void arm_usbuninitialize(void)
 int usbdev_register(struct usbdevclass_driver_s *driver)
 {
   struct nrf52_usbdev_s *priv = &g_usbdev;
+  irqstate_t             flags;
   int                    ret  = 0;
 
   usbtrace(TRACE_DEVREGISTER, 0);
@@ -3307,11 +3398,18 @@ int usbdev_register(struct usbdevclass_driver_s *driver)
     }
   else
     {
-      /* Enable USB controller interrupts */
+      /* Connect now if VBUS and the USB regulator are there, else the
+       * VBUS poll connects once they are.
+       */
 
-      up_enable_irq(NRF52_IRQ_USBD);
+      flags = enter_critical_section();
+      if (priv->usbdon)
+        {
+          up_enable_irq(NRF52_IRQ_USBD);
+        }
 
-      nrf52_pullup(&priv->usbdev, true);
+      nrf52_vbus_poll((wdparm_t)priv);
+      leave_critical_section(flags);
       priv->usbdev.speed = USB_SPEED_FULL;
     }
 
@@ -3364,6 +3462,7 @@ int usbdev_unregister(struct usbdevclass_driver_s *driver)
   /* Disconnect device */
 
   nrf52_pullup(&priv->usbdev, false);
+  priv->pulledup = false;
 
   /* Unhook the driver */
 

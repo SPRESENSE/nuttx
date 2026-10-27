@@ -26,16 +26,25 @@
 
 #include <nuttx/config.h>
 
+#include <inttypes.h>
 #include <stdint.h>
 #include <time.h>
 #include <errno.h>
+#include <sys/param.h>
 #include <debug.h>
 
 #include <nuttx/arch.h>
+#include <nuttx/clock.h>
+#include <nuttx/irq.h>
+#include <arch/board/board.h>
 
 #include "arm_internal.h"
+#include "nvic.h"
+#include "dwt.h"
+#include "hardware/gd32w51x_exti.h"
 #include "hardware/gd32w51x_rcu.h"
 #include "chip.h"
+#include "gd32w51x_pm.h"
 
 #ifdef CONFIG_RTC
 
@@ -50,13 +59,35 @@
 #define GD32W51X_RTC_CTL       (GD32W51X_RTC_BASE + 0x0008)
 #define GD32W51X_RTC_ICS      (GD32W51X_RTC_BASE + 0x000c)
 #define GD32W51X_RTC_PSC       (GD32W51X_RTC_BASE + 0x0010)
+#define GD32W51X_RTC_WUT       (GD32W51X_RTC_BASE + 0x0014)
 #define GD32W51X_RTC_WPK       (GD32W51X_RTC_BASE + 0x0024)
+#define GD32W51X_RTC_SS        (GD32W51X_RTC_BASE + 0x0028)
+#define GD32W51X_RTC_STATC     (GD32W51X_RTC_BASE + 0x0064)
+
+/* CTL bits */
+
+#define RTC_CTL_WTCS_MASK      (7 << 0)   /* Wake-up timer clock */
+#define RTC_CTL_WTCS_DIV16     (0 << 0)   /* RTC clock / 16 */
+#define RTC_CTL_WTEN           (1 << 10)  /* Wake-up timer enable */
+#define RTC_CTL_WTIE           (1 << 14)  /* Wake-up timer interrupt */
 
 /* STAT bits */
 
+#define RTC_ICS_WTWF           (1 << 2)   /* Wake-up timer writable */
 #define RTC_ICS_RSYNF          (1 << 5)   /* Registers synchronized */
 #define RTC_ICS_INITF          (1 << 6)   /* In initialization state */
 #define RTC_ICS_INITM          (1 << 7)   /* Enter initialization mode */
+
+#define RTC_STATC_WTFC         (1 << 2)   /* Clear the wake-up timer flag */
+
+/* The wake-up timer counts the RTC clock divided by 16, on 16 bits; its
+ * interrupt goes through EXTI line 24 (the non-secure line, line 25 is the
+ * secure one).
+ */
+
+#define RTC_WUT_DIV            16
+#define RTC_WUT_MAX            0xffff
+#define RTC_WKUP_EXTI_LINE     (1 << 24)
 
 /* Write-protection key sequence */
 
@@ -70,6 +101,21 @@
 
 #define RTC_PSC_FACTOR_A        0x1f
 #define RTC_PSC_FACTOR_S        0x3e7
+#define RTC_PSC_FACTOR_A_SHIFT  16
+#define RTC_PSC_FACTOR_A_MASK   0x7f
+#define RTC_SS_MASK             0xffff
+
+/* The IRC32K is off by a few percent.  Its frequency is measured against
+ * the core clock, which comes from the crystal: the CPU cycles are counted
+ * over about 100 ms of sub-second ticks of the RTC (RTC_CALIB_CLOCKS RTC
+ * clocks), each tick bounded by RTC_CALIB_TIMEOUT cycles (20 ms).  The
+ * result is used if it is within 25 percent of the nominal frequency (the
+ * datasheets give no tolerance).
+ */
+
+#define RTC_IRC32K_FREQUENCY    32000
+#define RTC_CALIB_CLOCKS        3200
+#define RTC_CALIB_TIMEOUT       (BOARD_SYSCLK_FREQUENCY / 50)
 
 /* RCU_RSTSCK register (IRC32K control) */
 
@@ -103,6 +149,14 @@
  ****************************************************************************/
 
 volatile bool g_rtc_enabled = false;
+
+/****************************************************************************
+ * Private Data
+ ****************************************************************************/
+
+/* RTC clock frequency, measured at boot */
+
+static uint32_t g_rtc_frequency = RTC_IRC32K_FREQUENCY;
 
 /****************************************************************************
  * Private Functions
@@ -141,6 +195,130 @@ static int rtc_synchwait(void)
 }
 
 /****************************************************************************
+ * Name: rtc_ss_edge
+ *
+ * Description:
+ *   Wait for the next change of the sub-second counter, at most
+ *   RTC_CALIB_TIMEOUT core cycles.
+ *
+ ****************************************************************************/
+
+static int rtc_ss_edge(void)
+{
+  uint32_t ss    = getreg32(GD32W51X_RTC_SS) & RTC_SS_MASK;
+  uint32_t start = getreg32(DWT_CYCCNT);
+
+  while ((getreg32(GD32W51X_RTC_SS) & RTC_SS_MASK) == ss)
+    {
+      if (getreg32(DWT_CYCCNT) - start > RTC_CALIB_TIMEOUT)
+        {
+          return -ETIMEDOUT;
+        }
+    }
+
+  return OK;
+}
+
+/****************************************************************************
+ * Name: rtc_sync_prescaler
+ *
+ * Description:
+ *   Measure the IRC32K against the core clock and return the synchronous
+ *   prescaler that gives a 1 Hz calendar with RTC_PSC_FACTOR_A, or
+ *   RTC_PSC_FACTOR_S if the measure fails.
+ *
+ ****************************************************************************/
+
+static uint32_t rtc_sync_prescaler(void)
+{
+  uint32_t diva;
+  uint32_t ticks;
+  uint32_t start;
+  uint32_t cycles;
+  uint32_t freq;
+  uint32_t i;
+
+  /* Read the sub-second counter only once the shadow registers hold the
+   * calendar: reading it locks the TIME and DATE shadows until DATE is
+   * read, and leaving the initialization mode loads the calendar from the
+   * shadows.  After a system reset, they hold their reset values until the
+   * first synchronization.
+   */
+
+  if (rtc_synchwait() < 0)
+    {
+      return RTC_PSC_FACTOR_S;
+    }
+
+  /* The RTC counts with the prescalers it has now */
+
+  diva  = ((getreg32(GD32W51X_RTC_PSC) >> RTC_PSC_FACTOR_A_SHIFT) &
+           RTC_PSC_FACTOR_A_MASK) + 1;
+  ticks = MAX(RTC_CALIB_CLOCKS / diva, 1);
+
+  /* The DWT cycle counter counts the core clock */
+
+  modifyreg32(NVIC_DEMCR, 0, NVIC_DEMCR_TRCENA);
+  modifyreg32(DWT_CTRL, 0, DWT_CTRL_CYCCNTENA_MASK);
+
+  if (rtc_ss_edge() < 0)
+    {
+      getreg32(GD32W51X_RTC_TIME);
+      getreg32(GD32W51X_RTC_DATE);
+      return RTC_PSC_FACTOR_S;
+    }
+
+  start = getreg32(DWT_CYCCNT);
+
+  for (i = 0; i < ticks; i++)
+    {
+      if (rtc_ss_edge() < 0)
+        {
+          break;
+        }
+    }
+
+  cycles = getreg32(DWT_CYCCNT) - start;
+
+  /* Release the TIME and DATE shadows */
+
+  getreg32(GD32W51X_RTC_TIME);
+  getreg32(GD32W51X_RTC_DATE);
+
+  freq   = (uint32_t)(((uint64_t)ticks * diva * BOARD_SYSCLK_FREQUENCY) /
+                       cycles);
+
+  if (i < ticks ||
+      freq < RTC_IRC32K_FREQUENCY - RTC_IRC32K_FREQUENCY / 4 ||
+      freq > RTC_IRC32K_FREQUENCY + RTC_IRC32K_FREQUENCY / 4)
+    {
+      return RTC_PSC_FACTOR_S;
+    }
+
+  rtcinfo("IRC32K: %" PRIu32 " Hz\n", freq);
+  g_rtc_frequency = freq;
+
+  return (freq + (RTC_PSC_FACTOR_A + 1) / 2) / (RTC_PSC_FACTOR_A + 1) - 1;
+}
+
+/****************************************************************************
+ * Name: rtc_wakeup_interrupt
+ *
+ * Description:
+ *   The RTC wake-up timer interrupt: its only job is to end deep-sleep.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_PM
+static int rtc_wakeup_interrupt(int irq, void *context, void *arg)
+{
+  putreg32(RTC_STATC_WTFC, GD32W51X_RTC_STATC);
+  putreg32(RTC_WKUP_EXTI_LINE, GD32W51X_EXTI_PD);
+  return OK;
+}
+#endif
+
+/****************************************************************************
  * Public Functions
  ****************************************************************************/
 
@@ -156,6 +334,7 @@ static int rtc_synchwait(void)
 
 int up_rtc_initialize(void)
 {
+  uint32_t sync;
   int timeout;
 
   /* PMU clock + backup-domain write enable (without this every write to
@@ -195,7 +374,13 @@ int up_rtc_initialize(void)
 
   modifyreg32(GD32W51X_RCU_BDCTL, 0, RCU_BDCTL_RTCEN);
 
-  /* Program the prescalers (init mode required) */
+  /* Measure the IRC32K, then program the prescalers (init mode required;
+   * the calendar keeps its value).  This is done at every boot, since the
+   * IRC32K drifts with the temperature.
+   */
+
+  sync = rtc_sync_prescaler();
+  rtc_synchwait();
 
   rtc_unlock();
   modifyreg32(GD32W51X_RTC_ICS, 0, RTC_ICS_INITM);
@@ -210,7 +395,7 @@ int up_rtc_initialize(void)
 
   if (timeout > 0)
     {
-      putreg32((RTC_PSC_FACTOR_A << 16) | RTC_PSC_FACTOR_S,
+      putreg32((RTC_PSC_FACTOR_A << RTC_PSC_FACTOR_A_SHIFT) | sync,
                GD32W51X_RTC_PSC);
     }
 
@@ -233,13 +418,38 @@ int up_rtc_initialize(void)
 
 int up_rtc_getdatetime(struct tm *tp)
 {
+  long nsec;
+
+  return up_rtc_getdatetime_with_subseconds(tp, &nsec);
+}
+
+/****************************************************************************
+ * Name: up_rtc_getdatetime_with_subseconds
+ *
+ * Description:
+ *   Get the current date and time from the hardware RTC, with the part of
+ *   the current second in nanoseconds.
+ *
+ ****************************************************************************/
+
+int up_rtc_getdatetime_with_subseconds(struct tm *tp, long *nsec)
+{
+  uint32_t sync;
+  uint32_t ss;
   uint32_t time;
   uint32_t date;
 
-  /* Reading TIME locks DATE until DATE is read, so this pair is atomic */
+  /* Reading SS locks TIME and DATE until DATE is read, so the three reads
+   * are a single sample.  SS counts down from the synchronous prescaler.
+   */
 
+  sync = getreg32(GD32W51X_RTC_PSC) & 0x7fff;
+  ss   = getreg32(GD32W51X_RTC_SS) & RTC_SS_MASK;
   time = getreg32(GD32W51X_RTC_TIME);
   date = getreg32(GD32W51X_RTC_DATE);
+
+  ss    = MIN(ss, sync);
+  *nsec = (long)(((uint64_t)(sync - ss) * NSEC_PER_SEC) / (sync + 1));
 
   tp->tm_sec  = BCD2DEC(time & 0x7f);
   tp->tm_min  = BCD2DEC((time >> 8) & 0x7f);
@@ -314,6 +524,91 @@ int up_rtc_settime(const struct timespec *tp)
   modifyreg32(GD32W51X_RTC_ICS, RTC_ICS_INITM, 0);
   rtc_lock();
 
+  return rtc_synchwait();
+}
+
+/****************************************************************************
+ * Name: gd32w51x_rtc_setwakeup
+ *
+ * Description:
+ *   Start the RTC wake-up timer to raise its interrupt (EXTI line 24) in
+ *   'msec' milliseconds, at most about 32 s, or stop it if 'msec' is 0.
+ *
+ ****************************************************************************/
+
+int gd32w51x_rtc_setwakeup(uint32_t msec)
+{
+  uint64_t ticks;
+  int timeout;
+  int ret = OK;
+
+#ifdef CONFIG_PM
+  static bool attached;
+
+  if (!attached)
+    {
+      irq_attach(GD32W51X_IRQ_RTC_WKUP, rtc_wakeup_interrupt, NULL);
+      up_enable_irq(GD32W51X_IRQ_RTC_WKUP);
+      attached = true;
+    }
+#endif
+
+  rtc_unlock();
+
+  /* Stop the timer, then wait until its reload value can be written */
+
+  modifyreg32(GD32W51X_RTC_CTL, RTC_CTL_WTEN | RTC_CTL_WTIE, 0);
+  putreg32(RTC_STATC_WTFC, GD32W51X_RTC_STATC);
+  modifyreg32(GD32W51X_EXTI_INTEN, RTC_WKUP_EXTI_LINE, 0);
+  putreg32(RTC_WKUP_EXTI_LINE, GD32W51X_EXTI_PD);
+
+  if (msec > 0)
+    {
+      for (timeout = 1000000; timeout > 0; timeout--)
+        {
+          if ((getreg32(GD32W51X_RTC_ICS) & RTC_ICS_WTWF) != 0)
+            {
+              break;
+            }
+        }
+
+      if (timeout <= 0)
+        {
+          ret = -ETIMEDOUT;
+        }
+      else
+        {
+          /* The timer counts the reload value plus one clock down to 0 */
+
+          ticks = ((uint64_t)msec * (g_rtc_frequency / RTC_WUT_DIV)) /
+                  MSEC_PER_SEC;
+          ticks = MAX(MIN(ticks, RTC_WUT_MAX), 1);
+
+          putreg32((uint32_t)ticks - 1, GD32W51X_RTC_WUT);
+          modifyreg32(GD32W51X_RTC_CTL, RTC_CTL_WTCS_MASK,
+                      RTC_CTL_WTCS_DIV16);
+
+          modifyreg32(GD32W51X_EXTI_RTEN, 0, RTC_WKUP_EXTI_LINE);
+          modifyreg32(GD32W51X_EXTI_INTEN, 0, RTC_WKUP_EXTI_LINE);
+          modifyreg32(GD32W51X_RTC_CTL, 0, RTC_CTL_WTIE | RTC_CTL_WTEN);
+        }
+    }
+
+  rtc_lock();
+  return ret;
+}
+
+/****************************************************************************
+ * Name: gd32w51x_rtc_resync
+ *
+ * Description:
+ *   Wait for the calendar shadow registers to be updated, which they are
+ *   not in deep-sleep.
+ *
+ ****************************************************************************/
+
+int gd32w51x_rtc_resync(void)
+{
   return rtc_synchwait();
 }
 
