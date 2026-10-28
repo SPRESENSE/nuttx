@@ -54,13 +54,9 @@
  * Public Function Prototypes
  ****************************************************************************/
 
-#undef EXTERN
 #if defined(__cplusplus)
-#define EXTERN extern "C"
 extern "C"
 {
-#else
-#define EXTERN extern
 #endif
 
 FAR char  *strdup(FAR const char *s) malloc_like;
@@ -81,6 +77,8 @@ int        strncmp(FAR const char *, FAR const char *, size_t);
 
 int        strcasecmp(FAR const char *, FAR const char *);
 int        strncasecmp(FAR const char *, FAR const char *, size_t);
+FAR char  *index(FAR const char *s, int c);
+FAR char  *rindex(FAR const char *s, int c);
 
 /* The parentheses keep the function-like macros of <strings.h> out */
 
@@ -459,7 +457,6 @@ builtin_function(strrchr) FAR char *strrchr(FAR const char *s,
 #  endif
 #endif
 
-#undef EXTERN
 #if defined(__cplusplus)
 }
 #endif

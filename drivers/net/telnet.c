@@ -28,6 +28,7 @@
 
 #include <assert.h>
 #include <stdio.h>
+#include <string.h>
 #include <fcntl.h>
 #include <poll.h>
 #include <errno.h>
@@ -170,7 +171,7 @@ static ssize_t telnet_write(FAR struct file *filep, FAR const char *buffer,
                             size_t len);
 static int     telnet_ioctl(FAR struct file *filep, int cmd,
                             unsigned long arg);
-static int     telnet_poll(FAR struct file *filep, FAR struct pollfd *fds,
+static int     telnet_poll(FAR struct file *filep, FAR struct pollfd_s *fds,
                            bool setup);
 
 /* Telnet session creation */
@@ -338,14 +339,18 @@ static ssize_t telnet_receive(FAR struct telnet_dev_s *priv,
                               FAR const char *src, size_t srclen,
                               FAR char *dest, size_t destlen)
 {
+  FAR const char *iac;
+  size_t ncopy;
   int nread;
   uint8_t ch;
 
   ninfo("srclen: %zd destlen: %zd\n", srclen, destlen);
 
-  for (nread = 0; srclen > 0 && nread < destlen; srclen--)
+  nread = 0;
+  while (srclen > 0 && nread < destlen)
     {
       ch = *src++;
+      srclen--;
       ninfo("ch=%02x state=%d\n", ch, priv->td_state);
 
       switch (priv->td_state)
@@ -460,6 +465,26 @@ static ssize_t telnet_receive(FAR struct telnet_dev_s *priv,
             else
               {
                 telnet_getchar(priv, ch, dest, &nread);
+
+                ncopy = destlen - nread;
+                if (ncopy > srclen)
+                  {
+                    ncopy = srclen;
+                  }
+
+                iac = memchr(src, TELNET_IAC, ncopy);
+                if (iac != NULL)
+                  {
+                    ncopy = iac - src;
+                  }
+
+                if (ncopy > 0)
+                  {
+                    memcpy(&dest[nread], src, ncopy);
+                    nread += ncopy;
+                    src += ncopy;
+                    srclen -= ncopy;
+                  }
               }
             break;
 
@@ -858,7 +883,10 @@ static ssize_t telnet_write(FAR struct file *filep, FAR const char *buffer,
 {
   FAR struct inode *inode = filep->f_inode;
   FAR struct telnet_dev_s *priv = inode->i_private;
+  FAR const char *special;
   FAR const char *src = buffer;
+  size_t ncopy;
+  size_t nleft;
   ssize_t ret = 0;
   ssize_t nsent;
   int ncopied;
@@ -867,13 +895,66 @@ static ssize_t telnet_write(FAR struct file *filep, FAR const char *buffer,
 
   ninfo("len: %zd\n", len);
 
-  /* Process each character from the user buffer */
+  /* Process data from the user buffer */
 
-  for (nsent = 0, ncopied = 0; nsent < len; nsent++)
+  for (nsent = 0, ncopied = 0; nsent < len; )
     {
+      ncopy = CONFIG_TELNET_TXBUFFER_SIZE - 2 - ncopied;
+      if (ncopy > 0)
+        {
+          nleft = len - nsent;
+          if (ncopy > nleft)
+            {
+              ncopy = nleft;
+            }
+
+          special = memchr(src, TELNET_CR, ncopy);
+          if (special != NULL)
+            {
+              ncopy = special - src;
+            }
+
+          special = memchr(src, TELNET_NL, ncopy);
+          if (special != NULL)
+            {
+              ncopy = special - src;
+            }
+
+          if (ncopy > 0)
+            {
+              if (priv->td_txcr)
+                {
+                  priv->td_txbuffer[ncopied++] = TELNET_NUL;
+                  priv->td_txcr = false;
+                }
+
+              memcpy(&priv->td_txbuffer[ncopied], src, ncopy);
+              ncopied += ncopy;
+              src += ncopy;
+              nsent += ncopy;
+
+              if (ncopied > CONFIG_TELNET_TXBUFFER_SIZE - 2)
+                {
+                  ret = psock_send(&priv->td_psock, priv->td_txbuffer,
+                                   ncopied, 0);
+                  if (ret < 0)
+                    {
+                      nerr("ERROR: psock_send failed '%s': %zd\n",
+                           priv->td_txbuffer, ret);
+                      goto out;
+                    }
+
+                  ncopied = 0;
+                }
+
+              continue;
+            }
+        }
+
       /* Get the next character from the user buffer */
 
       ch = *src++;
+      nsent++;
 
       /* Add the character to the TX buffer */
 
@@ -1198,7 +1279,7 @@ static int telnet_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
  *
  ****************************************************************************/
 
-static int telnet_poll(FAR struct file *filep, FAR struct pollfd *fds,
+static int telnet_poll(FAR struct file *filep, FAR struct pollfd_s *fds,
                        bool setup)
 {
   FAR struct inode *inode = filep->f_inode;

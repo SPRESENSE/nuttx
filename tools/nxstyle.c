@@ -2480,6 +2480,7 @@ int main(int argc, char **argv, char **envp)
                    strncmp(&line[indent], "struct ", 7) == 0 ||
                    strncmp(&line[indent], "struct\n", 7) == 0 || /* May be unnamed */
                    strncmp(&line[indent], "enum ", 5) == 0 ||
+                   strncmp(&line[indent], "enum\n", 5) == 0 ||   /* May be unnamed */
                    strncmp(&line[indent], "extern ", 7) == 0 ||
                    strncmp(&line[indent], "EXTERN ", 7) == 0 ||
                    strncmp(&line[indent], "FAR ", 4) == 0 ||
@@ -3924,6 +3925,14 @@ int main(int argc, char **argv, char **envp)
               if (lineno == 2)
                 {
                   INFO("Skipping checking line 2: path file\n", 2, m);
+                }
+              else if (strstr(line, "SPDX-") != NULL)
+                {
+                  /* Ignore an SPDX tag line: a copyright notice must stay
+                   * as it is, even when it is longer than the line width.
+                   */
+
+                  INFO("Skipping checking an SPDX line\n", lineno, m);
                 }
               else
                 {

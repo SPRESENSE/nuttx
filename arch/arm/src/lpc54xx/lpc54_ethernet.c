@@ -4,9 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  * SPDX-FileCopyrightText: 2017 Gregory Nutt. All rights reserved.
  * SPDX-FileCopyrightText: 2016 Freescale Semiconductor Inc.
- * SPDX-FileCopyrightText: 2016 - 2017, NXP
+ * SPDX-FileCopyrightText: 2016 - 2017, NXP. All rights reserved.
  * SPDX-FileContributor: Gregory Nutt <gnutt@nuttx.org>
- * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -2228,10 +2227,11 @@ static int lpc54_eth_ioctl(struct net_driver_s *dev, int cmd,
   switch (cmd)
     {
 #ifdef CONFIG_NETDEV_PHY_IOCTL
-     case SIOCGMIIPHY: /* Get MII PHY address */
+      case SIOCGMIIPHY: /* Get MII PHY address */
         {
           struct mii_ioctl_data_s *req =
-        (struct mii_ioctl_data_s *)((uintptr_t)arg);
+            (struct mii_ioctl_data_s *)((uintptr_t)arg);
+
           req->phy_id = CONFIG_LPC54_ETH_PHYADDR;
           ret = OK;
         }
@@ -2240,28 +2240,31 @@ static int lpc54_eth_ioctl(struct net_driver_s *dev, int cmd,
       case SIOCGMIIREG: /* Get register from MII PHY */
         {
           struct mii_ioctl_data_s *req =
-        (struct mii_ioctl_data_s *)((uintptr_t)arg);
+            (struct mii_ioctl_data_s *)((uintptr_t)arg);
+
           req->val_out = lpc54_phy_read(priv, req->reg_num);
-          ret = OK
+          ret = OK;
         }
         break;
 
       case SIOCSMIIREG: /* Set register in MII PHY */
         {
           struct mii_ioctl_data_s *req =
-        (struct mii_ioctl_data_s *)((uintptr_t)arg);
+            (struct mii_ioctl_data_s *)((uintptr_t)arg);
+
           lpc54_phy_write(priv, req->reg_num, req->val_in);
-          ret = OK
+          ret = OK;
         }
         break;
 #endif /* ifdef CONFIG_NETDEV_PHY_IOCTL */
 
       default:
-        nerr("ERROR: Unrecognized IOCTL command: %d\n", command);
-        return -ENOTTY;  /* Special return value for this case */
+        nerr("ERROR: Unrecognized IOCTL command: %d\n", cmd);
+        ret = -ENOTTY;  /* Special return value for this case */
+        break;
     }
 
-  return OK;
+  return ret;
 }
 #endif
 

@@ -1,5 +1,5 @@
 /****************************************************************************
- * libs/libc/pthread/pthread_mutex_inconsistent.c
+ * boards/arm/rtl8730e/rtl8730e_evb/src/rtl8730e_rtc.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -26,57 +26,41 @@
 
 #include <nuttx/config.h>
 
-#include <pthread.h>
-#include <sched.h>
-#include <assert.h>
+#include <syslog.h>
 #include <errno.h>
 
-#include <nuttx/sched.h>
-#include <nuttx/semaphore.h>
-#include <nuttx/pthread.h>
-#include <nuttx/atomic.h>
+#include "ameba_rtc.h"
+#include "rtl8730e_evb.h"
 
-#include "pthread.h"
+#ifdef CONFIG_AMEBA_RTC
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: pthread_mutex_inconsistent
+ * Name: rtl8730e_rtc_initialize
  *
  * Description:
- *   This function is called when a pthread is terminated via either
- *   pthread_exit() or pthread_cancel().  It will check for any mutexes
- *   held by exiting thread.  It will mark them as inconsistent and
- *   then wake up the highest priority waiter for the mutex.  That
- *   instance of pthread_mutex_lock() will then return EOWNERDEAD.
- *
- * Input Parameters:
- *   tcb -- a reference to the TCB of the exiting pthread.
- *
- * Returned Value:
- *   None.
+ *   Bring up the on-chip RTC and register it at /dev/rtc0.  The RTC has no
+ *   board wiring (it is an internal clock), so this simply defers to the
+ *   shared driver.
  *
  ****************************************************************************/
 
-void pthread_mutex_inconsistent(FAR struct tls_info_s *tls)
+int rtl8730e_rtc_initialize(void)
 {
-  FAR struct pthread_mutex_s *mutex;
+  int ret;
 
-  /* Remove and process each mutex held by this task */
-
-  while (tls->tl_mhead != NULL)
+  ret = ameba_rtc_initialize();
+  if (ret < 0)
     {
-      /* Remove the mutex from the TCB list */
-
-      mutex         = tls->tl_mhead;
-      tls->tl_mhead = mutex->flink;
-      mutex->flink  = NULL;
-
-      /* Mark the mutex as INCONSISTENT and wake up any waiting thread */
-
-      mutex->flags |= _PTHREAD_MFLAGS_INCONSISTENT;
-      mutex_reset(&mutex->mutex);
+      syslog(LOG_ERR,
+             "ERROR: ameba_rtc_initialize(/dev/rtc0) failed: %d\n", ret);
+      return ret;
     }
+
+  return OK;
 }
+
+#endif /* CONFIG_AMEBA_RTC */

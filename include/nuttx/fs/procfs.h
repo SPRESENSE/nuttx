@@ -60,7 +60,7 @@ struct procfs_operations
                        size_t buflen);
   CODE ssize_t (*write)(FAR struct file *filep, FAR const char *buffer,
                         size_t buflen);
-  CODE int     (*poll)(FAR struct file *filep, FAR struct pollfd *fds,
+  CODE int     (*poll)(FAR struct file *filep, FAR struct pollfd_s *fds,
                        bool setup);
 
   /* The two structures need not be common after this point. The following
@@ -154,11 +154,8 @@ struct procfs_meminfo_entry_s
  ****************************************************************************/
 
 #ifdef __cplusplus
-#define EXTERN extern "C"
 extern "C"
 {
-#else
-#define EXTERN extern
 #endif
 
 /****************************************************************************
@@ -296,7 +293,6 @@ void procfs_register_meminfo(FAR struct procfs_meminfo_entry_s *entry);
 
 void procfs_unregister_meminfo(FAR struct procfs_meminfo_entry_s *entry);
 
-#undef EXTERN
 #ifdef __cplusplus
 }
 #endif

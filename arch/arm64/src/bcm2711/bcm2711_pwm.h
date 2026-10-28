@@ -3,7 +3,7 @@
  *
  * Contributed by: Matteo Golin <linguini@apache.org>
  *
- * SPDX-License-Identifer: Apache-2.0
+ * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements. See the NOTICE file distributed with
@@ -35,13 +35,9 @@
 
 #ifndef __ASSEMBLY__
 
-#undef EXTERN
 #if defined(__cplusplus)
-#define EXTERN extern "C"
 extern "C"
 {
-#else
-#define EXTERN extern
 #endif
 
 /****************************************************************************
@@ -65,7 +61,6 @@ extern "C"
 
 struct pwm_lowerhalf_s *bcm2711_pwminitialize(int timer);
 
-#undef EXTERN
 #if defined(__cplusplus)
 }
 #endif

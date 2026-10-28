@@ -2,8 +2,7 @@
  * arch/arm/src/lc823450/lc823450_sdc.c
  *
  * SPDX-License-Identifier: BSD-3-Clause
- * SPDX-FileCopyrightText: 2014,2015,2016,2017 Sony Video & Sound
- * Products Inc.
+ * SPDX-FileCopyrightText: 2014,2015,2016,2017 Sony Video & Sound Products Inc.
  * SPDX-FileCopyrightText: 2014-2015 ON Semiconductor. All rights reserved.
  * SPDX-FileContributor: Masayuki Ishikawa <Masayuki.Ishikawa@jp.sony.com>
  * SPDX-FileContributor: Masatoshi Tateishi <Masatoshi.Tateishi@jp.sony.com>
@@ -148,6 +147,7 @@ static int _lc823450_sdc_support_trim(struct sddrcfg_s *cf)
   int ret = ((sddr_refmediatype(cf) == SDDR_MEDIA_TYPE_MMC) ?
              (((cf)->ex.mmc.extcsd_sec_feature_support & (1UL << 4)) ?
               1 : 0) : 0);
+
   return ret;
 }
 
@@ -453,6 +453,7 @@ int lc823450_sdc_readsector(uint32_t ch,
       if (0 == addr)
         {
           uint8_t *p = (pbuf + 0x1c2); /* partition id */
+
           if (0x7 == *p)
             {
               mcinfo("exFAT (NTFS) detected\n");

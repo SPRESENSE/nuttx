@@ -215,7 +215,7 @@ struct gpio_dev_s
   FAR const struct gpio_operations_s *gp_ops;
 
 #if CONFIG_DEV_GPIO_NPOLLWAITERS > 0
-  FAR struct pollfd *fds[CONFIG_DEV_GPIO_NPOLLWAITERS];
+  FAR struct pollfd_s *fds[CONFIG_DEV_GPIO_NPOLLWAITERS];
 #endif
 
   /* Device specific, lower-half information may follow. */
@@ -226,11 +226,8 @@ struct gpio_dev_s
  ****************************************************************************/
 
 #ifdef __cplusplus
-#define EXTERN extern "C"
 extern "C"
 {
-#else
-#define EXTERN extern
 #endif
 
 /****************************************************************************

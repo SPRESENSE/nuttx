@@ -71,24 +71,24 @@
  ****************************************************************************/
 
 #ifdef __cplusplus
-#define EXTERN extern "C"
 extern "C"
 {
-#else
-#define EXTERN extern
 #endif
 
 struct lcddev_run_s
 {
-  fb_coord_t row, col;
+  fb_coord_t row;
+  fb_coord_t col;
   FAR uint8_t *data;
   size_t npixels;
 };
 
 struct lcddev_area_s
 {
-  fb_coord_t row_start, row_end;
-  fb_coord_t col_start, col_end;
+  fb_coord_t row_start;
+  fb_coord_t row_end;
+  fb_coord_t col_start;
+  fb_coord_t col_end;
   fb_coord_t stride;               /* row stride in bytes */
   FAR uint8_t *data;
 };
@@ -114,7 +114,6 @@ struct lcddev_area_s
 
 int lcddev_register(int devno);
 
-#undef EXTERN
 #ifdef __cplusplus
 }
 #endif

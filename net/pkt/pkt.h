@@ -53,14 +53,14 @@
 /* Representation of a packet socket connection */
 
 struct devif_callback_s; /* Forward reference */
-struct pollfd;           /* Forward reference */
+struct pollfd_s;         /* Forward reference */
 
 /* This is a container that holds the poll-related information */
 
 struct pkt_poll_s
 {
   FAR struct pkt_conn_s       *conn; /* Needed to handle loss of connection */
-  FAR struct pollfd           *fds;  /* Needed to handle poll events */
+  FAR struct pollfd_s         *fds;  /* Needed to handle poll events */
   FAR struct devif_callback_s *cb;   /* Needed to teardown the poll */
 };
 
@@ -122,16 +122,13 @@ struct pkt_conn_s
  ****************************************************************************/
 
 #ifdef __cplusplus
-#  define EXTERN extern "C"
 extern "C"
 {
-#else
-#  define EXTERN extern
 #endif
 
 /* The packet socket interface */
 
-EXTERN const struct sock_intf_s g_pkt_sockif;
+extern const struct sock_intf_s g_pkt_sockif;
 
 /****************************************************************************
  * Public Function Prototypes
@@ -362,7 +359,7 @@ void pkt_poll(FAR struct net_driver_s *dev, FAR struct pkt_conn_s *conn);
  *
  ****************************************************************************/
 
-int pkt_pollsetup(FAR struct socket *psock, FAR struct pollfd *fds);
+int pkt_pollsetup(FAR struct socket *psock, FAR struct pollfd_s *fds);
 
 /****************************************************************************
  * Name: pkt_pollteardown
@@ -380,7 +377,7 @@ int pkt_pollsetup(FAR struct socket *psock, FAR struct pollfd *fds);
  *
  ****************************************************************************/
 
-int pkt_pollteardown(FAR struct socket *psock, FAR struct pollfd *fds);
+int pkt_pollteardown(FAR struct socket *psock, FAR struct pollfd_s *fds);
 
 /****************************************************************************
  * Name: pkt_sendmsg
@@ -467,7 +464,6 @@ int pkt_setsockopt(FAR struct socket *psock, int level, int option,
 
 #endif
 
-#undef EXTERN
 #ifdef __cplusplus
 }
 #endif

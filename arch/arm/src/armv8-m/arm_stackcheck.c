@@ -2,8 +2,7 @@
  * arch/arm/src/armv8-m/arm_stackcheck.c
  *
  * SPDX-License-Identifier: BSD-3-Clause
- * SPDX-FileCopyrightText: 2013, 2014 PX4 Development Team.
- * All rights reserved.
+ * SPDX-FileCopyrightText: 2013, 2014 PX4 Development Team. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -104,7 +103,7 @@ void __stack_overflow_trap(void)
 
 static void stack_check_enter(void *func, void *caller, void *arg)
 {
-    asm volatile (
+  asm volatile (
             "   mrs r2, ipsr        \n" /* Check whether we are in interrupt mode */
             "   cmp r2, #0          \n" /* since we don't switch r10 on interrupt entry, we */
             "   bne 2f              \n" /* can't detect overflow of the interrupt stack. */

@@ -34,6 +34,12 @@
 #include <stdint.h>
 #include <limits.h>
 
+/* alloca() is also visible with <stdlib.h>, as in glibc and the BSDs:
+ * programs use it with only <stdlib.h>.
+ */
+
+#include <alloca.h>
+
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
@@ -137,13 +143,9 @@ typedef struct lldiv_s lldiv_t;
  * Public Function Prototypes
  ****************************************************************************/
 
-#undef EXTERN
 #if defined(__cplusplus)
-#define EXTERN extern "C"
 extern "C"
 {
-#else
-#define EXTERN extern
 #endif
 
 /* Random number generation */
@@ -163,7 +165,7 @@ double    drand48(void);
 double    erand48(FAR unsigned short int xsubi[3]);
 #  endif
 
-#define   srandom(s) srand(s)
+void      srandom(unsigned int seed);
 long      random(void);
 
 void      arc4random_buf(FAR void *bytes, size_t nbytes);
@@ -280,6 +282,9 @@ lldiv_t   lldiv(long long number, long long denom);
 
 FAR char *mktemp(FAR char *path_template);
 int       mkstemp(FAR char *path_template);
+int       mkostemp(FAR char *path_template, int flags);
+int       mkstemps(FAR char *path_template, int suffixlen);
+int       mkostemps(FAR char *path_template, int suffixlen, int flags);
 FAR char *mkdtemp(FAR char *path_template);
 
 /* Sorting */
@@ -325,7 +330,6 @@ fortify_function(realpath) FAR char *realpath(FAR const char *path,
 }
 #endif
 
-#undef EXTERN
 #if defined(__cplusplus)
 }
 #endif

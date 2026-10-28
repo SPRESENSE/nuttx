@@ -60,7 +60,7 @@
 
 struct socket;    /* Forward reference */
 struct sockaddr;  /* Forward reference */
-struct pollfd;    /* Forward reference */
+struct pollfd_s;  /* Forward reference */
 
 #ifdef CONFIG_NET_ICMP_SOCKET
 /* Representation of a IPPROTO_ICMP socket connection */
@@ -73,7 +73,7 @@ struct icmp_poll_s
 {
   FAR struct socket *psock;        /* IPPROTO_ICMP socket structure */
   FAR struct net_driver_s *dev;    /* Needed to free the callback structure */
-  FAR struct pollfd *fds;          /* Needed to handle poll events */
+  FAR struct pollfd_s *fds;        /* Needed to handle poll events */
   FAR struct devif_callback_s *cb; /* Needed to teardown the poll */
 };
 
@@ -125,17 +125,14 @@ struct icmp_pmtu_entry
  ****************************************************************************/
 
 #ifdef __cplusplus
-#  define EXTERN extern "C"
 extern "C"
 {
-#else
-#  define EXTERN extern
 #endif
 
 #ifdef CONFIG_NET_ICMP_SOCKET
 /* PF_INET socket address family, IPPROTO_ICMP protocol interface */
 
-EXTERN const struct sock_intf_s g_icmp_sockif;
+extern const struct sock_intf_s g_icmp_sockif;
 #endif
 
 /****************************************************************************
@@ -368,7 +365,7 @@ ssize_t icmp_recvmsg(FAR struct socket *psock, FAR struct msghdr *msg,
  ****************************************************************************/
 
 #ifdef CONFIG_NET_ICMP_SOCKET
-int icmp_pollsetup(FAR struct socket *psock, FAR struct pollfd *fds);
+int icmp_pollsetup(FAR struct socket *psock, FAR struct pollfd_s *fds);
 #endif
 
 /****************************************************************************
@@ -388,7 +385,7 @@ int icmp_pollsetup(FAR struct socket *psock, FAR struct pollfd *fds);
  ****************************************************************************/
 
 #ifdef CONFIG_NET_ICMP_SOCKET
-int icmp_pollteardown(FAR struct socket *psock, FAR struct pollfd *fds);
+int icmp_pollteardown(FAR struct socket *psock, FAR struct pollfd_s *fds);
 #endif
 
 /****************************************************************************
@@ -464,7 +461,6 @@ FAR struct icmp_pmtu_entry *icmpv4_find_pmtu_entry(in_addr_t destipaddr);
 
 void icmpv4_add_pmtu_entry(in_addr_t destipaddr, int mtu);
 
-#undef EXTERN
 #ifdef __cplusplus
 }
 #endif

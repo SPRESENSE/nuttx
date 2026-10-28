@@ -2,8 +2,7 @@
  * include/nuttx/net/can.h
  *
  * SPDX-License-Identifier: BSD-3-Clause
- * SPDX-FileCopyrightText: 2007, 2009-2012, 2015 Gregory Nutt. All
- * rights reserved.
+ * SPDX-FileCopyrightText: 2007, 2009-2012, 2015 Gregory Nutt. All rights reserved.
  * SPDX-FileCopyrightText: 2001-2003, Adam Dunkels. All rights reserved.
  * SPDX-FileContributor: Gregory Nutt <gnutt@nuttx.org>
  * SPDX-FileContributor: Adam Dunkels <adam@dunkels.com>
@@ -89,11 +88,8 @@ extern const uint8_t g_len_to_can_dlc[65];
 #endif
 
 #ifdef __cplusplus
-#define EXTERN extern "C"
 extern "C"
 {
-#else
-#define EXTERN extern
 #endif
 
 /****************************************************************************
@@ -169,7 +165,6 @@ int can_iob_navail(void);
 #define can_iob_navail() iob_navail(false)
 #endif
 
-#undef EXTERN
 #ifdef __cplusplus
 }
 #endif

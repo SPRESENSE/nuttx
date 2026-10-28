@@ -1056,11 +1056,8 @@ struct audio_lowerhalf_s
  ****************************************************************************/
 
 #ifdef __cplusplus
-#define EXTERN extern "C"
 extern "C"
 {
-#else
-#define EXTERN extern
 #endif
 
 /****************************************************************************
@@ -1138,7 +1135,6 @@ void apb_reference(FAR struct ap_buffer_s *apb);
  * Platform-Dependent "Lower-Half" Audio Driver Interfaces
  ****************************************************************************/
 
-#undef EXTERN
 #ifdef __cplusplus
 }
 #endif

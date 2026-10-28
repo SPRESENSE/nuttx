@@ -2,8 +2,7 @@
  * include/nuttx/net/icmp.h
  *
  * SPDX-License-Identifier: BSD-3-Clause
- * SPDX-FileCopyrightText: 2007-2009, 2012, 2014 Gregory Nutt. All rights
- *                         reserved.
+ * SPDX-FileCopyrightText: 2007-2009, 2012, 2014 Gregory Nutt. All rights reserved.
  * SPDX-FileCopyrightText: 2001-2003, Adam Dunkels. All rights reserved.
  * SPDX-FileContributor: Gregory Nutt <gnutt@nuttx.org>
  * SPDX-FileContributor: Adam Dunkels <adam@dunkels.com>
@@ -169,18 +168,14 @@ struct icmp_stats_s
  ****************************************************************************/
 
 #ifdef __cplusplus
-#define EXTERN extern "C"
 extern "C"
 {
-#else
-#define EXTERN extern
 #endif
 
 /****************************************************************************
  * Public Function Prototypes
  ****************************************************************************/
 
-#undef EXTERN
 #ifdef __cplusplus
 }
 #endif

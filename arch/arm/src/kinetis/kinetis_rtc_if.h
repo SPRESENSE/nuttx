@@ -34,7 +34,7 @@
 /* Kinetis parts all have a simple battery-backed 32bit counter for its RTC
  * KINETIS_RTC_GEN2 have
  *    a Tamper Time seconds - 32bibt
- *    a MONOTONC seconds  which is used is 2*32bit registers
+ *    a MONOTONIC seconds  which is used is 2*32bit registers
  *
  */
 
@@ -46,13 +46,9 @@
 
 #ifndef __ASSEMBLY__
 
-#undef EXTERN
 #if defined(__cplusplus)
-#define EXTERN extern "C"
 extern "C"
 {
-#else
-#define EXTERN extern
 #endif
 
 /****************************************************************************
@@ -129,7 +125,6 @@ int kinetis_rtc_setdatetime(const struct tm *tp);
 struct rtc_lowerhalf_s *kinetis_rtc_lowerhalf(void);
 #endif
 
-#undef EXTERN
 #if defined(__cplusplus)
 }
 #endif

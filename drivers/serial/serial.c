@@ -147,7 +147,7 @@ static ssize_t uart_writev(FAR struct file *filep, FAR struct uio *uio);
 static int     uart_ioctl(FAR struct file *filep,
                           int cmd, unsigned long arg);
 static int     uart_poll(FAR struct file *filep,
-                         FAR struct pollfd *fds, bool setup);
+                         FAR struct pollfd_s *fds, bool setup);
 #ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
 static int     uart_unlink(FAR struct inode *inode);
 #endif
@@ -1015,12 +1015,13 @@ static ssize_t uart_readv(FAR struct file *filep, FAR struct uio *uio)
 #ifdef CONFIG_SERIAL_IFLOWCONTROL_WATERMARKS
   unsigned int nbuffered;
   unsigned int watermark;
-  sbuf_size_t head;
 #endif
   irqstate_t flags;
   ssize_t recvd = 0;
   ssize_t buflen;
   bool echoed = false;
+  bool rawmode;
+  sbuf_size_t head;
   sbuf_size_t tail;
   char ch;
   int ret;
@@ -1044,6 +1045,9 @@ static ssize_t uart_readv(FAR struct file *filep, FAR struct uio *uio)
    */
 
   buflen = uio->uio_resid;
+  rawmode = (dev->tc_iflag & (INLCR | IGNCR | ICRNL)) == 0 &&
+            (dev->tc_lflag & (ICANON | ECHO)) == 0;
+
   while (recvd < buflen)
     {
 #ifdef CONFIG_SERIAL_REMOVABLE
@@ -1078,8 +1082,40 @@ static ssize_t uart_readv(FAR struct file *filep, FAR struct uio *uio)
        */
 
       tail = rxbuf->tail;
-      if (rxbuf->head != tail)
+      head = rxbuf->head;
+      if (head != tail)
         {
+          if (rawmode)
+            {
+              ssize_t ncopy;
+
+              if (head > tail)
+                {
+                  ncopy = head - tail;
+                }
+              else
+                {
+                  ncopy = rxbuf->size - tail;
+                }
+
+              if (ncopy > buflen - recvd)
+                {
+                  ncopy = buflen - recvd;
+                }
+
+              uio_copyfrom(uio, recvd, &rxbuf->buffer[tail], ncopy);
+              recvd += ncopy;
+
+              tail += ncopy;
+              if (tail >= rxbuf->size)
+                {
+                  tail = 0;
+                }
+
+              rxbuf->tail = tail;
+              continue;
+            }
+
           /* Take the next character from the tail of the buffer */
 
           ch = rxbuf->buffer[tail];
@@ -2047,7 +2083,7 @@ static int uart_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
  ****************************************************************************/
 
 static int uart_poll(FAR struct file *filep,
-                     FAR struct pollfd *fds, bool setup)
+                     FAR struct pollfd_s *fds, bool setup)
 {
   FAR struct inode *inode = filep->f_inode;
   FAR uart_dev_t   *dev   = inode->i_private;
@@ -2153,7 +2189,7 @@ static int uart_poll(FAR struct file *filep,
     {
       /* This is a request to tear down the poll. */
 
-      FAR struct pollfd **slot = (FAR struct pollfd **)fds->priv;
+      FAR struct pollfd_s **slot = (FAR struct pollfd_s **)fds->priv;
 
 #ifdef CONFIG_DEBUG_FEATURES
       if (!slot)

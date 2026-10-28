@@ -6,7 +6,6 @@
  * SPDX-FileCopyrightText: 2016 Freescale Semiconductor Inc.
  * SPDX-FileCopyrightText: 2016 - 2017, NXP
  * SPDX-FileContributor: Gregory Nutt <gnutt@nuttx.org>
- * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -847,9 +846,9 @@ static int lpc54_i2c_transfer(struct i2c_master_s *dev,
   do
     {
 #ifndef CONFIG_I2C_POLLED
-       nxsem_wait(&priv->waitsem);
+      nxsem_wait(&priv->waitsem);
 #else
-       lpc54_i2c_statemachine(priv);
+      lpc54_i2c_statemachine(priv);
 #endif
     }
   while (priv->state != I2CSTATE_IDLE);

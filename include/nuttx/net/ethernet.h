@@ -2,8 +2,7 @@
  * include/nuttx/net/ethernet.h
  *
  * SPDX-License-Identifier: BSD-3-Clause
- * SPDX-FileCopyrightText: 2007, 2009-2012, 2015 Gregory Nutt. All rights
- *                         reserved.
+ * SPDX-FileCopyrightText: 2007, 2009-2012, 2015 Gregory Nutt. All rights reserved.
  * SPDX-FileCopyrightText: 2001-2003, Adam Dunkels. All rights reserved.
  * SPDX-FileContributor: Gregory Nutt <gnutt@nuttx.org>
  * SPDX-FileContributor: Adam Dunkels <adam@dunkels.com>
@@ -122,23 +121,19 @@ struct eth_8021qhdr_s
  ****************************************************************************/
 
 #ifdef __cplusplus
-#define EXTERN extern "C"
 extern "C"
 {
-#else
-#define EXTERN extern
 #endif
 
 #if defined(CONFIG_NET_ICMPv6_AUTOCONF) || defined(CONFIG_NET_ICMPv6_ROUTER)
-EXTERN const struct ether_addr g_ipv6_ethallnodes;    /* All link local nodes */
-EXTERN const struct ether_addr g_ipv6_ethallrouters;  /* All link local routers */
+extern const struct ether_addr g_ipv6_ethallnodes;    /* All link local nodes */
+extern const struct ether_addr g_ipv6_ethallrouters;  /* All link local routers */
 #endif
 
 /****************************************************************************
  * Public Function Prototypes
  ****************************************************************************/
 
-#undef EXTERN
 #ifdef __cplusplus
 }
 #endif

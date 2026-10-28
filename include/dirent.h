@@ -57,6 +57,13 @@
 #define DT_LNK                    10
 #define DT_SOCK                   12
 
+/* Convert between the file type of st_mode (S_IFMT bits, <sys/stat.h>) and
+ * d_type: each S_IFxxx is DT_xxx << 12, as in glibc and the BSDs.
+ */
+
+#define IFTODT(mode)              (((mode) & 0170000) >> 12)
+#define DTTOIF(dtype)             ((dtype) << 12)
+
 /* File type code for the d_type field in dirent structure.
  * Note that because of the simplified filesystem organization of the NuttX,
  * top-level, pseudo-file system, an inode can be BOTH a file and a directory
@@ -131,13 +138,9 @@ typedef struct
  * Public Function Prototypes
  ****************************************************************************/
 
-#undef EXTERN
 #if defined(__cplusplus)
-#define EXTERN extern "C"
 extern "C"
 {
-#else
-#define EXTERN extern
 #endif
 
 /* POSIX-like File System Interfaces */
@@ -162,7 +165,6 @@ int        versionsort(FAR const struct dirent **a,
 
 int        dirfd(FAR DIR *dirp);
 
-#undef EXTERN
 #if defined(__cplusplus)
 }
 #endif

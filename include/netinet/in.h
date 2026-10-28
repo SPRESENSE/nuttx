@@ -251,6 +251,12 @@
 #define IN6_IS_ADDR_SITELOCAL(a) \
   (((a)->s6_addr16[0] & HTONS(0xffc0)) == HTONS(0xfec0))
 
+#define IN6_ARE_ADDR_EQUAL(a, b) \
+  ((a)->s6_addr32[0] == (b)->s6_addr32[0] && \
+   (a)->s6_addr32[1] == (b)->s6_addr32[1] && \
+   (a)->s6_addr32[2] == (b)->s6_addr32[2] && \
+   (a)->s6_addr32[3] == (b)->s6_addr32[3])
+
 /* This macro to convert a 16/32-bit constant values quantity from host byte
  * order to network byte order.  The 16-bit version of this macro is required
  * for uIP:
@@ -372,19 +378,15 @@ struct in6_ifreq
  * Public Data
  ****************************************************************************/
 
-#undef EXTERN
 #if defined(__cplusplus)
-#define EXTERN extern "C"
 extern "C"
 {
-#else
-#define EXTERN extern
 #endif
 
 /* Global IPv6 in6addr_any and in6addr_loopback */
 
-EXTERN const struct in6_addr in6addr_any;
-EXTERN const struct in6_addr in6addr_loopback;
+extern const struct in6_addr in6addr_any;
+extern const struct in6_addr in6addr_loopback;
 
 /****************************************************************************
  * Public Function Prototypes
@@ -408,7 +410,6 @@ uint32_t    htonl(uint32_t hl);
 uint16_t    htons(uint16_t hs);
 uint64_t    htonq(uint64_t hq);
 
-#undef EXTERN
 #if defined(__cplusplus)
 }
 #endif

@@ -25,6 +25,10 @@ if(CONFIG_DRIVERS_VHOST)
   list(APPEND SRCS vhost.c)
 endif()
 
+if(CONFIG_DRIVERS_VHOST_BLK)
+  list(APPEND SRCS vhost-blk.c)
+endif()
+
 if(CONFIG_DRIVERS_VHOST_CAN)
   list(APPEND SRCS vhost-can.c)
 endif()
@@ -47,6 +51,10 @@ endif()
 
 if(CONFIG_DRIVERS_VHOST_RPMSG)
   list(APPEND SRCS vhost-rpmsg.c)
+endif()
+
+if(CONFIG_DRIVERS_VHOST_SERIAL)
+  list(APPEND SRCS vhost-serial.c)
 endif()
 
 target_sources(drivers PRIVATE ${SRCS})

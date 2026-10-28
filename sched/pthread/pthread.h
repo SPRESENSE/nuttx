@@ -47,11 +47,8 @@
  ****************************************************************************/
 
 #ifdef __cplusplus
-#define EXTERN extern "C"
 extern "C"
 {
-#else
-#define EXTERN extern
 #endif
 
 /****************************************************************************
@@ -71,14 +68,13 @@ int pthread_findjoininfo(FAR struct task_group_s *group, pid_t pid,
 void pthread_release(FAR struct task_group_s *group);
 
 #ifndef CONFIG_PTHREAD_MUTEX_UNSAFE
-void pthread_mutex_inconsistent(FAR struct tls_info_s *tls);
+void pthread_mutex_inconsistent(FAR struct tcb_s *tcb);
 #endif
 
 #ifdef CONFIG_PTHREAD_MUTEX_TYPES
 int pthread_mutexattr_verifytype(int type);
 #endif
 
-#undef EXTERN
 #ifdef __cplusplus
 }
 #endif
