@@ -49,8 +49,8 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-#ifndef CONFIG_CAN_MAX_CONNS
-#  define CONFIG_CAN_MAX_CONNS 0
+#ifndef CONFIG_NET_CAN_MAX_CONNS
+#  define CONFIG_NET_CAN_MAX_CONNS 0
 #endif
 
 /****************************************************************************
@@ -60,8 +60,9 @@
 /* The array containing all NetLink connections. */
 
 NET_BUFPOOL_DECLARE(g_can_connections, sizeof(struct can_conn_s),
-                    CONFIG_CAN_PREALLOC_CONNS, CONFIG_CAN_ALLOC_CONNS,
-                    CONFIG_CAN_MAX_CONNS);
+                    CONFIG_NET_CAN_PREALLOC_CONNS,
+                    CONFIG_NET_CAN_ALLOC_CONNS,
+                    CONFIG_NET_CAN_MAX_CONNS);
 
 /* A list of all allocated NetLink connections */
 
@@ -298,6 +299,15 @@ FAR struct can_conn_s *can_active(FAR struct net_driver_s *dev,
       if ((conn->dev == NULL && _SS_ISBOUND(conn->sconn.s_flags)) ||
           conn->dev == dev)
         {
+          if (dev->d_iob->io_conn == &conn->sconn
+#ifdef CONFIG_NET_CANPROTO_OPTIONS
+              && !_SO_GETOPT(conn->sconn.s_options, CAN_RAW_RECV_OWN_MSGS)
+#endif
+             )
+            {
+              continue; /* Skip own messages */
+            }
+
 #ifdef CONFIG_NET_CANPROTO_OPTIONS
           if (can_recv_filter(conn, can_id) == 0)
             {

@@ -130,15 +130,16 @@ config USEC_PER_TICK
 		This value should never be less than the underlying resolution of
 		the timer.  Error may ensue.
 
-config TIMER_ADJUST_USEC
-	int "System timer tick adjustment (microseconds)"
+config TIMER_ADJUST_NSEC
+	int "System timer tick adjustment (nanoseconds)"
 	default 0
 	---help---
-		This value is added to the absolute tick set to the system timer.
-		This is used to compensate for interrupt latency in real-time
+		This value is subtracted from the hrtimer expiration time in
+		nanoseconds to compensate for interrupt latency in real-time
 		systems where the event required to be triggered on exact time.
 		The default value of 0 means that no adjustment is made. E.g.
-		5 means for each timer being set will be fired 5 microseconds earlier.
+		5000 means for each timer being set will be fired 5 microseconds
+		earlier.
 
 if !SCHED_TICKLESS
 
@@ -697,6 +698,7 @@ config TASK_MAX_ARGS
 config SCHED_HAVE_PARENT
 	bool "Support parent/child task relationships"
 	default n
+	depends on !DISABLE_ALL_SIGNALS
 	---help---
 		Remember the ID of the parent task when a new child task is
 		created.  This support enables some additional features (such as
@@ -2173,5 +2175,24 @@ config HRTIMER_TREE
 		timers, at the cost of slightly higher memory usage.
 
 endchoice
+
+config HRTIMER_PRECISION_SHIFT
+	int "HRTimer precision shift (0 = full precision)"
+	default 0
+	range 0 20
+	---help---
+		Reduce hrtimer precision to decrease interrupt frequency.
+		The value N defines the left-shift bits of the precision unit:
+		precision = 1 << N nanoseconds, and the mask = precision - 1.
+
+		The programmed expiration time is ceiling-aligned to the
+		precision boundary via (expired + mask) & ~mask in
+		hrtimer_reprogram().
+
+		Examples:
+		  0  - full nanosecond precision (default, no alignment)
+		  10 - 1024 ns (~1 us) precision
+		  15 - 32768 ns (~32 us) precision
+		  20 - 1048576 ns (~1 ms) precision
 
 endif # HRTIMER

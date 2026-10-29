@@ -31,7 +31,10 @@
 #include <nuttx/arch.h>
 #include <nuttx/clock.h>
 #include <nuttx/hrtimer.h>
+#include <nuttx/list.h>
 #include <nuttx/seqlock.h>
+
+#include <sys/tree.h>
 
 #include "sched/sched.h"
 
@@ -58,6 +61,14 @@
 #define HRTIMER_TIME_BEFORE(t1, t2)    ((int64_t)((t2) - (t1)) > 0)
 #define HRTIMER_TIME_BEFORE_EQ(t1, t2) ((int64_t)((t2) - (t1)) >= 0)
 
+/* Precision mask for reducing hrtimer resolution.
+ * When CONFIG_HRTIMER_PRECISION_SHIFT > 0, the programmed expiration
+ * time is ceiling-aligned to (1 << SHIFT) nanosecond boundaries.
+ */
+
+#define HRTIMER_PRECISION_MASK \
+  ((1ull << CONFIG_HRTIMER_PRECISION_SHIFT) - 1u)
+
 /****************************************************************************
  * Public Types
  ****************************************************************************/
@@ -80,11 +91,12 @@ RB_HEAD(hrtimer_tree_s, hrtimer_s);
 
 extern seqcount_t g_hrtimer_lock;
 
+extern struct hrtimer_s g_hrtimer_guard;
+
 #ifdef CONFIG_HRTIMER_TREE
 /* Red-Black tree containing all active high-resolution timers */
 
 extern struct hrtimer_tree_s g_hrtimer_tree;
-extern struct hrtimer_s      g_hrtimer_guard;
 extern struct FAR hrtimer_s *g_hrtimer_head;
 #else
 /* List containing all active high-resolution timers */
@@ -92,39 +104,90 @@ extern struct FAR hrtimer_s *g_hrtimer_head;
 extern struct list_node g_hrtimer_list;
 #endif
 
+#ifdef CONFIG_SCHED_TICKLESS
+extern uint64_t g_hrtimer_expected;
+#endif
+
+#ifdef CONFIG_SMP
 /* Array of pointers to currently running high-resolution timers
  * for each CPU in SMP configurations. Index corresponds to CPU ID.
  */
 
-#ifdef CONFIG_SMP
 extern uintptr_t g_hrtimer_running[CONFIG_SMP_NCPUS];
 #endif
 
 /****************************************************************************
- * Public Function Prototypes
+ * Inline Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: hrtimer_process
+ * Name: hrtimer_lock
  *
  * Description:
- *   Called from the timer interrupt handler to process expired
- *   high-resolution timers. If a timer has expired, its callback
- *   function will be executed in the context of the timer interrupt.
+ *   Acquire the hrtimer queue lock. In SMP mode, this acquires the seqlock
+ *   and disables interrupts. In non-SMP mode, only interrupts are disabled
+ *   since no concurrent writers exist, saving the seqlock overhead.
  *
  * Input Parameters:
- *   now - The current time (nsecs).
+ *  None.
+ *
+ * Returned Value:
+ *   The saved interrupt state.
+ *
+ ****************************************************************************/
+
+static inline_function irqstate_t hrtimer_lock(void)
+{
+#ifdef CONFIG_SMP
+  return write_seqlock_irqsave(&g_hrtimer_lock);
+#else
+  return up_irq_save();
+#endif
+}
+
+/****************************************************************************
+ * Name: hrtimer_unlock
+ *
+ * Description:
+ *   Release the hrtimer queue lock. In SMP mode, this releases the seqlock
+ *   and restores interrupts. In non-SMP mode, only interrupts are restored.
+ *
+ * Input Parameters:
+ *   flags - The saved interrupt state from hrtimer_lock().
  *
  * Returned Value:
  *   None.
  *
  ****************************************************************************/
 
-void hrtimer_process(uint64_t now);
+static inline_function
+void hrtimer_unlock(irqstate_t flags)
+{
+#ifdef CONFIG_SMP
+  write_sequnlock_irqrestore(&g_hrtimer_lock, flags);
+#else
+  up_irq_restore(flags);
+#endif
+}
 
 /****************************************************************************
- * Inline Functions
+ * Name: hrtimer_last_expired
+ *
+ * Description:
+ *   Return the last expired time of the hrtimer.
+ *
+ * Input Parameters:
+ *   None.
+ *
+ * Returned Value:
+ *   The last expired time in nanoseconds.
+ *
  ****************************************************************************/
+
+static inline_function uint64_t hrtimer_last_expired(void)
+{
+  return g_hrtimer_guard.expired - HRTIMER_GUARD_DELAY;
+}
 
 /****************************************************************************
  * Name: hrtimer_reprogram
@@ -132,10 +195,12 @@ void hrtimer_process(uint64_t now);
  * Description:
  *   Reprogram the hardware timer to expire at a specified nanosecond time.
  *   Converts the nanosecond time to timespec and calls the platform-specific
- *   timer start function.
+ *   timer start function. If CONFIG_TIMER_ADJUST_NSEC is set, the expiration
+ *   time is adjusted earlier by that amount to compensate for interrupt
+ *   latency.
  *
  * Input Parameters:
- *   ns - Expiration time in nanoseconds.
+ *   next_expired - Expiration time in nanoseconds.
  *
  * Returned Value:
  *   None.
@@ -153,21 +218,51 @@ static inline_function void hrtimer_reprogram(uint64_t next_expired)
    */
 
 #ifdef CONFIG_SCHED_TICKLESS
-  int ret = 0;
+  int             ret;
   struct timespec ts;
+  uint64_t        delay;
+  uint64_t        expired = hrtimer_last_expired();
 
-  clock_nsec2time(&ts, next_expired);
+  if (g_hrtimer_expected != next_expired)
+    {
+      g_hrtimer_expected = next_expired;
+#  if CONFIG_HRTIMER_PRECISION_SHIFT > 0
+      /* Ceiling-align the target expiration time to the precision boundary.
+       * This coarsens the timer resolution to (1 << SHIFT) nanoseconds,
+       * reducing the frequency of hardware timer reprogramming.
+       */
 
-#  ifdef CONFIG_ALARM_ARCH
-  ret = up_alarm_start(&ts);
-#  else
-  struct timespec current;
-  up_timer_gettime(&current);
-  clock_timespec_subtract(&ts, &current, &ts);
-  ret = up_timer_start(&ts);
+      next_expired = (next_expired + HRTIMER_PRECISION_MASK) &
+                     ~HRTIMER_PRECISION_MASK;
 #  endif
 
-  DEBUGASSERT(ret == 0);
+      delay = HRTIMER_TIME_BEFORE_EQ(expired, next_expired) ?
+              next_expired - expired : 0u;
+
+#  ifdef CONFIG_SCHED_TICKLESS_LIMIT_MAX_SLEEP
+      delay = delay < TICK2NSEC((uint64_t)g_oneshot_maxticks) ?
+              delay : TICK2NSEC((uint64_t)g_oneshot_maxticks);
+#  endif
+
+      /* Even if overflow occurs here, the functional correctness
+       * should still be fine.
+       */
+
+      delay -= CONFIG_TIMER_ADJUST_NSEC;
+
+      clock_nsec2time(&ts, expired + delay);
+
+#  ifdef CONFIG_SCHED_TICKLESS_ALARM
+      ret = up_alarm_start(&ts);
+#  else
+      struct timespec current;
+      up_timer_gettime(&current);
+      clock_timespec_subtract(&ts, &current, &ts);
+      ret = up_timer_start(&ts);
+#  endif
+
+      DEBUGASSERT(ret == 0);
+    }
 #endif
 }
 
@@ -340,55 +435,54 @@ static inline_function FAR hrtimer_t *hrtimer_get_first(void)
  *
  ****************************************************************************/
 
+#ifdef CONFIG_SMP
+#  define DEFINE_HRTIMER_READ(suffix, type)                     \
+static inline_function type                                     \
+hrtimer_read_##suffix(FAR const type *ptr)                      \
+{                                                               \
+  type val;                                                     \
+  uint32_t seq;                                                 \
+  do                                                            \
+    {                                                           \
+      seq = read_seqbegin(&g_hrtimer_lock);                     \
+      val = *ptr;                                               \
+    }                                                           \
+  while (read_seqretry(&g_hrtimer_lock, seq));                  \
+  return val;                                                   \
+}
+#else
+#  define DEFINE_HRTIMER_READ(suffix, type)                     \
+static inline_function type                                     \
+hrtimer_read_##suffix(FAR const type *ptr)                      \
+{                                                               \
+  irqstate_t flags = up_irq_save();                                \
+  type val = *ptr;                                              \
+  up_irq_restore(flags);                                           \
+  return val;                                                   \
+}
+#endif
+
 #ifdef CONFIG_ARCH_64BIT
 /* On 64-bit architectures, read/write uint64_t is atomic. */
 #  define hrtimer_read_64(ptr) (*(FAR volatile uint64_t *)(ptr))
 #else
-static inline_function
-uint64_t hrtimer_read_64(FAR const uint64_t *ptr)
-{
-  uint64_t val;
-  uint32_t seq;
-
-  do
-    {
-      seq = read_seqbegin(&g_hrtimer_lock);
-      val = *ptr;
-    }
-  while (read_seqretry(&g_hrtimer_lock, seq));
-
-  return val;
-}
+DEFINE_HRTIMER_READ(64, uint64_t)
 #endif
 
 #if UINT_MAX >= UINT32_MAX
 /* On 32/64-bit architectures, read/write uint32_t is atomic. */
 #  define hrtimer_read_32(ptr) (*(FAR volatile uint32_t *)(ptr))
 #else
-static inline_function
-uint32_t hrtimer_read_32(FAR const uint32_t *ptr)
-{
-  uint32_t val;
-  uint32_t seq;
-
-  do
-    {
-      seq = read_seqbegin(&g_hrtimer_lock);
-      val = *ptr;
-    }
-  while (read_seqretry(&g_hrtimer_lock, seq));
-
-  return val;
-}
+DEFINE_HRTIMER_READ(32, uint32_t)
 #endif
 
-/* Generic function to read the value in the queue atomically. */
+/* Generic function to read the pointer in the queue atomically. */
 
-#define hrtimer_read(ptr) \
-  (sizeof(*(ptr)) == 8u ? \
-   hrtimer_read_64((FAR const uint64_t *)(ptr)) : \
-   (sizeof(*(ptr)) == 4u ? \
-    hrtimer_read_32((FAR const uint32_t *)(ptr)) : 0u))
+#if UINTPTR_MAX <= UINT32_MAX
+#  define hrtimer_read_ptr(ptr) hrtimer_read_32((FAR const uint32_t *)(ptr))
+#else
+#  define hrtimer_read_ptr(ptr) hrtimer_read_64((FAR const uint64_t *)(ptr))
+#endif
 
 /****************************************************************************
  * Name: hrtimer_mark_running
@@ -433,7 +527,7 @@ uint32_t hrtimer_read_32(FAR const uint32_t *ptr)
 
 #ifdef CONFIG_SMP
 #  define hrtimer_is_running(timer, cpu) \
-  (hrtimer_read(&g_hrtimer_running[cpu]) == (uintptr_t)(timer))
+  (hrtimer_read_ptr(&g_hrtimer_running[cpu]) == (uintptr_t)(timer))
 #else
 #  define hrtimer_is_running(timer, cpu) (true)
 #endif
@@ -514,9 +608,9 @@ int hrtimer_cancel_running(FAR hrtimer_t *timer)
  *
  ****************************************************************************/
 
-#ifdef CONFIG_SMP
 static inline_function void hrtimer_wait(FAR hrtimer_t *timer)
 {
+#ifdef CONFIG_SMP
   int cpu;
 
   DEBUGASSERT(timer && timer->func == NULL);
@@ -548,10 +642,105 @@ static inline_function void hrtimer_wait(FAR hrtimer_t *timer)
     }
 
   /* Finally, we acquire the ownership of this hrtimer. */
-}
-#else
-#  define hrtimer_wait(timer) /* Nothing to wait in non-SMP. */
 #endif
+}
+
+/****************************************************************************
+ * Name: hrtimer_process
+ *
+ * Description:
+ *   Called from the timer interrupt handler to process expired
+ *   high-resolution timers. If a timer has expired, its callback
+ *   function will be executed in the context of the timer interrupt.
+ *
+ * Input Parameters:
+ *   now - The current time (nsecs).
+ *
+ * Returned Value:
+ *   None.
+ *
+ * Assumption:
+ *   This function can only be called in interrupt context.
+ *
+ ****************************************************************************/
+
+static inline_function void hrtimer_process(uint64_t now)
+{
+  uint64_t          delay;
+  int                 cpu = this_cpu();
+  irqstate_t        flags = hrtimer_lock();
+  FAR hrtimer_t  *hrtimer = hrtimer_get_first();
+  uint64_t        expired = hrtimer->expired;
+  hrtimer_entry_t    func = hrtimer->func;
+
+#ifdef CONFIG_SCHED_TICKLESS
+  /* Invalidate the g_hrtimer_expected */
+
+  g_hrtimer_expected = now;
+#endif
+
+  /* Acquire the lock and seize the ownership of the hrtimer queue.
+   * Then check if the timer has expired.
+   */
+
+  while (HRTIMER_TIME_BEFORE_EQ(expired, now))
+    {
+      /* Remove the expired timer from the timer queue */
+
+      hrtimer_remove(hrtimer);
+
+      hrtimer_mark_running(hrtimer, cpu);
+
+      /* Leave critical section before invoking the callback */
+
+      hrtimer_unlock(flags);
+
+      /* Invoke the timer callback */
+
+      delay = func(hrtimer, expired);
+
+      /* Ensure the delay is valid. */
+
+      DEBUGASSERT(HRTIMER_TIME_BEFORE_EQ(expired + delay,
+                                         now + HRTIMER_MAX_DELAY));
+
+      /* Re-enter critical section to update timer state */
+
+      flags = hrtimer_lock();
+
+      /* If the timer is periodic and has not been rearmed or
+       * cancelled concurrently, calculate next expiration and
+       * re-insert into the timer queue.
+       */
+
+      if (delay != 0u && hrtimer_is_running(hrtimer, cpu))
+        {
+          hrtimer->expired = expired + delay;
+          hrtimer->func    = func;
+          hrtimer_insert(hrtimer);
+        }
+
+      /* Fetch the earliest active timer */
+
+      hrtimer = hrtimer_get_first();
+      expired = hrtimer->expired;
+      func    = hrtimer->func;
+    }
+
+  hrtimer_unmark_running(cpu);
+
+  /* Note that the g_hrtimer_guard.expired is not monotonic. */
+
+  g_hrtimer_guard.expired = now + HRTIMER_GUARD_DELAY;
+
+  /* Schedule the next timer expiration */
+
+  hrtimer_reprogram(expired);
+
+  /* Release the lock and give up the ownership of the hrtimer queue. */
+
+  hrtimer_unlock(flags);
+}
 
 #endif /* CONFIG_HRTIMER */
 #endif /* __SCHED_HRTIMER_HRTIMER_H */

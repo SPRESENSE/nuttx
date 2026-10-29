@@ -178,6 +178,7 @@ rpmsg_port_uart_set(FAR struct rpmsg_port_uart_s *rpuart,
                     nxevent_mask_t event)
 {
   bool ret = rpmsg_port_uart_check(rpuart, event);
+
   nxevent_post(&rpuart->event, event, 0);
   return ret;
 }
@@ -215,6 +216,7 @@ static inline void
 rpmsg_port_uart_send_one(FAR struct rpmsg_port_uart_s *rpuart, uint8_t ch)
 {
   ssize_t ret = file_write(&rpuart->file, &ch, 1);
+
   if (ret != 1)
     {
       rpmsgerr("Send ch %u failed, ret=%zd\n", ch, ret);
@@ -301,6 +303,7 @@ static void rpmsg_port_uart_send_packet(FAR struct rpmsg_port_uart_s *rpuart,
   while (datalen > 0)
     {
       ssize_t ret = file_write(&rpuart->file, data, datalen);
+
       DEBUGASSERT(ret >= 0);
 
       data = (FAR uint8_t *)data + ret;
@@ -712,8 +715,9 @@ static void rpmsg_port_uart_rx_worker(FAR struct rpmsg_port_uart_s *rpuart,
               }
             else if (buf[i] == RPMSG_PORT_UART_END)
               {
-                if (hdr->len != next || (hdr->crc != 0 &&
-                    hdr->crc != rpmsg_port_uart_crc16(hdr)))
+                if (hdr->len < sizeof(*hdr) || hdr->len != next ||
+                    (hdr->crc != 0 &&
+                     hdr->crc != rpmsg_port_uart_crc16(hdr)))
                   {
                     rpmsgerr("Recv error crc=%u len=%u next=%u i=%zd "
                              "dbg_i=%d\n", hdr->crc, hdr->len, next, i,

@@ -52,6 +52,10 @@ set(CMAKE_AR ${TOOLCHAIN_PREFIX}-gcc-ar)
 set(CMAKE_NM ${TOOLCHAIN_PREFIX}-gcc-nm)
 set(CMAKE_RANLIB ${TOOLCHAIN_PREFIX}-gcc-ranlib)
 
+set(ASMEXT
+    S
+    CACHE INTERNAL "")
+
 # override the ARCHIVE command
 
 set(CMAKE_C_ARCHIVE_CREATE "<CMAKE_AR> rcs <TARGET> <LINK_FLAGS> <OBJECTS>")
@@ -63,6 +67,7 @@ set(CMAKE_ASM_ARCHIVE_CREATE "<CMAKE_AR> rcs <TARGET> <LINK_FLAGS> <OBJECTS>")
 add_compile_options(-fno-common)
 add_compile_options(-Wall -Wshadow -Wundef)
 add_compile_options(-nostdlib)
+add_link_options(-nostdlib)
 
 if(CONFIG_DEBUG_CUSTOMOPT)
   add_compile_options(${CONFIG_DEBUG_OPTLEVEL})
@@ -84,8 +89,23 @@ if(CONFIG_STACK_CANARIES)
   add_compile_options(${CONFIG_STACK_CANARIES_LEVEL})
 endif()
 
+if(CONFIG_STACK_USAGE)
+  add_compile_options(-fstack-usage)
+endif()
+
+if(CONFIG_STACK_USAGE_WARNING AND NOT "${CONFIG_STACK_USAGE_WARNING}" STREQUAL
+                                  "0")
+  add_compile_options(-Wstack-usage=${CONFIG_STACK_USAGE_WARNING})
+endif()
+
 if(CONFIG_COVERAGE_ALL)
   add_compile_options(-fprofile-arcs -ftest-coverage -fno-inline)
+endif()
+
+# Instrumentation options
+
+if(CONFIG_ARCH_INSTRUMENT_ALL)
+  add_compile_options(-finstrument-functions)
 endif()
 
 # Optimization of unused sections
@@ -117,6 +137,8 @@ elseif(CONFIG_LTO_FULL)
   endif()
 endif()
 
+set(NO_LTO "-fno-lto")
+
 # Debug link map
 
 if(CONFIG_DEBUG_LINK_MAP)
@@ -129,6 +151,32 @@ endif()
 
 add_link_options(-Wl,--no-warn-rwx-segments)
 
+if(CONFIG_MM_UBSAN_ALL)
+  add_compile_options(${CONFIG_MM_UBSAN_OPTION})
+endif()
+
+if(CONFIG_MM_UBSAN_TRAP_ON_ERROR)
+  add_compile_options(-fsanitize-undefined-trap-on-error)
+endif()
+
+if(CONFIG_MM_KASAN_INSTRUMENT_ALL)
+  add_compile_options(-fsanitize=kernel-address)
+  add_compile_options(--param=asan-stack=0)
+  add_compile_options(--param=asan-instrumentation-with-call-threshold=0)
+endif()
+
+if(CONFIG_MM_KASAN_GLOBAL)
+  add_compile_options(--param=asan-globals=1)
+endif()
+
+if(CONFIG_MM_KASAN_DISABLE_READS_CHECK)
+  add_compile_options(--param=asan-instrument-reads=0)
+endif()
+
+if(CONFIG_MM_KASAN_DISABLE_WRITES_CHECK)
+  add_compile_options(--param=asan-instrument-writes=0)
+endif()
+
 add_compile_options(-Wno-attributes -Wno-unknown-pragmas
                     $<$<COMPILE_LANGUAGE:C>:-Wstrict-prototypes>)
 
@@ -138,6 +186,8 @@ endif()
 
 if(NOT CONFIG_LIBCXXTOOLCHAIN)
   add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-nostdinc++>)
+else()
+  add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-D_STDLIB_H_>)
 endif()
 
 if(NOT CONFIG_CXX_EXCEPTION)
@@ -147,4 +197,8 @@ endif()
 
 if(NOT CONFIG_CXX_RTTI)
   add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-fno-rtti>)
+endif()
+
+if(CONFIG_DEBUG_LINK_ORPHAN_WARN)
+  add_link_options(-Wl,--orphan-handling=warn)
 endif()

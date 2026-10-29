@@ -124,11 +124,14 @@ uint64_t wd_timer(const hrtimer_t *timer, uint64_t expired);
 #ifdef CONFIG_HRTIMER
 static inline_function void wd_timer_start(clock_t tick, bool in_expiration)
 {
-  DEBUGASSERT(tick <= INT64_MAX / NSEC_PER_TICK);
   if (!in_expiration)
     {
-      hrtimer_start(&g_wdtimer, wd_timer,
-                    TICK2NSEC(tick), HRTIMER_MODE_ABS);
+      clock_t interval = clock_compare(g_wdexpired, tick) ?
+                         tick - g_wdexpired : 0;
+      uint64_t nsec    = interval <= HRTIMER_MAX_DELAY / NSEC_PER_TICK ?
+                         TICK2NSEC(g_wdexpired + interval) :
+                         TICK2NSEC(g_wdexpired) + HRTIMER_MAX_DELAY;
+      hrtimer_start(&g_wdtimer, wd_timer, nsec, HRTIMER_MODE_ABS);
     }
 }
 
@@ -148,7 +151,7 @@ static inline_function clock_t wd_adjust_next_tick(clock_t tick)
   next_tick         = g_wdexpired + interval;
 #endif
 
-#if CONFIG_TIMER_ADJUST_USEC > 0
+#if CONFIG_TIMER_ADJUST_NSEC > 0
   /* Normally, timer event cannot triggered on exact time due to the
    * existence of interrupt latency.
    * Assuming that the interrupt latency is distributed within
@@ -161,7 +164,7 @@ static inline_function clock_t wd_adjust_next_tick(clock_t tick)
    * interrupt, which may result in a much larger timer interrupt latency.
    */
 
-  next_tick -= CONFIG_TIMER_ADJUST_USEC / USEC_PER_TICK;
+  next_tick -= CONFIG_TIMER_ADJUST_NSEC / NSEC_PER_TICK;
 #endif
 
   return next_tick;
@@ -173,11 +176,9 @@ static inline_function void wd_timer_start(clock_t tick, bool in_expiration)
 #ifdef CONFIG_SCHED_TICKLESS_ALARM
   up_alarm_tick_start(next_tick);
 #else
-  clock_t now = clock_systime_ticks();
-
-  /* A passed deadline must fire now: timers may read the delay unsigned */
-
-  up_timer_tick_start(clock_compare(next_tick, now) ? 0 : next_tick - now);
+  clock_t now   = clock_systime_ticks();
+  clock_t delay = clock_compare(now, next_tick) ? next_tick - now : 0;
+  up_timer_tick_start(delay);
 #endif
 }
 

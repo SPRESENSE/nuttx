@@ -32,6 +32,7 @@
 
 #include <nuttx/arch.h>
 #include <nuttx/tls.h>
+#include <arch/barriers.h>
 #include <arch/irq.h>
 
 #include "tricore_internal.h"
@@ -50,19 +51,19 @@ uintptr_t *tricore_alloc_csa(uintptr_t pc, uintptr_t sp,
   uintptr_t *plcsa;
   uintptr_t *pucsa;
 
-  plcsa = (uintptr_t *)tricore_csa2addr(__mfcr(CPU_FCX));
+  plcsa = (uintptr_t *)tricore_csa2addr(tricore_mfcr(CPU_FCX));
 
   /* DSYNC instruction should be executed immediately prior to the MTCR */
 
-  __dsync();
+  UP_DSB();
 
   pucsa = (uintptr_t *)tricore_csa2addr(plcsa[REG_UPCXI]);
 
-  __mtcr(CPU_FCX, pucsa[REG_UPCXI]);
+  tricore_mtcr(CPU_FCX, pucsa[REG_UPCXI]);
 
   /* ISYNC instruction executed immediately following MTCR */
 
-  __isync();
+  UP_ISB();
 
   memset(pucsa, 0, TC_CONTEXT_SIZE);
   memset(plcsa, 0, TC_CONTEXT_SIZE);
@@ -91,7 +92,9 @@ uintptr_t *tricore_alloc_csa(uintptr_t pc, uintptr_t sp,
 
 void tricore_reclaim_csa(uintptr_t pcxi)
 {
-  uintptr_t head, tail, free;
+  uintptr_t head;
+  uintptr_t tail;
+  uintptr_t free;
   uintptr_t *next;
 
   /* A pointer to the first CSA in the list of CSAs consumed by the task is
@@ -140,7 +143,7 @@ void tricore_reclaim_csa(uintptr_t pcxi)
 
   /* Look up the current free CSA head. */
 
-  free = __mfcr(CPU_FCX);
+  free = tricore_mfcr(CPU_FCX);
 
   /* Join the current Free onto the Tail of what is being reclaimed. */
 
@@ -148,5 +151,5 @@ void tricore_reclaim_csa(uintptr_t pcxi)
 
   /* Move the head of the reclaimed into the Free. */
 
-  __mtcr(CPU_FCX, head);
+  tricore_mtcr(CPU_FCX, head);
 }

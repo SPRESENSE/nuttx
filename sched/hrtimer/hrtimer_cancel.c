@@ -82,7 +82,7 @@ int hrtimer_cancel(FAR hrtimer_t *hrtimer)
 
   /* Acquire the lock and seize the ownership of the hrtimer queue. */
 
-  flags = write_seqlock_irqsave(&g_hrtimer_lock);
+  flags = hrtimer_lock();
 
   /* Ensure no core can write the hrtimer. */
 
@@ -101,7 +101,7 @@ int hrtimer_cancel(FAR hrtimer_t *hrtimer)
 
   /* Release the lock and give up the ownership of the hrtimer queue. */
 
-  write_sequnlock_irqrestore(&g_hrtimer_lock, flags);
+  hrtimer_unlock(flags);
   return ret;
 }
 
@@ -141,7 +141,7 @@ int hrtimer_cancel_sync(FAR hrtimer_t *hrtimer)
     {
       /* Wait until all the timer callbacks finish. */
 
-       hrtimer_wait(hrtimer);
+      hrtimer_wait(hrtimer);
     }
 
   return ret;

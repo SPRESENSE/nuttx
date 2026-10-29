@@ -193,13 +193,6 @@ ssize_t can_sendmsg(FAR struct socket *psock, FAR const struct msghdr *msg,
   bool nonblock;
   int ret = OK;
 
-  /* Verify that the sockfd corresponds to valid, allocated socket */
-
-  if (psock == NULL || psock->s_conn == NULL)
-    {
-      return -EBADF;
-    }
-
   /* Only SOCK_RAW is supported */
 
   if (psock->s_type != SOCK_RAW)
@@ -251,8 +244,14 @@ ssize_t can_sendmsg(FAR struct socket *psock, FAR const struct msghdr *msg,
   conn_dev_lock(&conn->sconn, dev);
 
 #if CONFIG_NET_SEND_BUFSIZE > 0
-  if ((iob_get_queue_size(&conn->write_q) + msg->msg_iov->iov_len) >
-      conn->sndbufs)
+  /* Wait until the frame fits.  The semaphore can be posted while there is
+   * still no room, so check again after every wake-up.  A frame is always
+   * accepted into an empty queue, even if it is larger than sndbufs.
+   */
+
+  while (!IOB_QEMPTY(&conn->write_q) &&
+         (iob_get_queue_size(&conn->write_q) + msg->msg_iov->iov_len) >
+         conn->sndbufs)
     {
       /* send buffer size exceeds the send limit */
 
@@ -302,6 +301,8 @@ ssize_t can_sendmsg(FAR struct socket *psock, FAR const struct msghdr *msg,
 
   iob_reserve(wb_iob, CONFIG_NET_LL_GUARDSIZE);
   iob_update_pktlen(wb_iob, 0, false);
+
+  wb_iob->io_conn = &conn->sconn;
 
   /* Copy the user data into the write buffer.  We cannot wait for
    * buffer space if the socket was opened non-blocking.
@@ -480,7 +481,7 @@ void can_sendbuffer_notify(FAR struct can_conn_s *conn)
   int val = 0;
 
   nxsem_get_value(&conn->sndsem, &val);
-  if (val < 0)
+  if (val < 1)
     {
       nxsem_post(&conn->sndsem);
     }

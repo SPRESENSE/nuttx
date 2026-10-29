@@ -195,6 +195,7 @@ static const char *g_white_prefix[] =
   "Elf",     /* Ref:  include/elf.h, include/elf32.h, include/elf64.h */
   "GL",      /* Ref:  apps/graphics/tinygl/tinygl/include/GL/gl.h */
   "Ifx",     /* Ref:  arch/tricore/src */
+  "PDC_",    /* Ref:  apps/include/graphics/curses.h */
   "PRId",    /* Ref:  inttypes.h */
   "PRIi",    /* Ref:  inttypes.h */
   "PRIo",    /* Ref:  inttypes.h */
@@ -2187,6 +2188,31 @@ int main(int argc, char **argv, char **envp)
                    */
 
                   ppline = PPLINE_OTHER;
+
+                  /* A header does not define or undefine EXTERN: its
+                   * #undef removes the definition of a program that
+                   * includes it.
+                   */
+
+                  if (g_file_type == C_HEADER &&
+                      (strncmp(&line[ii], "define", 6) == 0 ||
+                       strncmp(&line[ii], "undef", 5) == 0))
+                    {
+                      int jj = ii + (line[ii] == 'd' ? 6 : 5);
+
+                      while (line[jj] != '\0' && isspace(line[jj]))
+                        {
+                          jj++;
+                        }
+
+                      if (strncmp(&line[jj], "EXTERN", 6) == 0 &&
+                          !isalnum(line[jj + 6]) && line[jj + 6] != '_')
+                        {
+                          ERROR("Do not define EXTERN, declare global data "
+                                "with extern",
+                                lineno, jj);
+                        }
+                    }
 
                   if (strncmp(&line[ii], "define", 6) == 0)
                     {
