@@ -53,9 +53,8 @@ static void atfork_prepare(void)
   FAR struct list_node *list = &info->ta_atfork;
   FAR struct pthread_atfork_s *entry;
 
-  /* According to posix standard, the prepare handlers are called in reverse
-   * order of registration
-   * so we iterate over the func list in reverse order
+  /* POSIX: the prepare handlers are called in the reverse order of
+   * registration.  pthread_atfork() adds each entry at the tail.
    */
 
   nxrmutex_lock(&info->ta_lock);
@@ -85,7 +84,7 @@ static void atfork_child(void)
   FAR struct list_node *list = &info->ta_atfork;
   FAR struct pthread_atfork_s *entry;
 
-  /* The parent handlers are called in the order of registration */
+  /* The child handlers are called in the order of registration */
 
   nxrmutex_lock(&info->ta_lock);
   list_for_every_entry(list, entry,
@@ -114,7 +113,7 @@ static void atfork_parent(void)
   FAR struct list_node *list = &info->ta_atfork;
   FAR struct pthread_atfork_s *entry;
 
-  /* The child handlers are called in the order of registration */
+  /* The parent handlers are called in the order of registration */
 
   nxrmutex_lock(&info->ta_lock);
   list_for_every_entry(list, entry,
@@ -207,23 +206,37 @@ pid_t vfork(void)
 #ifdef CONFIG_ARCH_HAVE_FORK
 pid_t fork(void)
 {
+  FAR struct task_info_s *info = task_get_info();
   pid_t pid;
 
 #ifdef CONFIG_PTHREAD_ATFORK
   atfork_prepare();
 #endif
+
+  /* Hold the lock of the task information during the copy.  Then no other
+   * thread changes the environment, the exit functions or the fork
+   * handlers while the child gets its copy of them.
+   */
+
+  nxrmutex_lock(&info->ta_lock);
   pid = up_fork(false);
 
-#ifdef CONFIG_PTHREAD_ATFORK
   if (pid == 0)
     {
+      /* The copy of the lock has a holder that is not in the child */
+
+      nxrmutex_init(&info->ta_lock);
+#ifdef CONFIG_PTHREAD_ATFORK
       atfork_child();
+#endif
     }
   else
     {
+      nxrmutex_unlock(&info->ta_lock);
+#ifdef CONFIG_PTHREAD_ATFORK
       atfork_parent();
-    }
 #endif
+    }
 
   return pid;
 }

@@ -137,6 +137,17 @@
 #define IPV6_RECVHOPLIMIT     (__SO_PROTOCOL + 11) /* Access the hop limit field */
 #define IPV6_HOPLIMIT         (__SO_PROTOCOL + 12) /* Hop limit */
 
+/* Protocol-independent multicast options (RFC 3678) for the level
+ * IPPROTO_IP or IPPROTO_IPV6, with the values of Linux.
+ */
+
+#define MCAST_JOIN_GROUP         (__SO_PROTOCOL + 31) /* group_req */
+#define MCAST_BLOCK_SOURCE       (__SO_PROTOCOL + 32) /* group_source_req */
+#define MCAST_UNBLOCK_SOURCE     (__SO_PROTOCOL + 33) /* group_source_req */
+#define MCAST_LEAVE_GROUP        (__SO_PROTOCOL + 34) /* group_req */
+#define MCAST_JOIN_SOURCE_GROUP  (__SO_PROTOCOL + 35) /* group_source_req */
+#define MCAST_LEAVE_SOURCE_GROUP (__SO_PROTOCOL + 36) /* group_source_req */
+
 /* Values used with SIOCSIFMCFILTER and SIOCGIFMCFILTER ioctl's */
 
 #define MCAST_EXCLUDE         0
@@ -153,6 +164,8 @@
 #define IN_CLASSA_HOST        (0xffffffff & ~IN_CLASSA_NET)
 #define IN_CLASSA_MAX         128
 
+#define IN_LOOPBACKNET        127  /* The loopback network, 127/8 */
+
 #define IN_CLASSB(a)          ((((in_addr_t)(a)) & 0xc0000000) == 0x80000000)
 #define IN_CLASSB_NET         0xffff0000
 #define IN_CLASSB_NSHIFT      16
@@ -168,6 +181,11 @@
 
 #define IN_CLASSD(i)          (((in_addr_t)(i) & 0xf0000000) == 0xe0000000)
 #define IN_MULTICAST(i)       IN_CLASSD(i)
+
+/* Experimental (224/3) and reserved (240/4) addresses, as in glibc */
+
+#define IN_EXPERIMENTAL(a)    (((in_addr_t)(a) & 0xe0000000) == 0xe0000000)
+#define IN_BADCLASS(a)        (((in_addr_t)(a) & 0xf0000000) == 0xf0000000)
 
 /* Special values of in_addr_t */
 
@@ -359,6 +377,21 @@ struct ipv6_mreq
 {
   struct in6_addr ipv6mr_multiaddr; /* IPv6 multicast address of group */
   unsigned int    ipv6mr_interface; /* Local interface index */
+};
+
+/* Used with the MCAST_* socket options (RFC 3678) */
+
+struct group_req
+{
+  uint32_t                gr_interface;  /* Interface index */
+  struct sockaddr_storage gr_group;      /* Multicast group address */
+};
+
+struct group_source_req
+{
+  uint32_t                gsr_interface; /* Interface index */
+  struct sockaddr_storage gsr_group;     /* Multicast group address */
+  struct sockaddr_storage gsr_source;    /* Source address */
 };
 
 struct in6_pktinfo

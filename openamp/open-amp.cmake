@@ -94,6 +94,8 @@ if(CONFIG_OPENAMP_CACHE)
   set(WITH_DCACHE ON)
 endif()
 
+set(WITH_VQ_RX_EMPTY_NOTIFY ON)
+
 if(CONFIG_OPENAMP_DEBUG)
   add_compile_definitions(RPMSG_DEBUG)
   add_compile_definitions(VQUEUE_DEBUG)
@@ -101,16 +103,19 @@ endif()
 
 add_compile_definitions(elf_load=remoteproc_elf_load)
 
+# avoid multiple definitions in other file
+add_compile_definitions(safe_strcpy=openamp_safe_strcpy)
+
 if(CONFIG_OPENAMP_VIRTIO_DEVICE_SUPPORT)
-  add_compile_definitions(VIRTIO_DEVICE_SUPPORT=1)
+  set(WITH_VIRTIO_DEVICE ON)
 else()
-  add_compile_definitions(VIRTIO_DEVICE_SUPPORT=0)
+  set(WITH_VIRTIO_DEVICE OFF)
 endif()
 
 if(CONFIG_OPENAMP_VIRTIO_DRIVER_SUPPORT)
-  add_compile_definitions(VIRTIO_DRIVER_SUPPORT=1)
+  set(WITH_VIRTIO_DRIVER ON)
 else()
-  add_compile_definitions(VIRTIO_DRIVER_SUPPORT=0)
+  set(WITH_VIRTIO_DRIVER OFF)
 endif()
 
 set(WITH_LIBMETAL_FIND OFF)
