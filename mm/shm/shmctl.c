@@ -35,6 +35,7 @@
 #include <assert.h>
 #include <nuttx/debug.h>
 
+#include <nuttx/kmalloc.h>
 #include <nuttx/sched.h>
 #include <nuttx/pgalloc.h>
 
@@ -110,9 +111,14 @@ int shmctl(int shmid, int cmd, struct shmid_ds *buf)
   FAR struct shm_region_s *region;
   int ret;
 
-  DEBUGASSERT(shmid >= 0 && shmid < CONFIG_ARCH_SHM_MAXREGIONS);
-  region =  &g_shminfo.si_region[shmid];
-  DEBUGASSERT((region->sr_flags & SRFLAG_INUSE) != 0);
+  if (shmid < 0 || shmid >= CONFIG_ARCH_SHM_MAXREGIONS ||
+      (g_shminfo.si_region[shmid].sr_flags & SRFLAG_INUSE) == 0)
+    {
+      ret = -EINVAL;
+      goto errout_with_ret;
+    }
+
+  region = &g_shminfo.si_region[shmid];
 
   /* Get exclusive access to the region data structure */
 
@@ -161,7 +167,7 @@ int shmctl(int shmid, int cmd, struct shmid_ds *buf)
                * it.
                */
 
-               region->sr_flags |= SRFLAG_UNLINKED;
+              region->sr_flags |= SRFLAG_UNLINKED;
             }
           else
             {
@@ -232,14 +238,17 @@ errout_with_ret:
 void shm_destroy(int shmid)
 {
   FAR struct shm_region_s *region =  &g_shminfo.si_region[shmid];
-  int i;
+  unsigned int npages = MM_NPAGES(region->sr_ds.shm_segsz);
+  unsigned int i;
 
-  /* Free all of the allocated physical pages */
+  /* Free all of the allocated physical pages and the page list */
 
-  for (i = 0; i < CONFIG_ARCH_SHM_NPAGES && region->sr_pages[i] != 0; i++)
+  for (i = 0; i < npages; i++)
     {
       mm_pgfree(region->sr_pages[i], 1);
     }
+
+  kmm_free(region->sr_pages);
 
   /* Reset the region entry to its initial state */
 

@@ -55,6 +55,7 @@ set(SRCS
     lib_aligned_alloc.c
     lib_posix_memalign.c
     lib_valloc.c
+    lib_malloc_usable_size.c
     lib_mblen.c
     lib_mbtowc.c
     lib_wctomb.c
@@ -68,7 +69,14 @@ if(NOT CONFIG_LIBM_NONE)
 endif()
 
 if(CONFIG_PSEUDOTERM)
-  list(APPEND SRCS lib_ptsname.c lib_ptsnamer.c lib_unlockpt.c lib_openpty.c)
+  list(
+    APPEND
+    SRCS
+    lib_ptsname.c
+    lib_ptsnamer.c
+    lib_unlockpt.c
+    lib_openpty.c
+    lib_grantpt.c)
 endif()
 
 target_sources(c PRIVATE ${SRCS})

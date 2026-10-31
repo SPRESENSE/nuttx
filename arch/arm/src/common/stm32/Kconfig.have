@@ -1065,6 +1065,12 @@ config STM32_HAVE_LPTIM3
 config STM32_HAVE_LPTIM4
 	bool
 
+config STM32_HAVE_LPTIM5
+	bool
+
+config STM32_HAVE_LPTIM6
+	bool
+
 # TSC capabilities
 
 config STM32_HAVE_TSC
@@ -1222,6 +1228,14 @@ config STM32_HAVE_COMMON_USBHOST_DEBUG
 	default y if STM32_COMMON_LEGACY
 
 config STM32_HAVE_USB
+	bool
+
+# LPTIM capabilities
+
+config STM32_HAVE_IP_LPTIM_V1
+	bool
+
+config STM32_HAVE_IP_LPTIM_V2
 	bool
 
 # WDG capabilities

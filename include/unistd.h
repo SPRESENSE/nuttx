@@ -97,7 +97,12 @@
 
 #undef  _POSIX_CHOWN_RESTRICTED
 #undef  _POSIX_NO_TRUNC
-#undef  _POSIX_VDISABLE
+
+/* The value of a c_cc entry of struct termios that disables the special
+ * character.
+ */
+
+#define _POSIX_VDISABLE '\0'
 
 #define _POSIX_SYNC_IO 1
 #undef  _POSIX_ASYNC_IO
@@ -287,10 +292,6 @@
 #define STDIN_FILENO                     0       /* File number of stdin */
 #define STDOUT_FILENO                    1       /* File number of stdout */
 
-/* Helpers and legacy compatibility definitions */
-
-#define fdatasync(f)                     fsync(f)
-
 /* Accessor functions associated with getopt().  getopt() keeps optarg,
  * opterr, optind and optopt per task, so the names are macros.  A program
  * that brings its own getopt() and its own variables of these names can
@@ -313,17 +314,6 @@
 #  define truncate64                     truncate
 #  define ftruncate64                    ftruncate
 #  define lockf64                        lockf
-#endif
-
-/* NOTE: NuttX provides only one implementation:  If
- * CONFIG_LIBC_ENVPATH is defined, then only execvp/execlp/execvpe behavior
- * is supported; otherwise, only execv/execl/execve behavior is supported.
- */
-
-#ifdef CONFIG_LIBC_EXECFUNCS
-#  define execvp                         execv
-#  define execlp                         execl
-#  define execvpe                        execve
 #endif
 
 /* Commands for lockf()
@@ -388,6 +378,7 @@ int     close(int fd);
 int     dup(int fd);
 int     dup2(int fd1, int fd2);
 int     dup3(int fd1, int fd2, int flags);
+int     fdatasync(int fd);
 int     fsync(int fd);
 off_t   lseek(int fd, off_t offset, int whence);
 ssize_t read(int fd, FAR void *buf, size_t nbytes);
@@ -476,12 +467,21 @@ int     fchownat(int dirfd, FAR const char *path, uid_t owner,
 
 /* Execution of programs from files */
 
+/* NOTE: NuttX provides only one behavior:  If CONFIG_LIBC_ENVPATH is
+ * defined, then execv(), execl() and execve() also search the PATH as
+ * execvp(), execlp() and execvpe() do; otherwise none of them searches it.
+ */
+
 #ifdef CONFIG_LIBC_EXECFUNCS
 int     execl(FAR const char *path, FAR const char *arg0, ...);
 int     execle(FAR const char *path, FAR const char *arg0, ...);
+int     execlp(FAR const char *file, FAR const char *arg0, ...);
 int     execv(FAR const char *path, FAR char * const argv[]);
 int     execve(FAR const char *path, FAR char *const argv[],
                FAR char *const envp[]);
+int     execvp(FAR const char *file, FAR char * const argv[]);
+int     execvpe(FAR const char *file, FAR char * const argv[],
+                FAR char * const envp[]);
 #endif
 
 /* Byte operations */

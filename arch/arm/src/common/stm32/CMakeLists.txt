@@ -97,6 +97,10 @@ if(CONFIG_STM32_TIM)
   list(APPEND SRCS stm32_tim.c)
 endif()
 
+if(CONFIG_STM32_LPTIM)
+  list(APPEND SRCS stm32_lptim.c)
+endif()
+
 if(CONFIG_STM32_FREERUN)
   list(APPEND SRCS stm32_freerun.c)
 endif()
