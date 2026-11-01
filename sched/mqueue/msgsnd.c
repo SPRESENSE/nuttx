@@ -42,6 +42,7 @@
 static int msgsnd_wait(FAR struct msgq_s *msgq, int msgflg)
 {
   FAR struct tcb_s *rtcb;
+  key_t key = msgq->key;
 
 #ifdef CONFIG_CANCELLATION_POINTS
   /* msgsnd_wait() is not a cancellation point, but may be called via
@@ -92,7 +93,7 @@ static int msgsnd_wait(FAR struct msgq_s *msgq, int msgflg)
        * isn't going to end well.
        */
 
-      DEBUGASSERT(NULL != rtcb->flink);
+      DEBUGASSERT(!is_idle_task(rtcb));
 
       /* Remove the tcb task from the running list. */
 
@@ -116,6 +117,13 @@ static int msgsnd_wait(FAR struct msgq_s *msgq, int msgflg)
       if (rtcb->errcode != OK)
         {
           return -rtcb->errcode;
+        }
+
+      /* msgctl(IPC_RMID) may have freed the queue before this task ran */
+
+      if (nxmsg_lookup(key) != msgq)
+        {
+          return -EIDRM;
         }
     }
 
@@ -144,16 +152,15 @@ static int msgsnd_wait(FAR struct msgq_s *msgq, int msgflg)
  *   msgflg - Operations flags
  *
  * Returned Value:
- *   On success, mq_send() returns 0 (OK); on error, -1 (ERROR)
+ *   On success, msgsnd() returns 0 (OK); on error, -1 (ERROR)
  *   is returned, with errno set to indicate the error:
  *
- *   EAGAIN   The queue was full and the O_NONBLOCK flag was set for the
- *            message queue description referred to by mqdes.
- *   EINVAL   Either msg or mqdes is NULL or the value of prio is invalid.
- *   EPERM    Message queue opened not opened for writing.
- *   EMSGSIZE 'msglen' was greater than the maxmsgsize attribute of the
- *            message queue.
+ *   EAGAIN   The queue is full and IPC_NOWAIT is set.
+ *   EINVAL   msqid is not a valid message queue identifier, mtype is
+ *            less than 1, or msgsz is greater than the maximum message
+ *            size of the queue.
  *   EINTR    The call was interrupted by a signal handler.
+ *   EIDRM    The queue was removed while the caller waited.
  *
  ****************************************************************************/
 
@@ -181,9 +188,9 @@ int msgsnd(int msqid, FAR const void *msgp, size_t msgsz, int msgflg)
       goto errout_with_critical;
     }
 
-  if (msgsz > msgq->maxmsgsize)
+  if (buf->mtype < 1 || msgsz > msgq->maxmsgsize)
     {
-      ret = -EMSGSIZE;
+      ret = -EINVAL;
       goto errout_with_critical;
     }
 

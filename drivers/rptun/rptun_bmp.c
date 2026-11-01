@@ -99,6 +99,11 @@ rptun_bmp_get_resource(FAR struct rptun_dev_s *dev)
 {
   FAR struct rptun_bmp_dev_s *priv = (FAR struct rptun_bmp_dev_s *)dev;
 
+  while (priv->rsc->rsc_tbl_hdr.ver == 0)
+    {
+      nxsig_usleep(100);
+    }
+
   return &priv->rsc->rsc_tbl_hdr;
 }
 
@@ -154,7 +159,7 @@ static int rptun_bmp_register_callback(FAR struct rptun_dev_s *dev,
 }
 
 /****************************************************************************
- * Name: rprun_bmp_interrupt
+ * Name: rptun_bmp_interrupt
  *
  * Description:
  *   This is the interrupt handler.
@@ -169,7 +174,7 @@ static int rptun_bmp_register_callback(FAR struct rptun_dev_s *dev,
  *
  ****************************************************************************/
 
-static int rprun_bmp_interrupt(int irq, FAR void *context, FAR void *arg)
+static int rptun_bmp_interrupt(int irq, FAR void *context, FAR void *arg)
 {
   FAR struct rptun_bmp_dev_s *priv = arg;
 
@@ -208,7 +213,7 @@ int rptun_bmp_init(FAR const char *cpuname, bool master,
   strlcpy(dev->cpuname, cpuname, sizeof(dev->cpuname));
 
   ret = irq_attach(dev->irq_event,
-                   rprun_bmp_interrupt, dev);
+                   rptun_bmp_interrupt, dev);
   if (ret < 0)
     {
       kmm_free(dev);

@@ -208,6 +208,7 @@ static ssize_t copyfile(FAR struct file *outfile, FAR struct file *infile,
       /* Use file_seek to get the current file position */
 
       off_t curpos = file_seek(infile, 0, SEEK_CUR);
+
       if (curpos < 0)
         {
           return curpos;
@@ -263,11 +264,17 @@ ssize_t file_sendfile(FAR struct file *outfile, FAR struct file *infile,
   FAR struct socket *psock;
 
   psock = file_socket(outfile);
-  if (psock != NULL)
+
+  /* psock_sendfile() seeks the input to send its data again: an input that
+   * cannot seek (a pipe, a FIFO or a socket) uses the slow path.
+   */
+
+  if (psock != NULL && !INODE_IS_NOSEEK(infile->f_inode))
     {
       /* Then let psock_sendfile do the work. */
 
       int ret = psock_sendfile(psock, infile, offset, count);
+
       if (ret >= 0 || ret != -ENOSYS)
         {
           return ret;

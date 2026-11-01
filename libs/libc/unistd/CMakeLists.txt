@@ -66,6 +66,7 @@ set(SRCS
     lib_getpgid.c
     lib_getsid.c
     lib_setpgid.c
+    lib_setpgrp.c
     lib_setsid.c
     lib_lockf.c
     lib_flock.c
@@ -77,6 +78,10 @@ set(SRCS
 
 if(CONFIG_SCHED_WAITPID)
   list(APPEND SRCS lib_wait.c)
+endif()
+
+if(CONFIG_FILE_STREAM)
+  list(APPEND SRCS lib_getusershell.c)
 endif()
 
 if(NOT CONFIG_SCHED_USER_IDENTITY)

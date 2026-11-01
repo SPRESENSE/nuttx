@@ -105,7 +105,7 @@ void nrf52_spi0select(struct spi_dev_s *dev, uint32_t devid,
   switch (devid)
     {
 #ifdef CONFIG_IEEE802154_MRF24J40
-    case SPIDEV_IEEE802154(0):
+      case SPIDEV_IEEE802154(0):
         {
           spiinfo("MRF24J40 device %s\n",
                   selected ? "asserted" : "de-asserted");
@@ -162,7 +162,7 @@ uint8_t nrf52_spi1status(struct spi_dev_s *dev, uint32_t devid)
 }
 #endif
 
-#ifdef CONFIG_nrf52_SPI2_MASTER
+#ifdef CONFIG_NRF52_SPI2_MASTER
 void nrf52_spi2select(struct spi_dev_s *dev, uint32_t devid,
                       bool selected)
 {

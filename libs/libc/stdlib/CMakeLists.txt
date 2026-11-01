@@ -62,6 +62,7 @@ set(SRCS
     lib_mbstowcs.c
     lib_wcstombs.c
     lib_arc4random.c
+    lib_getloadavg.c
     lib_atexit.c)
 
 if(NOT CONFIG_LIBM_NONE)
@@ -77,6 +78,9 @@ if(CONFIG_PSEUDOTERM)
     lib_unlockpt.c
     lib_openpty.c
     lib_grantpt.c)
+  if(CONFIG_ARCH_HAVE_FORK)
+    list(APPEND SRCS lib_forkpty.c)
+  endif()
 endif()
 
 target_sources(c PRIVATE ${SRCS})

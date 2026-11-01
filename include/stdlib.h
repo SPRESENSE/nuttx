@@ -171,12 +171,18 @@ long      random(void);
 void      arc4random_buf(FAR void *bytes, size_t nbytes);
 uint32_t  arc4random(void);
 
+/* System load */
+
+#ifdef CONFIG_HAVE_DOUBLE
+int       getloadavg(FAR double loadavg[], int nelem);
+#endif
+
 /* Environment variable support */
 
 FAR char ***get_environ_ptr(void);
 FAR char *getenv(FAR const char *name);
 FAR char *secure_getenv(FAR const char *name);
-int       putenv(FAR const char *string);
+int       putenv(FAR char *string);
 int       clearenv(void);
 int       setenv(FAR const char *name, FAR const char *value, int overwrite);
 int       unsetenv(FAR const char *name);
