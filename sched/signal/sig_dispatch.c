@@ -36,6 +36,7 @@
 
 #include <nuttx/debug.h>
 #include <nuttx/irq.h>
+#include <nuttx/nuttx.h>
 #include <nuttx/arch.h>
 #include <nuttx/signal.h>
 #include <nuttx/queue.h>
@@ -114,6 +115,7 @@ static int sig_handler(FAR void *cookie)
 static int nxsig_queue_action(FAR struct tcb_s *stcb,
                               FAR sigactq_t *sigact,
                               FAR siginfo_t *info,
+                              FAR const void *source,
                               FAR bool *deliver)
 {
   FAR sigq_t    *sigq;
@@ -150,6 +152,7 @@ static int nxsig_queue_action(FAR struct tcb_s *stcb,
 
           memcpy(&sigq->info, info, sizeof(siginfo_t));
           sigq->info.si_user = sigact->act.sa_user;
+          sigq->source = source;
 
           /* Put it at the end of the pending signals list */
 
@@ -262,7 +265,10 @@ static FAR sigpendq_t *nxsig_alloc_pendingsignal(void)
  * Name: nxsig_find_pendingsignal
  *
  * Description:
- *   Find a specified element in the pending signal list
+ *   Find the pending signal of one target in the pending signal list: the
+ *   signal sent to the thread 'tcb', or to the whole group if 'tcb' is
+ *   NULL.  POSIX keeps the pending signals of each thread and of the
+ *   process apart.
  *
  * Assumptions:
  *   Called with group->tg_sigpendingq locked
@@ -270,7 +276,8 @@ static FAR sigpendq_t *nxsig_alloc_pendingsignal(void)
  ****************************************************************************/
 
 static FAR sigpendq_t *
-nxsig_find_pendingsignal(FAR struct task_group_s *group, int signo)
+nxsig_find_pendingsignal(FAR struct task_group_s *group, int signo,
+                         FAR struct tcb_s *tcb)
 {
   FAR sigpendq_t *sigpend = NULL;
   irqstate_t flags;
@@ -291,7 +298,8 @@ nxsig_find_pendingsignal(FAR struct task_group_s *group, int signo)
   /* Search the list for a action pending on this signal */
 
   for (sigpend = (FAR sigpendq_t *)group->tg_sigpendingq.head;
-       (sigpend && sigpend->info.si_signo != signo);
+       (sigpend && (sigpend->info.si_signo != signo ||
+                    sigpend->tcb != tcb));
        sigpend = sigpend->flink);
 
   spin_unlock_irqrestore(&group->tg_lock, flags);
@@ -314,7 +322,8 @@ nxsig_find_pendingsignal(FAR struct task_group_s *group, int signo)
 
 static FAR sigpendq_t *nxsig_add_pendingsignal(FAR struct tcb_s *stcb,
                                                FAR siginfo_t *info,
-                                               bool group_dispatch)
+                                               bool group_dispatch,
+                                               FAR const void *source)
 {
   FAR struct task_group_s *group;
   FAR sigpendq_t *sigpend;
@@ -323,14 +332,16 @@ static FAR sigpendq_t *nxsig_add_pendingsignal(FAR struct tcb_s *stcb,
   DEBUGASSERT(stcb != NULL && stcb->group != NULL);
   group = stcb->group;
 
-  /* Check if the signal is already pending for the group */
+  /* Check if the signal is already pending for the same target */
 
-  sigpend = nxsig_find_pendingsignal(group, info->si_signo);
+  sigpend = nxsig_find_pendingsignal(group, info->si_signo,
+                                     group_dispatch ? NULL : stcb);
   if (sigpend != NULL)
     {
       /* The signal is already pending... retain only one copy */
 
       memcpy(&sigpend->info, info, sizeof(siginfo_t));
+      sigpend->source = source;
     }
 
   /* No... There is nothing pending in the group for this signo */
@@ -345,6 +356,7 @@ static FAR sigpendq_t *nxsig_add_pendingsignal(FAR struct tcb_s *stcb,
           /* Put the signal information into the allocated structure */
 
           memcpy(&sigpend->info, info, sizeof(siginfo_t));
+          sigpend->source = source;
 
           /* Mark the tcb which need to receive the signal. If any
            * thread in the group may receive it, set it to NULL
@@ -399,9 +411,30 @@ static int nxsig_alloc_dyn_pending(FAR irqstate_t *flags)
       FAR sigq_t *sigq = NULL;
 #endif
 
-      /* We can't do memory allocations in idle task or interrupt */
+      /* We can't do memory allocations in idle task or interrupt.  An
+       * interrupt handler takes the structures reserved for it
+       * (nxsig_alloc_pendingsignal(), nxsig_alloc_pendingsigaction()), if
+       * any are left.
+       */
 
-      if (up_interrupt_context() || sched_idletask())
+      if (up_interrupt_context())
+        {
+          if (alloc_signal && sq_empty(&g_sigpendingirqsignal))
+            {
+              return -EAGAIN;
+            }
+
+#ifdef CONFIG_ENABLE_ALL_SIGNALS
+          if (alloc_sigact && sq_empty(&g_sigpendingirqaction))
+            {
+              return -EAGAIN;
+            }
+#endif
+
+          return OK;
+        }
+
+      if (sched_idletask())
         {
           return -EAGAIN;
         }
@@ -465,6 +498,38 @@ static int nxsig_alloc_dyn_pending(FAR irqstate_t *flags)
 }
 
 /****************************************************************************
+ * Name: nxsig_action_queued
+ *
+ * Description:
+ *   Return true if a signal signo of source is queued for a handler of tcb.
+ *
+ * Assumptions:
+ *   Called in a critical section.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_ENABLE_ALL_SIGNALS
+static bool nxsig_action_queued(FAR struct tcb_s *tcb,
+                                FAR const void *source, int signo)
+{
+  FAR sq_entry_t *entry;
+
+  for (entry = tcb->sigpendactionq.head; entry != NULL;
+       entry = entry->flink)
+    {
+      FAR sigq_t *sigq = (FAR sigq_t *)entry;
+
+      if (sigq->source == source && sigq->info.si_signo == signo)
+        {
+          return true;
+        }
+    }
+
+  return false;
+}
+#endif
+
+/****************************************************************************
  * Public Functions
  ****************************************************************************/
 
@@ -485,13 +550,17 @@ static int nxsig_alloc_dyn_pending(FAR irqstate_t *flags)
  *   to dispatch signals since it will *not* follow the group signal
  *   deliver algorithms.
  *
+ *   source is the POSIX timer that sends the signal, or NULL.  It goes into
+ *   the pending or queued entry, so that the timer can see that its signal
+ *   is still queued (nxsig_source_queued()).
+ *
  * Returned Value:
  *   Returns 0 (OK) on success or a negated errno value on failure.
  *
  ****************************************************************************/
 
-int nxsig_tcbdispatch(FAR struct tcb_s *stcb, siginfo_t *info,
-                      bool group_dispatch)
+int nxsig_tcbdispatch(FAR struct tcb_s *stcb, FAR siginfo_t *info,
+                      bool group_dispatch, FAR const void *source)
 {
   FAR struct tcb_s *rtcb = this_task();
   irqstate_t flags;
@@ -540,6 +609,17 @@ int nxsig_tcbdispatch(FAR struct tcb_s *stcb, siginfo_t *info,
     {
       leave_critical_section(flags);
       return ret;
+    }
+
+  /* Check the exit again, in the critical section that queues the signal:
+   * the exit sets the flag in a critical section and then discards the
+   * signals pending for the thread.
+   */
+
+  if ((stcb->flags & TCB_FLAG_EXIT_PROCESSING) != 0)
+    {
+      leave_critical_section(flags);
+      return -ESRCH;
     }
 
   masked = nxsig_ismember(&stcb->sigprocmask, info->si_signo);
@@ -630,7 +710,8 @@ int nxsig_tcbdispatch(FAR struct tcb_s *stcb, siginfo_t *info,
 
           if (masked == 0 && !ignored)
             {
-              sigpend = nxsig_add_pendingsignal(stcb, info, group_dispatch);
+              sigpend = nxsig_add_pendingsignal(stcb, info, group_dispatch,
+                                                source);
             }
 #endif
         }
@@ -641,7 +722,8 @@ int nxsig_tcbdispatch(FAR struct tcb_s *stcb, siginfo_t *info,
 
       else if (!ignored)
         {
-          sigpend = nxsig_add_pendingsignal(stcb, info, group_dispatch);
+          sigpend = nxsig_add_pendingsignal(stcb, info, group_dispatch,
+                                            source);
         }
     }
 
@@ -656,7 +738,7 @@ int nxsig_tcbdispatch(FAR struct tcb_s *stcb, siginfo_t *info,
 
       /* Queue any sigaction's requested by this task. */
 
-      ret = nxsig_queue_action(stcb, sigact, info, &deliver);
+      ret = nxsig_queue_action(stcb, sigact, info, source, &deliver);
 #endif
       /* Deliver of the signal must be performed in a critical section */
 
@@ -835,12 +917,15 @@ int nxsig_tcbdispatch(FAR struct tcb_s *stcb, siginfo_t *info,
  *     - Get the TCB associated with the pid.
  *     - Call nxsig_tcbdispatch with the TCB
  *
+ *   source is the POSIX timer that sends the signal, or NULL.
+ *
  * Returned Value:
  *   Returns 0 (OK) on success or a negated errno value on failure.
  *
  ****************************************************************************/
 
-int nxsig_dispatch(pid_t pid, FAR siginfo_t *info, bool thread)
+int nxsig_dispatch(pid_t pid, FAR siginfo_t *info, bool thread,
+                   FAR const void *source)
 {
 #ifdef HAVE_GROUP_MEMBERS
   if (!thread)
@@ -853,7 +938,7 @@ int nxsig_dispatch(pid_t pid, FAR siginfo_t *info, bool thread)
 
       if (group != NULL)
         {
-          return group_signal(group, info);
+          return group_signal(group, info, source);
         }
     }
   else
@@ -865,9 +950,72 @@ int nxsig_dispatch(pid_t pid, FAR siginfo_t *info, bool thread)
 
       if (stcb != NULL)
         {
-          return nxsig_tcbdispatch(stcb, info, false);
+          return nxsig_tcbdispatch(stcb, info, false, source);
         }
     }
 
   return -ESRCH;
+}
+
+/****************************************************************************
+ * Name: nxsig_source_queued
+ *
+ * Description:
+ *   Return true if a signal signo of source (a POSIX timer) is still
+ *   pending or queued for a signal handler in the task group of pid.  A
+ *   signal that a handler runs for, or that sigwaitinfo() accepted, is not
+ *   queued any more.  signo tells the timer from a deleted timer that had
+ *   the same address.
+ *
+ * Assumptions:
+ *   May be called from an interrupt handler.
+ *
+ ****************************************************************************/
+
+bool nxsig_source_queued(pid_t pid, FAR const void *source, int signo)
+{
+  FAR struct task_group_s *group;
+  FAR struct tcb_s *tcb;
+  FAR sq_entry_t *entry;
+  irqstate_t flags;
+  bool found = false;
+
+  flags = enter_critical_section();
+  tcb = nxsched_get_tcb(pid);
+  group = tcb != NULL ? tcb->group : NULL;
+  if (group == NULL)
+    {
+      leave_critical_section(flags);
+      return false;
+    }
+
+  /* The pending signals of the group, then the signals queued for a
+   * handler of each thread.  tg_lock also keeps the list of the threads.
+   */
+
+  spin_lock(&group->tg_lock);
+  for (entry = group->tg_sigpendingq.head; entry != NULL && !found;
+       entry = entry->flink)
+    {
+      FAR sigpendq_t *sigpend = (FAR sigpendq_t *)entry;
+
+      found = sigpend->source == source && sigpend->info.si_signo == signo;
+    }
+
+#ifdef CONFIG_ENABLE_ALL_SIGNALS
+#  ifdef HAVE_GROUP_MEMBERS
+  for (entry = group->tg_members.head; entry != NULL && !found;
+       entry = entry->flink)
+    {
+      found = nxsig_action_queued(container_of(entry, struct tcb_s, member),
+                                  source, signo);
+    }
+#  else
+  found = found || nxsig_action_queued(tcb, source, signo);
+#  endif
+#endif
+
+  spin_unlock(&group->tg_lock);
+  leave_critical_section(flags);
+  return found;
 }

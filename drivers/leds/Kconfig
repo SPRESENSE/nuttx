@@ -172,16 +172,13 @@ config NCP5623C
 config WS2812
 	bool "WS2812 LED Driver"
 	default n
-	select SPI
+	select SPI if !WS2812_NON_SPI_DRIVER
 	---help---
 		Enable support for the Worldsemi WS2812 LED driver which commonly
 		found in LED strips.
 		NOTE: Depending on the board selected, this device may require
 		exclusive use of an SPI bus as ws2812 LEDs have no CS or
 		RESET line.
-
-# NOTE: Once the older SPI driver is migrated to the new model
-#       we should remove the "select SPI" in the above config.
 
 config WS2812_NON_SPI_DRIVER
 	bool "Support the new non-SPI WS2812 driver."
@@ -192,6 +189,13 @@ config WS2812_NON_SPI_DRIVER
 		pixels.  The driver is being re-designed to support other
 		implementations.  Selecting this option builds the new
 		model driver.
+
+		Note that this option's wording is somewhat misleading.
+		The hardware actually used to transmit data to the LEDs
+		is chosen by architecture/board implementation.
+
+		In other words - even named "non-SPI driver", this driver
+		can support SPI hardware as well as other options.
 
 config WS2812_LED_COUNT
 	int "Number of ws2812s connected."
@@ -212,6 +216,26 @@ config WS2812_HAS_WHITE
 		to the standard red, green, and blue LEDs.  This option
 		enables support for such chips.  Note that the driver does
 		not support chains with a mix of RGB and RGBW pixels.
+
+config WS2812_COMPONENT_TRANSFORM
+	bool "Add byte order transformation functions"
+	default n
+	depends on WS2812
+	---help---
+		Some WS2812 variants expect pixel data in different on-wire
+		byte order than the usual GRB. Enable this option to compile
+		transformation functions that will optionally (based on device
+		configuration) swap bytes in read/write buffers to compensate.
+
+if WS2812_COMPONENT_TRANSFORM
+
+config WS2812_COMPONENT_TRANSFORM_RGB
+	bool "Transformation for RGB LED"
+	default n
+	---help---
+		Add transformation function for RGB byte order LED.
+
+endif # WS2812_COMPONENT_TRANSFORM
 
 config WS2812_FREQUENCY
 	int "WS2812 Bit Frequency (Hz)"

@@ -205,7 +205,7 @@ static inline void nxtask_sigchild(pid_t ppid, FAR struct tcb_s *ctcb,
 
       /* Send the signal to one thread in the group */
 
-      group_signal(pgrp, &info);
+      group_signal(pgrp, &info, NULL);
     }
 }
 
@@ -261,7 +261,7 @@ static inline void nxtask_sigchild(FAR struct tcb_s *ptcb,
        * can provide the correct si_code value with the signal.
        */
 
-      nxsig_tcbdispatch(ptcb, &info, true);
+      nxsig_tcbdispatch(ptcb, &info, true, NULL);
     }
 }
 
@@ -460,6 +460,14 @@ void nxtask_exithook(FAR struct tcb_s *tcb, int status)
   nxtask_exitwakeup(tcb, status);
 
   sched_unlock();
+
+#ifndef CONFIG_DISABLE_ALL_SIGNALS
+  /* Release the signals that wait for this thread in the pending list of
+   * the group.  No new ones come: the thread is in exit processing.
+   */
+
+  nxsig_discard_threadsignals(tcb);
+#endif
 
   /* Leave the task group.  Perhaps discarding any un-reaped child
    * status (no zombies here!)
