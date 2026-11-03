@@ -238,6 +238,7 @@ struct wifi_sim_s
   uint16_t error_code;                  /* connect error reason */
 
   FAR struct wifi_sim_bss_s *connected_ap;  /* for sta mode */
+  mutex_t ap_lock;                          /* mutex to protect connected_ap */
 };
 
 /* for wireless event */
@@ -516,41 +517,44 @@ uint32_t wifi_chan_to_freq_mhz(int chan, enum WLAN_80211_BAND_E band)
   switch (band)
     {
       case WLAN_80211_BAND_2GHZ:
-          if (chan == 14)
-            {
-              return (2484);
-            }
-          else if (chan < 14)
-            {
-              return (2407 + chan * 5);
-            }
-          break;
+        if (chan == 14)
+          {
+            return (2484);
+          }
+        else if (chan < 14)
+          {
+            return (2407 + chan * 5);
+          }
+        break;
+
       case WLAN_80211_BAND_5GHZ:
-          if (chan >= 182 && chan <= 196)
-            {
-              return (4000 + chan * 5);
-            }
-          else
-            {
-              return (5000 + chan * 5);
-            }
-          break;
+        if (chan >= 182 && chan <= 196)
+          {
+            return (4000 + chan * 5);
+          }
+        else
+          {
+            return (5000 + chan * 5);
+          }
+        break;
+
       case WLAN_80211_BAND_6GHZ:
 
-          /* see 802.11ax D6.1 27.3.23.2 */
+        /* see 802.11ax D6.1 27.3.23.2 */
 
-          if (chan == 2)
-            {
-              return (5935);
-            }
+        if (chan == 2)
+          {
+            return (5935);
+          }
 
-          if (chan <= 233)
-            {
-              return (5950 + chan * 5);
-            }
-          break;
+        if (chan <= 233)
+          {
+            return (5950 + chan * 5);
+          }
+        break;
+
       default:
-          break;
+        break;
     }
 
   return 0; /* not supported */
@@ -850,6 +854,7 @@ static int wifidriver_start_connect(FAR struct wifi_sim_s *wifidev)
             {
               union iwreq_data wrqu;
 
+              nxmutex_lock(&wifidev->ap_lock);
               wifidev->state        = WLAN_STA_STATE_CONNECTED;
               wifidev->status_code  = WLAN_STATUS_SUCCESS;
               wifidev->connected_ap = bss_info;
@@ -865,6 +870,8 @@ static int wifidriver_start_connect(FAR struct wifi_sim_s *wifidev)
                   memcpy(wifidev->ssid, bss_info->ssid,
                          strlen(bss_info->ssid));
                 }
+
+              nxmutex_unlock(&wifidev->ap_lock);
             }
           else
             {
@@ -914,6 +921,7 @@ static int wifidriver_start_disconnect(FAR struct wifi_sim_s *wifidev)
     {
       case IW_MODE_INFRA:
         {
+          nxmutex_lock(&wifidev->ap_lock);
           if (wifidev->state == WLAN_STA_STATE_CONNECTED)
             {
               wifidev->state = WLAN_STA_STATE_DISCONNECTED;
@@ -927,6 +935,7 @@ static int wifidriver_start_disconnect(FAR struct wifi_sim_s *wifidev)
               wifi_send_event(wifidev, SIOCGIWAP, &wrqu);
             }
 
+          nxmutex_unlock(&wifidev->ap_lock);
           netdev_lower_carrier_off(wifidev->lower);
 
           if (wifidev->psk_flag == 0)
@@ -1041,11 +1050,13 @@ static int wifidriver_get_sensitivity(FAR struct wifi_sim_s *wifidev,
       case IW_MODE_INFRA:
       case IW_MODE_MASTER:
         {
+          nxmutex_lock(&wifidev->ap_lock);
           if (wifidriver_sta_is_connected(wifidev))
             {
               pwrq->u.sens.value = -wifidev->connected_ap->RSSI;
             }
 
+          nxmutex_unlock(&wifidev->ap_lock);
           ninfo("get rssi is %" PRId32 "\n", pwrq->u.sens.value);
         }
         break;
@@ -1092,6 +1103,7 @@ static int wifidriver_get_freq(FAR struct wifi_sim_s *wifidev,
     {
       case IW_MODE_INFRA:
         {
+          nxmutex_lock(&wifidev->ap_lock);
           if (wifidriver_sta_is_connected(wifidev))
             {
               pwrq->u.freq.flags = IW_FREQ_FIXED;
@@ -1104,6 +1116,8 @@ static int wifidriver_get_freq(FAR struct wifi_sim_s *wifidev,
               pwrq->u.freq.e     = 0;
               pwrq->u.freq.m     = 2412;
             }
+
+          nxmutex_unlock(&wifidev->ap_lock);
         }
         break;
 
@@ -1405,7 +1419,7 @@ static int wifidriver_get_bssinfo(FAR struct wifi_sim_bss_s *bss_info,
             break;
 
           default:
-              break;
+            break;
         }
     }
 
@@ -1590,6 +1604,7 @@ static int wifidriver_get_bssid(FAR struct wifi_sim_s *wifidev,
     {
       case IW_MODE_INFRA:
         {
+          nxmutex_lock(&wifidev->ap_lock);
           if (wifidriver_sta_is_connected(wifidev))
             {
               memcpy(pdata, wifidev->connected_ap->bssid, ETH_ALEN);
@@ -1599,6 +1614,8 @@ static int wifidriver_get_bssid(FAR struct wifi_sim_s *wifidev,
             {
               ret = -ENOTTY;
             }
+
+          nxmutex_unlock(&wifidev->ap_lock);
         }
         break;
 
@@ -1742,15 +1759,15 @@ static int wifidriver_get_psk(FAR struct wifi_sim_s *wifidev,
       case IW_MODE_INFRA:
         size = strnlen(wifidev->password, 64);
         if (len < size)
-        {
-          return -EINVAL;
-        }
+          {
+            return -EINVAL;
+          }
         else
-        {
-          ext->key_len = size;
-          memcpy(ext->key, wifidev->password, ext->key_len);
-          ext->alg = wifidev->auth_alg;
-        }
+          {
+            ext->key_len = size;
+            memcpy(ext->key, wifidev->password, ext->key_len);
+            ext->alg = wifidev->auth_alg;
+          }
         break;
 
       case IW_MODE_MASTER:
@@ -1979,6 +1996,8 @@ int wifi_sim_init(FAR struct wifi_sim_lowerhalf_s *netdev)
 
   priv->mode           = IW_MODE_AUTO;
 
+  nxmutex_init(&priv->ap_lock);
+
   return OK;
 }
 
@@ -1988,14 +2007,18 @@ int wifi_sim_init(FAR struct wifi_sim_lowerhalf_s *netdev)
 
 void wifi_sim_remove(FAR struct wifi_sim_lowerhalf_s *netdev)
 {
-  FAR struct wifi_sim_s *sta = (FAR struct wifi_sim_s *)netdev->wifi;
+  FAR struct wifi_sim_s *wifidev = (FAR struct wifi_sim_s *)netdev->wifi;
 
-  if (sta && sta->state == WLAN_STA_STATE_CONNECTED)
+  if (wifidev)
     {
-       wifidriver_start_disconnect(sta);
-    }
+      if (wifidev->state == WLAN_STA_STATE_CONNECTED)
+        {
+          wifidriver_start_disconnect(wifidev);
+        }
 
-  kmm_free(netdev->wifi);
+      nxmutex_destroy(&wifidev->ap_lock);
+      kmm_free(wifidev);
+    }
 }
 
 /****************************************************************************

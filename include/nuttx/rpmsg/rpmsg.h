@@ -29,6 +29,7 @@
 
 #include <nuttx/config.h>
 #include <nuttx/atomic.h>
+#include <nuttx/compiler.h>
 
 #ifdef CONFIG_RPMSG
 
@@ -44,6 +45,9 @@
 #define RPMSGIOC_DUMP               _RPMSGIOC(2)
 #define RPMSGIOC_PING               _RPMSGIOC(3)
 #define RPMSGIOC_TEST               _RPMSGIOC(4)
+#define RPMSGIOC_RUNNING            _RPMSGIOC(5)
+#define RPMSGIOC_ACQUIRE_WAKELOCK   _RPMSGIOC(6)
+#define RPMSGIOC_RELEASE_WAKELOCK   _RPMSGIOC(7)
 
 #define RPMSG_SIGNAL_RUNNING        TIOCM_CD
 
@@ -85,6 +89,8 @@ extern "C"
 {
 #endif
 
+void rpmsg_initialize(void);
+
 int rpmsg_wait(FAR struct rpmsg_endpoint *ept, FAR sem_t *sem);
 int rpmsg_post(FAR struct rpmsg_endpoint *ept, FAR sem_t *sem);
 
@@ -113,6 +119,32 @@ void rpmsg_unregister_callback(FAR void *priv,
 int rpmsg_ioctl(FAR const char *cpuname, int cmd, unsigned long arg);
 int rpmsg_panic(FAR const char *cpuname);
 void rpmsg_dump_all(void);
+
+#ifdef CONFIG_RPMSG_TRACE
+void rpmsg_trace(FAR const char *name, bool bt, FAR const void *buf,
+                 size_t len, FAR const char *format, ...)
+                 printf_like(5, 6);
+void rpmsg_vtrace(FAR const char *name, bool bt, FAR const void *buf,
+                  size_t len, FAR const char *format, va_list ap)
+                  printf_like(5, 0);
+#else
+#  define rpmsg_trace(name, bt, buf, len, format, ...) \
+     do \
+       { \
+         (void)(name); \
+         (void)(buf); \
+         (void)(len); \
+       } \
+     while (0)
+#  define rpmsg_vtrace(name, bt, buf, len, format, ap) \
+     do \
+       { \
+         (void)(name); \
+         (void)(buf); \
+         (void)(len); \
+       } \
+     while (0)
+#endif
 
 #ifdef __cplusplus
 }

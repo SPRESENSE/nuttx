@@ -439,6 +439,7 @@ static void rpmsg_port_rx_callback(FAR struct rpmsg_port_s *port,
   FAR struct rpmsg_hdr *rphdr = (FAR struct rpmsg_hdr *)hdr->buf;
   FAR void *data = RPMSG_LOCATE_DATA(rphdr);
   FAR struct rpmsg_endpoint *ept;
+  size_t len = rphdr->len + sizeof(*rphdr);
   int status = 0;
 
   metal_mutex_acquire(&rdev->lock);
@@ -454,7 +455,18 @@ static void rpmsg_port_rx_callback(FAR struct rpmsg_port_s *port,
           ept->dest_addr = rphdr->src;
         }
 
+      rpmsg_trace(ept->name, false, rphdr, len,
+                  "[Port] rx ept->cb start ept:%p name:%s cb:%p "
+                  "rdev:%p hdr:%p len:%zu\n",
+                  ept, ept->name, ept->cb, rdev, rphdr, len);
+
       status = ept->cb(ept, data, rphdr->len, rphdr->src, ept->priv);
+
+      rpmsg_trace(ept->name, false, NULL, 0,
+                  "[Port] rx ept->cb end ept:%p name:%s cb:%p "
+                  "rdev:%p hdr:%p len:%zu\n",
+                  ept, ept->name, ept->cb, rdev, rphdr, len);
+
       if (status < 0 && status != RPMSG_SUCCESS_BUFFER_RELEASED)
         {
           RPMSG_ASSERT(0, "unexpected callback status\n");
@@ -812,6 +824,7 @@ int rpmsg_port_register(FAR struct rpmsg_port_s *port,
       strlcpy(port->rpmsg.local_cpuname, local_cpuname, RPMSG_NAME_SIZE);
     }
 
+  rpmsgvbs("start register %s\n", port->rpmsg.cpuname);
   snprintf(name, sizeof(name), "/dev/rpmsg/%s", port->rpmsg.cpuname);
   ret = rpmsg_register(name, &port->rpmsg, &g_rpmsg_port_ops);
   if (ret < 0)
@@ -823,6 +836,7 @@ int rpmsg_port_register(FAR struct rpmsg_port_s *port,
                           RPMSG_NS_EPT_ADDR, RPMSG_NS_EPT_ADDR,
                           rpmsg_port_ns_callback, NULL, port);
   rpmsg_device_created(&port->rpmsg);
+  rpmsgvbs("register %s success\n", port->rpmsg.cpuname);
   return ret;
 }
 
@@ -834,10 +848,12 @@ void rpmsg_port_unregister(FAR struct rpmsg_port_s *port)
 {
   char name[64];
 
+  rpmsgvbs("start unregister %s\n", port->rpmsg.cpuname);
   snprintf(name, sizeof(name), "/dev/rpmsg/%s", port->rpmsg.cpuname);
 
   rpmsg_device_destroy(&port->rpmsg);
   rpmsg_unregister(name, &port->rpmsg);
+  rpmsgvbs("unregister %s success\n", port->rpmsg.cpuname);
 }
 
 /****************************************************************************
@@ -884,8 +900,6 @@ static void rpmsg_port_dump(FAR struct rpmsg_s *rpmsg)
 {
   FAR struct rpmsg_port_s *port = (FAR struct rpmsg_port_s *)rpmsg;
   FAR struct rpmsg_device *rdev = rpmsg_get_rdev_by_rpmsg(rpmsg);
-  FAR struct rpmsg_endpoint *ept;
-  FAR struct metal_list *node;
   bool needunlock = false;
 
   if (!up_interrupt_context() && !sched_idletask())
@@ -897,11 +911,7 @@ static void rpmsg_port_dump(FAR struct rpmsg_s *rpmsg)
   metal_log(METAL_LOG_EMERGENCY, "Remote: %s state: %d\n",
             port->rpmsg.cpuname, rpmsg_is_running(rdev));
 
-  metal_list_for_each(&rdev->endpoints, node)
-    {
-      ept = metal_container_of(node, struct rpmsg_endpoint, node);
-      metal_log(METAL_LOG_EMERGENCY, "ept %s\n", ept->name);
-    }
+  rpmsg_dump_epts(rdev);
 
   rpmsg_port_dump_buffer(rdev, &port->rxq, true);
   rpmsg_port_dump_buffer(rdev, &port->txq, false);

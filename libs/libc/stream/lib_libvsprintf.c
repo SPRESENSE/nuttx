@@ -137,6 +137,12 @@ struct arg_s
  ****************************************************************************/
 
 static const char g_nullstring[] = "(null)";
+#ifdef CONFIG_LIBC_FLOATINGPOINT
+static const char g_inf_lower[] = "inf";
+static const char g_nan_lower[] = "nan";
+static const char g_inf_upper[] = "INF";
+static const char g_nan_upper[] = "NAN";
+#endif
 static const char g_spaces[REPEAT_BUFLEN] = "                ";
 static const char g_zeroes[REPEAT_BUFLEN] = "0000000000000000";
 
@@ -168,6 +174,28 @@ static int vsprintf_repeat(FAR struct lib_outstream_s *stream, int ch,
     }
 
   return total_len;
+}
+
+static int vsprintf_putnum(FAR struct lib_outstream_s *stream,
+                           FAR char *buf, int len)
+{
+  int i;
+  int j;
+
+  for (i = 0, j = len - 1; i < j; i++, j--)
+    {
+      char tmp = buf[i];
+
+      buf[i] = buf[j];
+      buf[j] = tmp;
+    }
+
+  if (len > 0)
+    {
+      lib_stream_puts(stream, buf, len);
+    }
+
+  return len;
 }
 
 static int vsprintf_internal(FAR struct lib_outstream_s *stream,
@@ -720,25 +748,16 @@ flt_oper:
                   stream_putc(sign, stream);
                 }
 
-              p = "inf";
               if (_dtoa.flags & DTOA_NAN)
                 {
-                  p = "nan";
+                  p = (flags & FL_FLTUPP) != 0 ? g_nan_upper : g_nan_lower;
                 }
-
-#  if ('I'-'i' != 'N'-'n') || ('I'-'i' != 'F'-'f') || ('I'-'i' != 'A'-'a')
-#    error
-#  endif
-              while ((ndigs = *p) != 0)
+              else
                 {
-                  if ((flags & FL_FLTUPP) != 0)
-                    {
-                      ndigs += 'I' - 'i';
-                    }
-
-                  stream_putc(ndigs, stream);
-                  p++;
+                  p = (flags & FL_FLTUPP) != 0 ? g_inf_upper : g_inf_lower;
                 }
+
+              stream_puts(p, 3, stream);
 
               goto tail;
             }
@@ -861,7 +880,32 @@ flt_oper:
                       break;
                     }
 
-                  stream_putc(out, stream);
+                  if (out == '0')
+                    {
+                      int zeroes = 1;
+
+                      while (n != -1)
+                        {
+                          int next = n - 1;
+                          int offset = exp - n;
+
+                          if (next < -prec ||
+                              (0 <= offset && offset < ndigs &&
+                               _dtoa.digits[offset] != '0'))
+                            {
+                              break;
+                            }
+
+                          zeroes++;
+                          n = next;
+                        }
+
+                      stream_repeat('0', zeroes, stream);
+                    }
+                  else
+                    {
+                      stream_putc(out, stream);
+                    }
                 }
               while (1);
 
@@ -893,13 +937,19 @@ flt_oper:
               stream_putc(_dtoa.digits[0], stream);
               if (prec > 0)
                 {
-                  uint8_t pos;
+                  int nbytes;
 
                   stream_putc('.', stream);
-                  for (pos = 1; pos < 1 + prec; pos++)
+
+                  nbytes = MIN(prec, ndigs > 1 ? ndigs - 1 : 0);
+                  if (nbytes > 0)
                     {
-                      stream_putc(pos < ndigs ? _dtoa.digits[pos] : '0',
-                                  stream);
+                      stream_puts(&_dtoa.digits[1], nbytes, stream);
+                    }
+
+                  if (prec > nbytes)
+                    {
+                      stream_repeat('0', prec - nbytes, stream);
                     }
                 }
               else if ((flags & FL_ALT) != 0)
@@ -918,18 +968,14 @@ flt_oper:
                 }
 
               stream_putc(ndigs, stream);
-              c = __ultoa_invert(exp, buf, 10) - buf;
+              len = __ultoa_invert(exp, buf, 10) - buf;
 
               if (exp >= 0 && exp <= 9)
                 {
                   stream_putc('0', stream);
                 }
 
-              while (c > 0)
-                {
-                  stream_putc(buf[c - 1], stream);
-                  c--;
-                }
+              total_len += vsprintf_putnum(stream, buf, len);
             }
 
           goto tail;
@@ -1063,7 +1109,14 @@ flt_oper:
               }
 #endif
 
-            size = strnlen(pnt, (flags & FL_PREC) ? prec : ~0);
+            if ((flags & FL_PREC) != 0)
+              {
+                size = strnlen(pnt, prec);
+              }
+            else
+              {
+                size = strlen(pnt);
+              }
 
 str_lpad:
             if ((flags & FL_LPAD) == 0)
@@ -1268,10 +1321,7 @@ str_lpad:
                         if (symbol != NULL)
                           {
                             pnt = symbol->sym_name;
-                            while (*pnt != '\0')
-                              {
-                                stream_putc(*pnt++, stream);
-                              }
+                            stream_puts(pnt, strlen(pnt), stream);
 
                             if (c == 'S')
                               {
@@ -1421,10 +1471,7 @@ str_lpad:
           prec = c;
         }
 
-      while (c)
-        {
-          stream_putc(buf[--c], stream);
-        }
+      total_len += vsprintf_putnum(stream, buf, c);
 
 tail:
 

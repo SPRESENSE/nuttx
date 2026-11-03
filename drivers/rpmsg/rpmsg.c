@@ -26,6 +26,8 @@
 
 #include <nuttx/config.h>
 
+#include <inttypes.h>
+
 #include <metal/sys.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/mutex.h>
@@ -33,8 +35,10 @@
 #include <nuttx/semaphore.h>
 
 #include "rpmsg.h"
+#include "rpmsg_procfs.h"
 #include "rpmsg_router.h"
 #include "rpmsg_test.h"
+#include "rpmsg_wakelock.h"
 
 /****************************************************************************
  * Private Types
@@ -138,6 +142,16 @@ static int rpmsg_dev_ioctl_(FAR struct rpmsg_s *rpmsg, int cmd,
         ret = rpmsg_test(&rpmsg->test, arg);
         break;
 #endif
+      case RPMSGIOC_RUNNING:
+        *(FAR bool *)arg = rpmsg_is_running(rpmsg_get_rdev_by_rpmsg(rpmsg));
+        ret = OK;
+        break;
+#ifdef CONFIG_RPMSG_WAKELOCK
+      case RPMSGIOC_ACQUIRE_WAKELOCK:
+      case RPMSGIOC_RELEASE_WAKELOCK:
+        ret = rpmsg_wakelock(&rpmsg->wakelock, cmd, arg);
+        break;
+#endif
       default:
         if (rpmsg->ops->ioctl)
           {
@@ -162,6 +176,11 @@ static int rpmsg_dev_ioctl(FAR struct file *filep, int cmd,
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
+
+void rpmsg_initialize(void)
+{
+  rpmsg_procfs_initialize();
+}
 
 int rpmsg_wait(FAR struct rpmsg_endpoint *ept, FAR sem_t *sem)
 {
@@ -450,6 +469,9 @@ void rpmsg_device_created(FAR struct rpmsg_s *rpmsg)
 #ifdef CONFIG_RPMSG_TEST
   rpmsg_test_init(rdev, &rpmsg->test);
 #endif
+#ifdef CONFIG_RPMSG_WAKELOCK
+  rpmsg_wakelock_init(rdev, &rpmsg->wakelock);
+#endif
 }
 
 void rpmsg_device_destroy(FAR struct rpmsg_s *rpmsg)
@@ -465,6 +487,10 @@ void rpmsg_device_destroy(FAR struct rpmsg_s *rpmsg)
 
 #ifdef CONFIG_RPMSG_TEST
   rpmsg_test_deinit(&rpmsg->test);
+#endif
+
+#ifdef CONFIG_RPMSG_WAKELOCK
+  rpmsg_wakelock_deinit(&rpmsg->wakelock);
 #endif
 
   nxrmutex_lock(&rpmsg->lock);
@@ -559,6 +585,26 @@ void rpmsg_unregister(FAR const char *path, FAR struct rpmsg_s *rpmsg)
   unregister_driver(path);
 
   metal_finish();
+}
+
+/****************************************************************************
+ * Name: rpmsg_dump_epts
+ ****************************************************************************/
+
+void rpmsg_dump_epts(FAR struct rpmsg_device *rdev)
+{
+  FAR struct rpmsg_endpoint *ept;
+  FAR struct metal_list *node;
+
+  metal_log(METAL_LOG_EMERGENCY, "  rpmsg ept list:\n");
+  metal_list_for_each(&rdev->endpoints, node)
+    {
+      ept = metal_container_of(node, struct rpmsg_endpoint, node);
+      metal_log(METAL_LOG_EMERGENCY, "    ept %s %p: addr=%" PRIu32 " "
+                "dest=%" PRIu32 " refcnt=%" PRIu32 " priority=%" PRIu8
+                " priv=%p\n", ept->name, ept, ept->addr, ept->dest_addr,
+                ept->refcnt, ept->priority, ept->priv);
+    }
 }
 
 static int rpmsg_ioctl_foreach_cb(FAR struct rpmsg_s *rpmsg, FAR void *arg)

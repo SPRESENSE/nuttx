@@ -25,6 +25,14 @@ if(CONFIG_RPMSG)
 
   list(APPEND SRCS rpmsg.c)
 
+  if(CONFIG_RPMSG_TRACE)
+    list(APPEND SRCS rpmsg_trace.c)
+  endif()
+
+  if(CONFIG_RPMSG_PROCFS)
+    list(APPEND SRCS rpmsg_procfs.c)
+  endif()
+
   if(CONFIG_RPMSG_PING)
     list(APPEND SRCS rpmsg_ping.c)
   endif()
@@ -63,6 +71,10 @@ if(CONFIG_RPMSG)
 
   if(CONFIG_RPMSG_TEST)
     list(APPEND SRCS rpmsg_test.c)
+  endif()
+
+  if(CONFIG_RPMSG_WAKELOCK)
+    list(APPEND SRCS rpmsg_wakelock.c)
   endif()
 
   target_include_directories(drivers PRIVATE ${NUTTX_DIR}/openamp/open-amp/lib)

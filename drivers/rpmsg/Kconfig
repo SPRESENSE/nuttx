@@ -10,6 +10,32 @@ config RPMSG
 
 if RPMSG
 
+config RPMSG_TRACE
+	bool "rpmsg trace"
+	default n
+	depends on SCHED_INSTRUMENTATION_DUMP
+	---help---
+		Record the messages passed through the rpmsg transports in the
+		note stream under NOTE_TAG_RPMSG, so they can be read back with
+		the note drivers (e.g. /dev/note/ram).
+
+config RPMSG_TRACE_BACKTRACE
+	int "rpmsg trace backtrace depth"
+	default 0
+	range 0 16
+	depends on RPMSG_TRACE
+	---help---
+		Number of frames recorded with a trace that asks for a
+		backtrace. 0 disables backtraces.
+
+config RPMSG_PROCFS
+	bool "Include rpmsg info in procfs"
+	depends on FS_PROCFS_REGISTER
+	default !DEFAULT_SMALL
+	---help---
+		Add /proc/rpmsg, which lists the local and the remote CPU of every
+		registered rpmsg device.
+
 config RPMSG_LOCAL_CPUNAME
 	string "Rpmsg Local Cpuname"
 	default LIBC_HOSTNAME
@@ -24,6 +50,15 @@ config RPMSG_PING
 config RPMSG_TEST
 	bool "rpmsg test support"
 	default n
+
+config RPMSG_WAKELOCK
+	bool "rpmsg wakelock support"
+	default n
+	depends on PM
+	---help---
+		Let a CPU hold a PM wakelock on the remote CPU through the
+		RPMSGIOC_ACQUIRE_WAKELOCK and RPMSGIOC_RELEASE_WAKELOCK ioctls.
+		Both sides of the link must enable it.
 
 endif # RPMSG
 
