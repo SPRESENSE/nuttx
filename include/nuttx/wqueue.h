@@ -357,6 +357,24 @@ FAR struct kwork_wqueue_s *work_queue_create(FAR const char *name,
                                              int stack_size, int nthreads);
 
 /****************************************************************************
+ * Name: work_queue_dispatch
+ *
+ * Description:
+ *   Run the expired work of a queue on the calling thread. The caller
+ *   must be one of the queue's workers, typically a callback that waits
+ *   for something another work item of the same queue provides;
+ *   otherwise nothing is done.
+ *
+ * Input Parameters:
+ *   wqueue - Work queue instance.
+ *
+ ****************************************************************************/
+
+#if defined(CONFIG_BUILD_FLAT) || defined(__KERNEL__)
+void work_queue_dispatch(FAR struct kwork_wqueue_s *wqueue);
+#endif
+
+/****************************************************************************
  * Name: work_queue_free
  *
  * Description:
@@ -379,6 +397,24 @@ FAR struct kwork_wqueue_s *work_queue_create(FAR const char *name,
  ****************************************************************************/
 
 int work_queue_free(FAR struct kwork_wqueue_s *wqueue);
+
+/****************************************************************************
+ * Name: work_queue_in_queue
+ *
+ * Description:
+ *   Check if the execute context is in the work queue thread.
+ *
+ * Input Parameters:
+ *  wqueue - The work queue handle
+ *
+ * Returned Value:
+ *   true if the current thread is in the work queue, false otherwise.
+ *
+ * **************************************************************************/
+
+#if defined(CONFIG_BUILD_FLAT) || defined(__KERNEL__)
+bool work_queue_in_queue(FAR struct kwork_wqueue_s *wqueue);
+#endif
 
 /****************************************************************************
  * Name: work_queue/work_queue_wq
@@ -482,6 +518,28 @@ int work_queue_next_wq(FAR struct kwork_wqueue_s *wqueue,
 
 int work_queue_priority(int qid);
 int work_queue_priority_wq(FAR struct kwork_wqueue_s *wqueue);
+
+/****************************************************************************
+ * Name: work_queue_setpriority/work_queue_setpriority_wq
+ *
+ * Description:
+ *   Set priority of all worker threads in the work queue.
+ *
+ * Input Parameters:
+ *   qid      - The work queue ID (must be HPWORK or LPWORK)
+ *   wqueue   - The work queue handle
+ *   priority - New priority (SCHED_PRIORITY_MIN ~ SCHED_PRIORITY_MAX)
+ *
+ * Returned Value:
+ *   Zero (OK) on success, a negated errno value on failure.
+ *
+ ****************************************************************************/
+
+#if defined(CONFIG_BUILD_FLAT) || defined(__KERNEL__)
+int work_queue_setpriority(int qid, int priority);
+int work_queue_setpriority_wq(FAR struct kwork_wqueue_s *wqueue,
+                              int priority);
+#endif
 
 /****************************************************************************
  * Name: work_cancel/work_cancel_wq

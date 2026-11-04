@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/xtensa/esp32s3/lckfb-szpi-esp32s3/src/esp32s3_qmi8658.c
+ * boards/arm/stm32g0/weact-stm32g0b1/src/weact-stm32g0b1.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,65 +20,60 @@
  *
  ****************************************************************************/
 
+#ifndef __BOARDS_ARM_STM32F0L0G0_WEACT_STM32G0B1_SRC_WEACT_STM32G0B1_H
+#define __BOARDS_ARM_STM32F0L0G0_WEACT_STM32G0B1_SRC_WEACT_STM32G0B1_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
-#include <unistd.h>
-#include <stdlib.h>
-#include <nuttx/debug.h>
-#include <assert.h>
-#include <nuttx/arch.h>
-#include <nuttx/board.h>
-#include <nuttx/sensors/qmi8658.h>
+/****************************************************************************
+ * Pre-processor Definitions
+ ****************************************************************************/
 
-#include "esp32s3_i2c.h"
-#include "esp32s3-szpi.h"
+/* LEDS
+ *
+ * The WeAct STM32G0B1 board has only one Blue LED controlled by GPIO.
+ * LED: connected to PC6
+ */
+
+#define GPIO_LED1      (GPIO_OUTPUT | GPIO_PUSHPULL | GPIO_SPEED_HIGH | \
+                        GPIO_OUTPUT_CLEAR | GPIO_PORTC | GPIO_PIN6)
+
+#define LED_DRIVER_PATH "/dev/userleds"
+
+/* BUTTONS
+ *
+ * The pushbutton is connected to GPIO PC13.
+ */
+
+#define MIN_IRQBUTTON  BUTTON_USER
+#define MAX_IRQBUTTON  BUTTON_USER
+#define NUM_IRQBUTTONS 1
+
+#define GPIO_BTN_USER  (GPIO_INPUT | GPIO_FLOAT | GPIO_EXTI | GPIO_PORTC | GPIO_PIN13)
 
 /****************************************************************************
- * Public Functions
+ * Public Data
  ****************************************************************************/
 
 /****************************************************************************
- * Name: esp32s3_qmi8658_initialize
+ * Public Function Prototypes
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: stm32_bringup
  *
  * Description:
- *   Initialize and register the QMI8658 6-axis IMU sensor driver.
+ *   Perform architecture-specific initialization
  *
- *   This function registers the uORB interface which creates:
- *   - "/dev/uorb/sensor_accel0" for accelerometer data
- *   - "/dev/uorb/sensor_gyro0" for gyroscope data
- *
- * Input Parameters:
- *   None
- *
- * Returned Value:
- *   Zero (OK) on success; a negated errno value on failure.
+ *   CONFIG_BOARD_LATE_INITIALIZE=y :
+ *     Called from board_late_initialize().
  *
  ****************************************************************************/
 
-int esp32s3_qmi8658_initialize(void)
-{
-  struct i2c_master_s *i2c;
-  int ret;
+int stm32_bringup(void);
 
-  i2c = esp32s3_i2cbus_initialize(QMI8658_I2C_PORT);
-  if (!i2c)
-    {
-      i2cerr("Initialize I2C bus failed!\n");
-      return -EINVAL;
-    }
-
-  /* Register QMI8658 uORB sensor device */
-
-  ret = qmi8658_uorb_register(0, i2c, QMI8658_I2C_ADDR);
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "Failed to register QMI8658 uORB driver: %d\n",
-              ret);
-    }
-
-  return ret;
-}
+#endif /* __BOARDS_ARM_STM32F0L0G0_WEACT_STM32G0B1_SRC_WEACT_STM32G0B1_H */

@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/arm/stm32l4/nucleo-l476rg/src/stm32_timer.c
+ * boards/arm/stm32g0/weact-stm32g0b1/src/stm32_boot.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -25,43 +25,59 @@
  ****************************************************************************/
 
 #include <nuttx/config.h>
-#include <nuttx/timers/timer.h>
 
-#include <nuttx/debug.h>
+#include <stdbool.h>
 
-#include "stm32_tim.h"
-#include "nucleo-l476rg.h"
+#include <nuttx/board.h>
+#include <nuttx/irq.h>
+#include <arch/board/board.h>
 
-#ifdef CONFIG_TIMER
-
-/****************************************************************************
- * Pre-processor Definitions
- ****************************************************************************/
+#include "arm_internal.h"
+#include "weact-stm32g0b1.h"
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: board_timer_driver_initialize
+ * Name: stm32_boardinitialize
  *
  * Description:
- *   Configure the timer driver.
- *
- * Input Parameters:
- *   devpath - The full path to the timer device.  This should be of the
- *             form /dev/timer0
- *   timer   - The timer's number.
- *
- * Returned Value:
- *   Zero (OK) is returned on success; A negated errno value is returned
- *   to indicate the nature of any failure.
+ *   All STM32 architectures must provide the following entry point.  This
+ *   entry point is called early in the initialization -- after all memory
+ *   has been configured and mapped but before any devices have been
+ *   initialized.
  *
  ****************************************************************************/
 
-int board_timer_driver_initialize(const char *devpath, int timer)
+void stm32_boardinitialize(void)
 {
-  return stm32_timer_initialize(devpath, timer);
+#ifdef CONFIG_ARCH_LEDS
+  /* Configure on-board LEDs if LED support has been selected. */
+
+  board_autoled_initialize();
+#endif
 }
 
+/****************************************************************************
+ * Name: board_late_initialize
+ *
+ * Description:
+ *   If CONFIG_BOARD_LATE_INITIALIZE is selected, then an additional
+ *   initialization call will be performed in the boot-up sequence to a
+ *   function called board_late_initialize().  board_late_initialize() will
+ *   be called immediately after up_initialize() is called and just before
+ *   the initial application is started.  This additional initialization
+ *   phase may be used, for example, to initialize board-specific device
+ *   drivers.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_BOARD_LATE_INITIALIZE
+void board_late_initialize(void)
+{
+  /* Perform board-specific initialization */
+
+  stm32_bringup();
+}
 #endif

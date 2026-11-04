@@ -24,6 +24,9 @@
  * Included Files
  ****************************************************************************/
 
+#include <assert.h>
+#include <stdint.h>
+
 #include <nuttx/kmalloc.h>
 #include "mqueue/msg.h"
 #include "sched/sched.h"
@@ -38,14 +41,15 @@
  * Private Data
  ****************************************************************************/
 
-static uint8_t             g_nmsgq; /* The number of groups of msgs array */
-static FAR struct msgq_s **g_msgqs; /* The pointer of two layer file descriptors array */
+static int                 g_nmsgq; /* The number of entries in g_msgqs */
+static FAR struct msgq_s **g_msgqs; /* The queues; the index is the id - 1 */
 
 /****************************************************************************
  * Public Data
  ****************************************************************************/
 
 struct list_node g_msgfreelist;
+struct mqueue_cmn_s g_msgpoolwait;
 
 /****************************************************************************
  * Private Functions
@@ -55,7 +59,7 @@ struct list_node g_msgfreelist;
  * Name: nxmsg_alloc_internal
  ****************************************************************************/
 
-static FAR struct msgq_s *nxmsg_alloc_internal(void)
+static int nxmsg_alloc_internal(FAR struct msgq_s **pmsgq)
 {
   FAR struct msgq_s *msgq;
   FAR struct msgq_s **tmp;
@@ -64,7 +68,7 @@ static FAR struct msgq_s *nxmsg_alloc_internal(void)
   msgq = kmm_zalloc(sizeof(struct msgq_s));
   if (msgq == NULL)
     {
-      return NULL;
+      return -ENOMEM;
     }
 
   for (i = 0; i < g_nmsgq; i++)
@@ -72,9 +76,18 @@ static FAR struct msgq_s *nxmsg_alloc_internal(void)
       if (g_msgqs[i] == NULL)
         {
           g_msgqs[i] = msgq;
-          msgq->key = i + 1;
-          return msgq;
+          msgq->id = i + 1;
+          *pmsgq = msgq;
+          return OK;
         }
+    }
+
+  /* The identifier must fit in the int16_t id of the queue */
+
+  if (g_nmsgq > INT16_MAX - MQ_PERBLOCK)
+    {
+      kmm_free(msgq);
+      return -ENOSPC;
     }
 
   tmp = kmm_realloc(g_msgqs, sizeof(FAR void *) *
@@ -82,7 +95,7 @@ static FAR struct msgq_s *nxmsg_alloc_internal(void)
   if (tmp == NULL)
     {
       kmm_free(msgq);
-      return NULL;
+      return -ENOMEM;
     }
 
   g_msgqs = tmp;
@@ -91,11 +104,12 @@ static FAR struct msgq_s *nxmsg_alloc_internal(void)
 
   g_msgqs[g_nmsgq] = msgq;
 
-  msgq->key = g_nmsgq + 1;
+  msgq->id = g_nmsgq + 1;
 
   g_nmsgq += MQ_PERBLOCK;
 
-  return msgq;
+  *pmsgq = msgq;
+  return OK;
 }
 
 /****************************************************************************
@@ -134,6 +148,42 @@ static void nxmsg_wakeup(FAR struct msgq_s *msgq)
 }
 
 /****************************************************************************
+ * Name: nxmsg_wakeup_list
+ *
+ * Description:
+ *   Wake up all tasks in a wait list of a queue.  Each task checks again
+ *   if it can go on.
+ *
+ ****************************************************************************/
+
+static void nxmsg_wakeup_list(FAR dq_queue_t *list, FAR int16_t *nwait)
+{
+  FAR struct tcb_s *rtcb = this_task();
+  FAR struct tcb_s *btcb;
+  bool need_switch = false;
+
+  while (*nwait > 0)
+    {
+      btcb = (FAR struct tcb_s *)dq_remfirst(list);
+      DEBUGASSERT(btcb != NULL);
+
+      wd_cancel(&btcb->waitdog);
+      (*nwait)--;
+      btcb->waitobj = NULL;
+
+      if (nxsched_add_readytorun(btcb))
+        {
+          need_switch = true;
+        }
+    }
+
+  if (need_switch)
+    {
+      up_switch_context(this_task(), rtcb);
+    }
+}
+
+/****************************************************************************
  * Public Functions
  ****************************************************************************/
 
@@ -144,18 +194,19 @@ static void nxmsg_wakeup(FAR struct msgq_s *msgq)
 int nxmsg_alloc(FAR struct msgq_s **pmsgq)
 {
   FAR struct msgq_s *msgq;
+  int ret;
 
-  msgq = nxmsg_alloc_internal();
-  if (msgq == NULL)
+  ret = nxmsg_alloc_internal(&msgq);
+  if (ret < 0)
     {
-      return -ENOMEM;
+      return ret;
     }
 
   /* Initialize the new named message queue */
 
   list_initialize(&msgq->msglist);
 
-  msgq->maxmsgs    = MSG_MAX_MSGS;
+  msgq->qbytes     = MSG_DEF_QBYTES;
   msgq->maxmsgsize = MSG_MAX_BYTES;
 
   *pmsgq = msgq;
@@ -172,12 +223,12 @@ void nxmsg_free(FAR struct msgq_s *msgq)
   FAR struct msgbuf_s *tmp;
   int index;
 
-  if (msgq == NULL || msgq->key <= 0 || msgq->key > g_nmsgq)
+  if (msgq == NULL || msgq->id <= 0 || msgq->id > g_nmsgq)
     {
       return;
     }
 
-  index = msgq->key - 1;
+  index = msgq->id - 1;
 
   /* Remove the queue from the table first, so that no task finds it after
    * the wake-up or while kmm_free() waits for the heap lock.
@@ -193,19 +244,70 @@ void nxmsg_free(FAR struct msgq_s *msgq)
       list_add_tail(&g_msgfreelist, &entry->node);
     }
 
+  /* Also the senders of this queue that wait for a free message: they
+   * get EIDRM.
+   */
+
+  nxmsg_wakeup_pool();
   kmm_free(msgq);
+}
+
+/****************************************************************************
+ * Name: nxmsg_wakeup_senders
+ ****************************************************************************/
+
+void nxmsg_wakeup_senders(FAR struct msgq_s *msgq)
+{
+  nxmsg_wakeup_list(MQ_WNFLIST(msgq->cmn), &msgq->cmn.nwaitnotfull);
+}
+
+/****************************************************************************
+ * Name: nxmsg_wakeup_receivers
+ ****************************************************************************/
+
+void nxmsg_wakeup_receivers(FAR struct msgq_s *msgq)
+{
+  nxmsg_wakeup_list(MQ_WNELIST(msgq->cmn), &msgq->cmn.nwaitnotempty);
+}
+
+/****************************************************************************
+ * Name: nxmsg_wakeup_pool
+ ****************************************************************************/
+
+void nxmsg_wakeup_pool(void)
+{
+  nxmsg_wakeup_list(MQ_WNFLIST(g_msgpoolwait), &g_msgpoolwait.nwaitnotfull);
 }
 
 /****************************************************************************
  * Name: nxmsg_lookup
  ****************************************************************************/
 
-FAR struct msgq_s *nxmsg_lookup(key_t key)
+FAR struct msgq_s *nxmsg_lookup(int msqid)
 {
-  if (key <= 0 || key > g_nmsgq)
+  if (msqid <= 0 || msqid > g_nmsgq)
     {
       return NULL;
     }
 
-  return g_msgqs[key - 1];
+  return g_msgqs[msqid - 1];
+}
+
+/****************************************************************************
+ * Name: nxmsg_findkey
+ ****************************************************************************/
+
+FAR struct msgq_s *nxmsg_findkey(key_t key)
+{
+  int i;
+
+  for (i = 0; i < g_nmsgq; i++)
+    {
+      if (g_msgqs[i] != NULL && g_msgqs[i]->key == key)
+        {
+          return g_msgqs[i];
+        }
+    }
+
+  return NULL;
 }

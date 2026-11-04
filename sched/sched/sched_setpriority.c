@@ -80,12 +80,12 @@ static inline void nxsched_running_setpriority(FAR struct tcb_s *tcb,
    * CASE 1. The new priority of the running task becomes less than or
    * equal to the next highest priority ready to run task.
    * CASE 2. In SMP, the affinity of tcb has changed and no longer includes
-   * the current cpu.
+   * the current cpu, also when no other task is ready to run.
    */
 
 #ifdef CONFIG_SMP
-  if (nxttcb && (sched_priority <= nxttcb->sched_priority ||
-      (tcb->affinity & (1 << tcb->cpu)) == 0))
+  if ((tcb->affinity & (1 << tcb->cpu)) == 0 ||
+      (nxttcb && sched_priority <= nxttcb->sched_priority))
 #else
   if (nxttcb && sched_priority <= nxttcb->sched_priority)
 #endif
@@ -127,6 +127,7 @@ static inline void nxsched_running_setpriority(FAR struct tcb_s *tcb,
           do
             {
               bool check = nxsched_remove_readytorun(nxttcb);
+
               DEBUGASSERT(check == false);
               UNUSED(check);
 
@@ -330,7 +331,7 @@ int nxsched_set_priority(FAR struct tcb_s *tcb, int sched_priority)
         }
 
       leave_critical_section(flags);
-   }
+    }
 
   return ret;
 }

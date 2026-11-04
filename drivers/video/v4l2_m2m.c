@@ -36,6 +36,11 @@
 #include <nuttx/spinlock.h>
 #include <nuttx/video/v4l2_m2m.h>
 #include <nuttx/video/video.h>
+#include <sys/param.h>
+
+#ifdef CONFIG_DMA_SHARED_BUFFER
+#  include <nuttx/dma-buf.h>
+#endif
 
 #include "video_framebuff.h"
 
@@ -63,11 +68,23 @@ struct codec_event_s
 
 typedef struct codec_event_s codec_event_t;
 
+#ifdef CONFIG_DMA_SHARED_BUFFER
+struct codec_dmabuf_s
+{
+  FAR struct dma_buf            *dmabuf;
+  FAR struct dma_buf_attachment *attachment;
+  uintptr_t                     dmaaddr;
+};
+#endif
+
 struct codec_type_inf_s
 {
   video_framebuff_t bufinf;
   FAR uint8_t       *bufheap;   /* for V4L2_MEMORY_MMAP buffers */
   bool              buflast;
+#ifdef CONFIG_DMA_SHARED_BUFFER
+  struct codec_dmabuf_s dmabufinf[V4L2_REQBUFS_COUNT_MAX];
+#endif
 };
 
 typedef struct codec_type_inf_s codec_type_inf_t;
@@ -158,6 +175,13 @@ static int codec_decoder_cmd(FAR struct file *filep,
                              FAR struct v4l2_decoder_cmd *cmd);
 static int codec_encoder_cmd(FAR struct file *filep,
                              FAR struct v4l2_encoder_cmd *cmd);
+#ifdef CONFIG_DMA_SHARED_BUFFER
+static void codec_release_dmabuf(FAR codec_type_inf_t *type_inf,
+                                 uint32_t index);
+static int codec_import_dmabuf(FAR codec_type_inf_t *type_inf,
+                               uint32_t index, int fd);
+static void codec_cleanup_dmabuf(FAR codec_type_inf_t *type_inf);
+#endif
 
 /****************************************************************************
  * Private Data
@@ -236,6 +260,73 @@ codec_get_type_inf(FAR struct codec_file_s *cfile, int type)
     }
 }
 
+#ifdef CONFIG_DMA_SHARED_BUFFER
+static void codec_release_dmabuf(FAR codec_type_inf_t *type_inf,
+                                 uint32_t index)
+{
+  if (type_inf->dmabufinf[index].attachment != NULL)
+    {
+      dma_buf_unmap_attachment(type_inf->dmabufinf[index].attachment,
+                              type_inf->dmabufinf[index].dmaaddr,
+                              DMA_BIDIRECTIONAL);
+      dma_buf_detach(type_inf->dmabufinf[index].dmabuf,
+                     type_inf->dmabufinf[index].attachment);
+      dma_buf_put(type_inf->dmabufinf[index].dmabuf);
+      type_inf->dmabufinf[index].dmabuf = NULL;
+      type_inf->dmabufinf[index].attachment = NULL;
+      type_inf->dmabufinf[index].dmaaddr = 0;
+    }
+}
+
+static int codec_import_dmabuf(FAR codec_type_inf_t *type_inf,
+                               uint32_t index, int fd)
+{
+  FAR struct dma_buf *dbuf;
+  FAR struct dma_buf_attachment *attach;
+  uintptr_t dmaaddr;
+
+  codec_release_dmabuf(type_inf, index);
+
+  dbuf = dma_buf_get(fd);
+  if (dbuf == NULL)
+    {
+      return -EINVAL;
+    }
+
+  attach = dma_buf_attach(dbuf);
+  if (attach == NULL)
+    {
+      dma_buf_put(dbuf);
+      return -ENOMEM;
+    }
+
+  dmaaddr = dma_buf_map_attachment(attach, DMA_BIDIRECTIONAL);
+  if (dmaaddr == 0)
+    {
+      dma_buf_detach(dbuf, attach);
+      dma_buf_put(dbuf);
+      return -EFAULT;
+    }
+
+  type_inf->dmabufinf[index].dmabuf = dbuf;
+  type_inf->dmabufinf[index].attachment = attach;
+  type_inf->dmabufinf[index].dmaaddr = dmaaddr;
+
+  return OK;
+}
+
+static void codec_cleanup_dmabuf(FAR codec_type_inf_t *type_inf)
+{
+  int i;
+
+  for (i = 0; i < V4L2_REQBUFS_COUNT_MAX; i++)
+    {
+      codec_release_dmabuf(type_inf, i);
+    }
+}
+
+#endif /* CONFIG_DMA_SHARED_BUFFER */
+
 static int codec_querycap(FAR struct file *filep,
                           FAR struct v4l2_capability *cap)
 {
@@ -276,6 +367,7 @@ static int codec_reqbufs(FAR struct file *filep,
   FAR codec_file_t *cfile = filep->f_priv;
   FAR codec_type_inf_t *type_inf;
   uint32_t buf_size;
+  size_t buf_cnt;
   int ret = OK;
 
   if (reqbufs == NULL)
@@ -284,18 +376,31 @@ static int codec_reqbufs(FAR struct file *filep,
     }
 
   reqbufs->mode = V4L2_BUF_MODE_FIFO;
-  if (reqbufs->count > V4L2_REQBUFS_COUNT_MAX)
-    {
-      reqbufs->count = V4L2_REQBUFS_COUNT_MAX;
-    }
-
   if (V4L2_TYPE_IS_OUTPUT(reqbufs->type))
     {
+      ret = CODEC_OUTPUT_TRY_MEMORY(cmng->codec, cfile->priv,
+                                    reqbufs->memory);
+      if (ret < 0)
+        {
+          return ret;
+        }
+
       buf_size = CODEC_OUTPUT_G_BUFSIZE(cmng->codec, cfile->priv);
+      buf_cnt = CODEC_OUTPUT_G_BUFCNT(cmng->codec, cfile->priv);
+      reqbufs->count = MIN(buf_cnt, reqbufs->count);
     }
   else
     {
+      ret = CODEC_CAPTURE_TRY_MEMORY(cmng->codec, cfile->priv,
+                                     reqbufs->memory);
+      if (ret < 0)
+        {
+          return ret;
+        }
+
       buf_size = CODEC_CAPTURE_G_BUFSIZE(cmng->codec, cfile->priv);
+      buf_cnt = CODEC_CAPTURE_G_BUFCNT(cmng->codec, cfile->priv);
+      reqbufs->count = MIN(buf_cnt, reqbufs->count);
     }
 
   if (buf_size == 0)
@@ -307,10 +412,44 @@ static int codec_reqbufs(FAR struct file *filep,
   video_framebuff_change_mode(&type_inf->bufinf, reqbufs->mode);
   ret = video_framebuff_realloc_container(&type_inf->bufinf,
                                           reqbufs->count);
+
+#ifdef CONFIG_DMA_SHARED_BUFFER
+  if (ret == 0 && reqbufs->memory == V4L2_MEMORY_DMABUF)
+    {
+      /* DMABUF mode: only allocate containers, no bufheap needed.
+       * Free existing bufheap if present.
+       */
+
+      if (type_inf->bufheap != NULL)
+        {
+          if (cmng->codec->ops->free_buf)
+            {
+              cmng->codec->ops->free_buf(cfile->priv, type_inf->bufheap);
+            }
+          else
+            {
+              kumm_free(type_inf->bufheap);
+            }
+
+          type_inf->bufheap = NULL;
+        }
+    }
+  else
+#endif
   if (ret == 0 && reqbufs->memory == V4L2_MEMORY_MMAP)
     {
-      kumm_free(type_inf->bufheap);
-      type_inf->bufheap = kumm_memalign(32, reqbufs->count * buf_size);
+      if (cmng->codec->ops->free_buf)
+        {
+          cmng->codec->ops->free_buf(cfile->priv, type_inf->bufheap);
+        }
+      else
+        {
+          kumm_free(type_inf->bufheap);
+        }
+
+      type_inf->bufheap = cmng->codec->ops->alloc_buf ?
+        cmng->codec->ops->alloc_buf(cfile->priv, reqbufs->count * buf_size) :
+        kumm_memalign(32, reqbufs->count * buf_size);
       if (type_inf->bufheap == NULL)
         {
           ret = -ENOMEM;
@@ -327,8 +466,13 @@ static int codec_querybuf(FAR struct file *filep,
   FAR codec_mng_t *cmng = inode->i_private;
   FAR codec_file_t *cfile = filep->f_priv;
   FAR codec_type_inf_t *type_inf;
+  FAR vbuf_container_t *container;
+  struct v4l2_format format;
+  uint32_t offset = 0;
+  size_t bufsize;
+  uint8_t i;
 
-  if (buf == NULL || buf->memory != V4L2_MEMORY_MMAP)
+  if (buf == NULL)
     {
       return -EINVAL;
     }
@@ -344,20 +488,66 @@ static int codec_querybuf(FAR struct file *filep,
       return -EINVAL;
     }
 
+  memset(&format, 0, sizeof(format));
   if (V4L2_TYPE_IS_OUTPUT(buf->type))
     {
-      buf->length   = CODEC_OUTPUT_G_BUFSIZE(cmng->codec, cfile->priv);
-      buf->m.offset = buf->length * buf->index;
+      bufsize = CODEC_OUTPUT_G_BUFSIZE(cmng->codec, cfile->priv);
+      CODEC_OUTPUT_G_FMT(cmng->codec, cfile->priv, &format);
     }
   else
     {
-      buf->length   = CODEC_CAPTURE_G_BUFSIZE(cmng->codec, cfile->priv);
-      buf->m.offset = buf->length * buf->index + CAPTURE_BUF_OFFSET;
+      offset  = CAPTURE_BUF_OFFSET;
+      bufsize = CODEC_CAPTURE_G_BUFSIZE(cmng->codec, cfile->priv);
+      CODEC_CAPTURE_G_FMT(cmng->codec, cfile->priv, &format);
     }
 
-  if (buf->length == 0)
+  if (bufsize == 0)
     {
       return -EINVAL;
+    }
+
+  container = video_framebuff_find_container(&type_inf->bufinf, buf->index);
+
+  if (V4L2_TYPE_IS_MULTIPLANAR(buf->type))
+    {
+      for (i = 0; i < format.fmt.pix_mp.num_planes; i++)
+        {
+          switch (buf->memory)
+            {
+              case V4L2_MEMORY_MMAP:
+                buf->m.planes[i].length =
+                    format.fmt.pix_mp.plane_fmt[i].sizeimage;
+                buf->m.planes[i].m.mem_offset =
+                    offset + bufsize * buf->index;
+                offset += buf->m.planes[i].length;
+                break;
+
+              case V4L2_MEMORY_USERPTR:
+                buf->m.planes[i].m.userptr = container ?
+                    container->buf.m.planes[i].m.userptr : 0;
+                break;
+
+              default:
+                return -EINVAL;
+            }
+        }
+    }
+  else
+    {
+      switch (buf->memory)
+        {
+          case V4L2_MEMORY_MMAP:
+            buf->length   = bufsize;
+            buf->m.offset = offset + bufsize * buf->index;
+            break;
+
+          case V4L2_MEMORY_USERPTR:
+            buf->m.userptr = container ? container->buf.m.userptr : 0;
+            break;
+
+          default:
+            return -EINVAL;
+        }
     }
 
   return OK;
@@ -371,7 +561,8 @@ static int codec_qbuf(FAR struct file *filep,
   FAR codec_file_t *cfile = filep->f_priv;
   FAR codec_type_inf_t *type_inf;
   FAR vbuf_container_t *container;
-  size_t buf_size;
+  struct v4l2_format format;
+  uint8_t i;
 
   if (buf == NULL)
     {
@@ -379,7 +570,38 @@ static int codec_qbuf(FAR struct file *filep,
     }
 
   type_inf = codec_get_type_inf(cfile, buf->type);
-  if (type_inf == NULL)
+  if (type_inf == NULL ||
+      buf->index >= type_inf->bufinf.container_size)
+    {
+      return -EINVAL;
+    }
+
+  switch (buf->memory)
+    {
+      case V4L2_MEMORY_MMAP:
+        if (type_inf->bufheap == NULL)
+          {
+            return -EINVAL;
+          }
+        break;
+
+      case V4L2_MEMORY_USERPTR:
+        break;
+
+#ifdef CONFIG_DMA_SHARED_BUFFER
+      case V4L2_MEMORY_DMABUF:
+        if (buf->index >= V4L2_REQBUFS_COUNT_MAX)
+          {
+            return -EINVAL;
+          }
+        break;
+#endif
+
+      default:
+        return -EINVAL;
+    }
+
+  if (V4L2_TYPE_IS_MULTIPLANAR(buf->type) && buf->m.planes == NULL)
     {
       return -EINVAL;
     }
@@ -391,28 +613,113 @@ static int codec_qbuf(FAR struct file *filep,
       return -EAGAIN;
     }
 
-  memcpy(&container->buf, buf, sizeof(struct v4l2_buffer));
-  if (buf->memory == V4L2_MEMORY_MMAP)
+  memset(&format, 0, sizeof(format));
+  if (V4L2_TYPE_IS_OUTPUT(buf->type))
     {
-      /* only use userptr inside the container */
+      CODEC_OUTPUT_G_FMT(cmng->codec, cfile->priv, &format);
+    }
+  else
+    {
+      CODEC_CAPTURE_G_FMT(cmng->codec, cfile->priv, &format);
+    }
 
-      if (V4L2_TYPE_IS_OUTPUT(buf->type))
-        {
-          buf_size = CODEC_OUTPUT_G_BUFSIZE(cmng->codec, cfile->priv);
-        }
-      else
-        {
-          buf_size = CODEC_CAPTURE_G_BUFSIZE(cmng->codec, cfile->priv);
-        }
+  memcpy(&container->buf, buf, sizeof(struct v4l2_buffer));
 
-      if (buf_size == 0)
-        {
-          return -EINVAL;
-        }
+  if (V4L2_TYPE_IS_MULTIPLANAR(buf->type))
+    {
+      size_t bufsize;
+      uint32_t plane_offset = 0;
 
-      container->buf.length    = buf_size;
-      container->buf.m.userptr = (unsigned long)(type_inf->bufheap +
-                                 container->buf.length * buf->index);
+      bufsize = V4L2_TYPE_IS_OUTPUT(buf->type) ?
+        CODEC_OUTPUT_G_BUFSIZE(cmng->codec, cfile->priv) :
+        CODEC_CAPTURE_G_BUFSIZE(cmng->codec, cfile->priv);
+
+      memcpy(container->planes, buf->m.planes,
+             sizeof(struct v4l2_plane) * format.fmt.pix_mp.num_planes);
+      container->buf.m.planes = container->planes;
+      for (i = 0; i < format.fmt.pix_mp.num_planes; i++)
+        {
+          switch (container->buf.memory)
+            {
+              case V4L2_MEMORY_MMAP:
+                container->buf.m.planes[i].m.vaddr =
+                    (FAR void *)(type_inf->bufheap +
+                     bufsize * buf->index + plane_offset);
+                plane_offset += format.fmt.pix_mp.plane_fmt[i].sizeimage;
+                break;
+
+              case V4L2_MEMORY_USERPTR:
+                container->buf.m.planes[i].m.vaddr =
+                    (FAR void *)buf->m.planes[i].m.userptr;
+                break;
+
+#ifdef CONFIG_DMA_SHARED_BUFFER
+              case V4L2_MEMORY_DMABUF:
+                {
+                  int ret;
+
+                  ret = codec_import_dmabuf(type_inf,
+                            buf->index, buf->m.planes[i].m.fd);
+                  if (ret < 0)
+                    {
+                      video_framebuff_free_container(&type_inf->bufinf,
+                                                     container);
+                      return ret;
+                    }
+
+                  container->buf.m.planes[i].m.fd =
+                      buf->m.planes[i].m.fd;
+                  container->buf.m.planes[i].m.vaddr =
+                      (FAR void *)type_inf->dmabufinf[
+                          buf->index].dmaaddr;
+                }
+                break;
+#endif
+            }
+        }
+    }
+  else
+    {
+      switch (buf->memory)
+        {
+          case V4L2_MEMORY_MMAP:
+            {
+              size_t bufsize;
+
+              bufsize = V4L2_TYPE_IS_OUTPUT(buf->type) ?
+                CODEC_OUTPUT_G_BUFSIZE(cmng->codec, cfile->priv) :
+                CODEC_CAPTURE_G_BUFSIZE(cmng->codec, cfile->priv);
+              container->buf.m.vaddr =
+                  (FAR void *)(type_inf->bufheap + bufsize * buf->index);
+            }
+            break;
+
+          case V4L2_MEMORY_USERPTR:
+            container->buf.m.vaddr = (FAR void *)buf->m.userptr;
+            break;
+
+#ifdef CONFIG_DMA_SHARED_BUFFER
+          case V4L2_MEMORY_DMABUF:
+            {
+              int ret;
+
+              ret = codec_import_dmabuf(type_inf,
+                        buf->index, buf->m.fd);
+              if (ret < 0)
+                {
+                  video_framebuff_free_container(&type_inf->bufinf,
+                                                 container);
+                  return ret;
+                }
+
+              container->buf.m.fd = buf->m.fd;
+              container->buf.m.vaddr =
+                  (FAR void *)type_inf->dmabufinf[
+                      buf->index].dmaaddr;
+            }
+            break;
+#endif
+        }
     }
 
   video_framebuff_queue_container(&type_inf->bufinf, container);
@@ -430,15 +737,22 @@ static int codec_qbuf(FAR struct file *filep,
 static int codec_dqbuf(FAR struct file *filep,
                        FAR struct v4l2_buffer *buf)
 {
+  FAR struct inode *inode = filep->f_inode;
+  FAR codec_mng_t *cmng = inode->i_private;
   FAR codec_file_t *cfile = filep->f_priv;
   FAR codec_type_inf_t *type_inf;
   FAR vbuf_container_t *container;
+  FAR struct v4l2_plane *plans;
+  struct v4l2_format format;
+  uint32_t offset = 0;
+  uint8_t i;
 
   if (buf == NULL)
     {
       return -EINVAL;
     }
 
+  plans = buf->m.planes;
   type_inf = codec_get_type_inf(cfile, buf->type);
   if (type_inf == NULL)
     {
@@ -456,7 +770,82 @@ static int codec_dqbuf(FAR struct file *filep,
       return -EAGAIN;
     }
 
+  memset(&format, 0, sizeof(format));
+  if (V4L2_TYPE_IS_OUTPUT(buf->type))
+    {
+      CODEC_OUTPUT_G_FMT(cmng->codec, cfile->priv, &format);
+    }
+  else
+    {
+      offset = CAPTURE_BUF_OFFSET;
+      CODEC_CAPTURE_G_FMT(cmng->codec, cfile->priv, &format);
+    }
+
   memcpy(buf, &container->buf, sizeof(struct v4l2_buffer));
+  if (V4L2_TYPE_IS_MULTIPLANAR(buf->type))
+    {
+      if (plans == NULL)
+        {
+          return -EINVAL;
+        }
+
+      buf->m.planes = plans;
+      memcpy(plans, container->planes,
+             sizeof(struct v4l2_plane) * format.fmt.pix_mp.num_planes);
+      for (i = 0; i < format.fmt.pix_mp.num_planes; i++)
+        {
+          switch (container->buf.memory)
+            {
+              case V4L2_MEMORY_MMAP:
+                buf->m.planes[i].m.mem_offset = (uint32_t)
+                    ((uint8_t *)buf->m.planes[i].m.vaddr -
+                     type_inf->bufheap + offset);
+                break;
+
+              case V4L2_MEMORY_USERPTR:
+                buf->m.planes[i].m.userptr = (unsigned long)
+                    buf->m.planes[i].m.vaddr;
+                break;
+
+#ifdef CONFIG_DMA_SHARED_BUFFER
+              case V4L2_MEMORY_DMABUF:
+                buf->m.planes[i].m.fd =
+                    container->buf.m.planes[i].m.fd;
+                codec_release_dmabuf(type_inf,
+                    container->buf.index);
+                break;
+#endif
+
+              default:
+                return -EINVAL;
+            }
+        }
+    }
+  else
+    {
+      switch (container->buf.memory)
+        {
+          case V4L2_MEMORY_MMAP:
+            buf->m.offset = (uint32_t)((uint8_t *)buf->m.vaddr -
+                            type_inf->bufheap + offset);
+            break;
+
+          case V4L2_MEMORY_USERPTR:
+            buf->m.userptr = (unsigned long)buf->m.vaddr;
+            break;
+
+#ifdef CONFIG_DMA_SHARED_BUFFER
+          case V4L2_MEMORY_DMABUF:
+            buf->m.fd = container->buf.m.fd;
+            codec_release_dmabuf(type_inf, container->buf.index);
+            break;
+#endif
+
+          default:
+            return -EINVAL;
+        }
+    }
+
   video_framebuff_free_container(&type_inf->bufinf, container);
 
   vinfo("%s dequeue done\n", V4L2_TYPE_IS_OUTPUT(buf->type) ?
@@ -699,6 +1088,10 @@ static int codec_streamoff(FAR struct file *filep,
       return -EINVAL;
     }
 
+#ifdef CONFIG_DMA_SHARED_BUFFER
+  codec_cleanup_dmabuf(type_inf);
+#endif
+
   if (V4L2_TYPE_IS_OUTPUT(*type))
     {
       return CODEC_OUTPUT_STREAMOFF(cmng->codec, cfile->priv);
@@ -853,12 +1246,25 @@ static int codec_close(FAR struct file *filep)
 
   CODEC_CLOSE(cmng->codec, cfile->priv);
 
+#ifdef CONFIG_DMA_SHARED_BUFFER
+  codec_cleanup_dmabuf(&cfile->capture_inf);
+  codec_cleanup_dmabuf(&cfile->output_inf);
+#endif
+
   video_framebuff_uninit(&cfile->capture_inf.bufinf);
   video_framebuff_uninit(&cfile->output_inf.bufinf);
-  kumm_free(cfile->capture_inf.bufheap);
-  kumm_free(cfile->output_inf.bufheap);
-  kmm_free(cfile);
+  if (cmng->codec->ops->free_buf)
+    {
+      cmng->codec->ops->free_buf(cfile->priv, cfile->capture_inf.bufheap);
+      cmng->codec->ops->free_buf(cfile->priv, cfile->output_inf.bufheap);
+    }
+  else
+    {
+      kumm_free(cfile->capture_inf.bufheap);
+      kumm_free(cfile->output_inf.bufheap);
+    }
 
+  kmm_free(cfile);
   return OK;
 }
 

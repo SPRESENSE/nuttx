@@ -179,6 +179,12 @@ static syslog_channel_t g_default_channel =
 #  ifdef CONFIG_SYSLOG_IOCTL
   , "default"
 #  endif
+#  ifdef CONFIG_SYSLOG_CONSOLE_LEVEL
+#    if defined(CONFIG_SYSLOG_IOCTL) || defined(CONFIG_SYSLOG_CRLF)
+  , 0
+#    endif
+  , SYSLOG_CONSOLE_DROPMASK
+#  endif
 };
 #endif
 
@@ -292,6 +298,7 @@ static int syslog_default_putc(FAR syslog_channel_t *channel, int ch)
        */
 
       irqstate_t flags = enter_critical_section();
+
       up_putc(ch);
       leave_critical_section(flags);
     }
@@ -316,6 +323,7 @@ static ssize_t syslog_default_write(FAR syslog_channel_t *channel,
        */
 
       irqstate_t flags = enter_critical_section();
+
       up_nputs(buffer, buflen);
       leave_critical_section(flags);
     }

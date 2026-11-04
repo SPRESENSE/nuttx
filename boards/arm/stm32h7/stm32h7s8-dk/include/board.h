@@ -43,12 +43,10 @@
 
 /* The STM32H7S8-DK board provides the following clock sources:
  *
- *   MCO: 24 MHz from the ST-LINK is available as the HSE input
+ *   X3:  24 MHz oscillator on OSC_IN (PH0), HSE bypass mode
  *   X2:  32.768 kHz crystal for LSE
  *
- * HSI is selected by default so that the board can run when the ST-LINK is
- * not supplying its MCO clock.  CONFIG_STM32H7S8_DK_USE_HSE selects the
- * 24 MHz bypass clock instead.
+ * HSI is selected by default.  CONFIG_STM32H7S8_DK_USE_HSE selects HSE.
  */
 
 #define STM32_BOARD_XTAL         24000000ul
@@ -67,7 +65,6 @@
  *
  *   PLL1P = 600 MHz
  *   PLL1Q = 300 MHz
- *   PLL1R = 300 MHz
  */
 
 #ifdef CONFIG_STM32H7S8_DK_USE_HSE
@@ -78,8 +75,7 @@
 #  define STM32_PLLCFG_PLL1N     RCC_PLL1DIVR1_N(50)
 #  define STM32_PLLCFG_PLL1CFG   (RCC_PLLCFGR_PLL1RGE_8_16 | \
                                   RCC_PLLCFGR_PLL1PEN | \
-                                  RCC_PLLCFGR_PLL1QEN | \
-                                  RCC_PLLCFGR_PLL1REN)
+                                  RCC_PLLCFGR_PLL1QEN)
 #else
 #  define STM32_BOARD_USEHSI
 #  define STM32_PLLCFG_PLLSRC    RCC_PLLCKSELR_PLLSRC_HSI
@@ -87,18 +83,15 @@
 #  define STM32_PLLCFG_PLL1N     RCC_PLL1DIVR1_N(300)
 #  define STM32_PLLCFG_PLL1CFG   (RCC_PLLCFGR_PLL1RGE_2_4 | \
                                   RCC_PLLCFGR_PLL1PEN | \
-                                  RCC_PLLCFGR_PLL1QEN | \
-                                  RCC_PLLCFGR_PLL1REN)
+                                  RCC_PLLCFGR_PLL1QEN)
 #endif
 
 #define STM32_PLLCFG_PLL1P       RCC_PLL1DIVR1_P(1)
 #define STM32_PLLCFG_PLL1Q       RCC_PLL1DIVR1_Q(2)
-#define STM32_PLLCFG_PLL1R       RCC_PLL1DIVR1_R(2)
 
 #define STM32_VCO1_FREQUENCY     600000000ul
 #define STM32_PLL1P_FREQUENCY    STM32_VCO1_FREQUENCY
 #define STM32_PLL1Q_FREQUENCY    (STM32_VCO1_FREQUENCY / 2)
-#define STM32_PLL1R_FREQUENCY    (STM32_VCO1_FREQUENCY / 2)
 
 /* SYSCLK = PLL1P = 600 MHz
  * CPUCLK = SYSCLK

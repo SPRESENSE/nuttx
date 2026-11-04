@@ -64,6 +64,9 @@
 
 static ssize_t rwb_read_(FAR struct rwbuffer_s *rwb, off_t startblock,
                          size_t nblocks, FAR uint8_t *rdbuffer);
+#ifdef CONFIG_DRVR_WRITEBUFFER
+static void rwb_wrstarttimeout(FAR struct rwbuffer_s *rwb);
+#endif
 
 /****************************************************************************
  * Private Functions
@@ -135,9 +138,9 @@ static inline void rwb_resetwrbuffer(FAR struct rwbuffer_s *rwb)
  ****************************************************************************/
 
 #ifdef CONFIG_DRVR_WRITEBUFFER
-static void rwb_wrflush(FAR struct rwbuffer_s *rwb)
+static int rwb_wrflush(FAR struct rwbuffer_s *rwb)
 {
-  int ret;
+  ssize_t ret;
 
   if (rwb->wrnblocks > 0)
     {
@@ -151,9 +154,20 @@ static void rwb_wrflush(FAR struct rwbuffer_s *rwb)
       padblocks = rwb->wrnblocks % rwb->wralignblocks;
       if (padblocks)
         {
+          ssize_t nread;
+
           padblocks = rwb->wralignblocks - padblocks;
-          rwb_read_(rwb, rwb->wrblockstart + rwb->wrnblocks, padblocks,
-                    &rwb->wrbuffer[rwb->wrnblocks * rwb->blocksize]);
+          nread = rwb_read_(rwb, rwb->wrblockstart + rwb->wrnblocks,
+                            padblocks,
+                            &rwb->wrbuffer[rwb->wrnblocks *
+                                           rwb->blocksize]);
+          if (nread < 0 || nread != padblocks)
+            {
+              ret = nread < 0 ? nread : -EIO;
+              ferr("ERROR: Error padding write buffer: %zd\n", ret);
+              return ret;
+            }
+
           rwb->wrnblocks += padblocks;
         }
 
@@ -164,13 +178,17 @@ static void rwb_wrflush(FAR struct rwbuffer_s *rwb)
 
       ret = rwb->wrflush(rwb->dev, rwb->wrbuffer, rwb->wrblockstart,
                          rwb->wrnblocks);
-      if (ret != rwb->wrnblocks)
+      if (ret < 0 || ret != rwb->wrnblocks)
         {
-          ferr("ERROR: Error flushing write buffer: %d\n", ret);
+          ret = ret < 0 ? ret : -EIO;
+          ferr("ERROR: Error flushing write buffer: %zd\n", ret);
+          return ret;
         }
 
       rwb_resetwrbuffer(rwb);
     }
+
+  return OK;
 }
 #endif
 
@@ -184,6 +202,8 @@ static void rwb_wrtimeout(FAR void *arg)
   /* The following assumes that the size of a pointer is 4-bytes or less */
 
   FAR struct rwbuffer_s *rwb = (FAR struct rwbuffer_s *)arg;
+  int ret;
+
   DEBUGASSERT(rwb != NULL);
 
   finfo("Timeout!\n");
@@ -193,8 +213,18 @@ static void rwb_wrtimeout(FAR void *arg)
    * worker thread.
    */
 
-  rwb_lock(&rwb->wrlock);
-  rwb_wrflush(rwb);
+  ret = rwb_lock(&rwb->wrlock);
+  if (ret < 0)
+    {
+      return;
+    }
+
+  ret = rwb_wrflush(rwb);
+  if (ret < 0)
+    {
+      rwb_wrstarttimeout(rwb);
+    }
+
   rwb_unlock(&rwb->wrlock);
 }
 #endif
@@ -212,6 +242,7 @@ static void rwb_wrstarttimeout(FAR struct rwbuffer_s *rwb)
    */
 
   int ticks = MSEC2TICK(CONFIG_DRVR_WRDELAY);
+
   work_queue(LPWORK, &rwb->work, rwb_wrtimeout, rwb, ticks);
 #endif
 }
@@ -239,6 +270,7 @@ static ssize_t rwb_writebuffer(FAR struct rwbuffer_s *rwb,
                                off_t startblock, uint32_t nblocks,
                                FAR const uint8_t *wrbuffer)
 {
+  ssize_t ret;
   uint32_t nwritten = nblocks;
 
   /* Write writebuffer Logic */
@@ -331,7 +363,8 @@ static ssize_t rwb_writebuffer(FAR struct rwbuffer_s *rwb,
 
   if (nblocks > rwb->wrmaxblocks)
     {
-      ssize_t ret = rwb->wrflush(rwb->dev, wrbuffer, startblock, nblocks);
+      ret = rwb->wrflush(rwb->dev, wrbuffer, startblock, nblocks);
+
       if (ret < 0)
         {
           return ret;
@@ -347,7 +380,11 @@ static ssize_t rwb_writebuffer(FAR struct rwbuffer_s *rwb,
 
       /* Flush the write buffer */
 
-      rwb_wrflush(rwb);
+      ret = rwb_wrflush(rwb);
+      if (ret < 0)
+        {
+          return ret;
+        }
 
       /* Get the alignment padding of startblock, and read the contents
        * of the padding area, ensure that wrblockstart is aligned
@@ -357,7 +394,12 @@ static ssize_t rwb_writebuffer(FAR struct rwbuffer_s *rwb,
       padblocks = startblock % rwb->wralignblocks;
       rwb->wrblockstart = startblock - padblocks;
       rwb->wrnblocks = padblocks;
-      rwb_read_(rwb, rwb->wrblockstart, padblocks, rwb->wrbuffer);
+      ret = rwb_read_(rwb, rwb->wrblockstart, padblocks, rwb->wrbuffer);
+      if (ret < 0 || ret != padblocks)
+        {
+          rwb->wrnblocks = 0;
+          return ret < 0 ? ret : -EIO;
+        }
 
       if (remain > rwb->wrmaxblocks - padblocks)
         {
@@ -935,6 +977,7 @@ static ssize_t rwb_read_(FAR struct rwbuffer_s *rwb, off_t startblock,
               if (startblock >= rwb->rhblockstart && startblock < bufferend)
                 {
                   size_t rdblocks = bufferend - startblock;
+
                   if (rdblocks > remaining)
                     {
                       rdblocks = remaining;
@@ -1271,8 +1314,13 @@ int rwb_flush(FAR struct rwbuffer_s *rwb)
   int ret;
 
   ret = rwb_lock(&rwb->wrlock);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
   rwb_wrcanceltimeout(rwb);
-  rwb_wrflush(rwb);
+  ret = rwb_wrflush(rwb);
   rwb_unlock(&rwb->wrlock);
 
   return ret;

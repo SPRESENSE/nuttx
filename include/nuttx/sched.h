@@ -112,6 +112,7 @@
 #define TCB_FLAG_FREE_TCB          (1 << 15)                     /* Bit 15: Free tcb after exit */
 #define TCB_FLAG_PREEMPT_SCHED     (1 << 16)                     /* Bit 16: tcb is PREEMPT_SCHED */
 #define TCB_FLAG_SIGMASK_SAVED     (1 << 17)                     /* Bit 17: sigsavedmask to restore */
+#define TCB_FLAG_UNINTERRUPTIBLE   (1 << 18)                     /* Bit 18: Blocking wait ignores signals */
 
 /* Values for struct task_group tg_flags */
 
@@ -461,7 +462,9 @@ struct task_group_s
   pid_t tg_pid;                     /* The ID of the task within the group      */
   pid_t tg_ppid;                    /* This is the ID of the parent thread      */
   uint8_t tg_flags;                 /* See GROUP_FLAG_* definitions             */
+#ifdef CONFIG_SCHED_CAPABILITIES
   uint8_t tg_caps;                  /* See PR_CAP_* definitions                 */
+#endif
   mode_t  tg_umask;                 /* File mode creation mask (umask())        */
 
   /* Resource limits (getrlimit() and setrlimit()) **************************/

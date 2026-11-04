@@ -264,6 +264,9 @@ static inline void rcc_enableapb1(void)
 #ifdef CONFIG_STM32_LPTIM1
   regval |= RCC_APB1ENR1_LPTIM1EN;
 #endif
+#ifdef CONFIG_STM32_WWDG
+  regval |= RCC_APB1ENR1_WWDGEN;
+#endif
 #ifdef CONFIG_STM32_SPI2
   regval |= RCC_APB1ENR1_SPI2EN;
 #endif
@@ -559,9 +562,11 @@ void stm32_stdclockconfig(void)
   putreg32(STM32_PLLCFG_PLLSRC | STM32_PLLCFG_PLL1M,
            STM32_RCC_PLLCKSELR);
   putreg32(STM32_PLLCFG_PLL1CFG, STM32_RCC_PLLCFGR);
-  putreg32(STM32_PLLCFG_PLL1N | STM32_PLLCFG_PLL1P |
-           STM32_PLLCFG_PLL1Q | STM32_PLLCFG_PLL1R,
-           STM32_RCC_PLL1DIVR1);
+  regval  = getreg32(STM32_RCC_PLL1DIVR1);
+  regval &= ~(RCC_PLLDIVR_DIVN_MASK | RCC_PLLDIVR_DIVP_MASK |
+              RCC_PLLDIVR_DIVQ_MASK);
+  regval |= STM32_PLLCFG_PLL1N | STM32_PLLCFG_PLL1P | STM32_PLLCFG_PLL1Q;
+  putreg32(regval, STM32_RCC_PLL1DIVR1);
 
   modifyreg32(STM32_RCC_CR, 0, RCC_CR_PLL1ON);
   while ((getreg32(STM32_RCC_CR) & RCC_CR_PLL1RDY) == 0)

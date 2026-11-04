@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/arm/stm32f3/nucleo-f303re/src/stm32_timer.c
+ * boards/arm/stm32g0/weact-stm32g0b1/src/stm32_bringup.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -25,43 +25,70 @@
  ****************************************************************************/
 
 #include <nuttx/config.h>
-#include <nuttx/timers/timer.h>
 
+#include <sys/mount.h>
+#include <sys/types.h>
+#include <syslog.h>
 #include <nuttx/debug.h>
 
-#include "stm32_tim.h"
-#include "nucleo-f303re.h"
+#include <nuttx/board.h>
+#include <nuttx/input/buttons.h>
+#include <nuttx/leds/userled.h>
+#include <arch/board/board.h>
 
-#ifdef CONFIG_TIMER
+#include "weact-stm32g0b1.h"
+#include "board_common.h"
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
+
+#undef HAVE_LEDS
+
+#if !defined(CONFIG_ARCH_LEDS) && defined(CONFIG_USERLED_LOWER)
+#  define HAVE_LEDS 1
+#endif
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: stm32_timer_driver_setup
+ * Name: stm32_bringup
  *
  * Description:
- *   Configure the timer driver.
+ *   Perform architecture-specific initialization
  *
- * Input Parameters:
- *   devpath - The full path to the timer device.  This should be of the
- *             form /dev/timer0
- *   timer   - The timer's number.
- *
- * Returned Value:
- *   Zero (OK) is returned on success; A negated errno value is returned
- *   to indicate the nature of any failure.
+ *   CONFIG_BOARD_LATE_INITIALIZE=y :
+ *     Called from board_late_initialize().
  *
  ****************************************************************************/
 
-int stm32_timer_driver_setup(const char *devpath, int timer)
+int stm32_bringup(void)
 {
-  return stm32_timer_initialize(devpath, timer);
-}
+  int ret;
 
+  /* Initialize the board features common to all STM32 boards */
+
+  ret = stm32_common_initialize();
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: stm32_common_initialize() failed: %d\n",
+             ret);
+    }
+
+#ifdef HAVE_LEDS
+  /* Register the LED driver */
+
+  ret = userled_lower_initialize(LED_DRIVER_PATH);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: userled_lower_initialize() failed: %d\n",
+             ret);
+      return ret;
+    }
 #endif
+
+  UNUSED(ret);
+  return OK;
+}

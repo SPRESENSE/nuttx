@@ -31,12 +31,17 @@
 #include <errno.h>
 #include <poll.h>
 
+#include <sys/param.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/mutex.h>
 #include <nuttx/poll.h>
 #include <nuttx/spinlock.h>
 #include <nuttx/video/v4l2_cap.h>
 #include <nuttx/video/video.h>
+#ifdef CONFIG_DMA_SHARED_BUFFER
+#  include <nuttx/dma-buf.h>
+#  include <nuttx/cache.h>
+#endif
 
 #include "video_framebuff.h"
 
@@ -84,6 +89,7 @@ struct video_format_s
   uint16_t width;
   uint16_t height;
   uint32_t pixelformat;
+  uint32_t sizeimage;
 };
 
 typedef struct video_format_s video_format_t;
@@ -100,6 +106,15 @@ struct capture_wait_capture_s
 
 typedef struct capture_wait_capture_s capture_wait_capture_t;
 
+#ifdef CONFIG_DMA_SHARED_BUFFER
+struct capture_dmabuf_s
+{
+  FAR struct dma_buf            *dmabuf;
+  FAR struct dma_buf_attachment *attachment;
+  uintptr_t                      dmaaddr;
+};
+#endif
+
 struct capture_type_inf_s
 {
   mutex_t                lock_state;
@@ -114,6 +129,9 @@ struct capture_type_inf_s
   FAR uint8_t            *bufheap;   /* for V4L2_MEMORY_MMAP buffers */
   FAR struct pollfd_s    *fds;
   uint32_t               seqnum;
+#ifdef CONFIG_DMA_SHARED_BUFFER
+  struct capture_dmabuf_s dmabufinf[V4L2_REQBUFS_COUNT_MAX];
+#endif
 };
 
 typedef struct capture_type_inf_s capture_type_inf_t;
@@ -291,6 +309,10 @@ static int capture_enum_frminterval(FAR struct file *filep,
                                     FAR struct v4l2_frmivalenum *f);
 static int capture_enum_frmsize(FAR struct file *filep,
                                 FAR struct v4l2_frmsizeenum *f);
+#ifdef CONFIG_DMA_SHARED_BUFFER
+static int capture_expbuf(FAR struct file *filep,
+                          FAR struct v4l2_exportbuffer *ebuf);
+#endif
 
 /* File operations function */
 
@@ -303,10 +325,43 @@ static int capture_poll(FAR struct file *filep,
 #ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
 static int capture_unlink(FAR struct inode *inode);
 #endif
+#ifdef CONFIG_DMA_SHARED_BUFFER
+static int capture_dma_attach(FAR struct dma_buf *dmabuf,
+                              FAR struct dma_buf_attachment *attachment);
+static void capture_dma_detach(FAR struct dma_buf *dmabuf,
+                               FAR struct dma_buf_attachment *attachment);
+static uintptr_t
+capture_dma_map_buf(FAR struct dma_buf_attachment *attachment,
+                    enum dma_data_direction direction);
+static void capture_dma_unmap_buf(FAR struct dma_buf_attachment *attachment,
+                                  uintptr_t buf,
+                                  enum dma_data_direction direction);
+static void capture_dma_release(FAR struct dma_buf *dmabuf);
+static int capture_dma_begin_cpu_access(FAR struct dma_buf *dmabuf,
+                                        enum dma_data_direction direction);
+static int capture_dma_end_cpu_access(FAR struct dma_buf *dmabuf,
+                                      enum dma_data_direction direction);
+static int capture_dma_mmap(FAR struct dma_buf *dmabuf,
+                            FAR struct mm_map_entry_s *vma);
+#endif
 
 /****************************************************************************
  * Private Data
  ****************************************************************************/
+
+#ifdef CONFIG_DMA_SHARED_BUFFER
+static struct dma_buf_ops g_capture_dma_buf_ops =
+{
+  .attach = capture_dma_attach,
+  .detach = capture_dma_detach,
+  .map_dma_buf = capture_dma_map_buf,
+  .unmap_dma_buf = capture_dma_unmap_buf,
+  .release = capture_dma_release,
+  .begin_cpu_access = capture_dma_begin_cpu_access,
+  .end_cpu_access = capture_dma_end_cpu_access,
+  .mmap = capture_dma_mmap,
+};
+#endif
 
 static const struct v4l2_ops_s g_capture_vops =
 {
@@ -343,7 +398,15 @@ static const struct v4l2_ops_s g_capture_vops =
   capture_s_ext_ctrls_scene,          /* s_ext_ctrls_scene */
   capture_enum_fmt,                   /* enum_fmt */
   capture_enum_frminterval,           /* enum_frminterval */
-  capture_enum_frmsize                /* enum_frmsize */
+  capture_enum_frmsize,               /* enum_frmsize */
+  NULL,                               /* cropcap */
+  NULL,                               /* dqevent */
+  NULL,                               /* subscribe_event */
+  NULL,                               /* decoder_cmd */
+  NULL,                               /* encoder_cmd */
+#ifdef CONFIG_DMA_SHARED_BUFFER
+  capture_expbuf,                     /* expbuf */
+#endif
 };
 
 static const struct file_operations g_capture_fops =
@@ -547,6 +610,123 @@ static FAR struct imgdata_s *g_capture_data = NULL;
  * Private Functions
  ****************************************************************************/
 
+#ifdef CONFIG_DMA_SHARED_BUFFER
+static int capture_dma_attach(FAR struct dma_buf *dmabuf,
+                              FAR struct dma_buf_attachment *attachment)
+{
+  attachment->priv = dmabuf->priv;
+  return 0;
+}
+
+static void capture_dma_detach(FAR struct dma_buf *dmabuf,
+                               FAR struct dma_buf_attachment *attachment)
+{
+}
+
+static uintptr_t
+capture_dma_map_buf(FAR struct dma_buf_attachment *attachment,
+                    enum dma_data_direction direction)
+{
+  FAR v4l2_buffer_t *buf = (FAR v4l2_buffer_t *)attachment->priv;
+
+  return (uintptr_t)buf->m.vaddr;
+}
+
+static void capture_dma_unmap_buf(FAR struct dma_buf_attachment *attachment,
+                                  uintptr_t buf,
+                                  enum dma_data_direction direction)
+{
+}
+
+static void capture_dma_release(FAR struct dma_buf *dmabuf)
+{
+  FAR v4l2_buffer_t *buf = (FAR v4l2_buffer_t *)dmabuf->priv;
+
+  if (buf)
+    {
+      kmm_free(buf);
+      dmabuf->priv = NULL;
+    }
+}
+
+#ifdef CONFIG_DMA_SHARED_BUFFER
+static void capture_dmabuf_release(FAR capture_type_inf_t *type_inf,
+                                   uint32_t index)
+{
+  FAR struct capture_dmabuf_s *db = &type_inf->dmabufinf[index];
+
+  if (db->dmabuf != NULL && db->attachment != NULL)
+    {
+      dma_buf_end_cpu_access(db->dmabuf, DMA_BIDIRECTIONAL);
+      dma_buf_unmap_attachment(db->attachment, db->dmaaddr,
+                               DMA_BIDIRECTIONAL);
+      dma_buf_detach(db->dmabuf, db->attachment);
+      dma_buf_put(db->dmabuf);
+    }
+
+  memset(db, 0, sizeof(*db));
+}
+
+static void capture_dmabuf_clear(FAR capture_type_inf_t *type_inf)
+{
+  int i;
+
+  for (i = 0; i < V4L2_REQBUFS_COUNT_MAX; i++)
+    {
+      capture_dmabuf_release(type_inf, i);
+    }
+}
+#endif
+
+static int capture_dma_begin_cpu_access(FAR struct dma_buf *dmabuf,
+                                        enum dma_data_direction direction)
+{
+  FAR v4l2_buffer_t *buf = (FAR v4l2_buffer_t *)dmabuf->priv;
+
+  if (buf == NULL)
+    {
+      return -EINVAL;
+    }
+
+  if (direction == DMA_FROM_DEVICE || direction == DMA_BIDIRECTIONAL)
+    {
+      up_invalidate_dcache((uintptr_t)buf->m.vaddr,
+                           (uintptr_t)(buf->m.vaddr + buf->length));
+    }
+
+  return 0;
+}
+
+static int capture_dma_end_cpu_access(FAR struct dma_buf *dmabuf,
+                                      enum dma_data_direction direction)
+{
+  FAR v4l2_buffer_t *buf = (FAR v4l2_buffer_t *)dmabuf->priv;
+
+  if (buf == NULL)
+    {
+      return -EINVAL;
+    }
+
+  if (direction == DMA_TO_DEVICE || direction == DMA_BIDIRECTIONAL)
+    {
+      up_clean_dcache((uintptr_t)buf->m.vaddr,
+                      (uintptr_t)(buf->m.vaddr + buf->length));
+    }
+
+  return 0;
+}
+
+static int capture_dma_mmap(FAR struct dma_buf *dmabuf,
+                            FAR struct mm_map_entry_s *vma)
+{
+  FAR v4l2_buffer_t *buf = (FAR v4l2_buffer_t *)dmabuf->priv;
+
+  vma->length = buf->length;
+  vma->vaddr = buf->m.vaddr;
+  return 0;
+}
+#endif
+
 static FAR capture_type_inf_t *
 get_capture_type_inf(FAR capture_mng_t *cmng, uint8_t type)
 {
@@ -664,6 +844,10 @@ static void convert_to_imgdatafmt(FAR video_format_t *video,
         data->pixelformat = IMGDATA_PIX_FMT_JPEG;
         break;
 
+      case V4L2_PIX_FMT_ENTROPY:
+        data->pixelformat = IMGDATA_PIX_FMT_ENTROPY;
+        break;
+
       default: /* V4L2_PIX_FMT_JPEG_WITH_SUBIMG */
         data->pixelformat = IMGDATA_PIX_FMT_JPEG_WITH_SUBIMG;
         break;
@@ -705,6 +889,10 @@ static void convert_to_imgsensorfmt(FAR video_format_t *video,
 
       case V4L2_PIX_FMT_JPEG:
         sensor->pixelformat = IMGSENSOR_PIX_FMT_JPEG;
+        break;
+
+      case V4L2_PIX_FMT_ENTROPY:
+        sensor->pixelformat = IMGSENSOR_PIX_FMT_ENTROPY;
         break;
 
       default: /* V4L2_PIX_FMT_JPEG_WITH_SUBIMG */
@@ -1223,6 +1411,10 @@ static void cleanup_streamresources(FAR capture_type_inf_t *type_inf,
 
       type_inf->bufheap = NULL;
     }
+
+#ifdef CONFIG_DMA_SHARED_BUFFER
+  capture_dmabuf_clear(type_inf);
+#endif
 }
 
 static void cleanup_scene_parameter(FAR capture_scene_params_t **vsp)
@@ -1341,6 +1533,13 @@ static size_t get_bufsize(FAR video_format_t *vf)
   uint32_t height = vf->height;
   size_t ret = width * height;
 
+  if (vf->sizeimage > 0 &&
+      (vf->pixelformat == V4L2_PIX_FMT_JPEG ||
+       vf->pixelformat == V4L2_PIX_FMT_ENTROPY))
+    {
+      return vf->sizeimage;
+    }
+
   switch (vf->pixelformat)
     {
       case V4L2_PIX_FMT_NV12:
@@ -1350,9 +1549,11 @@ static size_t get_bufsize(FAR video_format_t *vf)
       case V4L2_PIX_FMT_UYVY:
       case V4L2_PIX_FMT_RGB565:
       case V4L2_PIX_FMT_RGB565X:
-      case V4L2_PIX_FMT_JPEG:
       default:
         return ret * 2;
+      case V4L2_PIX_FMT_JPEG:
+      case V4L2_PIX_FMT_ENTROPY:
+        return ret;
     }
 }
 
@@ -2008,6 +2209,16 @@ static int complete_capture(uint8_t err_code,
       return -EINVAL;
     }
 
+  /* Drop-frame callback (size=0): skip frame processing,
+   * go directly to set next buffer.
+   */
+
+  if (datasize == 0 &&
+      (cmng->imgdata->caps & IMGDATA_CAP_DROP_FRAME) != 0)
+    {
+      goto set_next_buf;
+    }
+
   poll_notify(&type_inf->fds, 1, POLLIN);
 
   if (err_code == 0)
@@ -2043,6 +2254,7 @@ static int complete_capture(uint8_t err_code,
       nxsem_post(&type_inf->wait_capture.dqbuf_wait_flg);
     }
 
+set_next_buf:
   if (type_inf->remaining_capnum == 0)
     {
       stop_capture(cmng, buf_type);
@@ -2061,7 +2273,8 @@ static int complete_capture(uint8_t err_code,
   else
     {
       container = video_framebuff_get_vacant_container(&type_inf->bufinf);
-      if (container == NULL)
+      if (container == NULL &&
+          (cmng->imgdata->caps & IMGDATA_CAP_DROP_FRAME) == 0)
         {
           stop_capture(cmng, buf_type);
           type_inf->state = CAPTURE_STATE_STREAMON;
@@ -2081,9 +2294,12 @@ static int complete_capture(uint8_t err_code,
           IMGDATA_SET_BUF(cmng->imgdata,
             type_inf->nr_fmt,
             df,
-            (FAR uint8_t *)container->buf.m.userptr,
-            container->buf.length);
-          container->buf.sequence = type_inf->seqnum++;
+            container ? (FAR uint8_t *)container->buf.m.userptr : NULL,
+            container ? container->buf.length : 0);
+          if (container != NULL)
+            {
+              container->buf.sequence = type_inf->seqnum++;
+            }
         }
     }
 
@@ -2222,36 +2438,63 @@ static int capture_reqbufs(FAR struct file *filep,
       video_framebuff_change_mode(&type_inf->bufinf, reqbufs->mode);
       ret = video_framebuff_realloc_container(&type_inf->bufinf,
                                               reqbufs->count);
-      if (ret == OK && reqbufs->memory == V4L2_MEMORY_MMAP)
+      if (ret == OK)
         {
-          if (type_inf->bufheap != NULL)
+          if (reqbufs->memory == V4L2_MEMORY_MMAP)
             {
-              if (imgdata->ops->free)
+              if (type_inf->bufheap != NULL)
                 {
-                  imgdata->ops->free(imgdata, type_inf->bufheap);
+                  if (imgdata->ops->free)
+                    {
+                      imgdata->ops->free(imgdata, type_inf->bufheap);
+                    }
+                  else
+                    {
+                      kumm_free(type_inf->bufheap);
+                    }
+                }
+
+              if (imgdata->ops->alloc)
+                {
+                  type_inf->bufheap = imgdata->ops->alloc(imgdata, 32,
+                    reqbufs->count *
+                    get_bufsize(&type_inf->fmt[CAPTURE_FMT_MAIN]));
                 }
               else
                 {
-                  kumm_free(type_inf->bufheap);
+                  type_inf->bufheap = kumm_memalign(32, reqbufs->count *
+                    get_bufsize(&type_inf->fmt[CAPTURE_FMT_MAIN]));
+                }
+
+              if (type_inf->bufheap == NULL)
+                {
+                  ret = -ENOMEM;
                 }
             }
+#ifdef CONFIG_DMA_SHARED_BUFFER
+          else if (reqbufs->memory == V4L2_MEMORY_DMABUF)
+            {
+              /* For DMABUF import, no heap allocation needed.
+               * Buffers will be provided via fd in QBUF.
+               */
 
-          if (imgdata->ops->alloc)
-            {
-              type_inf->bufheap = imgdata->ops->alloc(imgdata, 32,
-                reqbufs->count *
-                get_bufsize(&type_inf->fmt[CAPTURE_FMT_MAIN]));
-            }
-          else
-            {
-              type_inf->bufheap = kumm_memalign(32, reqbufs->count *
-                get_bufsize(&type_inf->fmt[CAPTURE_FMT_MAIN]));
-            }
+              if (type_inf->bufheap != NULL)
+                {
+                  if (imgdata->ops->free)
+                    {
+                      imgdata->ops->free(imgdata, type_inf->bufheap);
+                    }
+                  else
+                    {
+                      kumm_free(type_inf->bufheap);
+                    }
 
-          if (type_inf->bufheap == NULL)
-            {
-              ret = -ENOMEM;
+                  type_inf->bufheap = NULL;
+                }
+
+              capture_dmabuf_clear(type_inf);
             }
+#endif
         }
     }
 
@@ -2266,7 +2509,14 @@ static int capture_querybuf(FAR struct file *filep,
   FAR capture_mng_t *cmng = inode->i_private;
   FAR capture_type_inf_t *type_inf;
 
-  if (cmng == NULL || buf == NULL || buf->memory != V4L2_MEMORY_MMAP)
+#ifdef CONFIG_DMA_SHARED_BUFFER
+  if (cmng == NULL || buf == NULL ||
+      (buf->memory != V4L2_MEMORY_MMAP &&
+       buf->memory != V4L2_MEMORY_DMABUF))
+#else
+  if (cmng == NULL || buf == NULL ||
+      buf->memory != V4L2_MEMORY_MMAP)
+#endif
     {
       return -EINVAL;
     }
@@ -2283,7 +2533,10 @@ static int capture_querybuf(FAR struct file *filep,
     }
 
   buf->length = get_bufsize(&type_inf->fmt[CAPTURE_FMT_MAIN]);
-  buf->m.offset = buf->length * buf->index;
+  if (buf->memory == V4L2_MEMORY_MMAP)
+    {
+      buf->m.offset = buf->length * buf->index;
+    }
 
   return OK;
 }
@@ -2328,6 +2581,71 @@ static int capture_qbuf(FAR struct file *filep,
       container->buf.m.userptr = (unsigned long)(type_inf->bufheap +
                                  container->buf.length * buf->index);
     }
+#ifdef CONFIG_DMA_SHARED_BUFFER
+  else if (buf->memory == V4L2_MEMORY_DMABUF)
+    {
+      /* Import dmabuf: get buffer from fd, attach, and map */
+
+      FAR struct capture_dmabuf_s *dbinfo;
+
+      if (buf->index >= V4L2_REQBUFS_COUNT_MAX)
+        {
+          video_framebuff_free_container(&type_inf->bufinf, container);
+          return -EINVAL;
+        }
+
+      dbinfo = &type_inf->dmabufinf[buf->index];
+
+      /* Release previous import if any */
+
+      capture_dmabuf_release(type_inf, buf->index);
+
+      dbinfo->dmabuf = dma_buf_get(buf->m.fd);
+      if (dbinfo->dmabuf == NULL)
+        {
+          video_framebuff_free_container(&type_inf->bufinf, container);
+          return -EINVAL;
+        }
+
+      /* A dmabuf smaller than one frame would hand the lower half a target
+       * it may write past the end of.
+       */
+
+      if (dbinfo->dmabuf->size <
+          get_bufsize(&type_inf->fmt[CAPTURE_FMT_MAIN]))
+        {
+          dma_buf_put(dbinfo->dmabuf);
+          memset(dbinfo, 0, sizeof(*dbinfo));
+          video_framebuff_free_container(&type_inf->bufinf, container);
+          return -EINVAL;
+        }
+
+      dbinfo->attachment = dma_buf_attach(dbinfo->dmabuf);
+      if (dbinfo->attachment == NULL)
+        {
+          dma_buf_put(dbinfo->dmabuf);
+          memset(dbinfo, 0, sizeof(*dbinfo));
+          video_framebuff_free_container(&type_inf->bufinf, container);
+          return -ENOMEM;
+        }
+
+      dbinfo->dmaaddr = dma_buf_map_attachment(dbinfo->attachment,
+                                               DMA_BIDIRECTIONAL);
+      if (dbinfo->dmaaddr == 0)
+        {
+          dma_buf_detach(dbinfo->dmabuf, dbinfo->attachment);
+          dma_buf_put(dbinfo->dmabuf);
+          memset(dbinfo, 0, sizeof(*dbinfo));
+          video_framebuff_free_container(&type_inf->bufinf, container);
+          return -EFAULT;
+        }
+
+      dma_buf_begin_cpu_access(dbinfo->dmabuf, DMA_BIDIRECTIONAL);
+
+      container->buf.length = dbinfo->dmabuf->size;
+      container->buf.m.userptr = (unsigned long)dbinfo->dmaaddr;
+    }
+#endif
 
   video_framebuff_queue_container(&type_inf->bufinf, container);
 
@@ -2494,6 +2812,7 @@ static int capture_g_fmt(FAR struct file *filep,
   fmt->fmt.pix.width = type_inf->fmt[CAPTURE_FMT_MAIN].width;
   fmt->fmt.pix.height = type_inf->fmt[CAPTURE_FMT_MAIN].height;
   fmt->fmt.pix.pixelformat = type_inf->fmt[CAPTURE_FMT_MAIN].pixelformat;
+  fmt->fmt.pix.sizeimage = type_inf->fmt[CAPTURE_FMT_MAIN].sizeimage;
 
   return OK;
 }
@@ -2540,6 +2859,7 @@ static int capture_s_fmt(FAR struct file *filep,
 
         type_inf->fmt[CAPTURE_FMT_SUB].width  = fmt->fmt.pix.width;
         type_inf->fmt[CAPTURE_FMT_SUB].height = fmt->fmt.pix.height;
+        type_inf->fmt[CAPTURE_FMT_SUB].sizeimage = fmt->fmt.pix.sizeimage;
         type_inf->fmt[CAPTURE_FMT_SUB].pixelformat =
             fmt->fmt.pix.pixelformat == V4L2_PIX_FMT_SUBIMG_UYVY ?
               V4L2_PIX_FMT_UYVY : V4L2_PIX_FMT_RGB565;
@@ -2549,6 +2869,7 @@ static int capture_s_fmt(FAR struct file *filep,
       default:
         type_inf->fmt[CAPTURE_FMT_MAIN].width  = fmt->fmt.pix.width;
         type_inf->fmt[CAPTURE_FMT_MAIN].height = fmt->fmt.pix.height;
+        type_inf->fmt[CAPTURE_FMT_MAIN].sizeimage = fmt->fmt.pix.sizeimage;
         type_inf->fmt[CAPTURE_FMT_MAIN].pixelformat =
                                           fmt->fmt.pix.pixelformat;
         type_inf->nr_fmt = 1;
@@ -2602,6 +2923,7 @@ static int capture_try_fmt(FAR struct file *filep,
                sizeof(video_format_t));
         vf[CAPTURE_FMT_SUB].width       = fmt->fmt.pix.width;
         vf[CAPTURE_FMT_SUB].height      = fmt->fmt.pix.height;
+        vf[CAPTURE_FMT_SUB].sizeimage   = fmt->fmt.pix.sizeimage;
         vf[CAPTURE_FMT_SUB].pixelformat =
             fmt->fmt.pix.pixelformat == V4L2_PIX_FMT_SUBIMG_UYVY ?
               V4L2_PIX_FMT_UYVY : V4L2_PIX_FMT_RGB565;
@@ -2613,11 +2935,13 @@ static int capture_try_fmt(FAR struct file *filep,
       case V4L2_PIX_FMT_RGB565:
       case V4L2_PIX_FMT_RGB565X:
       case V4L2_PIX_FMT_JPEG:
+      case V4L2_PIX_FMT_ENTROPY:
       case V4L2_PIX_FMT_JPEG_WITH_SUBIMG:
         nr_fmt = 1;
         vf[CAPTURE_FMT_MAIN].width       = fmt->fmt.pix.width;
         vf[CAPTURE_FMT_MAIN].height      = fmt->fmt.pix.height;
         vf[CAPTURE_FMT_MAIN].pixelformat = fmt->fmt.pix.pixelformat;
+        vf[CAPTURE_FMT_MAIN].sizeimage   = fmt->fmt.pix.sizeimage;
         break;
 
       default:
@@ -3071,6 +3395,7 @@ static int capture_queryctrl(FAR struct file *filep,
 
   /* Replace gotten value to VIDIOC_QUERYCTRL */
 
+  ctrl->id            = ext_ctrl.id;
   ctrl->type          = ext_ctrl.type;
   ctrl->minimum       = ext_ctrl.minimum;
   ctrl->maximum       = ext_ctrl.maximum;
@@ -3091,6 +3416,7 @@ static int capture_query_ext_ctrl(FAR struct file *filep,
   imgsensor_capability_range_t *range = &value.u.range;
   imgsensor_capability_discrete_t *disc = &value.u.discrete;
   imgsensor_capability_elems_t *elem = &value.u.elems;
+  uint32_t id;
   int ret;
 
   if (cmng == NULL || attr == NULL)
@@ -3099,6 +3425,57 @@ static int capture_query_ext_ctrl(FAR struct file *filep,
     }
 
   ASSERT(cmng->imgsensor);
+
+  id = attr->id;
+
+  /* Handle V4L2_CTRL_FLAG_NEXT_CTRL: find the next supported control
+   * after the given ID by iterating through known CID ranges.
+   */
+
+  if (id & (V4L2_CTRL_FLAG_NEXT_CTRL | V4L2_CTRL_FLAG_NEXT_COMPOUND))
+    {
+      static const uint16_t cid_ranges[][2] =
+        {
+          { V4L2_CTRL_CLASS_USER,   V4L2_CID_USER_LAST   },
+          { V4L2_CTRL_CLASS_CAMERA, V4L2_CID_CAMERA_LAST },
+          { V4L2_CTRL_CLASS_FLASH,  V4L2_CID_FLASH_LAST  },
+          { V4L2_CTRL_CLASS_JPEG,   V4L2_CID_JPEG_LAST   },
+        };
+
+      uint32_t start = (id & ~(V4L2_CTRL_FLAG_NEXT_CTRL |
+                              V4L2_CTRL_FLAG_NEXT_COMPOUND)) + 1;
+      size_t i;
+
+      for (i = 0; i < nitems(cid_ranges); i++)
+        {
+          uint32_t cid;
+          uint32_t range_start = cid_ranges[i][0];
+          uint32_t range_end   = cid_ranges[i][1];
+
+          cid = start > range_start ? start : range_start;
+          for (; cid <= range_end; cid++)
+            {
+              if (cid == V4L2_CID_SCENE_MODE)
+                {
+                  id = cid;
+                  goto found;
+                }
+
+              ret = IMGSENSOR_GET_SUPPORTED_VALUE(cmng->imgsensor,
+                                                  cid, &value);
+              if (ret == OK)
+                {
+                  id = cid;
+                  goto found;
+                }
+            }
+        }
+
+      return -EINVAL; /* No more controls */
+
+found:
+      attr->id = id;
+    }
 
   attr->flags      = 0;
   attr->elem_size  = 0;
@@ -3583,6 +3960,68 @@ static int capture_enum_frminterval(FAR struct file *filep,
 
   return 0;
 }
+
+#ifdef CONFIG_DMA_SHARED_BUFFER
+static int capture_expbuf(FAR struct file *filep,
+                          FAR struct v4l2_exportbuffer *ebuf)
+{
+  FAR struct inode *inode = filep->f_inode;
+  FAR capture_mng_t *cmng = inode->i_private;
+  FAR capture_type_inf_t *type_inf;
+  struct dma_buf_export_info exp_info;
+  FAR v4l2_buffer_t *buf;
+  struct dma_buf *dbuf;
+  int ret;
+
+  type_inf = get_capture_type_inf(cmng, ebuf->type);
+  if (type_inf == NULL)
+    {
+      return -EINVAL;
+    }
+
+  if (ebuf->index >= type_inf->bufinf.container_size)
+    {
+      return -EINVAL;
+    }
+
+  buf = kmm_zalloc(sizeof(v4l2_buffer_t));
+  if (buf == NULL)
+    {
+      return -ENOMEM;
+    }
+
+  buf->index = ebuf->index;
+  buf->length = get_bufsize(&type_inf->fmt[CAPTURE_FMT_MAIN]);
+  buf->m.vaddr = type_inf->bufheap + ebuf->index * buf->length;
+
+  memset(&exp_info, 0, sizeof(exp_info));
+  exp_info.priv = buf;
+  exp_info.size = buf->length;
+  exp_info.ops = &g_capture_dma_buf_ops;
+  exp_info.flags = ebuf->flags;
+  dbuf = dma_buf_export(&exp_info);
+  if (!dbuf)
+    {
+      verr("dma_buf_export failed\n");
+      kmm_free(buf);
+      return -EINVAL;
+    }
+
+  ret = dma_buf_fd(dbuf, ebuf->flags);
+  dma_buf_put(dbuf);
+  if (ret < 0)
+    {
+      verr("dma_buf_fd failed\n");
+      return ret;
+    }
+
+  ebuf->fd = ret;
+
+  vinfo("dma_buf_export fd: %d\n", ebuf->fd);
+
+  return 0;
+}
+#endif
 
 /****************************************************************************
  * File Opterations Functions

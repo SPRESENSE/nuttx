@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/arm/stm32l4/nucleo-l432kc/src/stm32_timer.c
+ * boards/arm/stm32g0/weact-stm32g0b1/src/stm32_autoleds.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -25,43 +25,57 @@
  ****************************************************************************/
 
 #include <nuttx/config.h>
-#include <nuttx/timers/timer.h>
 
+#include <stdint.h>
+#include <stdbool.h>
 #include <nuttx/debug.h>
 
-#include "stm32_tim.h"
-#include "nucleo-l432kc.h"
+#include <nuttx/board.h>
 
-#ifdef CONFIG_TIMER
+#include "stm32_gpio.h"
+#include "weact-stm32g0b1.h"
 
-/****************************************************************************
- * Pre-processor Definitions
- ****************************************************************************/
+#include <arch/board/board.h>
+
+#ifdef CONFIG_ARCH_LEDS
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: board_timer_driver_initialize
- *
- * Description:
- *   Configure the timer driver.
- *
- * Input Parameters:
- *   devpath - The full path to the timer device.  This should be of the
- *             form /dev/timer0
- *   timer   - The timer's number.
- *
- * Returned Value:
- *   Zero (OK) is returned on success; A negated errno value is returned
- *   to indicate the nature of any failure.
- *
+ * Name: board_autoled_initialize
  ****************************************************************************/
 
-int board_timer_driver_initialize(const char *devpath, int timer)
+void board_autoled_initialize(void)
 {
-  return stm32_timer_initialize(devpath, timer);
+  /* Configure LED1 GPIO for output */
+
+  stm32_configgpio(GPIO_LED1);
 }
 
-#endif
+/****************************************************************************
+ * Name: board_autoled_on
+ ****************************************************************************/
+
+void board_autoled_on(int led)
+{
+  if (led == BOARD_LED1)
+    {
+      stm32_gpiowrite(GPIO_LED1, true);
+    }
+}
+
+/****************************************************************************
+ * Name: board_autoled_off
+ ****************************************************************************/
+
+void board_autoled_off(int led)
+{
+  if (led == BOARD_LED1)
+    {
+      stm32_gpiowrite(GPIO_LED1, false);
+    }
+}
+
+#endif /* CONFIG_ARCH_LEDS */

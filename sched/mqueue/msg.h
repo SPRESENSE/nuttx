@@ -43,7 +43,7 @@
  ****************************************************************************/
 
 #define MSG_MAX_BYTES   CONFIG_MQ_MAXMSGSIZE
-#define MSG_MAX_MSGS    16
+#define MSG_DEF_QBYTES  (16 * MSG_MAX_BYTES) /* Default msg_qbytes */
 
 /****************************************************************************
  * Public Type Definitions
@@ -53,9 +53,16 @@ struct msgq_s
 {
   struct mqueue_cmn_s  cmn;
   struct list_node     msglist;       /* Prioritized message list */
-  key_t                key;
-  int16_t              maxmsgs;       /* Maximum number of messages in the queue */
-  int16_t              nmsgs;         /* Number of message in the queue */
+  key_t                key;           /* The msgget() key, or IPC_PRIVATE */
+  time_t               stime;         /* Time of the last msgsnd() */
+  time_t               rtime;         /* Time of the last msgrcv() */
+  time_t               ctime;         /* Time of the last change */
+  struct ipc_perm      perm;          /* Ownership and permissions */
+  pid_t                lspid;         /* PID of the last msgsnd() */
+  pid_t                lrpid;         /* PID of the last msgrcv() */
+  msglen_t             cbytes;        /* Number of bytes in the queue */
+  msglen_t             qbytes;        /* Maximum bytes in the queue */
+  int16_t              id;            /* The message queue identifier */
   uint16_t             maxmsgsize;    /* Max size of message in message queue */
 };
 
@@ -77,6 +84,10 @@ extern "C"
 #endif
 
 extern struct list_node g_msgfreelist;
+
+/* The senders that wait for a free message in g_msgfreelist */
+
+extern struct mqueue_cmn_s g_msgpoolwait;
 
 /****************************************************************************
  * Public Function Prototypes
@@ -103,14 +114,54 @@ int nxmsg_alloc(FAR struct msgq_s **pmsgq);
 void nxmsg_free(FAR struct msgq_s *msgq);
 
 /****************************************************************************
- * Name: nxmsg_lookup
+ * Name: nxmsg_wakeup_senders
  *
  * Description:
- *   Find the message queue in look-up table
+ *   Wake up all tasks that wait in msgsnd() for room in the queue
  *
  ****************************************************************************/
 
-FAR struct msgq_s *nxmsg_lookup(key_t key);
+void nxmsg_wakeup_senders(FAR struct msgq_s *msgq);
+
+/****************************************************************************
+ * Name: nxmsg_wakeup_receivers
+ *
+ * Description:
+ *   Wake up all tasks that wait in msgrcv() for a message in the queue
+ *
+ ****************************************************************************/
+
+void nxmsg_wakeup_receivers(FAR struct msgq_s *msgq);
+
+/****************************************************************************
+ * Name: nxmsg_wakeup_pool
+ *
+ * Description:
+ *   Wake up all tasks that wait in msgsnd() for a free message
+ *
+ ****************************************************************************/
+
+void nxmsg_wakeup_pool(void);
+
+/****************************************************************************
+ * Name: nxmsg_lookup
+ *
+ * Description:
+ *   Find the message queue with the identifier msqid
+ *
+ ****************************************************************************/
+
+FAR struct msgq_s *nxmsg_lookup(int msqid);
+
+/****************************************************************************
+ * Name: nxmsg_findkey
+ *
+ * Description:
+ *   Find the message queue of a key (not IPC_PRIVATE)
+ *
+ ****************************************************************************/
+
+FAR struct msgq_s *nxmsg_findkey(key_t key);
 
 #ifdef __cplusplus
 }
