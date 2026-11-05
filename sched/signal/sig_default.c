@@ -222,9 +222,11 @@ static void nxsig_abnormal_termination(int signo)
 #ifdef HAVE_GROUP_MEMBERS
   /* Kill all of the children of the task.  This will not kill the currently
    * running task/pthread (this_task).  It will kill the main thread of the
-   * task group if this_task is a pthread.
+   * task group if this_task is a pthread.  Cancel them at once, as for a
+   * fatal exception: a thread can block or catch SIGTERM.
    */
 
+  rtcb->flags |= TCB_FLAG_FORCED_CANCEL;
   group_kill_children(rtcb);
 #endif
 
@@ -535,17 +537,17 @@ _sa_handler_t nxsig_default(FAR struct tcb_s *tcb, int signo, bool defaction)
        */
 
       handler = nxsig_default_action(signo);
-      if (handler != SIG_IGN)
-        {
-          /* nxsig_addset() is not atomic (but neither is sigaction()) */
 
-          flags = spin_lock_irqsave(&group->tg_lock);
-          nxsig_addset(&group->tg_sigdefault, signo);
-          spin_unlock_irqrestore(&group->tg_lock, flags);
-        }
+      /* The signal is at its default action, also when that action is to
+       * ignore it.  NOTE that nxsig_addset() is not atomic (but neither is
+       * sigaction()).
+       */
+
+      flags = spin_lock_irqsave(&group->tg_lock);
+      nxsig_addset(&group->tg_sigdefault, signo);
+      spin_unlock_irqrestore(&group->tg_lock, flags);
     }
-
-  if (handler == SIG_IGN)
+  else
     {
       /* We are unsetting the default action. NOTE that nxsig_delset() is not
        * atomic (but neither is sigaction()).
@@ -583,9 +585,9 @@ int nxsig_default_initialize(FAR struct tcb_s *tcb)
   DEBUGASSERT(tcb != NULL && tcb->group != NULL);
   group = tcb->group;
 
-  /* Initialize the set of default signal handlers */
+  /* All signals start at their default action */
 
-  sigemptyset(&group->tg_sigdefault);
+  sigfillset(&group->tg_sigdefault);
 
   /* Setup the default action for each signal in g_defactions[] */
 
