@@ -144,6 +144,14 @@ struct local_conn_s
   mutex_t lc_recvlock;           /* Make receiving multi-thread safe */
   mutex_t lc_polllock;           /* Lock for net poll */
 
+#ifdef CONFIG_NET_LOCAL_DGRAM
+  struct sockaddr_un lc_daddr;   /* DGRAM: peer address set by connect() */
+  bool lc_dconnected;            /* DGRAM: lc_daddr is valid.  Kept apart from
+                                  * lc_state so that bind() and connect()
+                                  * do not overwrite each other.
+                                  */
+#endif
+
 #ifdef CONFIG_NET_LOCAL_STREAM
   /* SOCK_STREAM fields common to both client and server */
 
@@ -515,8 +523,9 @@ int local_send_preamble(FAR struct local_conn_s *conn,
  *
  ****************************************************************************/
 
-int local_send_packet(FAR struct file *filep, FAR const struct iovec *buf,
-                      size_t len);
+ssize_t local_send_packet(FAR struct file *filep,
+                          FAR const struct iovec *buf,
+                          size_t len);
 
 /****************************************************************************
  * Name: local_recvmsg

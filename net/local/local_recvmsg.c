@@ -515,6 +515,26 @@ psock_dgram_recvfrom(FAR struct socket *psock, FAR void *buf, size_t len,
           goto errout_with_halfduplex;
         }
     }
+  else if ((flags & MSG_DONTWAIT) != 0)
+    {
+      /* bind() opened the FIFO in the blocking mode of the socket, so a
+       * read would wait even though the caller asked not to.  Check for
+       * data first, as psock_stream_recvfrom() does.
+       */
+
+      int data_len = 0;
+
+      ret = file_ioctl(&conn->lc_infile, FIONREAD, &data_len);
+      if (ret < 0)
+        {
+          return ret;
+        }
+
+      if (data_len == 0)
+        {
+          return -EAGAIN;
+        }
+    }
 
   readlen = sizeof(addrlen);
   ret = psock_fifo_read(psock, &addrlen, offset, &readlen, flags, false);
@@ -642,18 +662,12 @@ errout_with_halfduplex:
 ssize_t local_recvmsg(FAR struct socket *psock, FAR struct msghdr *msg,
                       int flags)
 {
-  FAR socklen_t *fromlen = &msg->msg_namelen;
-  FAR struct sockaddr *from = msg->msg_name;
-  FAR void *buf;
   ssize_t len;
 
   if (msg->msg_iovlen == 0)
     {
       return -EMSGSIZE;
     }
-
-  buf = msg->msg_iov->iov_base;
-  len = msg->msg_iov->iov_len;
 
   /* Check for a stream socket */
 
@@ -673,8 +687,10 @@ ssize_t local_recvmsg(FAR struct socket *psock, FAR struct msghdr *msg,
           return -ENOTSUP;
         }
 
-      DEBUGASSERT(buf);
-      len = psock_dgram_recvfrom(psock, buf, len, flags, from, fromlen);
+      DEBUGASSERT(msg->msg_iov->iov_base);
+      len = psock_dgram_recvfrom(psock, msg->msg_iov->iov_base,
+                                 msg->msg_iov->iov_len, flags,
+                                 msg->msg_name, &msg->msg_namelen);
     }
   else
 #endif

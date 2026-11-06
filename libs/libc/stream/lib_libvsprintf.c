@@ -47,6 +47,7 @@
 #endif
 
 #include <assert.h>
+#include <errno.h>
 #include <limits.h>
 #include <string.h>
 #include <wchar.h>
@@ -96,11 +97,21 @@
 #define FL_FLTEXP          0x4000
 #define FL_FLTFIX          0x8000
 
+/* L, as ll, means a long double in a floating point conversion */
+
+#ifdef CONFIG_HAVE_LONG_DOUBLE
+#  define FL_IS_LDOUBLE(f) (((f) & (FL_LONG | FL_REPD_TYPE)) == \
+                            (FL_LONG | FL_REPD_TYPE))
+#else
+#  define FL_IS_LDOUBLE(f) 0
+#endif
+
 #define TYPE_INT           1
 #define TYPE_LONG          2
 #define TYPE_LONG_LONG     3
 #define TYPE_DOUBLE        4
 #define TYPE_CHAR_POINTER  5
+#define TYPE_LONG_DOUBLE   6
 
 /* Support special access to CODE-space strings for Harvard architectures */
 
@@ -111,6 +122,29 @@
 #endif
 
 #define fmt_ungetc(fmt)   ((fmt)--)
+
+/* binary128 converts by hand, so that printf() does not pull in the
+ * soft-float code of libgcc.  Any other long double uses a cast.
+ */
+
+#if defined(CONFIG_LIBC_FLOATINGPOINT) && defined(CONFIG_HAVE_LONG_DOUBLE) && \
+    LDBL_MANT_DIG == 113 && DBL_MANT_DIG == 53
+#  define HAVE_LDTOD_BY_HAND
+#  ifdef CONFIG_ENDIAN_BIG
+#    define LDTOD_HI 0
+#    define LDTOD_LO 1
+#  else
+#    define LDTOD_HI 1
+#    define LDTOD_LO 0
+#  endif
+#else
+#  define vsprintf_ldtod(v) ((double)(v))
+#endif
+
+/* e, f, g and a in either case: 0x20 makes an ASCII letter lower case */
+
+#define fmt_isfloat(c)    ((((c) | 0x20) >= 'e' && ((c) | 0x20) <= 'g') || \
+                           ((c) | 0x20) == 'a')
 
 /****************************************************************************
  * Private Types
@@ -176,6 +210,88 @@ static int vsprintf_repeat(FAR struct lib_outstream_s *stream, int ch,
   return total_len;
 }
 
+#ifdef HAVE_LDTOD_BY_HAND
+/* Round to nearest, ties to even, as the cast does.  All 64-bit shifts have
+ * a constant count, so a 32-bit CPU needs no libgcc call either.
+ */
+
+static double vsprintf_ldtod(long double value)
+{
+  union
+  {
+    long double ld;
+    uint64_t w[2];
+  } in;
+
+  union
+  {
+    double d;
+    uint64_t u;
+  } out;
+
+  uint64_t frac;
+  uint64_t rest;
+  int exp;
+
+  in.ld = value;
+  exp   = (in.w[LDTOD_HI] >> 48) & 0x7fff;
+  frac  = ((in.w[LDTOD_HI] & 0x0000ffffffffffffull) << 4) |
+          (in.w[LDTOD_LO] >> 60);
+  rest  = in.w[LDTOD_LO] << 4;
+  out.u = in.w[LDTOD_HI] & 0x8000000000000000ull;
+
+  if (exp == 0x7fff)
+    {
+      /* Infinity, or a NaN: its result stays a NaN and is quiet */
+
+      out.u |= 0x7ff0000000000000ull | frac;
+      if ((frac | rest) != 0)
+        {
+          out.u |= 0x0008000000000000ull;
+        }
+
+      return out.d;
+    }
+
+  exp -= 16383 - 1023;
+  if (exp >= 0x7ff)
+    {
+      out.u |= 0x7ff0000000000000ull;
+      return out.d;
+    }
+
+  if (exp <= 0)
+    {
+      if (exp < -52)
+        {
+          return out.d;
+        }
+
+      /* A subnormal result: shift the bits into rest and keep a sticky bit */
+
+      frac |= 0x0010000000000000ull;
+      do
+        {
+          rest = (frac << 63) | (rest >> 1) | (rest & 1);
+          frac >>= 1;
+        }
+      while (exp++ < 0);
+
+      exp = 0;
+    }
+
+  if ((rest >> 63) != 0 && ((rest << 1) != 0 || (frac & 1) != 0))
+    {
+      frac++;
+    }
+
+  /* A carry out of frac goes into the exponent, as it must */
+
+  out.u += ((uint64_t)exp << 52) + frac;
+  return out.d;
+}
+#endif
+
 static int vsprintf_putnum(FAR struct lib_outstream_s *stream,
                            FAR char *buf, int len)
 {
@@ -220,8 +336,9 @@ static int vsprintf_internal(FAR struct lib_outstream_s *stream,
   FAR const char *pnt;
   size_t size;
   int ch;
-  unsigned char len;
-  int total_len = 0;
+  int star;
+  unsigned int len;
+  size_t total_len = 0;
 
 #ifdef CONFIG_LIBC_NUMBERED_ARGS
   int argnumber = 0;
@@ -230,7 +347,7 @@ static int vsprintf_internal(FAR struct lib_outstream_s *stream,
   UNUSED(numargs);
 #endif
 
-  for (; ; )
+  while (total_len <= INT_MAX)
     {
 #ifndef CONFIG_ARCH_ROMGETC
       FAR const char *start = fmt;
@@ -403,14 +520,8 @@ static int vsprintf_internal(FAR struct lib_outstream_s *stream,
                             }
                           else
                             {
-                              if ((flags & FL_PREC) == 0)
-                                {
-                                  width = (int)arglist->value[index - 1].u;
-                                }
-                              else
-                                {
-                                  prec = (int)arglist->value[index - 1].u;
-                                }
+                              star = arglist->value[index - 1].u;
+                              goto set_star;
                             }
                         }
                       else
@@ -429,16 +540,22 @@ static int vsprintf_internal(FAR struct lib_outstream_s *stream,
 
               if (c >= '0' && c <= '9')
                 {
-                  c -= '0';
+                  star = width;
                   if ((flags & FL_PREC) != 0)
                     {
-                      prec = 10 * prec + c;
-                      continue;
+                      star = prec;
                     }
 
-                  width = 10 * width + c;
-                  flags |= FL_WIDTH;
-                  continue;
+                  if (star > (INT_MAX - 9) / 10)
+                    {
+                      star = INT_MAX;
+                    }
+                  else
+                    {
+                      star = 10 * star + (c - '0');
+                    }
+
+                  goto set_star;
                 }
 
               if (c == '*')
@@ -455,24 +572,23 @@ static int vsprintf_internal(FAR struct lib_outstream_s *stream,
                     }
 #endif
 
+                  star = va_arg(ap, int);
+
+set_star:
                   if ((flags & FL_PREC) != 0)
                     {
-                      prec = va_arg(ap, int);
-                      if (prec < 0)
-                        {
-                          prec = 0;
-                        }
+                      prec = star < 0 ? 0 : star;
                     }
                   else
                     {
-                      width = va_arg(ap, int);
                       flags |= FL_WIDTH;
-
-                      if (width < 0)
+                      if (star < 0)
                         {
-                          width = -width;
+                          star = star == INT_MIN ? INT_MAX : -star;
                           flags |= FL_LPAD;
                         }
+
+                      width = star;
                     }
 
                   continue;
@@ -532,7 +648,14 @@ static int vsprintf_internal(FAR struct lib_outstream_s *stream,
               continue;
             }
 
-          if (c == 'l' || c == 'L')
+          if (c == 'L')
+            {
+              flags |= FL_LONG | FL_REPD_TYPE;
+              flags &= ~FL_SHORT;
+              continue;
+            }
+
+          if (c == 'l')
             {
               if ((flags & FL_LONG) != 0)
                 {
@@ -590,81 +713,82 @@ static int vsprintf_internal(FAR struct lib_outstream_s *stream,
         }
 
 #ifdef CONFIG_LIBC_NUMBERED_ARGS
-      if ((flags & FL_ARGNUMBER) != 0)
+      if ((flags & FL_ARGNUMBER) != 0 && argnumber > numargs)
         {
-          if (argnumber > 0 && argnumber <= numargs)
+          goto ret;
+        }
+
+      if (stream == NULL)
+        {
+          unsigned char type; /* We do only parsing */
+
+          if (fmt_isfloat(c))
             {
-              if (stream == NULL)
+              type = FL_IS_LDOUBLE(flags) ? TYPE_LONG_DOUBLE : TYPE_DOUBLE;
+            }
+          else if (c == 'i' || c == 'd' || c == 'u' || c == 'p' ||
+                   c == 'o' || c == 'x' || c == 'X')
+            {
+              if ((flags & FL_LONG) == 0)
                 {
-                  if ((c >= 'E' && c <= 'G')
-                      || (c >= 'e' && c <= 'g'))
-                    {
-                      arglist->type[argnumber - 1] = TYPE_DOUBLE;
-                    }
-                  else if (c == 'i' || c == 'd' || c == 'u' || c == 'p')
-                    {
-                      if ((flags & FL_LONG) == 0)
-                        {
-                          arglist->type[argnumber - 1] = TYPE_INT;
-                        }
-                      else if ((flags & FL_REPD_TYPE) == 0)
-                        {
-                          arglist->type[argnumber - 1] = TYPE_LONG;
-                        }
-                      else
-                        {
-                          arglist->type[argnumber - 1] = TYPE_LONG_LONG;
-                        }
-                    }
-                  else if (c == 'c')
-                    {
-                      arglist->type[argnumber - 1] = TYPE_INT;
-                    }
-                  else if (c == 's')
-                    {
-                      arglist->type[argnumber - 1] = TYPE_CHAR_POINTER;
-                    }
-
-                  if (argnumber > total_len)
-                    {
-                      total_len = argnumber;
-                    }
-
-                  continue; /* We do only parsing */
+                  type = TYPE_INT;
                 }
+              else if ((flags & FL_REPD_TYPE) == 0)
+                {
+                  type = TYPE_LONG;
+                }
+              else
+                {
+                  type = TYPE_LONG_LONG;
+                }
+            }
+          else if (c == 'c')
+            {
+              type = TYPE_INT;
+            }
+          else if (c == 's' || c == 'S' || c == 'n')
+            {
+              type = TYPE_CHAR_POINTER;
             }
           else
             {
-              goto ret;
+              goto ret; /* The second pass reads no argument after this */
             }
-        }
-      else if (stream == NULL)
-        {
-          continue; /* We do only parsing */
+
+          if ((flags & FL_ARGNUMBER) != 0)
+            {
+              arglist->type[argnumber - 1] = type;
+              if (argnumber > total_len)
+                {
+                  total_len = argnumber;
+                }
+            }
+
+          continue;
         }
 #endif
 
 #ifdef CONFIG_LIBC_FLOATINGPOINT
-      if (c >= 'E' && c <= 'G')
+      if ((c >= 'E' && c <= 'G') || c == 'A')
         {
           flags |= FL_FLTUPP;
           c += 'e' - 'E';
           goto flt_oper;
         }
-      else if (c >= 'e' && c <= 'g')
+      else if ((c >= 'e' && c <= 'g') || c == 'a')
         {
           double value;
           int exp;              /* Exponent of master decimal digit */
           int n;
+          unsigned int flen;    /* Length of the conversion */
           uint8_t sign;         /* Sign character (or 0) */
-          uint8_t ndigs;        /* Number of digits to convert */
-          uint8_t ndecimal;     /* Digits after decimal (for 'f' format), 0 if
+          unsigned int ndigs;   /* Number of digits to convert */
+          int ndecimal;         /* Digits after decimal (for 'f' format), 0 if
                                  * no limit */
 
           flags &= ~FL_FLTUPP;
 
 flt_oper:
-          ndigs = 0;
           if ((flags & FL_PREC) == 0)
             {
               prec = 6;
@@ -672,27 +796,27 @@ flt_oper:
 
           flags &= ~(FL_FLTEXP | FL_FLTFIX);
 
+          ndigs = MIN(prec, DTOA_MAX_DIG);
+          ndecimal = 0;
+
           if (c == 'e')
             {
-              ndigs = prec + 1;
-              ndecimal = 0;
+              if (ndigs < DTOA_MAX_DIG)
+                {
+                  ndigs++;
+                }
+
               flags |= FL_FLTEXP;
             }
           else if (c == 'f')
             {
+              ndecimal = ndigs;
               ndigs = DTOA_MAX_DIG;
-              ndecimal = prec;
               flags |= FL_FLTFIX;
             }
-          else
+          else if (ndigs == 0)
             {
-              ndigs = prec;
-              ndecimal = 0;
-            }
-
-          if (ndigs > DTOA_MAX_DIG)
-            {
-              ndigs = DTOA_MAX_DIG;
+              ndigs = 1;
             }
 
 #ifdef CONFIG_LIBC_NUMBERED_ARGS
@@ -702,8 +826,26 @@ flt_oper:
             }
           else
 #endif
+#ifdef CONFIG_HAVE_LONG_DOUBLE
+          if (FL_IS_LDOUBLE(flags))
+            {
+              /* The output has the precision of a double */
+
+              value = vsprintf_ldtod(va_arg(ap, long double));
+            }
+          else
+#endif
             {
               value = va_arg(ap, double);
+            }
+
+          /* %a has no output yet */
+
+          if (c == 'a')
+            {
+              pnt  = "?";
+              size = 1;
+              goto str_lpad;
             }
 
           ndigs = __dtoa_engine(value, &_dtoa, ndigs,
@@ -800,28 +942,38 @@ flt_oper:
 
           if ((flags & FL_FLTFIX) != 0)
             {
-              n = (exp > 0 ? exp + 1 : 1);
+              flen = (exp > 0 ? exp + 1 : 1);
             }
           else
             {
-              n = 5;              /* 1e+00 */
+              flen = 5;           /* 1e+00 */
+              if (exp >= 100 || exp <= -100)
+                {
+                  flen++;
+                }
             }
 
           if (sign != 0)
             {
-              n += 1;
+              flen += 1;
             }
 
           if (prec != 0)
             {
-              n += prec + 1;
+              flen += prec + 1u;
             }
           else if ((flags & FL_ALT) != 0)
             {
-              n += 1;
+              flen += 1;
             }
 
-          width = width > n ? width - n : 0;
+          if (flen > INT_MAX)
+            {
+              total_len = INT_MAX + 1u;
+              goto ret;
+            }
+
+          width = width > flen ? width - flen : 0;
 
           /* Output before first digit */
 
@@ -846,6 +998,7 @@ flt_oper:
             {
               /* 'f' format */
 
+              unsigned int uexp = exp;
               char out;
 
               /* At this point, we should have exp exponent of leftmost digit
@@ -866,7 +1019,7 @@ flt_oper:
 
                   /* Pull digits from buffer when in-range, otherwise use 0 */
 
-                  if (0 <= exp - n && exp - n < ndigs)
+                  if (uexp - n < ndigs)
                     {
                       out = _dtoa.digits[exp - n];
                     }
@@ -887,10 +1040,10 @@ flt_oper:
                       while (n != -1)
                         {
                           int next = n - 1;
-                          int offset = exp - n;
+                          unsigned int offset = uexp - n;
 
                           if (next < -prec ||
-                              (0 <= offset && offset < ndigs &&
+                              (offset < ndigs &&
                                _dtoa.digits[offset] != '0'))
                             {
                               break;
@@ -982,13 +1135,26 @@ flt_oper:
         }
 
 #else /* !CONFIG_LIBC_FLOATINGPOINT */
-      if ((c >= 'E' && c <= 'G') || (c >= 'e' && c <= 'g'))
+      if (fmt_isfloat(c))
         {
-#  ifndef CONFIG_LIBC_NUMBERED_ARGS
-          va_arg(ap, double);
+#  ifdef CONFIG_LIBC_NUMBERED_ARGS
+          if ((flags & FL_ARGNUMBER) == 0)
 #  endif
-          pnt  = "*float*";
-          size = sizeof("*float*") - 1;
+            {
+#  ifdef CONFIG_HAVE_LONG_DOUBLE
+              if (FL_IS_LDOUBLE(flags))
+                {
+                  va_arg(ap, long double);
+                }
+              else
+#  endif
+                {
+                  va_arg(ap, double);
+                }
+            }
+
+          pnt  = "?";
+          size = 1;
           goto str_lpad;
         }
 #endif
@@ -1020,8 +1186,7 @@ flt_oper:
                 size = wcrtomb(buf, (wchar_t)ch, &ps);
                 if (size == (size_t)-1)
                   {
-                    total_len = -1;
-                    goto ret;
+                    return -1;
                   }
               }
             else
@@ -1034,6 +1199,7 @@ flt_oper:
             pnt = buf;
             goto str_lpad;
 
+          case 'n':
           case 's':
           case 'S':
 #ifdef CONFIG_LIBC_NUMBERED_ARGS
@@ -1045,6 +1211,15 @@ flt_oper:
 #endif
               {
                 pnt = va_arg(ap, FAR char *);
+              }
+
+            /* %n only takes its pointer: a format never writes to memory */
+
+            if (c == 'n')
+              {
+                pnt  = "?";
+                size = 1;
+                goto str_lpad;
               }
 
             if (pnt == NULL)
@@ -1071,8 +1246,7 @@ flt_oper:
                     n = wcrtomb(mb, ws[i], &ps);
                     if (n == (size_t)-1)
                       {
-                        total_len = -1;
-                        goto ret;
+                        return -1;
                       }
 
                     if ((flags & FL_PREC) != 0 && size + n > (size_t)prec)
@@ -1210,6 +1384,22 @@ str_lpad:
               c = __ultoa_invert(x, buf, 10) - buf;
             }
         }
+      else if (c != 'u' && c != 'o' && c != 'p' && (c | 0x20) != 'x')
+        {
+          /* An unknown conversion, or the end of the format.  The size of
+           * the argument is not known, so read no more arguments.  Print the
+           * rest of the format as it is.
+           */
+
+          stream_putc('%', stream);
+          while (c != '\0')
+            {
+              stream_putc(c, stream);
+              c = fmt_char(fmt);
+            }
+
+          goto ret;
+        }
       else
         {
           int base;
@@ -1290,7 +1480,8 @@ str_lpad:
                       {
                         FAR struct va_format *vaf = (FAR void *)(uintptr_t)x;
 
-                        lib_bsprintf(stream, vaf->fmt, vaf->va);
+                        total_len += lib_bsprintf(stream, vaf->fmt,
+                                                  vaf->va);
                         continue;
                       }
 
@@ -1301,10 +1492,11 @@ str_lpad:
                         va_list copy;
 
                         va_copy(copy, *vaf->va);
-                        lib_vsprintf(stream, vaf->fmt, copy);
+                        total_len += lib_vsprintf(stream, vaf->fmt, copy);
                         va_end(copy);
 #  else
-                        lib_vsprintf(stream, vaf->fmt, *vaf->va);
+                        total_len += lib_vsprintf(stream, vaf->fmt,
+                                                  *vaf->va);
 #  endif
                         continue;
                       }
@@ -1357,7 +1549,7 @@ str_lpad:
                 base = 16;
                 break;
 
-              case 'X':
+              default: /* 'X' */
                 if ((flags & FL_ALT) != 0)
                   {
                     flags |= (FL_ALTHEX | FL_ALTUPP);
@@ -1365,11 +1557,6 @@ str_lpad:
 
                 base = 16 | XTOA_UPPER;
                 break;
-
-              default:
-                stream_putc('%', stream);
-                stream_putc(c, stream);
-                continue;
             }
 
           if ((flags & FL_PREC) != 0 && prec == 0 && x == 0)
@@ -1401,7 +1588,11 @@ str_lpad:
 
       if ((flags & FL_ALT) != 0)
         {
-          if (buf[c - 1] == '0')
+          /* c is 0 for a value of 0 with a precision of 0: then %#o has a
+           * "0" from the flag, and a hexadecimal value has no prefix.
+           */
+
+          if (c == 0 ? (flags & FL_ALTHEX) != 0 : buf[c - 1] == '0')
             {
               flags &= ~(FL_ALT | FL_ALTHEX | FL_ALTUPP);
             }
@@ -1417,6 +1608,12 @@ str_lpad:
       else if ((flags & (FL_NEGATIVE | FL_PLUS | FL_SPACE)) != 0)
         {
           len += 1;
+        }
+
+      if (len > INT_MAX)
+        {
+          total_len = INT_MAX + 1u;
+          goto ret;
         }
 
       if ((flags & FL_LPAD) == 0)
@@ -1484,6 +1681,12 @@ tail:
     }
 
 ret:
+  if (total_len > INT_MAX)
+    {
+      set_errno(EOVERFLOW);
+      return -1;
+    }
+
   return total_len;
 }
 
@@ -1497,7 +1700,11 @@ int lib_vsprintf(FAR struct lib_outstream_s *stream,
 #ifdef CONFIG_LIBC_NUMBERED_ARGS
   /* We do 2 passes of parsing and fill the arglist between the passes. */
 
-  struct arg_s arglist;
+  struct arg_s arglist =
+    {
+      { 0 }
+    };
+
   int numargs = vsprintf_internal(NULL, &arglist, NL_ARGMAX, fmt, ap);
   union arg_u argvalue[MAX(numargs, 1)];
   int i;
@@ -1526,8 +1733,27 @@ int lib_vsprintf(FAR struct lib_outstream_s *stream,
             break;
 #endif
 
+#ifdef CONFIG_HAVE_LONG_DOUBLE
+          case TYPE_LONG_DOUBLE:
+#  ifdef CONFIG_LIBC_FLOATINGPOINT
+            arglist.value[i].d = vsprintf_ldtod(va_arg(ap, long double));
+#  else
+            va_arg(ap, long double);
+#  endif
+            break;
+#endif
+
           case TYPE_CHAR_POINTER:
             arglist.value[i].cp = va_arg(ap, FAR char *);
+            break;
+
+          default:
+
+            /* A number was not used, so its size is not known and the next
+             * arguments cannot be found.  Use only the arguments before it.
+             */
+
+            numargs = i;
             break;
         }
     }

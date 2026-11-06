@@ -38,25 +38,25 @@ int lib_bsprintf(FAR struct lib_outstream_s *s, FAR const IPTR char *fmt,
                  FAR const void *buf)
 {
   begin_packed_struct union
-    {
-      char c;
-      char s[1];
-      short int si;
-      int i;
-      long l;
-      long long ll;
-      intmax_t im;
-      size_t sz;
-      ptrdiff_t pd;
-      uintptr_t p;
+  {
+    char c;
+    char s[1];
+    short int si;
+    int i;
+    long l;
+    long long ll;
+    intmax_t im;
+    size_t sz;
+    ptrdiff_t pd;
+    uintptr_t p;
 #ifdef CONFIG_HAVE_DOUBLE
-      float f;
-      double d;
+    float f;
+    double d;
 #  ifdef CONFIG_HAVE_LONG_DOUBLE
-      long double ld;
+    long double ld;
 #  endif
 #endif
-    }
+  }
 
   end_packed_struct *var;
   FAR const char *prec = NULL;
@@ -82,6 +82,15 @@ int lib_bsprintf(FAR struct lib_outstream_s *s, FAR const IPTR char *fmt,
           len = 0;
           infmt = true;
           memset(fmtstr, 0, sizeof(fmtstr));
+        }
+
+      /* A conversion that does not fit ends the output.  The space is for
+       * this character, or for the digits and the sign of a "*".
+       */
+
+      if (len >= sizeof(fmtstr) - 12)
+        {
+          break;
         }
 
       var = (FAR void *)(data + offset);
