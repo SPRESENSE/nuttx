@@ -266,6 +266,7 @@ static void fat_shared_reset_cursors(FAR struct fat_mountpt_s *fs,
       if (ff->ff_shared == shared)
         {
           ff->ff_currentcluster   = shared->s_startcluster;
+          ff->ff_currentsector    = 0;
           ff->ff_sectorsincluster = fs->fs_fatsecperclus;
           ff->ff_pos              = 0;
         }
@@ -345,9 +346,9 @@ static int fat_shared_release(FAR struct fat_mountpt_s *fs,
  * Name: fat_shrinkshared
  *
  * Description:
- *   Shrink a file described only by its shared (in-memory) state to a
- *   smaller, non-zero length.  Used when the directory entry is gone
- *   (unlinked file) and fat_dirshrink() has no entry to work with.
+ *   Trim the shared cluster chain to a non-zero length.  Used for unlinked
+ *   files and to release clusters allocated by a failed extension without
+ *   changing the directory entry.
  *
  *   The caller holds fs_lock and has already invalidated attached caches.
  *
@@ -363,8 +364,7 @@ static int fat_shrinkshared(FAR struct fat_mountpt_s *fs,
   int32_t cluster;
   int ret;
 
-  DEBUGASSERT(shared->s_pending && length > 0 &&
-              length < shared->s_size);
+  DEBUGASSERT(length > 0 && length <= shared->s_size);
 
   lastcluster = shared->s_startcluster;
 
@@ -388,11 +388,11 @@ static int fat_shrinkshared(FAR struct fat_mountpt_s *fs,
 
       if (remaining <= clustersize)
         {
-          /* No.. then nullify next cluster -- removing it from the
-           * chain.
+          /* Keep the retained cluster allocated and terminate its chain.
+           * A zero FAT entry would mark this live cluster as free.
            */
 
-          ret = fat_putcluster(fs, lastcluster, 0);
+          ret = fat_putcluster(fs, lastcluster, FAT_EOF);
           if (ret < 0)
             {
               return ret;
@@ -552,6 +552,12 @@ static int fat_open(FAR struct file *filep, FAR const char *relpath,
                 {
                   goto errout_with_lock;
                 }
+
+              /* The directory entry may not describe the live chain yet. */
+
+              DIR_PUTFSTCLUSTHI(direntry, truncshared->s_startcluster >> 16);
+              DIR_PUTFSTCLUSTLO(direntry,
+                               truncshared->s_startcluster & 0xffff);
             }
 
           ret = fat_dirtruncate(fs, direntry);
@@ -1065,6 +1071,11 @@ static int fat_get_sectors(FAR struct file *filep, bool read)
     {
       cluster = fat_extendchain(fs, cluster);
 
+      if (cluster == 0)
+        {
+          return -ENOSPC;
+        }
+
       if (cluster < 2 || cluster >= fs->fs_nclusters + 2)
         {
           return -EIO;
@@ -1087,6 +1098,11 @@ static int fat_get_sectors(FAR struct file *filep, bool read)
   if (i == new_num_clu - 1)
     {
       cluster = fat_extendchain(fs, cluster);
+
+      if (cluster == 0)
+        {
+          return -ENOSPC;
+        }
 
       if (cluster < 2 || cluster >= fs->fs_nclusters + 2)
         {
@@ -2805,6 +2821,13 @@ static int fat_truncate(FAR struct file *filep, off_t length)
           ndx      = (shared->s_dirindex & DIRSEC_NDXMASK(fs)) * DIR_SIZE;
           direntry = &fs->fs_buffer[ndx];
 
+          /* The open file may have grown without a directory sync yet.
+           * Truncate the canonical chain rather than a stale on-disk one.
+           */
+
+          DIR_PUTFSTCLUSTHI(direntry, shared->s_startcluster >> 16);
+          DIR_PUTFSTCLUSTLO(direntry, shared->s_startcluster & 0xffff);
+
           /* Handle the simple case where we are shrinking the file to
            * zero length.
            */
@@ -2840,12 +2863,66 @@ static int fat_truncate(FAR struct file *filep, off_t length)
     }
   else
     {
+      off_t savepos;
+
       /* Otherwise we are extending the file.  This is essentially the same
        * as a write except that (1) we write zeros and (2) we don't update
        * the file position.
        */
 
-      ret = fat_dirextend(fs, ff, length);
+      ret = fat_shared_invalidate(fs, ff->ff_shared);
+      if (ret < 0)
+        {
+          goto errout_with_lock;
+        }
+
+      /* Position the traversal cursor at EOF. The caller's file offset
+       * can be anywhere, and a newly opened handle starts at the first
+       * cluster of the file.
+       */
+
+      ff->ff_bflags |= FFBUFF_MODIFIED;
+
+      savepos      = filep->f_pos;
+      filep->f_pos = oldsize;
+      ret          = fat_get_sectors(filep, false);
+      filep->f_pos = savepos;
+      if (ret >= 0)
+        {
+          ret = fat_dirextend(fs, ff, length);
+        }
+
+      if (ret < 0)
+        {
+          int errcode = ret;
+
+          /* All pre-existing data was flushed before extension.  Discard
+           * cached zeros before releasing their clusters.
+           */
+
+          ff->ff_bflags     &= ~(FFBUFF_DIRTY | FFBUFF_VALID);
+          ff->ff_cachesector = 0;
+
+          if (oldsize == 0)
+            {
+              ret = fat_removechain(fs, ff->ff_shared->s_startcluster);
+              if (ret >= 0)
+                {
+                  ff->ff_shared->s_startcluster = 0;
+                }
+            }
+          else
+            {
+              ret = fat_shrinkshared(fs, ff, oldsize);
+            }
+
+          if (ret >= 0)
+            {
+              ret = errcode;
+            }
+        }
+
+      fat_shared_reset_cursors(fs, ff->ff_shared);
       if (ret >= 0)
         {
           /* The truncation has completed without error.  Update the file
@@ -2855,6 +2932,11 @@ static int fat_truncate(FAR struct file *filep, off_t length)
           ff->ff_shared->s_size = length;
           ret = OK;
         }
+    }
+
+  if (ret == OK && oldsize != length)
+    {
+      ff->ff_bflags |= FFBUFF_MODIFIED;
     }
 
 errout_with_lock:
