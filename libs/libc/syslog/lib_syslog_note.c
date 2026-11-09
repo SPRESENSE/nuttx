@@ -1,5 +1,5 @@
 /****************************************************************************
- * include/nuttx/rpmsg/rpmsg_virtio_ivshmem.h
+ * libs/libc/syslog/lib_syslog_note.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,42 +20,53 @@
  *
  ****************************************************************************/
 
-#ifndef __INCLUDE_NUTTX_RPMSG_RPMSG_VIRTIO_IVSHMEM_H
-#define __INCLUDE_NUTTX_RPMSG_RPMSG_VIRTIO_IVSHMEM_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
+#include <stdarg.h>
+#include <syslog.h>
 
-#ifdef CONFIG_RPMSG_VIRTIO_IVSHMEM
+#include <nuttx/sched_note.h>
+
+/* Define the functions, not the macros of <syslog.h> */
+
+#undef syslog
+#undef vsyslog
 
 /****************************************************************************
- * Public Function Prototypes
+ * Public Functions
  ****************************************************************************/
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
 /****************************************************************************
- * Name: rpmsg_virtio_ivshmem_driver_init
+ * Name: syslog/vsyslog
  *
  * Description:
- *   Initializes the rptun ivshmem driver.
- *
- * Returned Value:
- *   OK on success, negated errno on failure
+ *   syslog() and vsyslog() for CONFIG_SYSLOG_TO_SCHED_NOTE.  Direct calls
+ *   use the macros of <syslog.h>; these functions are for code that takes
+ *   the address of syslog() or vsyslog().
  *
  ****************************************************************************/
 
-int pci_register_rpmsg_virtio_ivshmem_driver(void);
+void vsyslog(int priority, FAR const IPTR char *fmt, va_list ap)
+{
+  va_list copy;
 
-#ifdef __cplusplus
+  /* sched_note_vprintf() takes the address of its va_list.  Where va_list
+   * is an array type (x86_64), a va_list parameter is a pointer, so give
+   * it a local copy.
+   */
+
+  va_copy(copy, ap);
+  sched_note_vprintf(NOTE_TAG_LOG + priority, fmt, copy);
+  va_end(copy);
 }
-#endif
 
-#endif /* CONFIG_RPMSG_VIRTIO_IVSHMEM */
-#endif /* __INCLUDE_NUTTX_RPMSG_RPMSG_VIRTIO_IVSHMEM_H */
+void syslog(int priority, FAR const IPTR char *fmt, ...)
+{
+  va_list ap;
+
+  va_start(ap, fmt);
+  vsyslog(priority, fmt, ap);
+  va_end(ap);
+}

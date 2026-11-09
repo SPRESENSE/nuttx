@@ -143,19 +143,30 @@
 #define NOTE_PRINTF_GET_TYPE(tag, index) (((tag) >> (index) * 2) & 0x03)
 #define NOTE_PRINTF_GET_COUNT(tag)       (((tag) >> 28) & 0x0f)
 
+/* Promote an argument as "arg + 0" does, but also accept a pointer to an
+ * incomplete type, which "arg + 0" rejects.
+ */
+
+#define NOTE_PRINTF_PROMOTE(arg) (0 ? 0 : (arg))
+
 /* Check if a variable is 32-bit or 64-bit */
 
-#define NOTE_PRINTF_INT_TYPE(arg) (sizeof((arg) + 0) <= sizeof(uint32_t) ? \
+#define NOTE_PRINTF_INT_TYPE(arg) (sizeof(NOTE_PRINTF_PROMOTE(arg)) <= \
+                                   sizeof(uint32_t) ? \
                                    NOTE_PRINTF_UINT32 : NOTE_PRINTF_UINT64)
 
-/* Use object_size to mark strings of known size */
+/* Use the object size to mark strings of known size.  This is the builtin:
+ * a program can expand this macro, and NUTTX_NO_EXTENSIONS removes
+ * object_size().
+ */
 
-#define NOTE_PRINTF_OBJECT_SIZE(arg) object_size((FAR void *)(uintptr_t)(arg), 2)
+#define NOTE_PRINTF_OBJECT_SIZE(arg) \
+        __builtin_object_size((FAR void *)(uintptr_t)(arg), 2)
 
 /* Use _Generic to determine the type of the parameter */
 
 #define NOTE_PRINTF_ARG_TYPE(__arg__) \
-        _Generic((__arg__) + 0, \
+        _Generic(NOTE_PRINTF_PROMOTE(__arg__), \
                  float : NOTE_PRINTF_DOUBLE, \
                  double: NOTE_PRINTF_DOUBLE, \
                  char *: ({NOTE_PRINTF_OBJECT_SIZE(__arg__) > 0 ? \
@@ -187,18 +198,28 @@
 #define sched_note_vprintf(tag, fmt, va) \
         sched_note_vprintf_ip(tag, SCHED_NOTE_IP, fmt, 0, &(va))
 
-#ifdef CONFIG_DRIVERS_NOTE_STRIP_FORMAT
+#if defined(CONFIG_DRIVERS_NOTE_STRIP_FORMAT) && !defined(__cplusplus)
+/* The type tag describes at most 14 arguments.  A call with more arguments
+ * keeps its format string and gives type 0.  C++ has no _Generic, so C++
+ * calls keep their format string too.
+ */
+
 #  define sched_note_printf(tag, fmt, ...) \
           do \
             { \
-              static const locate_data(".printf_format") \
-              char __fmt__[] = fmt; \
-              uint32_t __type__ = NOTE_PRINTF_TAG(__VA_ARGS__); \
-              static_assert(GET_ARG_COUNT(__VA_ARGS__) <= 14, \
-                            "The number of sched_note_nprintf " \
-                            "parameters needs to be less than 14"); \
-              sched_note_printf_ip(tag, SCHED_NOTE_IP, __fmt__, \
-                                   __type__, ##__VA_ARGS__); \
+              if (GET_ARG_COUNT(__VA_ARGS__) > 14) \
+                { \
+                  sched_note_printf_ip(tag, SCHED_NOTE_IP, fmt, 0, \
+                                       ##__VA_ARGS__); \
+                } \
+              else \
+                { \
+                  static const locate_data(".printf_format") \
+                  char __fmt__[] = fmt; \
+                  uint32_t __type__ = NOTE_PRINTF_TAG(__VA_ARGS__); \
+                  sched_note_printf_ip(tag, SCHED_NOTE_IP, __fmt__, \
+                                       __type__, ##__VA_ARGS__); \
+                } \
             } \
           while (0)
 #else

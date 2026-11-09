@@ -109,6 +109,8 @@
 #  undef is_constexpr
 #  pragma push_macro("used_data")
 #  undef used_data
+#  pragma push_macro("object_size")
+#  undef object_size
 #endif
 
 /****************************************************************************
@@ -197,6 +199,7 @@
 #    define CONFIG_HAVE_BUILTIN_FFS 1
 #    define CONFIG_HAVE_BUILTIN_FFSL 1
 #    define CONFIG_HAVE_BUILTIN_FFSLL 1
+#    define CONFIG_HAVE_BUILTIN_NAN 1
 #  endif
 
   /* An __asm__ label carries __USER_LABEL_PREFIX__ ("_" on RH850 and RX) */
@@ -1649,9 +1652,9 @@
  * (unistd.h), the types unchar and s_char (sys/types.h),
  * builtin_function() and builtin_original() (above: string.h then declares
  * the plain functions) and the helper macros of this file below, such as
- * memory_barrier() and UNUSED().  The headers that a program includes do
- * not use these names.  A definition that the program made before is
- * restored (saved at the start of this file).
+ * memory_barrier(), UNUSED() and object_size().  The headers that a
+ * program includes do not use these names.  A definition that the program
+ * made before is restored (saved at the start of this file).
  */
 
 #ifdef NUTTX_NO_EXTENSIONS
@@ -1689,6 +1692,7 @@
 #  undef predict_true
 #  undef is_constexpr
 #  undef used_data
+#  undef object_size
 #  pragma pop_macro("weak_alias")
 #  pragma pop_macro("visibility_hidden")
 #  pragma pop_macro("visibility_default")
@@ -1723,6 +1727,7 @@
 #  pragma pop_macro("predict_true")
 #  pragma pop_macro("is_constexpr")
 #  pragma pop_macro("used_data")
+#  pragma pop_macro("object_size")
 #endif
 
 /****************************************************************************
