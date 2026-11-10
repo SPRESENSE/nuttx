@@ -1830,7 +1830,7 @@ arch/arm/src/common/stm32/stm32_qencoder.c raiden00@railab.me 59230071+hartmanna
 arch/arm/src/common/stm32/stm32_qencoder.h raiden00@railab.me alin.jerpelea@sony.com 59230071+hartmannathan@users.noreply.github.com xiaoxiang@xiaomi.com
 arch/arm/src/common/stm32/stm32_rcc.h raiden00@railab.me 59230071+hartmannathan@users.noreply.github.com simon@leitwert.ch titus@elbe-informatik.de xiaoxiang@xiaomi.com
 arch/arm/src/common/stm32/stm32_rng_m0_v1.c alin.jerpelea@sony.com juha.niskanen@haltian.com anjiahao@xiaomi.com raiden00pl@gmail.com xiaoxiang@xiaomi.com
-arch/arm/src/common/stm32/stm32_rng_m3m4_v1.c alin.jerpelea@sony.com juha.niskanen@haltian.com anjiahao@xiaomi.com raiden00pl@gmail.com xiaoxiang@xiaomi.com
+arch/arm/src/common/stm32/stm32_rng_v1.c alin.jerpelea@sony.com juha.niskanen@haltian.com anjiahao@xiaomi.com raiden00pl@gmail.com xiaoxiang@xiaomi.com
 arch/arm/src/common/stm32/stm32_rtc.h NeilH20@biomonitors.com alin.jerpelea@sony.com jakob@weite-welt.com 59230071+hartmannathan@users.noreply.github.com raiden00@railab.me
 arch/arm/src/common/stm32/stm32_rtc_m3m4_v1_lowerhalf.c juha.niskanen@haltian.com xiaoxiang@xiaomi.com alin.jerpelea@sony.com anjiahao@xiaomi.com jussi.kivilinna@haltian.com
 arch/arm/src/common/stm32/stm32_rtcc_m3m4_f4.c NeilH20@biomonitors.com juha.niskanen@haltian.com xiaoxiang@xiaomi.com alin.jerpelea@sony.com peter.barada@gmail.com
@@ -3872,7 +3872,6 @@ arch/arm/src/stm32f4/hardware/stm32f40xxx_syscfg.h paul-a.patience@polymtl.ca al
 arch/arm/src/stm32f4/hardware/stm32f412xx_pinmap.h David.Sidrane@NscDg.com alin.jerpelea@sony.com raiden00@railab.me gustavo.nihei@espressif.com
 arch/arm/src/stm32f4/stm32.h alin.jerpelea@sony.com raiden00@railab.me abdelatif.guettouche@gmail.com raiden00pl@gmail.com xiaoxiang@xiaomi.com
 arch/arm/src/stm32f4/stm32_rcc.c 59230071+hartmannathan@users.noreply.github.com alin.jerpelea@sony.com raiden00@railab.me xiaoxiang@xiaomi.com f.panag@amco.gr
-arch/arm/src/stm32f4/stm32f40xxx_alarm.h NeilH20@biomonitors.com alin.jerpelea@sony.com xiaoxiang@xiaomi.com juha.niskanen@haltian.com raiden00@railab.me
 arch/arm/src/stm32f4/stm32f40xxx_rcc.c f.panag@amco.gr paul-a.patience@polymtl.ca david_s5@nscdg.com david_s5@usa.net alin.jerpelea@sony.com
 arch/arm/src/stm32f7/Kconfig david_s5@nscdg.com raiden00@railab.me david_s5@usa.net titus@elbe-informatik.de
 arch/arm/src/stm32f7/chip.h alin.jerpelea@sony.com 59230071+hartmannathan@users.noreply.github.com Lok Tep  1 file changed, 1 insertion(+)
@@ -4290,7 +4289,6 @@ arch/arm/src/stm32l1/hardware/stm32l15xxx_pinmap.h David.Sidrane@NscDg.com alin.
 arch/arm/src/stm32l1/hardware/stm32l15xxx_syscfg.h alin.jerpelea@sony.com raiden00@railab.me 59230071+hartmannathan@users.noreply.github.com
 arch/arm/src/stm32l1/stm32.h alin.jerpelea@sony.com raiden00@railab.me abdelatif.guettouche@gmail.com raiden00pl@gmail.com xiaoxiang@xiaomi.com
 arch/arm/src/stm32l1/stm32_rcc.c 59230071+hartmannathan@users.noreply.github.com alin.jerpelea@sony.com raiden00@railab.me xiaoxiang@xiaomi.com f.panag@amco.gr
-arch/arm/src/stm32l1/stm32l15xxx_alarm.h NeilH20@biomonitors.com juha.niskanen@haltian.com alin.jerpelea@sony.com xiaoxiang@xiaomi.com 59230071+hartmannathan@users.noreply.github.com
 arch/arm/src/stm32l1/stm32l15xxx_rcc.c 59230071+hartmannathan@users.noreply.github.com juha.niskanen@haltian.com alin.jerpelea@sony.com raiden00pl@gmail.com matteo.golin@gmail.com
 arch/arm/src/stm32l4/Kconfig dev@ziggurat29.com danieloak@gmail.com juha.niskanen@haltian.com sebastien@lorquet.fr
 arch/arm/src/stm32l4/chip.h sebastien@lorquet.fr alin.jerpelea@sony.com juha.niskanen@haltian.com
@@ -15890,16 +15888,9 @@ net/bluetooth/bluetooth_recvmsg.c bijunda1@xiaomi.com xiaoxiang@xiaomi.com wengz
 net/bluetooth/bluetooth_sendmsg.c bijunda1@xiaomi.com xiaoxiang@xiaomi.com anchao@xiaomi.com anjiahao@xiaomi.com zhanghongyu@xiaomi.com
 net/bluetooth/bluetooth_sockif.c bashton@brennanashton.com bijunda1@xiaomi.com xiaoxiang@xiaomi.com liguiding@pinecone.net
 net/can/Kconfig peter.vanderperk@nxp.com f.panag@amco.gr anchao@xiaomi.com raiden00@railab.me jacob@flyvoly.com
+net/can/can.c peter.vanderperk@nxp.com wengzhe@xiaomi.com f.panag@amco.gr anchao@xiaomi.com anjiahao@xiaomi.com
 net/can/can.h peter.vanderperk@nxp.com bijunda1@xiaomi.com abdelatif.guettouche@gmail.com anchao@xiaomi.com jari.vanewijk@nxp.com
-net/can/can_callback.c peter.vanderperk@nxp.com anchao@xiaomi.com javiercasas@geotab.com gaohedong@xiaomi.com xiaoxiang@xiaomi.com
-net/can/can_conn.c peter.vanderperk@nxp.com wengzhe@xiaomi.com f.panag@amco.gr anchao@xiaomi.com anjiahao@xiaomi.com
-net/can/can_getsockopt.c peter.vanderperk@nxp.com xiaoxiang@xiaomi.com yamamoto@midokura.com dongjiuzhu1@xiaomi.com gaohedong@xiaomi.com
-net/can/can_input.c peter.vanderperk@nxp.com xiaoxiang@xiaomi.com zhanghongyu@xiaomi.com jari.vanewijk@nxp.com anchao@xiaomi.com
-net/can/can_notifier.c peter.vanderperk@nxp.com alin.jerpelea@sony.com
-net/can/can_poll.c peter.vanderperk@nxp.com alexanderlunev@mail.ru anchao@xiaomi.com alin.jerpelea@sony.com gustavo.nihei@espressif.com
-net/can/can_recvmsg.c bijunda1@xiaomi.com anchao@xiaomi.com xiaoxiang@xiaomi.com xucheng5@xiaomi.com hai.to@unikie.com
-net/can/can_sendmsg.c bijunda1@xiaomi.com jari.vanewijk@nxp.com xiaoxiang@xiaomi.com petro.karashchenko@gmail.com anchao@xiaomi.com
-net/can/can_setsockopt.c peter.vanderperk@nxp.com xiaoxiang@xiaomi.com dongjiuzhu1@xiaomi.com gaohedong@xiaomi.com raiden00@railab.me
+net/can/can_raw.c peter.vanderperk@nxp.com xiaoxiang@xiaomi.com bijunda1@xiaomi.com wangbowen6@xiaomi.com anchao@xiaomi.com
 net/can/can_sockif.c peter.vanderperk@nxp.com xiaoxiang@xiaomi.com bijunda1@xiaomi.com wangbowen6@xiaomi.com anchao@xiaomi.com
 net/devif/devif.h anchao@xiaomi.com peter.vanderperk@nxp.com f.j.panag@gmail.com xiaoxiang@xiaomi.com
 net/devif/devif_callback.c alexanderlunev@mail.ru wangchen41@xiaomi.com wengzhe@xiaomi.com anchao@xiaomi.com

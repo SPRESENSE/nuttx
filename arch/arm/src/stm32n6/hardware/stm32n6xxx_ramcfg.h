@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/stm32h7/hardware/stm32_rng.h
+ * arch/arm/src/stm32n6/hardware/stm32n6xxx_ramcfg.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,15 +20,14 @@
  *
  ****************************************************************************/
 
-#ifndef __ARCH_ARM_SRC_STM32H7_HARDWARE_STM32_RNG_H
-#define __ARCH_ARM_SRC_STM32H7_HARDWARE_STM32_RNG_H
+#ifndef __ARCH_ARM_SRC_STM32N6_HARDWARE_STM32N6XXX_RAMCFG_H
+#define __ARCH_ARM_SRC_STM32N6_HARDWARE_STM32N6XXX_RAMCFG_H
 
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
-#include "chip.h"
+#include "hardware/stm32n6xxx_memorymap.h"
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -36,30 +35,23 @@
 
 /* Register Offsets *********************************************************/
 
-#define STM32_RNG_CR_OFFSET       0x0000  /* RNG Control Register */
-#define STM32_RNG_SR_OFFSET       0x0004  /* RNG Status Register */
-#define STM32_RNG_DR_OFFSET       0x0008  /* RNG Data Register */
+/* AXISRAMn control register, n = 1..6 */
+
+#define STM32_RAMCFG_AXISRAM_CR_OFFSET(n) (((n) - 1) * 0x80)
 
 /* Register Addresses *******************************************************/
 
-#define STM32_RNG_CR              (STM32_RNG_BASE+STM32_RNG_CR_OFFSET)
-#define STM32_RNG_SR              (STM32_RNG_BASE+STM32_RNG_SR_OFFSET)
-#define STM32_RNG_DR              (STM32_RNG_BASE+STM32_RNG_DR_OFFSET)
+#define STM32_RAMCFG_AXISRAM_CR(n)  (STM32_RAMCFG_BASE + \
+                                     STM32_RAMCFG_AXISRAM_CR_OFFSET(n))
+#define STM32_RAMCFG_AXISRAM3_CR    STM32_RAMCFG_AXISRAM_CR(3)
+#define STM32_RAMCFG_AXISRAM4_CR    STM32_RAMCFG_AXISRAM_CR(4)
+#define STM32_RAMCFG_AXISRAM5_CR    STM32_RAMCFG_AXISRAM_CR(5)
+#define STM32_RAMCFG_AXISRAM6_CR    STM32_RAMCFG_AXISRAM_CR(6)
 
 /* Register Bitfield Definitions ********************************************/
 
-/* RNG Control Register */
+/* AXISRAMn control register */
 
-#define RNG_CR_RNGEN              (1 << 2)  /* Bit 2: RNG enable */
-#define RNG_CR_IE                 (1 << 3)  /* Bit 3: Interrupt enable */
-#define RNG_CR_CE                 (1 << 5)  /* Bit 5: Clock error detection */
+#define RAMCFG_CR_SRAMSD            (1 << 20) /* Bit 20: SRAM shutdown */
 
-/* RNG Status Register */
-
-#define RNG_SR_DRDY               (1 << 0) /* Bit 0: Data ready */
-#define RNG_SR_CECS               (1 << 1) /* Bit 1: Clock error current status */
-#define RNG_SR_SECS               (1 << 2) /* Bit 2: Seed error current status */
-#define RNG_SR_CEIS               (1 << 5) /* Bit 5: Clock error interrupt status */
-#define RNG_SR_SEIS               (1 << 6) /* Bit 6: Seed error interrupt status */
-
-#endif /* __ARCH_ARM_SRC_STM32H7_HARDWARE_STM32_RNG_H */
+#endif /* __ARCH_ARM_SRC_STM32N6_HARDWARE_STM32N6XXX_RAMCFG_H */

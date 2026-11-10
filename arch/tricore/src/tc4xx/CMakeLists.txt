@@ -154,7 +154,6 @@ set(SDK_CSRCS
     "${ILLD_DIR}/Libraries/iLLD/TC4xx/CpuGeneric/Dma/Dma/IfxDma_Dma.c"
     "${ILLD_DIR}/Libraries/iLLD/TC4xx/CpuGeneric/Dma/Std/IfxDma.c"
     "${ILLD_DIR}/Libraries/iLLD/TC4xx/CpuGeneric/Port/Std/IfxPort.c"
-    "${ILLD_DIR}/Libraries/iLLD/TC4xx/CpuGeneric/Src/Std/IfxSrc.c"
     "${ILLD_DIR}/Libraries/iLLD/TC4xx/Tricore/_Impl/IfxCpu_cfg.c"
     "${ILLD_DIR}/Libraries/iLLD/TC4xx/Tricore/_Impl/IfxStm_cfg.c"
     "${ILLD_DIR}/Libraries/iLLD/TC4xx/Tricore/Cpu/Std/IfxCpu.c"
@@ -180,6 +179,5 @@ if(NOT CONFIG_TRICORE_TOOLCHAIN_TASKING)
   target_compile_options(nuttx PRIVATE -Wno-implicit-fallthrough)
 endif()
 
-target_compile_definitions(
-  arch PRIVATE -DSRC_GPSR00=SRC_GPSR0SR0 -DSRC_CPU_CPU0_SB=SRC_CPU0SB
-               -DMODULE_STM0=MODULE_CPU0 -DSRC_STM0SR0=SRC_STMCPU0_SR2)
+target_compile_definitions(arch PRIVATE -DMODULE_STM0=MODULE_CPU0
+                                        -DSRC_STM0SR0=SRC_STMCPU0_SR2)

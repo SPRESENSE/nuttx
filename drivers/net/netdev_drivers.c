@@ -1,5 +1,5 @@
 /****************************************************************************
- * net/can/can_notifier.c
+ * drivers/net/netdev_drivers.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -26,45 +26,49 @@
 
 #include <nuttx/config.h>
 
-#include <sys/types.h>
-#include <assert.h>
+#include <debug.h>
+#include <string.h>
 
-#include <nuttx/wqueue.h>
+#ifdef CONFIG_DRIVERS_NOTENET
+#  include <nuttx/note/notenet_driver.h>
+#endif
 
-#include "can/can.h"
-
-#ifdef CONFIG_NET_CAN_NOTIFIER
+#include "netdev_drivers.h"
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: can_readahead_signal
+ * Name: netdev_drivers_init
  *
  * Description:
- *   Read-ahead data has been buffered.  Signal all threads waiting for
- *   read-ahead data to become available.
- *
- *   When read-ahead data becomes available, *all* of the workers waiting
- *   for read-ahead data will be executed.  If there are multiple workers
- *   waiting for read-ahead data then only the first to execute will get the
- *   data.  Others will need to call can_readahead_notifier_setup() once
- *   again.
+ *   Register all enabled NETDEV drivers.
  *
  * Input Parameters:
- *   conn  - The CAN connection where read-ahead data was just buffered.
+ *   dev    - The lower half device driver structure
  *
  * Returned Value:
- *   None.
+ *   0:Success; negated errno on failure
  *
  ****************************************************************************/
 
-void can_readahead_signal(FAR struct can_conn_s *conn)
+int netdev_drivers_init(FAR struct netdev_lowerhalf_s *dev)
 {
-  /* This is just a simple wrapper around work_notifier_signal(). */
+  int ret = OK;
 
-  work_notifier_signal(WORK_CAN_READAHEAD, conn);
+#ifdef CONFIG_DRIVERS_NOTENET
+  if (strcmp(dev->netdev.d_ifname, CONFIG_DRIVERS_NOTENET_INTF) == 0)
+    {
+      ninfo("bind NOTE with netdev = %p\n", dev);
+      ret = notenet_init(dev);
+      if (ret < 0)
+        {
+          nerr("ERROR: netdev_note_init failed: %d\n", ret);
+          return ret;
+        }
+    }
+#endif
+
+  return ret;
 }
-
-#endif /* CONFIG_NET_CAN_NOTIFIER */

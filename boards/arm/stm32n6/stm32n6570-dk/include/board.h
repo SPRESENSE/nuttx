@@ -39,10 +39,10 @@
 /* Clocking *****************************************************************/
 
 /* Two clock trees are provided.  The default runs the CPU at 800 MHz from
- * the 48 MHz HSE crystal with VDDCORE overdrive, matching the ST reference
- * configuration.  CONFIG_STM32N6570_DK_CLOCK_HSI selects a conservative
- * 200 MHz tree from the internal HSI that needs neither the HSE nor
- * overdrive.  See arch/arm/src/stm32n6/stm32n6xx_rcc.c for the macros.
+ * the 48 MHz HSE crystal with VDDCORE overdrive.
+ * CONFIG_STM32N6570_DK_CLOCK_HSI selects a conservative 200 MHz tree from
+ * the internal HSI that needs neither the HSE nor overdrive.  See
+ * arch/arm/src/stm32n6/stm32n6xx_rcc.c for the macros.
  */
 
 #define STM32_HSI_FREQUENCY     64000000ul
@@ -245,8 +245,8 @@
  * Connected to the on-board ST-Link to provide a Virtual COM Port.
  */
 
-#define GPIO_USART1_TX   GPIO_USART1_TX_1
-#define GPIO_USART1_RX   GPIO_USART1_RX_1
+#define GPIO_USART1_TX   (GPIO_USART1_TX_1 | GPIO_SPEED_50MHZ)
+#define GPIO_USART1_RX   (GPIO_USART1_RX_1 | GPIO_SPEED_50MHZ)
 
 /****************************************************************************
  * Public Data

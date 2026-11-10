@@ -71,6 +71,7 @@
 #include "stm32_rcc.h"
 #include "stm32_pwr.h"
 #include "stm32_gpio.h"
+#include "hardware/stm32n6xxx_ramcfg.h"
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -78,10 +79,11 @@
 
 /* Allow up to 100 milliseconds for a clock to become ready.  That is a
  * very long delay, but if the clock does not become ready we are hosed
- * anyway.
+ * anyway.  The LSE crystal may need up to a few seconds to start.
  */
 
 #define CLKRDY_TIMEOUT  (100 * CONFIG_BOARD_LOOPSPERMSEC)
+#define LSERDY_TIMEOUT  (3000 * CONFIG_BOARD_LOOPSPERMSEC)
 
 /* Defaults for optional board.h settings */
 
@@ -201,11 +203,6 @@
   modifyreg32(STM32_RCC_##reg, RCC_##reg##_##field##_MASK, \
               STM32_RCC_##reg##_##field)
 
-/* RAMCFG control register of AXISRAMn (n = 1..6) and its shutdown bit */
-
-#define STM32_RAMCFG_AXISRAM_CR(n) (STM32_RAMCFG_BASE + ((n) - 1) * 0x80)
-#define RAMCFG_CR_SRAMSD           (1 << 20)
-
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
@@ -237,6 +234,30 @@ static bool rcc_waitflag(uint32_t addr, uint32_t mask, bool set)
 }
 
 /****************************************************************************
+ * Name: rcc_waitfield
+ *
+ * Description:
+ *   Spin until the bits in mask of the register at addr equal value.
+ *   Returns false on timeout.
+ *
+ ****************************************************************************/
+
+static bool rcc_waitfield(uint32_t addr, uint32_t mask, uint32_t value)
+{
+  volatile int32_t timeout;
+
+  for (timeout = CLKRDY_TIMEOUT; timeout > 0; timeout--)
+    {
+      if ((getreg32(addr) & mask) == value)
+        {
+          return true;
+        }
+    }
+
+  return false;
+}
+
+/****************************************************************************
  * Name: rcc_enableahb1
  *
  * Description:
@@ -256,6 +277,28 @@ static inline void rcc_enableahb1(void)
     {
       putreg32(regval, STM32_RCC_AHB1ENSR);
       putreg32(regval, STM32_RCC_AHB1LPENSR);
+    }
+}
+
+/****************************************************************************
+ * Name: rcc_enableahb3
+ *
+ * Description:
+ *   Enable selected AHB3 peripherals.
+ *
+ ****************************************************************************/
+
+static inline void rcc_enableahb3(void)
+{
+  uint32_t regval = 0;
+
+#ifdef CONFIG_STM32_RNG
+  regval |= RCC_AHB3ENR_RNGEN;
+#endif
+
+  if (regval != 0)
+    {
+      putreg32(regval, STM32_RCC_AHB3ENSR);
     }
 }
 
@@ -295,7 +338,6 @@ static inline void rcc_enableahb4(void)
 {
   /* Use the write-1-to-set ENSR alias rather than a read-modify-write on
    * ENR so concurrent producers (e.g. RCC IRQ later) cannot lose bits.
-   * Matches the ST LL pattern in stm32n6xx_ll_bus.h.
    */
 
   putreg32(RCC_AHB4ENR_GPIOAEN
@@ -693,6 +735,59 @@ static void rcc_enableccip(void)
  ****************************************************************************/
 
 /****************************************************************************
+ * Name: stm32_rcc_enablelse
+ *
+ * Description:
+ *   Enable the 32.768 kHz LSE oscillator.  The LSE lives in the backup
+ *   domain, so write access is enabled for the duration of the call.
+ *
+ ****************************************************************************/
+
+void stm32_rcc_enablelse(void)
+{
+  volatile int32_t timeout;
+  bool writable;
+
+  if ((getreg32(STM32_RCC_SR) & RCC_SR_LSERDY) != 0)
+    {
+      return;
+    }
+
+  writable = stm32_pwr_enablebkp(true);
+
+#ifdef CONFIG_STM32_RTC_LSECLOCK_START_DRV_CAPABILITY
+  modifyreg32(STM32_RCC_LSECFGR, RCC_LSECFGR_LSEDRV_MASK,
+              CONFIG_STM32_RTC_LSECLOCK_START_DRV_CAPABILITY <<
+              RCC_LSECFGR_LSEDRV_SHIFT);
+#endif
+
+  putreg32(RCC_CR_LSEON, STM32_RCC_CSR);
+  for (timeout = LSERDY_TIMEOUT; timeout > 0; timeout--)
+    {
+      if ((getreg32(STM32_RCC_SR) & RCC_SR_LSERDY) != 0)
+        {
+          break;
+        }
+    }
+
+  stm32_pwr_enablebkp(writable);
+}
+
+/****************************************************************************
+ * Name: stm32_rcc_enablelsi
+ *
+ * Description:
+ *   Enable the 32 kHz LSI oscillator.
+ *
+ ****************************************************************************/
+
+void stm32_rcc_enablelsi(void)
+{
+  putreg32(RCC_CR_LSION, STM32_RCC_CSR);
+  rcc_waitflag(STM32_RCC_SR, RCC_SR_LSIRDY, true);
+}
+
+/****************************************************************************
  * Name: stm32_rcc_enableperipherals
  ****************************************************************************/
 
@@ -702,9 +797,9 @@ void stm32_rcc_enableperipherals(void)
 
   /* Enable all AXISRAM bank clocks.  The boot ROM only enables AXISRAM1/2
    * which is sufficient for code execution, but the NuttX heap extends
-   * across all SRAM banks (up to AXISRAM5 at 0x34400000+).  Without these
-   * clocks, mm_initialize writing the tail node at the heap end will cause
-   * an IMPRECISERR bus fault.
+   * across AXISRAM1-6 and the CACHEAXI RAM.  Without these clocks,
+   * mm_initialize writing the tail node at the heap end will cause an
+   * IMPRECISERR bus fault.
    */
 
   putreg32(RCC_MEMENR_ALLAXISRAM | RCC_MEMENR_CACHEAXIRAMEN,
@@ -721,6 +816,7 @@ void stm32_rcc_enableperipherals(void)
     }
 
   rcc_enableahb1();
+  rcc_enableahb3();
   rcc_enableahb4();
   rcc_enableahb5();
   rcc_enableapb1();
@@ -876,7 +972,7 @@ void stm32_stdclockconfig(void)
   putreg32(RCC_MEMENR_ALLAXISRAM | RCC_MEMENR_CACHEAXIRAMEN,
            STM32_RCC_MEMENSR);
 
-  rcc_waitflag(STM32_RCC_CFGR1,
-               RCC_CFGR1_SW2SWS(STM32_RCC_CFGR1_CPUSW |
-                                STM32_RCC_CFGR1_SYSSW), true);
+  rcc_waitfield(STM32_RCC_CFGR1, RCC_CFGR1_SWS_MASK,
+                RCC_CFGR1_SW2SWS(STM32_RCC_CFGR1_CPUSW |
+                                 STM32_RCC_CFGR1_SYSSW));
 }

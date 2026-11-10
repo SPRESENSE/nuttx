@@ -692,7 +692,7 @@ config STM32_HAVE_RNG
 config STM32_HAVE_IP_RNG_M0_V1
 	bool
 
-config STM32_HAVE_IP_RNG_M3M4_V1
+config STM32_HAVE_IP_RNG_V1
 	bool
 
 # RTC capabilities
@@ -725,6 +725,9 @@ config STM32_HAVE_IP_RTCC_M3M4_F4
 	bool
 
 config STM32_HAVE_IP_RTC_M3M4_V1
+	bool
+
+config STM32_HAVE_IP_RTCC_M33M55_V1
 	bool
 
 config STM32_HAVE_RTC_SUBSECONDS

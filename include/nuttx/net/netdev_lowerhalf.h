@@ -109,6 +109,8 @@ enum netdev_rx_e
 
 struct netdev_ops_s;
 struct wireless_ops_s;
+struct phy_device_s;
+
 struct netdev_lowerhalf_s
 {
   FAR const struct netdev_ops_s *ops;
@@ -133,6 +135,10 @@ struct netdev_lowerhalf_s
    * Fields that lowerhalf should never touch (used by upper half):
    *   d_ifup, d_ifdown, d_txavail, d_addmac, d_rmmac, d_ioctl, d_private
    */
+
+#ifdef CONFIG_NET_PHYLIB
+  FAR struct phy_device_s *phydev;
+#endif
 
   struct net_driver_s netdev;
 };
@@ -180,6 +186,20 @@ struct netdev_ops_s
   /* reclaim - try to reclaim packets sent by netdev. */
 
   CODE void (*reclaim)(FAR struct netdev_lowerhalf_s *dev);
+
+#ifdef CONFIG_NET_NETPOLL
+  /* txpoll - Complete pending transmissions and free the finished TX
+   *          packets, so their TX quota can be reused.
+   *
+   *   Used only by netpoll, which may run with interrupts disabled and
+   *   without the network stack (e.g. on the panic path), where the
+   *   driver's TX-done interrupt cannot run.  It must not depend on
+   *   interrupts or on the upper half.  It is separate from reclaim,
+   *   which is called by the upper half in normal context.
+   */
+
+  CODE void (*txpoll)(FAR struct netdev_lowerhalf_s *dev);
+#endif
 };
 
 /* This structure is a set of wireless handlers, leave unsupported operations

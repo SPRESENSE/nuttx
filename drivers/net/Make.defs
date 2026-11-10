@@ -28,6 +28,9 @@ ifeq ($(CONFIG_NET),y)
 
 ifeq ($(CONFIG_MM_IOB),y)
   CSRCS += netdev_upperhalf.c
+ifeq ($(CONFIG_DRIVERS_NOTENET),y)
+  CSRCS += netdev_drivers.c
+endif
 endif
 
 ifeq ($(CONFIG_MDIO_BUS),y)
@@ -126,6 +129,29 @@ ifeq ($(CONFIG_DRIVERS_WIFI_SIM),y)
 endif
 
 include net/oa_tc6/Make.defs
+
+ifeq ($(CONFIG_NET_PHYLIB),y)
+  CSRCS += phy_core.c phy_access.c phy_device.c
+  CSRCS += phy_gen.c
+  DEPPATH += --dep-path net/phy
+  VPATH += :net/phy
+  CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)drivers$(DELIM)net$(DELIM)phy
+
+ifeq ($(CONFIG_MDIO_CLAUSE_45),y)
+  CSRCS += phy_genc45.c
+endif
+
+ifeq ($(CONFIG_NET_PHY_REALTEK_RTL8221B),y)
+  CSRCS += rtl8221b.c rtl8221b_fw.c
+endif
+
+ifeq ($(CONFIG_NET_PHY_REALTEK_RTL9000B),y)
+  CSRCS += rtl9000b.c rtl9000b_fw.c
+endif
+
+  DEPPATH += --dep-path net/phy/realtek
+  VPATH += :net/phy/realtek
+endif
 
 # Include network build support
 

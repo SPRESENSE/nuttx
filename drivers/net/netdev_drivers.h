@@ -1,5 +1,5 @@
 /****************************************************************************
- * net/can/can_poll.c
+ * drivers/net/netdev_drivers.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,70 +20,33 @@
  *
  ****************************************************************************/
 
+#ifndef __DRIVERS_NET_NETDEV_DRIVERS_H
+#define __DRIVERS_NET_NETDEV_DRIVERS_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
-#if defined(CONFIG_NET) && defined(CONFIG_NET_CAN)
-
-#include <assert.h>
-#include <nuttx/debug.h>
-
-#include <nuttx/net/netconfig.h>
-#include <nuttx/net/netdev.h>
-
-#include "devif/devif.h"
-#include "can/can.h"
+#include <nuttx/net/netdev_lowerhalf.h>
 
 /****************************************************************************
- * Public Functions
+ * Public Function Prototypes
  ****************************************************************************/
 
 /****************************************************************************
- * Name: can_poll
+ * Name: netdev_drivers_init
  *
  * Description:
- *   Poll a packet "connection" structure for availability of TX data
+ *   Register all enabled NETDEV drivers.
  *
  * Input Parameters:
- *   dev - The device driver structure to use in the send operation
- *   conn - The packet "connection" to poll for TX data
+ *   dev    - The lower half device driver structure
  *
  * Returned Value:
- *   None
- *
- * Assumptions:
- *   The network is locked.
- *   dev is not NULL.
- *   conn is not NULL.
- *   The connection (conn) is bound to the polling device (dev).
+ *   0:Success; negated errno on failure
  *
  ****************************************************************************/
 
-void can_poll(FAR struct net_driver_s *dev, FAR struct can_conn_s *conn)
-{
-  DEBUGASSERT(dev != NULL && conn != NULL && dev == conn->dev);
+int netdev_drivers_init(FAR struct netdev_lowerhalf_s *dev);
 
-  /* Setup for the application callback */
-
-  dev->d_len    = 0;
-  dev->d_sndlen = 0;
-
-  /* Perform the application callback */
-
-  can_callback(dev, conn, CAN_POLL);
-
-  /* Check if the application has data to send */
-
-  if (dev->d_sndlen > 0)
-    {
-      return;
-    }
-
-  /* Make sure that d_len is zero meaning that there is nothing to be sent */
-
-  dev->d_len = 0;
-}
-
-#endif /* CONFIG_NET && CONFIG_NET_CAN */
+#endif  /* __DRIVERS_NET_NETDEV_DRIVERS_H */
