@@ -176,7 +176,7 @@ noinstrument_function
 void spin_lock_notrace(FAR volatile spinlock_t *lock);
 #  endif
 #else
-#  define spin_lock_notrace(lock)
+#  define spin_lock_notrace(lock) ((void)(lock))
 #endif /* CONFIG_SPINLOCK */
 
 /****************************************************************************
@@ -226,7 +226,7 @@ static inline_function void spin_lock(FAR volatile spinlock_t *lock)
   sched_note_spinlock_locked(lock);
 }
 #else
-#  define spin_lock(lock)
+#  define spin_lock(lock) ((void)(lock))
 #endif /* CONFIG_SPINLOCK */
 
 /****************************************************************************
@@ -272,6 +272,8 @@ spin_trylock_notrace(FAR volatile spinlock_t *lock)
   return atomic_xchg_acquire((FAR atomic_t *)lock, SP_LOCKED) != SP_LOCKED;
 #endif /* CONFIG_TICKET_SPINLOCK */
 }
+#else
+#  define spin_trylock_notrace(lock) ((void)(lock), true)
 #endif /* CONFIG_SPINLOCK */
 
 /****************************************************************************
@@ -320,6 +322,8 @@ static inline_function bool spin_trylock(FAR volatile spinlock_t *lock)
 
   return locked;
 }
+#else
+#  define spin_trylock(lock) ((void)(lock), true)
 #endif /* CONFIG_SPINLOCK */
 
 /****************************************************************************
@@ -354,7 +358,7 @@ spin_unlock_notrace(FAR volatile spinlock_t *lock)
   SPIN_KICK();
 }
 #else
-#  define spin_unlock_notrace(lock)
+#  define spin_unlock_notrace(lock) ((void)(lock))
 #endif /* CONFIG_SPINLOCK */
 
 /****************************************************************************
@@ -386,7 +390,7 @@ static inline_function void spin_unlock(FAR volatile spinlock_t *lock)
   sched_note_spinlock_unlock(lock);
 }
 #else
-#  define spin_unlock(lock)
+#  define spin_unlock(lock) ((void)(lock))
 #endif /* CONFIG_SPINLOCK */
 
 /****************************************************************************
@@ -521,6 +525,78 @@ irqstate_t spin_lock_irqsave_nopreempt(FAR volatile spinlock_t *lock)
   flags = spin_lock_irqsave(lock);
   sched_lock();
   return flags;
+}
+
+/****************************************************************************
+ * Name: rspin_lock_is_recursive
+ *
+ * Description:
+ *   This function check whether the recursive spinlock is currently held
+ *   recursively. That is, whether it's locked more than once by the
+ *   current holder.
+ *   Note that this is inherently racy unless the calling thread is
+ *   holding the rspinlock.
+ *
+ * Parameters:
+ *   lock - Recursive spinlock descriptor.
+ *
+ * Return Value:
+ *  If rspinlock has returned to True recursively, otherwise returns false.
+ *
+ ****************************************************************************/
+
+static inline_function
+bool rspin_lock_is_recursive(FAR volatile rspinlock_t *lock)
+{
+  return RSPINLOCK_COUNT(atomic_read(&lock->val)) > 1;
+}
+
+/****************************************************************************
+ * Name: rspin_lock_is_hold
+ *
+ * Description:
+ *   This function checks whether the recursive spinlock is currently held
+ *   by the current holder. That is, whether it's locked at least once.
+ *   Note that this is inherently racy unless the current cpu is holding
+ *   the rspinlock.
+ *
+ * Parameters:
+ *   lock - Recursive spinlock descriptor.
+ *
+ * Return Value:
+ *   True if the rspinlock is held (count > 0) and owned by the current
+ *   cpu, otherwise returns false.
+ *
+ ****************************************************************************/
+
+static inline_function
+bool rspin_lock_is_hold(FAR volatile rspinlock_t *lock)
+{
+  return RSPINLOCK_OWNER(atomic_read(&lock->val)) ==
+         (uint32_t)this_cpu() + 1u;
+}
+
+/****************************************************************************
+ * Name: rspin_lock_is_locked
+ *
+ * Description:
+ *   This function checks whether the recursive spinlock is currently held
+ *   by any holder. That is, whether it's locked at least once.
+ *   Note that this is inherently racy unless the calling thread is
+ *   holding the rspinlock.
+ *
+ * Parameters:
+ *   lock - Recursive spinlock descriptor.
+ *
+ * Return Value:
+ *   True if the rspinlock is held (count > 0), otherwise returns false.
+ *
+ ****************************************************************************/
+
+static inline_function
+bool rspin_lock_is_locked(FAR volatile rspinlock_t *lock)
+{
+  return RSPINLOCK_COUNT(atomic_read(&lock->val)) > 0;
 }
 
 /****************************************************************************
@@ -804,6 +880,30 @@ bool rspin_trylock(FAR rspinlock_t *lock);
   true; \
 })
 #endif /* CONFIG_SPINLOCK */
+
+/****************************************************************************
+ * Name: spin_trylock_irqsave_nopreempt
+ *
+ * Description:
+ *   Try once to lock the spinlock and disable preemption if successful. Do
+ *   not wait if the spinlock is already locked.
+ *
+ * Input Parameters:
+ *   lock   - A reference to the spinlock object to lock.
+ *   flags  - flag of interrupts status
+ *
+ * Returned Value:
+ *   true  - Failure, the spinlock was already locked
+ *   false - Success, the spinlock was successfully locked and
+ *                 preemption is disabled
+ *
+ ****************************************************************************/
+
+#define spin_trylock_irqsave_nopreempt(lock, flags) \
+  ({ \
+    spin_trylock_irqsave(lock, flags) ? \
+    ({ sched_lock(); true; }) : false; \
+  })
 
 /****************************************************************************
  * Name: spin_unlock_irqrestore_notrace
@@ -1106,6 +1206,8 @@ void read_lock(FAR volatile rwlock_t *lock);
 #  ifdef CONFIG_SPINLOCK_INLINE
 SPINLOCK_INLINE bool read_trylock(FAR volatile rwlock_t *lock)
 {
+  bool ret = false;
+
   for (; ; )
     {
       int32_t old = atomic_read(lock);
@@ -1113,16 +1215,16 @@ SPINLOCK_INLINE bool read_trylock(FAR volatile rwlock_t *lock)
       if (old <= RW_SP_WRITE_LOCKED)
         {
           DEBUGASSERT(old == RW_SP_WRITE_LOCKED);
-          return false;
+          break;
         }
       else if (atomic_cmpxchg_acquire(lock, &old, old + 1))
         {
+          ret = true;
           break;
         }
     }
 
-  UP_DMB();
-  return true;
+  return ret;
 }
 #  else
 bool read_trylock(FAR volatile rwlock_t *lock);

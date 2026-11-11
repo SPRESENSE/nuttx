@@ -27,9 +27,18 @@
 
 #ifdef CONFIG_RPMSG
 
+#include <nuttx/panic_notifier.h>
 #include <nuttx/rpmsg/rpmsg.h>
 
 #include "rpmsg_ping.h"
+
+/****************************************************************************
+ * Pre-processor Definitions
+ ****************************************************************************/
+
+#define RPMSG_PANIC_DUMP_DISABLE 0
+#define RPMSG_PANIC_DUMP_INFO    1
+#define RPMSG_PANIC_DUMP_VERBOSE 2
 
 /****************************************************************************
  * Public Types
@@ -54,6 +63,9 @@ struct rpmsg_s
   struct rpmsg_endpoint        wakelock;
 #endif
   atomic_t                     signals;
+#if CONFIG_RPMSG_PANIC_DUMP_LEVEL > RPMSG_PANIC_DUMP_DISABLE
+  struct notifier_block        nbpanic;
+#endif
 };
 
 /**
@@ -69,7 +81,7 @@ struct rpmsg_ops_s
   CODE int (*post)(FAR struct rpmsg_s *rpmsg, FAR sem_t *sem);
   CODE int (*ioctl)(FAR struct rpmsg_s *rpmsg, int cmd, unsigned long arg);
   CODE void (*panic)(FAR struct rpmsg_s *rpmsg);
-  CODE void (*dump)(FAR struct rpmsg_s *rpmsg);
+  CODE void (*dump)(FAR struct rpmsg_s *rpmsg, bool verbose);
   CODE int (*get_timestamp)(FAR struct rpmsg_s *rpmsg, FAR const void *data,
                             FAR struct rpmsg_timestamp_s *ts);
 };

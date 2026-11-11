@@ -95,9 +95,15 @@ void nxsem_recover(FAR struct tcb_s *tcb)
 
       nxsem_canceled(tcb, sem);
 
-      /* Remove the tcb from the semaphore wait list if it exists there */
+      /* Remove the tcb from the semaphore wait list if it exists there.
+       * nxtask_terminate() has already removed it, and a second dq_rem()
+       * would empty the list.
+       */
 
-      dq_rem((FAR dq_entry_t *)tcb, SEM_WAITLIST(sem));
+      if (dq_inqueue((FAR dq_entry_t *)tcb, SEM_WAITLIST(sem)))
+        {
+          dq_rem((FAR dq_entry_t *)tcb, SEM_WAITLIST(sem));
+        }
 
       /* And increment the count on the semaphore.  This releases the count
        * that was taken by sem_wait().  This count decremented the semaphore
@@ -113,6 +119,7 @@ void nxsem_recover(FAR struct tcb_s *tcb)
             {
               uint32_t mholder =
                 atomic_and(NXSEM_MHOLDER(sem), ~NXSEM_MBLOCKING_BIT);
+
               DEBUGASSERT(NXSEM_MBLOCKING(mholder));
             }
         }

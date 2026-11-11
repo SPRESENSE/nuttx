@@ -313,7 +313,11 @@ static int shmfs_truncate(FAR struct file *filep, off_t length)
 #ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
 static int shmfs_unlink(FAR struct inode *inode)
 {
-  if (atomic_read(&inode->i_crefs) <= 1)
+  /* i_crefs >= 2 at this point: caller holds find ref + tree ref,
+   * both released after we return.  <= 2 means no open fd/mmap.
+   */
+
+  if (atomic_read(&inode->i_crefs) <= 2)
     {
       shmfs_free_object(inode->i_private);
       inode->i_private = NULL;
@@ -412,6 +416,18 @@ static int shmfs_mmap(FAR struct file *filep,
   object = filep->f_inode->i_private;
   if (object)
     {
+#ifndef CONFIG_BUILD_KERNEL
+      /* Without an MMU mapping the object address is returned directly, so
+       * a mapping longer than the object would expose adjacent heap memory.
+       */
+
+      if (entry->length > object->length)
+        {
+          inode_release(filep->f_inode);
+          return -EINVAL;
+        }
+#endif
+
       ret = shmfs_map_object(object, &entry->vaddr);
     }
 

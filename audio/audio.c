@@ -166,11 +166,18 @@ static int audio_open(FAR struct file *filep)
   irqstate_t flags;
   int ret;
 
+  priv = kmm_zalloc(sizeof(*priv));
+  if (priv == NULL)
+    {
+      return -ENOMEM;
+    }
+
   /* Get exclusive access to the device structures */
 
   ret = nxmutex_lock(&upper->lock);
   if (ret < 0)
     {
+      kmm_free(priv);
       return ret;
     }
 
@@ -187,13 +194,6 @@ static int audio_open(FAR struct file *filep)
         }
     }
 
-  priv = kmm_zalloc(sizeof(*priv));
-  if (priv == NULL)
-    {
-      ret = -ENOMEM;
-      goto errout;
-    }
-
   flags = spin_lock_irqsave(&upper->spinlock);
   priv->flink = upper->head;
   filep->f_priv = priv;
@@ -203,6 +203,11 @@ static int audio_open(FAR struct file *filep)
 
 errout:
   nxmutex_unlock(&upper->lock);
+  if (ret < 0)
+    {
+      kmm_free(priv);
+    }
+
   return ret;
 }
 
@@ -248,8 +253,6 @@ static int audio_close(FAR struct file *filep)
       upper->head = priv->flink;
     }
 
-  spin_unlock_irqrestore(&upper->spinlock, flags);
-
   kmm_free(priv);
 
   /*  If the reference head decrement to NULL,
@@ -269,6 +272,8 @@ static int audio_close(FAR struct file *filep)
       kumm_free(upper->status);
       upper->status = NULL;
     }
+
+  spin_unlock_irqrestore(&upper->spinlock, flags);
 
   ret = OK;
   nxmutex_unlock(&upper->lock);
@@ -664,6 +669,7 @@ static int audio_stop(FAR struct file *filep)
   FAR struct audio_lowerhalf_s *lower = upper->dev;
   FAR struct audio_openpriv_s *priv = filep->f_priv;
   int nstate;
+  int tstate;
   int ret;
 
   DEBUGASSERT(upper != NULL && lower->ops->stop != NULL);
@@ -673,6 +679,8 @@ static int audio_stop(FAR struct file *filep)
        upper->status->state == AUDIO_STATE_PAUSED) &&
       nstate == AUDIO_STATE_OPEN)
     {
+      tstate = upper->status->state;
+      audio_setstate(upper, AUDIO_STATE_DRAINING);
 #ifdef CONFIG_AUDIO_MULTI_SESSION
       ret = lower->ops->stop(lower, session);
 #else
@@ -680,17 +688,11 @@ static int audio_stop(FAR struct file *filep)
 #endif
       if (ret != OK)
         {
+          audio_setstate(upper, tstate);
           return ret;
         }
 
       memset(&upper->info, 0, sizeof(upper->info));
-
-      /* Audio_complete may have set state to AUDIO_STATE_OPEN */
-
-      if (upper->status->state != AUDIO_STATE_OPEN)
-        {
-          audio_setstate(upper, AUDIO_STATE_DRAINING);
-        }
     }
 #ifndef CONFIG_AUDIO_EXCLUDE_PAUSE_RESUME
   else if (nstate == AUDIO_STATE_PAUSED)
@@ -1442,6 +1444,12 @@ static inline void audio_dequeuebuffer(FAR struct audio_upperhalf_s *upper,
     }
 
   flags = spin_lock_irqsave_nopreempt(&upper->spinlock);
+  if (upper->status == NULL)
+    {
+      spin_unlock_irqrestore_nopreempt(&upper->spinlock, flags);
+      return;
+    }
+
   upper->status->tail++;
   audio_try_enqueue(upper);
   for (priv = upper->head; priv != NULL; priv = priv->flink)
@@ -1491,13 +1499,17 @@ static inline void audio_complete(FAR struct audio_upperhalf_s *upper,
 #endif
 {
   struct audio_msg_s    msg;
+  irqstate_t flags;
 
   audinfo("Entry\n");
 
-  if (upper->status != NULL)
+  flags = spin_lock_irqsave(&upper->spinlock);
+  if (upper->status && (upper->status->state == AUDIO_STATE_DRAINING))
     {
-      audio_setstate(upper, AUDIO_STATE_OPEN);
+      upper->status->state = AUDIO_STATE_OPEN;
     }
+
+  spin_unlock_irqrestore(&upper->spinlock, flags);
 
   /* Send a dequeue message to the user if a message queue is registered */
 
@@ -1713,6 +1725,65 @@ static void audio_callback(FAR void *handle, uint16_t reason,
 }
 
 /****************************************************************************
+ * Name: audio_get_path
+ *
+ * Description:
+ *   Convert a audio device name to a full path in filesystem.
+ *
+ * Input Parameters:
+ *   name - Audio device name
+ *   path - Outvalue, device absolute path in filesystem
+ *
+ * Returned Value:
+ *   None
+ *
+ ****************************************************************************/
+
+static void audio_get_path(FAR const char *name, FAR char *path,
+                           size_t pathlen)
+{
+#ifndef CONFIG_AUDIO_CUSTOM_DEV_PATH
+  FAR const char *devname = "/dev/audio";
+#elif !defined(CONFIG_AUDIO_DEV_ROOT)
+  FAR const char *devname = CONFIG_AUDIO_DEV_PATH;
+#endif
+
+#ifdef CONFIG_AUDIO_CUSTOM_DEV_PATH
+
+#ifdef CONFIG_AUDIO_DEV_ROOT
+
+  /* This is the simple case ... No need to make a directory */
+
+  strlcpy(path, "/dev/", pathlen);
+  strlcat(path, name, pathlen);
+
+#else
+  /* Ensure the path begins with "/dev" as we don't support placing device
+   * anywhere but in the /dev directory
+   */
+
+  DEBUGASSERT(strncmp(devname, "/dev", 4) == 0);
+
+  strlcpy(path, devname, pathlen);
+  if (devname[strlen(devname) - 1] != '/')
+    {
+      strlcat(path, "/", pathlen);
+    }
+
+  strlcat(path, name, pathlen);
+#endif /* CONFIG_AUDIO_DEV_PATH=="/dev" */
+
+#else /* CONFIG_AUDIO_CUSTOM_DEV_PATH */
+
+  /* Unregister the Audio device */
+
+  strlcpy(path, devname, pathlen);
+  strlcat(path, "/", pathlen);
+  strlcat(path, name, pathlen);
+#endif
+}
+
+/****************************************************************************
  * Public Functions
  ****************************************************************************/
 
@@ -1745,14 +1816,13 @@ int audio_register(FAR const char *name, FAR struct audio_lowerhalf_s *dev)
 {
   FAR struct audio_upperhalf_s *upper;
   char path[AUDIO_MAX_DEVICE_PATH];
-  static bool dev_audio_created = false;
-#ifndef CONFIG_AUDIO_CUSTOM_DEV_PATH
-  FAR const char *devname = "/dev/audio";
-#elif !defined(CONFIG_AUDIO_DEV_ROOT)
-  FAR const char *devname = CONFIG_AUDIO_DEV_PATH;
-  FAR const char *ptr;
-  FAR char *pathptr;
-#endif
+  int ret;
+
+  if (!name || !dev)
+    {
+      auderr("ERROR: Invalid arguments\n");
+      return -EINVAL;
+    }
 
   /* Allocate the upper-half data structure */
 
@@ -1771,101 +1841,9 @@ int audio_register(FAR const char *name, FAR struct audio_lowerhalf_s *dev)
   spin_lock_init(&upper->spinlock);
   upper->dev = dev;
 
-#ifdef CONFIG_AUDIO_CUSTOM_DEV_PATH
-
-#ifdef CONFIG_AUDIO_DEV_ROOT
-
-  /* This is the simple case ... No need to make a directory */
-
-  strlcpy(path, "/dev/", sizeof(path));
-  strlcat(path, name, sizeof(path));
-
-#else
-  /* Ensure the path begins with "/dev" as we don't support placing device
-   * anywhere but in the /dev directory
-   */
-
-  DEBUGASSERT(strncmp(devname, "/dev", 4) == 0);
-
-  /* Create a /dev/audio directory. */
-
-  if (!dev_audio_created)
-    {
-      /* Get path name after "/dev" */
-
-      ptr = &devname[4];
-      if (*ptr == '/')
-        {
-          ptr++;
-        }
-
-      strlcpy(path, "/dev/", sizeof(path));
-      pathptr = &path[5];
-
-      /* Do mkdir for each segment of the path */
-
-      while (*ptr != '\0')
-        {
-          /* Build next path segment into path variable */
-
-          while (*ptr != '/' && *ptr != '\0')
-            {
-              *pathptr++ = *ptr++;
-            }
-
-          *pathptr = '\0';
-
-          /* Make this level of directory */
-
-          mkdir(path, 0644);
-
-          /* Check for another level */
-
-          *pathptr++ = '/';
-          if (*ptr == '/')
-            {
-              ptr++;
-            }
-        }
-
-      /* Indicate we have created the audio dev path */
-
-      dev_audio_created = true;
-    }
-
-  /* Now build the path for registration */
-
-  strlcpy(path, devname, sizeof(path));
-  if (devname[sizeof(devname)-1] != '/')
-    {
-      strlcat(path, "/", sizeof(path));
-    }
-
-  strlcat(path, name, sizeof(path));
-
-#endif /* CONFIG_AUDIO_DEV_PATH=="/dev" */
-
-#else  /* CONFIG_AUDIO_CUSTOM_DEV_PATH */
-
-  /* Create a /dev/audio directory. */
-
-  if (!dev_audio_created)
-    {
-      /* We don't check for error here because even if it fails, then
-       * the register_driver call below will return an error condition
-       * for us.
-       */
-
-      mkdir(devname, 0644);
-      dev_audio_created = true;
-    }
-
   /* Register the Audio device */
 
-  strlcpy(path, devname, sizeof(path));
-  strlcat(path, "/", sizeof(path));
-  strlcat(path, name, sizeof(path));
-#endif
+  audio_get_path(name, path, sizeof(path));
 
   /* Give the lower-half a context to the upper half */
 
@@ -1873,7 +1851,85 @@ int audio_register(FAR const char *name, FAR struct audio_lowerhalf_s *dev)
   dev->priv = upper;
 
   audinfo("Registering %s\n", path);
-  return register_driver(path, &g_audioops, 0660, upper);
+  ret = register_driver(path, &g_audioops, 0660, upper);
+  if (ret != OK)
+    {
+      auderr("Failed to register %s\n", path);
+      kmm_free(upper);
+    }
+
+  return ret;
+}
+
+/****************************************************************************
+ * Name: audio_unregister
+ *
+ * Description:
+ *   This function unbinds an instance of a "lower half" Audio driver with
+ *   the "upper half" Audio device and unregisters that device from the
+ *   filesystem.
+ *
+ *   When this function is called, the "lower half" driver should be in the
+ *   reset state (as if the shutdown() method had already been called).
+ *
+ * Input Parameters:
+ *   name - The name of the audio device.  This name will be used to generate
+ *     a full path to the driver in the format "/dev/audio/[name]" in the
+ *     NuttX filesystem (i.e. the path "/dev/audio" will be prepended to the
+ *     supplied device name.  The recommended convention is to name Audio
+ *     drivers based on the type of functionality they provide, such as
+ *     "/dev/audio/pcm0", "/dev/audio/midi0", "/dev/audio/mp30, etc.
+ *   dev - A pointer to an instance of lower half audio driver. This instance
+ *     is bound to the Audio driver and must persists as long as the driver
+ *     persists.
+ *
+ * Returned Value:
+ *   Zero on success; a negated errno value on failure.  -EBUSY means the
+ *   device is still open.
+ *
+ ****************************************************************************/
+
+int audio_unregister(FAR const char *name, FAR struct audio_lowerhalf_s *dev)
+{
+  FAR struct audio_upperhalf_s *upper;
+  char path[AUDIO_MAX_DEVICE_PATH];
+  int ret;
+
+  if (!name || !dev || !dev->priv)
+    {
+      auderr("ERROR: Invalid arguments\n");
+      return -EINVAL;
+    }
+
+  upper = dev->priv;
+  ret = nxmutex_lock(&upper->lock);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  /* Open files still reach upper through the inode */
+
+  if (upper->head != NULL)
+    {
+      nxmutex_unlock(&upper->lock);
+      return -EBUSY;
+    }
+
+  audio_get_path(name, path, sizeof(path));
+
+  ret = unregister_driver(path);
+  nxmutex_unlock(&upper->lock);
+  if (ret < 0)
+    {
+      auderr("Failed to unregister %s\n", path);
+      return ret;
+    }
+
+  nxmutex_destroy(&upper->lock);
+  kmm_free(upper);
+  dev->priv = NULL;
+  return 0;
 }
 
 #endif /* CONFIG_AUDIO */

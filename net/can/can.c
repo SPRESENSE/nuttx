@@ -56,6 +56,10 @@
 #include "socket/socket.h"
 #include "utils/utils.h"
 
+#ifdef CONFIG_NET_CANFORWARD
+#include "netforward/netforward.h"
+#endif
+
 /****************************************************************************
  * Private Types
  ****************************************************************************/
@@ -357,9 +361,19 @@ static int can_input_conn(FAR struct net_driver_s *dev,
 
 static int can_in(FAR struct net_driver_s *dev)
 {
-  FAR struct can_conn_s *conn = can_conn_active(dev, NULL);
+  FAR struct can_conn_s *conn;
   FAR struct can_conn_s *nextconn;
   int ret;
+
+#ifdef CONFIG_NET_CANFORWARD
+  /* Forward the packet if needed. */
+
+  can_forward(dev);
+#endif
+
+  /* Do we have upper listener on the dev. */
+
+  conn = can_conn_active(dev, NULL);
 
   if (conn == NULL)
     {
@@ -893,7 +907,7 @@ int can_get_ifindex(FAR struct can_conn_s *conn)
  *
  * Returned Value:
  *   OK on success, -ENODEV if a non-zero interface index does not match a
- *   CAN device.
+ *   device, or if the device is not a CAN device.
  *
  ****************************************************************************/
 
@@ -919,6 +933,14 @@ int can_conn_bind(FAR struct can_conn_s *conn,
   netdev_name[3] += canaddr->can_ifindex;
   conn->dev = netdev_findbyname((const char *)&netdev_name);
 #endif
+
+  /* Only a CAN device can send and receive CAN frames */
+
+  if (conn->dev != NULL && conn->dev->d_lltype != NET_LL_CAN)
+    {
+      conn->dev = NULL;
+      return -ENODEV;
+    }
 
   return conn->dev == NULL && canaddr->can_ifindex != 0 ? -ENODEV : OK;
 }

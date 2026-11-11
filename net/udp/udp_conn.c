@@ -101,10 +101,59 @@ static dq_queue_t g_active_udp_connections;
  ****************************************************************************/
 
 /****************************************************************************
+ * Name: udp_dualstack_inuse
+ *
+ * Description:
+ *   Check if 'conn' of the other domain holds the port of 'ipaddr'.  A UDP
+ *   socket of AF_INET6 without IPV6_V6ONLY bound to [::] or to an
+ *   IPv4-mapped address also takes the IPv4 traffic of its port.
+ *
+ ****************************************************************************/
+
+#if defined(CONFIG_NET_IPv4) && defined(CONFIG_NET_IPv6)
+static bool udp_dualstack_inuse(FAR struct udp_conn_s *conn, uint8_t domain,
+                                FAR union ip_binding_u *ipaddr,
+                                sockopt_t opt)
+{
+  FAR const uint16_t *ipv6 = domain == PF_INET ? conn->u.ipv6.laddr :
+                                                 ipaddr->ipv6.laddr;
+  in_addr_t ipv4 = domain == PF_INET ? ipaddr->ipv4.laddr :
+                                       conn->u.ipv4.laddr;
+  in_addr_t mapped;
+
+#ifdef CONFIG_NET_SOCKOPTS
+  if (_SO_GETOPT(domain == PF_INET ? conn->sconn.s_options : opt,
+                 IPV6_V6ONLY))
+    {
+      return false;
+    }
+#endif
+
+  /* [::] takes every IPv4 address of the port */
+
+  if (net_ipv6addr_cmp(ipv6, g_ipv6_unspecaddr))
+    {
+      return true;
+    }
+
+  /* ::ffff:a.b.c.d takes a.b.c.d; another IPv6 address takes none */
+
+  if (!ip6_is_ipv4addr((FAR const struct in6_addr *)ipv6))
+    {
+      return false;
+    }
+
+  mapped = ip6_get_ipv4addr(ipv6);
+  return mapped == INADDR_ANY || ipv4 == INADDR_ANY || mapped == ipv4;
+}
+#endif
+
+/****************************************************************************
  * Name: udp_find_conn()
  *
  * Description:
- *   Find the UDP connection that uses this local port number.
+ *   Find the UDP connection that uses this local port number.  A dual-stack
+ *   socket of the other domain counts too.
  *
  * Input Parameters:
  *   domain - IP domain (PF_INET or PF_INET6)
@@ -175,12 +224,71 @@ static FAR struct udp_conn_s *udp_find_conn(uint8_t domain,
               break;
             }
         }
+
+#ifdef CONFIG_NET_IPv4
+      if (conn->lport == portno && conn->domain != domain &&
+          udp_dualstack_inuse(conn, domain, ipaddr, opt))
+        {
+          break;
+        }
+#endif
 #endif /* CONFIG_NET_IPv6 */
     }
 
   udp_conn_list_unlock();
   return conn;
 }
+
+/****************************************************************************
+ * Name: udp_ipv4_dualstack
+ *
+ * Description:
+ *   Check if an IPv4 datagram is for the UDP socket 'conn' of AF_INET6.  Its
+ *   IPv6 addresses take the IPv4 address only as [::] or in the IPv4-mapped
+ *   form, and an IPV6_V6ONLY socket takes none.
+ *
+ ****************************************************************************/
+
+#if defined(CONFIG_NET_IPv4) && defined(CONFIG_NET_IPv6)
+static bool udp_ipv4_dualstack(FAR struct udp_conn_s *conn,
+                               FAR struct ipv4_hdr_s *ip,
+                               FAR struct udp_hdr_s *udp)
+{
+  net_ipv6addr_t mapped;
+  in_addr_t addr;
+
+#ifdef CONFIG_NET_SOCKOPTS
+  if (_SO_GETOPT(conn->sconn.s_options, IPV6_V6ONLY))
+    {
+      return false;
+    }
+#endif
+
+  if (conn->lport == 0 || udp->destport != conn->lport)
+    {
+      return false;
+    }
+
+  addr = net_ip4addr_conv32(ip->destipaddr);
+  ip6_map_ipv4addr(addr, mapped);
+  if (!net_ipv6addr_cmp(conn->u.ipv6.laddr, g_ipv6_unspecaddr) &&
+      !net_ipv6addr_cmp(conn->u.ipv6.laddr, mapped))
+    {
+      return false;
+    }
+
+  if (!_UDP_ISCONNECTMODE(conn->flags))
+    {
+      return true;
+    }
+
+  addr = net_ip4addr_conv32(ip->srcipaddr);
+  ip6_map_ipv4addr(addr, mapped);
+  return (conn->rport == 0 || udp->srcport == conn->rport) &&
+         (net_ipv6addr_cmp(conn->u.ipv6.raddr, g_ipv6_unspecaddr) ||
+          net_ipv6addr_cmp(conn->u.ipv6.raddr, mapped));
+}
+#endif
 
 /****************************************************************************
  * Name: udp_ipv4_active
@@ -255,6 +363,21 @@ udp_ipv4_active(FAR struct net_driver_s *dev, FAR struct udp_conn_s *conn,
        *
        * REVISIT: SO_BROADCAST flag is currently ignored.
        */
+
+#ifdef CONFIG_NET_IPv6
+      /* A socket of AF_INET6 matches by its IPv6 addresses */
+
+      if (conn->domain == PF_INET6)
+        {
+          if (udp_ipv4_dualstack(conn, ip, udp))
+            {
+              break;
+            }
+
+          conn = udp_nextconn(conn);
+          continue;
+        }
+#endif
 
       /* Check that there is a local port number and this matches
        * the port number in the destination address.
@@ -394,6 +517,16 @@ udp_ipv6_active(FAR struct net_driver_s *dev, FAR struct udp_conn_s *conn,
        *
        * REVISIT: SO_BROADCAST flag is currently ignored.
        */
+
+#ifdef CONFIG_NET_IPv4
+      /* An IPv4 socket takes no IPv6 datagram */
+
+      if (conn->domain == PF_INET)
+        {
+          conn = udp_nextconn(conn);
+          continue;
+        }
+#endif
 
       /* Check that there is a local port number and this matches
        * the port number in the destination address.
@@ -945,6 +1078,18 @@ int udp_bind(FAR struct udp_conn_s *conn, FAR const struct sockaddr *addr)
 
 int udp_connect(FAR struct udp_conn_s *conn, FAR const struct sockaddr *addr)
 {
+#if defined(CONFIG_NET_IPv4) && defined(CONFIG_NET_IPv6) && \
+    defined(CONFIG_NET_SOCKOPTS)
+  /* An IPv6-only socket cannot send to an IPv4-mapped address */
+
+  if (addr != NULL && addr->sa_family == AF_INET6 &&
+      _SO_GETOPT(conn->sconn.s_options, IPV6_V6ONLY) &&
+      ip6_is_ipv4addr(&((FAR const struct sockaddr_in6 *)addr)->sin6_addr))
+    {
+      return -ENETUNREACH;
+    }
+#endif
+
   /* Has this address already been bound to a local port (lport)? */
 
   if (!conn->lport)
@@ -1000,11 +1145,10 @@ int udp_connect(FAR struct udp_conn_s *conn, FAR const struct sockaddr *addr)
 
           /* Note: ::0 is mapped to ::1 by convention. */
 
-          if (net_ipv6addr_cmp(addr, g_ipv6_unspecaddr))
+          if (net_ipv6addr_cmp(inaddr->sin6_addr.s6_addr16,
+                               g_ipv6_unspecaddr))
             {
-              struct in6_addr loopback_sin6_addr = IN6ADDR_LOOPBACK_INIT;
-              net_ipv6addr_copy(conn->u.ipv6.raddr,
-                                loopback_sin6_addr.s6_addr16);
+              net_ipv6addr_copy(conn->u.ipv6.raddr, g_ipv6_loopback);
             }
           else
             {

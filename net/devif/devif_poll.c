@@ -48,7 +48,7 @@
 #include "igmp/igmp.h"
 #include "icmpv6/icmpv6.h"
 #include "mld/mld.h"
-#include "ipforward/ipforward.h"
+#include "netforward/netforward.h"
 #include "sixlowpan/sixlowpan.h"
 #include "ipfilter/ipfilter.h"
 #include "ipfrag/ipfrag.h"
@@ -254,11 +254,13 @@ devif_poll_pkt_connections(FAR struct net_driver_s *dev,
 
           devif_packet_conversion(dev, DEVIF_PKT);
 
-          /* Call back into the driver */
+          /* Call back into the driver.  The loopback driver has no callback:
+           * loop the frame back as devif_poll_out() does.
+           */
 
           if (dev->d_len > 0)
             {
-              bstop = callback(dev);
+              bstop = callback != NULL ? callback(dev) : devif_loopback(dev);
             }
 
           /* pkt_poll() records the outgoing IOB in pkt_conn->pendiob so that
@@ -548,7 +550,9 @@ static inline_function int devif_poll_icmpv6(FAR struct net_driver_s *dev,
     {
       /* Skip ICMPv6 connections that are bound to other polling devices */
 
+#ifdef CONFIG_NET_ICMPv6_SOCKET
       if (conn == NULL || dev == conn->dev)
+#endif
         {
           /* Perform the ICMPV6 poll
            * Note: conn equal NULL in the first iteration means poll dev's
@@ -581,13 +585,13 @@ static inline_function int devif_poll_icmpv6(FAR struct net_driver_s *dev,
  *
  ****************************************************************************/
 
-#ifdef CONFIG_NET_IPFORWARD
+#ifdef CONFIG_NET_FORWARD
 static inline_function int devif_poll_forward(FAR struct net_driver_s *dev,
                                               devif_poll_callback_t callback)
 {
   /* Perform the forwarding poll */
 
-  ipfwd_poll(dev);
+  netfwd_poll(dev);
 
   /* NOTE: that 6LoWPAN packet conversions are handled differently for
    * forwarded packets.  That is because we don't know what the packet
@@ -813,11 +817,11 @@ static int devif_poll_queue(FAR struct iob_queue_s *iobq,
 
       devif_out(dev);
 
-      /* Call back into the driver */
+      /* Call back into the driver, or loop back if there is no callback */
 
       if (dev->d_len > 0)
         {
-          bstop = callback(dev);
+          bstop = callback != NULL ? callback(dev) : devif_loopback(dev);
         }
     }
 
@@ -1056,7 +1060,7 @@ static int devif_poll_connections(FAR struct net_driver_s *dev,
             bstop = devif_poll_icmpv6(dev, callback);
             break;
 #endif
-#ifdef CONFIG_NET_IPFORWARD
+#ifdef CONFIG_NET_FORWARD
 
           /* Traverse all of the tasks waiting to forward a packet to this
            * device.

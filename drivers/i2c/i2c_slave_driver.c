@@ -31,11 +31,13 @@
 #include <poll.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <string.h>
 #include <sys/types.h>
 #include <sys/param.h>
 
 #include <nuttx/fs/fs.h>
-#include <nuttx/mutex.h>
+#include <nuttx/spinlock.h>
+#include <nuttx/semaphore.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/i2c/i2c_slave.h>
 
@@ -99,7 +101,7 @@ struct i2c_slave_driver_s
 
   /* Mutual exclusion */
 
-  mutex_t lock;
+  spinlock_t lock;
 
   /* The poll waiter */
 
@@ -166,6 +168,7 @@ static const struct file_operations g_i2cslavefops =
 static int i2c_slave_open(FAR struct file *filep)
 {
   FAR struct i2c_slave_driver_s *priv;
+  irqstate_t flags;
   int ret;
 
   DEBUGASSERT(filep->f_inode->i_private != NULL);
@@ -176,7 +179,7 @@ static int i2c_slave_open(FAR struct file *filep)
 
   /* Get exclusive access to the I2C Slave driver state structure */
 
-  nxmutex_lock(&priv->lock);
+  flags = spin_lock_irqsave(&priv->lock);
 
   /* I2c slave initialize */
 
@@ -206,7 +209,7 @@ static int i2c_slave_open(FAR struct file *filep)
   DEBUGASSERT(priv->crefs > 0);
 
 out:
-  nxmutex_unlock(&priv->lock);
+  spin_unlock_irqrestore(&priv->lock, flags);
   return ret;
 }
 
@@ -228,6 +231,7 @@ out:
 static int i2c_slave_close(FAR struct file *filep)
 {
   FAR struct i2c_slave_driver_s *priv;
+  irqstate_t flags;
   int ret = OK;
 
   DEBUGASSERT(filep->f_inode->i_private != NULL);
@@ -238,7 +242,7 @@ static int i2c_slave_close(FAR struct file *filep)
 
   /* Get exclusive access to the I2C slave driver state structure */
 
-  nxmutex_lock(&priv->lock);
+  flags = spin_lock_irqsave(&priv->lock);
 
   /* I2c slave uninitialize */
 
@@ -258,7 +262,7 @@ static int i2c_slave_close(FAR struct file *filep)
 #ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
   if (priv->crefs <= 0 && priv->unlinked)
     {
-      nxmutex_destroy(&priv->lock);
+      spin_unlock_irqrestore(&priv->lock, flags);
       kmm_free(priv);
       filep->f_inode->i_private = NULL;
       return OK;
@@ -266,7 +270,7 @@ static int i2c_slave_close(FAR struct file *filep)
 #endif
 
 out:
-  nxmutex_unlock(&priv->lock);
+  spin_unlock_irqrestore(&priv->lock, flags);
   return ret;
 }
 
@@ -292,6 +296,7 @@ static ssize_t i2c_slave_read(FAR struct file *filep, FAR char *buffer,
                               size_t buflen)
 {
   FAR struct i2c_slave_driver_s *priv;
+  irqstate_t flags;
   int ret;
 
   DEBUGASSERT(filep->f_inode->i_private != NULL);
@@ -302,11 +307,11 @@ static ssize_t i2c_slave_read(FAR struct file *filep, FAR char *buffer,
 
   /* Get exclusive access to the I2C Slave driver state structure */
 
-  nxmutex_lock(&priv->lock);
+  flags = spin_lock_irqsave(&priv->lock);
 
   while (priv->read_length == 0)
     {
-      nxmutex_unlock(&priv->lock);
+      spin_unlock_irqrestore(&priv->lock, flags);
       if (filep->f_oflags & O_NONBLOCK)
         {
           return -EAGAIN;
@@ -318,14 +323,14 @@ static ssize_t i2c_slave_read(FAR struct file *filep, FAR char *buffer,
           return ret;
         }
 
-      nxmutex_lock(&priv->lock);
+      flags = spin_lock_irqsave(&priv->lock);
     }
 
   buflen = MIN(buflen, priv->read_length);
   memcpy(buffer, priv->read_buffer + priv->read_index, buflen);
   priv->read_index += buflen;
   priv->read_length -= buflen;
-  nxmutex_unlock(&priv->lock);
+  spin_unlock_irqrestore(&priv->lock, flags);
   return buflen;
 }
 
@@ -352,6 +357,7 @@ static ssize_t i2c_slave_write(FAR struct file *filep,
 {
   FAR struct i2c_slave_driver_s *priv;
   size_t write_bytes;
+  irqstate_t flags;
   int ret;
 
   DEBUGASSERT(filep->f_inode->i_private != NULL);
@@ -362,7 +368,7 @@ static ssize_t i2c_slave_write(FAR struct file *filep,
 
   /* Get exclusive access to the I2C Slave driver state structure */
 
-  nxmutex_lock(&priv->lock);
+  flags = spin_lock_irqsave(&priv->lock);
 
   write_bytes = MIN(buflen, CONFIG_I2C_SLAVE_WRITEBUFSIZE);
   memcpy(priv->write_buffer, buffer, write_bytes);
@@ -372,7 +378,7 @@ static ssize_t i2c_slave_write(FAR struct file *filep,
       priv->writeable = false;
     }
 
-  nxmutex_unlock(&priv->lock);
+  spin_unlock_irqrestore(&priv->lock, flags);
   return ret < 0 ? ret : write_bytes;
 }
 
@@ -384,6 +390,7 @@ static int i2c_slave_poll(FAR struct file *filep, FAR struct pollfd_s *fds,
                           bool setup)
 {
   FAR struct i2c_slave_driver_s *priv;
+  irqstate_t flags;
   int ret = OK;
   int i;
 
@@ -395,7 +402,7 @@ static int i2c_slave_poll(FAR struct file *filep, FAR struct pollfd_s *fds,
 
   /* Get exclusive access to the I2C Slave driver state structure */
 
-  nxmutex_lock(&priv->lock);
+  flags = spin_lock_irqsave(&priv->lock);
   if (setup)
     {
       pollevent_t eventset = 0;
@@ -437,7 +444,7 @@ static int i2c_slave_poll(FAR struct file *filep, FAR struct pollfd_s *fds,
     }
 
 out:
-  nxmutex_unlock(&priv->lock);
+  spin_unlock_irqrestore(&priv->lock, flags);
   return ret;
 }
 
@@ -459,6 +466,7 @@ out:
 static int i2c_slave_unlink(FAR struct inode *inode)
 {
   FAR struct i2c_slave_driver_s *priv;
+  irqstate_t flags;
 
   DEBUGASSERT(inode->i_private != NULL);
 
@@ -468,13 +476,13 @@ static int i2c_slave_unlink(FAR struct inode *inode)
 
   /* Get exclusive access to the I2C Slave driver state structure */
 
-  nxmutex_lock(&priv->lock);
+  flags = spin_lock_irqsave(&priv->lock);
 
   /* Are there open references to the driver data structure? */
 
   if (priv->crefs <= 0)
     {
-      nxmutex_destroy(&priv->lock);
+      spin_unlock_irqrestore(&priv->lock, flags);
       kmm_free(priv);
       inode->i_private = NULL;
       return OK;
@@ -485,7 +493,7 @@ static int i2c_slave_unlink(FAR struct inode *inode)
    */
 
   priv->unlinked = true;
-  nxmutex_unlock(&priv->lock);
+  spin_unlock_irqrestore(&priv->lock, flags);
   return OK;
 }
 #endif
@@ -495,11 +503,12 @@ static int i2c_slave_callback(FAR void *arg, i2c_slave_complete_t status,
 {
   FAR struct i2c_slave_driver_s *priv = arg;
   pollevent_t events;
+  irqstate_t flags;
   int semcount;
 
   /* Get exclusive access to the I2C Slave driver state structure */
 
-  nxmutex_lock(&priv->lock);
+  flags = spin_lock_irqsave(&priv->lock);
 
   if (status == I2CS_RX_COMPLETE)
     {
@@ -521,7 +530,7 @@ static int i2c_slave_callback(FAR void *arg, i2c_slave_complete_t status,
       priv->writeable = true;
     }
 
-  nxmutex_unlock(&priv->lock);
+  spin_unlock_irqrestore(&priv->lock, flags);
   poll_notify(priv->fds, CONFIG_I2C_SLAVE_NPOLLWAITERS, events);
   return OK;
 }
@@ -576,7 +585,7 @@ int i2c_slave_register(FAR struct i2c_slave_s *dev, int bus, int addr,
     }
 
   nxsem_init(&priv->wait, 0, 0);
-  nxmutex_init(&priv->lock);
+  spin_lock_init(&priv->lock);
   priv->dev = dev;
   priv->addr = addr;
   priv->nbits = nbits;
@@ -596,7 +605,6 @@ int i2c_slave_register(FAR struct i2c_slave_s *dev, int bus, int addr,
     }
 
 out:
-  nxmutex_destroy(&priv->lock);
   nxsem_destroy(&priv->wait);
   unregister_driver(devname);
   kmm_free(priv);

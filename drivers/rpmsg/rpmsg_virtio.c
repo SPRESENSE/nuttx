@@ -100,7 +100,7 @@ static void rpmsg_virtio_tx_wakeup(FAR struct rpmsg_virtio_priv_s *priv);
 
 static int rpmsg_virtio_wait(FAR struct rpmsg_s *rpmsg, FAR sem_t *sem);
 static int rpmsg_virtio_post(FAR struct rpmsg_s *rpmsg, FAR sem_t *sem);
-static void rpmsg_virtio_dump(FAR struct rpmsg_s *rpmsg);
+static void rpmsg_virtio_dump(FAR struct rpmsg_s *rpmsg, bool verbose);
 
 static void rpmsg_virtio_rx_callback(FAR struct virtqueue *vq);
 static void rpmsg_virtio_tx_callback(FAR struct virtqueue *vq);
@@ -411,19 +411,49 @@ static void rpmsg_virtio_dump_buffer(FAR struct rpmsg_virtio_device *rvdev,
                                      bool rx)
 {
   FAR struct virtqueue *vq = rx ? rvdev->rvq : rvdev->svq;
+  unsigned int role;
   FAR void *addr;
   int desc_idx;
+  int unretrieved;
   int num;
   int i;
 
+  role = rpmsg_virtio_get_role(rvdev);
   num = rpmsg_virtio_buffer_nused(rvdev, rx);
-  metal_log(METAL_LOG_EMERGENCY,
-            "    %s buffer, total %d, pending %d\n",
-            rx ? "RX" : "TX", vq->vq_nentries, num);
+
+  if (role == RPMSG_HOST)
+    {
+      RPMSG_VIRTIO_INVALIDATE(vq->vq_ring.used->idx);
+      unretrieved = vq->vq_ring.used->idx - vq->vq_used_cons_idx;
+    }
+  else
+    {
+      RPMSG_VIRTIO_INVALIDATE(vq->vq_ring.avail->idx);
+      unretrieved = vq->vq_ring.avail->idx - vq->vq_available_idx;
+    }
+
+  if (rx)
+    {
+      metal_log(METAL_LOG_EMERGENCY, "    RX buffer total %d\n",
+                vq->vq_nentries);
+      metal_log(METAL_LOG_EMERGENCY, "      unretrieved %d\n", unretrieved);
+      metal_log(METAL_LOG_EMERGENCY, "      retrieved %d\n",
+                vq->vq_queued_cnt);
+      metal_log(METAL_LOG_EMERGENCY, "      pending %d:\n", num);
+    }
+  else
+    {
+      metal_log(METAL_LOG_EMERGENCY, "    TX buffer total %d\n",
+                vq->vq_nentries);
+      metal_log(METAL_LOG_EMERGENCY, "      unretrieved %d\n", unretrieved);
+      metal_log(METAL_LOG_EMERGENCY, "      retrieved %d\n",
+                vq->vq_free_cnt);
+      metal_log(METAL_LOG_EMERGENCY, "      sent %d:\n", num);
+    }
 
   for (i = 0; i < num; i++)
     {
-      if ((rpmsg_virtio_get_role(rvdev) == RPMSG_HOST) ^ rx)
+      if ((role == RPMSG_HOST) ^ rx)
         {
           RPMSG_VIRTIO_INVALIDATE(vq->vq_ring.used->idx);
           desc_idx = (vq->vq_ring.used->idx + i) & (vq->vq_nentries - 1);
@@ -438,6 +468,23 @@ static void rpmsg_virtio_dump_buffer(FAR struct rpmsg_virtio_device *rvdev,
           desc_idx = vq->vq_ring.used->ring[desc_idx].id;
         }
 
+      /* Validate desc_idx that was just read from the ring contents.
+       * The ring is shared with the peer core and may contain stale or
+       * corrupted indices (for example when the peer panicked in the
+       * middle of an in-flight ring update).  Indexing vq_ring.desc[]
+       * out of bounds would land on the avail/used regions whose
+       * alignment is only 2 bytes; reading the 64-bit desc.addr field
+       * there trips UBSan's alignment check inside this panic-dump
+       * path.  Skip such invalid entries instead.
+       */
+
+      if (desc_idx >= vq->vq_nentries)
+        {
+          syslog(LOG_EMERG, "    %s buffer[%u] invalid desc_idx %u >= %u\n",
+                 rx ? "RX" : "TX", i, desc_idx, vq->vq_nentries);
+          continue;
+        }
+
       addr = metal_io_phys_to_virt(vq->shm_io,
                                    vq->vq_ring.desc[desc_idx].addr);
       if (addr)
@@ -450,7 +497,7 @@ static void rpmsg_virtio_dump_buffer(FAR struct rpmsg_virtio_device *rvdev,
           if (ept)
             {
               metal_log(METAL_LOG_EMERGENCY,
-                        "      %s buffer %p hold by %s\n",
+                        "        %s buffer %p hold by %s\n",
                         rx ? "RX" : "TX", hdr, ept->name);
             }
         }
@@ -461,7 +508,7 @@ static void rpmsg_virtio_dump_buffer(FAR struct rpmsg_virtio_device *rvdev,
  * Name: rpmsg_virtio_dump
  ****************************************************************************/
 
-static void rpmsg_virtio_dump(FAR struct rpmsg_s *rpmsg)
+static void rpmsg_virtio_dump(FAR struct rpmsg_s *rpmsg, bool verbose)
 {
   FAR struct rpmsg_virtio_priv_s *priv =
     (FAR struct rpmsg_virtio_priv_s *)rpmsg;
@@ -473,28 +520,34 @@ static void rpmsg_virtio_dump(FAR struct rpmsg_s *rpmsg)
             priv->rpmsg.local_cpuname, priv->rpmsg.cpuname, priv->headrx,
             priv->headtx);
 
-  if (!rvdev->vdev)
+  if (!rvdev->vdev || !rdev->ns_unbind_cb)
     {
       return;
     }
 
   metal_mutex_acquire(&rdev->lock);
-  metal_log(METAL_LOG_EMERGENCY,
-            "Dump rpmsg info between cpu (master: %s)%s <==> %s:\n",
-            rpmsg_virtio_get_role(rvdev) == RPMSG_HOST ? "yes" : "no",
-            priv->rpmsg.local_cpuname, priv->rpmsg.cpuname);
+  if (verbose)
+    {
+      metal_log(METAL_LOG_EMERGENCY,
+                "Dump rpmsg info between cpu (master: %s)%s <==> %s:\n",
+                rpmsg_virtio_get_role(rvdev) == RPMSG_HOST ?
+                "yes" : "no", priv->rpmsg.local_cpuname,
+                priv->rpmsg.cpuname);
+
+      rpmsg_dump_epts(rdev);
+    }
 
   metal_log(METAL_LOG_EMERGENCY, "rpmsg vq RX:\n");
   virtqueue_dump(rvdev->rvq);
   metal_log(METAL_LOG_EMERGENCY, "rpmsg vq TX:\n");
   virtqueue_dump(rvdev->svq);
 
-  rpmsg_dump_epts(rdev);
-
-  metal_log(METAL_LOG_EMERGENCY, "  rpmsg buffer list:\n");
-
-  rpmsg_virtio_dump_buffer(rvdev, true);
-  rpmsg_virtio_dump_buffer(rvdev, false);
+  if (verbose)
+    {
+      metal_log(METAL_LOG_EMERGENCY, "  rpmsg buffer list:\n");
+      rpmsg_virtio_dump_buffer(rvdev, true);
+      rpmsg_virtio_dump_buffer(rvdev, false);
+    }
 
   metal_mutex_release(&rdev->lock);
 }
@@ -702,7 +755,7 @@ static int rpmsg_virtio_notify_wait(FAR struct rpmsg_device *rdev,
 
   if (!rpmsg_virtio_is_recursive(priv))
     {
-      return -EAGAIN;
+      return RPMSG_EOPNOTSUPP;
     }
 
   /* Wait to wakeup */

@@ -155,10 +155,8 @@ set(SDK_CSRCS
     "${ILLD_DIR}/Libraries/iLLD/TC4xx/CpuGeneric/Dma/Std/IfxDma.c"
     "${ILLD_DIR}/Libraries/iLLD/TC4xx/CpuGeneric/Port/Std/IfxPort.c"
     "${ILLD_DIR}/Libraries/iLLD/TC4xx/Tricore/_Impl/IfxCpu_cfg.c"
-    "${ILLD_DIR}/Libraries/iLLD/TC4xx/Tricore/_Impl/IfxStm_cfg.c"
     "${ILLD_DIR}/Libraries/iLLD/TC4xx/Tricore/Cpu/Std/IfxCpu.c"
     "${ILLD_DIR}/Libraries/iLLD/TC4xx/Tricore/Scu/Std/IfxScuEru.c"
-    "${ILLD_DIR}/Libraries/iLLD/TC4xx/Tricore/Stm/Std/IfxStm.c"
     "${ILLD_DIR}/Libraries/iLLD/TC4xx/Tricore/Smm/Std/IfxSmm.c"
     "${ILLD_DIR}/Libraries/iLLD/TC4xx/Tricore/Smm/Std/IfxSmmRst.c"
     "${ILLD_DIR}/Libraries/iLLD/TC4xx/Tricore/Smu/Std/IfxSmu.c"
@@ -178,6 +176,3 @@ if(NOT CONFIG_TRICORE_TOOLCHAIN_TASKING)
                                        -Wno-unused-but-set-parameter)
   target_compile_options(nuttx PRIVATE -Wno-implicit-fallthrough)
 endif()
-
-target_compile_definitions(arch PRIVATE -DMODULE_STM0=MODULE_CPU0
-                                        -DSRC_STM0SR0=SRC_STMCPU0_SR2)

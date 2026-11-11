@@ -118,9 +118,13 @@ static int     fat_rmdir(FAR struct inode *mountpt, FAR const char *relpath);
 static int     fat_rename(FAR struct inode *mountpt,
                  FAR const char *oldrelpath, FAR const char *newrelpath);
 static int     fat_stat_common(FAR struct fat_mountpt_s *fs,
-                 FAR uint8_t *direntry, FAR struct stat *buf);
+                 FAR uint8_t *direntry,
+                 FAR const struct fat_shared_s *shared,
+                 FAR struct stat *buf);
 static int     fat_stat_file(FAR struct fat_mountpt_s *fs,
-                 FAR uint8_t *direntry, FAR struct stat *buf);
+                 FAR uint8_t *direntry,
+                 FAR const struct fat_shared_s *shared,
+                 FAR struct stat *buf);
 static int     fat_stat_root(FAR struct fat_mountpt_s *fs,
                  FAR struct stat *buf);
 static int     fat_stat(struct inode *mountpt, const char *relpath,
@@ -1377,7 +1381,7 @@ static ssize_t fat_write(FAR struct file *filep, FAR const char *buffer,
   FAR struct inode *inode;
   FAR struct fat_mountpt_s *fs;
   FAR struct fat_file_s *ff;
-  unsigned int byteswritten;
+  unsigned int byteswritten = 0;
   unsigned int writesize;
   FAR uint8_t *userbuffer = (FAR uint8_t *)buffer;
   int sectorindex;
@@ -1436,12 +1440,18 @@ static ssize_t fat_write(FAR struct file *filep, FAR const char *buffer,
       goto errout_with_lock;
     }
 
+  /* With O_APPEND, each write starts at the end of the file */
+
+  if ((filep->f_oflags & O_APPEND) != 0)
+    {
+      filep->f_pos = ff->ff_shared->s_size;
+    }
+
   /* Loop until either (1) all data has been transferred, or (2) an
    * error occurs.  We assume we start with the current sector in
    * cache (ff_currentsector)
    */
 
-  byteswritten = 0;
   sectorindex = filep->f_pos & SEC_NDXMASK(fs);
 
   while (buflen > 0)
@@ -1612,6 +1622,16 @@ fat_write_restart:
 
 errout_with_lock:
   nxmutex_unlock(&fs->fs_lock);
+
+  /* Return the bytes that were written before the error, if any.  The
+   * next write then reports the error.
+   */
+
+  if (byteswritten > 0)
+    {
+      return byteswritten;
+    }
+
   return ret;
 }
 
@@ -2681,7 +2701,7 @@ static int fat_fstat(FAR const struct file *filep, FAR struct stat *buf)
        * to it.
        */
 
-      ret = fat_stat_file(fs, direntry, buf);
+      ret = fat_stat_file(fs, direntry, shared, buf);
     }
 
 errout_with_lock:
@@ -3922,7 +3942,9 @@ errout_with_lock:
  ****************************************************************************/
 
 static int fat_stat_common(FAR struct fat_mountpt_s *fs,
-                           FAR uint8_t *direntry, FAR struct stat *buf)
+                           FAR uint8_t *direntry,
+                           FAR const struct fat_shared_s *shared,
+                           FAR struct stat *buf)
 {
   uint16_t fatdate;
   uint16_t date2;
@@ -3948,9 +3970,12 @@ static int fat_stat_common(FAR struct fat_mountpt_s *fs,
   fattime           = DIR_GETCRTIME(direntry);
   buf->st_ctime     = fat_fattime2systime(fattime, fatdate);
 
-  /* File/directory size, access block size */
+  /* File/directory size, access block size.  The size of an open file is
+   * in its shared state: the directory entry has it only after a sync.
+   */
 
-  buf->st_size      = DIR_GETFILESIZE(direntry);
+  buf->st_size      = shared != NULL ? shared->s_size :
+                      DIR_GETFILESIZE(direntry);
   buf->st_blksize   = fs->fs_fatsecperclus * fs->fs_hwsectorsize;
   buf->st_blocks    = (buf->st_size + buf->st_blksize - 1) / buf->st_blksize;
 
@@ -3967,7 +3992,9 @@ static int fat_stat_common(FAR struct fat_mountpt_s *fs,
  ****************************************************************************/
 
 static int fat_stat_file(FAR struct fat_mountpt_s *fs,
-                         FAR uint8_t *direntry, FAR struct stat *buf)
+                         FAR uint8_t *direntry,
+                         FAR const struct fat_shared_s *shared,
+                         FAR struct stat *buf)
 {
   uint8_t  attribute;
 
@@ -4005,7 +4032,7 @@ static int fat_stat_file(FAR struct fat_mountpt_s *fs,
       buf->st_mode |= S_IFREG;
     }
 
-  return fat_stat_common(fs, direntry, buf);
+  return fat_stat_common(fs, direntry, shared, buf);
 }
 
 /****************************************************************************
@@ -4040,6 +4067,7 @@ static int fat_stat(FAR struct inode *mountpt, FAR const char *relpath,
                     FAR struct stat *buf)
 {
   FAR struct fat_mountpt_s *fs;
+  FAR struct fat_shared_s *shared;
   struct fat_dirinfo_s dirinfo;
   FAR uint8_t *direntry;
   int ret;
@@ -4089,11 +4117,16 @@ static int fat_stat(FAR struct inode *mountpt, FAR const char *relpath,
 
       direntry = &fs->fs_buffer[dirinfo.fd_seq.ds_offset];
 
+      /* The shared state of the file, if the file is open */
+
+      shared = fat_shared_find(fs, fs->fs_currentsector,
+                               dirinfo.dir.fd_index);
+
       /* Call fat_stat_file() to create the buf and to save information to
        * the stat buffer.
        */
 
-      ret = fat_stat_file(fs, direntry, buf);
+      ret = fat_stat_file(fs, direntry, shared, buf);
     }
 
 errout_with_lock:

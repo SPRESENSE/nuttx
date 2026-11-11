@@ -30,6 +30,7 @@
 #include <sys/types.h>
 
 #include <nuttx/fs/fs.h>
+#include <nuttx/fs/uio.h>
 
 #include <assert.h>
 #include <errno.h>
@@ -151,7 +152,6 @@ void uio_copyfrom(FAR struct uio *uio, size_t offset, FAR const void *buf,
 {
   FAR const struct iovec *iov = uio->uio_iov;
 
-  DEBUGASSERT(uio->uio_resid >= 0);
   DEBUGASSERT(uio->uio_resid <= SSIZE_MAX);
   DEBUGASSERT(len <= uio->uio_resid);
   DEBUGASSERT(offset <= uio->uio_resid - len);
@@ -169,6 +169,7 @@ void uio_copyfrom(FAR struct uio *uio, size_t offset, FAR const void *buf,
   while (len > 0)
     {
       size_t blen = len;
+
       if (blen > iov->iov_len - offset)
         {
           blen = iov->iov_len - offset;
@@ -196,7 +197,6 @@ void uio_copyto(FAR struct uio *uio, size_t offset, FAR void *buf,
 {
   FAR const struct iovec *iov = uio->uio_iov;
 
-  DEBUGASSERT(uio->uio_resid >= 0);
   DEBUGASSERT(uio->uio_resid <= SSIZE_MAX);
   DEBUGASSERT(len <= uio->uio_resid);
   DEBUGASSERT(offset <= uio->uio_resid - len);
@@ -214,6 +214,7 @@ void uio_copyto(FAR struct uio *uio, size_t offset, FAR void *buf,
   while (len > 0)
     {
       size_t blen = len;
+
       if (blen > iov->iov_len - offset)
         {
           blen = iov->iov_len - offset;

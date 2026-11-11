@@ -309,6 +309,14 @@ config STM32_HAVE_DMA2
 config STM32_HAVE_DMA2D
 	bool
 
+config STM32_HAVE_GPDMA_SECURE
+	bool
+	---help---
+		The CPU runs secure and privileged, and the memory it uses accepts
+		only secure, privileged bus accesses (STM32N6).  GPDMA channels are
+		then made secure and privileged, with secure source and
+		destination.  Other accesses read as zero and writes are lost.
+
 config STM32_HAVE_DMAMUX
 	bool
 
@@ -1095,7 +1103,7 @@ config STM32_HAVE_USART_WUS
 
 config STM32_HAVE_USART_UNCONFIG_ON_CLOSE
 	bool
-	default y if STM32_HAVE_IP_USART_M33_V3
+	default y if STM32_HAVE_IP_USART_M33M55_V3
 	default y if ARCH_CHIP_STM32N6
 
 config STM32_HAVE_USART2
@@ -1122,7 +1130,7 @@ config STM32_HAVE_UART8
 config STM32_HAVE_IP_USART
 	bool
 
-config STM32_HAVE_IP_USART_M33_V3
+config STM32_HAVE_IP_USART_M33M55_V3
 	bool
 	select STM32_HAVE_IP_USART
 
