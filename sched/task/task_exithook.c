@@ -26,6 +26,7 @@
 
 #include <nuttx/config.h>
 
+#include <aio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <signal.h>
@@ -205,7 +206,7 @@ static inline void nxtask_sigchild(pid_t ppid, FAR struct tcb_s *ctcb,
 
       /* Send the signal to one thread in the group */
 
-      group_signal(pgrp, &info, NULL);
+      group_signal(pgrp, &info, NULL, false);
     }
 }
 
@@ -261,7 +262,7 @@ static inline void nxtask_sigchild(FAR struct tcb_s *ptcb,
        * can provide the correct si_code value with the signal.
        */
 
-      nxsig_tcbdispatch(ptcb, &info, true, NULL);
+      nxsig_tcbdispatch(ptcb, &info, true, NULL, false);
     }
 }
 
@@ -468,6 +469,12 @@ void nxtask_exithook(FAR struct tcb_s *tcb, int status)
 
   nxsig_discard_threadsignals(tcb);
 #endif
+
+  /* Cancel pending AIO before the task's stack is freed, so the worker
+   * thread does not dereference a stale aiocb after this task is gone.
+   */
+
+  aio_cleanup(tcb->pid);
 
   /* Leave the task group.  Perhaps discarding any un-reaped child
    * status (no zombies here!)

@@ -148,7 +148,13 @@ static void tricore_gpsrinitialize(void)
 
 void up_irq_enable(void)
 {
-  __asm__ volatile ("enable" : : : "memory");
+#ifdef CONFIG_ARCH_HIPRI_INTERRUPT
+  tricore_mtcr(TRICORE_CPU_ICR,
+               tricore_mfcr(TRICORE_CPU_ICR) & ~TRICORE_ICR_CCPN_MASK);
+  UP_ISB();
+#endif
+
+  __asm__ __volatile__ ("enable" : : : "memory");
 }
 
 /****************************************************************************

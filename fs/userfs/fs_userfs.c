@@ -469,6 +469,10 @@ static ssize_t userfs_read(FAR struct file *filep, char *buffer,
 
   memcpy(buffer, resp->rddata, resp->nread);
   nread = resp->nread;
+  if (nread > 0)
+    {
+      filep->f_pos += nread;
+    }
 
   nxmutex_unlock(&priv->lock);
 
@@ -561,6 +565,10 @@ static ssize_t userfs_write(FAR struct file *filep, FAR const char *buffer,
     }
 
   nwritten = resp->nwritten;
+  if (nwritten > 0)
+    {
+      filep->f_pos += nwritten;
+    }
 
   nxmutex_unlock(&priv->lock);
 
@@ -643,6 +651,10 @@ static off_t userfs_seek(FAR struct file *filep, off_t offset, int whence)
     }
 
   off_ret = resp->ret;
+  if (off_ret >= 0)
+    {
+      filep->f_pos = off_ret;
+    }
 
   nxmutex_unlock(&priv->lock);
 
@@ -1130,7 +1142,7 @@ static int userfs_truncate(FAR struct file *filep, off_t length)
     }
 
   resp = (FAR struct userfs_truncate_response_s *)priv->iobuffer;
-  if (resp->resp != USERFS_RESP_FSTAT)
+  if (resp->resp != USERFS_RESP_TRUNCATE)
     {
       ferr("ERROR: Incorrect response: %u\n", resp->resp);
       nxmutex_unlock(&priv->lock);
@@ -2330,7 +2342,7 @@ static int userfs_chstat(FAR struct inode *mountpt, FAR const char *relpath,
     }
 
   resp = (FAR struct userfs_chstat_response_s *)priv->iobuffer;
-  if (resp->resp != USERFS_RESP_STAT)
+  if (resp->resp != USERFS_RESP_CHSTAT)
     {
       ferr("ERROR: Incorrect response: %u\n", resp->resp);
       nxmutex_unlock(&priv->lock);

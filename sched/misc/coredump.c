@@ -62,6 +62,8 @@
 #  define XCPTCONTEXT_ALIGN 16
 #endif
 
+#define PID0_REPLACE  INT32_MAX
+
 /****************************************************************************
  * Private Types
  ****************************************************************************/
@@ -327,7 +329,11 @@ static void elf_emit_tcb_note(FAR struct elf_dumpinfo_s *cinfo,
   elf_emit(cinfo, &nhdr, sizeof(nhdr));
   elf_emit(cinfo, name, sizeof(name));
 
-  status.pr_pid = tcb->pid;
+  /* GDB treats PID 0 as invalid: for a core file it assigns an unused ID,
+   * and for the GDB stub 0 means "any thread".
+   */
+
+  status.pr_pid = tcb->pid == 0 ? PID0_REPLACE : tcb->pid;
 
   if (running_task() == tcb)
     {
@@ -712,6 +718,37 @@ static void elf_emit_phdr(FAR struct elf_dumpinfo_s *cinfo,
 }
 
 /****************************************************************************
+ * Name: coredump_print_memory_regions
+ *
+ * Description:
+ *   Print out the memory range when coredump is generated.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_BOARD_COREDUMP_PRINT_REGIONS
+static void
+coredump_print_memory_regions(FAR const struct memory_region_s *regions)
+{
+  int i;
+
+  if (regions == NULL)
+    {
+      _alert("No memory regions defined.\n");
+      return;
+    }
+
+  _alert("Memory regions will be printed:\n");
+  for (i = 0; regions[i].start < regions[i].end; i++)
+    {
+      _alert("Region[%d] start=0x%" PRIxPTR ", end=0x%" PRIxPTR "\n",
+             i, regions[i].start, regions[i].end);
+      *(volatile int *)regions[i].start;
+      *(volatile int *)(regions[i].end - sizeof(int));
+    }
+}
+#endif
+
+/****************************************************************************
  * Name: coredump_dump_syslog
  *
  * Description:
@@ -757,10 +794,10 @@ static void coredump_dump_syslog(pid_t pid)
   coredump(g_regions, stream, pid);
 
 #  ifdef CONFIG_BOARD_COREDUMP_COMPRESSION
-  _alert("Finish coredump (Compression Enabled). %s formatted\n",
+  _alert("Coredump finish (Compression Enabled). %s formatted\n",
          streamname);
 #  else
-  _alert("Finish coredump. %s formatted\n", streamname);
+  _alert("Coredump finish. %s formatted\n", streamname);
 #  endif
 
   setlogmask(logmask);
@@ -799,7 +836,7 @@ static void coredump_dump_dev(pid_t pid)
       return;
     }
 
-  _alert("Finish coredump, write %" PRIdOFF " bytes to %s\n",
+  _alert("Coredump finish, write %" PRIdOFF " bytes to %s\n",
          g_devstream.common.nput, CONFIG_BOARD_COREDUMP_DEVPATH);
 }
 #endif
@@ -897,7 +934,10 @@ int coredump_add_memory_region(FAR const void *ptr, size_t size,
       return -ENOMEM;
     }
 
-  memcpy(region, g_regions, sizeof(struct memory_region_s) * count);
+  if (g_regions != NULL)
+    {
+      memcpy(region, g_regions, sizeof(struct memory_region_s) * count);
+    }
 
   if (g_regions != NULL
 #ifdef CONFIG_BOARD_MEMORY_RANGE
@@ -970,6 +1010,10 @@ int coredump_initialize(void)
 
 void coredump_dump(pid_t pid)
 {
+#ifdef CONFIG_BOARD_COREDUMP_PRINT_REGIONS
+  coredump_print_memory_regions(g_regions);
+#endif
+
 #ifdef CONFIG_BOARD_COREDUMP_SYSLOG
   coredump_dump_syslog(pid);
 #endif

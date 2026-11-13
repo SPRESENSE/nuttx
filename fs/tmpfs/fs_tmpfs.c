@@ -248,6 +248,59 @@ const struct mountpt_operations g_tmpfs_operations =
  ****************************************************************************/
 
 /****************************************************************************
+ * Name: tmpfs_update_atime
+ ****************************************************************************/
+
+static inline void tmpfs_update_atime(FAR struct tmpfs_object_s *to)
+{
+  clock_gettime(CLOCK_REALTIME, &to->to_atime);
+}
+
+/****************************************************************************
+ * Name: tmpfs_update_mtime
+ ****************************************************************************/
+
+static inline void tmpfs_update_mtime(FAR struct tmpfs_object_s *to)
+{
+  clock_gettime(CLOCK_REALTIME, &to->to_mtime);
+}
+
+/****************************************************************************
+ * Name: tmpfs_update_ctime
+ ****************************************************************************/
+
+static inline void tmpfs_update_ctime(FAR struct tmpfs_object_s *to)
+{
+  clock_gettime(CLOCK_REALTIME, &to->to_ctime);
+}
+
+/****************************************************************************
+ * Name: tmpfs_init_times
+ ****************************************************************************/
+
+static void tmpfs_init_times(FAR struct tmpfs_object_s *to)
+{
+  tmpfs_update_atime(to);
+  to->to_mtime = to->to_atime;
+  to->to_ctime = to->to_atime;
+}
+
+/****************************************************************************
+ * Name: tmpfs_update_rename_times
+ ****************************************************************************/
+
+static void tmpfs_update_rename_times(FAR struct tmpfs_object_s *to,
+                                      FAR struct tmpfs_directory_s *oldtdo,
+                                      FAR struct tmpfs_directory_s *newtdo)
+{
+  tmpfs_update_ctime(to);
+  oldtdo->tdo_mtime = to->to_ctime;
+  oldtdo->tdo_ctime = to->to_ctime;
+  newtdo->tdo_mtime = to->to_ctime;
+  newtdo->tdo_ctime = to->to_ctime;
+}
+
+/****************************************************************************
  * Name: tmpfs_realloc_directory
  ****************************************************************************/
 
@@ -775,6 +828,8 @@ static int tmpfs_check_parentperm(FAR struct tmpfs_s *fs,
   return tmpfs_check_pathperm(fs, relpath, parentlen, amode);
 }
 
+#endif /* CONFIG_FS_PERMISSION */
+
 /****************************************************************************
  * Name: tmpfs_chstat_object
  ****************************************************************************/
@@ -782,6 +837,7 @@ static int tmpfs_check_parentperm(FAR struct tmpfs_s *fs,
 static int tmpfs_chstat_object(FAR struct tmpfs_object_s *to,
                                FAR const struct stat *buf, int flags)
 {
+#ifdef CONFIG_FS_PERMISSION
   FAR struct tcb_s *rtcb;
   uid_t euid;
 
@@ -817,11 +873,30 @@ static int tmpfs_chstat_object(FAR struct tmpfs_object_s *to,
     {
       to->to_gid = buf->st_gid;
     }
+#endif
+
+  if ((flags & CH_STAT_ATIME) != 0)
+    {
+      to->to_atime = buf->st_atim;
+    }
+
+  if ((flags & CH_STAT_MTIME) != 0)
+    {
+      to->to_mtime = buf->st_mtim;
+    }
+
+  /* Any metadata change is a status change.  The VFS has already filled
+   * st_ctim with the current time.
+   */
+
+  if ((flags & (CH_STAT_MODE | CH_STAT_UID | CH_STAT_GID |
+                CH_STAT_ATIME | CH_STAT_MTIME)) != 0)
+    {
+      to->to_ctime = buf->st_ctim;
+    }
 
   return OK;
 }
-
-#endif /* CONFIG_FS_PERMISSION */
 
 /****************************************************************************
  * Name: tmpfs_new_ino
@@ -866,6 +941,8 @@ tmpfs_alloc_file(FAR struct tmpfs_directory_s *parent, mode_t mode)
   tfo->tfo_flags  = 0;
   tfo->tfo_size   = 0;
   tfo->tfo_data   = NULL;
+
+  tmpfs_init_times((FAR struct tmpfs_object_s *)tfo);
 
 #ifdef CONFIG_FS_PERMISSION
   tmpfs_init_object((FAR struct tmpfs_object_s *)tfo, mode);
@@ -974,6 +1051,9 @@ static int tmpfs_create_file(FAR struct tmpfs_s *fs,
       goto errout_with_file;
     }
 
+  tmpfs_update_mtime((FAR struct tmpfs_object_s *)parent);
+  tmpfs_update_ctime((FAR struct tmpfs_object_s *)parent);
+
   /* Release the reference and lock on the parent directory */
 
   parent->tdo_refs--;
@@ -1022,6 +1102,8 @@ tmpfs_alloc_directory(FAR struct tmpfs_directory_s *parent, mode_t mode)
   tdo->tdo_ino      = tmpfs_new_ino();
   tdo->tdo_nentries = 0;
   tdo->tdo_entry    = NULL;
+
+  tmpfs_init_times((FAR struct tmpfs_object_s *)tdo);
 
 #ifdef CONFIG_FS_PERMISSION
   tmpfs_init_object((FAR struct tmpfs_object_s *)tdo, mode);
@@ -1127,6 +1209,9 @@ static int tmpfs_create_directory(FAR struct tmpfs_s *fs,
     {
       goto errout_with_directory;
     }
+
+  tmpfs_update_mtime((FAR struct tmpfs_object_s *)parent);
+  tmpfs_update_ctime((FAR struct tmpfs_object_s *)parent);
 
   /* Free the copy of the relpath, release our reference to the parent
    * directory, and return success
@@ -1684,6 +1769,21 @@ static int tmpfs_open(FAR struct file *filep, FAR const char *relpath,
 
   DEBUGASSERT(fs != NULL && fs->tfs_root.tde_object != NULL);
 
+  /* Skip over any leading directory separators (shouldn't be any) */
+
+  for (; *relpath == '/'; relpath++);
+
+  /* An empty relative path refers to the mountpoint root, which is
+   * always a directory.  Report EISDIR so that the VFS open fallback
+   * can complete the open as a directory stream (e.g. for O_PATH or
+   * O_DIRECTORY opens of the mountpoint itself).
+   */
+
+  if (*relpath == '\0')
+    {
+      return -EISDIR;
+    }
+
   /* Get exclusive access to the file system */
 
   ret = tmpfs_lock(fs);
@@ -1753,6 +1853,9 @@ static int tmpfs_open(FAR struct file *filep, FAR const char *relpath,
                 {
                   goto errout_with_filelock;
                 }
+
+              tmpfs_update_mtime((FAR struct tmpfs_object_s *)tfo);
+              tmpfs_update_ctime((FAR struct tmpfs_object_s *)tfo);
             }
         }
     }
@@ -1908,6 +2011,11 @@ static ssize_t tmpfs_read(FAR struct file *filep, FAR char *buffer,
     {
       memcpy(buffer, &tfo->tfo_data[startpos], nread);
       filep->f_pos += nread;
+
+      if ((filep->f_oflags & O_NOATIME) == 0)
+        {
+          tmpfs_update_atime((FAR struct tmpfs_object_s *)tfo);
+        }
     }
   else
     {
@@ -1997,6 +2105,9 @@ static ssize_t tmpfs_write(FAR struct file *filep, FAR const char *buffer,
     }
 
   filep->f_pos = endpos;
+
+  tmpfs_update_mtime((FAR struct tmpfs_object_s *)tfo);
+  tmpfs_update_ctime((FAR struct tmpfs_object_s *)tfo);
 
   /* Release the lock on the file */
 
@@ -2101,6 +2212,34 @@ static int tmpfs_unmap(FAR struct task_group_s *group,
   return ret;
 }
 
+/****************************************************************************
+ * Name: tmpfs_msync
+ ****************************************************************************/
+
+static int tmpfs_msync(FAR struct mm_map_entry_s *entry, FAR void *start,
+                       size_t length, int flags)
+{
+  FAR struct tmpfs_file_s *tfo = entry->priv.p;
+  int ret;
+
+  DEBUGASSERT(tfo != NULL);
+
+  /* The mapping is the file data itself, so there is nothing to write
+   * back.  Only mark the times as POSIX requires for a shared mapping.
+   */
+
+  ret = tmpfs_lock_file(tfo);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  tmpfs_update_mtime((FAR struct tmpfs_object_s *)tfo);
+  tfo->tfo_ctime = tfo->tfo_mtime;
+  tmpfs_unlock_file(tfo);
+  return OK;
+}
+
 static int tmpfs_mmap(FAR struct file *filep, FAR struct mm_map_entry_s *map)
 {
   FAR struct tmpfs_file_s *tfo;
@@ -2120,12 +2259,19 @@ static int tmpfs_mmap(FAR struct file *filep, FAR struct mm_map_entry_s *map)
       map->vaddr = tfo->tfo_data + map->offset;
       map->priv.p = tfo;
       map->munmap = tmpfs_unmap;
+      map->msync = tmpfs_msync;
       ret = mm_map_add(get_current_mm(), map);
 
       if (ret >= 0)
         {
           tmpfs_lock_file(tfo);
           tfo->tfo_refs++;
+
+          /* POSIX marks st_atime for update on the first access to the
+           * mapping.  tmpfs cannot trap that access, so mark it here.
+           */
+
+          tmpfs_update_atime((FAR struct tmpfs_object_s *)tfo);
           tmpfs_unlock_file(tfo);
         }
     }
@@ -2273,11 +2419,10 @@ static int tmpfs_fstat(FAR const struct file *filep, FAR struct stat *buf)
 static int tmpfs_fchstat(FAR const struct file *filep,
                          FAR const struct stat *buf, int flags)
 {
-  DEBUGASSERT(filep->f_priv != NULL && buf != NULL);
-
-#ifdef CONFIG_FS_PERMISSION
   FAR struct tmpfs_file_s *tfo;
   int ret;
+
+  DEBUGASSERT(filep->f_priv != NULL && buf != NULL);
 
   tfo = filep->f_priv;
 
@@ -2290,10 +2435,6 @@ static int tmpfs_fchstat(FAR const struct file *filep,
   ret = tmpfs_chstat_object((FAR struct tmpfs_object_s *)tfo, buf, flags);
   tmpfs_unlock_file(tfo);
   return ret;
-#else
-  UNUSED(flags);
-  return -ENOSYS;
-#endif
 }
 
 /****************************************************************************
@@ -2345,6 +2486,8 @@ static int tmpfs_truncate(FAR struct file *filep, off_t length)
           memset(&tfo->tfo_data[oldsize], 0, length - oldsize);
         }
 
+      tmpfs_update_mtime((FAR struct tmpfs_object_s *)tfo);
+      tmpfs_update_ctime((FAR struct tmpfs_object_s *)tfo);
       ret = OK;
     }
 
@@ -2803,6 +2946,9 @@ static int tmpfs_unlink(FAR struct inode *mountpt, FAR const char *relpath)
       fs_heap_free(tfo);
     }
 
+  tmpfs_update_mtime((FAR struct tmpfs_object_s *)tdo);
+  tmpfs_update_ctime((FAR struct tmpfs_object_s *)tdo);
+
   /* Release the reference and lock on the parent directory */
 
   tdo->tdo_refs--;
@@ -2952,6 +3098,9 @@ static int tmpfs_rmdir(FAR struct inode *mountpt, FAR const char *relpath)
   fs_heap_free(tdo->tdo_entry);
   fs_heap_free(tdo);
 
+  tmpfs_update_mtime((FAR struct tmpfs_object_s *)parent);
+  tmpfs_update_ctime((FAR struct tmpfs_object_s *)parent);
+
   /* Release the reference and lock on the parent directory */
 
   parent->tdo_refs--;
@@ -3097,6 +3246,10 @@ static int tmpfs_rename(FAR struct inode *mountpt,
       else if (ret == OK)
         {
           ret = tmpfs_remove_dirent(oldparent, oldname);
+          if (ret >= 0)
+            {
+              tmpfs_update_rename_times(to, oldparent, newparent);
+            }
         }
 
       goto errout_with_oldparent;
@@ -3118,6 +3271,10 @@ static int tmpfs_rename(FAR struct inode *mountpt,
   /* Add an entry to the new parent directory. */
 
   ret = tmpfs_add_dirent(newparent, to, newname);
+  if (ret >= 0)
+    {
+      tmpfs_update_rename_times(to, oldparent, newparent);
+    }
 
 errout_with_oldparent:
   oldparent->tdo_refs--;
@@ -3193,6 +3350,9 @@ static void tmpfs_stat_common(FAR struct tmpfs_object_s *to,
   buf->st_blksize = CONFIG_FS_TMPFS_BLOCKSIZE;
   buf->st_blocks  = (objsize + CONFIG_FS_TMPFS_BLOCKSIZE - 1) /
                     CONFIG_FS_TMPFS_BLOCKSIZE;
+  buf->st_atim    = to->to_atime;
+  buf->st_mtim    = to->to_mtime;
+  buf->st_ctim    = to->to_ctime;
 }
 
 /****************************************************************************
@@ -3257,12 +3417,11 @@ errout_with_fslock:
 static int tmpfs_chstat(FAR struct inode *mountpt, FAR const char *relpath,
                         FAR const struct stat *buf, int flags)
 {
-  DEBUGASSERT(mountpt != NULL && relpath != NULL && buf != NULL);
-
-#ifdef CONFIG_FS_PERMISSION
   FAR struct tmpfs_s *fs;
   FAR struct tmpfs_object_s *to;
   int ret;
+
+  DEBUGASSERT(mountpt != NULL && relpath != NULL && buf != NULL);
 
   fs = mountpt->i_private;
   DEBUGASSERT(fs != NULL);
@@ -3285,10 +3444,6 @@ static int tmpfs_chstat(FAR struct inode *mountpt, FAR const char *relpath,
 errout_with_fslock:
   tmpfs_unlock(fs);
   return ret;
-#else
-  UNUSED(flags);
-  return -ENOSYS;
-#endif
 }
 
 /****************************************************************************

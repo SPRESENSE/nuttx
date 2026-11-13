@@ -26,6 +26,7 @@
 
 #include <nuttx/config.h>
 
+#include <sys/param.h>
 #include <string.h>
 #include <assert.h>
 #include <errno.h>
@@ -76,7 +77,24 @@ FAR struct local_conn_s *local_nextconn(FAR struct local_conn_s *conn)
       return (FAR struct local_conn_s *)g_local_connections.head;
     }
 
-  return (FAR struct local_conn_s *)conn->lc_conn.node.flink;
+  return (FAR struct local_conn_s *)conn->lc_conn.s_node.flink;
+}
+
+/****************************************************************************
+ * Name: local_copyaddr
+ *
+ * Description:
+ *   Copy an address from a program.  It has addrlen bytes and no NUL has to
+ *   follow its name, so what follows it in the memory of the program is not
+ *   part of it.  The copy always ends with a NUL.
+ *
+ ****************************************************************************/
+
+void local_copyaddr(FAR struct sockaddr_un *unaddr,
+                    FAR const struct sockaddr *addr, socklen_t addrlen)
+{
+  memset(unaddr, 0, sizeof(*unaddr));
+  memcpy(unaddr, addr, MIN(addrlen, sizeof(*unaddr) - 1));
 }
 
 /****************************************************************************
@@ -187,7 +205,7 @@ FAR struct local_conn_s *local_alloc(void)
 
       /* Add the connection structure to the list of listeners */
 
-      dq_addlast(&conn->lc_conn.node, &g_local_connections);
+      dq_addlast(&conn->lc_conn.s_node, &g_local_connections);
     }
 
   return conn;
@@ -232,6 +250,14 @@ int local_alloc_accept(FAR struct local_conn_s *server,
 
   strlcpy(conn->lc_path, server->lc_path, sizeof(conn->lc_path));
   conn->lc_instance_id = client->lc_instance_id;
+
+#ifdef CONFIG_NET_LOCAL_SCM
+  /* connect() makes this end with the client's credentials.  Take the
+   * listener's, so that SO_PEERCRED of the client names the server.
+   */
+
+  conn->lc_cred = server->lc_cred;
+#endif
 
   /* Create the FIFOs needed for the connection */
 
@@ -308,7 +334,7 @@ void local_free(FAR struct local_conn_s *conn)
 
   /* Remove the server from the list of listeners. */
 
-  dq_rem(&conn->lc_conn.node, &g_local_connections);
+  dq_rem(&conn->lc_conn.s_node, &g_local_connections);
 
   if (conn->lc_peer)
     {
@@ -377,6 +403,9 @@ void local_free(FAR struct local_conn_s *conn)
  * Returned Value:
  *   None
  *
+ * Assumptions:
+ *   Called with local lock held
+ *
  ****************************************************************************/
 
 void local_addref(FAR struct local_conn_s *conn)
@@ -397,6 +426,9 @@ void local_addref(FAR struct local_conn_s *conn)
  *
  * Returned Value:
  *   None
+ *
+ * Assumptions:
+ *   Called with local lock held
  *
  ****************************************************************************/
 

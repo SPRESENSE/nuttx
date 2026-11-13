@@ -25,7 +25,7 @@
  ****************************************************************************/
 
 #include <nuttx/config.h>
-#include <nuttx/sched.h>
+
 #include <nuttx/init.h>
 
 #include <sys/param.h>
@@ -123,7 +123,7 @@ static int sched_backtrace_handler(FAR void *cookie)
 
 int sched_backtrace(pid_t tid, FAR void **buffer, int size, int skip)
 {
-  FAR struct tcb_s *tcb = this_task();
+  FAR struct tcb_s *tcb = running_task();
   int ret = 0;
 
   if (size <= 0 || buffer == NULL)
@@ -142,6 +142,13 @@ int sched_backtrace(pid_t tid, FAR void **buffer, int size, int skip)
       tcb = nxsched_get_tcb(tid);
       if (tcb != NULL)
         {
+          if (tcb->task_state == TSTATE_TASK_INVALID ||
+              (tcb->flags & TCB_FLAG_EXIT_PROCESSING) != 0)
+            {
+              leave_critical_section(flags);
+              return 0;
+            }
+
 #ifdef CONFIG_SMP
           if (!OSINIT_IS_PANIC() &&
               tcb->task_state == TSTATE_TASK_RUNNING)

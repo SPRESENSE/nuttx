@@ -29,6 +29,8 @@
 #include <nuttx/kmalloc.h>
 #include <nuttx/mm/mm.h>
 
+#include <string.h>
+
 #include "arm_internal.h"
 #include "rp23xx_psram.h"
 
@@ -53,15 +55,14 @@
 static struct mm_heap_s *g_psramheap;
 #endif
 
-#if defined(CONFIG_RP23XX_PSRAM_HEAP_SINGLE)
-
-#if defined(CONFIG_MM_KERNEL_HEAP)
-#error cannot use CONFIG_MM_KERNEL_HEAP with single heap
-#endif
+/* up_initialize() calls arm_addregion() whenever CONFIG_MM_REGIONS > 1.
+ * Only the single heap has a region to add: the PSRAM.
+ */
 
 #if CONFIG_MM_REGIONS > 1
 void arm_addregion(void)
 {
+#ifdef CONFIG_RP23XX_PSRAM_HEAP_SINGLE
   size_t psram_size = rp23xx_psram_size();
 
   /* Add the detected PSRAM region to the main heap */
@@ -70,7 +71,14 @@ void arm_addregion(void)
     {
       kumm_addregion(PSRAM_START, psram_size);
     }
+#endif
 }
+#endif
+
+#if defined(CONFIG_RP23XX_PSRAM_HEAP_SINGLE)
+
+#if defined(CONFIG_MM_KERNEL_HEAP)
+#error cannot use CONFIG_MM_KERNEL_HEAP with single heap
 #endif
 
 #elif defined (CONFIG_RP23XX_PSRAM_HEAP_USER)
@@ -108,11 +116,21 @@ void up_allocate_heap(void **heap_start, size_t *heap_size)
 
 void up_extraheaps_init(void)
 {
+  struct mm_heap_config_s config;
   size_t psram_size = rp23xx_psram_size();
 
   if (psram_size > 0)
     {
-      g_psramheap = mm_initialize("psram", PSRAM_START, psram_size);
+      /* Keep the heap and its lock in the SRAM: in the PSRAM an atomic
+       * operation does not exclude the other core.
+       */
+
+      memset(&config, 0, sizeof(config));
+      config.heap  = KRN_HEAP;
+      config.name  = "psram";
+      config.start = PSRAM_START;
+      config.size  = psram_size;
+      g_psramheap  = mm_initialize_heap(&config);
     }
 }
 #endif

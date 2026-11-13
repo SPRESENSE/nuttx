@@ -26,6 +26,7 @@
 
 #include <nuttx/config.h>
 #include <nuttx/arch.h>
+#include <nuttx/mutex.h>
 
 #include <stdint.h>
 #include <errno.h>
@@ -190,6 +191,7 @@ int8_t bl602_dma_channel_request(bl602_dma_callback_t callback, void *arg)
   for (ch = 0, dmach = NULL; ch < BL602_DMA_NCHANNELS; ch++)
     {
       struct dma_channel_s *candidate = &g_dmach[ch];
+
       if (!candidate->inuse)
         {
           dmainfo("DMA Channel %u assigned.\n", ch);
@@ -349,9 +351,9 @@ void weak_function riscv_dma_initialize(void)
 {
   uint8_t ch;
 
-  #ifdef CONFIG_DEBUG_DMA_INFO
-    struct bl602_dmaregs_s regs;
-  #endif
+#ifdef CONFIG_DEBUG_DMA_INFO
+  struct bl602_dmaregs_s regs;
+#endif
 
   dmainfo("Initialize DMA\n");
 

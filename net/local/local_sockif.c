@@ -149,6 +149,22 @@ static int local_sockif_alloc(FAR struct socket *psock)
   /* Save the pre-allocated connection in the socket structure */
 
   conn->lc_proto = psock->s_type;
+
+#ifdef CONFIG_NET_LOCAL_DGRAM
+  /* Match the SO_RCVBUF accounting below: the configured size is the usable
+   * payload, so a DGRAM FIFO additionally carries the largest possible
+   * preamble.  Without the headroom a payload of exactly
+   * CONFIG_DEV_FIFO_SIZE could never be written atomically.
+   */
+
+  if (psock->s_type == SOCK_DGRAM)
+    {
+      conn->lc_rcvsize = MIN(CONFIG_DEV_FIFO_SIZE +
+                             sizeof(lc_size_t) * 2 + UNIX_PATH_MAX,
+                             CONFIG_DEV_PIPE_MAXSIZE);
+    }
+#endif
+
   psock->s_conn = conn;
   return OK;
 }
@@ -250,7 +266,9 @@ static sockcaps_t local_sockcaps(FAR struct socket *psock)
 static void local_sockaddref(FAR struct socket *psock)
 {
   DEBUGASSERT(psock->s_domain == PF_LOCAL);
+  local_lock();
   local_addref(psock->s_conn);
+  local_unlock();
 }
 
 /****************************************************************************
@@ -580,12 +598,34 @@ static int local_getsockopt(FAR struct socket *psock, int level, int option,
 #ifdef CONFIG_NET_LOCAL_SCM
           case SO_PEERCRED:
             {
+              FAR struct ucred *cred = value;
+
               if (*value_len != sizeof(struct ucred))
                 {
                   return -EINVAL;
                 }
 
-              memcpy(value, &conn->lc_peer->lc_cred, sizeof(struct ucred));
+              /* As on Linux: a connected stream socket gives its peer, an
+               * end of a socketpair() and a listening socket give their own
+               * credentials, any other socket gives pid 0, uid and gid -1.
+               */
+
+              if (conn->lc_peer != NULL)
+                {
+                  memcpy(cred, &conn->lc_peer->lc_cred, sizeof(*cred));
+                }
+              else if (conn->lc_pair ||
+                       conn->lc_state == LOCAL_STATE_LISTENING)
+                {
+                  memcpy(cred, &conn->lc_cred, sizeof(*cred));
+                }
+              else
+                {
+                  cred->pid = 0;
+                  cred->uid = -1;
+                  cred->gid = -1;
+                }
+
               return OK;
             }
 #endif
@@ -744,6 +784,15 @@ static int local_setsockopt(FAR struct socket *psock, int level, int option,
                 {
                   ret = file_ioctl(&conn->lc_infile, PIPEIOC_SETSIZE,
                                    rcvsize);
+#ifdef CONFIG_NET_LOCAL_DGRAM
+                  /* A socket pair: thresholds for the new size */
+
+                  if (ret >= 0 && psock->s_type == SOCK_DGRAM &&
+                      conn->lc_state == LOCAL_STATE_CONNECTED)
+                    {
+                      ret = local_set_pollthreshold(conn);
+                    }
+#endif
                 }
 #ifdef CONFIG_NET_LOCAL_DGRAM
               else if (psock->s_type == SOCK_DGRAM &&
@@ -820,6 +869,8 @@ static int local_setsockopt(FAR struct socket *psock, int level, int option,
 static int local_connect(FAR struct socket *psock,
                          FAR const struct sockaddr *addr, socklen_t addrlen)
 {
+  struct sockaddr_un kaddr;
+
   /* Verify that a valid address has been provided.  A connectionless
    * socket may also pass AF_UNSPEC to dissolve an existing association.
    */
@@ -829,6 +880,8 @@ static int local_connect(FAR struct socket *psock,
     {
       return -EBADF;
     }
+
+  local_copyaddr(&kaddr, addr, addrlen);
 
   /* Perform the connection depending on the protocol type */
 
@@ -855,7 +908,8 @@ static int local_connect(FAR struct socket *psock,
 
           /* It's not...  Connect to the local Unix domain server */
 
-          return psock_local_connect(psock, addr);
+          return psock_local_connect(psock,
+                                     (FAR const struct sockaddr *)&kaddr);
         }
         break;
 #endif /* CONFIG_NET_LOCAL_STREAM */
@@ -864,8 +918,7 @@ static int local_connect(FAR struct socket *psock,
       case SOCK_DGRAM:
         {
           FAR struct local_conn_s *conn = psock->s_conn;
-          FAR const struct sockaddr_un *unaddr =
-              (FAR const struct sockaddr_un *)addr;
+          FAR const struct sockaddr_un *unaddr = &kaddr;
 
           if (addr->sa_family == AF_UNSPEC)
             {
@@ -939,8 +992,10 @@ static int local_connect(FAR struct socket *psock,
 #endif /* CONFIG_NET_LOCAL_DGRAM */
 
       default:
-        return -EBADF;
+        break;
     }
+
+  return -EBADF;
 }
 
 /****************************************************************************
@@ -1013,7 +1068,9 @@ static int local_close(FAR struct socket *psock)
            * could be more if the socket was dup'ed).
            */
 
+          local_lock();
           local_subref(psock->s_conn);
+          local_unlock();
           return OK;
         }
 
@@ -1136,6 +1193,7 @@ static int local_socketpair(FAR struct socket *psocks[2])
       conns[i]->lc_proto = psocks[i]->s_type;
       conns[i]->lc_type  = LOCAL_TYPE_PATHNAME;
       conns[i]->lc_state = LOCAL_STATE_BOUND;
+      conns[i]->lc_pair  = true;
     }
 
   conns[0]->lc_instance_id = conns[1]->lc_instance_id
@@ -1188,6 +1246,11 @@ static int local_socketpair(FAR struct socket *psocks[2])
       goto errout;
     }
 
+  /* Set up peer references so that getpeername() works correctly */
+
+  conns[0]->lc_peer = conns[1];
+  conns[1]->lc_peer = conns[0];
+
   conns[0]->lc_state = conns[1]->lc_state
                      = LOCAL_STATE_CONNECTED;
 
@@ -1196,7 +1259,7 @@ static int local_socketpair(FAR struct socket *psocks[2])
     {
       for (i = 0; i < 2; i++)
         {
-          ret = local_set_pollthreshold(conns[i], sizeof(lc_size_t));
+          ret = local_set_pollthreshold(conns[i]);
           if (ret < 0)
             {
               goto errout;

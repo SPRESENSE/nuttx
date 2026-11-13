@@ -30,6 +30,7 @@
 #include <assert.h>
 #include <nuttx/debug.h>
 
+#include <nuttx/lib/lib.h>
 #include <nuttx/sched_note.h>
 #include <nuttx/mm/mm.h>
 #include <nuttx/mm/kasan.h>
@@ -110,6 +111,8 @@ void mm_addregion(FAR struct mm_heap_s *heap, FAR void *heapstart,
   int idx;
 
   DEBUGVERIFY(mm_lock(heap));
+  kasan_bypass(true);
+
   idx = heap->mm_nregions;
 
   /* Writing past CONFIG_MM_REGIONS would have catastrophic consequences */
@@ -117,6 +120,7 @@ void mm_addregion(FAR struct mm_heap_s *heap, FAR void *heapstart,
   DEBUGASSERT(idx < CONFIG_MM_REGIONS);
   if (idx >= CONFIG_MM_REGIONS)
     {
+      kasan_bypass(false);
       mm_unlock(heap);
       return;
     }
@@ -124,6 +128,7 @@ void mm_addregion(FAR struct mm_heap_s *heap, FAR void *heapstart,
 #else
 #  define idx 0
   DEBUGVERIFY(mm_lock(heap));
+  kasan_bypass(true);
 #endif
 
 #if defined(CONFIG_MM_SMALL) && !defined(CONFIG_SMALL_MEMORY)
@@ -211,6 +216,8 @@ void mm_addregion(FAR struct mm_heap_s *heap, FAR void *heapstart,
   heap->mm_curused += 2 * MM_SIZEOF_ALLOCNODE;
   sched_note_heap(NOTE_HEAP_ADD, heap, heapstart, heapsize,
                   heap->mm_curused);
+
+  kasan_bypass(false);
   mm_unlock(heap);
 }
 
@@ -234,18 +241,19 @@ void mm_addregion(FAR struct mm_heap_s *heap, FAR void *heapstart,
 FAR struct mm_heap_s *
 mm_initialize_heap(FAR const struct mm_heap_config_s *config)
 {
-  FAR struct mm_heap_s *heap = config->heap;
+  FAR struct mm_heap_s *heap;
   FAR const char *name = config->name;
   FAR void *heapstart = config->start;
   size_t heapsize = config->size;
   int i;
 
   minfo("Heap: name=%s, start=%p size=%zu\n", name, heapstart, heapsize);
-  if (heap == NULL)
+  if (!config->allocheap)
     {
       /* First ensure the memory to be used is aligned */
 
       uintptr_t heap_adj = MM_ALIGN_UP((uintptr_t)heapstart);
+
       heapsize -= heap_adj - (uintptr_t)heapstart;
 
       /* Reserve a block space for mm_heap_s context */
@@ -259,7 +267,7 @@ mm_initialize_heap(FAR const struct mm_heap_config_s *config)
     }
   else
     {
-      heap = mm_malloc(heap, sizeof(struct mm_heap_s));
+      heap = lib_memalign(MM_ALIGN, sizeof(struct mm_heap_s));
       if (heap == NULL)
         {
           return NULL;

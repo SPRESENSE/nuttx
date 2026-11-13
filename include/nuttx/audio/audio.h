@@ -120,6 +120,7 @@
 #define AUDIOIOC_GETAUDIOINFO       _AUDIOIOC(22)
 #define AUDIOIOC_GETSTATUS          _AUDIOIOC(23)
 #define AUDIOIOC_RESETSTATUS        _AUDIOIOC(24)
+#define AUDIOIOC_DUMP               _AUDIOIOC(25)
 #define AUDIOIOC_VENDORSPECIFIC     _AUDIOIOC(255)
 
 /* Audio Device Types *******************************************************/
@@ -175,6 +176,9 @@
 #define AUDIO_FMT_G729              0x17
 #define AUDIO_FMT_ALAC              0x18
 #define AUDIO_FMT_APE               0x19
+#define AUDIO_FMT_LC3               0x1a
+#define AUDIO_FMT_SPEEX             0x1b
+#define AUDIO_FMT_SILK              0x1c
 
 #define AUDIO_SUBFMT_END            0x00
 
@@ -540,6 +544,10 @@
 #define AUDIO_STATE_DRAINING       4
 #define AUDIO_STATE_RUNNING        5
 
+/* Cross-Core Codec Parameters **********************************************/
+
+#define AUDIO_CODEC_EXTRADATA_MAX   64
+
 /****************************************************************************
  * Public Types
  ****************************************************************************/
@@ -603,6 +611,21 @@ struct audio_enc_lc3_s
   float frame_duration;
 };
 
+struct audio_enc_spx_s
+{
+  uint8_t abr;
+  uint8_t cbr_quality;
+  uint8_t frames_per_packet;
+  uint8_t compression_level;
+};
+
+struct audio_enc_opus_s
+{
+  char     application[16];
+  uint32_t compression_level;
+  float    frame_duration;
+};
+
 struct audio_enc_generic_s
 {
   uint32_t bw;
@@ -662,6 +685,8 @@ union audio_codec_options_u
   struct audio_enc_flac_s flac;
   struct audio_enc_sbc_s sbc;
   struct audio_enc_lc3_s lc3;
+  struct audio_enc_spx_s spx;
+  struct audio_enc_opus_s opus;
   struct audio_enc_generic_s generic;
   struct audio_dec_flac_s flac_d;
   struct audio_dec_wma_s wma_d;
@@ -680,6 +705,10 @@ struct audio_codec_s
   uint32_t format;
   uint32_t align;
   union audio_codec_options_u options;
+
+  uint32_t frame_samples;
+  uint32_t extradata_size;
+  uint8_t  extradata[AUDIO_CODEC_EXTRADATA_MAX];
 };
 
 struct audio_caps_s
@@ -689,9 +718,8 @@ struct audio_caps_s
   uint8_t ac_subtype;       /* Capabilities sub-type, if needed */
   uint8_t ac_channels;      /* Number of channels (1, 2, 3, ... 15) upper 4 bits for minimum channels,
                              * lower 4 bits for maximum channels */
-  uint8_t ac_chmap;         /* Channel map, each ch for each bit,
+  uint32_t ac_chmap;        /* Channel map, each ch for each bit,
                              * zero means don't care */
-  uint8_t reserved;         /* Reserved for future use */
 
   /* Audio data format(s) for this device */
 
@@ -768,6 +796,7 @@ struct ap_buffer_s
   uint16_t              flags;      /* Buffer flags */
   uint16_t              crefs;      /* Number of reference counts */
   FAR uint8_t           *samp;      /* Offset of the first sample */
+  FAR void              *userdata;  /* For the application, unused by the OS */
 };
 
 /* Structure defining the messages passed to a listening audio thread

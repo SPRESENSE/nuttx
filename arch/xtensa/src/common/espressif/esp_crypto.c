@@ -24,8 +24,10 @@
  * Included Files
  ****************************************************************************/
 
+#include <assert.h>
 #include <errno.h>
 #include <stddef.h>
+#include <strings.h>
 #include <sys/queue.h>
 
 #include <crypto/cryptodev.h>
@@ -481,9 +483,9 @@ static int authcompute(struct cryptop *crp, struct cryptodesc *crd,
             return -EINVAL;
           }
 
-          axf->final(aalg, data->hw_ictx);
-          axf->update(data->hw_octx, aalg, axf->hashsize);
-          axf->final(aalg, data->hw_octx);
+        axf->final(aalg, data->hw_ictx);
+        axf->update(data->hw_octx, aalg, axf->hashsize);
+        axf->final(aalg, data->hw_octx);
 
         break;
     }
@@ -576,7 +578,7 @@ static int esp_newsession(uint32_t *sid, struct cryptoini *cri)
         {
 #ifdef CONFIG_CRYPTO_AES
           case CRYPTO_AES_CBC:
-              break;
+            break;
 
           case CRYPTO_AES_CTR:
             if ((cri->cri_klen / 8 - 4) != 16 &&
@@ -603,16 +605,16 @@ static int esp_newsession(uint32_t *sid, struct cryptoini *cri)
           case CRYPTO_SHA2_512:
             axf = &g_auth_hash_sha512_esp;
             goto sha_common;
-          sha_common:
-              data->hw_ictx = kmm_malloc(axf->ctxsize);
-              if (data->hw_ictx == NULL)
-                {
-                  kmm_free(data);
-                  return -ENOBUFS;
-                }
+            sha_common:
+            data->hw_ictx = kmm_malloc(axf->ctxsize);
+            if (data->hw_ictx == NULL)
+              {
+                kmm_free(data);
+                return -ENOBUFS;
+              }
 
-              axf->init(data->hw_ictx);
-              data->hw_axf = axf;
+            axf->init(data->hw_ictx);
+            data->hw_axf = axf;
             break;
           case CRYPTO_SHA1_HMAC:
             axf = &g_auth_hash_hmac_sha1_esp;
@@ -626,7 +628,7 @@ static int esp_newsession(uint32_t *sid, struct cryptoini *cri)
           case CRYPTO_SHA2_512_HMAC:
             axf = &g_auth_hash_hmac_sha512_esp;
             goto hmac_common;
-          hmac_common:
+            hmac_common:
             data->hw_ictx = kmm_malloc(axf->ctxsize);
             if (data->hw_ictx == NULL)
               {

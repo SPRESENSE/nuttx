@@ -26,6 +26,8 @@
 
 #include <nuttx/config.h>
 
+#include <string.h>
+
 #include <nuttx/arch.h>
 #include <nuttx/timers/arch_rtc.h>
 
@@ -177,7 +179,7 @@ int weak_function up_rtc_getdatetime(FAR struct tm *tp)
       ret = g_rtc_lower->ops->rdtime(g_rtc_lower, &rtctime);
       if (ret == 0)
         {
-          *tp = *((FAR struct tm *)&rtctime);
+          memcpy(tp, &rtctime, sizeof(struct tm));
         }
     }
 
@@ -217,12 +219,15 @@ int weak_function up_rtc_getdatetime_with_subseconds(FAR struct tm *tp,
 
   if (g_rtc_lower != NULL)
     {
-      struct rtc_time rtctime;
+      struct rtc_time rtctime =
+        {
+          0
+        };
 
       ret = g_rtc_lower->ops->rdtime(g_rtc_lower, &rtctime);
       if (ret == 0)
         {
-          *tp = *((FAR struct tm *)&rtctime);
+          memcpy(tp, &rtctime, sizeof(struct tm));
           *nsec = rtctime.tm_nsec;
         }
     }

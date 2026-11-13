@@ -651,10 +651,19 @@ static int ctucanfd_chrdev_send(FAR struct can_dev_s *dev,
       bytes = MIN(msg->cm_hdr.ch_dlc, CAN_MAX_DLEN);
     }
 
-  for (i = 0; i < bytes; i++)
+  /* Pack bytes into aligned register writes and pad the final word. */
+
+  for (i = 0; i < bytes; i += 4)
     {
-      ctucanfd_putreg(priv, offset + CTUCANFD_TXBUF_DATA + i,
-                      msg->cm_data[i]);
+      regval  = (uint32_t)msg->cm_data[i];
+      regval |= (uint32_t)(i + 1 < bytes ? msg->cm_data[i + 1] : 0)
+                << 8;
+      regval |= (uint32_t)(i + 2 < bytes ? msg->cm_data[i + 2] : 0)
+                << 16;
+      regval |= (uint32_t)(i + 3 < bytes ? msg->cm_data[i + 3] : 0)
+                << 24;
+
+      ctucanfd_putreg(priv, offset + CTUCANFD_TXBUF_DATA + i, regval);
     }
 
   /* Set TX ready */
@@ -1108,6 +1117,9 @@ static int ctucanfd_sock_transmit(FAR struct netdev_lowerhalf_s *dev,
   uint32_t                    offset;
   int                         txidx;
   int                         i;
+#ifdef CONFIG_NET_CAN_CANFD
+  int                         wirelen;
+#endif
 
   /* Get TX empty buffer */
 
@@ -1170,10 +1182,19 @@ static int ctucanfd_sock_transmit(FAR struct netdev_lowerhalf_s *dev,
       ctucanfd_putreg(priv, offset + CTUCANFD_TXBUF_TSL, 0);
       ctucanfd_putreg(priv, offset + CTUCANFD_TXBUF_TSU, 0);
 
-      for (i = 0; i < frame->can_dlc; i++)
+      /* Pack bytes into aligned register writes and pad the final word. */
+
+      for (i = 0; i < frame->can_dlc; i += 4)
         {
-          ctucanfd_putreg(priv, offset + CTUCANFD_TXBUF_DATA + i,
-                          frame->data[i]);
+          regval  = (uint32_t)frame->data[i];
+          regval |= (uint32_t)(i + 1 < frame->can_dlc ?
+                               frame->data[i + 1] : 0) << 8;
+          regval |= (uint32_t)(i + 2 < frame->can_dlc ?
+                               frame->data[i + 2] : 0) << 16;
+          regval |= (uint32_t)(i + 3 < frame->can_dlc ?
+                               frame->data[i + 3] : 0) << 24;
+
+          ctucanfd_putreg(priv, offset + CTUCANFD_TXBUF_DATA + i, regval);
         }
     }
 #ifdef CONFIG_NET_CAN_CANFD
@@ -1216,10 +1237,23 @@ static int ctucanfd_sock_transmit(FAR struct netdev_lowerhalf_s *dev,
       ctucanfd_putreg(priv, offset + CTUCANFD_TXBUF_TSL, 0);
       ctucanfd_putreg(priv, offset + CTUCANFD_TXBUF_TSU, 0);
 
-      for (i = 0; i < frame->len; i++)
+      /* Pack bytes into aligned register writes.  The controller sends
+       * can_dlc2bytes(dlc) bytes, which can be more than frame->len, so
+       * pad up to that length with zeros.
+       */
+
+      wirelen = can_dlc2bytes(fmt.s.dlc);
+      for (i = 0; i < wirelen; i += 4)
         {
-          ctucanfd_putreg(priv, offset + CTUCANFD_TXBUF_DATA + i,
-                          frame->data[i]);
+          regval  = (uint32_t)(i < frame->len ? frame->data[i] : 0);
+          regval |= (uint32_t)(i + 1 < frame->len ? frame->data[i + 1] : 0)
+                    << 8;
+          regval |= (uint32_t)(i + 2 < frame->len ? frame->data[i + 2] : 0)
+                    << 16;
+          regval |= (uint32_t)(i + 3 < frame->len ? frame->data[i + 3] : 0)
+                    << 24;
+
+          ctucanfd_putreg(priv, offset + CTUCANFD_TXBUF_DATA + i, regval);
         }
     }
 #endif
@@ -1255,6 +1289,13 @@ static FAR netpkt_t *ctucanfd_sock_recv(FAR struct netdev_lowerhalf_s *dev)
   regval = ctucanfd_getreg(priv, CTUCANFD_RXSETSTAT);
   if ((regval & CTUCANFD_RXSTAT_RXE) != 0)
     {
+      /* Clear the RX buffer not empty interrupt before re-enabling RX
+       * interrupts.  Leave the error interrupts pending, they are handled
+       * by ctucanfd_sock_error().
+       */
+
+      ctucanfd_putreg(priv, CTUCANFD_INTSTAT, CTUCANFD_INT_RBNEI);
+
       /* Re-enable RX interrupts if no more messages to read */
 
       ctucanfd_rxint(priv, true);
@@ -1379,9 +1420,11 @@ static FAR netpkt_t *ctucanfd_sock_recv(FAR struct netdev_lowerhalf_s *dev)
       netpkt_setdatalen(dev, pkt, sizeof(struct can_frame));
       frame = (FAR struct can_frame *)netpkt_getdata(dev, pkt);
 
-      /* Get the DLC */
+      /* Get the DLC.  A classic frame carries at most 8 data bytes, also
+       * with DLC 9..15.
+       */
 
-      frame->can_dlc = rxframe->fmt.dlc;
+      frame->can_dlc = MIN(rxframe->fmt.dlc, CAN_MAX_DLEN);
 
 #ifdef CONFIG_NET_CAN_EXTID
       /* Get the CAN identifier. */
@@ -1417,7 +1460,7 @@ static FAR netpkt_t *ctucanfd_sock_recv(FAR struct netdev_lowerhalf_s *dev)
 
       /* Get data */
 
-      for (i = 0; i < rxframe->fmt.dlc; i++)
+      for (i = 0; i < frame->can_dlc; i++)
         {
           frame->data[i] = rxframe->data[i];
         }

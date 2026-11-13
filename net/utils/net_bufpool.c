@@ -26,6 +26,8 @@
 
 #include <nuttx/config.h>
 
+#include <assert.h>
+
 #include <nuttx/kmalloc.h>
 #include <nuttx/net/net.h>
 #include <nuttx/semaphore.h>
@@ -69,6 +71,7 @@ static void net_bufpool_init(FAR struct net_bufpool_s *pool)
     {
       FAR struct net_bufnode_s *node = (FAR struct net_bufnode_s *)
                                       (pool->pool + i * pool->nodesize);
+
       sq_addlast(&node->node, &pool->freebuffers);
     }
 }

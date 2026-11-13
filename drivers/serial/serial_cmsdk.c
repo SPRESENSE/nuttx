@@ -504,42 +504,42 @@ static int uart_cmsdk_ioctl(struct file *filep, int cmd, unsigned long arg)
 
   switch (cmd)
     {
-    case TCGETS:
-      {
-        FAR struct termios *termiosp = (FAR struct termios *)arg;
+      case TCGETS:
+        {
+          FAR struct termios *termiosp = (FAR struct termios *)arg;
 
-        if (!termiosp)
-          {
-            ret = -EINVAL;
-            break;
-          }
+          if (!termiosp)
+            {
+              ret = -EINVAL;
+              break;
+            }
 
-        cfsetispeed(termiosp, priv->baud);
-        termiosp->c_cflag = CS8;
-      }
-      break;
+          cfsetispeed(termiosp, priv->baud);
+          termiosp->c_cflag = CS8;
+        }
+        break;
 
-    case TCSETS:
-      {
-        FAR struct termios *termiosp = (FAR struct termios *)arg;
-        irqstate_t flags;
+      case TCSETS:
+        {
+          FAR struct termios *termiosp = (FAR struct termios *)arg;
+          irqstate_t flags;
 
-        if (!termiosp)
-          {
-            ret = -EINVAL;
-            break;
-          }
+          if (!termiosp)
+            {
+              ret = -EINVAL;
+              break;
+            }
 
-        flags = enter_critical_section();
-        priv->baud = cfgetispeed(termiosp);
-        uart_cmsdk_setup(dev);
-        leave_critical_section(flags);
-      }
-      break;
+          flags = uart_spinlock(dev, false);
+          priv->baud = cfgetispeed(termiosp);
+          uart_cmsdk_setup(dev);
+          uart_spinunlock(dev, false, flags);
+        }
+        break;
 
-    default:
-      ret = -ENOTTY;
-      break;
+      default:
+        ret = -ENOTTY;
+        break;
     }
 
   return ret;
@@ -632,7 +632,7 @@ static void uart_cmsdk_txint(struct uart_dev_s *dev, bool enable)
   FAR struct uart_cmsdk_s *priv = dev->priv;
   irqstate_t flags;
 
-  flags = enter_critical_section();
+  flags = uart_spinlock(dev, true);
   if (enable)
     {
       uart_cmsdk_serialmodify(priv, UART_CTRL_OFFSET,
@@ -650,7 +650,7 @@ static void uart_cmsdk_txint(struct uart_dev_s *dev, bool enable)
         UART_CTRL_TX_INT_ENABLE | UART_CTRL_TX_OVERRUN_INT_ENABLE, 0);
     }
 
-  leave_critical_section(flags);
+  uart_spinunlock(dev, true, flags);
 }
 
 /****************************************************************************

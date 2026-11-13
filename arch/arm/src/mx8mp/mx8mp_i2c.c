@@ -25,14 +25,17 @@
  ****************************************************************************/
 
 #include <nuttx/signal.h>
+#include <nuttx/mutex.h>
 #include <nuttx/i2c/i2c_master.h>
+#include <nuttx/debug.h>
+
+#include <assert.h>
 
 #include "mx8mp_i2c.h"
 #include "mx8mp_ccm.h"
 #include "hardware/mx8mp_memorymap.h"
 #include "hardware/mx8mp_i2c.h"
 
-#include <nuttx/debug.h>
 #include "arm_internal.h"
 
 /****************************************************************************
@@ -518,6 +521,7 @@ static void mx8mp_i2c_set_frequency(struct mx8mp_i2c_s *priv,
   for (i = 0; i < 0x40; ++i)
     {
       uint32_t current_frequency = clock / DIVIDERS_MAP[i];
+
       if ((current_frequency <= frequency) &&
           (current_frequency > old_frequency))
         {
@@ -559,6 +563,7 @@ static void mx8mp_i2c_reset_bus(struct mx8mp_i2c_s *priv)
 static int mx8mp_i2c_interrupt(int irq, void *context, void *arg)
 {
   struct mx8mp_i2c_s *priv = (struct mx8mp_i2c_s *)arg;
+
   modreg16(0, I2SR_IIF, priv->base + I2SR_OFFSET);
   nxsem_post(&priv->wait);
 
@@ -735,44 +740,44 @@ struct i2c_master_s *mx8mp_i2cbus_initialize(int port)
   switch (port)
     {
 #ifdef CONFIG_MX8MP_I2C1
-    case 1:
-      priv = &g_i2c1_dev;
-      break;
+      case 1:
+        priv = &g_i2c1_dev;
+        break;
 #endif
 
 #ifdef CONFIG_MX8MP_I2C2
-    case 2:
-      priv = &g_i2c2_dev;
-      break;
+      case 2:
+        priv = &g_i2c2_dev;
+        break;
 #endif
 
 #ifdef CONFIG_MX8MP_I2C3
-    case 3:
-      priv = &g_i2c3_dev;
-      break;
+      case 3:
+        priv = &g_i2c3_dev;
+        break;
 #endif
 
 #ifdef CONFIG_MX8MP_I2C4
-    case 4:
-      priv = &g_i2c4_dev;
-      break;
+      case 4:
+        priv = &g_i2c4_dev;
+        break;
 #endif
 
 #ifdef CONFIG_MX8MP_I2C5
-    case 5:
-      priv = &g_i2c5_dev;
-      break;
+      case 5:
+        priv = &g_i2c5_dev;
+        break;
 #endif
 
 #ifdef CONFIG_MX8MP_I2C6
-    case 6:
-      priv = &g_i2c6_dev;
-      break;
+      case 6:
+        priv = &g_i2c6_dev;
+        break;
 #endif
 
-    default:
-      i2cerr("ERROR: Unsupported I2C port %d\n", port);
-      return NULL;
+      default:
+        i2cerr("ERROR: Unsupported I2C port %d\n", port);
+        return NULL;
     }
 
   nxmutex_lock(&priv->lock);

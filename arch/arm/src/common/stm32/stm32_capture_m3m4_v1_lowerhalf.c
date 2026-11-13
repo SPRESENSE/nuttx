@@ -264,19 +264,26 @@ static int stm32_cap_handler(int irq, void * context, void * arg)
 
   STM32_CAP_ACKFLAGS(lower->cap, flags);
 
+  /* The counter is reset on the capture edge, so each captured value is
+   * one less than the number of timer ticks it represents.
+   */
+
   period = STM32_CAP_GETCAPTURE(lower->cap, ch);
 
   if (period != 0)
     {
-      lower->duty = (100 * STM32_CAP_GETCAPTURE(lower->cap, 0x3 & (~ch))) /
+      period++;
+      lower->duty = (100 * (STM32_CAP_GETCAPTURE(lower->cap,
+                                                 0x3 & (~ch)) + 1)) /
                     period;
+      lower->freq = lower->clock / period;
     }
   else
     {
       lower->duty = 0;
+      lower->freq = 0;
     }
 
-  lower->freq = lower->clock / period;
   lower->edges++;
 
   return OK;
@@ -301,7 +308,7 @@ static int stm32_start(struct cap_lowerhalf_s *lower)
 {
   struct stm32_lowerhalf_s *priv = (struct stm32_lowerhalf_s *)lower;
   int flags = 0;
-  uint32_t maxtimeout = (1 << priv->resolution) - 1;
+  uint32_t maxtimeout = (uint32_t)(((uint64_t)1 << priv->resolution) - 1);
 
   if (priv->started)
     {
@@ -388,16 +395,26 @@ static int stm32_stop(struct cap_lowerhalf_s *lower)
 
   if (priv->started)
     {
-      STM32_CAP_SETCHANNEL(priv->cap, STM32_CAP_FLAG_IRQ_COUNTER,
-                           STM32_CAP_EDGE_DISABLED);
       switch (priv->channel)
         {
           case 1:
             STM32_CAP_ENABLEINT(priv->cap, STM32_CAP_FLAG_IRQ_CH_1, false);
+            STM32_CAP_SETCHANNEL(priv->cap, 1,
+                                 STM32_CAP_EDGE_DISABLED |
+                                 STM32_CAP_MAPPED_TI1);
+            STM32_CAP_SETCHANNEL(priv->cap, 2,
+                                 STM32_CAP_EDGE_DISABLED |
+                                 STM32_CAP_MAPPED_TI2);
             break;
 
           case 2:
             STM32_CAP_ENABLEINT(priv->cap, STM32_CAP_FLAG_IRQ_CH_2, false);
+            STM32_CAP_SETCHANNEL(priv->cap, 2,
+                                 STM32_CAP_EDGE_DISABLED |
+                                 STM32_CAP_MAPPED_TI1);
+            STM32_CAP_SETCHANNEL(priv->cap, 1,
+                                 STM32_CAP_EDGE_DISABLED |
+                                 STM32_CAP_MAPPED_TI2);
             break;
 
           default:
@@ -405,6 +422,7 @@ static int stm32_stop(struct cap_lowerhalf_s *lower)
         }
 
       STM32_CAP_SETISR(priv->cap, NULL, NULL);
+      STM32_CAP_SETCLOCK(priv->cap, 0, 0);
       priv->started = false;
       return OK;
     }

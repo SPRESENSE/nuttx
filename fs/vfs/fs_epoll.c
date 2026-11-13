@@ -154,7 +154,8 @@ static FAR epoll_head_t *epoll_head_from_fd(int fd, FAR struct file **filep)
 
   /* Check fd come from us */
 
-  if ((*filep)->f_inode->u.i_ops != &g_epoll_ops)
+  if ((*filep)->f_inode == NULL ||
+      (*filep)->f_inode->u.i_ops != &g_epoll_ops)
     {
       file_put(*filep);
       set_errno(EBADF);
@@ -193,11 +194,8 @@ static int epoll_do_close(FAR struct file *filep)
       return ret;
     }
 
-  eph->crefs--;
-  nxmutex_unlock(&eph->lock);
-  if (eph->crefs <= 0)
+  if (--eph->crefs <= 0)
     {
-      nxmutex_destroy(&eph->lock);
       list_for_every_entry(&eph->setup, epn, epoll_node_t, node)
         {
           file_poll(epn->filep, &epn->pfd, false);
@@ -220,7 +218,14 @@ static int epoll_do_close(FAR struct file *filep)
           fs_heap_free(epn);
         }
 
+      nxmutex_unlock(&eph->lock);
+      nxmutex_destroy(&eph->lock);
+      nxsem_destroy(&eph->sem);
       fs_heap_free(eph);
+    }
+  else
+    {
+      nxmutex_unlock(&eph->lock);
     }
 
   return ret;
@@ -239,7 +244,16 @@ static int epoll_do_create(int size, int flags)
   int fd;
   int i;
 
-  size = size <= 0 ? 1 : size;
+  if (size <= 0)
+    {
+      size = 1;
+    }
+  else if (size > (SIZE_MAX - sizeof(epoll_head_t)) / sizeof(epoll_node_t))
+    {
+      set_errno(EINVAL);
+      return ERROR;
+    }
+
   eph = fs_heap_zalloc(sizeof(epoll_head_t) + sizeof(epoll_node_t) * size);
   if (eph == NULL)
     {
@@ -273,6 +287,7 @@ static int epoll_do_create(int size, int flags)
   if (fd < 0)
     {
       nxmutex_destroy(&eph->lock);
+      nxsem_destroy(&eph->sem);
       fs_heap_free(eph);
       set_errno(-fd);
       return ERROR;
@@ -456,6 +471,13 @@ static void epoll_default_cb(FAR struct pollfd_s *fds)
 
 int epoll_create(int size)
 {
+  if (size <= 0 ||
+      size > (SIZE_MAX - sizeof(epoll_head_t)) / sizeof(epoll_node_t))
+    {
+      set_errno(EINVAL);
+      return ERROR;
+    }
+
   return epoll_do_create(size, 0);
 }
 
@@ -472,6 +494,12 @@ int epoll_create(int size)
 
 int epoll_create1(int flags)
 {
+  if ((flags & ~EPOLL_CLOEXEC) != 0)
+    {
+      set_errno(EINVAL);
+      return ERROR;
+    }
+
   return epoll_do_create(CONFIG_FS_NEPOLL_DESCRIPTORS, flags);
 }
 
@@ -510,6 +538,18 @@ int epoll_ctl(int epfd, int op, int fd, FAR struct epoll_event *ev)
   FAR epoll_node_t *epn;
   int ret;
   int i;
+
+  if (epfd == fd)
+    {
+      set_errno(EINVAL);
+      return ERROR;
+    }
+
+  if ((op == EPOLL_CTL_ADD || op == EPOLL_CTL_MOD) && ev == NULL)
+    {
+      set_errno(EFAULT);
+      return ERROR;
+    }
 
   eph = epoll_head_from_fd(epfd, &filep);
   if (eph == NULL)
@@ -666,6 +706,12 @@ int epoll_ctl(int epfd, int op, int fd, FAR struct epoll_event *ev)
                     ret = file_poll(epn->filep, &epn->pfd, true);
                     if (ret < 0)
                       {
+                        /* Only registered nodes may stay in the setup list:
+                         * close and teardown tear down whatever is there.
+                         */
+
+                        list_delete(&epn->node);
+                        list_add_tail(&eph->teardown, &epn->node);
                         goto err;
                       }
                   }
@@ -752,6 +798,18 @@ int epoll_pwait(int epfd, FAR struct epoll_event *evs,
   sigset_t oldsigmask;
 #endif
   int ret;
+
+  if (maxevents <= 0)
+    {
+      set_errno(EINVAL);
+      return ERROR;
+    }
+
+  if (evs == NULL)
+    {
+      set_errno(EFAULT);
+      return ERROR;
+    }
 
   eph = epoll_head_from_fd(epfd, &filep);
   if (eph == NULL)
@@ -842,6 +900,18 @@ int epoll_wait(int epfd, FAR struct epoll_event *evs,
   FAR struct file *filep;
   FAR epoll_head_t *eph;
   int ret;
+
+  if (maxevents <= 0)
+    {
+      set_errno(EINVAL);
+      return ERROR;
+    }
+
+  if (evs == NULL)
+    {
+      set_errno(EFAULT);
+      return ERROR;
+    }
 
   eph = epoll_head_from_fd(epfd, &filep);
   if (eph == NULL)

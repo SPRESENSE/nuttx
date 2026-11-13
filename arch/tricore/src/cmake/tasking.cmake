@@ -44,12 +44,39 @@ set(ASMEXT
     asm
     CACHE INTERNAL "")
 
-set(CMAKE_C_COMPILE_OBJECT
-    "<CMAKE_C_COMPILER> <DEFINES> <INCLUDES> <FLAGS> --create <SOURCE> -o <OBJECT>"
-)
-set(CMAKE_CXX_COMPILE_OBJECT
-    "<CMAKE_CXX_COMPILER> <DEFINES> <INCLUDES> <FLAGS> --create <SOURCE> -o <OBJECT>"
-)
+if(CONFIG_OUTPUT_STRIP_PATHS)
+  # TASKING cctc has no -fmacro-prefix-map. Convert absolute source paths to
+  # relative paths by cd-ing to code root before compilation, so __FILE__ embeds
+  # short relative paths instead of full absolute paths.
+  #
+  # CMake prepends CMAKE_C_COMPILER_LAUNCHER before the entire compile object
+  # template, which breaks shell commands that must run before the compiler.
+  # Save the launcher and place it manually after the cd.
+  #
+  # CMake's built-in Tasking support injects "--dep-file=<DEP_FILE>" with a
+  # build-dir-relative path; prefix it with the binary dir so it stays valid
+  # after the cd (absolute dep-file paths are left untouched).
+  get_filename_component(_TASKING_CODE_ROOT "${CMAKE_SOURCE_DIR}" DIRECTORY)
+
+  set(_TASKING_C_LAUNCHER "${CMAKE_C_COMPILER_LAUNCHER}")
+  set(_TASKING_CXX_LAUNCHER "${CMAKE_CXX_COMPILER_LAUNCHER}")
+  set(CMAKE_C_COMPILER_LAUNCHER "")
+  set(CMAKE_CXX_COMPILER_LAUNCHER "")
+
+  set(CMAKE_C_COMPILE_OBJECT
+      "_CMD='${_TASKING_C_LAUNCHER} <CMAKE_C_COMPILER> <DEFINES> <INCLUDES> <FLAGS> --create <SOURCE>' && cd ${_TASKING_CODE_ROOT} && _CMD=$$(echo \"$$_CMD\" | sed -e 's|${_TASKING_CODE_ROOT}/||g' -e 's|--dep-file=\\([^/]\\)|--dep-file=${CMAKE_BINARY_DIR}/\\1|') && eval \"$$_CMD -o ${CMAKE_BINARY_DIR}/<OBJECT>\""
+  )
+  set(CMAKE_CXX_COMPILE_OBJECT
+      "_CMD='${_TASKING_CXX_LAUNCHER} <CMAKE_CXX_COMPILER> <DEFINES> <INCLUDES> <FLAGS> --create <SOURCE>' && cd ${_TASKING_CODE_ROOT} && _CMD=$$(echo \"$$_CMD\" | sed -e 's|${_TASKING_CODE_ROOT}/||g' -e 's|--dep-file=\\([^/]\\)|--dep-file=${CMAKE_BINARY_DIR}/\\1|') && eval \"$$_CMD -o ${CMAKE_BINARY_DIR}/<OBJECT>\""
+  )
+else()
+  set(CMAKE_C_COMPILE_OBJECT
+      "<CMAKE_C_COMPILER> <DEFINES> <INCLUDES> <FLAGS> --create <SOURCE> -o <OBJECT>"
+  )
+  set(CMAKE_CXX_COMPILE_OBJECT
+      "<CMAKE_CXX_COMPILER> <DEFINES> <INCLUDES> <FLAGS> --create <SOURCE> -o <OBJECT>"
+  )
+endif()
 
 if(CMAKE_GENERATOR MATCHES "Ninja")
   set(CMAKE_C_RESPONSE_FILE_FLAG "-f ${CMAKE_BINARY_DIR}/")
@@ -95,20 +122,24 @@ add_compile_options(
   $<$<COMPILE_LANGUAGE:CXX>:--language=+gcc,+volatile,-strings,-kanji>)
 add_compile_options(--pass-c++=-D__CTC__)
 
-function(get_smartcode_ctc_root OUT_VAR)
+function(get_tasking_ctc_root OUT_VAR)
+  set(${OUT_VAR} "")
   find_program(_CCTC_PATH cctc)
-  if(NOT _CCTC_PATH)
-    message(FATAL_ERROR "get_smartcode_ctc_root: cannot find 'cctc' in PATH")
+  if(_CCTC_PATH)
+    get_filename_component(_BIN_DIR "${_CCTC_PATH}" DIRECTORY)
+    get_filename_component(_ROOT_DIR "${_BIN_DIR}" DIRECTORY)
+    set(${OUT_VAR}
+        "${_ROOT_DIR}"
+        PARENT_SCOPE)
   endif()
-  get_filename_component(_BIN_DIR "${_CCTC_PATH}" DIRECTORY)
-  get_filename_component(_ROOT_DIR "${_BIN_DIR}" DIRECTORY)
-  set(${OUT_VAR}
-      "${_ROOT_DIR}"
-      PARENT_SCOPE)
 endfunction()
 
-get_smartcode_ctc_root(SMARTCODE_CTC_ROOT)
-add_compile_options(-I${SMARTCODE_CTC_ROOT}/include)
+get_tasking_ctc_root(TASKING_ROOT_PATH)
+# search limits.h in this path firstly under include.cxx/support/tasking
+if(TASKING_ROOT_PATH)
+  add_compile_options(-I${TASKING_ROOT_PATH}/include.cxx/support/tasking)
+  add_compile_options(-I${TASKING_ROOT_PATH}/include)
+endif()
 
 if(CONFIG_DEBUG_CUSTOMOPT)
   add_compile_options(${CONFIG_DEBUG_OPTLEVEL})
@@ -225,15 +256,11 @@ endif()
 
 set(NUTTX_FIND_TOOLCHAIN_LIB_DEFINED true)
 function(nuttx_find_toolchain_lib)
-  get_filename_component(TASKING_ROOT_PATH "${CMAKE_C_COMPILER}" DIRECTORY)
-  string(REGEX REPLACE "^/([a-zA-Z])/(.*)$" "\\1:/\\2" TASKING_ROOT_TEMP_PATH
-                       "${TASKING_ROOT_PATH}")
-  string(STRIP "${TASKING_ROOT_TEMP_PATH}" TASKING_ROOT_PATH)
-  if(ARGN)
+  if(TASKING_ROOT_PATH AND ARGN)
     if(CONFIG_ARCH_CHIP_TC3XX)
-      nuttx_add_extra_library(${TASKING_ROOT_PATH}/../lib/tc162/${ARGN})
+      nuttx_add_extra_library(${TASKING_ROOT_PATH}/lib/tc162/${ARGN})
     elseif(CONFIG_ARCH_CHIP_TC4XX)
-      nuttx_add_extra_library(${TASKING_ROOT_PATH}/../lib/tc18/${ARGN})
+      nuttx_add_extra_library(${TASKING_ROOT_PATH}/lib/tc18/${ARGN})
     endif()
   endif()
 endfunction()

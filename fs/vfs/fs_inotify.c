@@ -46,6 +46,11 @@
 #include "sched/sched.h"
 #include "fs_heap.h"
 
+/* Event classes a watch can register for, IN_UNMOUNT being the highest */
+
+#define INOTIFY_CLASSES (IN_ALL_EVENTS | IN_UNMOUNT)
+#define INOTIFY_NCLASS  14
+
 /****************************************************************************
  * Private Types
  ****************************************************************************/
@@ -89,8 +94,10 @@ struct inotify_global_s
   mutex_t  lock;               /* Enforces global exclusive access */
   int      event_cookie;       /* Event cookie */
   int      watch_cookie;       /* Watch cookie */
-  uint32_t read_count;         /* Number of read events */
-  uint32_t write_count;        /* Number of write events */
+
+  /* Number of watches registered for each IN_* bit */
+
+  uint32_t count[INOTIFY_NCLASS];
   struct   hsearch_data hash;  /* Hash table for watch lists */
 };
 
@@ -155,8 +162,13 @@ static struct inotify_global_s g_inotify =
 
 static void inotify_add_count(uint32_t mask)
 {
-  g_inotify.read_count += (mask & IN_ACCESS) ? 1 : 0;
-  g_inotify.write_count += (mask & IN_MODIFY) ? 1 : 0;
+  int i;
+
+  mask &= INOTIFY_CLASSES;
+  for (i = 0; mask != 0; i++, mask >>= 1)
+    {
+      g_inotify.count[i] += mask & 1;
+    }
 }
 
 /****************************************************************************
@@ -169,23 +181,53 @@ static void inotify_add_count(uint32_t mask)
 
 static void inotify_sub_count(uint32_t mask)
 {
-  g_inotify.read_count -= (mask & IN_ACCESS) ? 1 : 0;
-  g_inotify.write_count -= (mask & IN_MODIFY) ? 1 : 0;
+  int i;
+
+  mask &= INOTIFY_CLASSES;
+  for (i = 0; mask != 0; i++, mask >>= 1)
+    {
+      g_inotify.count[i] -= mask & 1;
+    }
 }
 
 /****************************************************************************
  * Name: notify_check_mask
  *
  * Description:
- *   Check if the count is valid.
+ *   Return OK if some watch may receive an event of this mask, -EBADF if
+ *   none can.
  *
  ****************************************************************************/
 
 static int notify_check_mask(uint32_t mask)
 {
-  return (((mask & IN_ACCESS) && g_inotify.read_count == 0) ||
-          ((mask & IN_MODIFY) && g_inotify.write_count == 0)) ?
-          -EBADF : OK;
+  int i;
+
+  /* IN_MOVED_FROM also reaches IN_MOVE_SELF watches.  IN_DELETE frees
+   * the watch list of the deleted path whatever its watches asked for,
+   * so it matters as long as any watch exists.
+   */
+
+  if (mask & IN_MOVED_FROM)
+    {
+      mask |= IN_MOVE_SELF;
+    }
+
+  if (mask & IN_DELETE)
+    {
+      mask |= INOTIFY_CLASSES;
+    }
+
+  mask &= INOTIFY_CLASSES;
+  for (i = 0; mask != 0; i++, mask >>= 1)
+    {
+      if ((mask & 1) && g_inotify.count[i] != 0)
+        {
+          return OK;
+        }
+    }
+
+  return -EBADF;
 }
 
 /****************************************************************************
@@ -885,6 +927,25 @@ static void notify_queue_path_event(FAR const char *path, uint32_t mask)
   FAR char *pathbuffer;
   uint32_t cookie = 0;
 
+  /* Advance the cookie even if nobody watches IN_MOVED_FROM, so that the
+   * IN_MOVED_TO of each rename still carries its own cookie.
+   */
+
+  if (mask & IN_MOVE)
+    {
+      if (mask & IN_MOVED_FROM)
+        {
+          ++g_inotify.event_cookie;
+        }
+
+      cookie = g_inotify.event_cookie;
+    }
+
+  if (notify_check_mask(mask) < 0)
+    {
+      return;
+    }
+
   pathbuffer = lib_get_pathbuffer();
   if (pathbuffer == NULL)
     {
@@ -896,16 +957,6 @@ static void notify_queue_path_event(FAR const char *path, uint32_t mask)
     {
       lib_put_pathbuffer(pathbuffer);
       return;
-    }
-
-  if (mask & IN_MOVE)
-    {
-      if (mask & IN_MOVED_FROM)
-        {
-          ++g_inotify.event_cookie;
-        }
-
-      cookie = g_inotify.event_cookie;
     }
 
   list = inotify_get_watch_list(abspath);
@@ -984,10 +1035,13 @@ static inline void notify_queue_filep_event(FAR struct file *filep,
       return;
     }
 
-  nxmutex_lock(&g_inotify.lock);
-  ret = notify_check_mask(mask);
-  nxmutex_unlock(&g_inotify.lock);
-  if (ret < 0)
+  /* Checked without g_inotify.lock so that readers and writers do not
+   * queue behind a path event holding it.  The counters are aligned
+   * uint32_t loads; racing a concurrent watch add/remove is the same
+   * race as the one between this check and the lock taken below.
+   */
+
+  if (notify_check_mask(mask) < 0)
     {
       return;
     }
@@ -1064,6 +1118,7 @@ int inotify_add_watch(int fd, FAR const char *pathname, uint32_t mask)
   FAR struct inotify_watch_s *old;
   FAR struct inotify_device_s *dev;
   FAR struct file *filep;
+  FAR char *tmpbuffer;
   FAR char *abspath;
   struct stat buf;
   int ret;
@@ -1081,11 +1136,21 @@ int inotify_add_watch(int fd, FAR const char *pathname, uint32_t mask)
       return ERROR;
     }
 
-  abspath = lib_realpath(pathname, NULL, mask & IN_DONT_FOLLOW);
-  if (abspath == NULL)
+  /* Allocate temporary buffer for realpath */
+
+  tmpbuffer = lib_get_tempbuffer(PATH_MAX);
+  if (tmpbuffer == NULL)
     {
       file_put(filep);
+      set_errno(ENOMEM);
       return ERROR;
+    }
+
+  abspath = lib_realpath(pathname, tmpbuffer, mask & IN_DONT_FOLLOW);
+  if (abspath == NULL)
+    {
+      ret = -get_errno();
+      goto out_free;
     }
 
   ret = nx_stat(abspath, &buf, 1);
@@ -1133,7 +1198,8 @@ int inotify_add_watch(int fd, FAR const char *pathname, uint32_t mask)
         }
 
       ret = old->wd;
-      inotify_add_count(tmpmask ^ old->mask);
+      inotify_add_count(old->mask);
+      inotify_sub_count(tmpmask);
     }
   else
     {
@@ -1158,7 +1224,7 @@ out:
 
 out_free:
   file_put(filep);
-  fs_heap_free(abspath);
+  lib_put_tempbuffer(tmpbuffer);
   if (ret < 0)
     {
       set_errno(-ret);

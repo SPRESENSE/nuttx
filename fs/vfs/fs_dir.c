@@ -299,8 +299,16 @@ static int read_pseudodir(FAR struct fs_dirent_s *dir,
                           FAR struct dirent *entry)
 {
   FAR struct fs_pseudodir_s *pdir = (FAR struct fs_pseudodir_s *)dir;
-  FAR struct inode *next = pdir->next;
+  FAR struct inode *next;
   FAR struct inode *prev;
+
+  /* Hold the lock while the entry is used: a concurrent unregister may
+   * unlink and free it.
+   */
+
+  inode_lock();
+
+  next = pdir->next;
 
   /* Check if we are at the end of the list */
 
@@ -310,6 +318,7 @@ static int read_pseudodir(FAR struct fs_dirent_s *dir,
        * readdir. Here we return -ENOENT to signal the end of the directory.
        */
 
+      inode_unlock();
       return -ENOENT;
     }
 
@@ -393,8 +402,6 @@ static int read_pseudodir(FAR struct fs_dirent_s *dir,
   entry->d_ino = pdir->next->i_ino;
 
   /* Now get the inode to visit next time that readdir() is called */
-
-  inode_lock();
 
   prev       = pdir->next;
   pdir->next = prev->i_peer; /* The next node to visit */
@@ -481,6 +488,7 @@ static ssize_t dir_read(FAR struct file *filep, FAR char *buffer,
                         size_t buflen)
 {
   FAR struct fs_dirent_s *dir = filep->f_priv;
+  FAR struct dirent *entry = (FAR struct dirent *)buffer;
 #ifndef CONFIG_DISABLE_MOUNTPOINT
   FAR struct inode *inode = dir->fd_root;
 #endif
@@ -493,6 +501,10 @@ static ssize_t dir_read(FAR struct file *filep, FAR char *buffer,
       return -EINVAL;
     }
 
+  /* A file system that has no file serial numbers leaves d_ino alone */
+
+  entry->d_ino = 0;
+
   /* The way we handle the readdir depends on the type of inode
    * that we are dealing with.
    */
@@ -500,15 +512,14 @@ static ssize_t dir_read(FAR struct file *filep, FAR char *buffer,
 #ifndef CONFIG_DISABLE_MOUNTPOINT
   if (INODE_IS_MOUNTPT(inode))
     {
-      ret = inode->u.i_mops->readdir(inode, dir,
-                                     (FAR struct dirent *)buffer);
+      ret = inode->u.i_mops->readdir(inode, dir, entry);
     }
   else
 #endif
     {
       /* The node is part of the root pseudo file system */
 
-      ret = read_pseudodir(dir, (FAR struct dirent *)buffer);
+      ret = read_pseudodir(dir, entry);
     }
 
   /* ret < 0 is an error. Special case: ret = -ENOENT is end of file */
@@ -521,6 +532,16 @@ static ssize_t dir_read(FAR struct file *filep, FAR char *buffer,
         }
 
       return ret;
+    }
+
+  /* Programs skip an entry with d_ino 0 as a deleted one.  Give it a hash
+   * of its path instead.
+   */
+
+  if (entry->d_ino == 0)
+    {
+      entry->d_ino = inode_hash(inode_hash(INODE_HASH_INIT, dir->fd_path),
+                                entry->d_name);
     }
 
   filep->f_pos++;
@@ -619,7 +640,9 @@ int dir_allocate(FAR struct file *filep, FAR const char *relpath)
 {
   FAR struct fs_dirent_s *dir;
   FAR struct inode *inode = filep->f_inode;
+  FAR const char *last;
   FAR char *path_prefix;
+  size_t len;
   int ret;
 
   path_prefix = lib_get_pathbuffer();
@@ -653,8 +676,15 @@ int dir_allocate(FAR struct file *filep, FAR const char *relpath)
         }
     }
 
+  /* inode_getpath() already ends a mountpoint with '/', so only add the
+   * separator when the path does not end with one.
+   */
+
   inode_getpath(inode, path_prefix, PATH_MAX);
-  ret = fs_heap_asprintf(&dir->fd_path, "%s%s/", path_prefix, relpath);
+  last = *relpath != '\0' ? relpath : path_prefix;
+  len  = strlen(last);
+  ret  = fs_heap_asprintf(&dir->fd_path, "%s%s%s", path_prefix, relpath,
+                          len > 0 && last[len - 1] == '/' ? "" : "/");
   if (ret < 0)
     {
       dir->fd_path = NULL;

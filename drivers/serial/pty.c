@@ -125,6 +125,7 @@ struct pty_devpair_s
   bool pp_unlinked;             /* File has been unlinked */
   uint8_t pp_minor;             /* Minor device number */
   uint16_t pp_nopen;            /* Open file count */
+  struct winsize pp_winsize;    /* Window size, same for both ends */
   sem_t pp_slavesem;            /* Slave lock semaphore */
   mutex_t pp_lock;              /* Mutual exclusion */
 };
@@ -184,13 +185,14 @@ static void pty_destroy(FAR struct pty_devpair_s *devpair)
 
   if (devpair->pp_susv1)
     {
-      /* Free this minor number so that it can be reused */
-
-      ptmx_minor_free(devpair->pp_minor);
-
       /* Un-register the slave device */
 
       snprintf(devname, sizeof(devname), "/dev/pts/%u", devpair->pp_minor);
+      unregister_driver(devname);
+
+      /* Free this minor number so that it can be reused */
+
+      ptmx_minor_free(devpair->pp_minor);
     }
   else
     {
@@ -204,9 +206,8 @@ static void pty_destroy(FAR struct pty_devpair_s *devpair)
       /* Un-register the slave device */
 
       snprintf(devname, sizeof(devname), "/dev/ttyp%u", devpair->pp_minor);
+      unregister_driver(devname);
     }
-
-  unregister_driver(devname);
 
   /* And free the device structure */
 
@@ -362,10 +363,15 @@ static int pty_close(FAR struct file *filep)
       return ret;
     }
 
-  /* Check if the decremented inode reference count would go to zero */
+  /* Check if the decremented inode reference count would go to zero.  A
+   * device still in the VFS namespace holds one reference for its
+   * registration, so its last open reference is the second one.  The master
+   * of a SUSv1 pair is the exception: ptmx_open() unlinks it as soon as it
+   * has opened it, leaving the open itself as the only reference.
+   */
 
-  if ((!dev->pd_master && atomic_read(&inode->i_crefs) == 2) ||
-       (dev->pd_master && atomic_read(&inode->i_crefs) == 1))
+  if (atomic_read(&inode->i_crefs) ==
+      ((dev->pd_master && devpair->pp_susv1) ? 1 : 2))
     {
       /* Did the (single) master just close its reference? */
 
@@ -846,6 +852,9 @@ static int pty_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
   FAR struct inode *inode;
   FAR struct pty_dev_s *dev;
   FAR struct pty_devpair_s *devpair;
+#if defined(CONFIG_TTY_SIGINT) || defined(CONFIG_TTY_SIGTSTP)
+  pid_t winchpid = INVALID_PROCESS_ID;
+#endif
   int ret;
 
   inode   = filep->f_inode;
@@ -1009,12 +1018,70 @@ static int pty_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
         }
         break;
 
+      /* Resize (PIPEIOC_SETSIZE) or query the size of (PIPEIOC_GETSIZE) the
+       * sink pipe, following the same rule as FIONWRITE and FIONSPACE above.
+       * A file writing more than the pipe holds is split into that many
+       * partial writes, which a protocol carried over the PTY may not
+       * tolerate, so let it size the pipe it writes into rather than making
+       * every PTY in the system pay for the largest consumer through
+       * CONFIG_PSEUDOTERM_RXBUFSIZE and CONFIG_PSEUDOTERM_TXBUFSIZE.  Both
+       * ends of a pair have to ask for themselves, which is what keeps the
+       * two directions independent.
+       */
+
+      case PIPEIOC_SETSIZE:
+      case PIPEIOC_GETSIZE:
+        {
+          ret = file_ioctl(&dev->pd_sink, cmd, arg);
+        }
+        break;
+
       case FIONBIO:
         {
           ret = file_ioctl(&dev->pd_src, cmd, arg);
           if (ret >= 0)
             {
               ret = file_ioctl(&dev->pd_sink, cmd, arg);
+            }
+        }
+        break;
+
+      case TIOCGWINSZ:
+        {
+          FAR struct winsize *ws = (FAR struct winsize *)arg;
+
+          if (ws == NULL)
+            {
+              ret = -EINVAL;
+              break;
+            }
+
+          *ws = devpair->pp_winsize;
+          ret = OK;
+        }
+        break;
+
+      /* A new size from either end sends SIGWINCH to the foreground
+       * process of the slave, after the lock is released.
+       */
+
+      case TIOCSWINSZ:
+        {
+          FAR const struct winsize *ws = (FAR const struct winsize *)arg;
+
+          if (ws == NULL)
+            {
+              ret = -EINVAL;
+              break;
+            }
+
+          ret = OK;
+          if (memcmp(&devpair->pp_winsize, ws, sizeof(*ws)) != 0)
+            {
+              devpair->pp_winsize = *ws;
+#if defined(CONFIG_TTY_SIGINT) || defined(CONFIG_TTY_SIGTSTP)
+              winchpid = devpair->pp_slave.pd_pid;
+#endif
             }
         }
         break;
@@ -1090,10 +1157,10 @@ static int pty_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
       /* Any unrecognized IOCTL commands will be passed to the contained
        * pipe driver.
        *
-       * REVISIT:  We know for a fact that the pipe driver only supports
-       * FIONREAD, FIONWRITE, FIONSPACE and PIPEIOC_POLICY.  The first two
-       * are handled above and PIPEIOC_POLICY should not be managed by
-       * applications -- it can break the PTY!
+       * REVISIT:  The pipe driver supports FIONREAD, FIONWRITE, FIONSPACE,
+       * PIPEIOC_PEEK, PIPEIOC_SETSIZE, PIPEIOC_GETSIZE and PIPEIOC_POLICY.
+       * All but the last are handled above; PIPEIOC_POLICY should not be
+       * managed by applications -- it can break the PTY!
        */
 
       default:
@@ -1112,6 +1179,18 @@ static int pty_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
     }
 
   nxmutex_unlock(&devpair->pp_lock);
+
+#if defined(CONFIG_TTY_SIGINT) || defined(CONFIG_TTY_SIGTSTP)
+  /* In a flat build, the signal handler of the caller runs in nxsig_kill()
+   * and can use this PTY.
+   */
+
+  if (winchpid > 0)
+    {
+      nxsig_kill(winchpid, SIGWINCH);
+    }
+#endif
+
   return ret;
 }
 
@@ -1361,6 +1440,10 @@ int pty_register2(int minor, bool susv1)
   return OK;
 
 errout_with_master:
+
+  /* Hold a reference so that pty_unlink() does not destroy devpair */
+
+  devpair->pp_nopen++;
   snprintf(devname, sizeof(devname), "/dev/pty%d", minor);
   unregister_driver(devname);
 

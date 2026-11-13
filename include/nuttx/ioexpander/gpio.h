@@ -33,7 +33,9 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#include <nuttx/atomic.h>
 #include <nuttx/signal.h>
+#include <nuttx/spinlock_type.h>
 #include <nuttx/fs/ioctl.h>
 
 #ifdef CONFIG_DEV_GPIO
@@ -80,6 +82,11 @@
  *              interrupt source remains enabled.
  * Argument:    true to mask the interrupt;
  *              false to unmask the interrupt.
+ *
+ * Command:     GPIOC_TOGGLE
+ * Description: Toggle the value of an output GPIO and return the new level.
+ * Argument:    A pointer to a bool value to receive the result:
+ *              false=low value; true=high value.
  */
 
 #define GPIOC_WRITE       _GPIOC(1)
@@ -90,6 +97,7 @@
 #define GPIOC_SETPINTYPE  _GPIOC(6)
 #define GPIOC_SETDEBOUNCE _GPIOC(7)
 #define GPIOC_IRQ_SETMASK _GPIOC(8)
+#define GPIOC_TOGGLE      _GPIOC(9)
 
 /****************************************************************************
  * Public Types
@@ -139,6 +147,9 @@ typedef CODE int (*pin_interrupt_t)(FAR struct gpio_dev_s *dev, uint8_t pin);
  *   - go_setpintype.  Required for all pin types.
  *   - go_setdebounce.  Required for all pin types.
  *   - go_setmask.  Required only for the GPIO_INTERRUPT_PIN pin
+ *   - go_toggle.  Optional for GPIO_OUTPUT_PIN pin type.  When provided,
+ *     performs an atomic toggle and returns the new level.  When NULL,
+ *     GPIOC_TOGGLE falls back to go_read + go_write.
  */
 
 struct gpio_dev_s;
@@ -156,6 +167,7 @@ struct gpio_operations_s
   CODE int (*go_setdebounce)(FAR struct gpio_dev_s *gpio,
                              unsigned long duration);
   CODE int (*go_setmask)(FAR struct gpio_dev_s *dev, bool enable);
+  CODE int (*go_toggle)(FAR struct gpio_dev_s *dev, FAR bool *value);
 
   /* Describe whatever only this pin's controller can say, for
    * /proc/gpio: which pad carries the line, how its trigger is
@@ -180,7 +192,9 @@ struct gpio_operations_s
 struct gpio_signal_s
 {
   struct sigevent gp_event;
+#ifdef CONFIG_SIG_EVTHREAD
   struct sigwork_s gp_work;
+#endif
   pid_t gp_pid;        /* The task to be signaled */
 };
 
@@ -196,7 +210,7 @@ struct gpio_dev_s
 
   /* Number of times the device has been registered by ioctl */
 
-  uint8_t register_count;
+  atomic_t register_count;
 
   /* Number of times interrupt occurred */
 
@@ -217,6 +231,10 @@ struct gpio_dev_s
 #if CONFIG_DEV_GPIO_NPOLLWAITERS > 0
   FAR struct pollfd_s *fds[CONFIG_DEV_GPIO_NPOLLWAITERS];
 #endif
+
+  /* Access lock for changing devices' private data */
+
+  spinlock_t lock;
 
   /* Device specific, lower-half information may follow. */
 };

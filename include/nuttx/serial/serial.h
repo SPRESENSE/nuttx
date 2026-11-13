@@ -37,6 +37,7 @@
 
 #include <nuttx/fs/fs.h>
 #include <nuttx/semaphore.h>
+#include <nuttx/spinlock.h>
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -325,7 +326,7 @@ struct uart_dev_s
 {
   /* State data */
 
-  uint8_t              open_count;   /* Number of times the device has been opened */
+  uint16_t             open_count;   /* Number of times the device has been opened */
   uint8_t              escape;       /* VT100/ANSI escape sequence echo-
                                        * suppression state (see the
                                        * UART_ESCAPE_* values used in
@@ -361,11 +362,16 @@ struct uart_dev_s
   cc_t                 tc_vsusp;     /* c_cc[VSUSP] */
 #endif
 
+  /* Terminal window size (TIOCGWINSZ, TIOCSWINSZ) */
+
+  struct winsize       winsize;
+
   /* Semaphores & mutex */
 
   sem_t                xmitsem;      /* Wakeup user waiting for space in xmit.buffer */
   sem_t                recvsem;      /* Wakeup user waiting for data in recv.buffer */
   mutex_t              closelock;    /* Locks out new open while close is in progress */
+  rspinlock_t          lock;         /* The protection rspinlock for critical section */
 
   /* I/O buffers */
 
@@ -414,6 +420,26 @@ extern "C"
 /****************************************************************************
  * Public Function Prototypes
  ****************************************************************************/
+
+/****************************************************************************
+ * Name: uart_spinlock
+ *
+ * Description:
+ *   Enter critical section for this uart.
+ *
+ ****************************************************************************/
+
+irqstate_t uart_spinlock(FAR uart_dev_t *dev, bool nopreempt);
+
+/****************************************************************************
+ * Name: uart_spinunlock
+ *
+ * Description:
+ *   Leave critical section for this uart.
+ *
+ ****************************************************************************/
+
+void uart_spinunlock(FAR uart_dev_t *dev, bool nopreempt, irqstate_t flags);
 
 /****************************************************************************
  * Name: uart_register

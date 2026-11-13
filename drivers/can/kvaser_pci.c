@@ -1215,6 +1215,14 @@ static FAR netpkt_t *kvaser_sock_recv(FAR struct netdev_lowerhalf_s *dev)
   st = kvaser_getreg_sja(priv, SJA1000_STATUS_REG);
   if ((st & SJA1000_RX_BUF_ST) == 0)
     {
+      /* RX FIFO drained. Clear any data overrun, otherwise the SJA1000
+       * drops every further received frame until it is cleared. Also
+       * re-enable the RX interrupt that the ISR masked.
+       */
+
+      kvaser_putreg_sja(priv, SJA1000_CMD_REG, SJA1000_CLR_OVERRUN);
+      kvaser_rxint(priv, true);
+
 #ifdef CONFIG_NET_CAN_ERRORS
       /* Check for errors */
 
@@ -1230,6 +1238,13 @@ static FAR netpkt_t *kvaser_sock_recv(FAR struct netdev_lowerhalf_s *dev)
   if (!pkt)
     {
       canerr("alloc pkt_new failed\n");
+
+      /* Drop the frame and re-enable the RX interrupt, so that the next
+       * frame in the RX FIFO is received when a packet is available again.
+       */
+
+      kvaser_putreg_sja(priv, SJA1000_CMD_REG, SJA1000_RELEASE_BUF);
+      kvaser_rxint(priv, true);
       return NULL;
     }
 
@@ -1238,9 +1253,11 @@ static FAR netpkt_t *kvaser_sock_recv(FAR struct netdev_lowerhalf_s *dev)
 
   regval = kvaser_getreg_sja(priv, SJA1000_DATA_0_REG);
 
-  /* Get the DLC */
+  /* Get the DLC.  A classic frame carries at most 8 data bytes, also with
+   * DLC 9..15.
+   */
 
-  frame->can_dlc = (regval & SJA1000_FI_DLC_MASK);
+  frame->can_dlc = MIN(regval & SJA1000_FI_DLC_MASK, CAN_MAX_DLEN);
 
   /* Get the CAN identifier. */
 
@@ -1267,9 +1284,12 @@ static FAR netpkt_t *kvaser_sock_recv(FAR struct netdev_lowerhalf_s *dev)
       canerr("ERROR: Received message with extended"
              " identifier.  Dropped\n");
 
-      /* Release RX buffer */
+      /* Release RX buffer and re-enable the RX interrupt for the next
+       * frame in the RX FIFO
+       */
 
       kvaser_putreg_sja(priv, SJA1000_CMD_REG, SJA1000_RELEASE_BUF);
+      kvaser_rxint(priv, true);
 
       netpkt_free(dev, pkt, NETPKT_RX);
       return NULL;
@@ -1285,7 +1305,7 @@ static FAR netpkt_t *kvaser_sock_recv(FAR struct netdev_lowerhalf_s *dev)
 
   /* Get data */
 
-  for (i = 0; i < can_dlc2bytes(frame->can_dlc); i++)
+  for (i = 0; i < frame->can_dlc; i++)
     {
       frame->data[i] = kvaser_getreg_sja(priv, dreg + i);
     }
@@ -1426,10 +1446,16 @@ static void kvaser_sock_interrupt(FAR struct kvaser_driver_s *priv)
               continue;
             }
 
-          /* RX ready */
+          /* RX ready. The SJA1000 RX interrupt is level triggered (it stays
+           * asserted while the RX FIFO is non-empty), and we process RX in a
+           * deferred poll, so leaving it enabled here makes the ISR re-fire
+           * continuously and starve the poll thread until the FIFO overruns.
+           * Mask it; kvaser_sock_recv() re-enables it once the FIFO drains.
+           */
 
           if (st & KVASER_SOCK_RXINT)
             {
+              kvaser_rxint(&priv->sja[i], false);
               netdev_lower_rxready(&priv->sja[i].dev);
             }
 

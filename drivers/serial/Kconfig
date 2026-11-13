@@ -56,29 +56,37 @@ config SERIAL_GDBSTUB
 	depends on LIB_GDBSTUB
 	default n
 
+if SERIAL_GDBSTUB
+
 config SERIAL_GDBSTUB_PATH
 	string "GDBSTUB Serial path"
-	depends on SERIAL_GDBSTUB
 	default "/dev/ttyS1"
 	---help---
 		The path to the serial device that will be used for GDB stub.
 
 config SERIAL_GDBSTUB_AUTO_ATTACH
 	bool "GDBSTUB Serial Auto attach"
-	depends on SERIAL_GDBSTUB
 	default n
 	---help---
 		Attach the serial port to gdbstub by default.
 		Will cover the GDBSTUB_SERIAL_PATH, that port will only
 		be used for GDB stub.
 
+config SERIAL_GDBSTUB_WAIT_CONNECT
+	bool "GDBSTUB Serial wait for connection"
+	depends on SERIAL_GDBSTUB_AUTO_ATTACH
+	default n
+	---help---
+		Wait for gdbstub to connect before continuing boot.
+
 config SERIAL_GDBSTUB_PANIC_TIMEOUT
 	int "GDBSTUB Serial panic timeout"
-	depends on SERIAL_GDBSTUB
 	default 10
 	---help---
 		Delay the panic timeout for gdbstub to connect.
 		0 will disable the timeout.
+
+endif # SERIAL_GDBSTUB
 
 config UART_HOSTFS
 	bool "Use hostfs read/write on UART_HOSTFS_DEVPATH as uart console"
@@ -1015,5 +1023,62 @@ config UART_BTH5_NPOLLWAITERS
 		Default: 2
 
 endif # UART_BTH5
+
+config CONSOLE_NETDEV
+	bool "Console on netdev"
+	default n
+	depends on NETDEVICES && SCHED_LPWORK
+	depends on NET_UDP || (NET_CAN_ISOTP && NET_CAN_SOCK_OPTS)
+	select SERIAL_RXDMA
+	select SERIAL_TXDMA
+	---help---
+		Use the netdev as a console device
+
+if CONSOLE_NETDEV
+
+config CONSOLE_NETDEV_UDP
+	bool "Netdev Console interface over UDP"
+	default y if NET_UDP
+	---help---
+		Network interface over UDP used for Console.
+
+config CONSOLE_NETDEV_CAN
+	bool "Netdev Console interface over CAN"
+	default y if NET_CAN_ISOTP
+	depends on NET_CAN_ISOTP && NET_CAN_SOCK_OPTS
+	---help---
+		Network interface over CAN (ISO-TP) used for Console.
+
+config CONSOLE_NETDEV_INTF
+	string "Netdev Console CAN interface name"
+	default "can0"
+	depends on CONSOLE_NETDEV_CAN && NETDEV_IFINDEX
+	---help---
+		Name of the CAN interface used by the ISO-TP console.
+
+config CONSOLE_NETDEV_IPADDR
+	hex "CONSOLE netdev destination IP address"
+	default 0xffffffff
+	---help---
+		Address where where netdev sends CONSOLE data.
+
+config CONSOLE_NETDEV_PORT
+	int "CONSOLE netdev port"
+	default 55000 if CONSOLE_NETDEV_UDP
+	default 2000 if CONSOLE_NETDEV_CAN
+	---help---
+		For UDP: UDP port for CONSOLE input/output.
+		For CAN ISO-TP: TX CAN ID. The RX CAN ID is derived as
+		CONSOLE_NETDEV_PORT + 1.
+
+config CONSOLE_NETDEV_RXBUFSIZE
+	int "CONSOLE netdev receive buffer size"
+	default 256
+
+config CONSOLE_NETDEV_TXBUFSIZE
+	int "CONSOLE netdev transmit buffer size"
+	default 256
+
+endif
 
 endif # SERIAL

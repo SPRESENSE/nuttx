@@ -201,8 +201,8 @@
 #define _PC_SYNC_IO                      0x0012
 #define _PC_VDISABLE                     0x0013
 
-/* Constants used with POSIX sysconf().  sysconf() will return -1 and set
- * errno to ENOSYS for most of these.
+/* Constants used with POSIX sysconf().  sysconf() returns -1 for the
+ * options and limits that NuttX does not have.
  */
 
 #define _SC_2_C_BIND                     0x0001
@@ -334,6 +334,20 @@
 
 #define _SC_NPROCESSORS_CONF             0x007d
 #define _SC_NPROCESSORS_ONLN             0x007e
+
+#define _SC_DEVICE_CONTROL               0x007f
+#define _SC_NSIG                         0x0080
+#define _SC_THREAD_ROBUST_PRIO_INHERIT   0x0081
+#define _SC_THREAD_ROBUST_PRIO_PROTECT   0x0082
+#define _SC_V7_ILP32_OFF32               0x0083
+#define _SC_V7_ILP32_OFFBIG              0x0084
+#define _SC_V7_LP64_OFF64                0x0085
+#define _SC_V7_LPBIG_OFFBIG              0x0086
+#define _SC_V8_ILP32_OFF32               0x0087
+#define _SC_V8_ILP32_OFFBIG              0x0088
+#define _SC_V8_LP64_OFF64                0x0089
+#define _SC_V8_LPBIG_OFFBIG              0x008a
+#define _SC_XOPEN_UUCP                   0x008b
 
 /* Constants used with POSIX confstr(). */
 
@@ -537,6 +551,8 @@ int     fchownat(int dirfd, FAR const char *path, uid_t owner,
 /* NOTE: NuttX provides only one behavior:  If CONFIG_LIBC_ENVPATH is
  * defined, then execv(), execl() and execve() also search the PATH as
  * execvp(), execlp() and execvpe() do; otherwise none of them searches it.
+ * Only execvp(), execlp() and execvpe() run a file that is not a program
+ * (ENOEXEC, for example a script without "#!") with the shell (POSIX).
  */
 
 #ifdef CONFIG_LIBC_EXECFUNCS

@@ -603,8 +603,15 @@ void sched_note_add(FAR const void *data, size_t len)
       size_t notelen = note->nc_length;
       FAR struct note_driver_s **driver;
 
-      DEBUGASSERT(notelen >= sizeof(struct note_common_s) &&
-                  len >= notelen);
+      /* nc_length comes from the peer, and len is unsigned: a note that
+       * claims more than is left would wrap len and walk off the packet.
+       */
+
+      if (notelen < sizeof(struct note_common_s) || notelen > len)
+        {
+          break;
+        }
+
       for (driver = g_note_drivers; *driver; driver++)
         {
           if ((*driver)->ops->add == NULL)
@@ -1519,9 +1526,9 @@ void sched_note_event_ip(uint32_t tag, uintptr_t ip, uint8_t event,
           formatted = true;
           note = (FAR struct note_event_s *)data;
           length = SIZEOF_NOTE_EVENT(len);
-          if (length > sizeof(data))
+          if (length >= sizeof(data))
             {
-              length = sizeof(data);
+              length = sizeof(data) - 1;
             }
 
           note_common(tcb, &note->nev_cmn, length, event);
@@ -1593,7 +1600,7 @@ void sched_note_vprintf_ip(uint32_t tag, uintptr_t ip, FAR const char *fmt,
 
           formatted = true;
           note = (FAR struct note_printf_s *)data;
-          length = sizeof(data) - SIZEOF_NOTE_PRINTF(0);
+          length = sizeof(data) - 1 - SIZEOF_NOTE_PRINTF(0);
 
           if (type)
             {

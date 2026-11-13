@@ -40,6 +40,7 @@
 #include <nuttx/arch.h>
 #include <nuttx/irq.h>
 #include <nuttx/wqueue.h>
+#include <nuttx/mutex.h>
 #include <nuttx/net/netdev.h>
 #include <nuttx/wireless/wireless.h>
 #include <nuttx/wireless/ieee80211/bcmf_board.h>
@@ -253,7 +254,7 @@ static void bcmf_receive(FAR struct bcmf_dev_s *priv)
 #ifdef CONFIG_NET_PKT
       /* When packet sockets are enabled, feed the frame into the tap */
 
-       pkt_input(&priv->bc_dev);
+      pkt_input(&priv->bc_dev);
 #endif
 
       /* Check if this is an 802.1Q VLAN tagged packet */
@@ -269,6 +270,7 @@ static void bcmf_receive(FAR struct bcmf_dev_s *priv)
           /* ### TODO ### Implement VLAN support */
 
           uint8_t temp_buffer[12];
+
           memcpy(temp_buffer, frame->data, 12);
           memcpy(frame->data + 4, temp_buffer, 12);
 

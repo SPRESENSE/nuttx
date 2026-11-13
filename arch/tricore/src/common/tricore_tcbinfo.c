@@ -34,7 +34,53 @@
  * Private Data
  ****************************************************************************/
 
-static const uint16_t g_reg_offs[1];
+static const uint16_t g_reg_offs[] =
+{
+  TCB_REG_OFF(16 + REG_D0),
+  TCB_REG_OFF(16 + REG_D1),
+  TCB_REG_OFF(16 + REG_D2),
+  TCB_REG_OFF(16 + REG_D3),
+  TCB_REG_OFF(16 + REG_D4),
+  TCB_REG_OFF(16 + REG_D5),
+  TCB_REG_OFF(16 + REG_D6),
+  TCB_REG_OFF(16 + REG_D7),
+  TCB_REG_OFF(REG_D8),
+  TCB_REG_OFF(REG_D9),
+  TCB_REG_OFF(REG_D10),
+  TCB_REG_OFF(REG_D11),
+  TCB_REG_OFF(REG_D12),
+  TCB_REG_OFF(REG_D13),
+  TCB_REG_OFF(REG_D14),
+  TCB_REG_OFF(REG_D15),
+  UINT16_MAX,
+  UINT16_MAX,
+  TCB_REG_OFF(16 + REG_A2),
+  TCB_REG_OFF(16 + REG_A3),
+  TCB_REG_OFF(16 + REG_A4),
+  TCB_REG_OFF(16 + REG_A5),
+  TCB_REG_OFF(16 + REG_A6),
+  TCB_REG_OFF(16 + REG_A7),
+  UINT16_MAX,
+  UINT16_MAX,
+  TCB_REG_OFF(REG_A10),
+  TCB_REG_OFF(REG_UA11),
+  TCB_REG_OFF(REG_A12),
+  TCB_REG_OFF(REG_A13),
+  TCB_REG_OFF(REG_A14),
+  TCB_REG_OFF(REG_A15),
+  UINT16_MAX,
+  UINT16_MAX,
+  TCB_REG_OFF(REG_UPCXI),
+  TCB_REG_OFF(REG_PSW),
+  TCB_REG_OFF(16 + REG_LA11),
+  UINT16_MAX,
+  UINT16_MAX,
+  UINT16_MAX,
+  UINT16_MAX,
+  UINT16_MAX,
+  UINT16_MAX,
+  UINT16_MAX,
+};
 
 /****************************************************************************
  * Public Data

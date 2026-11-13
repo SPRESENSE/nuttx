@@ -58,9 +58,9 @@
  */
 
 #define tcp_callback_alloc(conn) \
-  devif_callback_alloc((conn)->dev, &(conn)->sconn.list, &(conn)->sconn.list_tail)
+  devif_callback_alloc((conn)->dev, &(conn)->sconn.s_list, &(conn)->sconn.s_listtail)
 #define tcp_callback_free(conn,cb) \
-  devif_conn_callback_free((conn)->dev, (cb), &(conn)->sconn.list, &(conn)->sconn.list_tail)
+  devif_conn_callback_free((conn)->dev, (cb), &(conn)->sconn.s_list, &(conn)->sconn.s_listtail)
 
 #ifdef CONFIG_NET_TCP_WRITE_BUFFERS
 /* TCP write buffer access macros */
@@ -1160,24 +1160,6 @@ int tcp_unlisten(FAR struct tcp_conn_s *conn);
  ****************************************************************************/
 
 int tcp_listen(FAR struct tcp_conn_s *conn);
-
-/****************************************************************************
- * Name: tcp_islistener
- *
- * Description:
- *   Return true is there is a listener for the specified port
- *
- * Assumptions:
- *   Called from network stack logic with the network stack locked
- *
- ****************************************************************************/
-
-#if defined(CONFIG_NET_IPv4) && defined(CONFIG_NET_IPv6)
-bool tcp_islistener(FAR union ip_binding_u *uaddr, uint16_t portno,
-                    uint8_t domain);
-#else
-bool tcp_islistener(FAR union ip_binding_u *uaddr, uint16_t portno);
-#endif
 
 /****************************************************************************
  * Name: tcp_accept_connection

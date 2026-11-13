@@ -34,12 +34,12 @@
 #include <sys/param.h>
 #include <sys/wait.h>
 
-#include <metal/utilities.h>
 #include <nuttx/clock.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/kthread.h>
 #include <nuttx/mm/mm.h>
 #include <nuttx/nuttx.h>
+#include <nuttx/queue.h>
 #include <nuttx/rpmsg/rpmsg_virtio.h>
 #include <nuttx/rptun/rptun.h>
 #include <nuttx/vhost/vhost.h>
@@ -78,7 +78,7 @@ struct rptun_priv_s
 {
   FAR struct rptun_dev_s      *dev;
   struct remoteproc           rproc;
-  struct metal_list           node;
+  dq_entry_t                  entry;
   bool                        rreset;
   bool                        stop;
   pid_t                       pid;
@@ -199,7 +199,7 @@ static const struct virtio_memory_ops g_rptun_mmops =
   .unmap        = rptun_unmap_buf,
 };
 
-static struct metal_list g_rptun_priv = METAL_INIT_LIST(g_rptun_priv);
+static dq_queue_t g_rptun_priv;
 static rmutex_t g_rptun_lock = NXRMUTEX_INITIALIZER;
 
 static struct notifier_block g_rptun_panic_nb =
@@ -495,11 +495,11 @@ static int rptun_init_carveout(FAR struct rptun_priv_s *priv,
   if (carveout != NULL)
     {
       memset(&config, 0, sizeof(config));
-      config.heap    = KRN_HEAP;
-      config.name    = shmname;
-      config.start   = shmbase;
-      config.size    = shmlen;
-      config.nokasan = true;
+      config.name      = shmname;
+      config.start     = shmbase;
+      config.size      = shmlen;
+      config.nokasan   = true;
+      config.allocheap = true;
 
       carveout->base = shmbase;
       carveout->size = shmlen;
@@ -623,7 +623,7 @@ static int rptun_create_device(FAR struct rptun_priv_s *priv,
       metal_mutex_acquire(&rproc->lock);
       metal_list_for_each(&rproc->vdevs, node)
         {
-          rvdev = metal_container_of(node, struct remoteproc_virtio, node);
+          rvdev = container_of(node, struct remoteproc_virtio, node);
           if (rvdev->vdev_rsc == vdev_rsc)
             {
               ret = -EEXIST;
@@ -805,7 +805,7 @@ static void rptun_remove_devices(FAR struct rptun_priv_s *priv)
   metal_mutex_acquire(&rproc->lock);
   metal_list_for_each_safe(&rproc->vdevs, temp, node)
     {
-      rvdev = metal_container_of(node, struct remoteproc_virtio, node);
+      rvdev = container_of(node, struct remoteproc_virtio, node);
       rptun_unregister_device(&rvdev->vdev);
       rptun_remove_device(priv, &rvdev->vdev);
     }
@@ -912,9 +912,9 @@ static void rptun_check_peer_status(FAR struct rptun_priv_s *priv)
 
   if (RPTUN_STATUS_CHECK(status, BOARDIOC_SOFTRESETCAUSE_PANIC))
     {
-      metal_log(METAL_LOG_EMERGENCY,
-                "FATAL: Panic by remote core: %s\n",
-                RPTUN_GET_CPUNAME(priv->dev));
+      syslog(LOG_EMERG,
+             "FATAL: Panic by remote core: %s\n",
+             RPTUN_GET_CPUNAME(priv->dev));
       PANIC();
     }
 #ifdef CONFIG_BOARDCTL_RESET
@@ -1165,7 +1165,7 @@ static int rptun_dev_ioctl(FAR struct file *filep, int cmd,
 static int rptun_ioctl_foreach(FAR const char *cpuname, int cmd,
                                unsigned long value)
 {
-  FAR struct metal_list *node;
+  FAR struct rptun_priv_s *priv;
   int ret = OK;
 
   if (!up_interrupt_context())
@@ -1173,12 +1173,8 @@ static int rptun_ioctl_foreach(FAR const char *cpuname, int cmd,
       nxrmutex_lock(&g_rptun_lock);
     }
 
-  metal_list_for_each(&g_rptun_priv, node)
+  dq_for_every_entry(&g_rptun_priv, priv, struct rptun_priv_s, entry)
     {
-      FAR struct rptun_priv_s *priv;
-
-      priv = metal_container_of(node, struct rptun_priv_s, node);
-
       if (!cpuname || !strcmp(RPTUN_GET_CPUNAME(priv->dev), cpuname))
         {
           ret = rptun_do_ioctl(priv, cmd, value);
@@ -1383,7 +1379,7 @@ int rptun_initialize(FAR struct rptun_dev_s *dev)
               register_reboot_notifier(&g_rptun_reboot_nb);
 
               nxrmutex_lock(&g_rptun_lock);
-              metal_list_add_tail(&g_rptun_priv, &priv->node);
+              dq_addlast(&priv->entry, &g_rptun_priv);
               nxrmutex_unlock(&g_rptun_lock);
             }
         }
