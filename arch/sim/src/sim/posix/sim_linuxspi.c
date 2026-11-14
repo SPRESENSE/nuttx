@@ -90,7 +90,7 @@ static int linux_spi_cmddata(struct spi_dev_s *dev, uint32_t devid,
 #endif
 static uint32_t linux_spi_send(struct spi_dev_s *dev, uint32_t wd);
 #ifdef CONFIG_SPI_EXCHANGE
-static void linux_spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
+static int  linux_spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
                                void *rxbuffer, size_t nwords);
 #else
 static void linux_spi_sndblock(struct spi_dev_s *dev, const void *buffer,
@@ -327,7 +327,7 @@ static void linux_spi_setmode(struct spi_dev_s *dev, enum spi_mode_e mode)
         break;
     }
 
-    host_uninterruptible(ioctl, file, SPI_IOC_WR_MODE, &spilinuxmode);
+  host_uninterruptible(ioctl, file, SPI_IOC_WR_MODE, &spilinuxmode);
 }
 
 /****************************************************************************
@@ -511,10 +511,12 @@ static uint32_t linux_spi_send(struct spi_dev_s *dev, uint32_t wd)
  ****************************************************************************/
 
 #ifdef CONFIG_SPI_EXCHANGE
-static void linux_spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
+static int  linux_spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
                                void *rxbuffer, size_t nwords)
 {
   linux_spi_transfer(dev, txbuffer, rxbuffer, nwords);
+
+  return 0;
 }
 #endif
 
@@ -645,7 +647,8 @@ static int linux_spi_transfer(struct spi_dev_s *dev, const void *txbuffer,
    * @delay_usecs = 0, thus thers's no delay before next transfer.
    */
 
-  struct spi_ioc_transfer transfer_data = {
+  struct spi_ioc_transfer transfer_data =
+  {
     .tx_buf = (unsigned long)txbuffer, /* Transmit buffer. */
     .rx_buf = (unsigned long)rxbuffer, /* Receive buffer. */
     .len = (uint32_t)nwords,           /* Number of words. */
@@ -731,6 +734,7 @@ struct spi_dev_s *sim_spi_initialize(const char *filename)
 int sim_spi_uninitialize(struct spi_dev_s *dev)
 {
   struct linux_spi_dev_s *priv = (struct linux_spi_dev_s *)dev;
+
   if (priv->file >= 0)
     {
       host_uninterruptible(close, priv->file);

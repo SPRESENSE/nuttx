@@ -405,7 +405,9 @@ static uint32_t sendto_eventhandler(FAR struct net_driver_s *dev,
        * the next transfer.
        */
 
+      conn_lock(&conn->sconn);
       sendto_writebuffer_release(conn, NULL);
+      conn_unlock(&conn->sconn);
       return flags;
     }
 
@@ -620,6 +622,7 @@ ssize_t psock_udp_sendto(FAR struct socket *psock, FAR const void *buf,
 
   if (len > 65535)
     {
+      nwarn("WARNING: UDP datagram too large: %zu bytes\n", len);
       return -EMSGSIZE;
     }
 
@@ -635,6 +638,8 @@ ssize_t psock_udp_sendto(FAR struct socket *psock, FAR const void *buf,
        * already connected.
        */
 
+      nwarn("WARNING: Socket already connected, destination"
+            " address ignored\n");
       return -EISCONN;
     }
 
@@ -648,6 +653,8 @@ ssize_t psock_udp_sendto(FAR struct socket *psock, FAR const void *buf,
        * address is set.
        */
 
+      nwarn("WARNING: Destination address required for"
+            " unconnected socket\n");
       return -EDESTADDRREQ;
     }
 
@@ -954,6 +961,8 @@ ssize_t psock_udp_sendto(FAR struct socket *psock, FAR const void *buf,
   return len;
 
 errout_with_wrb:
+  nwarn("WARNING: UDP send failed during write buffer preparation: %d\n",
+        ret);
   udp_wrbuffer_release(wrb);
 
   return ret;

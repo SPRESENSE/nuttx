@@ -126,10 +126,10 @@ static void udp_recvpktinfo(FAR struct udp_recvfrom_s *pstate,
  *
  ****************************************************************************/
 
-static inline size_t udp_recvfrom_newdata(FAR struct net_driver_s *dev,
-                                          FAR struct udp_recvfrom_s *pstate)
+static inline void udp_recvfrom_newdata(FAR struct net_driver_s *dev,
+                                        FAR struct udp_recvfrom_s *pstate)
 {
-  size_t recvlen;
+  ssize_t recvlen;
   int offset;
 
   /* Copy the new appdata into the user buffer */
@@ -145,8 +145,6 @@ static inline size_t udp_recvfrom_newdata(FAR struct net_driver_s *dev,
   pstate->ir_recvlen = recvlen;
 
   dev->d_len = 0;
-
-  return recvlen;
 }
 
 static inline void udp_readahead(struct udp_recvfrom_s *pstate)
@@ -165,7 +163,7 @@ static inline void udp_readahead(struct udp_recvfrom_s *pstate)
       int recvlen;
       int offset = 0;
       int pos;
-      uint16_t datalen;
+      uint16_t datalen = 0;
       uint8_t src_addr_size;
       uint8_t ifindex;
       uint8_t meta[UDP_READAHEAD_META_SIZE];
@@ -751,6 +749,7 @@ ssize_t psock_udp_recvfrom(FAR struct socket *psock, FAR struct msghdr *msg,
         }
       else
         {
+          nwarn("WARNING: Failed to allocate UDP recv callback\n");
           ret = -EBUSY;
         }
     }

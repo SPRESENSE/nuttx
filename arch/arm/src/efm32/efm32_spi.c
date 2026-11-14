@@ -182,7 +182,7 @@ static int       spi_cmddata(struct spi_dev_s *dev, uint32_t devid,
                    bool cmd);
 #endif
 static uint32_t  spi_send(struct spi_dev_s *dev, uint32_t wd);
-static void      spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
+static int       spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
                    void *rxbuffer, size_t nwords);
 #ifndef CONFIG_SPI_EXCHANGE
 static void      spi_sndblock(struct spi_dev_s *dev, const void *txbuffer,
@@ -345,6 +345,7 @@ static uint32_t spi_getreg(const struct efm32_spiconfig_s *config,
                            unsigned int regoffset)
 {
   uintptr_t regaddr = config->base + regoffset;
+
   return getreg32(regaddr);
 }
 
@@ -368,6 +369,7 @@ static void spi_putreg(const struct efm32_spiconfig_s *config,
                        unsigned int regoffset, uint32_t regval)
 {
   uintptr_t regaddr = config->base + regoffset;
+
   putreg32(regval, regaddr);
 }
 
@@ -539,6 +541,7 @@ static inline void spi_dmatxwakeup(struct efm32_spidev_s *priv)
 static void spi_dmarxcallback(DMA_HANDLE handle, uint8_t status, void *arg)
 {
   struct efm32_spidev_s *priv = (struct efm32_spidev_s *)arg;
+
   DEBUGASSERT(priv && status != EINPROGRESS);
 
   /* Wake-up the SPI driver */
@@ -560,6 +563,7 @@ static void spi_dmarxcallback(DMA_HANDLE handle, uint8_t status, void *arg)
 static void spi_dmatxcallback(DMA_HANDLE handle, uint8_t status, void *arg)
 {
   struct efm32_spidev_s *priv = (struct efm32_spidev_s *)arg;
+
   DEBUGASSERT(priv && status != EINPROGRESS);
 
   /* Wake-up the SPI driver */
@@ -921,28 +925,28 @@ static void spi_setmode(struct spi_dev_s *dev, enum spi_mode_e mode)
       setting = 0;
       switch (mode)
         {
-        case SPIDEV_MODE0: /* CPOL=0; CPHA=0 */
-          setting = USART_CTRL_CLKPOL_IDLELOW |
-                    USART_CTRL_CLKPHA_SAMPLELEADING;
-          break;
+          case SPIDEV_MODE0: /* CPOL=0; CPHA=0 */
+            setting = USART_CTRL_CLKPOL_IDLELOW |
+                      USART_CTRL_CLKPHA_SAMPLELEADING;
+            break;
 
-        case SPIDEV_MODE1: /* CPOL=0; CPHA=1 */
-          setting = USART_CTRL_CLKPOL_IDLELOW |
-                    USART_CTRL_CLKPHA_SAMPLETRAILING;
-          break;
+          case SPIDEV_MODE1: /* CPOL=0; CPHA=1 */
+            setting = USART_CTRL_CLKPOL_IDLELOW |
+                      USART_CTRL_CLKPHA_SAMPLETRAILING;
+            break;
 
-        case SPIDEV_MODE2: /* CPOL=1; CPHA=0 */
-          setting = USART_CTRL_CLKPOL_IDLEHIGH |
-                    USART_CTRL_CLKPHA_SAMPLELEADING;
-          break;
+          case SPIDEV_MODE2: /* CPOL=1; CPHA=0 */
+            setting = USART_CTRL_CLKPOL_IDLEHIGH |
+                      USART_CTRL_CLKPHA_SAMPLELEADING;
+            break;
 
-        case SPIDEV_MODE3: /* CPOL=1; CPHA=1 */
-          setting = USART_CTRL_CLKPOL_IDLEHIGH |
-                    USART_CTRL_CLKPHA_SAMPLETRAILING;
-          break;
+          case SPIDEV_MODE3: /* CPOL=1; CPHA=1 */
+            setting = USART_CTRL_CLKPOL_IDLEHIGH |
+                      USART_CTRL_CLKPHA_SAMPLETRAILING;
+            break;
 
-        default:
-          return;
+          default:
+            return;
         }
 
       regval  = spi_getreg(config, EFM32_USART_CTRL_OFFSET);
@@ -991,60 +995,60 @@ static void spi_setbits(struct spi_dev_s *dev, int nbits)
 
       switch (nbits)
         {
-        case  4:
-          setting = USART_FRAME_DATABITS_FOUR;
-          break;
+          case  4:
+            setting = USART_FRAME_DATABITS_FOUR;
+            break;
 
-        case  5:
-          setting = USART_FRAME_DATABITS_FIVE;
-          break;
+          case  5:
+            setting = USART_FRAME_DATABITS_FIVE;
+            break;
 
-        case  6:
-          setting = USART_FRAME_DATABITS_SIX;
-          break;
+          case  6:
+            setting = USART_FRAME_DATABITS_SIX;
+            break;
 
-        case  7:
-          setting = USART_FRAME_DATABITS_SEVEN;
-          break;
+          case  7:
+            setting = USART_FRAME_DATABITS_SEVEN;
+            break;
 
-        case  8:
-          setting = USART_FRAME_DATABITS_EIGHT;
-          break;
+          case  8:
+            setting = USART_FRAME_DATABITS_EIGHT;
+            break;
 
-        case  9:
-          setting = USART_FRAME_DATABITS_NINE;
-          break;
+          case  9:
+            setting = USART_FRAME_DATABITS_NINE;
+            break;
 
-        case  10:
-          setting = USART_FRAME_DATABITS_TEN;
-          break;
+          case  10:
+            setting = USART_FRAME_DATABITS_TEN;
+            break;
 
-        case  11:
-          setting = USART_FRAME_DATABITS_ELEVEN;
-          break;
+          case  11:
+            setting = USART_FRAME_DATABITS_ELEVEN;
+            break;
 
-        case  12:
-          setting = USART_FRAME_DATABITS_TWELVE;
-          break;
+          case  12:
+            setting = USART_FRAME_DATABITS_TWELVE;
+            break;
 
-        case  13:
-          setting = USART_FRAME_DATABITS_THIRTEEN;
-          break;
+          case  13:
+            setting = USART_FRAME_DATABITS_THIRTEEN;
+            break;
 
-        case  14:
-          setting = USART_FRAME_DATABITS_FOURTEEN;
-          break;
+          case  14:
+            setting = USART_FRAME_DATABITS_FOURTEEN;
+            break;
 
-        case  15:
-          setting = USART_FRAME_DATABITS_FIFTEEN;
-          break;
+          case  15:
+            setting = USART_FRAME_DATABITS_FIFTEEN;
+            break;
 
-        case  16:
-          setting = USART_FRAME_DATABITS_SIXTEEN;
-          break;
+          case  16:
+            setting = USART_FRAME_DATABITS_SIXTEEN;
+            break;
 
-        default:
-          return;
+          default:
+            return;
         }
 
       regval  = spi_getreg(config, EFM32_USART_FRAME_OFFSET);
@@ -1261,15 +1265,15 @@ static uint32_t spi_send(struct spi_dev_s *dev, uint32_t wd)
  *              uint16_t's
  *
  * Returned Value:
- *   None
+ *   Returns zero (OK) on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
 #if defined(CONFIG_EFM32_SPI_DMA) && CONFIG_EFM32_SPI_DMA_MINSIZE > 0
-static void spi_exchange_nodma(struct spi_dev_s *dev, const void *txbuffer,
+static int  spi_exchange_nodma(struct spi_dev_s *dev, const void *txbuffer,
                                void *rxbuffer, size_t nwords)
 #else
-static void spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
+static int  spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
                          void *rxbuffer, size_t nwords)
 #endif
 {
@@ -1294,8 +1298,8 @@ static void spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
       /* 16-bit mode */
 
       const uint16_t *src  = (const uint16_t *)txbuffer;
-            uint16_t *dest = (uint16_t *)rxbuffer;
-            uint16_t  word;
+      uint16_t *dest = (uint16_t *)rxbuffer;
+      uint16_t  word;
 
       unrecvd = nwords;
       unsent  = nwords;
@@ -1349,8 +1353,8 @@ static void spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
       /* 8-bit mode */
 
       const uint8_t *src  = (const uint8_t *)txbuffer;
-            uint8_t *dest = (uint8_t *)rxbuffer;
-            uint8_t  word;
+      uint8_t *dest = (uint8_t *)rxbuffer;
+      uint8_t  word;
 
       unrecvd = nwords;
       unsent  = nwords;
@@ -1401,6 +1405,7 @@ static void spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
     }
 
   DEBUGASSERT(unsent == 0);
+  return OK;
 }
 
 /****************************************************************************
@@ -1420,12 +1425,12 @@ static void spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
  *              uint16_t's
  *
  * Returned Value:
- *   None
+ *   Returns zero (OK) on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
 #ifdef CONFIG_EFM32_SPI_DMA
-static void spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
+static int  spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
                          void *rxbuffer, size_t nwords)
 {
   struct efm32_spidev_s *priv = (struct efm32_spidev_s *)dev;
@@ -1486,6 +1491,8 @@ static void spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
       spi_dmarxwait(priv);
       leave_critical_section(flags);
     }
+
+  return OK;
 }
 #endif /* CONFIG_EFM32_SPI_DMA */
 
@@ -1514,7 +1521,7 @@ static void spi_sndblock(struct spi_dev_s *dev, const void *txbuffer,
                          size_t nwords)
 {
   spiinfo("txbuffer=%p nwords=%d\n", txbuffer, nwords);
-  return spi_exchange(dev, txbuffer, NULL, nwords);
+  spi_exchange(dev, txbuffer, NULL, nwords);
 }
 #endif
 
@@ -1543,7 +1550,7 @@ static void spi_recvblock(struct spi_dev_s *dev, void *rxbuffer,
                           size_t nwords)
 {
   spiinfo("rxbuffer=%p nwords=%d\n", rxbuffer, nwords);
-  return spi_exchange(dev, NULL, rxbuffer, nwords);
+  spi_exchange(dev, NULL, rxbuffer, nwords);
 }
 #endif
 

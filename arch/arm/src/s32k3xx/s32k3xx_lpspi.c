@@ -195,7 +195,7 @@ static int s32k3xx_lpspi_hwfeatures(struct spi_dev_s *dev,
                                     s32k3xx_lpspi_hwfeatures_t features);
 #endif
 static uint32_t s32k3xx_lpspi_send(struct spi_dev_s *dev, uint32_t wd);
-static void s32k3xx_lpspi_exchange(struct spi_dev_s *dev,
+static int  s32k3xx_lpspi_exchange(struct spi_dev_s *dev,
                                    const void *txbuffer, void *rxbuffer,
                                    size_t nwords);
 #ifndef CONFIG_SPI_EXCHANGE
@@ -800,17 +800,17 @@ static inline uint32_t
 {
   switch (type)
     {
-    case LPSPI_PCS_TO_SCK:
-      return LPSPI_CCR_PCSSCK(scaler);
-      break;
+      case LPSPI_PCS_TO_SCK:
+        return LPSPI_CCR_PCSSCK(scaler);
+        break;
 
-    case LPSPI_LAST_SCK_TO_PCS:
-      return LPSPI_CCR_SCKPCS(scaler);
-      break;
+      case LPSPI_LAST_SCK_TO_PCS:
+        return LPSPI_CCR_SCKPCS(scaler);
+        break;
 
-    case LPSPI_BETWEEN_TRANSFER:
-      return LPSPI_CCR_DBT(scaler);
-      break;
+      case LPSPI_BETWEEN_TRANSFER:
+        return LPSPI_CCR_DBT(scaler);
+        break;
     }
 
   return 0;
@@ -1135,28 +1135,28 @@ static void s32k3xx_lpspi_setmode(struct spi_dev_s *dev,
 
       switch (mode)
         {
-        case SPIDEV_MODE0:     /* CPOL=0; CPHA=0 */
-          setbits = 0;
-          clrbits = LPSPI_TCR_CPOL | LPSPI_TCR_CPHA;
-          break;
+          case SPIDEV_MODE0:     /* CPOL=0; CPHA=0 */
+            setbits = 0;
+            clrbits = LPSPI_TCR_CPOL | LPSPI_TCR_CPHA;
+            break;
 
-        case SPIDEV_MODE1:     /* CPOL=0; CPHA=1 */
-          setbits = LPSPI_TCR_CPHA;
-          clrbits = LPSPI_TCR_CPOL;
-          break;
+          case SPIDEV_MODE1:     /* CPOL=0; CPHA=1 */
+            setbits = LPSPI_TCR_CPHA;
+            clrbits = LPSPI_TCR_CPOL;
+            break;
 
-        case SPIDEV_MODE2:     /* CPOL=1; CPHA=0 */
-          setbits = LPSPI_TCR_CPOL;
-          clrbits = LPSPI_TCR_CPHA;
-          break;
+          case SPIDEV_MODE2:     /* CPOL=1; CPHA=0 */
+            setbits = LPSPI_TCR_CPOL;
+            clrbits = LPSPI_TCR_CPHA;
+            break;
 
-        case SPIDEV_MODE3:     /* CPOL=1; CPHA=1 */
-          setbits = LPSPI_TCR_CPOL | LPSPI_TCR_CPHA;
-          clrbits = 0;
-          break;
+          case SPIDEV_MODE3:     /* CPOL=1; CPHA=1 */
+            setbits = LPSPI_TCR_CPOL | LPSPI_TCR_CPHA;
+            clrbits = 0;
+            break;
 
-        default:
-          return;
+          default:
+            return;
         }
 
       s32k3xx_lpspi_modifyreg32(priv, S32K3XX_LPSPI_TCR_OFFSET,
@@ -1422,22 +1422,23 @@ static uint32_t s32k3xx_lpspi_send_dword(struct spi_dev_s *dev, uint32_t wd0,
  *              uint16_t's
  *
  * Returned Value:
- *   None
+ *   Returns zero (OK) on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
 #if !defined(CONFIG_S32K3XX_LPSPI_DMA)
-static void s32k3xx_lpspi_exchange(struct spi_dev_s *dev,
+static int  s32k3xx_lpspi_exchange(struct spi_dev_s *dev,
                                    const void *txbuffer, void *rxbuffer,
                                    size_t nwords)
 #else
-static void s32k3xx_lpspi_exchange_nodma(struct spi_dev_s *dev,
+static int  s32k3xx_lpspi_exchange_nodma(struct spi_dev_s *dev,
                                          const void *txbuffer,
                                          void *rxbuffer, size_t nwords)
 #endif
 {
   struct s32k3xx_lpspidev_s *priv = (struct s32k3xx_lpspidev_s *)dev;
   uint16_t framesize;
+
   DEBUGASSERT(priv && priv->spibase);
 
   spiinfo("txbuffer=%p rxbuffer=%p nwords=%d\n", txbuffer, rxbuffer, nwords);
@@ -1468,20 +1469,20 @@ static void s32k3xx_lpspi_exchange_nodma(struct spi_dev_s *dev,
             {
               /* read the required number of bytes */
 
-            switch (framesize)
-              {
+              switch (framesize)
+                {
 #ifdef CONFIG_S32K3XX_LPSPI_DWORD
-              case 40:
-                   word = (src[0] << 24) + (src[1] << 16)
-                          + (src[2] << 8) + src[3];
-                   word1 = src[4];
-                   src += 5;
-                   dwords = true;
-                   break;
+                  case 40:
+                    word = (src[0] << 24) + (src[1] << 16)
+                           + (src[2] << 8) + src[3];
+                    word1 = src[4];
+                    src += 5;
+                    dwords = true;
+                    break;
 #endif
-              default:
-                      break;
-              }
+                  default:
+                    break;
+                }
             }
           else
             {
@@ -1505,24 +1506,24 @@ static void s32k3xx_lpspi_exchange_nodma(struct spi_dev_s *dev,
 
           if (dest)
             {
-            switch (framesize)
-              {
+              switch (framesize)
+                {
 #ifdef CONFIG_S32K3XX_LPSPI_DWORD
-              case 40:
-                   dest[0] = (word >> 24) & 0xff;
-                   dest[1] = (word >> 16) & 0xff;
-                   dest[2] = (word >>  8) & 0xff;
-                   dest[3] =  word        & 0xff;
-                   dest[4] =  rword1      & 0xff;
-                   dest += 5;
-                   break;
+                  case 40:
+                    dest[0] = (word >> 24) & 0xff;
+                    dest[1] = (word >> 16) & 0xff;
+                    dest[2] = (word >>  8) & 0xff;
+                    dest[3] =  word        & 0xff;
+                    dest[4] =  rword1      & 0xff;
+                    dest += 5;
+                    break;
 #endif
 
-              default:
+                  default:
 
-                      break;
+                    break;
+                }
             }
-          }
         }
     }
   else if (framesize > 16)
@@ -1546,22 +1547,22 @@ static void s32k3xx_lpspi_exchange_nodma(struct spi_dev_s *dev,
             {
               /* read the required number of bytes */
 
-            switch (framesize)
-              {
-              case 32:
-                   word = __builtin_bswap32(*src);
-                   src += 4;
-                   break;
+              switch (framesize)
+                {
+                  case 32:
+                    word = __builtin_bswap32(*src);
+                    src += 4;
+                    break;
 #ifdef CONFIG_S32K3XX_LPSPI_DWORD
-              case 64:
-                   word  = __builtin_bswap32(src[0]);
-                   word1 = __builtin_bswap32(src[1]);
-                   src += 8;
-                   dwords = true;
+                  case 64:
+                    word  = __builtin_bswap32(src[0]);
+                    word1 = __builtin_bswap32(src[1]);
+                    src += 8;
+                    dwords = true;
 #endif
-              default:
-                      break;
-              }
+                  default:
+                    break;
+                }
             }
           else
             {
@@ -1578,32 +1579,32 @@ static void s32k3xx_lpspi_exchange_nodma(struct spi_dev_s *dev,
           else
 #endif
             {
-            word = s32k3xx_lpspi_send(dev, word);
+              word = s32k3xx_lpspi_send(dev, word);
             }
 
           /* Is there a buffer to receive the return value? */
 
           if (dest)
             {
-            switch (framesize)
-              {
-              case 32:
-                   *dest = __builtin_bswap32(word);
-                   dest += 4;
-                   break;
+              switch (framesize)
+                {
+                  case 32:
+                    *dest = __builtin_bswap32(word);
+                    dest += 4;
+                    break;
 #ifdef CONFIG_S32K3XX_LPSPI_DWORD
-              case 64:
-                   dest[0] = __builtin_bswap32(word);
-                   dest[1] = __builtin_bswap32(rword1);
-                   dest += 8;
-                   break;
+                  case 64:
+                    dest[0] = __builtin_bswap32(word);
+                    dest[1] = __builtin_bswap32(rword1);
+                    dest += 8;
+                    break;
 #endif
 
-              default:
+                  default:
 
-                      break;
+                    break;
+                }
             }
-          }
         }
     }
   else if (framesize > 8)
@@ -1674,6 +1675,8 @@ static void s32k3xx_lpspi_exchange_nodma(struct spi_dev_s *dev,
             }
         }
     }
+
+  return OK;
 }
 
 /****************************************************************************
@@ -1693,12 +1696,12 @@ static void s32k3xx_lpspi_exchange_nodma(struct spi_dev_s *dev,
  *              uint16_t's
  *
  * Returned Value:
- *   None
+ *   Returns zero (OK) on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
 #ifdef CONFIG_S32K3XX_LPSPI_DMA
-static void s32k3xx_lpspi_exchange(struct spi_dev_s *dev,
+static int  s32k3xx_lpspi_exchange(struct spi_dev_s *dev,
                                    const void *txbuffer, void *rxbuffer,
                                    size_t nwords)
 {
@@ -1730,8 +1733,7 @@ static void s32k3xx_lpspi_exchange(struct spi_dev_s *dev,
 #endif
       )
     {
-      s32k3xx_lpspi_exchange_nodma(dev, txbuffer, rxbuffer, nwords);
-      return;
+      return s32k3xx_lpspi_exchange_nodma(dev, txbuffer, rxbuffer, nwords);
     }
 
   /* ERR050456 workaround: Reset FIFOs using CR[RST] bit */
@@ -1822,9 +1824,11 @@ static void s32k3xx_lpspi_exchange(struct spi_dev_s *dev,
 
   if (rxbuffer)
     {
-     up_invalidate_dcache((uintptr_t)rxbuffer,
-                          (uintptr_t)rxbuffer + nbytes);
+      up_invalidate_dcache((uintptr_t)rxbuffer,
+                           (uintptr_t)rxbuffer + nbytes);
     }
+
+  return OK;
 }
 
 #endif /* CONFIG_S32K3XX_SPI_DMA */
@@ -1854,7 +1858,7 @@ static void s32k3xx_lpspi_sndblock(struct spi_dev_s *dev,
                                    const void *txbuffer, size_t nwords)
 {
   spiinfo("txbuffer=%p nwords=%d\n", txbuffer, nwords);
-  return s32k3xx_lpspi_exchange(dev, txbuffer, NULL, nwords);
+  s32k3xx_lpspi_exchange(dev, txbuffer, NULL, nwords);
 }
 #endif
 
@@ -1883,7 +1887,7 @@ static void s32k3xx_lpspi_recvblock(struct spi_dev_s *dev, void *rxbuffer,
                                     size_t nwords)
 {
   spiinfo("rxbuffer=%p nwords=%d\n", rxbuffer, nwords);
-  return s32k3xx_lpspi_exchange(dev, NULL, rxbuffer, nwords);
+  s32k3xx_lpspi_exchange(dev, NULL, rxbuffer, nwords);
 }
 #endif
 

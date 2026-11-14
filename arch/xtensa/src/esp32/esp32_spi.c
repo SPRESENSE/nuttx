@@ -204,7 +204,7 @@ static int esp32_spi_hwfeatures(struct spi_dev_s *dev,
                                 spi_hwfeatures_t features);
 #endif
 static uint32_t esp32_spi_send(struct spi_dev_s *dev, uint32_t wd);
-static void esp32_spi_exchange(struct spi_dev_s *dev,
+static int  esp32_spi_exchange(struct spi_dev_s *dev,
                                const void *txbuffer,
                                void *rxbuffer, size_t nwords);
 #ifndef CONFIG_SPI_EXCHANGE
@@ -696,32 +696,32 @@ static void esp32_spi_setmode(struct spi_dev_s *dev,
     {
       switch (mode)
         {
-        case SPIDEV_MODE0: /* CPOL=0; CPHA=0 */
-          ck_idle_edge = 0;
-          ck_out_edge = 0;
-          delay_mode = 0;
-          break;
+          case SPIDEV_MODE0: /* CPOL=0; CPHA=0 */
+            ck_idle_edge = 0;
+            ck_out_edge = 0;
+            delay_mode = 0;
+            break;
 
-        case SPIDEV_MODE1: /* CPOL=0; CPHA=1 */
-          ck_idle_edge = 0;
-          ck_out_edge = 1;
-          delay_mode = 2;
-          break;
+          case SPIDEV_MODE1: /* CPOL=0; CPHA=1 */
+            ck_idle_edge = 0;
+            ck_out_edge = 1;
+            delay_mode = 2;
+            break;
 
-        case SPIDEV_MODE2: /* CPOL=1; CPHA=0 */
-          ck_idle_edge = 1;
-          ck_out_edge = 1;
-          delay_mode = 2;
-          break;
+          case SPIDEV_MODE2: /* CPOL=1; CPHA=0 */
+            ck_idle_edge = 1;
+            ck_out_edge = 1;
+            delay_mode = 2;
+            break;
 
-        case SPIDEV_MODE3: /* CPOL=1; CPHA=1 */
-          ck_idle_edge = 1;
-          ck_out_edge = 0;
-          delay_mode = 0;
-          break;
+          case SPIDEV_MODE3: /* CPOL=1; CPHA=1 */
+            ck_idle_edge = 1;
+            ck_out_edge = 0;
+            delay_mode = 0;
+            break;
 
-        default:
-          return;
+          default:
+            return;
         }
 
       const uint32_t id = priv->config->id;
@@ -1213,11 +1213,11 @@ static void esp32_spi_poll_exchange(struct esp32_spi_priv_s *priv,
  *              uint16_t's
  *
  * Returned Value:
- *   None.
+ *   Returns zero (OK) on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
-static void esp32_spi_exchange(struct spi_dev_s *dev,
+static int  esp32_spi_exchange(struct spi_dev_s *dev,
                                const void *txbuffer,
                                void *rxbuffer,
                                size_t nwords)
@@ -1238,6 +1238,8 @@ static void esp32_spi_exchange(struct spi_dev_s *dev,
     {
       esp32_spi_poll_exchange(priv, txbuffer, rxbuffer, nwords);
     }
+
+  return OK;
 }
 
 #ifndef CONFIG_SPI_EXCHANGE

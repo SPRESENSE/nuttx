@@ -169,7 +169,7 @@ static int mpfs_spi_cmddata(struct spi_dev_s *dev,
                             uint32_t devid, bool cmd);
 #endif
 static uint32_t mpfs_spi_send(struct spi_dev_s *dev, uint32_t wd);
-static void mpfs_spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
+static int  mpfs_spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
                               void *rxbuffer, size_t nwords);
 #ifndef CONFIG_SPI_EXCHANGE
 static void mpfs_spi_sndblock(struct spi_dev_s *dev, const void *txbuffer,
@@ -544,13 +544,13 @@ static void mpfs_spi_setmode(struct spi_dev_s *dev, enum spi_mode_e mode)
         return;
     }
 
-    priv->mode = mode;
+  priv->mode = mode;
 
-    /* SPS bit ensures the slave select remains asserted between frames,
-     * applicable to SPIDEV_MODEx:s.
-     */
+  /* SPS bit ensures the slave select remains asserted between frames,
+   * applicable to SPIDEV_MODEx:s.
+   */
 
-    modifyreg32(MPFS_SPI_CONTROL, 0, MPFS_SPI_SPS);
+  modifyreg32(MPFS_SPI_CONTROL, 0, MPFS_SPI_SPS);
 }
 
 /****************************************************************************
@@ -964,8 +964,8 @@ static uint32_t mpfs_spi_poll_send(struct mpfs_spi_priv_s *priv,
   rx_fifo_empty = getreg32(MPFS_SPI_STATUS) & MPFS_SPI_RXFIFOEMP;
   while (!rx_fifo_empty)
     {
-        getreg32(MPFS_SPI_RX_DATA);
-        rx_fifo_empty = getreg32(MPFS_SPI_STATUS) & MPFS_SPI_RXFIFOEMP;
+      getreg32(MPFS_SPI_RX_DATA);
+      rx_fifo_empty = getreg32(MPFS_SPI_STATUS) & MPFS_SPI_RXFIFOEMP;
     }
 
   spiinfo("send=%x and recv=%x\n", wd, val);
@@ -1092,11 +1092,11 @@ static void mpfs_spi_poll_exchange(struct mpfs_spi_priv_s *priv,
  *              uint16_t's
  *
  * Returned Value:
- *   None
+ *   Returns zero (OK) on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
-static void mpfs_spi_exchange(struct spi_dev_s *dev,
+static int  mpfs_spi_exchange(struct spi_dev_s *dev,
                               const void *txbuffer, void *rxbuffer,
                               size_t nwords)
 {
@@ -1110,6 +1110,8 @@ static void mpfs_spi_exchange(struct spi_dev_s *dev,
     {
       mpfs_spi_poll_exchange(priv, txbuffer, rxbuffer, nwords);
     }
+
+  return OK;
 }
 
 #ifndef CONFIG_SPI_EXCHANGE
@@ -1497,17 +1499,17 @@ struct spi_dev_s *mpfs_spibus_initialize(int port)
   switch (port)
     {
 #ifdef CONFIG_MPFS_SPI0
-    case 0:
-      priv = &g_mpfs_spi0_priv;
-      break;
+      case 0:
+        priv = &g_mpfs_spi0_priv;
+        break;
 #endif
 #ifdef CONFIG_MPFS_SPI1
-    case 1:
-      priv = &g_mpfs_spi1_priv;
-      break;
+      case 1:
+        priv = &g_mpfs_spi1_priv;
+        break;
 #endif
-  default:
-    return NULL;
+      default:
+        return NULL;
     }
 
   spi_dev = (struct spi_dev_s *)priv;

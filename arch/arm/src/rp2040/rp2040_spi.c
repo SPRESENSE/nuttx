@@ -132,7 +132,7 @@ static uint32_t spi_setfrequency(struct spi_dev_s *dev,
 static void spi_setmode(struct spi_dev_s *dev, enum spi_mode_e mode);
 static void spi_setbits(struct spi_dev_s *dev, int nbits);
 static uint32_t spi_send(struct spi_dev_s *dev, uint32_t wd);
-static void unused_code spi_exchange(struct spi_dev_s *dev,
+static int  unused_code spi_exchange(struct spi_dev_s *dev,
                                      const void *txbuffer,
                                      void *rxbuffer,
                                      size_t nwords);
@@ -536,7 +536,8 @@ static uint32_t spi_send(struct spi_dev_s *dev, uint32_t wd)
   /* Wait while the TX FIFO is full */
 
   while (!(spi_getreg(priv, RP2040_SPI_SSPSR_OFFSET) & RP2040_SPI_SSPSR_TNF))
-    ;
+    {
+    }
 
   /* Write the byte to the TX FIFO */
 
@@ -545,7 +546,8 @@ static uint32_t spi_send(struct spi_dev_s *dev, uint32_t wd)
   /* Wait for the RX FIFO not empty */
 
   while (!(spi_getreg(priv, RP2040_SPI_SSPSR_OFFSET) & RP2040_SPI_SSPSR_RNE))
-    ;
+    {
+    }
 
   /* Get the value from the RX FIFO and return it */
 
@@ -678,11 +680,11 @@ static void spi_do_exchange(struct spi_dev_s *dev,
  *              uint16_t's
  *
  * Returned Value:
- *   None
+ *   Returns zero (OK) on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
-static void spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
+static int  spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
                          void *rxbuffer, size_t nwords)
 {
 #ifdef CONFIG_RP2040_SPI_DMA
@@ -703,6 +705,8 @@ static void spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
     {
       spi_do_exchange(dev, txbuffer, rxbuffer, nwords);
     }
+
+  return OK;
 }
 
 /****************************************************************************
@@ -729,7 +733,7 @@ static void spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
 static void spi_sndblock(struct spi_dev_s *dev, const void *buffer,
                          size_t nwords)
 {
-  return spi_exchange(dev, buffer, NULL, nwords);
+  spi_exchange(dev, buffer, NULL, nwords);
 }
 
 /****************************************************************************
@@ -755,7 +759,7 @@ static void spi_sndblock(struct spi_dev_s *dev, const void *buffer,
 static void spi_recvblock(struct spi_dev_s *dev, void *buffer,
                           size_t nwords)
 {
-  return spi_exchange(dev, NULL, buffer, nwords);
+  spi_exchange(dev, NULL, buffer, nwords);
 }
 #endif /* !CONFIG_SPI_EXCHANGE */
 
@@ -901,7 +905,9 @@ void spi_flush(struct spi_dev_s *dev)
   /* Wait for the TX FIFO not full indication */
 
   while (!(spi_getreg(priv, RP2040_SPI_SSPSR_OFFSET) & RP2040_SPI_SSPSR_TNF))
-    ;
+    {
+    }
+
   spi_putreg(priv, RP2040_SPI_SSPDR_OFFSET, 0xff);
 
   /* Wait until TX FIFO and TX shift buffer are empty */
@@ -911,7 +917,8 @@ void spi_flush(struct spi_dev_s *dev)
   /* Wait until RX FIFO is not empty */
 
   while (!(spi_getreg(priv, RP2040_SPI_SSPSR_OFFSET) & RP2040_SPI_SSPSR_RNE))
-    ;
+    {
+    }
 
   /* Then read and discard bytes until the RX FIFO is empty */
 

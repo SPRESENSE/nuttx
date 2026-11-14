@@ -197,7 +197,7 @@ static void     lpc54_spi_setmode(struct spi_dev_s *dev,
 static void     lpc54_spi_setbits(struct spi_dev_s *dev, int nbits);
 static uint32_t lpc54_spi_send(struct spi_dev_s *dev, uint32_t wd);
 #ifdef CONFIG_SPI_EXCHANGE
-static void     lpc54_spi_exchange(struct spi_dev_s *dev,
+static int      lpc54_spi_exchange(struct spi_dev_s *dev,
                   const void *txbuffer, void *rxbuffer,
                   size_t nwords);
 #endif
@@ -610,6 +610,7 @@ static inline uint32_t lpc54_spi_getreg(struct lpc54_spidev_s *priv,
 static inline size_t lpc54_spi_fifodepth(struct lpc54_spidev_s *priv)
 {
   uint32_t regval = lpc54_spi_getreg(priv, LPC54_SPI_FIFOCFG_OFFSET);
+
   return ((regval & SPI_FIFOCFG_SIZE_MASK) >> SPI_FIFOCFG_SIZE_SHIFT) << 3;
 }
 
@@ -630,6 +631,7 @@ static inline size_t lpc54_spi_fifodepth(struct lpc54_spidev_s *priv)
 static inline bool lpc54_spi_txavailable(struct lpc54_spidev_s *priv)
 {
   uint32_t regval = lpc54_spi_getreg(priv, LPC54_SPI_FIFOSTAT_OFFSET);
+
   return ((regval & SPI_FIFOSTAT_TXNOTFULL) != 0);
 }
 
@@ -650,6 +652,7 @@ static inline bool lpc54_spi_txavailable(struct lpc54_spidev_s *priv)
 static inline bool lpc54_spi_rxavailable(struct lpc54_spidev_s *priv)
 {
   uint32_t regval = lpc54_spi_getreg(priv, LPC54_SPI_FIFOSTAT_OFFSET);
+
   return ((regval & SPI_FIFOSTAT_RXNOTEMPTY) != 0);
 }
 
@@ -1390,24 +1393,24 @@ static void lpc54_spi_setmode(struct spi_dev_s *dev,
 
       switch (mode)
         {
-        case SPIDEV_MODE0: /* CPOL=0; CPHA=0 */
-          break;
+          case SPIDEV_MODE0: /* CPOL=0; CPHA=0 */
+            break;
 
-        case SPIDEV_MODE1: /* CPOL=0; CPHA=1 */
-          regval |= SPI_CFG_CPHA;
-          break;
+          case SPIDEV_MODE1: /* CPOL=0; CPHA=1 */
+            regval |= SPI_CFG_CPHA;
+            break;
 
-        case SPIDEV_MODE2: /* CPOL=1; CPHA=0 */
-          regval |= SPI_CFG_CPOL;
-          break;
+          case SPIDEV_MODE2: /* CPOL=1; CPHA=0 */
+            regval |= SPI_CFG_CPOL;
+            break;
 
-        case SPIDEV_MODE3: /* CPOL=1; CPHA=1 */
-          regval |= (SPI_CFG_CPHA | SPI_CFG_CPOL);
-          break;
+          case SPIDEV_MODE3: /* CPOL=1; CPHA=1 */
+            regval |= (SPI_CFG_CPHA | SPI_CFG_CPOL);
+            break;
 
-        default:
-          DEBUGPANIC();
-          return;
+          default:
+            DEBUGPANIC();
+            return;
         }
 
       lpc54_spi_putreg(priv, LPC54_SPI_CFG_OFFSET, regval);
@@ -1514,12 +1517,12 @@ static uint32_t lpc54_spi_send(struct spi_dev_s *dev, uint32_t wd)
  *              uint16_t's
  *
  * Returned Value:
- *   None
+ *   Returns zero (OK) on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
 #ifdef CONFIG_SPI_EXCHANGE
-static void lpc54_spi_exchange(struct lpc54_spidev_s *priv,
+static int  lpc54_spi_exchange(struct lpc54_spidev_s *priv,
                                const void *txbuffer, void *rxbuffer,
                                size_t nwords)
 {
@@ -1562,6 +1565,8 @@ static void lpc54_spi_exchange(struct lpc54_spidev_s *priv,
     {
       lpc54_spi_exchange8(priv, txbuffer, rxbuffer, nwords);
     }
+
+  return OK;
 }
 #endif /* CONFIG_SPI_EXCHANGE */
 

@@ -360,7 +360,7 @@ static int imx9_smt_tx(uint32_t channel, uint32_t len, bool callee,
 
       /* Trigger GI interrupt */
 
-      imx95_mu_trigger_interrupts(g_mudev, 1 << db);
+      imx9_mu_trigger_interrupts(g_mudev, 1 << db);
     }
 
   /* Return status */
@@ -1133,7 +1133,7 @@ int imx9_scmi_get_power_state(uint32_t channel, uint32_t domain,
         uint32_t domainid;
       } msg_rpower5_t;
 
-       volatile msg_rpower5_t *msgtx = (msg_rpower5_t *)msg;
+      volatile msg_rpower5_t *msgtx = (msg_rpower5_t *)msg;
 
       /* Fill in parameters */
 
@@ -1223,7 +1223,7 @@ int imx9_scmi_set_power_state(uint32_t channel, uint32_t domain,
         uint32_t powerstate;
       } msg_rpower4_t;
 
-       volatile msg_rpower4_t *msgtx = (msg_rpower4_t *)msg;
+      volatile msg_rpower4_t *msgtx = (msg_rpower4_t *)msg;
 
       /* Fill in parameters */
 
@@ -1270,5 +1270,5 @@ void imx9_scmi_initialize(void)
 
   /* Configure MU */
 
-  g_mudev = imx95_mu_init(2);
+  g_mudev = imx9_mu_init(IMX9_MU_SCMI);
 }

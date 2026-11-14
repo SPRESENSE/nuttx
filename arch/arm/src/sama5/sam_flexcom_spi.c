@@ -279,11 +279,11 @@ static void flex_spi_setbits(struct spi_dev_s *dev, int nbits);
 static uint32_t flex_spi_send(struct spi_dev_s *dev, uint32_t wd);
 
 #ifdef CONFIG_SAMA5_FLEXCOM_SPI_DMA
-static void flex_spi_exchange_nodma(struct spi_dev_s *dev,
+static int  flex_spi_exchange_nodma(struct spi_dev_s *dev,
                                     const void *txbuffer, void *rxbuffer,
                                     size_t nwords);
 #endif
-static void flex_spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
+static int  flex_spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
                               void *rxbuffer, size_t nwords);
 #ifndef CONFIG_SPI_EXCHANGE
 static void flex_spi_sndblock(struct spi_dev_s *dev,
@@ -722,7 +722,7 @@ static inline void flex_spi_flush(struct sam_flex_spidev_s *flex_spi)
   while ((flex_spi_getreg(flex_spi, SAM_FLEXCOM_SPI_SR_OFFSET) &
           FLEXCOM_SPI_INT_RDRF) != 0)
     {
-       flex_spi_getreg(flex_spi, SAM_FLEXCOM_SPI_RDR_OFFSET);
+      flex_spi_getreg(flex_spi, SAM_FLEXCOM_SPI_RDR_OFFSET);
     }
 }
 
@@ -885,6 +885,7 @@ static void flex_spi_dma_sampledone(struct sam_flex_spics_s *flex_spics)
 static void flex_spi_dmatimeout(wdparm_t arg)
 {
   struct sam_flex_spics_s *flex_spics = (struct sam_flex_spics_s *)arg;
+
   DEBUGASSERT(flex_spics != NULL);
 
   /* Sample DMA registers at the time of the timeout */
@@ -923,6 +924,7 @@ static void flex_spi_dmatimeout(wdparm_t arg)
 static void flex_spi_rxcallback(DMA_HANDLE handle, void *arg, int result)
 {
   struct sam_flex_spics_s *flex_spics = (struct sam_flex_spics_s *)arg;
+
   DEBUGASSERT(flex_spics != NULL);
 
   /* Cancel the watchdog timeout */
@@ -972,6 +974,7 @@ static void flex_spi_rxcallback(DMA_HANDLE handle, void *arg, int result)
 static void flex_spi_txcallback(DMA_HANDLE handle, void *arg, int result)
 {
   struct sam_flex_spics_s *flex_spics = (struct sam_flex_spics_s *)arg;
+
   DEBUGASSERT(flex_spics != NULL);
 
   flex_spi_txdma_sample(flex_spics, DMA_CALLBACK);
@@ -1003,6 +1006,7 @@ static inline uintptr_t flex_spi_physregaddr(struct sam_flex_spics_s
                                             *flex_spics, unsigned int offset)
 {
   struct sam_flex_spidev_s *flex_spi = flex_spi_dev(flex_spics);
+
   return sam_physregaddr(flex_spi->base + offset);
 }
 #endif
@@ -1259,24 +1263,24 @@ static void flex_spi_setmode(struct spi_dev_s *dev, enum spi_mode_e mode)
 
       switch (mode)
         {
-        case SPIDEV_MODE0: /* CPOL=0; NCPHA=1 */
-          regval |= FLEXCOM_SPI_CSR_NCPHA;
-          break;
+          case SPIDEV_MODE0: /* CPOL=0; NCPHA=1 */
+            regval |= FLEXCOM_SPI_CSR_NCPHA;
+            break;
 
-        case SPIDEV_MODE1: /* CPOL=0; NCPHA=0 */
-          break;
+          case SPIDEV_MODE1: /* CPOL=0; NCPHA=0 */
+            break;
 
-        case SPIDEV_MODE2: /* CPOL=1; NCPHA=1 */
-          regval |= (FLEXCOM_SPI_CSR_CPOL | FLEXCOM_SPI_CSR_NCPHA);
-          break;
+          case SPIDEV_MODE2: /* CPOL=1; NCPHA=1 */
+            regval |= (FLEXCOM_SPI_CSR_CPOL | FLEXCOM_SPI_CSR_NCPHA);
+            break;
 
-        case SPIDEV_MODE3: /* CPOL=1; NCPHA=0 */
-          regval |= FLEXCOM_SPI_CSR_CPOL;
-          break;
+          case SPIDEV_MODE3: /* CPOL=1; NCPHA=0 */
+            regval |= FLEXCOM_SPI_CSR_CPOL;
+            break;
 
-        default:
-          DEBUGASSERT(false);
-          return;
+          default:
+            DEBUGASSERT(false);
+            return;
         }
 
       flex_spi_putreg(flex_spi, regval, offset);
@@ -1401,16 +1405,16 @@ static uint32_t flex_spi_send(struct spi_dev_s *dev, uint32_t wd)
  *              uint16_t's
  *
  * Returned Value:
- *   None
+ *   Returns zero (OK) on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
 #ifdef CONFIG_SAMA5_FLEXCOM_SPI_DMA
-static void flex_spi_exchange_nodma(struct spi_dev_s *dev,
+static int  flex_spi_exchange_nodma(struct spi_dev_s *dev,
                                     const void *txbuffer,
                                     void *rxbuffer, size_t nwords)
 #else
-static void flex_spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
+static int  flex_spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
                               void *rxbuffer, size_t nwords)
 #endif
 {
@@ -1517,10 +1521,12 @@ static void flex_spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
           *rxptr++ = (uint8_t)data;
         }
     }
+
+  return OK;
 }
 
 #ifdef CONFIG_SAMA5_FLEXCOM_SPI_DMA
-static void flex_spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
+static int  flex_spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
                               void *rxbuffer, size_t nwords)
 {
   struct sam_flex_spics_s *flex_spics = (struct sam_flex_spics_s *)dev;
@@ -1539,8 +1545,7 @@ static void flex_spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
 
   if (!flex_spics->candma || nwords <= CONFIG_SAMA5_FLEXCOM_SPI_DMATHRESHOLD)
     {
-      flex_spi_exchange_nodma(dev, txbuffer, rxbuffer, nwords);
-      return;
+      return flex_spi_exchange_nodma(dev, txbuffer, rxbuffer, nwords);
     }
 
   spiinfo("txbuffer=%p rxbuffer=%p nwords=%d\n", txbuffer, rxbuffer, nwords);
@@ -1640,7 +1645,7 @@ static void flex_spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
   if (ret < 0)
     {
       dmaerr("ERROR: sam_dmarxsetup failed: %d\n", ret);
-      return;
+      return ret;
     }
 
   flex_spi_rxdma_sample(flex_spics, DMA_AFTER_SETUP);
@@ -1652,7 +1657,7 @@ static void flex_spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
   if (ret < 0)
     {
       dmaerr("ERROR: sam_dmatxsetup failed: %d\n", ret);
-      return;
+      return ret;
     }
 
   flex_spi_txdma_sample(flex_spics, DMA_AFTER_SETUP);
@@ -1665,7 +1670,7 @@ static void flex_spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
   if (ret < 0)
     {
       dmaerr("ERROR: RX sam_dmastart failed: %d\n", ret);
-      return;
+      return ret;
     }
 
   flex_spi_rxdma_sample(flex_spics, DMA_AFTER_START);
@@ -1676,7 +1681,7 @@ static void flex_spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
     {
       dmaerr("ERROR: RX sam_dmastart failed: %d\n", ret);
       sam_dmastop(flex_spics->rxdma);
-      return;
+      return ret;
     }
 
   flex_spi_txdma_sample(flex_spics, DMA_AFTER_START);
@@ -1696,7 +1701,7 @@ static void flex_spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
                      flex_spi_dmatimeout, (wdparm_t)flex_spics);
       if (ret < 0)
         {
-           spierr("ERROR: wd_start failed: %d\n", ret);
+          spierr("ERROR: wd_start failed: %d\n", ret);
         }
 
       /* Wait for the DMA complete */
@@ -1712,7 +1717,7 @@ static void flex_spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
       if (ret < 0)
         {
           DEBUGPANIC();
-          return;
+          return ret;
         }
 
       /* Not that we might be awkened before the wait is over due to
@@ -1741,6 +1746,8 @@ static void flex_spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
     {
       spierr("ERROR: DMA failed with result: %d\n", flex_spics->result);
     }
+
+  return flex_spics->result;
 }
 #endif /* CONFIG_SAMA5_FLEXCOM_SPI_DMA */
 
@@ -2003,8 +2010,8 @@ struct spi_dev_s *sam_flex_spibus_initialize(int port)
             sam_flexcom0_enableclk();
 
             /* Configure any multiplexed pins as connected on the board,
-            * by board-specific logic here.
-            */
+             * by board-specific logic here.
+             */
 
             break;
 #endif
@@ -2013,8 +2020,8 @@ struct spi_dev_s *sam_flex_spibus_initialize(int port)
             sam_flexcom1_enableclk();
 
             /* Configure any multiplexed pins as connected on the board,
-            * by board-specific logic here.
-            */
+             * by board-specific logic here.
+             */
 
             break;
 #endif
@@ -2023,8 +2030,8 @@ struct spi_dev_s *sam_flex_spibus_initialize(int port)
             sam_flexcom2_enableclk();
 
             /* Configure any multiplexed pins as connected on the board,
-            * by board-specific logic here.
-            */
+             * by board-specific logic here.
+             */
 
             break;
 #endif
@@ -2033,8 +2040,8 @@ struct spi_dev_s *sam_flex_spibus_initialize(int port)
             sam_flexcom3_enableclk();
 
             /* Configure any multiplexed pins as connected on the board,
-            * by board-specific logic here.
-            */
+             * by board-specific logic here.
+             */
 
             break;
 #endif
@@ -2043,8 +2050,8 @@ struct spi_dev_s *sam_flex_spibus_initialize(int port)
             sam_flexcom4_enableclk();
 
             /* Configure any multiplexed pins as connected on the board,
-            * by board-specific logic here.
-            */
+             * by board-specific logic here.
+             */
 
             break;
 #endif

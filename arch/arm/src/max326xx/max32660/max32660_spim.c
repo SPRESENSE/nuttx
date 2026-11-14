@@ -180,7 +180,7 @@ static int  spi_hwfeatures(struct spi_dev_s *dev,
               spi_hwfeatures_t features);
 #endif
 static uint32_t spi_send(struct spi_dev_s *dev, uint32_t wd);
-static void spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
+static int  spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
               void *rxbuffer, size_t nwords);
 #ifndef CONFIG_SPI_EXCHANGE
 static void spi_sndblock(struct spi_dev_s *dev, const void *txbuffer,
@@ -1043,37 +1043,37 @@ static void spi_setmode(struct spi_dev_s *dev, enum spi_mode_e mode)
 
       switch (mode)
         {
-        case SPIDEV_MODE0: /* CPOL=0; CPHA=0 */
-          setbits = 0;
-          clrbits = SPI_CTRL2_CLKPOL | SPI_CTRL2_CLKPHA;
-          break;
+          case SPIDEV_MODE0: /* CPOL=0; CPHA=0 */
+            setbits = 0;
+            clrbits = SPI_CTRL2_CLKPOL | SPI_CTRL2_CLKPHA;
+            break;
 
-        case SPIDEV_MODE1: /* CPOL=0; CPHA=1 */
-          setbits = SPI_CTRL2_CLKPHA;
-          clrbits = SPI_CTRL2_CLKPOL;
-          break;
+          case SPIDEV_MODE1: /* CPOL=0; CPHA=1 */
+            setbits = SPI_CTRL2_CLKPHA;
+            clrbits = SPI_CTRL2_CLKPOL;
+            break;
 
-        case SPIDEV_MODE2: /* CPOL=1; CPHA=0 */
-          setbits = SPI_CTRL2_CLKPOL;
-          clrbits = SPI_CTRL2_CLKPHA;
-          break;
+          case SPIDEV_MODE2: /* CPOL=1; CPHA=0 */
+            setbits = SPI_CTRL2_CLKPOL;
+            clrbits = SPI_CTRL2_CLKPHA;
+            break;
 
-        case SPIDEV_MODE3: /* CPOL=1; CPHA=1 */
-          setbits = SPI_CTRL2_CLKPOL | SPI_CTRL2_CLKPHA;
-          clrbits = 0;
-          break;
+          case SPIDEV_MODE3: /* CPOL=1; CPHA=1 */
+            setbits = SPI_CTRL2_CLKPOL | SPI_CTRL2_CLKPHA;
+            clrbits = 0;
+            break;
 
-        default:
-          return;
+          default:
+            return;
         }
 
-        spi_modify_ctrl2(priv, setbits, clrbits);
+      spi_modify_ctrl2(priv, setbits, clrbits);
 
-        /* Save the mode so that subsequent re-configurations will be
-         * faster.
-         */
+      /* Save the mode so that subsequent re-configurations will be
+       * faster.
+       */
 
-        priv->mode = mode;
+      priv->mode = mode;
     }
 }
 
@@ -1185,11 +1185,11 @@ static uint32_t spi_send(struct spi_dev_s *dev, uint32_t wd)
  *              uint16_t's
  *
  * Returned Value:
- *   None
+ *   Returns zero (OK) on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
-static void spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
+static int  spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
                          void *rxbuffer, size_t nwords)
 {
   struct max326_spidev_s *priv = (struct max326_spidev_s *)dev;
@@ -1229,7 +1229,7 @@ static void spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
           spi_modify_ctrl1(priv, SPI_CTRL1_RXNUMCH(nwords),
                            SPI_CTRL1_RXNUMCH_MASK);
         }
-       else
+      else
         {
           spi_modify_ctrl1(priv, SPI_CTRL1_TXNUMCH(nwords),
                            SPI_CTRL1_TXNUMCH_MASK);
@@ -1319,6 +1319,8 @@ static void spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
     }
   while ((regval & SPI_INT_MDONE) == 0);
 #endif
+
+  return OK;
 }
 
 /****************************************************************************

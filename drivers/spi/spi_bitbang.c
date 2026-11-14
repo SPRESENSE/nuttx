@@ -83,7 +83,7 @@ static void     spi_setmode(FAR struct spi_dev_s *dev,
                   enum spi_mode_e mode);
 static void     spi_setbits(FAR struct spi_dev_s *dev, int nbits);
 static uint32_t spi_send(FAR struct spi_dev_s *dev, uint32_t wd);
-static void     spi_exchange(FAR struct spi_dev_s *dev,
+static int      spi_exchange(FAR struct spi_dev_s *dev,
                    FAR const void *txbuffer, FAR void *rxbuffer,
                    size_t nwords);
 #ifndef CONFIG_SPI_EXCHANGE
@@ -297,6 +297,7 @@ static void spi_setbits(FAR struct spi_dev_s *dev, int nbits)
 static uint32_t spi_send(FAR struct spi_dev_s *dev, uint32_t wd)
 {
   FAR struct spi_bitbang_s *priv = (FAR struct spi_bitbang_s *)dev;
+
   DEBUGASSERT(priv && priv->low && priv->low->exchange);
 
   return priv->low->exchange(priv, (uint16_t)wd);
@@ -319,11 +320,11 @@ static uint32_t spi_send(FAR struct spi_dev_s *dev, uint32_t wd)
  *              uint16_t's
  *
  * Returned Value:
- *   None
+ *   Returns zero (OK) on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
-static void spi_exchange(FAR struct spi_dev_s *dev,
+static int  spi_exchange(FAR struct spi_dev_s *dev,
                          FAR const void *txbuffer, FAR void *rxbuffer,
                          size_t nwords)
 {
@@ -378,11 +379,11 @@ static void spi_exchange(FAR struct spi_dev_s *dev,
           if (priv->nbits > 8)
             {
 #ifdef CONFIG_ENDIAN_BIG
-             *dest++ = (uint8_t)(datain >> 8);
-             *dest++ = (uint8_t)datain;
+              *dest++ = (uint8_t)(datain >> 8);
+              *dest++ = (uint8_t)datain;
 #else
-             *dest++ = (uint8_t)datain;
-             *dest++ = (uint8_t)(datain >> 8);
+              *dest++ = (uint8_t)datain;
+              *dest++ = (uint8_t)(datain >> 8);
 #endif
             }
 #else
@@ -390,6 +391,8 @@ static void spi_exchange(FAR struct spi_dev_s *dev,
 #endif
         }
     }
+
+  return OK;
 }
 
 /****************************************************************************
@@ -470,6 +473,7 @@ static void spi_recvblock(FAR struct spi_dev_s *dev, FAR void *buffer,
 static uint8_t spi_status(FAR struct spi_dev_s *dev, uint32_t devid)
 {
   FAR struct spi_bitbang_s *priv = (FAR struct spi_bitbang_s *)dev;
+
   DEBUGASSERT(priv && priv->low && priv->low->status);
 
   return priv->low->status(priv, devid);
@@ -496,6 +500,7 @@ static int spi_cmddata(FAR struct spi_dev_s *dev, uint32_t devid,
                        bool cmd)
 {
   FAR struct spi_bitbang_s *priv = (FAR struct spi_bitbang_s *)dev;
+
   DEBUGASSERT(priv && priv->low && priv->low->status);
 
   return priv->low->cmddata(priv, devid, cmd);

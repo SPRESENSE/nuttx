@@ -30,6 +30,7 @@
 
 #include <nuttx/arch.h>
 #include <nuttx/clock.h>
+#include <nuttx/debug.h>
 #include <nuttx/lib/math32.h>
 #include <nuttx/timers/arch_timer.h>
 
@@ -365,6 +366,26 @@ int weak_function up_timer_tick_cancel(FAR clock_t *ticks)
 
   return ret;
 }
+
+int weak_function up_timer_cancel(FAR struct timespec *ts)
+{
+  int ret = -EAGAIN;
+
+  if (g_timer.lower != NULL)
+    {
+      clock_t ticks = update_timeout(g_oneshot_maxticks);
+
+      if (ts)
+        {
+          ts->tv_sec  = ticks / TICK_PER_SEC;
+          ts->tv_nsec = (ticks % TICK_PER_SEC) * NSEC_PER_TICK;
+        }
+
+      ret = OK;
+    }
+
+  return ret;
+}
 #endif
 
 /****************************************************************************
@@ -399,6 +420,23 @@ int weak_function up_timer_tick_start(clock_t ticks)
 
   if (g_timer.lower != NULL)
     {
+      update_timeout(ticks);
+      ret = OK;
+    }
+
+  return ret;
+}
+
+int weak_function up_timer_start(FAR const struct timespec *ts)
+{
+  int ret = -EAGAIN;
+
+  DEBUGASSERT(ts);
+
+  if (g_timer.lower != NULL)
+    {
+      clock_t ticks = clock_time2ticks(ts);
+
       update_timeout(ticks);
       ret = OK;
     }

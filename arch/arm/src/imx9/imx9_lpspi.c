@@ -197,7 +197,7 @@ static int imx9_lpspi_hwfeatures(struct spi_dev_s *dev,
                                  imx9_lpspi_hwfeatures_t features);
 #endif
 static uint32_t imx9_lpspi_send(struct spi_dev_s *dev, uint32_t wd);
-static void imx9_lpspi_exchange(struct spi_dev_s *dev,
+static int  imx9_lpspi_exchange(struct spi_dev_s *dev,
                                 const void *txbuffer,
                                 void *rxbuffer,
                                 size_t nwords);
@@ -668,32 +668,32 @@ static inline void imx9_lpspi_master_set_delay_scaler(
 
   switch (type)
     {
-    case LPSPI_PCS_TO_SCK:
-      imx9_lpspi_modifyreg32(priv, IMX9_LPSPI_CCR_OFFSET,
-                                   LPSPI_CCR_PCSSCK_MASK, 0);
-      imx9_lpspi_modifyreg32(priv, IMX9_LPSPI_CCR_OFFSET, 0,
-                                   LPSPI_CCR_DBT(dbt) |
-                                   LPSPI_CCR_PCSSCK(scaler) |
-                                   LPSPI_CCR_SCKDIV(sckdiv));
-      break;
+      case LPSPI_PCS_TO_SCK:
+        imx9_lpspi_modifyreg32(priv, IMX9_LPSPI_CCR_OFFSET,
+                                     LPSPI_CCR_PCSSCK_MASK, 0);
+        imx9_lpspi_modifyreg32(priv, IMX9_LPSPI_CCR_OFFSET, 0,
+                                     LPSPI_CCR_DBT(dbt) |
+                                     LPSPI_CCR_PCSSCK(scaler) |
+                                     LPSPI_CCR_SCKDIV(sckdiv));
+        break;
 
-    case LPSPI_LAST_SCK_TO_PCS:
-      imx9_lpspi_modifyreg32(priv, IMX9_LPSPI_CCR_OFFSET,
-                                   LPSPI_CCR_SCKPCS_MASK, 0);
-      imx9_lpspi_modifyreg32(priv, IMX9_LPSPI_CCR_OFFSET, 0,
-                                   LPSPI_CCR_DBT(dbt) |
-                                   LPSPI_CCR_PCSSCK(scaler) |
-                                   LPSPI_CCR_SCKDIV(sckdiv));
-      break;
+      case LPSPI_LAST_SCK_TO_PCS:
+        imx9_lpspi_modifyreg32(priv, IMX9_LPSPI_CCR_OFFSET,
+                                     LPSPI_CCR_SCKPCS_MASK, 0);
+        imx9_lpspi_modifyreg32(priv, IMX9_LPSPI_CCR_OFFSET, 0,
+                                     LPSPI_CCR_DBT(dbt) |
+                                     LPSPI_CCR_PCSSCK(scaler) |
+                                     LPSPI_CCR_SCKDIV(sckdiv));
+        break;
 
-    case LPSPI_BETWEEN_TRANSFER:
-      imx9_lpspi_modifyreg32(priv, IMX9_LPSPI_CCR_OFFSET,
-                                   LPSPI_CCR_DBT_MASK, 0);
-      imx9_lpspi_modifyreg32(priv, IMX9_LPSPI_CCR_OFFSET, 0,
-                                   LPSPI_CCR_DBT(dbt) |
-                                   LPSPI_CCR_PCSSCK(scaler) |
-                                   LPSPI_CCR_SCKDIV(sckdiv));
-      break;
+      case LPSPI_BETWEEN_TRANSFER:
+        imx9_lpspi_modifyreg32(priv, IMX9_LPSPI_CCR_OFFSET,
+                                     LPSPI_CCR_DBT_MASK, 0);
+        imx9_lpspi_modifyreg32(priv, IMX9_LPSPI_CCR_OFFSET, 0,
+                                     LPSPI_CCR_DBT(dbt) |
+                                     LPSPI_CCR_PCSSCK(scaler) |
+                                     LPSPI_CCR_SCKDIV(sckdiv));
+        break;
     }
 }
 
@@ -1056,28 +1056,28 @@ static void imx9_lpspi_setmode(struct spi_dev_s *dev, enum spi_mode_e mode)
 
       switch (mode)
         {
-        case SPIDEV_MODE0:     /* CPOL=0; CPHA=0 */
-          setbits = 0;
-          clrbits = LPSPI_TCR_CPOL | LPSPI_TCR_CPHA;
-          break;
+          case SPIDEV_MODE0:     /* CPOL=0; CPHA=0 */
+            setbits = 0;
+            clrbits = LPSPI_TCR_CPOL | LPSPI_TCR_CPHA;
+            break;
 
-        case SPIDEV_MODE1:     /* CPOL=0; CPHA=1 */
-          setbits = LPSPI_TCR_CPHA;
-          clrbits = LPSPI_TCR_CPOL;
-          break;
+          case SPIDEV_MODE1:     /* CPOL=0; CPHA=1 */
+            setbits = LPSPI_TCR_CPHA;
+            clrbits = LPSPI_TCR_CPOL;
+            break;
 
-        case SPIDEV_MODE2:     /* CPOL=1; CPHA=0 */
-          setbits = LPSPI_TCR_CPOL;
-          clrbits = LPSPI_TCR_CPHA;
-          break;
+          case SPIDEV_MODE2:     /* CPOL=1; CPHA=0 */
+            setbits = LPSPI_TCR_CPOL;
+            clrbits = LPSPI_TCR_CPHA;
+            break;
 
-        case SPIDEV_MODE3:     /* CPOL=1; CPHA=1 */
-          setbits = LPSPI_TCR_CPOL | LPSPI_TCR_CPHA;
-          clrbits = 0;
-          break;
+          case SPIDEV_MODE3:     /* CPOL=1; CPHA=1 */
+            setbits = LPSPI_TCR_CPOL | LPSPI_TCR_CPHA;
+            clrbits = 0;
+            break;
 
-        default:
-          return;
+          default:
+            return;
         }
 
       /* Update TCR register */
@@ -1251,22 +1251,23 @@ static uint32_t imx9_lpspi_send(struct spi_dev_s *dev, uint32_t wd)
  *              into uint16_t's
  *
  * Returned Value:
- *   None
+ *   Returns zero (OK) on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
 #if !defined(CONFIG_IMX9_LPSPI_DMA)
-static void imx9_lpspi_exchange(struct spi_dev_s *dev,
+static int  imx9_lpspi_exchange(struct spi_dev_s *dev,
                                 const void *txbuffer,
                                 void *rxbuffer,
                                 size_t nwords)
 #else
-static void imx9_lpspi_exchange_nodma(struct spi_dev_s *dev,
+static int   imx9_lpspi_exchange_nodma(struct spi_dev_s *dev,
                                       const void *txbuffer,
                                       void *rxbuffer, size_t nwords)
 #endif
 {
   struct imx9_lpspidev_s *priv = (struct imx9_lpspidev_s *)dev;
+
   DEBUGASSERT(priv && priv->spibase);
 
   spiinfo("txbuffer=%p rxbuffer=%p nwords=%u\n", txbuffer, rxbuffer,
@@ -1340,6 +1341,8 @@ static void imx9_lpspi_exchange_nodma(struct spi_dev_s *dev,
             }
         }
     }
+
+  return OK;
 }
 
 /****************************************************************************
@@ -1359,12 +1362,12 @@ static void imx9_lpspi_exchange_nodma(struct spi_dev_s *dev,
  *              uint16_t's
  *
  * Returned Value:
- *   None
+ *   Returns zero (OK) on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
 #ifdef CONFIG_IMX9_LPSPI_DMA
-static void imx9_lpspi_exchange(struct spi_dev_s *dev,
+static int  imx9_lpspi_exchange(struct spi_dev_s *dev,
                                 const void *txbuffer,
                                 void *rxbuffer, size_t nwords)
 {
@@ -1397,8 +1400,7 @@ static void imx9_lpspi_exchange(struct spi_dev_s *dev,
 #endif
       )
     {
-      imx9_lpspi_exchange_nodma(dev, txbuffer, rxbuffer, nwords);
-      return;
+      return imx9_lpspi_exchange_nodma(dev, txbuffer, rxbuffer, nwords);
     }
 
   /* Disable SPI when we are configuring it */
@@ -1498,6 +1500,8 @@ static void imx9_lpspi_exchange(struct spi_dev_s *dev,
       up_invalidate_dcache((uintptr_t)rxbuffer,
                            (uintptr_t)rxbuffer + nbytes);
     }
+
+  return OK;
 }
 
 #endif /* CONFIG_IMX9_SPI_DMA */
@@ -1527,7 +1531,7 @@ static void imx9_lpspi_sndblock(struct spi_dev_s *dev,
                                 const void *txbuffer, size_t nwords)
 {
   spiinfo("txbuffer=%p nwords=%lu\n", txbuffer, nwords);
-  return imx9_lpspi_exchange(dev, txbuffer, NULL, nwords);
+  imx9_lpspi_exchange(dev, txbuffer, NULL, nwords);
 }
 #endif
 
@@ -1556,7 +1560,7 @@ static void imx9_lpspi_recvblock(struct spi_dev_s *dev,
                                  void *rxbuffer, size_t nwords)
 {
   spiinfo("rxbuffer=%p nwords=%lu\n", rxbuffer, nwords);
-  return imx9_lpspi_exchange(dev, NULL, rxbuffer, nwords);
+  imx9_lpspi_exchange(dev, NULL, rxbuffer, nwords);
 }
 #endif
 
