@@ -42,6 +42,10 @@ ifeq ($(CONFIG_DRIVERS_VIRTIO_GPU),y)
   CSRCS += virtio-gpu.c
 endif
 
+ifeq ($(CONFIG_DRIVERS_VIRTIO_I2C),y)
+  CSRCS += virtio-i2c.c
+endif
+
 ifeq ($(CONFIG_DRIVERS_VIRTIO_INPUT),y)
   CSRCS += virtio-input.c
 endif
@@ -62,12 +66,20 @@ ifeq ($(CONFIG_DRIVERS_VIRTIO_RPMSG),y)
   CSRCS += virtio-rpmsg.c
 endif
 
+ifeq ($(CONFIG_DRIVERS_VIRTIO_GPIO),y)
+  CSRCS += virtio-gpio.c
+endif
+
 ifeq ($(CONFIG_DRIVERS_VIRTIO_SERIAL),y)
   CSRCS += virtio-serial.c
 endif
 
 ifeq ($(CONFIG_DRIVERS_VIRTIO_SOUND),y)
   CSRCS += virtio-snd.c
+endif
+
+ifeq ($(CONFIG_DRIVERS_VIRTIO_SPI),y)
+  CSRCS += virtio-spi.c
 endif
 
 # Include build support

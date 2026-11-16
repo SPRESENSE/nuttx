@@ -29,6 +29,10 @@ if(CONFIG_WATCHDOG)
   endif()
 endif()
 
+if(CONFIG_WATCHDOG_CMSDK)
+  list(APPEND SRCS cmsdk_wdt.c)
+endif()
+
 if(CONFIG_TIMER)
   list(APPEND SRCS timer.c)
 endif()
@@ -59,6 +63,13 @@ endif()
 
 if(CONFIG_RTC_PCF8563)
   list(APPEND SRCS pcf8563.c)
+endif()
+
+if(CONFIG_TIMER_SP804)
+  list(APPEND SRCS sp804_oneshot.c)
+  if(CONFIG_TIMER)
+    list(APPEND SRCS sp804_timer.c)
+  endif()
 endif()
 
 if(CONFIG_RTC_PL031)

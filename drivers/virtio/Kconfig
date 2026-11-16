@@ -62,6 +62,17 @@ config DRIVERS_VIRTIO_GPU_RGB565
 
 endchoice
 
+config DRIVERS_VIRTIO_I2C
+	bool "Virtio I2C support"
+	default n
+	select I2C
+	select DRIVERS_VIRTIO
+	---help---
+		Enable the native VirtIO I2C frontend driver.  It probes a VirtIO
+		I2C adapter device (device ID 34), exposes a NuttX I2C lower-half
+		instance through virtio_i2c_get_master(), and submits transfers
+		through the request virtqueue using the OASIS VirtIO I2C wire format.
+
 config DRIVERS_VIRTIO_INPUT
 	bool "Virtio input support"
 	depends on INPUT
@@ -151,3 +162,30 @@ config DRIVERS_VIRTIO_SND_BUFFER_COUNT
 	int "Virtio snd driver buffer count"
 	default 6
 endif
+
+config DRIVERS_VIRTIO_SPI
+	bool "Virtio SPI support"
+	depends on SPI && SPI_EXCHANGE
+	default n
+	select DRIVERS_VIRTIO
+	---help---
+		Enable the native VirtIO SPI frontend driver.  It probes a VirtIO
+		SPI device (device ID 45), reads the SPI configuration space,
+		exposes a NuttX SPI lower-half instance through
+		virtio_spi_get_master(), and submits transfers through the request
+		virtqueue using the Linux-compatible VirtIO SPI wire format.
+
+config DRIVERS_VIRTIO_GPIO
+	bool "Virtio GPIO support"
+	depends on IOEXPANDER
+	default n
+	select DRIVERS_VIRTIO
+	---help---
+		Enable the native VirtIO GPIO frontend driver.  It probes a VirtIO
+		GPIO device (device ID 41), exposes a NuttX ioexpander instance
+		through virtio_gpio_get_ioe(), and submits line requests through the
+		request virtqueue using the OASIS VirtIO GPIO wire format.
+
+		With IOEXPANDER_INT_ENABLE the driver also negotiates
+		VIRTIO_GPIO_F_IRQ and delivers line interrupts over the eventq;
+		without it the feature is declined and lines are polled only.

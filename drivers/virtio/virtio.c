@@ -38,7 +38,9 @@
 #include <nuttx/virtio/virtio.h>
 
 #include "virtio-blk.h"
+#include "virtio-gpio.h"
 #include "virtio-gpu.h"
+#include "virtio-i2c.h"
 #include "virtio-input.h"
 #include "virtio-net.h"
 #include "virtio-rng.h"
@@ -46,6 +48,7 @@
 #include "virtio-rpmsg.h"
 #include "virtio-serial.h"
 #include "virtio-snd.h"
+#include "virtio-spi.h"
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -291,11 +294,27 @@ void virtio_register_drivers(void)
     }
 #endif
 
+#ifdef CONFIG_DRIVERS_VIRTIO_GPIO
+  ret = virtio_register_gpio_driver();
+  if (ret < 0)
+    {
+      vrterr("virtio_register_gpio_driver failed, ret=%d\n", ret);
+    }
+#endif
+
 #ifdef CONFIG_DRIVERS_VIRTIO_GPU
   ret = virtio_register_gpu_driver();
   if (ret < 0)
     {
       vrterr("virtio_register_gpu_driver failed, ret=%d\n", ret);
+    }
+#endif
+
+#ifdef CONFIG_DRIVERS_VIRTIO_I2C
+  ret = virtio_register_i2c_driver();
+  if (ret < 0)
+    {
+      vrterr("virtio_register_i2c_driver failed, ret=%d\n", ret);
     }
 #endif
 
@@ -352,6 +371,14 @@ void virtio_register_drivers(void)
   if (ret < 0)
     {
       vrterr("virtio_register_rpmb_driver failed, ret=%d\n", ret);
+    }
+#endif
+
+#ifdef CONFIG_DRIVERS_VIRTIO_SPI
+  ret = virtio_register_spi_driver();
+  if (ret < 0)
+    {
+      vrterr("virtio_register_spi_driver failed, ret=%d\n", ret);
     }
 #endif
 
