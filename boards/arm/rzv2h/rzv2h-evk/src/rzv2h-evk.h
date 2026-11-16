@@ -1,5 +1,5 @@
 /****************************************************************************
- * include/nuttx/segger/rtt.h
+ * boards/arm/rzv2h/rzv2h-evk/src/rzv2h-evk.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,96 +20,94 @@
  *
  ****************************************************************************/
 
-#ifndef __INCLUDE_NUTTX_SEGGER_RTT_H
-#define __INCLUDE_NUTTX_SEGGER_RTT_H
+#ifndef __BOARDS_ARM_RZV2H_RZV2H_EVK_SRC_H
+#define __BOARDS_ARM_RZV2H_RZV2H_EVK_SRC_H
 
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
-#include <nuttx/streams.h>
-#include <nuttx/syslog/syslog.h>
+#include <stdint.h>
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
+#define LED_DRIVER_PATH "/dev/userleds"
+
 /****************************************************************************
- * Type Declarations
+ * Public Types
  ****************************************************************************/
 
-#ifdef CONFIG_STREAM_RTT
-struct lib_rttoutstream_s
-{
-  struct lib_outstream_s common;
-  char name[32];
-  FAR char *buffer;
-  int channel;
-};
+/****************************************************************************
+ * Public Data
+ ****************************************************************************/
 
-struct lib_rttinstream_s
-{
-  struct lib_instream_s common;
-  char name[32];
-  FAR char *buffer;
-  int channel;
-};
-#endif
+#ifndef __ASSEMBLY__
 
 /****************************************************************************
  * Public Function Prototypes
  ****************************************************************************/
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
-#ifdef CONFIG_STREAM_RTT
 /****************************************************************************
-* Name: lib_rttoutstream_open
-*****************************************************************************/
-
-void lib_rttoutstream_open(FAR struct lib_rttoutstream_s *stream,
-                           int channel, size_t bufsize);
-
-/****************************************************************************
- * Name: lib_rttoutstream_close
+ * Name: rzv2h_bringup
  ****************************************************************************/
 
-void lib_rttoutstream_close(FAR struct lib_rttoutstream_s *stream);
+int rzv2h_bringup(void);
 
 /****************************************************************************
-* Name: lib_rttinstream_open
-*****************************************************************************/
-
-void lib_rttinstream_open(FAR struct lib_rttinstream_s *stream,
-                          int channel, size_t size);
-
-/****************************************************************************
- * Name: lib_rttinstream_close
+ * Name: rzv2h_gpio_initialize
+ *
+ * Description:
+ *   Initialize GPIO drivers for use with /apps/examples/gpio
+ *
+ * Return Value:
+ *   OK on success; a negated errno value on failure.
+ *
  ****************************************************************************/
 
-void lib_rttinstream_close(FAR struct lib_rttinstream_s *stream);
-#endif
-
-#ifdef CONFIG_SYSLOG_RTT
-int syslog_rtt_putc(FAR syslog_channel_t *channel, int ch);
-ssize_t syslog_rtt_write(FAR syslog_channel_t *channel,
-                         FAR const char *buffer, size_t buflen);
+#ifdef CONFIG_DEV_GPIO
+int rzv2h_gpio_initialize(void);
 #endif
 
 /****************************************************************************
-* Name: serial_rtt_initialize
-*****************************************************************************/
+ * Name: board_button_initialize
+ *
+ * Description:
+ *   Initialize buttons
+ *
+ ****************************************************************************/
 
-#ifdef CONFIG_SERIAL_RTT
-void serial_rtt_initialize(void);
+#ifdef CONFIG_ARCH_BUTTONS
+void board_button_initialize(void);
 #endif
 
-#ifdef __cplusplus
-}
+/****************************************************************************
+ * Name: rzv2h_appexamples
+ *
+ * Description:
+ *   Run all enabled board example applications
+ *
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: rzv2h_serial_setup
+ *
+ * Description:
+ *   Configure serial pins for UART operation
+ *
+ ****************************************************************************/
+
+void rzv2h_serial_setup(void);
+
+#ifdef CONFIG_RZV2H_EXAMPLE_SUPPORT
+int rzv2h_appexamples(void);
 #endif
 
-#endif
+/****************************************************************************
+ * Example application initialization functions
+ ****************************************************************************/
+
+#endif /* __ASSEMBLY__ */
+#endif /* __BOARDS_ARM_RZV2H_RZV2H_EVK_SRC_H */

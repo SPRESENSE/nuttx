@@ -1,5 +1,5 @@
 /****************************************************************************
- * include/nuttx/segger/note_rtt.h
+ * arch/arm/src/rzv2h/rzv2h_clockconfig.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,25 +20,31 @@
  *
  ****************************************************************************/
 
-#ifndef __INCLUDE_NUTTX_SEGGER_NOTE_RTT_H
-#define __INCLUDE_NUTTX_SEGGER_NOTE_RTT_H
+/****************************************************************************
+ * Included Files
+ ****************************************************************************/
+#include <nuttx/config.h>
+
+#include "rzv2h_clockconfig.h"
+#include <bsp_api.h>
 
 /****************************************************************************
- * Name: notertt_register
- *
- * Description:
- *   Register RTT note driver
- *
- * Input Parameters:
- *   None.
- *
- * Returned Value:
- *   Zero on success. A negated errno value is returned on a failure.
- *
+ * Public Functions
  ****************************************************************************/
 
-#ifdef CONFIG_NOTE_RTT
-int notertt_register(void);
-#endif
+/****************************************************************************
+ * Name: rzv2h_clockconfig
+ ****************************************************************************/
 
-#endif /* __INCLUDE_NUTTX_SEGGER_NOTE_RTT_H */
+/* Confirmed on hardware: bsp_clock_init() alone is enough for xSPI
+ * DirectTransfer (reads/WREN/status/program). The CM33 PD_XSPI_ON
+ * reset/clock/TZC/master-access sequence is not needed since the
+ * memory-mapped write window is never used -- and driving it from a
+ * CR8-only boot has been observed to break DirectTransfer instead
+ * (asynchronous external abort). Leave as-is until proven otherwise.
+ */
+
+void rzv2h_clockconfig(void)
+{
+  bsp_clock_init();
+}
