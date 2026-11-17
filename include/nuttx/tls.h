@@ -98,6 +98,15 @@ extern "C"
 
 typedef CODE void (*tls_dtor_t)(FAR void *);
 
+#ifdef CONFIG_TLS_EMUTLS
+/* The integer types of the emulated TLS of libgcc: a machine word, and an
+ * integer as wide as a pointer.
+ */
+
+typedef unsigned int emutls_word_t __attribute__((mode(word)));
+typedef unsigned int emutls_pointer_t __attribute__((mode(pointer)));
+#endif
+
 /* This structure encapsulates all variables associated with getopt(). */
 
 struct getopt_s
@@ -127,6 +136,7 @@ struct usershell_s
 };
 #endif
 
+#ifdef CONFIG_SYSLOG_OPENLOG
 /* This structure holds the settings of openlog() */
 
 #define OPENLOG_IDENT_SIZE 32
@@ -137,6 +147,7 @@ struct openlog_s
   int  ol_option;                    /* LOG_PID, LOG_PERROR ... */
   int  ol_facility;                  /* Default facility */
 };
+#endif
 
 #ifdef CONFIG_PTHREAD_ATFORK
 /* This structure defines the pthread_atfork_s, which is used to manage
@@ -179,7 +190,9 @@ struct task_info_s
                                    * libc at the first use
                                    */
 #endif
+#ifdef CONFIG_SYSLOG_OPENLOG
   struct openlog_s ta_openlog; /* Settings of openlog() */
+#endif
 #if CONFIG_LIBC_MAX_EXITFUNS > 0
   struct atexit_list_s ta_exit; /* Exit functions */
 #endif
@@ -286,6 +299,9 @@ struct tls_info_s
   int tl_errno;                        /* Per-thread error number */
   pid_t tl_tid;                        /* Thread ID */
   FAR char **tl_argv;                  /* Arguments first string */
+#ifdef CONFIG_TLS_EMUTLS
+  FAR void *tl_emutls;                 /* Copies of __thread variables */
+#endif
 
   /* Robust mutex support ***************************************************/
 
@@ -419,6 +435,22 @@ FAR struct tls_info_s *tls_get_info(void);
 
 #if defined(CONFIG_TLS_NELEM) && CONFIG_TLS_NELEM > 0
 void tls_destruct(void);
+#endif
+
+/****************************************************************************
+ * Name: __wrap___emutls_get_address and __wrap___emutls_register_common
+ *
+ * Description:
+ *   The per-thread emulated TLS of libc.  --wrap sends the calls that GCC
+ *   makes to __emutls_get_address() and __emutls_register_common() here.
+ *   The system symbol table (libc.csv) needs these prototypes.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_TLS_EMUTLS
+FAR void *__wrap___emutls_get_address(FAR void *arg);
+void __wrap___emutls_register_common(FAR void *arg, emutls_word_t size,
+                                     emutls_word_t align, FAR void *templ);
 #endif
 
 /****************************************************************************

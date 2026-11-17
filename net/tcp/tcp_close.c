@@ -283,13 +283,35 @@ static inline int tcp_close_disconnect(FAR struct socket *psock)
 
           /* Update RTO timeout if the work exceeds expire */
 
-          tcp_update_timer(conn);
+          if (conn->sconn.s_linger == 0)
+            {
+              /* Directly set timeout to avoid the priority of the
+               * schedule tcp_timer_expiry and tcp_send_txnotify
+               */
+
+              conn->timeout = true;
+            }
+          else
+            {
+              tcp_update_timer(conn);
+            }
         }
 #endif
 
       /* Notify the device driver of the availability of TX data */
 
       tcp_send_txnotify(psock, conn);
+      conn_dev_unlock(&conn->sconn, conn->dev);
+    }
+  else if (conn->tcpstateflags == TCP_SYN_SENT ||
+           conn->tcpstateflags == TCP_SYN_RCVD)
+    {
+      /* Free network resources */
+
+      conn->flags |= TCP_CLOSE_ARRANGED;
+      conn->tcpstateflags = TCP_CLOSED;
+      work_queue(LPWORK, &conn->clswork, tcp_close_work, conn,
+                 HSEC2TICK(conn->timer));
       conn_dev_unlock(&conn->sconn, conn->dev);
     }
   else

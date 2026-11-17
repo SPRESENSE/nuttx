@@ -1,3 +1,24 @@
+############################################################################
+# fs/Kconfig
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.  The
+# ASF licenses this file to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance with the
+# License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
+# License for the specific language governing permissions and limitations
+# under the License.
+#
+############################################################################
 #
 # For a description of the syntax of this configuration file,
 # see the file kconfig-language.txt in the NuttX tools repository.
@@ -98,6 +119,16 @@ config DISABLE_DIRECTORY_OPERATIONS
 		available either.  Useful for small systems that never list a
 		directory; the directory file layer is not built at all.
 
+config FS_IOCTL_FILEPATH
+	bool "Support FIOC_FILEPATH ioctl and F_GETPATH fcntl"
+	default !DEFAULT_SMALL
+	---help---
+		Enable the FIOC_FILEPATH ioctl and F_GETPATH fcntl command to resolve
+		the path of an open file descriptor from its inode tree.
+		When disabled, file_ioctl(FIOC_FILEPATH) returns -ENOTTY, saving Flash
+		space on memory-constrained systems by eliminating path reconstruction
+		machinery (inode_getpath).
+
 config PSEUDOFS_ATTRIBUTES
 	bool "Pseudo-filesystem attributes"
 	default n
@@ -192,6 +223,17 @@ config FS_HEAPBUF_SECTION
 	---help---
 		Allocated fs heap from the specified section. If not
 		specified, it will alloc from kernel heap.
+
+config FS_MTD_PROXY
+	bool "Auto-create FTL block device when mounting MTD"
+	default y
+	depends on MTD
+	---help---
+		When enabled, mount() and open_blockdriver() will automatically
+		create a temporary FTL block device for an MTD device that is
+		passed as the source.  Disable this to save code space when
+		the block device is created manually (e.g. via
+		ftl_initialize_by_path).
 
 source "fs/vfs/Kconfig"
 source "fs/aio/Kconfig"

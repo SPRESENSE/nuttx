@@ -34,20 +34,24 @@
 #include <stdint.h>
 #include <string.h>
 #include <errno.h>
+#include <limits.h>
 #include <nuttx/debug.h>
 #include <assert.h>
 
 #include <arch/irq.h>
 
 #include <nuttx/semaphore.h>
+#include <nuttx/mm/iob.h>
 #include <nuttx/net/net.h>
 #include <nuttx/net/netdev.h>
+#include <nuttx/net/ethernet.h>
 
 #include "netdev/netdev.h"
 #include "devif/devif.h"
 #include "pkt/pkt.h"
 #include "socket/socket.h"
 #include "utils/utils.h"
+#include <netinet/if_ether.h>
 #include <netpacket/packet.h>
 
 /****************************************************************************
@@ -114,15 +118,14 @@ static inline void pkt_add_recvlen(FAR struct pkt_recvfrom_s *pstate,
 static void pkt_recvfrom_newdata(FAR struct net_driver_s *dev,
                                  FAR struct pkt_recvfrom_s *pstate)
 {
-  int offset = 0;
+  size_t pktlen = dev->d_len;
   size_t recvlen;
+  int offset = 0;
 
 #ifdef CONFIG_NET_TIMESTAMP
   cmsg_store_timestamp(pstate->pr_msg, &dev->d_iob->io_time,
                        pstate->pr_conn->sconn.s_options);
 #endif
-
-  recvlen = MIN(pstate->pr_msg->msg_iov->iov_len, dev->d_len);
 
   /* Copy the new packet data into the user buffer */
 
@@ -130,11 +133,31 @@ static void pkt_recvfrom_newdata(FAR struct net_driver_s *dev,
     {
       offset = -NET_LL_HDRLEN(dev);
     }
+  else
+    {
+      /* For SOCK_DGRAM, exclude the link-layer header */
+
+      if (pktlen > NET_LL_HDRLEN(dev))
+        {
+          pktlen -= NET_LL_HDRLEN(dev);
+        }
+      else
+        {
+          pktlen = 0;
+        }
+    }
+
+  if (pstate->pr_msg->msg_iov->iov_len < pktlen)
+    {
+      pstate->pr_msg->msg_flags |= MSG_TRUNC;
+    }
+
+  recvlen = MIN(pstate->pr_msg->msg_iov->iov_len, pktlen);
 
   recvlen = iob_copyout(pstate->pr_msg->msg_iov->iov_base,
                         dev->d_iob, recvlen, offset);
 
-  ninfo("Received %d bytes (of %d)\n", (int)recvlen, (int)dev->d_len);
+  ninfo("Received %d bytes (of %d)\n", (int)recvlen, (int)pktlen);
 
   /* Update the accumulated size of the data read */
 
@@ -154,9 +177,35 @@ static void pkt_recvfrom_newdata(FAR struct net_driver_s *dev,
  *
  ****************************************************************************/
 
-static inline void pkt_recvfrom_sender(FAR struct net_driver_s *dev,
+static inline void pkt_recvfrom_sender(int ifindex, FAR void *llhdr,
+                                       unsigned int llhdrlen,
                                        FAR struct pkt_recvfrom_s *pstate)
 {
+  struct sockaddr_ll from;
+  socklen_t copylen;
+
+  if (pstate->pr_msg->msg_name != NULL)
+    {
+      memset(&from, 0, sizeof(from));
+      from.sll_family   = AF_PACKET;
+      from.sll_ifindex  = ifindex;
+      from.sll_protocol = pstate->pr_type;
+      from.sll_halen    = ETH_ALEN;
+
+      if (llhdr != NULL && llhdrlen >= sizeof(struct eth_hdr_s))
+        {
+          FAR struct eth_hdr_s *ethhdr = (FAR struct eth_hdr_s *)llhdr;
+          memcpy(from.sll_addr, ethhdr->src, ETH_ALEN);
+        }
+
+      /* POSIX allows a too-small address buffer: copy at most the number
+       * of bytes the caller provided (truncation), never more.
+       */
+
+      copylen = MIN(pstate->pr_msg->msg_namelen, sizeof(struct sockaddr_ll));
+      memcpy(pstate->pr_msg->msg_name, &from, copylen);
+      pstate->pr_msg->msg_namelen = sizeof(struct sockaddr_ll);
+    }
 }
 
 /****************************************************************************
@@ -215,7 +264,8 @@ static uint32_t pkt_recvfrom_eventhandler(FAR struct net_driver_s *dev,
 
           /* Save the sender's address in the caller's 'from' location */
 
-          pkt_recvfrom_sender(dev, pstate);
+          pkt_recvfrom_sender(dev->d_ifindex, dev->d_buf, dev->d_len,
+                              pstate);
 
           /* indicate that the data has been consumed */
 
@@ -371,6 +421,7 @@ static inline int pkt_readdata(FAR struct pkt_recvfrom_s *pstate,
                                                 FAR struct iob_s *))
 {
   FAR struct pkt_conn_s *conn = pstate->pr_conn;
+  FAR struct net_driver_s *dev;
   FAR struct iob_s *iob;
   int recvlen;
   int offset = 0;
@@ -385,9 +436,10 @@ static inline int pkt_readdata(FAR struct pkt_recvfrom_s *pstate,
 
       /* Copy to user */
 
+      dev = pkt_find_device(conn);
+
       if (pstate->pr_type == SOCK_DGRAM)
         {
-          FAR struct net_driver_s *dev = pkt_find_device(conn);
           if (dev != NULL)
             {
               /* For SOCK_DGRAM, we need skip the l2 header */
@@ -400,6 +452,12 @@ static inline int pkt_readdata(FAR struct pkt_recvfrom_s *pstate,
             }
         }
 
+      if (iob->io_pktlen > offset &&
+          pstate->pr_msg->msg_iov->iov_len < iob->io_pktlen - offset)
+        {
+          pstate->pr_msg->msg_flags |= MSG_TRUNC;
+        }
+
       recvlen = iob_copyout(pstate->pr_msg->msg_iov->iov_base, iob,
                             pstate->pr_msg->msg_iov->iov_len, offset);
 
@@ -410,6 +468,14 @@ static inline int pkt_readdata(FAR struct pkt_recvfrom_s *pstate,
       ninfo("Received %d bytes (of %u)\n", recvlen, iob->io_pktlen);
 
       tsfunc(pstate, iob);
+
+      /* Fill in the sender's address information if requested */
+
+      if (dev != NULL && pstate->pr_msg->msg_name != NULL)
+        {
+          pkt_recvfrom_sender(dev->d_ifindex, IOB_DATA(iob),
+                              iob->io_pktlen, pstate);
+        }
 
       /* And free the I/O buffer chain */
 
@@ -454,7 +520,7 @@ static inline int pkt_readdata(FAR struct pkt_recvfrom_s *pstate,
 ssize_t pkt_recvmsg(FAR struct socket *psock, FAR struct msghdr *msg,
                     int flags)
 {
-  FAR struct sockaddr *from = msg->msg_name;
+  FAR struct sockaddr_ll *from = msg->msg_name;
   FAR socklen_t *fromlen = &msg->msg_namelen;
   FAR struct pkt_conn_s *conn = psock->s_conn;
   FAR struct net_driver_s *dev;
@@ -470,9 +536,26 @@ ssize_t pkt_recvmsg(FAR struct socket *psock, FAR struct msghdr *msg,
       return -EINVAL;
     }
 
+  /* POSIX: fail with EMSGSIZE if msg_iovlen <= 0 or > IOV_MAX */
+
+  if (msg->msg_iovlen == 0 || msg->msg_iovlen > IOV_MAX)
+    {
+      return -EMSGSIZE;
+    }
+
   if (msg->msg_iovlen != 1)
     {
       return -ENOTSUP;
+    }
+
+  if (msg->msg_iov == NULL)
+    {
+      return -EINVAL;
+    }
+
+  if (msg->msg_iov[0].iov_len > 0 && msg->msg_iov[0].iov_base == NULL)
+    {
+      return -EINVAL;
     }
 
   if (psock->s_type != SOCK_DGRAM && psock->s_type != SOCK_RAW)
@@ -480,6 +563,10 @@ ssize_t pkt_recvmsg(FAR struct socket *psock, FAR struct msghdr *msg,
       nerr("ERROR: Unsupported socket type: %d\n", psock->s_type);
       return -ENOSYS;
     }
+
+  /* Clear flags that may be returned */
+
+  msg->msg_flags = 0;
 
   /* Get the device driver that will service this transfer */
 

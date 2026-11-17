@@ -33,6 +33,8 @@
 #include <nuttx/pthread.h>
 #include <nuttx/tls.h>
 
+#include "libc.h"
+
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
@@ -62,10 +64,23 @@ void pthread_exit(FAR void *exit_value)
 
   task_setcancelstate(TASK_CANCEL_DISABLE, NULL);
 
+  /* Use deferred cancellation, as POSIX requires */
+
+  task_setcanceltype(TASK_CANCEL_DEFERRED, NULL);
+
   tls_cleanup_popall(tls_get_info());
 
 #if defined(CONFIG_TLS_NELEM) && CONFIG_TLS_NELEM > 0
   tls_destruct();
+#endif
+
+#ifdef CONFIG_TLS_EMUTLS
+  /* Then free the copies of its __thread variables */
+
+  if (g_tls_emutls_destruct != NULL)
+    {
+      g_tls_emutls_destruct();
+    }
 #endif
 
   nx_pthread_exit(exit_value);

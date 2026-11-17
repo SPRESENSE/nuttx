@@ -1,3 +1,24 @@
+############################################################################
+# arch/tricore/Kconfig
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.  The
+# ASF licenses this file to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance with the
+# License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
+# License for the specific language governing permissions and limitations
+# under the License.
+#
+############################################################################
 #
 # For a description of the syntax of this configuration file,
 # see the file kconfig-language.txt in the NuttX tools repository.
@@ -49,6 +70,7 @@ config ARCH_TC1V8
 	select ARCH_HAVE_PERF_EVENTS
 	select ARCH_HAVE_PERF_EVENTS_USER_ACCESS
 	select ARCH_HAVE_POWEROFF
+	select ARCH_HAVE_PPRS
 	select ARCH_HAVE_SETJMP
 	select ARCH_HAVE_RESET
 	select ARCH_SETJMP_H
@@ -125,6 +147,12 @@ config ARCH_MPU_CODE_NREGIONS
 	default 16
 	---help---
 		The code regions count
+
+config ARCH_HAVE_PPRS
+	bool
+	--help--
+		The saving process for MPU PRS differs between TC1V6 and TC1V8.TC1V6
+		saves PRS in the PSW, while TC1V8 saves PRS in the PPRS register.
 
 config HAVE_SECURITY_CORE
 	bool

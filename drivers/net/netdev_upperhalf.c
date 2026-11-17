@@ -101,7 +101,7 @@ struct netdev_upperhalf_s
   FAR struct bridge_port_s *bridge;
 #endif
 
-  bool txing;
+  int txing;
 
   /* Deferring process to work queue or thread */
 
@@ -307,9 +307,11 @@ static int netdev_upper_txpoll(FAR struct net_driver_s *dev)
   NETDEV_TXPACKETS(dev);
 
 #ifdef CONFIG_NET_PKT
-  /* When packet sockets are enabled, feed the tx frame into it */
+  /* When packet sockets are enabled, loopback the tx frame to pkt socket
+   * who has protocol type of ETH_P_ALL
+   */
 
-  pkt_input(dev);
+  pkt_loopback(dev);
 #endif
 
   pkt = netpkt_get(dev, NETPKT_TX);

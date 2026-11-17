@@ -51,6 +51,7 @@
 
 #include "task/task.h"
 #include "sched/sched.h"
+#include "wqueue/wqueue.h"
 #include "signal/signal.h"
 #include "semaphore/semaphore.h"
 #include "mqueue/mqueue.h"
@@ -151,8 +152,10 @@ dq_queue_t g_waitingforfill;
 dq_queue_t g_stoppedtasks;
 #endif
 
-/* This list of all tasks that have been initialized, but not yet
- * activated. NOTE:  This is the only list that is not prioritized.
+/* Task list for TSTATE_TASK_INACTIVE.  Initialized but not yet activated
+ * tasks are never linked into it, so it stays empty and removing such a
+ * TCB (whose links are NULL) through the generic task list helpers is a
+ * no-op.
  */
 
 dq_queue_t g_inactivetasks;
@@ -478,6 +481,10 @@ void nx_start(void)
 
   g_nx_initstate = OSINIT_BOOT;
   sched_trace_mark("BOOT");
+
+#ifdef CONFIG_SCHED_WORKQUEUE
+  work_initialize();
+#endif
 
   /* Initialize the IDLE task TCB *******************************************/
 

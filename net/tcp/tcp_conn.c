@@ -892,6 +892,8 @@ void tcp_free(FAR struct tcp_conn_s *conn)
 #endif
 
 #ifdef CONFIG_NET_TCPBACKLOG
+  tcp_conn_list_lock();
+
   /* Remove any backlog attached to this connection */
 
   if (conn->backlog)
@@ -899,15 +901,10 @@ void tcp_free(FAR struct tcp_conn_s *conn)
       tcp_backlogdestroy(conn);
     }
 
-  /* If this connection is, itself, backlogged, then remove it from the
-   * parent connection's backlog list.
-   */
-
-  if (conn->blparent)
-    {
-      tcp_backlogdelete(conn->blparent, conn);
-    }
+  tcp_conn_list_unlock();
 #endif
+
+  nxrmutex_destroy(&conn->sconn.s_lock);
 
   /* Mark the connection available. */
 
@@ -1488,7 +1485,7 @@ int tcp_connect(FAR struct tcp_conn_s *conn, FAR const struct sockaddr *addr)
 
   if (ret < 0)
     {
-      return -ENETUNREACH;
+      return ret;
     }
 #endif /* CONFIG_NET_ARP_SEND || CONFIG_NET_ICMPv6_NEIGHBOR */
 
