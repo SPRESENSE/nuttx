@@ -129,9 +129,42 @@ config CAPTURE_NOTIFY
 config FAKE_CAPTURE
 	bool "Fake Capture Driver"
 	default n
-	depends on CAPTURE_NSIGNALS > 0
+	depends on CAPTURE_NOTIFY
 	---help---
-		Enables a fake capture driver for testing purposes.
+		Enables a fake capture driver for testing purposes.  It
+		simulates a 10 Hz square wave with a 50% duty cycle on
+		/dev/fake_capture0 and /dev/fake_capture1.  Its edges are time
+		stamped by a simulated free running counter (getcount and
+		getcapture), derived from perf_gettime(), which is used as the
+		"true" time.  perf_gettime() must have a good resolution for
+		the time stamps to be meaningful (it is in nanoseconds on the
+		simulator).
+
+if FAKE_CAPTURE
+
+config FAKE_CAPTURE_COUNTER_FREQ
+	int "Simulated counter frequency (Hz)"
+	default 100000000
+	range 1000000 1000000000
+
+config FAKE_CAPTURE_ERROR_PPB
+	int "Simulated counter frequency error (ppb)"
+	default 0
+	range -400000 400000
+	---help---
+		Frequency error of the oscillator of the simulated counter, in
+		parts per billion, as a real crystal would have.
+
+config FAKE_CAPTURE_JITTER_NS
+	int "Simulated edge jitter (ns, peak)"
+	default 0
+	range 0 1000000
+	---help---
+		Uniformly distributed jitter added to the time stamp of every
+		simulated edge.  Typical GNSS receivers have a PPS jitter of a
+		few nanoseconds to some tens of nanoseconds.
+
+endif # FAKE_CAPTURE
 
 endif # CAPTURE
 
@@ -163,6 +196,56 @@ config OCU
 		counter against a programmable threshold and performs configurable
 		actions (pin toggle, notification callback) on match.
 		See include/nuttx/timers/ocu.h for further OCU driver information.
+
+config TIMER_IMX_GPT
+	bool "i.MX GPT Driver"
+	default n
+	---help---
+		Enable the i.MX GPT (General Purpose Timer) lower-half driver
+		core: one free-running counter and one shared interrupt.  A single
+		GPT block can expose an Output Compare Unit (/dev/ocuN) and/or an
+		Input Capture Unit (/dev/capN); enable either or both below.
+		Instances are created from the device tree ("fsl,imx-gpt") by the
+		board bring-up code via imx_gpt_initialize().
+
+if TIMER_IMX_GPT
+
+config TIMER_IMX_GPT_OCU
+	bool "Output Compare Unit (OCU) support"
+	default y
+	select OCU
+	---help---
+		Register the GPT output-compare channels as /dev/ocuN and plug
+		them into the generic ocu upper-half driver.
+
+config TIMER_IMX_GPT_NUM_OCU
+	int "Number of OCU (output compare) channels"
+	depends on TIMER_IMX_GPT_OCU
+	default 1
+	range 1 3
+	---help---
+		Number of Output Compare Unit channels to register as /dev/ocuN.
+		The i.MX GPT hardware provides up to 3 output compare channels.
+
+config TIMER_IMX_GPT_ICU
+	bool "Input Capture Unit (ICU) support"
+	default y
+	select CAPTURE
+	select CAPTURE_NOTIFY
+	---help---
+		Register the GPT input-capture channels as /dev/capN and plug
+		them into the generic capture upper-half driver.
+
+config TIMER_IMX_GPT_NUM_ICU
+	int "Number of ICU (input capture) channels"
+	depends on TIMER_IMX_GPT_ICU
+	default 1
+	range 1 2
+	---help---
+		Number of Input Capture Unit channels to register as /dev/capN.
+		The i.MX GPT hardware provides up to 2 input capture channels.
+
+endif # TIMER_IMX_GPT
 
 config TIMER
 	bool "Timer Support"
@@ -769,11 +852,88 @@ config PTP_CLOCK
 		devices. If you want to use a PTP clock, then you should
 		also enable at least one clock driver as well.
 
+if PTP_CLOCK
+
+config PTP_CLOCK_EXTTS_QUEUE_SIZE
+	int "External time stamp event queue size"
+	default 16
+	range 1 1024
+	---help---
+		Number of external time stamp (EXTTS) events, for example
+		PPS pulses, that the PTP clock driver keeps until the
+		application reads them from /dev/ptpX.  When the queue is
+		full the oldest event is dropped.
+
+config PTP_CLOCK_NPOLLWAITERS
+	int "Number of poll waiters"
+	default 2
+	range 1 16
+	---help---
+		Maximum number of threads that can poll() one /dev/ptpX
+		device at the same time.
+
+endif # PTP_CLOCK
+
 config PTP_CLOCK_DUMMY
 	bool "the dummy test driver for ptp clock"
 	default n
 	select PTP_CLOCK
 	---help---
 		The dummy test driver.
+
+config PTP_PPS
+	bool "PPS disciplined software PTP clock"
+	default n
+	depends on CAPTURE_NOTIFY
+	select PTP_CLOCK
+	---help---
+		A PTP hardware clock (/dev/ptpX) built on top of a capture
+		lower half (struct cap_lowerhalf_s) whose free running 32-bit
+		counter latches the edges of its input in hardware, for
+		example a timer input capture channel connected to the PPS
+		output of a GNSS receiver.
+
+		The clock is read, stepped and frequency adjusted through the
+		standard clock_gettime(), clock_settime() and clock_adjtime()
+		interfaces, and the captured edges are delivered to the
+		application as struct ptp_extts_event records read from
+		/dev/ptpX.  The gnsspps application in nuttx-apps uses them
+		to discipline the clock to GNSS time, so that boards that
+		each have a GNSS receiver share the same time scale.
+
+		The capture lower half must implement the getcount,
+		getcapture, bind and unbind operations, and the board calls
+		ptp_pps_register() with it.
+
+if PTP_PPS
+
+config PTP_PPS_MAX_ADJ
+	int "Maximum frequency adjustment (ppb)"
+	default 500000
+	range 1000 10000000
+	---help---
+		Largest frequency correction, in parts per billion, that the
+		clock accepts through clock_adjtime(ADJ_FREQUENCY).  It must
+		cover the tolerance of the oscillator that drives the
+		counter.  The default of 500 ppm covers any crystal.
+
+config PTP_PPS_FAKE
+	bool "PPS disciplined clock on a fake capture"
+	default n
+	depends on FAKE_CAPTURE
+	---help---
+		Register a PPS disciplined clock on a fake capture lower half
+		(see FAKE_CAPTURE) that simulates a 1 Hz PPS.  Set the
+		frequency error of its counter and the jitter of the PPS with
+		FAKE_CAPTURE_ERROR_PPB and FAKE_CAPTURE_JITTER_NS, so that the
+		complete chain (driver, EXTTS events and the gnsspps servo) can
+		be tested on the simulator without any hardware.
+
+config PTP_PPS_FAKE_DEVNO
+	int "Device number (/dev/ptpX)"
+	default 0
+	depends on PTP_PPS_FAKE
+
+endif # PTP_PPS
 
 endmenu # Timer Driver Support

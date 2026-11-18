@@ -20,12 +20,15 @@
 #
 # ##############################################################################
 if(NOT CONFIG_DISABLE_MOUNTPOINT)
+  if(CONFIG_FS_ZIPFS OR CONFIG_FS_ZIPFS_WRITE)
+    target_include_directories(fs PRIVATE libarchive/libarchive/libarchive)
+  endif()
+
   if(CONFIG_FS_ZIPFS)
-
     target_sources(fs PRIVATE zip_vfs.c)
+  endif()
 
-    target_include_directories(
-      fs PRIVATE ${CMAKE_CURRENT_LIST_DIR}/zlib/zlib/contrib/minizip
-                 ${CMAKE_CURRENT_LIST_DIR}/zlib/zlib)
+  if(CONFIG_FS_ZIPFS_WRITE)
+    target_sources(fs PRIVATE wzip_vfs.c)
   endif()
 endif()

@@ -25,6 +25,7 @@
  ****************************************************************************/
 
 #include <assert.h>
+#include <debug.h>
 #include <execinfo.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -33,14 +34,13 @@
 #include <nuttx/kmalloc.h>
 #include <nuttx/mm/kasan.h>
 #include <nuttx/mm/mempool.h>
+#include <nuttx/mutex.h>
 #include <nuttx/nuttx.h>
 #include <nuttx/sched.h>
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
-
-#define MEMPOOL_HEADER_SIZE (sizeof(sq_entry_t) + CONFIG_MM_NODE_GUARDSIZE)
 
 #if CONFIG_MM_BACKTRACE >= 0
 #define MEMPOOL_MAGIC_FREE  0x55555555
@@ -56,13 +56,32 @@ typedef void (*mempool_callback_t)(FAR struct mempool_s *pool,
 #endif
 
 /****************************************************************************
+ * Private Data
+ ****************************************************************************/
+
+static mutex_t g_mempool_init_lock = NXMUTEX_INITIALIZER;
+
+/****************************************************************************
  * Private Functions
  ****************************************************************************/
+
+/* A pool can wait for a free block only when it cannot expand on demand.
+ * MEMPOOL_DEFINE() leaves expandsize at MEMPOOL_HEADER_SIZE, so testing for
+ * zero misses every statically defined pool and leaves its waitsem unused.
+ */
+
+static inline bool mempool_can_wait(FAR struct mempool_s *pool)
+{
+  size_t blocksize = MEMPOOL_REALBLOCKSIZE(pool->blocksize);
+
+  return pool->wait && pool->expandsize < blocksize + MEMPOOL_HEADER_SIZE;
+}
 
 static inline FAR sq_entry_t *
 mempool_remove_queue(FAR struct mempool_s *pool, FAR sq_queue_t *queue)
 {
   FAR sq_entry_t *ret = queue->head;
+  FAR void *addr = ret;
 
   if (ret)
     {
@@ -71,9 +90,11 @@ mempool_remove_queue(FAR struct mempool_s *pool, FAR sq_queue_t *queue)
         {
           queue->tail = NULL;
         }
-      else
+      else if (pool->initialbase == NULL || addr < pool->initialbase ||
+               addr >= (void *)((char *)pool->initialbase +
+                                pool->initialsize))
         {
-          pool->check(pool, queue->head);
+          pool->check(pool, addr);
         }
 
       ret->flink = NULL;
@@ -131,7 +152,7 @@ static void mempool_foreach(FAR struct mempool_s *pool,
                             mempool_callback_t callback,
                             FAR const void *input, FAR void *output)
 {
-  size_t blocksize = MEMPOOL_REALBLOCKSIZE(pool);
+  size_t blocksize = MEMPOOL_REALBLOCKSIZE(pool->blocksize);
   FAR struct mempool_backtrace_s *buf;
   FAR sq_entry_t *entry;
   FAR char *base ;
@@ -168,7 +189,7 @@ static void mempool_info_task_callback(FAR struct mempool_s *pool,
                                        FAR const void *input,
                                        FAR void *output)
 {
-  size_t blocksize = MEMPOOL_REALBLOCKSIZE(pool);
+  size_t blocksize = MEMPOOL_REALBLOCKSIZE(pool->blocksize);
   FAR const struct malltask *task = input;
   FAR struct mallinfo_task *info = output;
 
@@ -189,7 +210,7 @@ static void mempool_memdump_callback(FAR struct mempool_s *pool,
                                      FAR struct mempool_backtrace_s *buf,
                                      FAR const void *input, FAR void *output)
 {
-  size_t blocksize = MEMPOOL_REALBLOCKSIZE(pool);
+  size_t blocksize = MEMPOOL_REALBLOCKSIZE(pool->blocksize);
   size_t overhead = blocksize - pool->blocksize;
   FAR const struct mm_memdump_s *dump = input;
 
@@ -229,7 +250,7 @@ mempool_memdump_free_callback(FAR struct mempool_s *pool,
                               FAR struct mempool_backtrace_s *buf,
                               FAR const void *input, FAR void *output)
 {
-  size_t blocksize = MEMPOOL_REALBLOCKSIZE(pool);
+  size_t blocksize = MEMPOOL_REALBLOCKSIZE(pool->blocksize);
   size_t overhead = blocksize - pool->blocksize;
 
   if (buf->magic == MEMPOOL_MAGIC_FREE)
@@ -242,6 +263,47 @@ mempool_memdump_free_callback(FAR struct mempool_s *pool,
 #endif
 
 /****************************************************************************
+ * Name: mempool_alloc_callback
+ *
+ * Description:
+ *   The static mempool alloc callback function.
+ *
+ ****************************************************************************/
+
+static FAR void *mempool_alloc_callback(FAR struct mempool_s *pool,
+                                        size_t size)
+{
+  return mm_malloc(pool->priv, size);
+}
+
+/****************************************************************************
+ * Name: mempool_free_callback
+ *
+ * Description:
+ *   The static mempool free callback function.
+ *
+ ****************************************************************************/
+
+static void mempool_free_callback(FAR struct mempool_s *pool, FAR void *addr)
+{
+  mm_free(pool->priv, addr);
+}
+
+/****************************************************************************
+ * Name: mempool_check_callback
+ *
+ * Description:
+ *   The static mempool check callback function.
+ *
+ ****************************************************************************/
+
+static void mempool_check_callback(FAR struct mempool_s *pool,
+                                   FAR void *addr)
+{
+  DEBUGASSERT(mm_heapmember(pool->priv, addr));
+}
+
+/****************************************************************************
  * Public Functions
  ****************************************************************************/
 
@@ -252,19 +314,51 @@ mempool_memdump_free_callback(FAR struct mempool_s *pool,
  *   Initialize a memory pool.
  *   The user needs to specify the initialization information of mempool
  *   including blocksize, initialsize, expandsize, interruptsize.
+ *   This function is also used to auto init the mempool if user do not
+ *   call the mempool_init() explicitly.
+ *   And if user do not specified the `priv`, `alloc`, `free` and `check`
+ *   elements, mempool_init() will use a default dynamic expand method
+ *   (expand memory from USER_HEAP/KNR_HEAP) and MEMPOOL_DEFINE defined
+ *   mempool will use this method too.
  *
  * Input Parameters:
  *   pool - Address of the memory pool to be used.
- *   name - The name of memory pool.
  *
  * Returned Value:
  *   Zero on success; A negated errno value is returned on any failure.
  *
  ****************************************************************************/
 
-int mempool_init(FAR struct mempool_s *pool, FAR const char *name)
+int mempool_init(FAR struct mempool_s *pool)
 {
-  size_t blocksize = MEMPOOL_REALBLOCKSIZE(pool);
+  size_t blocksize = MEMPOOL_REALBLOCKSIZE(pool->blocksize);
+
+  if (pool->init)
+    {
+      return OK;
+    }
+
+  nxmutex_lock(&g_mempool_init_lock);
+  if (pool->init)
+    {
+      nxmutex_unlock(&g_mempool_init_lock);
+      return OK;
+    }
+
+  if (pool->priv == NULL && pool->alloc == NULL &&
+      pool->free == NULL && pool->check == NULL)
+    {
+      /* Default dynamic expand feature */
+
+#ifdef __KERNEL__
+      pool->priv = KNR_HEAP;
+#else
+      pool->priv = USR_HEAP;
+#endif
+      pool->alloc = mempool_alloc_callback;
+      pool->free  = mempool_free_callback;
+      pool->check = mempool_check_callback;
+    }
 
   sq_init(&pool->queue);
   sq_init(&pool->iqueue);
@@ -278,6 +372,7 @@ int mempool_init(FAR struct mempool_s *pool, FAR const char *name)
       pool->ibase = pool->alloc(pool, size);
       if (pool->ibase == NULL)
         {
+          nxmutex_unlock(&g_mempool_init_lock);
           return -ENOMEM;
         }
 
@@ -297,32 +392,41 @@ int mempool_init(FAR struct mempool_s *pool, FAR const char *name)
       size_t size = ninitial * blocksize + MEMPOOL_HEADER_SIZE;
       FAR char *base;
 
-      base = pool->alloc(pool, size);
-      if (base == NULL)
+      if (pool->initialbase == NULL)
         {
-          if (pool->ibase)
+          base = pool->alloc(pool, size);
+          if (base == NULL)
             {
-              pool->free(pool, pool->ibase);
+              if (pool->ibase)
+                {
+                  pool->free(pool, pool->ibase);
+                }
+
+              nxmutex_unlock(&g_mempool_init_lock);
+              return -ENOMEM;
             }
 
-          return -ENOMEM;
+          mempool_add_queue(pool, &pool->queue, base, ninitial, blocksize);
+          sq_addlast((FAR sq_entry_t *)(base + ninitial * blocksize),
+                      &pool->equeue);
+          kasan_poison(base, size);
         }
-
-      mempool_add_queue(pool, &pool->queue,
-                        base, ninitial, blocksize);
-      sq_addlast((FAR sq_entry_t *)(base + ninitial * blocksize),
-                  &pool->equeue);
-      kasan_poison(base, size);
+      else
+        {
+          DEBUGASSERT(pool->initialsize >= size);
+          base = pool->initialbase;
+          mempool_add_queue(pool, &pool->queue, base, ninitial, blocksize);
+        }
     }
 
   spin_lock_init(&pool->lock);
-  if (pool->wait && pool->expandsize == 0)
+  if (mempool_can_wait(pool))
     {
       nxsem_init(&pool->waitsem, 0, 0);
     }
 
 #if defined(CONFIG_FS_PROCFS) && !defined(CONFIG_FS_PROCFS_EXCLUDE_MEMPOOL)
-  mempool_procfs_register(&pool->procfs, name);
+  mempool_procfs_register(&pool->procfs, pool->name);
 #  ifdef CONFIG_MM_BACKTRACE_DEFAULT
   pool->procfs.backtrace = true;
 #  elif CONFIG_MM_BACKTRACE > 0
@@ -330,6 +434,8 @@ int mempool_init(FAR struct mempool_s *pool, FAR const char *name)
 #  endif
 #endif
 
+  pool->init = true;
+  nxmutex_unlock(&g_mempool_init_lock);
   return 0;
 }
 
@@ -343,20 +449,31 @@ int mempool_init(FAR struct mempool_s *pool, FAR const char *name)
  *   pool if expandsize isn't zero.
  *
  * Input Parameters:
- *   pool - Address of the memory pool to be used.
+ *   pool    - Address of the memory pool to be used.
+ *   timeout - The maximum time (ms) to wait for a buffer to become
+ *             available.
  *
  * Returned Value:
  *   The pointer to the allocated block on success; NULL on any failure.
  *
  ****************************************************************************/
 
-FAR void *mempool_allocate(FAR struct mempool_s *pool)
+FAR void *mempool_allocate(FAR struct mempool_s *pool, unsigned int timeout)
 {
   FAR sq_entry_t *blk;
   irqstate_t flags;
 
+  mempool_init(pool);
+
 retry:
   flags = spin_lock_irqsave(&pool->lock);
+  if (pool->maxalloc > 0 && pool->nalloc >= pool->maxalloc)
+    {
+      spin_unlock_irqrestore(&pool->lock, flags);
+      merr("ERROR: mempool_allocate: maxalloc=%zu\n", pool->maxalloc);
+      return NULL;
+    }
+
   blk = mempool_remove_queue(pool, &pool->queue);
   if (blk == NULL)
     {
@@ -371,7 +488,7 @@ retry:
         }
       else
         {
-          size_t blocksize = MEMPOOL_REALBLOCKSIZE(pool);
+          size_t blocksize = MEMPOOL_REALBLOCKSIZE(pool->blocksize);
 
           spin_unlock_irqrestore(&pool->lock, flags);
           if (pool->expandsize >= blocksize + MEMPOOL_HEADER_SIZE)
@@ -394,14 +511,29 @@ retry:
                          &pool->equeue);
               blk = mempool_remove_queue(pool, &pool->queue);
             }
-          else if (!pool->wait ||
-                   pool->expandsize > 0 ||
-                   nxsem_wait_uninterruptible(&pool->waitsem) < 0)
+          else if (!mempool_can_wait(pool) || timeout == 0)
             {
               return NULL;
             }
           else
             {
+              int ret;
+
+              if (timeout == UINT_MAX)
+                {
+                  ret = nxsem_wait_uninterruptible(&pool->waitsem);
+                }
+              else
+                {
+                  ret = nxsem_tickwait_uninterruptible(&pool->waitsem,
+                                                       MSEC2TICK(timeout));
+                }
+
+              if (ret < 0)
+                {
+                  return NULL;
+                }
+
               goto retry;
             }
         }
@@ -473,7 +605,7 @@ void mempool_release(FAR struct mempool_s *pool, FAR void *blk)
 
   kasan_poison(blk, pool->blocksize);
   spin_unlock_irqrestore(&pool->lock, flags);
-  if (pool->wait && pool->expandsize == 0)
+  if (mempool_can_wait(pool))
     {
       int semcount;
 
@@ -483,6 +615,41 @@ void mempool_release(FAR struct mempool_s *pool, FAR void *blk)
           nxsem_post(&pool->waitsem);
         }
     }
+}
+
+/****************************************************************************
+ * Name: mempool_navail
+ *
+ * Description:
+ *   Return the number of available buffers in the mempool.
+ *
+ * Input Parameters:
+ *   pool - Address of the memory pool to be used.
+ *
+ * Returned Value:
+ *   Return the number of available buffers in the mempool, 0 means no room.
+ *
+ ****************************************************************************/
+
+size_t mempool_navail(FAR struct mempool_s *pool)
+{
+  irqstate_t flags;
+  size_t ret;
+
+  DEBUGASSERT(pool != NULL);
+  mempool_init(pool);
+
+  flags = spin_lock_irqsave(&pool->lock);
+  if (pool->maxalloc == 0)
+    {
+      spin_unlock_irqrestore(&pool->lock, flags);
+      return SIZE_MAX;
+    }
+
+  ret = pool->maxalloc > pool->nalloc ? pool->maxalloc - pool->nalloc : 0;
+  spin_unlock_irqrestore(&pool->lock, flags);
+
+  return ret;
 }
 
 /****************************************************************************
@@ -501,10 +668,11 @@ void mempool_release(FAR struct mempool_s *pool, FAR void *blk)
 
 int mempool_info(FAR struct mempool_s *pool, FAR struct mempoolinfo_s *info)
 {
-  size_t blocksize = MEMPOOL_REALBLOCKSIZE(pool);
+  size_t blocksize = MEMPOOL_REALBLOCKSIZE(pool->blocksize);
   irqstate_t flags;
 
   DEBUGASSERT(pool != NULL && info != NULL);
+  mempool_init(pool);
 
   flags = spin_lock_irqsave(&pool->lock);
   info->ordblks = sq_count(&pool->queue);
@@ -512,9 +680,10 @@ int mempool_info(FAR struct mempool_s *pool, FAR struct mempoolinfo_s *info)
   info->aordblks = pool->nalloc;
   info->arena = sq_count(&pool->equeue) * MEMPOOL_HEADER_SIZE +
     (info->aordblks + info->ordblks + info->iordblks) * blocksize;
+  info->maxalloc = pool->maxalloc;
   spin_unlock_irqrestore(&pool->lock, flags);
   info->sizeblks = blocksize;
-  if (pool->wait && pool->expandsize == 0)
+  if (mempool_can_wait(pool))
     {
       int semcount;
 
@@ -537,11 +706,13 @@ struct mallinfo_task
 mempool_info_task(FAR struct mempool_s *pool,
                   FAR const struct malltask *task)
 {
-  size_t blocksize = MEMPOOL_REALBLOCKSIZE(pool);
+  size_t blocksize = MEMPOOL_REALBLOCKSIZE(pool->blocksize);
   struct mallinfo_task info =
     {
       0, 0
     };
+
+  mempool_init(pool);
 
   if (task->pid == PID_MM_FREE)
     {
@@ -590,6 +761,8 @@ mempool_info_task(FAR struct mempool_s *pool,
 void mempool_memdump(FAR struct mempool_s *pool,
                      FAR const struct mm_memdump_s *dump)
 {
+  mempool_init(pool);
+
 #if CONFIG_MM_BACKTRACE >= 0
   if (dump->pid == PID_MM_FREE)
     {
@@ -600,7 +773,7 @@ void mempool_memdump(FAR struct mempool_s *pool,
       mempool_foreach(pool, mempool_memdump_callback, dump, NULL);
     }
 #else
-  size_t blocksize = MEMPOOL_REALBLOCKSIZE(pool);
+  size_t blocksize = MEMPOOL_REALBLOCKSIZE(pool->blocksize);
   size_t overhead = blocksize - pool->blocksize;
 
   /* Avoid race condition */
@@ -622,7 +795,7 @@ void mempool_memdump(FAR struct mempool_s *pool,
 
 int mempool_deinit(FAR struct mempool_s *pool)
 {
-  size_t blocksize = MEMPOOL_REALBLOCKSIZE(pool);
+  size_t blocksize = MEMPOOL_REALBLOCKSIZE(pool->blocksize);
   FAR sq_entry_t *blk;
   size_t count = 0;
 
@@ -667,10 +840,11 @@ int mempool_deinit(FAR struct mempool_s *pool)
       pool->free(pool, pool->ibase);
     }
 
-  if (pool->wait && pool->expandsize == 0)
+  if (mempool_can_wait(pool))
     {
       nxsem_destroy(&pool->waitsem);
     }
 
+  pool->init = false;
   return 0;
 }

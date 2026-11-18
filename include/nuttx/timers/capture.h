@@ -281,6 +281,21 @@ struct cap_ops_s
 
   CODE int (*get_input_state)(FAR struct cap_lowerhalf_s *lower,
                               FAR uint8_t *state);
+
+  /* Get the current value of the free running counter that time stamps
+   * the captured edges (optional).
+   */
+
+  CODE int (*getcount)(FAR struct cap_lowerhalf_s *lower,
+                       FAR uint32_t *count);
+
+  /* Get the counter value latched by the hardware on the last captured
+   * edge (optional).  Called from the notification callback, it gives the
+   * time of the edge independently of the interrupt latency.
+   */
+
+  CODE int (*getcapture)(FAR struct cap_lowerhalf_s *lower,
+                         FAR uint32_t *count);
 };
 
 /* This structure provides the publicly visible representation of the
@@ -334,6 +349,26 @@ int cap_register(FAR const char *devpath,
 int cap_register_multiple(FAR const char *devpath,
                           FAR struct cap_lowerhalf_s **lower, int n);
 
+#ifdef CONFIG_FAKE_CAPTURE
+/****************************************************************************
+ * Name: fake_capture_create
+ *
+ * Description:
+ *   Create a fake capture lower half, without registering it.  It
+ *   simulates a square wave whose edges are time stamped by a simulated
+ *   free running counter of CONFIG_FAKE_CAPTURE_COUNTER_FREQ Hz.
+ *
+ * Input Parameters:
+ *   freq - The frequency of the simulated signal, in Hz.
+ *   duty - The duty cycle of the simulated signal, in percent (1-99).
+ *
+ * Returned Value:
+ *   The new lower half on success; NULL on failure.
+ *
+ ****************************************************************************/
+
+FAR struct cap_lowerhalf_s *fake_capture_create(uint32_t freq, uint8_t duty);
+
 /****************************************************************************
  * Name: fake_capture_initialize
  *
@@ -351,7 +386,6 @@ int cap_register_multiple(FAR const char *devpath,
  *
  ****************************************************************************/
 
-#ifdef CONFIG_FAKE_CAPTURE
 int fake_capture_initialize(int channels);
 #endif
 

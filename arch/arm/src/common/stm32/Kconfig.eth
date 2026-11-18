@@ -34,6 +34,15 @@ config STM32_MII
 	---help---
 		Support Ethernet MII interface.
 
+config STM32_RGMII
+	bool "Use RGMII interface"
+	depends on STM32_HAVE_ETH_RGMII && !STM32_MII && NET_PHYLIB
+	---help---
+		Support the gigabit Ethernet RGMII interface.  The PHY is managed by
+		PHYLIB.  A board whose PHY adds the RGMII delays defines
+		BOARD_ETH_PHY_INTERFACE in its board.h, for example as
+		PHY_INTERFACE_RGMII_ID.
+
 config STM32_AUTONEG
 	bool "Use autonegotiation"
 	default y
@@ -78,6 +87,8 @@ config STM32_AUTONEG_10FD_ONLY
 		autonegotiation:  a forced MCR leaves the partner to parallel
 		detection, which cannot detect duplex and will pick half --
 		a genuine mismatch that stalls bulk traffic completely.
+
+if !NET_PHYLIB || !STM32_HAVE_IP_ETHMAC_V2
 
 config STM32_PHYSR
 	int "PHY Status Register Address (decimal)"
@@ -158,6 +169,8 @@ config STM32_PHYSR_100FD
 
 endif # STM32_PHYSR_ALTCONFIG
 
+endif # !NET_PHYLIB || !STM32_HAVE_IP_ETHMAC_V2
+
 endif # STM32_AUTONEG
 
 config STM32_ETH_PTP
@@ -175,7 +188,7 @@ config STM32_ETH_ENHANCEDDESC
 
 config STM32_ETH_PTP_GPIO
 	bool "PTP pulse-per-second output signal"
-	depends on (STM32_COMMON_LEGACY || STM32_COMMON_H7_H5) && STM32_ETH_PTP
+	depends on (STM32_COMMON_LEGACY || STM32_HAVE_IP_ETHMAC_V2) && STM32_ETH_PTP
 	default n
 	---help---
 		Enables pulse-per-second output on GPIO pin.
@@ -193,7 +206,7 @@ config STM32_ETH_PTP_RTC_HIRES
 
 config STM32_ETH_TIMESTAMP_RX
 	bool "Hardware timestamping of received packets"
-	depends on STM32_ETH_PTP && NET_TIMESTAMP && (STM32_COMMON_H7_H5 || (STM32_COMMON_LEGACY && STM32_ETH_ENHANCEDDESC))
+	depends on STM32_ETH_PTP && NET_TIMESTAMP && (STM32_HAVE_IP_ETHMAC_V2 || (STM32_COMMON_LEGACY && STM32_ETH_ENHANCEDDESC))
 	default n
 	---help---
 		Timestamp all received Ethernet packets.
@@ -201,7 +214,7 @@ config STM32_ETH_TIMESTAMP_RX
 
 config STM32_ETH_TIMESTAMP_TX
 	bool "Hardware timestamping of transmitted packets"
-	depends on STM32_ETH_PTP && NET_TIMESTAMP && (STM32_COMMON_H7_H5 || (STM32_COMMON_LEGACY && STM32_ETH_ENHANCEDDESC))
+	depends on STM32_ETH_PTP && NET_TIMESTAMP && (STM32_HAVE_IP_ETHMAC_V2 || (STM32_COMMON_LEGACY && STM32_ETH_ENHANCEDDESC))
 	default n
 	---help---
 		Enables hardware timestamp capture on transmitted Ethernet frames.
@@ -209,7 +222,7 @@ config STM32_ETH_TIMESTAMP_TX
 
 config STM32_RMII
 	bool
-	default !STM32_MII
+	default !STM32_MII && !STM32_RGMII
 
 config STM32_ETHMAC_REGDEBUG
 	bool "Register-Level Debug"
@@ -287,7 +300,7 @@ endchoice
 
 config STM32_PHY_POLLING
 	bool "Support network monitoring by polling the PHY"
-	depends on (STM32_COMMON_F7_H7_H5) && STM32_ETHMAC && STM32_PHY_HAVE_POLLED
+	depends on (STM32_COMMON_F7_H7_H5 || STM32_HAVE_IP_ETHMAC_V2) && STM32_ETHMAC && STM32_PHY_HAVE_POLLED
 	select ARCH_PHY_POLLED
 	---help---
 		Some boards may not have an interrupt connected to the PHY.
@@ -296,7 +309,7 @@ config STM32_PHY_POLLING
 
 config STM32_ETH_HWCHECKSUM
 	bool "Enable ethernet hardware checksum"
-	depends on ARCH_CHIP_STM32H5 && STM32_ETHMAC
+	depends on STM32_HAVE_IP_ETHMAC_V2 && STM32_ETHMAC
 	---help---
 		Enable the IPv4/IPv6 header and TCP/UDP/ICMP payload checksum offload
 		engine in the Ethernet MAC.
@@ -307,18 +320,18 @@ config STM32_ETH_HWCHECKSUM
 
 config STM32_NO_PHY
 	bool "MAC has no PHY"
-	depends on STM32_COMMON_H7_H5 && STM32_ETHMAC
+	depends on STM32_HAVE_IP_ETHMAC_V2 && STM32_ETHMAC
 
 config STM32_ETH_NRXDESC
 	int "Number of RX descriptors"
-	depends on STM32_COMMON_H7_H5 && STM32_ETHMAC
+	depends on STM32_HAVE_IP_ETHMAC_V2 && STM32_ETHMAC
 	default 8
 	---help---
 		Number of RX DMA descriptors to use.
 
 config STM32_ETH_NTXDESC
 	int "Number of TX descriptors"
-	depends on STM32_COMMON_H7_H5 && STM32_ETHMAC
+	depends on STM32_HAVE_IP_ETHMAC_V2 && STM32_ETHMAC
 	default 4
 	---help---
 		Number of TX DMA descriptors to use.

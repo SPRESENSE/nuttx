@@ -138,8 +138,6 @@ static int pkt_sockif_alloc(FAR struct socket *psock)
   nxsem_init(&conn->sndsem, 0, 0);
 #endif
 
-  nxrmutex_init(&conn->sconn.s_lock);
-
   /* Save the pre-allocated connection in the socket structure */
 
   psock->s_conn = conn;
@@ -368,14 +366,6 @@ static int pkt_close(FAR struct socket *psock)
           if (conn->crefs <= 1)
             {
               conn_dev_lock(&conn->sconn, dev);
-
-              /* Yes... free any read-ahead data */
-
-              iob_free_queue(&conn->readahead);
-
-#ifdef CONFIG_NET_TIMESTAMP
-              iob_free_queue(&conn->errahead);
-#endif
 
 #ifdef CONFIG_NET_PKT_WRITE_BUFFERS
               /* Free write buffer callback. */

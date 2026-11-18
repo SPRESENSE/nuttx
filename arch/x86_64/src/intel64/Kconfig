@@ -29,6 +29,7 @@ comment "intel64 Configuration Options"
 
 config ARCH_INTEL64_HAVE_TSC
 	bool
+	select ARCH_HAVE_PERF_EVENTS
 
 config ARCH_INTEL64_HAS_TSC_ADJUST
 	bool "MSR_IA32_TSC_ADJUST support"
@@ -88,6 +89,7 @@ config ARCH_INTEL64_TSC
 	select ARCH_INTEL64_HAVE_TSC
 	---help---
 		Select to enable the use of TSC APIC timer of x86_64
+		(SCHED_TICKLESS is not available with this timer).
 
 config ARCH_INTEL64_HPET_ALARM
 	bool "HPET timer alarm support"

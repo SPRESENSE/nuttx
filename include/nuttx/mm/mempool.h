@@ -35,6 +35,7 @@
 #include <nuttx/mm/mm.h>
 #include <nuttx/nuttx.h>
 #include <nuttx/fs/procfs.h>
+#include <nuttx/macro.h>
 #include <nuttx/spinlock.h>
 #include <nuttx/semaphore.h>
 
@@ -42,13 +43,44 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
+#define MEMPOOL_HEADER_SIZE        (sizeof(sq_entry_t) + \
+                                    CONFIG_MM_NODE_GUARDSIZE)
+
 #if CONFIG_MM_BACKTRACE >= 0
-#  define MEMPOOL_REALBLOCKSIZE(pool) (ALIGN_UP((pool)->blocksize + \
-                                       sizeof(struct mempool_backtrace_s), \
-                                       MM_ALIGN))
+#  define MEMPOOL_REALBLOCKSIZE(s) (ALIGN_UP((s) + \
+                                    sizeof(struct mempool_backtrace_s), \
+                                    MM_ALIGN))
 #else
-#  define MEMPOOL_REALBLOCKSIZE(pool) ((pool)->blocksize)
+#  define MEMPOOL_REALBLOCKSIZE(s) (s)
 #endif
+
+/* Static mempool definition related macros, in which:
+ *   name:     The name of the static mempool
+ *   blksize:  The size of each node in the mempool
+ *   prealloc: The number of pre-allocated buffers
+ *   maxalloc: The number of max allocations, 0 means no limit
+ *   dynalloc: The number per dynamic allocations
+ */
+
+#define MEMPOOL_DEFINE(name, blksize, prealloc, maxalloc, dynalloc) \
+  static char CONCATENATE(name, _buffer) \
+  [(prealloc) * MEMPOOL_REALBLOCKSIZE(blksize) + MEMPOOL_HEADER_SIZE] \
+  aligned_data(sizeof(uintptr_t)); \
+  static struct mempool_s name = \
+    { \
+      CONCATENATE(name, _buffer), \
+      MEMPOOL_REALBLOCKSIZE(blksize) * (prealloc) + MEMPOOL_HEADER_SIZE, \
+      (blksize), \
+      0, \
+      MEMPOOL_REALBLOCKSIZE(blksize) * (dynalloc) + MEMPOOL_HEADER_SIZE, \
+      (maxalloc), \
+      true, \
+      NULL, \
+      STRINGIFY(name), \
+      NULL, \
+      NULL, \
+      NULL, \
+    }
 
 /****************************************************************************
  * Public Types
@@ -92,12 +124,15 @@ struct mempool_procfs_entry_s
 
 struct mempool_s
 {
-  size_t     blocksize;     /* The size for every block in mempool */
+  FAR void  *initialbase;   /* The initial base pointer of normal mempool */
   size_t     initialsize;   /* The initialize size in normal mempool */
+  size_t     blocksize;     /* The size for every block in mempool */
   size_t     interruptsize; /* The initialize size in interrupt mempool */
   size_t     expandsize;    /* The size of expand block every time for mempool */
+  size_t     maxalloc;      /* The maximum allowed alloc number, 0 means not limit */
   bool       wait;          /* The flag of need to wait when mempool is empty */
   FAR void  *priv;          /* This pointer is used to store the user's private data */
+  FAR const char *name;     /* The name of the mempool */
   mempool_alloc_t alloc;    /* The alloc function for mempool */
   mempool_free_t  free;     /* The free function for mempool */
   mempool_check_t check;    /* The check function for mempool */
@@ -111,6 +146,7 @@ struct mempool_s
   size_t     nalloc;  /* The number of used block in mempool */
   spinlock_t lock;    /* The protect lock to mempool */
   sem_t      waitsem; /* The semaphore of waiter get free block */
+  bool       init;    /* The flag indicates whether the mempool initialize finished */
 #if defined(CONFIG_FS_PROCFS) && !defined(CONFIG_FS_PROCFS_EXCLUDE_MEMPOOL)
   struct mempool_procfs_entry_s procfs; /* The entry of procfs */
 #endif
@@ -140,6 +176,7 @@ struct mempoolinfo_s
   unsigned long aordblks; /* This is the number of used blocks */
   unsigned long sizeblks; /* This is the size of a mempool blocks */
   unsigned long nwaiter;  /* This is the number of waiter for mempool */
+  unsigned long maxalloc; /* This is the maximum allowed alloc number, 0 means not limit */
 };
 
 /****************************************************************************
@@ -161,14 +198,13 @@ extern "C"
  *
  * Input Parameters:
  *   pool - Address of the memory pool to be used.
- *   name - The name of memory pool.
  *
  * Returned Value:
  *   Zero on success; A negated errno value is returned on any failure.
  *
  ****************************************************************************/
 
-int mempool_init(FAR struct mempool_s *pool, FAR const char *name);
+int mempool_init(FAR struct mempool_s *pool);
 
 /****************************************************************************
  * Name: mempool_allocate
@@ -180,14 +216,16 @@ int mempool_init(FAR struct mempool_s *pool, FAR const char *name);
  *   pool if expandsize isn't zero.
  *
  * Input Parameters:
- *   pool - Address of the memory pool to be used.
+ *   pool    - Address of the memory pool to be used.
+ *   timeout - The maximum time (ms) to wait for a buffer to become
+ *             available.
  *
  * Returned Value:
  *   The pointer to the allocated block on success; NULL on any failure.
  *
  ****************************************************************************/
 
-FAR void *mempool_allocate(FAR struct mempool_s *pool);
+FAR void *mempool_allocate(FAR struct mempool_s *pool, unsigned int timeout);
 
 /****************************************************************************
  * Name: mempool_release
@@ -201,6 +239,22 @@ FAR void *mempool_allocate(FAR struct mempool_s *pool);
  ****************************************************************************/
 
 void mempool_release(FAR struct mempool_s *pool, FAR void *blk);
+
+/****************************************************************************
+ * Name: mempool_navail
+ *
+ * Description:
+ *   Return the number of available buffers in the mempool.
+ *
+ * Input Parameters:
+ *   pool - Address of the memory pool to be used.
+ *
+ * Returned Value:
+ *   Return the number of available buffers in the mempool, 0 means no room.
+ *
+ ****************************************************************************/
+
+size_t mempool_navail(FAR struct mempool_s *pool);
 
 /****************************************************************************
  * Name: mempool_info

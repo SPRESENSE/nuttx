@@ -193,3 +193,31 @@ void nxsig_restoremask(FAR struct tcb_s *rtcb, FAR const sigset_t *mask)
       rtcb->sigprocmask = *mask;
     }
 }
+
+/****************************************************************************
+ * Name: nxsig_waitmask_set
+ ****************************************************************************/
+
+bool nxsig_waitmask_set(FAR const sigset_t *set, FAR sigset_t *saved)
+{
+  FAR struct tcb_s *rtcb = this_task();
+
+  *saved = rtcb->sigprocmask;
+  if (set != NULL)
+    {
+      rtcb->sigprocmask = *set;
+    }
+
+  sigemptyset(&rtcb->sigwaitmask);
+  return nxsig_unmask_pendingsignal();
+}
+
+/****************************************************************************
+ * Name: nxsig_waitmask_restore
+ ****************************************************************************/
+
+void nxsig_waitmask_restore(FAR const sigset_t *saved)
+{
+  nxsig_restoremask(this_task(), saved);
+  nxsig_unmask_pendingsignal();
+}

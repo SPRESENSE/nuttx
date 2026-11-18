@@ -40,7 +40,7 @@
  ****************************************************************************/
 
 #ifdef CONFIG_MM_KERNEL_HEAP
-#  define MM_DEF_HEAP   &g_kmmheap
+#  define MM_DEF_HEAP   &KNR_HEAP
 #else
 #  define MM_DEF_HEAP   &g_mmheap
 #endif
@@ -186,6 +186,7 @@ void up_allocate_heap(void **heap_start, size_t *heap_size)
   for (i = 0; i < CONFIG_ARCH_NR_USER_MEMORY; i++)
     {
       size_t size = heapend[i] - bssend[i];
+
       if (size != 0)
         {
           mpu_user_data(bssend[i], size);
@@ -209,6 +210,7 @@ void up_allocate_heap(void **heap_start, size_t *heap_size)
   for (i = 0; i < CONFIG_ARCH_NR_MEMORY; i++)
     {
       size_t size = g_heapend[i] - g_bssend[i];
+
       if (size != 0)
         {
           mpu_priv_data(g_bssend[i], size);
@@ -249,6 +251,7 @@ void up_allocate_kheap(void **heap_start, size_t *heap_size)
   for (i = 0; i < CONFIG_ARCH_NR_MEMORY; i++)
     {
       size_t size = g_heapend[i] - g_bssend[i];
+
       if (size != 0)
         {
           mpu_priv_data(g_bssend[i], size);

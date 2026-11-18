@@ -128,6 +128,16 @@ if(CONFIG_OCU)
   list(APPEND SRCS ocu.c)
 endif()
 
+if(CONFIG_TIMER_IMX_GPT)
+  list(APPEND SRCS imx_gpt.c)
+  if(CONFIG_TIMER_IMX_GPT_OCU)
+    list(APPEND SRCS ocu_imx_gpt.c)
+  endif()
+  if(CONFIG_TIMER_IMX_GPT_ICU)
+    list(APPEND SRCS capture_imx_gpt.c)
+  endif()
+endif()
+
 if(CONFIG_GOLDFISH_TIMER)
   list(APPEND SRCS goldfish_timer.c)
 endif()
@@ -138,6 +148,10 @@ endif()
 
 if(CONFIG_PTP_CLOCK_DUMMY)
   list(APPEND SRCS ptp_clock_dummy.c)
+endif()
+
+if(CONFIG_PTP_PPS)
+  list(APPEND SRCS ptp_pps.c)
 endif()
 
 target_sources(drivers PRIVATE ${SRCS})

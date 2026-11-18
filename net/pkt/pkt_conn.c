@@ -99,6 +99,10 @@ FAR struct pkt_conn_s *pkt_alloc(void)
   conn = NET_BUFPOOL_TRYALLOC(g_pkt_connections);
   if (conn)
     {
+      /* Use conn_init to initialize the connection structure */
+
+      conn_init(&conn->sconn);
+
       /* Enqueue the connection into the active list */
 
       dq_addlast(&conn->sconn.s_node, &g_active_pkt_connections);
@@ -128,7 +132,20 @@ void pkt_free(FAR struct pkt_conn_s *conn)
   /* Remove the connection from the active list */
 
   dq_rem(&conn->sconn.s_node, &g_active_pkt_connections);
-  nxrmutex_destroy(&conn->sconn.s_lock);
+
+  /* Use conn_uninit to release all connection resources */
+
+  conn_uninit(&conn->sconn);
+
+  /* Free the read-ahead data.  pkt_in_() queues frames with the list
+   * locked, so no new frame can come in after dq_rem().
+   */
+
+  iob_free_queue(&conn->readahead);
+
+#ifdef CONFIG_NET_TIMESTAMP
+  iob_free_queue(&conn->errahead);
+#endif
 
 #ifdef CONFIG_NET_PKT_WRITE_BUFFERS
   /* Free the write queue */

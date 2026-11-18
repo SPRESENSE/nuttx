@@ -33,6 +33,7 @@
 #include <stdio.h>
 
 #include <nuttx/kmalloc.h>
+#include <nuttx/mm/iob.h>
 #include <nuttx/net/netdev_lowerhalf.h>
 #include <nuttx/net/vlan.h>
 
@@ -40,7 +41,7 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-#define VLAN_DEV_NAME_FMT "%s.%i"
+#define VLAN_DEV_NAME_FMT "%.*s.%u"
 
 /****************************************************************************
  * Private Types
@@ -52,6 +53,8 @@ struct vlan_device_s
 
   FAR struct netdev_lowerhalf_s *real;
   uint16_t tci;
+  struct iob_queue_s rxq;
+  spinlock_t rxlock;
 };
 
 /****************************************************************************
@@ -74,6 +77,9 @@ static int vlan_ioctl(FAR struct netdev_lowerhalf_s *dev, int cmd,
                       unsigned long arg);
 #endif
 static void vlan_reclaim(FAR struct netdev_lowerhalf_s *dev);
+#ifdef CONFIG_NET_NETPOLL
+static void vlan_txpoll(FAR struct netdev_lowerhalf_s *dev);
+#endif
 
 /****************************************************************************
  * Private Data
@@ -92,7 +98,10 @@ static const struct netdev_ops_s g_vlan_ops =
 #ifdef CONFIG_NETDEV_IOCTL
   vlan_ioctl,    /* ioctl */
 #endif
-  vlan_reclaim   /* reclaim */
+  vlan_reclaim,  /* reclaim */
+#ifdef CONFIG_NET_NETPOLL
+  vlan_txpoll,   /* txpoll */
+#endif
 };
 
 /****************************************************************************
@@ -138,12 +147,14 @@ static int vlan_transmit(FAR struct netdev_lowerhalf_s *dev,
   FAR struct eth_8021qhdr_s     *vlan_hdr;
   FAR uint8_t                   *base = netpkt_getbase(pkt);
   FAR uint8_t                   *data = netpkt_getdata(dev, pkt);
+  unsigned int                   reserved = data - base;
+  int                            ret;
 
   /* Check space for the VLAN tag, normally we want user to set bigger
    * CONFIG_NET_LL_GUARDSIZE to allow inserting VLAN tag in the headroom.
    */
 
-  if (data - base < 4)
+  if (reserved < 4)
     {
       /* TODO: Support backup path for too small CONFIG_NET_LL_GUARDSIZE */
 
@@ -155,7 +166,7 @@ static int vlan_transmit(FAR struct netdev_lowerhalf_s *dev,
   /* Move the data to make space for the VLAN tag */
 
   netpkt_copyin(dev, pkt, data, offsetof(struct eth_hdr_s, type), -4);
-  netpkt_reset_reserved(dev, pkt, data - base - 4);
+  netpkt_reset_reserved(dev, pkt, reserved - 4);
 
   /* Set value of the VLAN tag */
 
@@ -167,7 +178,20 @@ static int vlan_transmit(FAR struct netdev_lowerhalf_s *dev,
 
   /* TODO: Call pkt_input to allow tcpdump capture tx packet on real dev. */
 
-  return real->ops->transmit(real, pkt);
+  ret = real->ops->transmit(real, pkt);
+  if (ret != OK)
+    {
+      /* Undo VLAN encapsulation so the packet can be safely retransmitted
+       * through vlan_transmit again (e.g. after being re-queued to txq).
+       * Move DST+SRC back to original position and restore io_offset.
+       */
+
+      data = netpkt_getdata(dev, pkt);
+      netpkt_copyin(dev, pkt, data, offsetof(struct eth_hdr_s, type), 4);
+      netpkt_reset_reserved(dev, pkt, reserved);
+    }
+
+  return ret;
 }
 
 /****************************************************************************
@@ -176,9 +200,15 @@ static int vlan_transmit(FAR struct netdev_lowerhalf_s *dev,
 
 static FAR netpkt_t *vlan_receive(FAR struct netdev_lowerhalf_s *dev)
 {
-  /* VLAN device doesn't receive packets, the real device does. */
+  FAR struct vlan_device_s *vlan = (FAR struct vlan_device_s *)dev;
+  FAR netpkt_t *pkt;
+  irqstate_t flags;
 
-  return NULL;
+  flags = spin_lock_irqsave(&vlan->rxlock);
+  pkt = iob_remove_queue(&vlan->rxq);
+  spin_unlock_irqrestore(&vlan->rxlock, flags);
+
+  return pkt;
 }
 
 /****************************************************************************
@@ -256,6 +286,19 @@ static void vlan_reclaim(FAR struct netdev_lowerhalf_s *dev)
     }
 }
 
+#ifdef CONFIG_NET_NETPOLL
+static void vlan_txpoll(FAR struct netdev_lowerhalf_s *dev)
+{
+  FAR struct vlan_device_s      *vlan = (FAR struct vlan_device_s *)dev;
+  FAR struct netdev_lowerhalf_s *real = vlan->real;
+
+  if (real->ops->txpoll)
+    {
+      real->ops->txpoll(real);
+    }
+}
+#endif
+
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
@@ -277,10 +320,9 @@ static void vlan_reclaim(FAR struct netdev_lowerhalf_s *dev)
  ****************************************************************************/
 
 int vlan_register(FAR struct netdev_lowerhalf_s *real, uint16_t vid,
-                  uint16_t prio)
+                  uint16_t prio, uint8_t rx_type, uint8_t rx_priority)
 {
   FAR struct vlan_device_s *vlan;
-  char vlanifname[IFNAMSIZ + 8];
   int ret;
 
   if (real == NULL || real->netdev.d_lltype != NET_LL_ETHERNET)
@@ -295,6 +337,12 @@ int vlan_register(FAR struct netdev_lowerhalf_s *real, uint16_t vid,
       return -EINVAL;
     }
 
+  if (rx_type > NETDEV_RX_DEFAULT)
+    {
+      nerr("ERROR: Invalid vlan rx_type %d\n", rx_type);
+      return -EINVAL;
+    }
+
   /* Create a new VLAN device */
 
   vlan = kmm_zalloc(sizeof(struct vlan_device_s));
@@ -306,17 +354,23 @@ int vlan_register(FAR struct netdev_lowerhalf_s *real, uint16_t vid,
 
   /* Init the VLAN device */
 
+  spin_lock_init(&vlan->rxlock);
   vlan->tci           = (vid & VLAN_VID_MASK) |
                         ((prio << VLAN_PRIO_SHIFT) & VLAN_PRIO_MASK);
   vlan->real          = real;
   vlan->dev.quota_ptr = real->quota_ptr;
+  vlan->dev.rxtype    = real->rxtype;
+  vlan->dev.priority  = real->priority;
   vlan->dev.ops       = &g_vlan_ops;
+
+  /* Copy MTU from the real device */
+
+  vlan->dev.netdev.d_pktsize = real->netdev.d_pktsize;
 
   /* Set the VLAN device name, use a buffer to make compiler happy */
 
-  snprintf(vlanifname, sizeof(vlanifname), VLAN_DEV_NAME_FMT,
-           real->netdev.d_ifname, vid);
-  strlcpy(vlan->dev.netdev.d_ifname, vlanifname, IFNAMSIZ);
+  snprintf(vlan->dev.netdev.d_ifname, IFNAMSIZ, VLAN_DEV_NAME_FMT,
+           IFNAMSIZ - 6, real->netdev.d_ifname, vid);
 
   /* Copy the MAC address from the real device */
 
@@ -330,6 +384,12 @@ int vlan_register(FAR struct netdev_lowerhalf_s *real, uint16_t vid,
     {
       nerr("ERROR: Failed to add VLAN device: %d\n", ret);
       goto errout;
+    }
+
+  if (rx_type != NETDEV_RX_DEFAULT)
+    {
+      vlan->dev.rxtype   = rx_type;
+      vlan->dev.priority = rx_priority;
     }
 
   ret = netdev_lower_register(&vlan->dev, NET_LL_ETHERNET);
@@ -371,8 +431,56 @@ void vlan_unregister(FAR struct netdev_lowerhalf_s *dev)
     }
 
   netdev_lower_vlan_del(vlan->real, vlan->tci & VLAN_VID_MASK);
+  iob_free_queue(&vlan->rxq);
   netdev_lower_unregister(dev);
   kmm_free(dev);
+}
+
+/****************************************************************************
+ * Name: vlan_dispatch
+ *
+ * Description:
+ *   Dispatch the received packet to the VLAN device's RX queue.
+ *
+ * Input Parameters:
+ *   dev - The VLAN device
+ *   pkt - The received packet
+ *
+ * Returned Value:
+ *   0:Success; negated errno on failure
+ *
+ ****************************************************************************/
+
+int vlan_dispatch(FAR struct netdev_lowerhalf_s *dev, FAR netpkt_t *pkt)
+{
+  FAR struct vlan_device_s *vlan = (FAR struct vlan_device_s *)dev;
+  irqstate_t flags;
+  int ret;
+
+  /* Need to remove the 4 octet VLAN Tag, by moving src and dest addresses
+   * 4 octets to the right, and then read the actual ethertype.
+   */
+
+  memmove(netpkt_getdata(dev, pkt) + 4, netpkt_getdata(dev, pkt),
+          offsetof(struct eth_hdr_s, type));
+  pkt = iob_trimhead(pkt, 4);
+
+  /* Enqueue the packet to the VLAN device's RX queue */
+
+  flags = spin_lock_irqsave(&vlan->rxlock);
+  ret = iob_tryadd_queue(pkt, &vlan->rxq);
+  spin_unlock_irqrestore(&vlan->rxlock, flags);
+
+  if (ret < 0)
+    {
+      /* Failed to enqueue, drop the packet */
+
+      nerr("ERROR: VLAN RX queue full, dropping packet\n");
+      netpkt_free(dev, pkt, NETPKT_RX);
+      NETDEV_RXDROPPED(&dev->netdev);
+    }
+
+  return ret;
 }
 
 #endif /* CONFIG_NET_VLAN */

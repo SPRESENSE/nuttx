@@ -174,7 +174,6 @@ config ARCH_X86_64
 	select ARCH_HAVE_BACKTRACE
 	select ARCH_HAVE_VFORK
 	select ARCH_HAVE_SETJMP
-	select ARCH_HAVE_PERF_EVENTS
 	select ARCH_HAVE_POWEROFF
 	select ARCH_HAVE_SYSCALL if LIB_SYSCALL
 	---help---
@@ -1341,6 +1340,13 @@ config ARCH_RAMFUNCS
 		architectures to improve performance.  In other cases, it is done
 		so that FLASH can be reconfigured while the MCU executes out of
 		SRAM.
+
+config ARCH_SKIP_ZERO_BSS
+	bool "Skip zero bss section"
+	default n
+	---help---
+		BSS must be set to all zero if there is no external preparation.
+		But it will take a lot of boot time.
 
 config ARCH_HAVE_CUSTOM_VECTORS
 	bool
