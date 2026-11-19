@@ -660,11 +660,17 @@
 
 #define SENSOR_TYPE_INCLINOMETER                    66
 
+/* Ambient Light Uncalibrated
+ * The ambient light sensor uncalibrated value is returned in SI units lux.
+ */
+
+#define SENSOR_TYPE_LIGHT_UNCALIBRATED              67
+
 /* The total number of sensor
  * please increase it if you added a new sensor type!
  */
 
-#define SENSOR_TYPE_COUNT                           67
+#define SENSOR_TYPE_COUNT                           68
 
 /* The additional sensor open flags */
 
@@ -800,6 +806,7 @@ struct sensor_accel          /* Type: Accerometer */
   sensor_data_t y;           /* Axis Y in m/s^2 */
   sensor_data_t z;           /* Axis Z in m/s^2 */
   sensor_data_t temperature; /* Temperature in degrees celsius */
+  int32_t       status;      /* Status of calibration */
 };
 
 struct sensor_accel_uncal   /* Type: Accerometer Uncalibrated */
@@ -812,6 +819,7 @@ struct sensor_accel_uncal   /* Type: Accerometer Uncalibrated */
   sensor_data_t y_bias;      /* Axis Y bias in m/s^2 */
   sensor_data_t z_bias;      /* Axis Z bias in m/s^2 */
   sensor_data_t temperature; /* Temperature in degrees celsius */
+  int32_t       status;      /* Status of calibration */
 };
 
 struct sensor_mag            /* Type: Magnetic Field */
@@ -852,6 +860,7 @@ struct sensor_gyro           /* Type: Gyroscope */
   sensor_data_t y;           /* Axis Y in rad/s */
   sensor_data_t z;           /* Axis Z in rad/s */
   sensor_data_t temperature; /* Temperature in degrees celsius */
+  int32_t       status;      /* Status of calibration */
 };
 
 struct sensor_gyro_uncal     /* Type: Gyroscope Uncalibrated */
@@ -864,6 +873,7 @@ struct sensor_gyro_uncal     /* Type: Gyroscope Uncalibrated */
   sensor_data_t y_bias;      /* Axis Y bias in rad/s */
   sensor_data_t z_bias;      /* Axis Z bias in rad/s */
   sensor_data_t temperature; /* Temperature in degrees celsius */
+  int32_t       status;      /* Status of calibration */
 };
 
 struct sensor_light          /* Type: Light */
@@ -957,6 +967,7 @@ struct sensor_hrate          /* Type: Heart Rate */
 {
   uint64_t      timestamp;   /* Units is microseconds */
   sensor_data_t bpm;         /* is SI units BPM */
+  int32_t       status;      /* Status of calibration */
 };
 
 struct sensor_pose_6dof      /* Type: Pose 6dof */
@@ -989,6 +1000,7 @@ struct sensor_hbeat         /* Type: Heart Beat */
 {
   uint64_t      timestamp;  /* Units is microseconds */
   sensor_data_t beat;       /* Units is times/minutes */
+  int32_t       status;     /* Status of calibration */
 };
 
 struct sensor_force         /* Type: Force */
@@ -1155,6 +1167,22 @@ struct sensor_inclinometer   /* Type: Inclinometer */
   sensor_data_t y;           /* Y axis inclination in degrees */
   sensor_data_t z;           /* Z axis inclination in degrees */
   sensor_data_t temperature; /* Temperature in degrees celsius */
+};
+
+/* Used to indicate the accuracy of sensor data. The type is consistent
+ * with Android.
+ * https://cs.android.com/android/_/android/platform/hardware/libhardware/+/\
+ * 0e67aa0caee9500b61b9c1c8b6e5cab18301364c:include_all/hardware/\
+ * sensors-base.h
+ */
+
+enum sensor_accuracy_status
+{
+  SENSOR_TYPE_STATUS_NO_CONTACT        = -1,   /* -1 */
+  SENSOR_TYPE_STATUS_UNRELIABLE        = 0,
+  SENSOR_TYPE_STATUS_ACCURACY_LOW      = 1,
+  SENSOR_TYPE_STATUS_ACCURACY_MEDIUM   = 2,
+  SENSOR_TYPE_STATUS_ACCURACY_HIGH     = 3,
 };
 
 struct sensor_gnss          /* Type: GNSS */
@@ -1447,7 +1475,7 @@ struct sensor_state_s
   uint32_t nsubscribers;       /* The number of subscribers */
   uint32_t nadvertisers;       /* The number of advertisers */
   uint32_t generation;         /* The recent generation of circular buffer */
-  uint32_t nonwakeup;          /* The non wakeup state of sensor device */
+  uint32_t wakeup;             /* The wakeup state of sensor device */
   uint64_t priv;               /* The pointer to private data of userspace user */
 };
 
@@ -1458,7 +1486,7 @@ struct sensor_ustate_s
   uint32_t esize;              /* The element size of circular buffer */
   uint32_t latency;            /* The batch latency for user, in us */
   uint32_t interval;           /* The subscription interval for user, in us */
-  uint32_t nonwakeup;          /* The non wakeup state of sensor user */
+  uint32_t wakeup;             /* The wakeup state of sensor user */
   uint32_t generation;         /* The recent generation of circular buffer */
 };
 

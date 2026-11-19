@@ -25,8 +25,12 @@ The following list indicates peripherals supported in NuttX:
 ==========  =======  ===============================================
 Peripheral  Support  Notes
 ==========  =======  ===============================================
+Cache       Yes      L1 I- and D-cache.
 GPIO        Yes
 I2C         Yes      I2C1-4 through the common I2C v2 driver.
+LTDC        Yes      Common LTDC driver (v2 register layout), RGB565,
+                     RGB888 and ARGB8888 layers.  The layer bus masters
+                     are made Secure and privileged through the RIF.
 EXTI        Yes      GPIO interrupts through the common driver.
 ETH         Yes      ETH1 through the common Ethernet v2 driver, MII, RMII
                      or RGMII up to 1000 Mbps.
@@ -43,12 +47,9 @@ USART       Yes      USART1-3, UART4-5, USART6, UART7-9, USART10 and
                      LPUART1 through the common U(S)ART driver.
 
 ADC         No
-DCACHE      No
 DCMIPP      No
-ICACHE      No
 IWDG        No
 LPTIM       No
-LTDC        No
 MPU         No
 NPU         No
 SAI         No

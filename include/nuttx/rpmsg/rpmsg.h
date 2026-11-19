@@ -32,6 +32,8 @@
 #include <nuttx/atomic.h>
 #include <nuttx/compiler.h>
 
+#include <alloca.h>
+
 #ifdef CONFIG_RPMSG
 
 #include <nuttx/fs/ioctl.h>
@@ -43,17 +45,34 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-#define RPMSGIOC_PANIC              _RPMSGIOC(1)
-#define RPMSGIOC_DUMP               _RPMSGIOC(2)
-#define RPMSGIOC_PING               _RPMSGIOC(3)
-#define RPMSGIOC_TEST               _RPMSGIOC(4)
-#define RPMSGIOC_RUNNING            _RPMSGIOC(5)
-#define RPMSGIOC_ACQUIRE_WAKELOCK   _RPMSGIOC(6)
-#define RPMSGIOC_RELEASE_WAKELOCK   _RPMSGIOC(7)
+#define RPMSGIOC_PANIC                  _RPMSGIOC(1)
+#define RPMSGIOC_DUMP                   _RPMSGIOC(2)
+#define RPMSGIOC_PING                   _RPMSGIOC(3)
+#define RPMSGIOC_TEST                   _RPMSGIOC(4)
+#define RPMSGIOC_RUNNING                _RPMSGIOC(5)
+#define RPMSGIOC_ACQUIRE_WAKELOCK       _RPMSGIOC(6)
+#define RPMSGIOC_RELEASE_WAKELOCK       _RPMSGIOC(7)
 
-#define RPMSG_SIGNAL_RUNNING        TIOCM_CD
+/* Rpmsg IOCTL for the rpmsg ctrldev */
 
-#define rpmsg_wait(e, s)            rpmsg_tickwait(e, s, CLOCK_MAX)
+#define RPMSG_CREATE_EPT_IOCTL          _RPMSGIOC(8)
+#define RPMSG_CREATE_DEV_IOCTL          _RPMSGIOC(9)
+#define RPMSG_RELEASE_DEV_IOCTL         _RPMSGIOC(10)
+
+/* Rpmsg IOCTL for the rpmsg eptdev */
+
+#define RPMSG_DESTROY_EPT_IOCTL         _RPMSGIOC(11)
+#define RPMSG_GET_OUTGOING_FLOWCONTROL  _RPMSGIOC(12)
+#define RPMSG_SET_INCOMING_FLOWCONTROL  _RPMSGIOC(13)
+
+#define RPMSG_SIGNAL_RUNNING            TIOCM_CD
+
+#if CONFIG_RPMSG_POOL_COUNT <= 0
+#  define rpmsg_pool_alloc(size)        alloca(size)
+#  define rpmsg_pool_free(addr)
+#endif
+
+#define rpmsg_wait(e, s)                rpmsg_tickwait(e, s, CLOCK_MAX)
 
 /****************************************************************************
  * Public Types
@@ -67,6 +86,25 @@ struct rpmsg_ping_s
   int len;
   int cmd;
   int sleep; /* unit: ms */
+};
+
+/* Used for ioctl RPMSG_CREATE_EPT_IOCTL, RPMSG_CREATE_DEV_IOCTL and
+ * RPMSG_RELEASE_DEV_IOCTL
+ */
+
+struct rpmsg_endpoint_info
+{
+  /* Name of rpmsg service */
+
+  char name[RPMSG_NAME_SIZE];
+
+  /* Local address. To set to RPMSG_ADDR_ANY if not used. */
+
+  uint32_t src;
+
+  /* Destination address. To set to RPMSG_ADDR_ANY if not used. */
+
+  uint32_t dst;
 };
 
 struct rpmsg_timestamp_s
@@ -104,11 +142,20 @@ FAR const char *rpmsg_get_cpuname(FAR struct rpmsg_device *rdev);
 int rpmsg_get_signals(FAR struct rpmsg_device *rdev);
 int rpmsg_get_timestamp(FAR struct rpmsg_device *rdev, FAR const void *data,
                         FAR struct rpmsg_timestamp_s *ts);
+bool rpmsg_support_alloc_buf(FAR struct rpmsg_device *rdev);
+FAR void *rpmsg_alloc_buf(FAR struct rpmsg_device *rdev, size_t size,
+                          size_t align);
+void rpmsg_free_buf(FAR struct rpmsg_device *rdev, FAR void *addr);
 
 static inline_function bool rpmsg_is_running(FAR struct rpmsg_device *rdev)
 {
   return rpmsg_get_signals(rdev) & RPMSG_SIGNAL_RUNNING;
 }
+
+#if CONFIG_RPMSG_POOL_COUNT > 0
+FAR void *rpmsg_pool_alloc(size_t size);
+void rpmsg_pool_free(FAR void *addr);
+#endif
 
 int rpmsg_register_callback(FAR void *priv,
                             rpmsg_dev_cb_t device_created,

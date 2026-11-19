@@ -500,23 +500,23 @@ struct sensor_ops_s
                        FAR struct sensor_device_info_s *info);
 
   /**************************************************************************
-   * Name: set_nonwakeup
+   * Name: set_wakeup
    *
-   * With this method, the user can disable wakeup capacity for the sensor
-   * when data or fifo ready to avoid wakeup cpu, and save power.
+   * With this method, the user can enable wakeup capacity for the sensor
+   * when data or fifo ready to wakeup cpu.
    *
    * Input Parameters:
    *   lower      - The instance of lower half sensor driver.
    *   filep      - The pointer of file, represents each user using sensor.
-   *   nonwakeup  - true(nonwakeup) and false(wakeup)
+   *   wakeup     - true(wakeup) and false(non-wakeup)
    *
    * Returned Value:
    *   Zero (OK) on success; a negated errno value on failure.
    *
    **************************************************************************/
 
-  CODE int (*set_nonwakeup)(FAR struct sensor_lowerhalf_s *lower,
-                            FAR struct file *filep, bool nonwakeup);
+  CODE int (*set_wakeup)(FAR struct sensor_lowerhalf_s *lower,
+                         FAR struct file *filep, bool wakeup);
 
   /**************************************************************************
    * Name: control
@@ -550,7 +550,8 @@ typedef CODE ssize_t (*sensor_push_event_t)(FAR void *priv,
                                             FAR const void *data,
                                             size_t bytes);
 typedef CODE void (*sensor_notify_event_t)(FAR void *priv);
-
+typedef CODE void (*sensor_notify_interval_t)(FAR void *priv,
+                                              uint32_t interval);
 struct sensor_lowerhalf_s
 {
   /* The type of sensor device */
@@ -615,6 +616,19 @@ struct sensor_lowerhalf_s
 
       sensor_notify_event_t notify_event;
     };
+
+/****************************************************************************
+ * Name: notify_interval
+ *
+ * Description:
+ *   Lower half driver can notify upper half driver when interval changed.
+ *
+ * Input Parameters:
+ *   priv       - Upper half driver handle
+ *   interval   - The changed interval of the driver
+ ****************************************************************************/
+
+  sensor_notify_interval_t notify_interval;
 
 /****************************************************************************
  * Name: sensor_lock/sensor_unlock
@@ -740,9 +754,12 @@ int sensor_custom_register(FAR struct sensor_lowerhalf_s *dev,
  *           as the driver persists.
  *   devno - The user specifies which device of this type, from 0.
  *
+ * Returned Value:
+ *   OK if the driver was successfully unregister; A negated errno value is
+ *   returned on any failure.
  ****************************************************************************/
 
-void sensor_unregister(FAR struct sensor_lowerhalf_s *dev, int devno);
+int sensor_unregister(FAR struct sensor_lowerhalf_s *dev, int devno);
 
 /****************************************************************************
  * Name: sensor_custom_unregister
@@ -757,10 +774,13 @@ void sensor_unregister(FAR struct sensor_lowerhalf_s *dev, int devno);
  *           as the driver persists.
  *   path  - The user specifies path of device, ex: /dev/uorb/xxx
  *
+ * Returned Value:
+ *   OK if the driver was successfully unregister; A negated errno value is
+ *   returned on any failure.
  ****************************************************************************/
 
-void sensor_custom_unregister(FAR struct sensor_lowerhalf_s *dev,
-                              FAR const char *path);
+int sensor_custom_unregister(FAR struct sensor_lowerhalf_s *dev,
+                             FAR const char *path);
 
 /****************************************************************************
  * Name: usensor_initialize
@@ -809,10 +829,13 @@ FAR struct sensor_lowerhalf_s *sensor_rpmsg_register(
  * Input Parameters:
  *   lower - The instance of lower half sensor driver.
  *
+ * Returned Value:
+ *   The takeover rpmsg lowerhalf returned on success, NULL on failure.
  ****************************************************************************/
 
 #ifdef CONFIG_SENSORS_RPMSG
-void sensor_rpmsg_unregister(FAR struct sensor_lowerhalf_s *lower);
+FAR struct sensor_lowerhalf_s *
+sensor_rpmsg_unregister(FAR struct sensor_lowerhalf_s *lower);
 #endif
 
 /****************************************************************************

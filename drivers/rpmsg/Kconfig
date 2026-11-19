@@ -32,6 +32,19 @@ config RPMSG
 
 if RPMSG
 
+config RPMSG_CHAR
+	bool "rpmsg char support"
+	default n
+	---help---
+		User can use the /dev/rpmsg/<cpuname> to create the
+		endpoint and then use /dev/rpmsg-<name> to communicate with
+		remote processor.
+
+config RPMSG_CHAR_NPOLLWAITERS
+	int "rpmsg char number of the poll waiters"
+	default 2
+	depends on RPMSG_CHAR
+
 config RPMSG_WQUEUE_GLOBAL
 	bool "rpmsg global work queue"
 	default n
@@ -115,6 +128,22 @@ config RPMSG_PANIC_DUMP_LEVEL
 		  1 - Info: brief dump on panic
 		  2 - Verbose: full dump on panic
 		Manual rpmsg dump command is not affected.
+
+config RPMSG_POOL_COUNT
+	int "rpmsg pool buffer count"
+	default 0
+	---help---
+		This macro sets the count of rpmsg pool buffers, each pool
+		can be used to allocate rpmsg buffers. 0 means disable
+		rpmsg pool.
+
+config RPMSG_POOL_SIZE
+	int "rpmsg pool size"
+	depends on RPMSG_POOL_COUNT != 0
+	default 64
+	---help---
+		This macro sets the size of each rpmsg pool, which is used
+		to allocate rpmsg buffers. The default value is 64 bytes.
 
 endif # RPMSG
 

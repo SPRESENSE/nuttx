@@ -153,11 +153,11 @@ void arm64_chip_boot(void)
 }
 
 /****************************************************************************
- * Name: arm64_mpu_init_regiions
+ * Name: arm64_mpu_init_regions
  *
  ****************************************************************************/
 
-void arm64_mpu_init_regiions(void)
+void arm64_mpu_init_regions(void)
 {
 #ifdef CONFIG_BUILD_PROTECTED
   uintptr_t ubase;
@@ -183,8 +183,19 @@ void arm64_mpu_init_regiions(void)
 
   /* User heap base and size */
 
+#ifdef CONFIG_MM_TASK_HEAP
+  g_addrenv_heap_region[0] =
+#endif
+
   mpu_configure_region(ubase, usize,
                        NOT_EXEC | P_RW_U_RW_MSK | SHAREABLE_MSK,
+                       MPU_MAIR_INDEX_SRAM);
+
+  /* User CONFIG_NUTTX_USERSPACE */
+
+  mpu_configure_region(CONFIG_NUTTX_USERSPACE,
+                       USERSPACE->us_textstart - CONFIG_NUTTX_USERSPACE,
+                       NOT_EXEC | P_RO_U_RO_MSK | SHAREABLE_MSK,
                        MPU_MAIR_INDEX_SRAM);
 
   /* User text region */

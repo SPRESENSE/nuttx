@@ -27,7 +27,35 @@
  * Included Files
  ****************************************************************************/
 
+#include "hardware/tc3xx_cpu.h"
+
 #define UART_PIN_RX IfxAsclin0_RXA_P14_1_IN     /* UART receive port pin  */
 #define UART_PIN_TX IfxAsclin0_TX_P14_0_OUT     /* UART transmit port pin */
+
+/****************************************************************************
+ * Pre-processor Definitions
+ ****************************************************************************/
+
+/* Startup core synchronization: core ID bits to wait for and the timeout
+ * in STM ticks (0: no timeout)
+ */
+
+#define TRICORE_CORE_SYNC_MASK     0x5f
+#define TRICORE_CORE_SYNC_TIMEOUT  100000
+
+/* Other cores that tricore_start releases, CPU1 only as with the iLLD
+ * startup code, and their PC and boot halt registers
+ */
+
+#define TRICORE_START_CORES        1
+#define TRICORE_START_PC(n)        TC3XX_CPU_PC(n)
+#define TRICORE_START_HALT(n)      TC3XX_CPU_SYSCON(n)
+#define TRICORE_START_BHALT        TC3XX_SYSCON_BHALT
+
+/* Core index from CORE_ID; CPU5 has the core ID 6 on TC39x */
+
+#define tricore_core_id()          tricore_mfcr(TRICORE_CPU_CORE_ID)
+#define tricore_core_index()       (tricore_core_id() > 5 ? 5 : \
+                                    tricore_core_id())
 
 #endif /* __ARCH_TRICORE_SRC_TC3XX_CHIP_H */

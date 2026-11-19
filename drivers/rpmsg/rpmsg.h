@@ -32,6 +32,7 @@
 #include <nuttx/rpmsg/rpmsg.h>
 #include <nuttx/wqueue.h>
 
+#include "rpmsg_char.h"
 #include "rpmsg_ping.h"
 
 /****************************************************************************
@@ -73,6 +74,9 @@ struct rpmsg_s
 #ifdef CONFIG_RPMSG_WAKELOCK
   struct rpmsg_endpoint        wakelock;
 #endif
+#ifdef CONFIG_RPMSG_CHAR
+  struct rpmsg_char_s          chr;
+#endif
   atomic_t                     signals;
 #if CONFIG_RPMSG_PANIC_DUMP_LEVEL > RPMSG_PANIC_DUMP_DISABLE
   struct notifier_block        nbpanic;
@@ -95,6 +99,9 @@ struct rpmsg_ops_s
   CODE void (*dump)(FAR struct rpmsg_s *rpmsg, bool verbose);
   CODE int (*get_timestamp)(FAR struct rpmsg_s *rpmsg, FAR const void *data,
                             FAR struct rpmsg_timestamp_s *ts);
+  CODE FAR void *(*alloc_buf)(FAR struct rpmsg_s *rpmsg, size_t size,
+                              size_t align);
+  CODE void (*free_buf)(FAR struct rpmsg_s *rpmsg, FAR void *addr);
 };
 
 CODE typedef int (*rpmsg_foreach_t)(FAR struct rpmsg_s *rpmsg,

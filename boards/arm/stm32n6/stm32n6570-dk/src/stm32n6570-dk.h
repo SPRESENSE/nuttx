@@ -66,6 +66,49 @@
 #define GPIO_SPI5_CS   (GPIO_OUTPUT | GPIO_PUSHPULL | GPIO_SPEED_50MHZ | \
                         GPIO_OUTPUT_SET | GPIO_PORTA | GPIO_PIN3)
 
+/* LCD control: LCD_ON/OFF (PQ3) and backlight (PQ6) are active high,
+ * LCD_NRST (PE1, shared with the GT911 touch controller) is active low and
+ * starts asserted.
+ */
+
+#define GPIO_LCD_DISP  (GPIO_OUTPUT | GPIO_PUSHPULL | GPIO_SPEED_2MHZ | \
+                        GPIO_OUTPUT_CLEAR | GPIO_PORTQ | GPIO_PIN3)
+#define GPIO_LCD_BL    (GPIO_OUTPUT | GPIO_PUSHPULL | GPIO_SPEED_2MHZ | \
+                        GPIO_OUTPUT_CLEAR | GPIO_PORTQ | GPIO_PIN6)
+#define GPIO_LCD_NRST  (GPIO_OUTPUT | GPIO_PUSHPULL | GPIO_SPEED_2MHZ | \
+                        GPIO_OUTPUT_CLEAR | GPIO_PORTE | GPIO_PIN1)
+
+/* GT911 touch controller on I2C2 (0x5d): interrupt on PQ4, rising edge.
+ * Its reset is LCD_NRST (PE1).
+ */
+
+#define GPIO_TOUCH_INT (GPIO_INPUT | GPIO_PULLDOWN | GPIO_EXTI | \
+                        GPIO_PORTQ | GPIO_PIN4)
+#define TOUCH_I2C_BUS  2
+
+/* Camera connector (MB1854 module): IMX335 NRST on PC8 (active low) and
+ * module enable on PD2 (active high).  The module devices are on I2C1.
+ */
+
+#define GPIO_CAM_NRST  (GPIO_OUTPUT | GPIO_PUSHPULL | GPIO_SPEED_2MHZ | \
+                        GPIO_OUTPUT_CLEAR | GPIO_PORTC | GPIO_PIN8)
+#define GPIO_CAM_EN    (GPIO_OUTPUT | GPIO_PUSHPULL | GPIO_SPEED_2MHZ | \
+                        GPIO_OUTPUT_CLEAR | GPIO_PORTD | GPIO_PIN2)
+
+/* VL53L5CX time-of-flight sensor on the camera module, I2C1 (0x29):
+ * INT on PQ0 (open drain, active low, EXTI0 like the TAMP button) and LPn
+ * on PQ5 (low disables the I2C interface).
+ */
+
+#define GPIO_TOF_INT   (GPIO_INPUT | GPIO_PULLUP | GPIO_EXTI | \
+                        GPIO_PORTQ | GPIO_PIN0)
+#define GPIO_TOF_LPN   (GPIO_OUTPUT | GPIO_PUSHPULL | GPIO_SPEED_2MHZ | \
+                        GPIO_OUTPUT_CLEAR | GPIO_PORTQ | GPIO_PIN5)
+
+#define TOF_I2C_BUS    1
+#define TOF_I2C_ADDR   0x29
+#define TOF_DEVPATH    "/dev/video1"
+
 #ifndef __ASSEMBLY__
 
 /****************************************************************************
@@ -110,6 +153,30 @@ void stm32_spiinitialize(void);
 
 #ifdef CONFIG_SPI_DRIVER
 void stm32_spiregister(void);
+#endif
+
+/****************************************************************************
+ * Name: stm32_camera_power
+ *
+ * Description:
+ *   Power the camera module with the IMX335 held in reset.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_VIDEO_VL53L5CX
+void stm32_camera_power(void);
+#endif
+
+/****************************************************************************
+ * Name: stm32_tof_initialize
+ *
+ * Description:
+ *   Power the VL53L5CX and register it as a V4L2 depth camera.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_VIDEO_VL53L5CX
+int stm32_tof_initialize(void);
 #endif
 
 #endif /* __ASSEMBLY__ */

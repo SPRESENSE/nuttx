@@ -292,47 +292,6 @@ static void fdlist_install(FAR struct fdlist *list, int fd,
 }
 
 /****************************************************************************
- * Name: task_fssync
- ****************************************************************************/
-
-static void task_fssync(FAR struct tcb_s *tcb, FAR void *arg)
-{
-  FAR struct tcb_s *ctcb;
-  int pid = tcb->pid;
-  uint8_t rows;
-  int i;
-  int j;
-
-  if (tcb->group == NULL)
-    {
-      return;
-    }
-
-  rows = tcb->group->tg_fdlist.fl_rows;
-
-  for (i = 0; i < rows; i++)
-    {
-      for (j = 0; j < CONFIG_NFILE_DESCRIPTORS_PER_BLOCK; j++)
-        {
-          FAR struct file *filep;
-
-          ctcb = nxsched_get_tcb(pid);
-          if (ctcb == NULL || ctcb->group == NULL || ctcb != tcb)
-            {
-              return;
-            }
-
-          filep = fdlist_get_by_index(&ctcb->group->tg_fdlist, i, j, NULL);
-          if (filep != NULL)
-            {
-              file_fsync(filep);
-              file_put(filep);
-            }
-        }
-    }
-}
-
-/****************************************************************************
  * Public Functions
  ****************************************************************************/
 
@@ -641,14 +600,17 @@ int fdlist_dupfile(FAR struct fdlist *list, int oflags, int minfd,
   int i;
   int j;
 
-  DEBUGASSERT(filep);
+  if (list == NULL || filep == NULL || minfd < 0)
+    {
+      return -EINVAL;
+    }
 
 #ifdef CONFIG_FDCHECK
   minfd = fdcheck_restore(minfd);
 #endif
 
   limit = fdlist_limit(list);
-  if (minfd >= limit)
+  if (minfd < 0 || minfd >= limit)
     {
       return -EINVAL;
     }
@@ -1060,18 +1022,4 @@ int fdlist_close(FAR struct fdlist *list, int fd)
    */
 
   return file_put(filep);
-}
-
-/****************************************************************************
- * Name: sync
- *
- * Description:
- *   sync() causes all pending modifications to filesystem metadata and
- *   cached file data to be written to the underlying filesystems.
- *
- ****************************************************************************/
-
-void sync(void)
-{
-  nxsched_foreach(task_fssync, NULL);
 }

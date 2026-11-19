@@ -30,6 +30,7 @@
 #include <nuttx/list.h>
 #include <nuttx/clock.h>
 #include <nuttx/clock_notifier.h>
+#include <nuttx/debug.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/rpmsg/rpmsg.h>
 #include <nuttx/mutex.h>
@@ -257,6 +258,29 @@ static bool rpmsg_rtc_device_ns_match(FAR struct rpmsg_device *rdev,
                                       FAR void *priv, FAR const char *name,
                                       uint32_t dest)
 {
+  FAR struct rpmsg_rtc_lowerhalf_s *lower = priv;
+
+  /* Already bound to a remote, reject further announcements.
+   * This prevents duplicate binding in multi-channel scenarios.
+   */
+
+  if (lower->ept.rdev)
+    {
+      return false;
+    }
+
+  /* If a specific server CPU is configured, match both endpoint
+   * name and CPU name. Otherwise accept any CPU that announces
+   * the rpmsg-rtc service (first come, first served).
+   */
+
+  if (CONFIG_RTC_RPMSG_SERVER_CPUNAME[0] != '\0')
+    {
+      return !strcmp(name, RPMSG_RTC_EPT_NAME) &&
+             !strcmp(rpmsg_get_cpuname(rdev),
+                     CONFIG_RTC_RPMSG_SERVER_CPUNAME);
+    }
+
   return !strcmp(name, RPMSG_RTC_EPT_NAME);
 }
 
@@ -267,6 +291,8 @@ static void rpmsg_rtc_device_ns_bind(FAR struct rpmsg_device *rdev,
   FAR struct rpmsg_rtc_lowerhalf_s *lower = priv;
 
   lower->ept.priv = lower;
+
+  rpmsg_set_priority(&lower->ept, RPMSG_PRIO_RT);
   rpmsg_create_ept(&lower->ept, rdev, RPMSG_RTC_EPT_NAME,
                    RPMSG_ADDR_ANY, dest,
                    rpmsg_rtc_ept_cb, rpmsg_destroy_ept);
@@ -294,13 +320,15 @@ static int rpmsg_rtc_ept_cb(FAR struct rpmsg_endpoint *ept, FAR void *data,
 
   switch (header->command)
     {
-    case RPMSG_RTC_ALARM_FIRE:
-      rpmsg_rtc_alarm_fire_handler(ept, data, len, src, priv);
-      break;
+      case RPMSG_RTC_ALARM_FIRE:
+        rpmsg_rtc_alarm_fire_handler(ept, data, len, src, priv);
+        break;
 
-    case RPMSG_RTC_SYNC:
+      case RPMSG_RTC_SYNC:
         {
           struct rpmsg_rtc_set_s *msg = data;
+
+          _info("rpmsg rtc client sync time:%"PRIi64"\n", msg->sec);
 
 #ifdef CONFIG_RTC_RPMSG_SYNC_BASETIME
           struct timespec ts;
@@ -322,15 +350,15 @@ static int rpmsg_rtc_ept_cb(FAR struct rpmsg_endpoint *ept, FAR void *data,
           clock_synchronize(&tp);
 #endif
         }
-      break;
+        break;
 
-    default:
-      if (cookie)
-        {
-          memcpy(cookie->msg, data, len);
-          nxsem_post(&cookie->sem);
-        }
-      break;
+      default:
+        if (cookie)
+          {
+            memcpy(cookie->msg, data, len);
+            nxsem_post(&cookie->sem);
+          }
+        break;
     }
 
   return 0;
@@ -378,6 +406,7 @@ static int rpmsg_rtc_rdtime(FAR struct rtc_lowerhalf_s *lower,
   if (ret >= 0)
     {
       time_t time = msg.sec;
+
       gmtime_r(&time, (FAR struct tm *)rtctime);
       rtctime->tm_nsec = msg.nsec;
     }
@@ -654,68 +683,71 @@ static int rpmsg_rtc_server_ept_cb(FAR struct rpmsg_endpoint *ept,
 
   switch (header->command)
     {
-    case RPMSG_RTC_GET:
-      {
-        FAR struct rpmsg_rtc_get_s *msg = data;
-        struct rtc_time rtctime =
-          {
-            0
-          };
+      case RPMSG_RTC_GET:
+        {
+          FAR struct rpmsg_rtc_get_s *msg = data;
+          struct rtc_time rtctime =
+            {
+              0
+            };
 
-        header->result = rpmsg_rtc_server_rdtime(priv, &rtctime);
+          header->result = rpmsg_rtc_server_rdtime(priv, &rtctime);
 
-        msg->sec = timegm((FAR struct tm *)&rtctime);
-        msg->nsec = rtctime.tm_nsec;
-        return rpmsg_send(ept, msg, sizeof(*msg));
-      }
+          msg->sec = timegm((FAR struct tm *)&rtctime);
+          msg->nsec = rtctime.tm_nsec;
+          return rpmsg_send(ept, msg, sizeof(*msg));
+        }
 
-    case RPMSG_RTC_SET:
-      {
-        FAR struct rpmsg_rtc_set_s *msg = data;
-        struct rtc_time rtctime =
-          {
-            0
-          };
+      case RPMSG_RTC_SET:
+        {
+          FAR struct rpmsg_rtc_set_s *msg = data;
+          struct rtc_time rtctime =
+            {
+              0
+            };
 
-        time_t time = msg->sec;
+          time_t time = msg->sec;
 
-        gmtime_r(&time, (FAR struct tm *)&rtctime);
-        rtctime.tm_nsec = msg->nsec;
+          gmtime_r(&time, (FAR struct tm *)&rtctime);
+          rtctime.tm_nsec = msg->nsec;
 
-        header->result = rpmsg_rtc_server_settime(priv, &rtctime);
-        return rpmsg_send(ept, msg, sizeof(*msg));
-      }
+          _info("rpmsg rtc server set time:%"PRIi64"\n", msg->sec);
+
+          header->result = rpmsg_rtc_server_settime(priv, &rtctime);
+          return rpmsg_send(ept, msg, sizeof(*msg));
+        }
 
 #ifdef CONFIG_RTC_ALARM
-    case RPMSG_RTC_ALARM_SET:
-      {
-        FAR struct rpmsg_rtc_client_s *client = container_of(ept,
+      case RPMSG_RTC_ALARM_SET:
+        {
+          FAR struct rpmsg_rtc_client_s *client = container_of(ept,
                                             struct rpmsg_rtc_client_s, ept);
-        FAR struct rpmsg_rtc_alarm_set_s *msg = data;
-        time_t time = msg->sec;
-        struct lower_setalarm_s alarminfo;
+          FAR struct rpmsg_rtc_alarm_set_s *msg = data;
+          time_t time = msg->sec;
+          struct lower_setalarm_s alarminfo;
 
-        alarminfo.id = msg->id;
-        alarminfo.cb = rpmsg_rtc_server_alarm_cb;
-        alarminfo.priv = client;
+          alarminfo.id = msg->id;
+          alarminfo.cb = rpmsg_rtc_server_alarm_cb;
+          alarminfo.priv = client;
 
-        gmtime_r(&time, (FAR struct tm *)&alarminfo.time);
-        alarminfo.time.tm_nsec = msg->nsec;
-        header->result = rpmsg_rtc_server_setalarm(priv, &alarminfo);
-        return rpmsg_send(ept, msg, sizeof(*msg));
-      }
+          gmtime_r(&time, (FAR struct tm *)&alarminfo.time);
+          alarminfo.time.tm_nsec = msg->nsec;
+          header->result = rpmsg_rtc_server_setalarm(priv, &alarminfo);
+          return rpmsg_send(ept, msg, sizeof(*msg));
+        }
 
-    case RPMSG_RTC_ALARM_CANCEL:
-      {
-        FAR struct rpmsg_rtc_alarm_cancel_s *msg = data;
-        header->result = rpmsg_rtc_server_cancelalarm(priv, msg->id);
-        return rpmsg_send(ept, msg, sizeof(*msg));
-      }
+      case RPMSG_RTC_ALARM_CANCEL:
+        {
+          FAR struct rpmsg_rtc_alarm_cancel_s *msg = data;
+
+          header->result = rpmsg_rtc_server_cancelalarm(priv, msg->id);
+          return rpmsg_send(ept, msg, sizeof(*msg));
+        }
 #endif
 
-    default:
-      header->result = -ENOSYS;
-      return rpmsg_send(ept, header, sizeof(*header));
+      default:
+        header->result = -ENOSYS;
+        return rpmsg_send(ept, header, sizeof(*header));
     }
 }
 
@@ -743,11 +775,24 @@ static void rpmsg_rtc_server_sync(FAR struct rpmsg_rtc_server_s *server,
   if (server->lower->ops->rdtime(server->lower, &rtctime) >= 0)
     {
       struct rpmsg_rtc_set_s msg;
+      struct timespec tp;
 
       msg.sec  = timegm((FAR struct tm *)&rtctime);
       msg.nsec = rtctime.tm_nsec;
+
+      /* Synchronize the local g_basetime with the physical
+       * RTC time to ensure that the local time is consistent with
+       * the RTC.
+       */
+
+      tp.tv_sec  = msg.sec;
+      tp.tv_nsec = msg.nsec;
+      clock_synchronize(&tp);
+
       msg.base_sec = g_basetime.tv_sec;
       msg.base_nsec = g_basetime.tv_nsec;
+
+      _info("rpmsg rtc server sync time:%"PRIi64"\n", msg.sec);
 
       msg.header.command = RPMSG_RTC_SYNC;
       rpmsg_send(&client->ept, &msg, sizeof(msg));

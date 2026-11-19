@@ -44,6 +44,28 @@ set(ASMEXT
     asm
     CACHE INTERNAL "")
 
+# The .asm sources go through the C preprocessor first, as the .S sources of
+# GCC, so that they can use the configuration and the headers.  ctc -Ep leaves
+# no line markers, which the assembler does not take.
+
+if(CMAKE_NINJA_FORCE_RESPONSE_FILE)
+  # With the response files that the top-level CMakeLists.txt forces for Ninja,
+  # the defines and includes are only in the response file, which also has the
+  # control program options that ctc does not take, so ctc only gets the -D, -U
+  # and -I options of it.
+
+  set(CMAKE_ASM_COMPILE_OBJECT
+      "grep -o -E -e \"-[DUI][^ ]+\" ${CMAKE_BINARY_DIR}/$RSP_FILE > <OBJECT>.opt"
+      "${TOOLCHAIN_PREFIX}ctc -f <OBJECT>.opt -Ep <SOURCE> -o <OBJECT>.src"
+      "<CMAKE_ASM_COMPILER> <DEFINES> <INCLUDES> <FLAGS> -c <OBJECT>.src -o <OBJECT>"
+  )
+else()
+  set(CMAKE_ASM_COMPILE_OBJECT
+      "${TOOLCHAIN_PREFIX}ctc -Ep <DEFINES> <INCLUDES> <SOURCE> -o <OBJECT>.src"
+      "<CMAKE_ASM_COMPILER> <DEFINES> <INCLUDES> <FLAGS> -c <OBJECT>.src -o <OBJECT>"
+  )
+endif()
+
 if(CONFIG_OUTPUT_STRIP_PATHS)
   # TASKING cctc has no -fmacro-prefix-map. Convert absolute source paths to
   # relative paths by cd-ing to code root before compilation, so __FILE__ embeds
@@ -105,7 +127,6 @@ set(CMAKE_CXX_LINK_EXECUTABLE
 
 # Architecture flags
 
-add_compile_options(--lsl-core=vtc)
 add_link_options(-v)
 if(CONFIG_ARCH_CHIP_TC3XX)
   add_compile_options($<$<COMPILE_LANGUAGE:C>:--iso=11>)
@@ -202,7 +223,7 @@ add_compile_options(--fp-model=2)
 add_link_options(-lc_fpu)
 add_link_options(-lfp_fpu)
 
-add_link_options(--core=mpe:vtc)
+add_link_options(--core=mpe:tc0)
 add_link_options(--hex-format=s -mcrfiklsmnoduq)
 add_link_options(-lrt)
 

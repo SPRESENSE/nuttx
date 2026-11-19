@@ -273,6 +273,7 @@ static void arp_get_arpreq(FAR struct arpreq *output,
 static void arp_unreach_work(FAR void *param)
 {
   FAR struct arp_entry_s *tabptr = (FAR struct arp_entry_s *)param;
+
   iob_free_queue(&tabptr->at_queue);
 }
 #endif
@@ -316,6 +317,8 @@ int arp_update(FAR struct net_driver_s *dev, in_addr_t ipaddr,
 #endif
   int i;
 
+  DEBUGASSERT(dev != NULL);
+
   /* Walk through the ARP mapping table and try to find an entry to
    * update. If none is found, the IP -> MAC address mapping is
    * inserted in the ARP table.
@@ -349,6 +352,7 @@ int arp_update(FAR struct net_driver_s *dev, in_addr_t ipaddr,
 
   if ((tabptr->at_flags & ATF_PERM) != 0 && (flags & ATF_PERM) == 0)
     {
+      nwarn("WARNING: Cannot overwrite permanent ARP entry\n");
       return -ENOSPC;
     }
 
@@ -502,6 +506,7 @@ int arp_find(in_addr_t ipaddr, FAR uint8_t *ethaddr,
                  sizeof(tabptr->at_ethaddr)) == 0)
         {
           clock_t elapsed;
+
           elapsed = clock_systime_ticks() - tabptr->at_time;
           if (elapsed <= ARP_INPROGRESS_TICK)
             {
@@ -588,9 +593,12 @@ int arp_delete(in_addr_t ipaddr, FAR struct net_driver_s *dev)
       /* Yes.. Set the IP address to zero to "delete" it */
 
       tabptr->at_ipaddr = 0;
+      ninfo("ARP entry deleted for IP %08lx\n", (unsigned long)ipaddr);
       return OK;
     }
 
+  nwarn("WARNING: ARP entry not found for deletion, IP %08lx\n",
+        (unsigned long)ipaddr);
   return -ENOENT;
 }
 
@@ -602,13 +610,16 @@ int arp_delete(in_addr_t ipaddr, FAR struct net_driver_s *dev)
  *
  * Input Parameters:
  *   dev  - The device driver structure
+ *   skip_perm - When true, preserve permanent (static, ATF_PERM) entries
+ *               and only flush dynamic ones (carrier-loss semantics).  When
+ *               false, flush every entry on the device.
  *
  * Assumptions
  *   The network is locked to assure exclusive access to the ARP table.
  *
  ****************************************************************************/
 
-void arp_cleanup(FAR struct net_driver_s *dev)
+void arp_cleanup(FAR struct net_driver_s *dev, bool skip_perm)
 {
   int i;
 
@@ -616,12 +627,22 @@ void arp_cleanup(FAR struct net_driver_s *dev)
     {
       if (dev == g_arptable[i].at_dev)
         {
+          /* On a carrier-loss cleanup (skip_perm == true) preserve static
+           * (permanent) entries.  Only an administrative down (skip_perm
+           * == false) flushes them too.
+           */
+
+          if (skip_perm && (g_arptable[i].at_flags & ATF_PERM) != 0)
+            {
+              continue;
+            }
+
 #ifdef CONFIG_NET_ARP_SEND_QUEUE
           work_cancel_sync(LPWORK, &g_arptable[i].at_work);
           iob_free_queue(&g_arptable[i].at_queue);
 #endif
 
-          memset(&g_arptable[i], 0, sizeof(g_arptable[i]));
+          memset(&g_arptable[i], 0, sizeof(struct arp_entry_s));
         }
     }
 }
@@ -723,6 +744,7 @@ int arp_queue_iob(FAR struct net_driver_s *dev, in_addr_t ipaddr,
       return -ENOMEM;
     }
 
+  nwarn("WARNING: No in-progress ARP entry found for IOB queue\n");
   return -ENOENT;
 }
 #endif

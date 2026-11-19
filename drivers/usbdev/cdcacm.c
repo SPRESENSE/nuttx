@@ -40,6 +40,7 @@
 #include <nuttx/debug.h>
 #include <nuttx/irq.h>
 #include <nuttx/kmalloc.h>
+#include <nuttx/mutex.h>
 #include <nuttx/queue.h>
 #include <nuttx/wdog.h>
 #include <nuttx/arch.h>
@@ -431,7 +432,7 @@ static int cdcacm_sndpacket(FAR struct cdcacm_dev_s *priv)
 #ifdef CONFIG_CDCACM_DISABLE_TXBUF
   FAR struct usbdev_ep_s *ep = priv->epbulkin;
   FAR struct uart_dev_s *dev = &priv->serdev;
-  FAR struct cdcacm_wrreq_s *wrcontainer;
+  FAR struct cdcacm_wrreq_s *wrcontainer = NULL;
   FAR struct usbdev_req_s *req;
   int ret;
 #endif
@@ -480,16 +481,45 @@ static int cdcacm_sndpacket(FAR struct cdcacm_dev_s *priv)
     }
 
   flags = spin_lock_irqsave_nopreempt(&priv->lock);
-  priv->wrcontainer = NULL;
-  if (!sq_empty(&priv->txfree))
+
+  /* Check if wrcontainer has been modified by an interrupt-context
+   * call to cdcacm_wrcomplete -> cdcacm_sndpacket while we were
+   * outside the lock.  The local 'wrcontainer' holds a snapshot:
+   *   - If we entered the submit branch above, it equals the old
+   *     priv->wrcontainer that was just submitted.
+   *   - If we skipped submit (priv->wrcontainer was NULL), it
+   *     remains NULL (its initialized value).
+   *
+   * If priv->wrcontainer no longer matches our snapshot, an
+   * interrupt has already taken over (allocated a new container),
+   * so we must skip to avoid overwriting that assignment.
+   */
+
+  if (priv->wrcontainer == wrcontainer)
     {
-      priv->wrcontainer = (FAR struct cdcacm_wrreq_s *)
-                          sq_remfirst(&priv->txfree);
-      dev->xmit.buffer  = (FAR char *)priv->wrcontainer->req->buf;
-      priv->nwrq--;
-      dev->xmit.head = 0;
-      dev->xmit.tail = 0;
-      uart_datasent(dev);
+      priv->wrcontainer = NULL;
+      if (!sq_empty(&priv->txfree))
+        {
+          priv->wrcontainer = (FAR struct cdcacm_wrreq_s *)
+                              sq_remfirst(&priv->txfree);
+          dev->xmit.buffer  = (FAR char *)priv->wrcontainer->req->buf;
+          priv->nwrq--;
+          dev->xmit.head = 0;
+          dev->xmit.tail = 0;
+          uart_datasent(dev);
+        }
+      else
+        {
+          /* No free write requests available.  Set xmit.buffer to
+           * NULL so that the serial layer (uart_putxmitchar) treats
+           * the buffer as full and blocks or returns -EAGAIN,
+           * instead of writing into the already-submitted req->buf.
+           */
+
+          dev->xmit.buffer = NULL;
+          dev->xmit.head   = 0;
+          dev->xmit.tail   = 0;
+        }
     }
 
   spin_unlock_irqrestore_nopreempt(&priv->lock, flags);
@@ -2984,17 +3014,17 @@ static bool cdcuart_txempty(FAR struct uart_dev_s *dev)
       return true;
     }
 
+  priv->ispolling = true;
   spin_unlock_irqrestore(&priv->lock, flags);
 
-  priv->ispolling = true;
   EP_POLL(ep);
+
+  flags = spin_lock_irqsave(&priv->lock);
   priv->ispolling = false;
 
   /* When all of the allocated write requests have been returned to the
    * txfree, then there is no longer any TX data in flight.
    */
-
-  flags = spin_lock_irqsave(&priv->lock);
 
 #ifdef CONFIG_CDCACM_DISABLE_TXBUF
   /* dev->xmit.buffer always take one req, so just compare
@@ -3301,6 +3331,12 @@ int cdcacm_classobject(int minor, FAR struct usbdev_devinfo_s *devinfo,
   char devname[CDCACM_DEVNAME_SIZE];
   int ret;
 
+  ret = nxmutex_lock(&g_init_lock);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
   /* Allocate the structures needed */
 
   alloc = (FAR struct cdcacm_alloc_s *)
@@ -3309,6 +3345,7 @@ int cdcacm_classobject(int minor, FAR struct usbdev_devinfo_s *devinfo,
   if (!alloc)
     {
       usbtrace(TRACE_CLSERROR(USBSER_TRACEERR_ALLOCDEVSTRUCT), 0);
+      nxmutex_unlock(&g_init_lock);
       return -ENOMEM;
     }
 
@@ -3413,10 +3450,12 @@ int cdcacm_classobject(int minor, FAR struct usbdev_devinfo_s *devinfo,
     }
 #endif
 
+  nxmutex_unlock(&g_init_lock);
   return OK;
 
 errout_with_class:
   kmm_free(alloc);
+  nxmutex_unlock(&g_init_lock);
   return ret;
 }
 
@@ -3472,12 +3511,6 @@ int cdcacm_initialize(int minor, FAR void **handle)
   devinfo.epno[CDCACM_EP_BULKIN_IDX]  = CONFIG_CDCACM_EPBULKIN;
   devinfo.epno[CDCACM_EP_BULKOUT_IDX] = CONFIG_CDCACM_EPBULKOUT;
 
-  ret = nxmutex_lock(&g_init_lock);
-  if (ret < 0)
-    {
-      return ret;
-    }
-
   /* Get an instance of the serial driver class object */
 
   ret = cdcacm_classobject(minor, &devinfo, &drvr);
@@ -3493,8 +3526,6 @@ int cdcacm_initialize(int minor, FAR void **handle)
                    (uint16_t)-ret);
         }
     }
-
-  nxmutex_unlock(&g_init_lock);
 
   /* Return the driver instance (if any) if the caller has requested it
    * by provided a pointer to the location to return it.

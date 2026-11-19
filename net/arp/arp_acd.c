@@ -82,6 +82,7 @@ static void arp_acd_arrange_announce(FAR struct net_driver_s *dev)
 
   int ret = work_queue(LPWORK, &dev->d_acd.work, arp_acd_try_announce,
                        (FAR void *)dev, DSEC2TICK(dev->d_acd.ttw));
+
   if (ret != OK)
     {
       nerr("ERROR ret %d \n", ret);
@@ -135,15 +136,13 @@ static void arp_acd_try_announce(FAR void *net_dev)
 
   if (dev == NULL || dev->d_acd.state != ARP_ACD_STATE_ANNOUNCING)
     {
+      nwarn("WARNING: ACD announce skipped, dev=%p\n", dev);
       return;
     }
 
-  /* arp_acd_announce */
-
-  arp_send_async(dev->d_ipaddr, arp_acd_send_finish);
   dev->d_acd.sendnum++;
 
-  if (dev->d_acd.sendnum >= ANNOUNCE_NUM)
+  if (dev->d_acd.sendnum > ANNOUNCE_NUM)
     {
       dev->d_acd.sendnum = 0;
       dev->d_acd.ttw = 0;
@@ -152,6 +151,10 @@ static void arp_acd_try_announce(FAR void *net_dev)
   else
     {
       dev->d_acd.ttw = ANNOUNCE_INTERVAL * ARP_ACD_TICKS_PER_SECOND;
+
+      /* arp_acd_announce */
+
+      arp_send_async(dev->d_ipaddr, arp_acd_send_finish);
     }
 }
 

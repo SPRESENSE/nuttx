@@ -33,7 +33,7 @@
 #include <nuttx/irq.h>
 #include <nuttx/arch.h>
 #include <arch/irq.h>
-#include <arch/armv7-m/nvicpri.h>
+#include <arch/arm_m/nvicpri.h>
 
 #include "nvic.h"
 #include "ram_vectors.h"
@@ -222,23 +222,23 @@ static int kinetis_irqinfo(int irq, uintptr_t *regaddr, uint32_t *bit,
     {
       if (irq < (KINETIS_IRQ_FIRST + 32))
         {
-           *regaddr = (NVIC_IRQ0_31_ENABLE + offset);
-           *bit     = 1 << (irq - KINETIS_IRQ_FIRST);
+          *regaddr = (NVIC_IRQ0_31_ENABLE + offset);
+          *bit     = 1 << (irq - KINETIS_IRQ_FIRST);
         }
       else if (irq < (KINETIS_IRQ_FIRST + 64))
         {
-           *regaddr = (NVIC_IRQ32_63_ENABLE + offset);
-           *bit     = 1 << (irq - KINETIS_IRQ_FIRST - 32);
+          *regaddr = (NVIC_IRQ32_63_ENABLE + offset);
+          *bit     = 1 << (irq - KINETIS_IRQ_FIRST - 32);
         }
       else if (irq < (KINETIS_IRQ_FIRST + 96))
         {
-           *regaddr = (NVIC_IRQ64_95_ENABLE + offset);
-           *bit     = 1 << (irq - KINETIS_IRQ_FIRST - 64);
+          *regaddr = (NVIC_IRQ64_95_ENABLE + offset);
+          *bit     = 1 << (irq - KINETIS_IRQ_FIRST - 64);
         }
       else if (irq < NR_IRQS)
         {
-           *regaddr = (NVIC_IRQ96_127_ENABLE + offset);
-           *bit     = 1 << (irq - KINETIS_IRQ_FIRST - 96);
+          *regaddr = (NVIC_IRQ96_127_ENABLE + offset);
+          *bit     = 1 << (irq - KINETIS_IRQ_FIRST - 96);
         }
       else
         {

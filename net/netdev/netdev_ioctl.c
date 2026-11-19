@@ -2204,6 +2204,14 @@ int netdev_ifdown(FAR struct net_driver_s *dev)
 
               devif_dev_event(dev, NETDEV_DOWN);
 
+              /* Administrative down: flush the entire ARP table for this
+               * device, including permanent (static) entries.  This differs
+               * from the carrier-loss path (netdev_carrier_off), which keeps
+               * static entries.
+               */
+
+              arp_cleanup(dev, false);
+
 #ifdef CONFIG_NETDOWN_NOTIFIER
               /* Provide signal notifications to threads that want to be
                * notified of the network down state via signal.

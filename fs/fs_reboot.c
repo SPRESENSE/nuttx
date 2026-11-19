@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/arm/arm_tcbinfo.c
+ * fs/fs_reboot.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -26,54 +26,63 @@
 
 #include <nuttx/config.h>
 
-#include <nuttx/sched.h>
-#include <arch/irq.h>
-#include <sys/param.h>
+#include <unistd.h>
+
+#include <nuttx/irq.h>
+#include <nuttx/reboot_notifier.h>
+
+#include "fs_reboot.h"
+
+/****************************************************************************
+ * Private Functions
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: fs_reboot_handler
+ *
+ * Description:
+ *   Flush the filesystems before power-off or restart.
+ *
+ ****************************************************************************/
+
+static int fs_reboot_handler(FAR struct notifier_block *nb,
+                             unsigned long action, FAR void *data)
+{
+  /* sync() takes filesystem locks, which an interrupt handler cannot wait
+   * for.
+   */
+
+  if ((action == SYS_POWER_OFF || action == SYS_RESTART) &&
+      !up_interrupt_context())
+    {
+      sync();
+    }
+
+  return 0;
+}
 
 /****************************************************************************
  * Private Data
  ****************************************************************************/
 
-static const uint16_t g_reg_offs[] =
+static struct notifier_block g_fs_reboot_nb =
 {
-  TCB_REG_OFF(REG_R0),
-  TCB_REG_OFF(REG_R1),
-  TCB_REG_OFF(REG_R2),
-  TCB_REG_OFF(REG_R3),
-  TCB_REG_OFF(REG_R4),
-  TCB_REG_OFF(REG_R5),
-  TCB_REG_OFF(REG_R6),
-  TCB_REG_OFF(REG_R7),
-  TCB_REG_OFF(REG_R8),
-  TCB_REG_OFF(REG_R9),
-  TCB_REG_OFF(REG_R10),
-  TCB_REG_OFF(REG_R11),
-  TCB_REG_OFF(REG_R12),
-  TCB_REG_OFF(REG_R13),
-  TCB_REG_OFF(REG_R14),
-  TCB_REG_OFF(REG_R15),
-  TCB_REG_OFF(REG_CPSR),
-};
-
-/****************************************************************************
- * Public Data
- ****************************************************************************/
-
-const struct tcbinfo_s g_tcbinfo used_data =
-{
-  .pid_off        = TCB_PID_OFF,
-  .state_off      = TCB_STATE_OFF,
-  .pri_off        = TCB_PRI_OFF,
-  .name_off       = TCB_NAME_OFF,
-  .stack_off      = TCB_STACK_OFF,
-  .stack_size_off = TCB_STACK_SIZE_OFF,
-  .regs_off       = TCB_REGS_OFF,
-  .regs_num       = nitems(g_reg_offs),
-  {
-    .p = g_reg_offs,
-  },
+  fs_reboot_handler
 };
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
+
+/****************************************************************************
+ * Name: fs_reboot_initialize
+ *
+ * Description:
+ *   Register the filesystem reboot notifier.
+ *
+ ****************************************************************************/
+
+void fs_reboot_initialize(void)
+{
+  register_reboot_notifier(&g_fs_reboot_nb);
+}

@@ -29,6 +29,8 @@
 
 #include <nuttx/config.h>
 
+#include <stdbool.h>
+
 #ifndef CONFIG_DISABLE_MOUNTPOINT
 
 /****************************************************************************
@@ -36,13 +38,13 @@
  ****************************************************************************/
 
 struct statfs; /* Forward reference */
+struct inode;  /* Forward reference */
 
 /* Callback used by foreach_mountpoints to traverse all mountpoints in the
  * pseudo-file system.
  */
 
 typedef int (*foreach_mountpoint_t)(FAR const char *mountpoint,
-                                    FAR struct statfs *statbuf,
                                     FAR void *arg);
 
 /****************************************************************************
@@ -67,9 +69,30 @@ typedef int (*foreach_mountpoint_t)(FAR const char *mountpoint,
  *   an indeterminant amount of stack space.  This will not usually be a
  *   real work issue.
  *
+ *   'readonly' selects the lock held across the traversal: true takes the
+ *   inode read lock (read-only visitors such as the mount command); false
+ *   takes the write lock so the callback may unmount the mountpoint it is
+ *   handed (used by the reboot path, umount_all()).
+ *
  ****************************************************************************/
 
-int foreach_mountpoint(foreach_mountpoint_t handler, FAR void *arg);
+int foreach_mountpoint(foreach_mountpoint_t handler, FAR void *arg,
+                       bool readonly);
+
+/****************************************************************************
+ * Name: umount_all
+ *
+ * Description:
+ *   Flush (syncfs) and force-unmount every mountpoint.  Intended for the
+ *   reboot/poweroff path so that every filesystem's unbind() logic runs
+ *   (e.g. metadata a filesystem only writes at unmount), which a bare
+ *   sync() does not reach.  Drives foreach_mountpoint() with readonly=false
+ *   so the callback can unmount each mountpoint in place during a single
+ *   traversal.
+ *
+ ****************************************************************************/
+
+void umount_all(void);
 
 /****************************************************************************
  * Name: fs_gettype

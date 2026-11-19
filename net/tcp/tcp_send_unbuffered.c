@@ -290,7 +290,13 @@ static uint32_t tcpsend_eventhandler(FAR struct net_driver_s *dev,
 
       ret = devif_send(dev, &pstate->snd_buffer[pstate->snd_acked],
                        sndlen, tcpip_hdrsize(conn));
-      if (ret <= 0)
+      if (ret == -ENOMEM)
+        {
+          /* Out of IOBs: retry on the next timeout */
+
+          return flags;
+        }
+      else if (ret <= 0)
         {
           pstate->snd_sent = ret;
           goto end_wait;
@@ -377,7 +383,13 @@ static uint32_t tcpsend_eventhandler(FAR struct net_driver_s *dev,
 
           ret = devif_send(dev, &pstate->snd_buffer[pstate->snd_sent],
                            sndlen, tcpip_hdrsize(conn));
-          if (ret <= 0)
+          if (ret == -ENOMEM)
+            {
+              /* Out of IOBs: retry on the next poll */
+
+              return flags;
+            }
+          else if (ret <= 0)
             {
               pstate->snd_sent = ret;
               goto end_wait;
@@ -509,7 +521,7 @@ ssize_t psock_tcp_send(FAR struct socket *psock,
   if (!_SS_ISCONNECTED(conn->sconn.s_flags))
     {
       nerr("ERROR: Not connected\n");
-      ret = TCP_NOTCONN_ERROR(conn);
+      ret = tcp_reset_report(conn, TCP_NOTCONN_ERROR(conn));
       goto errout;
     }
 
@@ -566,8 +578,8 @@ ssize_t psock_tcp_send(FAR struct socket *psock,
   if (!_SS_ISCONNECTED(conn->sconn.s_flags))
     {
       nerr("ERROR: No longer connected\n");
+      ret = tcp_reset_report(conn, TCP_NOTCONN_ERROR(conn));
       conn_dev_unlock(&conn->sconn, conn->dev);
-      ret = TCP_NOTCONN_ERROR(conn);
       goto errout;
     }
 
@@ -655,7 +667,7 @@ ssize_t psock_tcp_send(FAR struct socket *psock,
 
   if (state.snd_sent < 0)
     {
-      ret = state.snd_sent;
+      ret = tcp_reset_report(conn, state.snd_sent);
       goto errout;
     }
 

@@ -38,9 +38,7 @@
 #endif
 
 #include <nuttx/irq.h>
-#include <nuttx/rpmsg/rpmsg.h>
 #include <nuttx/syslog/syslog_rpmsg.h>
-#include <nuttx/wqueue.h>
 
 #include "syslog_rpmsg.h"
 
@@ -54,28 +52,10 @@
 #  define SYSLOG_RPMSG_WORK_DELAY MSEC2TICK(100)
 #endif
 
-#define SYSLOG_RPMSG_COUNT(p)       ((p)->head - (p)->tail)
+#define SYSLOG_RPMSG_COUNT(p)       ((p)->head >= (p)->tail ? \
+                                     (p)->head - (p)->tail : \
+                                     (p)->head + (p)->size - (p)->tail)
 #define SYSLOG_RPMSG_SPACE(p)       ((p)->size - 1 - SYSLOG_RPMSG_COUNT(p))
-#define SYSLOG_RPMSG_HEADOFF(p)     ((p)->head & ((p)->size -1))
-#define SYSLOG_RPMSG_TAILOFF(p)     ((p)->tail & ((p)->size -1))
-#define SYSLOG_RPMSG_FLUSHOFF(p)    ((p)->flush & ((p)->size -1))
-
-/****************************************************************************
- * Private Types
- ****************************************************************************/
-
-struct syslog_rpmsg_s
-{
-  volatile size_t       head;       /* The head index (where data is added) */
-  volatile size_t       tail;       /* The tail index (where data is removed) */
-  volatile size_t       flush;      /* The tail index of flush (where data is removed) */
-  size_t                size;       /* Size of the RAM buffer */
-  FAR char              *buffer;    /* Circular RAM buffer */
-  struct work_s         work;       /* Used for deferred callback work */
-
-  struct rpmsg_endpoint ept;
-  bool                  suspend;
-};
 
 /****************************************************************************
  * Private Function Prototypes
@@ -102,7 +82,25 @@ static ssize_t syslog_rpmsg_file_write(FAR struct file *filep,
  * Private Data
  ****************************************************************************/
 
-static struct syslog_rpmsg_s g_syslog_rpmsg;
+#if CONFIG_SYSLOG_RPMSG_BUFSIZE > 0
+#  ifdef SYSLOG_RPMSG_BUFFER_SECTION
+static char g_sysbuffer[CONFIG_SYSLOG_RPMSG_BUFSIZE]
+                       locate_data(CONFIG_SYSLOG_RPMSG_BUFFER_SECTION);
+#  else
+static char g_sysbuffer[CONFIG_SYSLOG_RPMSG_BUFSIZE];
+#  endif
+
+struct syslog_rpmsg_s g_syslog_rpmsg =
+{
+  .header = (FAR struct syslog_rpmsg_buffer_header_s *)g_sysbuffer,
+  .lock = SP_UNLOCKED,
+};
+#else
+struct syslog_rpmsg_s g_syslog_rpmsg =
+{
+  .lock = SP_UNLOCKED,
+};
+#endif
 
 #ifdef CONFIG_SYSLOG_RPMSG_CHARDEV
 static const struct file_operations g_syslog_rpmsgfops =
@@ -118,14 +116,39 @@ static const struct file_operations g_syslog_rpmsgfops =
  * Private Functions
  ****************************************************************************/
 
+static void syslog_rpmsg_init_buffer(FAR struct syslog_rpmsg_s *priv)
+{
+  FAR struct syslog_rpmsg_buffer_header_s *header = priv->header;
+  irqstate_t flags;
+
+  DEBUGASSERT(priv->header != NULL);
+
+  flags = spin_lock_irqsave(&priv->lock);
+  if (header->magic != SYSLOG_RPMSG_MAGIC_NUMBER)
+    {
+      header->head = 0;
+      header->tail = 0;
+
+#if CONFIG_SYSLOG_RPMSG_BUFSIZE > 0
+      header->size = CONFIG_SYSLOG_RPMSG_BUFSIZE -
+                     sizeof(struct syslog_rpmsg_buffer_header_s);
+#endif
+
+      header->magic = SYSLOG_RPMSG_MAGIC_NUMBER;
+    }
+
+  spin_unlock_irqrestore(&priv->lock, flags);
+}
+
 static bool syslog_rpmsg_transfer(FAR struct syslog_rpmsg_s *priv, bool wait)
 {
   FAR struct syslog_rpmsg_transfer_s *msg = NULL;
+  FAR struct syslog_rpmsg_buffer_header_s *header = priv->header;
   irqstate_t flags;
   uint32_t space;
-  size_t len;
-  size_t off;
-  size_t len_end;
+  uint32_t len_send;
+  uint32_t len_end;
+  uint32_t len;
 
   if (!is_rpmsg_ept_ready(&priv->ept))
     {
@@ -142,12 +165,11 @@ static bool syslog_rpmsg_transfer(FAR struct syslog_rpmsg_s *priv, bool wait)
 
       memset(msg, 0, sizeof(*msg));
 
-      flags = enter_critical_section();
+      flags = spin_lock_irqsave(&priv->lock);
 
       space  -= sizeof(*msg);
-      len     = SYSLOG_RPMSG_COUNT(priv);
-      off     = SYSLOG_RPMSG_TAILOFF(priv);
-      len_end = priv->size - off;
+      len     = SYSLOG_RPMSG_COUNT(header);
+      len_end = header->size - header->tail;
 
       if (len > space)
         {
@@ -156,28 +178,28 @@ static bool syslog_rpmsg_transfer(FAR struct syslog_rpmsg_s *priv, bool wait)
 
       if (len > len_end)
         {
-          memcpy(msg->data, &priv->buffer[off], len_end);
-          memcpy(msg->data + len_end, priv->buffer, len - len_end);
-          memset(&priv->buffer[off], 0, len_end);
-          memset(priv->buffer, 0, len - len_end);
+          memcpy(msg->data, &header->buffer[header->tail], len_end);
+          memcpy(msg->data + len_end, header->buffer, len - len_end);
+          memset(&header->buffer[header->tail], 0, len_end);
+          memset(header->buffer, 0, len - len_end);
         }
       else
         {
-          memcpy(msg->data, &priv->buffer[off], len);
-          memset(&priv->buffer[off], 0, len);
+          memcpy(msg->data, &header->buffer[header->tail], len);
+          memset(&header->buffer[header->tail], 0, len);
         }
 
       msg->count          = len;
-      priv->tail         += len;
+      header->tail        = (header->tail + len) % header->size;
       msg->header.command = SYSLOG_RPMSG_TRANSFER;
-      if (rpmsg_send_nocopy(&priv->ept, msg, sizeof(*msg) + len) < 0)
+      len_send            = len;
+      len = SYSLOG_RPMSG_COUNT(header);
+      spin_unlock_irqrestore(&priv->lock, flags);
+
+      if (rpmsg_send_nocopy(&priv->ept, msg, sizeof(*msg) + len_send) < 0)
         {
           rpmsg_release_tx_buffer(&priv->ept, msg);
         }
-
-      len                 = SYSLOG_RPMSG_COUNT(priv);
-
-      leave_critical_section(flags);
     }
   while (len > 0);
 
@@ -198,22 +220,40 @@ static void syslog_rpmsg_work(FAR void *priv_)
 static void syslog_rpmsg_addbuf(FAR struct syslog_rpmsg_s *priv,
                                 FAR const char *buffer, size_t len)
 {
+  FAR struct syslog_rpmsg_buffer_header_s *header;
   bool overwritten = false;
-  size_t offset;
-  size_t tail;
+  irqstate_t flags;
+  uint32_t tail;
 
   if (len <= 0)
     {
       return;
     }
 
-  if (priv->head + len - priv->tail >= priv->size)
+  syslog_rpmsg_init_buffer(priv);
+
+  header = priv->header;
+  flags = spin_lock_irqsave(&priv->lock);
+
+  if (len > header->size)
+    {
+      buffer += len - header->size;
+      len = header->size;
+    }
+
+  if (SYSLOG_RPMSG_SPACE(header) < len)
     {
       bool ret = false;
 
-      if (!priv->flush && !up_interrupt_context() && !sched_idletask())
+      if (!up_interrupt_context() && !sched_idletask())
         {
+          /* Unlock before entering syslog_rpmsg_transfer,
+           * it is already locked internally
+           */
+
+          spin_unlock_irqrestore(&priv->lock, flags);
           ret = syslog_rpmsg_transfer(priv, true);
+          flags = spin_lock_irqsave(&priv->lock);
         }
 
       if (!ret)
@@ -222,55 +262,49 @@ static void syslog_rpmsg_addbuf(FAR struct syslog_rpmsg_s *priv,
         }
     }
 
-  offset = SYSLOG_RPMSG_HEADOFF(priv);
-  tail = priv->size - offset;
+  tail = header->size - header->head;
 
   if (len > tail)
     {
-      memcpy(&priv->buffer[offset], buffer, tail);
-      memcpy(priv->buffer, buffer + tail, len - tail);
+      memcpy(&header->buffer[header->head], buffer, tail);
+      memcpy(header->buffer, buffer + tail, len - tail);
     }
   else
     {
-      memcpy(&priv->buffer[offset], buffer, len);
+      memcpy(&header->buffer[header->head], buffer, len);
     }
 
-  priv->head += len;
+  header->head = (header->head + len) % header->size;
   if (overwritten)
     {
-      priv->tail = priv->head - priv->size;
-      priv->buffer[SYSLOG_RPMSG_TAILOFF(priv)] = 0;
-      priv->tail++;
-    }
-
-  if (priv->flush)
-    {
-#if defined(CONFIG_ARCH_LOWPUTC) && !defined(CONFIG_SYSLOG_DEFAULT)
-      up_nputs(buffer, len);
-#endif
-      priv->flush += len;
-      return;
+      header->tail = header->head;
     }
 
   if (!priv->suspend && is_rpmsg_ept_ready(&priv->ept))
     {
       clock_t delay = SYSLOG_RPMSG_WORK_DELAY;
-      size_t space = SYSLOG_RPMSG_SPACE(priv);
+      uint32_t space = SYSLOG_RPMSG_SPACE(header);
 
       /* Start work immediately when data more then 75% and meet last */
 
-      if (space < priv->size / 4)
+      if (space < header->size / 4)
         {
           delay = 0;
         }
 #if CONFIG_SYSLOG_RPMSG_WORK_DELAY == 0
       else
         {
+          spin_unlock_irqrestore(&priv->lock, flags);
           return;
         }
 #endif
 
+      spin_unlock_irqrestore(&priv->lock, flags);
       work_queue(HPWORK, &priv->work, syslog_rpmsg_work, priv, delay);
+    }
+  else
+    {
+      spin_unlock_irqrestore(&priv->lock, flags);
     }
 }
 
@@ -280,7 +314,7 @@ static void syslog_rpmsg_device_created(FAR struct rpmsg_device *rdev,
   FAR struct syslog_rpmsg_s *priv = priv_;
   int ret;
 
-  if (priv->buffer && strcmp(CONFIG_SYSLOG_RPMSG_SERVER_NAME,
+  if (priv->header && strcmp(CONFIG_SYSLOG_RPMSG_SERVER_NAME,
                              rpmsg_get_cpuname(rdev)) == 0)
     {
       priv->ept.priv = priv;
@@ -290,6 +324,9 @@ static void syslog_rpmsg_device_created(FAR struct rpmsg_device *rdev,
                              syslog_rpmsg_ept_cb, NULL);
       if (ret == 0)
         {
+          /* The first transfer may run before anything was logged */
+
+          syslog_rpmsg_init_buffer(priv);
           work_queue(HPWORK, &priv->work, syslog_rpmsg_work, priv, 0);
         }
     }
@@ -300,7 +337,7 @@ static void syslog_rpmsg_device_destroy(FAR struct rpmsg_device *rdev,
 {
   FAR struct syslog_rpmsg_s *priv = priv_;
 
-  if (priv->buffer && strcmp(CONFIG_SYSLOG_RPMSG_SERVER_NAME,
+  if (priv->header && strcmp(CONFIG_SYSLOG_RPMSG_SERVER_NAME,
                              rpmsg_get_cpuname(rdev)) == 0)
     {
       rpmsg_destroy_ept(&priv->ept);
@@ -339,20 +376,17 @@ static ssize_t syslog_rpmsg_file_read(FAR struct file *filep,
 {
   FAR struct inode *inode = filep->f_inode;
   FAR struct syslog_rpmsg_s *priv;
-  irqstate_t flags;
 
   /* Some sanity checking */
 
   DEBUGASSERT(inode->i_private);
   priv = inode->i_private;
 
-  flags = enter_critical_section();
   if (!priv->suspend && is_rpmsg_ept_ready(&priv->ept))
     {
       work_queue(HPWORK, &priv->work, syslog_rpmsg_work, priv, 0);
     }
 
-  leave_critical_section(flags);
   return 0;
 }
 
@@ -370,116 +404,21 @@ static ssize_t syslog_rpmsg_file_write(FAR struct file *filep,
 
 int syslog_rpmsg_putc(FAR syslog_channel_t *channel, int ch)
 {
-  irqstate_t flags;
   char tmp = ch;
+
   UNUSED(channel);
 
-  flags = enter_critical_section();
   syslog_rpmsg_addbuf(&g_syslog_rpmsg, &tmp, 1);
-  leave_critical_section(flags);
-
   return ch;
-}
-
-int syslog_rpmsg_flush(FAR syslog_channel_t *channel)
-{
-  FAR struct syslog_rpmsg_s *priv = &g_syslog_rpmsg;
-  irqstate_t flags;
-
-  flags = enter_critical_section();
-
-  if (priv->head > priv->flush &&
-      priv->head - priv->flush > priv->size)
-    {
-      priv->flush = priv->tail;
-    }
-
-#if defined(CONFIG_ARCH_LOWPUTC) && !defined(CONFIG_SYSLOG_DEFAULT)
-  while (priv->flush < priv->head)
-    {
-      up_putc(priv->buffer[SYSLOG_RPMSG_FLUSHOFF(priv)]);
-      priv->flush++;
-    }
-#else
-  priv->flush = priv->head;
-#endif
-
-  leave_critical_section(flags);
-
-  return OK;
 }
 
 ssize_t syslog_rpmsg_write(FAR syslog_channel_t *channel,
                            FAR const char *buffer, size_t buflen)
 {
   FAR struct syslog_rpmsg_s *priv = &g_syslog_rpmsg;
-  irqstate_t flags = enter_critical_section();
+
   syslog_rpmsg_addbuf(priv, buffer, buflen);
-  leave_critical_section(flags);
-
   return buflen;
-}
-
-void syslog_rpmsg_init_early(FAR void *buffer, size_t size)
-{
-  FAR struct syslog_rpmsg_s *priv = &g_syslog_rpmsg;
-#ifdef CONFIG_BOARDCTL_RESET_CAUSE
-  struct boardioc_reset_cause_s cause;
-  int ret;
-#endif
-  bool is_empty = true;
-  char prev;
-  char cur;
-  size_t i;
-
-  DEBUGASSERT((size & (size - 1)) == 0);
-
-  priv->buffer = buffer;
-  priv->size   = size;
-
-#ifdef CONFIG_BOARDCTL_RESET_CAUSE
-  memset(&cause, 0, sizeof(cause));
-  ret = boardctl(BOARDIOC_RESET_CAUSE, (uintptr_t)&cause);
-  if (ret >= 0 && cause.cause == BOARDIOC_RESETCAUSE_SYS_CHIPPOR)
-    {
-      memset(buffer, 0, size);
-      return;
-    }
-#endif
-
-  prev = priv->buffer[size - 1];
-
-  for (i = 0; i < size; i++)
-    {
-      cur = priv->buffer[i];
-
-      if (!isprint(cur) && !isspace(cur) && cur != '\0')
-        {
-          memset(buffer, 0, size);
-          is_empty = true;
-          break;
-        }
-      else if (prev && !cur)
-        {
-          priv->head = i;
-          is_empty = false;
-        }
-      else if (!prev && cur)
-        {
-          priv->tail = i;
-        }
-
-      prev = cur;
-    }
-
-  if (is_empty)
-    {
-      priv->head = priv->tail = 0;
-    }
-  else if (priv->head < priv->tail)
-    {
-      priv->head += priv->size;
-    }
 }
 
 int syslog_rpmsg_init(void)
@@ -487,7 +426,7 @@ int syslog_rpmsg_init(void)
 #ifdef CONFIG_SYSLOG_RPMSG_CHARDEV
   int ret;
 
-  ret = register_driver(CONFIG_SYSLOG_DEVPATH, &g_syslog_rpmsgfops,
+  ret = register_driver(CONFIG_SYSLOG_RPMSG_DEVPATH, &g_syslog_rpmsgfops,
                         0600, &g_syslog_rpmsg);
   if (ret < 0)
     {

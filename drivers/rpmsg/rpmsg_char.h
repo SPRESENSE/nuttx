@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/armv6-m/arm_tcbinfo.c
+ * drivers/rpmsg/rpmsg_char.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,68 +20,46 @@
  *
  ****************************************************************************/
 
+#ifndef __DRIVERS_RPMSG_RPMSG_CHAR_H
+#define __DRIVERS_RPMSG_RPMSG_CHAR_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
-#include <nuttx/sched.h>
-#include <arch/irq.h>
-#include <sys/param.h>
+#include <nuttx/rpmsg/rpmsg.h>
 
 /****************************************************************************
- * Private Data
+ * Pre-processor Definitions
  ****************************************************************************/
 
-static const uint16_t g_reg_offs[] =
+#ifndef CONFIG_RPMSG_CHAR
+#  define rpmsg_char_init(chr)
+#  define rpmsg_char_deinit(chr)
+#else
+
+/****************************************************************************
+ * Public Types
+ ****************************************************************************/
+
+struct rpmsg_char_s
 {
-  TCB_REG_OFF(REG_R0),
-  TCB_REG_OFF(REG_R1),
-  TCB_REG_OFF(REG_R2),
-  TCB_REG_OFF(REG_R3),
-  TCB_REG_OFF(REG_R4),
-  TCB_REG_OFF(REG_R5),
-  TCB_REG_OFF(REG_R6),
-  TCB_REG_OFF(REG_R7),
-  TCB_REG_OFF(REG_R8),
-  TCB_REG_OFF(REG_R9),
-  TCB_REG_OFF(REG_R10),
-  TCB_REG_OFF(REG_R11),
-  TCB_REG_OFF(REG_R12),
-  TCB_REG_OFF(REG_R13),
-  TCB_REG_OFF(REG_R14),
-  TCB_REG_OFF(REG_R15),
-  TCB_REG_OFF(REG_XPSR),
-#if 0
-  UINT16_MAX,                     /* msp */
-  TCB_REG_OFF(REG_R13),
-  TCB_REG_OFF(REG_PRIMASK),
-  UINT16_MAX,                     /* basepri */
-  UINT16_MAX,                     /* faultmask */
-  UINT16_MAX,                     /* control */
-#endif
+  struct list_node eptdevs;
+  rmutex_t         lock;
 };
 
 /****************************************************************************
- * Public Data
+ * Public Functions Prototypes
  ****************************************************************************/
 
-const struct tcbinfo_s g_tcbinfo used_data =
-{
-  .pid_off        = TCB_PID_OFF,
-  .state_off      = TCB_STATE_OFF,
-  .pri_off        = TCB_PRI_OFF,
-  .name_off       = TCB_NAME_OFF,
-  .stack_off      = TCB_STACK_OFF,
-  .stack_size_off = TCB_STACK_SIZE_OFF,
-  .regs_off       = TCB_REGS_OFF,
-  .regs_num       = nitems(g_reg_offs),
-  {
-    .p = g_reg_offs,
-  },
-};
+void rpmsg_char_init(FAR struct rpmsg_char_s *chr);
+void rpmsg_char_deinit(FAR struct rpmsg_char_s *chr);
+int rpmsg_char_create_eptdev(FAR struct rpmsg_char_s *chr,
+                             FAR const struct rpmsg_endpoint_info *info);
+void rpmsg_char_destroy_eptdev(FAR struct rpmsg_char_s *chr,
+                               FAR const struct rpmsg_endpoint_info *info);
 
-/****************************************************************************
- * Public Functions
- ****************************************************************************/
+#endif /* CONFIG_RPMSG_CHAR */
+#endif /* __DRIVERS_RPMSG_RPMSG_CHAR_H */

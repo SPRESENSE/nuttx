@@ -36,6 +36,7 @@
 #include <nuttx/clock.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/list.h>
+#include <nuttx/mm/mempool.h>
 #include <nuttx/mutex.h>
 #include <nuttx/nuttx.h>
 #include <nuttx/rwsem.h>
@@ -124,6 +125,11 @@ static const struct file_operations g_rpmsg_dev_ops =
   rpmsg_dev_ioctl,  /* ioctl */
 };
 
+#if CONFIG_RPMSG_POOL_COUNT > 0
+MEMPOOL_DEFINE(g_rpmsg_pool, CONFIG_RPMSG_POOL_SIZE,
+               CONFIG_RPMSG_POOL_COUNT, CONFIG_RPMSG_POOL_COUNT, 0);
+#endif
+
 #ifdef CONFIG_RPMSG_WQUEUE_GLOBAL
 static struct rpmsg_wqueue_s g_rpmsg_wqueues[CONFIG_RPMSG_WQUEUE_NUMBER];
 #endif
@@ -184,6 +190,18 @@ static int rpmsg_dev_ioctl_(FAR struct rpmsg_s *rpmsg, int cmd,
       case RPMSGIOC_ACQUIRE_WAKELOCK:
       case RPMSGIOC_RELEASE_WAKELOCK:
         ret = rpmsg_wakelock(&rpmsg->wakelock, cmd, arg);
+        break;
+#endif
+#ifdef CONFIG_RPMSG_CHAR
+      case RPMSG_CREATE_EPT_IOCTL:
+      case RPMSG_CREATE_DEV_IOCTL:
+        ret = rpmsg_char_create_eptdev(
+          &rpmsg->chr, (FAR const struct rpmsg_endpoint_info *)arg);
+        break;
+      case RPMSG_RELEASE_DEV_IOCTL:
+        rpmsg_char_destroy_eptdev(
+          &rpmsg->chr, (FAR const struct rpmsg_endpoint_info *)arg);
+        ret = OK;
         break;
 #endif
       default:
@@ -468,6 +486,49 @@ int rpmsg_get_timestamp(FAR struct rpmsg_device *rdev, FAR const void *data,
   return rpmsg->ops->get_timestamp(rpmsg, data, ts);
 }
 
+bool rpmsg_support_alloc_buf(FAR struct rpmsg_device *rdev)
+{
+  FAR struct rpmsg_s *rpmsg = rpmsg_get_by_rdev(rdev);
+
+  return rpmsg && rpmsg->ops->alloc_buf && rpmsg->ops->free_buf;
+}
+
+FAR void *rpmsg_alloc_buf(FAR struct rpmsg_device *rdev, size_t size,
+                          size_t align)
+{
+  FAR struct rpmsg_s *rpmsg = rpmsg_get_by_rdev(rdev);
+
+  if (!rpmsg || !rpmsg->ops->alloc_buf)
+    {
+      return NULL;
+    }
+
+  return rpmsg->ops->alloc_buf(rpmsg, size, align);
+}
+
+void rpmsg_free_buf(FAR struct rpmsg_device *rdev, FAR void *addr)
+{
+  FAR struct rpmsg_s *rpmsg = rpmsg_get_by_rdev(rdev);
+
+  if (rpmsg && rpmsg->ops->free_buf)
+    {
+      rpmsg->ops->free_buf(rpmsg, addr);
+    }
+}
+
+#if CONFIG_RPMSG_POOL_COUNT > 0
+FAR void *rpmsg_pool_alloc(size_t size)
+{
+  DEBUGASSERT(size <= CONFIG_RPMSG_POOL_SIZE);
+  return mempool_allocate(&g_rpmsg_pool, UINT_MAX);
+}
+
+void rpmsg_pool_free(FAR void *addr)
+{
+  mempool_release(&g_rpmsg_pool, addr);
+}
+#endif
+
 int rpmsg_register_callback(FAR void *priv,
                             rpmsg_dev_cb_t device_created,
                             rpmsg_dev_cb_t device_destroy,
@@ -743,9 +804,12 @@ int rpmsg_register(FAR const char *path, FAR struct rpmsg_s *rpmsg,
       return ret;
     }
 
+  rpmsg_char_init(&rpmsg->chr);
+
   ret = register_driver(path, &g_rpmsg_dev_ops, 0200, rpmsg);
   if (ret < 0)
     {
+      rpmsg_char_deinit(&rpmsg->chr);
       metal_finish();
       return ret;
     }
@@ -754,6 +818,7 @@ int rpmsg_register(FAR const char *path, FAR struct rpmsg_s *rpmsg,
   if (ret < 0)
     {
       unregister_driver(path);
+      rpmsg_char_deinit(&rpmsg->chr);
       metal_finish();
       return ret;
     }
@@ -791,7 +856,7 @@ void rpmsg_unregister(FAR const char *path, FAR struct rpmsg_s *rpmsg)
   rpmsg_deinit_workrx(rpmsg);
   nxrmutex_destroy(&rpmsg->lock);
   unregister_driver(path);
-
+  rpmsg_char_deinit(&rpmsg->chr);
   metal_finish();
 }
 

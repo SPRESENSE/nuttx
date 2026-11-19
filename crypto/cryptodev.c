@@ -238,6 +238,7 @@ static int cryptof_ioctl(FAR struct file *filep,
             case CRYPTO_AES_CTR:
             case CRYPTO_AES_CTR_SSH:
             case CRYPTO_AES_XTS:
+            case CRYPTO_AES_GCM_16:
             case CRYPTO_AES_OFB:
             case CRYPTO_AES_CFB_8:
             case CRYPTO_AES_CFB_128:
@@ -263,7 +264,10 @@ static int cryptof_ioctl(FAR struct file *filep,
             case CRYPTO_SHA2_384_HMAC:
             case CRYPTO_SHA2_512_HMAC:
             case CRYPTO_AES_128_GMAC:
+            case CRYPTO_AES_192_GMAC:
+            case CRYPTO_AES_256_GMAC:
             case CRYPTO_AES_128_CMAC:
+            case CRYPTO_AES_256_CMAC:
             case CRYPTO_CHACHA20_POLY1305_MAC:
             case CRYPTO_MD5:
             case CRYPTO_POLY1305:
@@ -448,6 +452,11 @@ static int cryptodev_op(FAR struct csession *cse,
         {
           crda.crd_flags &= ~CRD_F_UPDATE;
         }
+
+      if (cop->flags & COP_FLAG_UPDATE_AAD)
+        {
+          crda.crd_flags |= CRD_F_UPDATE_AAD;
+        }
     }
 
   if (cse->txform)
@@ -468,6 +477,15 @@ static int cryptodev_op(FAR struct csession *cse,
       else
         {
           crde.crd_flags &= ~CRD_F_ENCRYPT;
+        }
+
+      if (cop->flags & COP_FLAG_UPDATE)
+        {
+          crde.crd_flags |= CRD_F_UPDATE;
+        }
+      else
+        {
+          crde.crd_flags &= ~CRD_F_UPDATE;
         }
 
       crde.crd_len = cop->len;

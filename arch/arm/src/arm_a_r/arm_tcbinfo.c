@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/armv8-r/arm_tcbinfo.c
+ * arch/arm/src/arm_a_r/arm_tcbinfo.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -36,23 +36,48 @@
 
 static const uint16_t g_reg_offs[] =
 {
-  TCB_REG_OFF(REG_R0),
-  TCB_REG_OFF(REG_R1),
-  TCB_REG_OFF(REG_R2),
-  TCB_REG_OFF(REG_R3),
-  TCB_REG_OFF(REG_R4),
-  TCB_REG_OFF(REG_R5),
-  TCB_REG_OFF(REG_R6),
-  TCB_REG_OFF(REG_R7),
-  TCB_REG_OFF(REG_R8),
-  TCB_REG_OFF(REG_R9),
-  TCB_REG_OFF(REG_R10),
-  TCB_REG_OFF(REG_R11),
-  TCB_REG_OFF(REG_R12),
-  TCB_REG_OFF(REG_R13),
-  TCB_REG_OFF(REG_R14),
-  TCB_REG_OFF(REG_R15),
-  TCB_REG_OFF(REG_CPSR),
+  TCB_REG_OFF(REG_R0),   /* 0 */
+  TCB_REG_OFF(REG_R1),   /* 1 */
+  TCB_REG_OFF(REG_R2),   /* 2 */
+  TCB_REG_OFF(REG_R3),   /* 3 */
+  TCB_REG_OFF(REG_R4),   /* 4 */
+  TCB_REG_OFF(REG_R5),   /* 5 */
+  TCB_REG_OFF(REG_R6),   /* 6 */
+  TCB_REG_OFF(REG_R7),   /* 7 */
+  TCB_REG_OFF(REG_R8),   /* 8 */
+  TCB_REG_OFF(REG_R9),   /* 9 */
+  TCB_REG_OFF(REG_R10),  /* 10 */
+  TCB_REG_OFF(REG_R11),  /* 11 */
+  TCB_REG_OFF(REG_R12),  /* 12 */
+  TCB_REG_OFF(REG_R13),  /* 13 */
+  TCB_REG_OFF(REG_R14),  /* 14 */
+  TCB_REG_OFF(REG_R15),  /* 15 */
+  UINT16_MAX,            /* 16 */
+  UINT16_MAX,            /* 17 */
+  UINT16_MAX,            /* 18 */
+  UINT16_MAX,            /* 19 */
+  UINT16_MAX,            /* 20 */
+  UINT16_MAX,            /* 21 */
+  UINT16_MAX,            /* 22 */
+  UINT16_MAX,            /* 23 */
+  UINT16_MAX,            /* 24 */
+  UINT16_MAX,            /* 25 */
+  UINT16_MAX,            /* 26 */
+  UINT16_MAX,            /* 27 */
+  UINT16_MAX,            /* 28 */
+  UINT16_MAX,            /* 29 */
+  UINT16_MAX,            /* 30 */
+  UINT16_MAX,            /* 31 */
+  UINT16_MAX,            /* 32 */
+  UINT16_MAX,            /* 33 */
+  UINT16_MAX,            /* 34 */
+  UINT16_MAX,            /* 35 */
+  UINT16_MAX,            /* 36 */
+  UINT16_MAX,            /* 37 */
+  UINT16_MAX,            /* 38 */
+  UINT16_MAX,            /* 39 */
+  UINT16_MAX,            /* 40 */
+  TCB_REG_OFF(REG_CPSR), /* 41 */
 
 #if 0
 #  ifdef CONFIG_ARCH_FPU
@@ -103,14 +128,16 @@ static const uint16_t g_reg_offs[] =
  * Public Data
  ****************************************************************************/
 
-const struct tcbinfo_s g_tcbinfo =
+const struct tcbinfo_s g_tcbinfo used_data =
 {
-  .pid_off   = TCB_PID_OFF,
-  .state_off = TCB_STATE_OFF,
-  .pri_off   = TCB_PRI_OFF,
-  .name_off  = TCB_NAME_OFF,
-  .regs_off  = TCB_REGS_OFF,
-  .regs_num  = nitems(g_reg_offs),
+  .pid_off        = TCB_PID_OFF,
+  .state_off      = TCB_STATE_OFF,
+  .pri_off        = TCB_PRI_OFF,
+  .name_off       = TCB_NAME_OFF,
+  .stack_off      = TCB_STACK_OFF,
+  .stack_size_off = TCB_STACK_SIZE_OFF,
+  .regs_off       = TCB_REGS_OFF,
+  .regs_num       = nitems(g_reg_offs),
   {
     .p = g_reg_offs,
   },

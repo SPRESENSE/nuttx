@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/arm/src/armv7-r/arm_tcbinfo.c
+ * arch/arm/src/arm_m/arm_tcbinfo.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -52,50 +52,14 @@ static const uint16_t g_reg_offs[] =
   TCB_REG_OFF(REG_R13),
   TCB_REG_OFF(REG_R14),
   TCB_REG_OFF(REG_R15),
-  TCB_REG_OFF(REG_CPSR),
-
+  TCB_REG_OFF(REG_XPSR),
 #if 0
-#  ifdef CONFIG_ARCH_FPU
-  TCB_REG_OFF(REG_D0),
-  TCB_REG_OFF(REG_D1),
-  TCB_REG_OFF(REG_D2),
-  TCB_REG_OFF(REG_D3),
-  TCB_REG_OFF(REG_D4),
-  TCB_REG_OFF(REG_D5),
-  TCB_REG_OFF(REG_D6),
-  TCB_REG_OFF(REG_D7),
-  TCB_REG_OFF(REG_D8),
-  TCB_REG_OFF(REG_D9),
-  TCB_REG_OFF(REG_D10),
-  TCB_REG_OFF(REG_D11),
-  TCB_REG_OFF(REG_D12),
-  TCB_REG_OFF(REG_D13),
-  TCB_REG_OFF(REG_D14),
-  TCB_REG_OFF(REG_D15),
-#  endif
-
-#  ifdef CONFIG_ARM_DPFPU32
-  TCB_REG_OFF(REG_D16),
-  TCB_REG_OFF(REG_D17),
-  TCB_REG_OFF(REG_D18),
-  TCB_REG_OFF(REG_D19),
-  TCB_REG_OFF(REG_D20),
-  TCB_REG_OFF(REG_D21),
-  TCB_REG_OFF(REG_D22),
-  TCB_REG_OFF(REG_D23),
-  TCB_REG_OFF(REG_D24),
-  TCB_REG_OFF(REG_D25),
-  TCB_REG_OFF(REG_D26),
-  TCB_REG_OFF(REG_D27),
-  TCB_REG_OFF(REG_D28),
-  TCB_REG_OFF(REG_D29),
-  TCB_REG_OFF(REG_D30),
-  TCB_REG_OFF(REG_D31),
-#  endif
-
-#  ifdef CONFIG_ARCH_FPU
-  TCB_REG_OFF(REG_FPSCR),
-#  endif
+  UINT16_MAX,                     /* msp */
+  TCB_REG_OFF(REG_R13),
+  TCB_REG_OFF(REG_PRIMASK),
+  UINT16_MAX,                     /* basepri */
+  UINT16_MAX,                     /* faultmask */
+  UINT16_MAX,                     /* control */
 #endif
 };
 

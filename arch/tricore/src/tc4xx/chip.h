@@ -27,7 +27,34 @@
  * Included Files
  ****************************************************************************/
 
+#include "hardware/tc4xx_cpu.h"
+
 #define UART_PIN_RX IfxAsclin0_RXA_F_P14_1_IN     /* UART receive port pin  */
 #define UART_PIN_TX IfxAsclin0_TX_F_P14_0_OUT     /* UART transmit port pin */
+
+/****************************************************************************
+ * Pre-processor Definitions
+ ****************************************************************************/
+
+/* Startup core synchronization: core ID bits to wait for and the timeout
+ * in STM ticks (0: no timeout)
+ */
+
+#define TRICORE_CORE_SYNC_MASK     0x01
+#define TRICORE_CORE_SYNC_TIMEOUT  0
+
+/* Other cores that tricore_start releases, CPU1 to CPU5, and their PC and
+ * boot halt registers
+ */
+
+#define TRICORE_START_CORES        5
+#define TRICORE_START_PC(n)        TC4XX_CPU_HRA_PC(n)
+#define TRICORE_START_HALT(n)      TC4XX_CPU_HRA_BOOTCON(n)
+#define TRICORE_START_BHALT        TC4XX_BOOTCON_BHALT
+
+/* Core index from CORE_ID */
+
+#define tricore_core_id()          (tricore_mfcr(TRICORE_CPU_CORE_ID) & 0x7)
+#define tricore_core_index()       tricore_core_id()
 
 #endif /* __ARCH_TRICORE_SRC_TC4XX_CHIP_H */

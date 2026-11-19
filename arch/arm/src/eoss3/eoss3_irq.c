@@ -33,7 +33,7 @@
 #include <nuttx/debug.h>
 #include <nuttx/irq.h>
 #include <nuttx/arch.h>
-#include <arch/armv7-m/nvicpri.h>
+#include <arch/arm_m/nvicpri.h>
 
 #include "nvic.h"
 #include "ram_vectors.h"
@@ -484,7 +484,7 @@ int up_prioritize_irq(int irq, int priority)
       regaddr = NVIC_SYSH_PRIORITY(irq);
       irq    -= 4;
     }
-  else (irq < EOSS3_IRQ_NVECTORS)
+  else if (irq < EOSS3_IRQ_NVECTORS)
     {
       /* NVIC_IRQ_PRIORITY() maps {0..} to one of many priority registers */
 

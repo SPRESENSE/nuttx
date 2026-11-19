@@ -30,6 +30,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <nuttx/debug.h>
 #include <nuttx/fs/ioctl.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/mutex.h>
@@ -44,6 +45,7 @@
 #define UART_RPMSG_DEV_CONSOLE          "/dev/console"
 #define UART_RPMSG_DEV_PREFIX           "/dev/tty"
 #define UART_RPMSG_EPT_PREFIX           "rpmsg-tty"
+#define UART_RPMSG_NAME_SIZE            (RPMSG_NAME_SIZE - 10)
 
 #define UART_RPMSG_TTY_WRITE            0
 #define UART_RPMSG_TTY_WAKEUP           1
@@ -77,8 +79,8 @@ struct uart_rpmsg_priv_s
 {
   struct rpmsg_endpoint ept;
   mutex_t               lock;
-  FAR const char        *devname;
-  FAR const char        *cpuname;
+  char                  devname[UART_RPMSG_NAME_SIZE];
+  char                  cpuname[UART_RPMSG_NAME_SIZE];
   FAR void              *recv_data;
   bool                  last_upper;
 };
@@ -320,6 +322,13 @@ static bool uart_rpmsg_txempty(FAR struct uart_dev_s *dev)
   return true;
 }
 
+static void uart_rpmsg_ns_bound(struct rpmsg_endpoint *ept)
+{
+  FAR struct uart_dev_s *dev = ept->priv;
+
+  uart_rpmsg_dmatxavail(dev);
+}
+
 static void uart_rpmsg_device_created(FAR struct rpmsg_device *rdev,
                                       FAR void *priv_)
 {
@@ -330,6 +339,7 @@ static void uart_rpmsg_device_created(FAR struct rpmsg_device *rdev,
   if (strcmp(priv->cpuname, rpmsg_get_cpuname(rdev)) == 0)
     {
       priv->ept.priv = dev;
+      priv->ept.ns_bound_cb = uart_rpmsg_ns_bound;
       snprintf(eptname, sizeof(eptname), "%s%s",
                UART_RPMSG_EPT_PREFIX, priv->devname);
       rpmsg_create_ept(&priv->ept, rdev, eptname,
@@ -437,8 +447,8 @@ int uart_rpmsg_init(FAR const char *cpuname, FAR const char *devname,
                      sizeof(struct uart_rpmsg_priv_s);
   dev->xmit.buffer = dev->recv.buffer + buf_size;
   priv             = dev->priv;
-  priv->cpuname    = cpuname;
-  priv->devname    = devname;
+  strlcpy(priv->cpuname, cpuname, sizeof(priv->cpuname));
+  strlcpy(priv->devname, devname, sizeof(priv->devname));
 
   nxmutex_init(&priv->lock);
 
@@ -456,12 +466,33 @@ int uart_rpmsg_init(FAR const char *cpuname, FAR const char *devname,
 
   snprintf(name, sizeof(name), "%s%s",
            UART_RPMSG_DEV_PREFIX, devname);
-  uart_register(name, dev);
+  ret = uart_register(name, dev);
+  if (ret < 0)
+    {
+      rpmsgerr("uart register failed, ret=%d\n", ret);
+      goto fail_with_rpmsg;
+    }
 
   if (dev->isconsole)
     {
-      uart_register(UART_RPMSG_DEV_CONSOLE, dev);
+      ret = uart_register(UART_RPMSG_DEV_CONSOLE, dev);
+      if (ret < 0)
+        {
+          rpmsgerr("uart register console failed, ret=%d\n", ret);
+          unregister_driver(name);
+          goto fail_with_rpmsg;
+        }
     }
 
-  return 0;
+  return OK;
+
+fail_with_rpmsg:
+  rpmsg_unregister_callback(dev,
+                            uart_rpmsg_device_created,
+                            uart_rpmsg_device_destroy,
+                            NULL,
+                            NULL);
+  nxmutex_destroy(&priv->lock);
+  kmm_free(dev);
+  return ret;
 }

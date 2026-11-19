@@ -46,8 +46,8 @@
 #include <nuttx/wdog.h>
 #include <nuttx/circbuf.h>
 #include <nuttx/sched_note.h>
+#include <nuttx/spinlock.h>
 
-#include <nuttx/mutex.h>
 #ifdef CONFIG_VIDEO_FB_SPLASHSCREEN
 #  include <nuttx/signal.h>
 #endif
@@ -121,9 +121,9 @@ struct fb_chardev_s
   uint8_t                  plane;          /* Video plan number              */
   clock_t                  vsyncoffset;    /* VSync offset ticks             */
   FAR struct fb_priv_s    *head;
-  FAR struct fb_paninfo_s *paninfo;        /* Pan info array                 */
-  size_t                   paninfo_count;  /* Pan info count                 */
-  mutex_t                  lock;           /* Framebuffer device lock        */
+  FAR struct fb_paninfo_s *paninfo;       /* Pan info array                  */
+  size_t                   paninfo_count; /* Pan info count                  */
+  spinlock_t               lock;          /* Lock for this framebuffer       */
 };
 
 struct fb_panelinfo_s
@@ -169,6 +169,7 @@ static int     fb_sem_wait(FAR struct fb_chardev_s *fb,
                            FAR struct fb_priv_s *priv,
                            int overlay);
 static void    fb_sem_post(FAR struct fb_chardev_s *fb, int overlay);
+static void    fb_sem_reset(FAR struct fb_chardev_s *fb, int overlay);
 #endif
 
 #ifdef CONFIG_BUILD_KERNEL
@@ -256,9 +257,7 @@ static int fb_splashscreen(FAR struct fb_videoinfo_s *vinfo,
   FAR uint8_t                      *dst;
   unsigned int                      row;
   unsigned int                      nrun;
-  unsigned int                      width;
   FAR fb_pixel_t                    *buf;
-  FAR fb_pixel_t                    *bufp;
   FAR fb_pixel_t                    colour;
   int                               ret = OK;
 
@@ -303,7 +302,8 @@ static int fb_splashscreen(FAR struct fb_videoinfo_s *vinfo,
 
   for (row = 0; row < g_splscr.height; row++)
     {
-      bufp = buf; /* Start address of the buffer */
+      unsigned int width;
+      FAR fb_pixel_t *bufp = buf; /* Start address of the buffer */
 
       /* Process each run-length encoded pixel in the image */
 
@@ -404,19 +404,25 @@ static int fb_add_paninfo(FAR struct fb_chardev_s *fb,
    * thread during the writing process.
    */
 
-  flags = enter_critical_section();
+  flags = spin_lock_irqsave(&fb->lock);
 
   /* Write planeinfo information to the queue. */
 
   ret = circbuf_write(panbuf, info, sizeof(union fb_paninfo_u));
+
+  spin_unlock_irqrestore(&fb->lock, flags);
   if (ret != sizeof(union fb_paninfo_u))
     {
       gwarn("WARNING: circbuf_write(panbuf) failed\n");
     }
 
-  /* Re-enable interrupts */
+#ifdef CONFIG_FB_SYNC
+  if (circbuf_is_full(panbuf))
+    {
+      fb_sem_reset(fb, overlay);
+    }
 
-  leave_critical_section(flags);
+#endif
   return ret <= 0 ? -ENOSPC : OK;
 }
 
@@ -443,13 +449,13 @@ static int fb_clear_paninfo(FAR struct fb_chardev_s *fb,
    * thread during the writing process.
    */
 
-  flags = enter_critical_section();
+  flags = spin_lock_irqsave(&fb->lock);
 
   circbuf_reset(panbuf);
 
   /* Re-enable interrupts */
 
-  leave_critical_section(flags);
+  spin_unlock_irqrestore(&fb->lock, flags);
   return OK;
 }
 
@@ -476,7 +482,12 @@ static int fb_open(FAR struct file *filep)
       return -ENOMEM;
     }
 
-  flags = enter_critical_section();
+  priv->overlay = FB_NO_OVERLAY;
+#ifdef CONFIG_FB_SYNC
+  nxsem_init(&priv->wait, 0, 0);
+#endif
+
+  flags = spin_lock_irqsave(&fb->lock);
 
   if (fb->head == NULL)
     {
@@ -487,23 +498,20 @@ static int fb_open(FAR struct file *filep)
         }
     }
 
-  priv->overlay = FB_NO_OVERLAY;
-#ifdef CONFIG_FB_SYNC
-  nxsem_init(&priv->wait, 0, 0);
-#endif
-
   /* Attach the open structure to the device */
 
   priv->flink = fb->head;
   fb->head = priv;
-
+  spin_unlock_irqrestore(&fb->lock, flags);
   filep->f_priv = priv;
 
-  leave_critical_section(flags);
   return 0;
 
 err_fb:
-  leave_critical_section(flags);
+  spin_unlock_irqrestore(&fb->lock, flags);
+#ifdef CONFIG_FB_SYNC
+  nxsem_destroy(&priv->wait);
+#endif
   kmm_free(priv);
   return ret;
 }
@@ -528,7 +536,7 @@ static int fb_close(FAR struct file *filep)
 
   DEBUGASSERT(fb->vtable != NULL && priv != NULL);
 
-  flags = enter_critical_section();
+  flags = spin_lock_irqsave(&fb->lock);
 
   DEBUGASSERT(fb->head);
   if (fb->head->flink == NULL)
@@ -538,7 +546,7 @@ static int fb_close(FAR struct file *filep)
           ret = fb->vtable->close(fb->vtable);
           if (ret < 0)
             {
-              leave_critical_section(flags);
+              spin_unlock_irqrestore(&fb->lock, flags);
               return ret;
             }
         }
@@ -565,7 +573,7 @@ static int fb_close(FAR struct file *filep)
       fb->head = priv->flink;
     }
 
-  leave_critical_section(flags);
+  spin_unlock_irqrestore(&fb->lock, flags);
 
 #ifdef CONFIG_FB_SYNC
   nxsem_destroy(&priv->wait);
@@ -600,7 +608,6 @@ static ssize_t fb_read(FAR struct file *filep, FAR char *buffer, size_t len)
   priv  = filep->f_priv;
 
   DEBUGASSERT(fb->vtable != NULL && priv != NULL);
-  nxmutex_lock(&fb->lock);
   paninfo = fb_get_paninfo(fb, priv->overlay);
 
   /* Get the start and size of the transfer */
@@ -608,7 +615,6 @@ static ssize_t fb_read(FAR struct file *filep, FAR char *buffer, size_t len)
   start = filep->f_pos;
   if (start >= paninfo->fblen)
     {
-      nxmutex_unlock(&fb->lock);
       return 0;  /* Return end-of-file */
     }
 
@@ -631,7 +637,6 @@ static ssize_t fb_read(FAR struct file *filep, FAR char *buffer, size_t len)
     }
 
   filep->f_pos += size;
-  nxmutex_unlock(&fb->lock);
   return size;
 }
 
@@ -661,7 +666,6 @@ static ssize_t fb_write(FAR struct file *filep, FAR const char *buffer,
   priv  = filep->f_priv;
 
   DEBUGASSERT(fb->vtable != NULL && priv != NULL);
-  nxmutex_lock(&fb->lock);
   paninfo = fb_get_paninfo(fb, priv->overlay);
 
   /* Get the start and size of the transfer */
@@ -669,7 +673,6 @@ static ssize_t fb_write(FAR struct file *filep, FAR const char *buffer,
   start = filep->f_pos;
   if (start >= paninfo->fblen)
     {
-      nxmutex_unlock(&fb->lock);
       return -EFBIG;  /* Cannot extend the framebuffer */
     }
 
@@ -692,7 +695,6 @@ static ssize_t fb_write(FAR struct file *filep, FAR const char *buffer,
     }
 
   filep->f_pos += size;
-  nxmutex_unlock(&fb->lock);
   return size;
 }
 
@@ -811,9 +813,7 @@ static int fb_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
               break;
             }
 
-          nxmutex_lock(&fb->lock);
           ret = fb->vtable->getvideoinfo(fb->vtable, vinfo);
-          nxmutex_unlock(&fb->lock);
         }
         break;
 
@@ -823,9 +823,7 @@ static int fb_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
             (FAR struct fb_planeinfo_s *)((uintptr_t)arg);
 
           DEBUGASSERT(pinfo != NULL);
-          nxmutex_lock(&fb->lock);
           ret = fb_get_planeinfo(fb, pinfo, pinfo->display);
-          nxmutex_unlock(&fb->lock);
         }
         break;
 
@@ -907,9 +905,7 @@ static int fb_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
               break;
             }
 
-          nxmutex_lock(&fb->lock);
           ret = fb->vtable->updatearea(fb->vtable, area);
-          nxmutex_unlock(&fb->lock);
         }
         break;
 #endif
@@ -1185,19 +1181,16 @@ static int fb_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
           DEBUGASSERT(pinfo != NULL && fb->vtable != NULL);
           memcpy(&paninfo, pinfo, sizeof(*pinfo));
 
-          nxmutex_lock(&fb->lock);
           if (fb->vtable->pandisplay != NULL)
             {
               ret = fb->vtable->pandisplay(fb->vtable, pinfo);
               if (ret < 0)
                 {
-                  nxmutex_unlock(&fb->lock);
                   break;
                 }
             }
 
           ret = fb_add_paninfo(fb, &paninfo, FB_NO_OVERLAY);
-          nxmutex_unlock(&fb->lock);
         }
         break;
 
@@ -1227,18 +1220,15 @@ static int fb_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
               break;
             }
 
-          nxmutex_lock(&fb->lock);
           ret = fb->vtable->getvideoinfo(fb->vtable, &vinfo);
           if (ret < 0)
             {
-              nxmutex_unlock(&fb->lock);
               break;
             }
 
           ret = fb_get_planeinfo(fb, &pinfo, 0);
           if (ret < 0)
             {
-              nxmutex_unlock(&fb->lock);
               break;
             }
 
@@ -1310,8 +1300,6 @@ static int fb_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
                 varinfo->transp.length = 8;
                 break;
             }
-
-          nxmutex_unlock(&fb->lock);
         }
         break;
 
@@ -1329,18 +1317,15 @@ static int fb_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
               break;
             }
 
-          nxmutex_lock(&fb->lock);
           ret = fb->vtable->getvideoinfo(fb->vtable, &vinfo);
           if (ret < 0)
             {
-              nxmutex_unlock(&fb->lock);
               break;
             }
 
           ret = fb_get_planeinfo(fb, &pinfo, 0);
           if (ret < 0)
             {
-              nxmutex_unlock(&fb->lock);
               break;
             }
 
@@ -1357,15 +1342,12 @@ static int fb_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
           fixinfo->visual      = FB_ISMONO(vinfo.fmt) ?
                                  FB_VISUAL_MONO10 : FB_VISUAL_TRUECOLOR;
           fixinfo->line_length = pinfo.stride;
-          nxmutex_unlock(&fb->lock);
         }
         break;
 
       case FBIOGET_PANINFOCNT:
         {
-          nxmutex_lock(&fb->lock);
           ret = fb_paninfo_count(fb->vtable, (int)arg);
-          nxmutex_unlock(&fb->lock);
         }
         break;
 
@@ -1417,13 +1399,11 @@ static int fb_mmap(FAR struct file *filep, FAR struct mm_map_entry_s *map)
   priv  = filep->f_priv;
 
   DEBUGASSERT(fb->vtable != NULL && priv != NULL);
-  nxmutex_lock(&fb->lock);
   paninfo = fb_get_paninfo(fb, priv->overlay);
 
   if (map->offset < 0 || map->length == 0 ||
       map->offset + map->length > paninfo->fblen)
     {
-      nxmutex_unlock(&fb->lock);
       return -EINVAL;
     }
 
@@ -1432,7 +1412,6 @@ static int fb_mmap(FAR struct file *filep, FAR struct mm_map_entry_s *map)
   addr = fb_map_region(paninfo, map->offset, map->length, &rest);
   if (map->length > rest)
     {
-      nxmutex_unlock(&fb->lock);
       return -EINVAL;
     }
 
@@ -1445,7 +1424,6 @@ static int fb_mmap(FAR struct file *filep, FAR struct mm_map_entry_s *map)
 #else
   map->vaddr = addr;
 #endif
-  nxmutex_unlock(&fb->lock);
   return OK;
 }
 
@@ -1476,7 +1454,7 @@ static int fb_poll(FAR struct file *filep, struct pollfd_s *fds, bool setup)
 
   DEBUGASSERT(fb->vtable != NULL && priv != NULL);
 
-  flags = enter_critical_section();
+  flags = spin_lock_irqsave_nopreempt(&fb->lock);
 
   if (setup)
     {
@@ -1515,7 +1493,7 @@ static int fb_poll(FAR struct file *filep, struct pollfd_s *fds, bool setup)
     }
 
 errout:
-  leave_critical_section(flags);
+  spin_unlock_irqrestore_nopreempt(&fb->lock, flags);
   return ret;
 }
 
@@ -1613,13 +1591,14 @@ static int fb_get_planeinfo(FAR struct fb_chardev_s *fb,
 static void fb_do_pollnotify(wdparm_t arg)
 {
   FAR struct fb_paninfo_s *paninfo = (FAR struct fb_paninfo_s *)arg;
+  FAR struct fb_chardev_s *fb = paninfo->dev;
   FAR struct fb_priv_s * priv;
   irqstate_t flags;
   int overlay;
 
   overlay = paninfo - paninfo->dev->paninfo - 1;
 
-  flags = enter_critical_section();
+  flags = spin_lock_irqsave_nopreempt(&fb->lock);
   for (priv = paninfo->dev->head; priv; priv = priv->flink)
     {
       if (priv->overlay != overlay)
@@ -1632,7 +1611,7 @@ static void fb_do_pollnotify(wdparm_t arg)
       poll_notify(priv->fds, CONFIG_VIDEO_FB_NPOLLWAITERS, POLLOUT);
     }
 
-  leave_critical_section(flags);
+  spin_unlock_irqrestore_nopreempt(&fb->lock, flags);
 }
 
 #ifdef CONFIG_FB_SYNC
@@ -1645,7 +1624,6 @@ static int fb_sem_wait(FAR struct fb_chardev_s *fb,
                        int overlay)
 {
   struct fb_panelinfo_s panelinfo;
-  irqstate_t flags;
   int ret;
 
   ret = fb_get_panelinfo(fb, &panelinfo, overlay);
@@ -1654,14 +1632,11 @@ static int fb_sem_wait(FAR struct fb_chardev_s *fb,
       return ret;
     }
 
-  flags = enter_critical_section();
-
   if (fb_paninfo_count(fb->vtable, overlay) == panelinfo.fbcount)
     {
       ret = nxsem_wait(&priv->wait);
     }
 
-  leave_critical_section(flags);
   return ret;
 }
 
@@ -1676,7 +1651,7 @@ static void fb_sem_post(FAR struct fb_chardev_s *fb, int overlay)
 
   DEBUGASSERT(fb != NULL);
 
-  flags = enter_critical_section();
+  flags = spin_lock_irqsave_nopreempt(&fb->lock);
 
   for (priv = fb->head; priv; priv = priv->flink)
     {
@@ -1690,7 +1665,7 @@ static void fb_sem_post(FAR struct fb_chardev_s *fb, int overlay)
           int semcount = 0;
 
           nxsem_get_value(&priv->wait, &semcount);
-          if (semcount >= 0)
+          if (semcount > 0)
             {
               break;
             }
@@ -1701,7 +1676,35 @@ static void fb_sem_post(FAR struct fb_chardev_s *fb, int overlay)
         }
     }
 
-  leave_critical_section(flags);
+  spin_unlock_irqrestore_nopreempt(&fb->lock, flags);
+}
+
+static void fb_sem_reset(FAR struct fb_chardev_s *fb, int overlay)
+{
+  FAR struct fb_priv_s * priv;
+  irqstate_t flags;
+
+  DEBUGASSERT(fb != NULL);
+
+  flags = spin_lock_irqsave_nopreempt(&fb->lock);
+
+  for (priv = fb->head; priv; priv = priv->flink)
+    {
+      if (priv->overlay != overlay)
+        {
+          continue;
+        }
+
+      int semcount = 0;
+
+      nxsem_get_value(&priv->wait, &semcount);
+      if (semcount > 0)
+        {
+          nxsem_reset(&priv->wait, 0);
+        }
+    }
+
+  spin_unlock_irqrestore_nopreempt(&fb->lock, flags);
 }
 #endif
 
@@ -1760,7 +1763,7 @@ void fb_notify_vsync(FAR struct fb_vtable_s *vtable)
   fb = vtable->priv;
   if (fb != NULL)
     {
-      flags = enter_critical_section();
+      flags = spin_lock_irqsave_nopreempt(&fb->lock);
       for (priv = fb->head; priv; priv = priv->flink)
         {
           /* Notify that the vsync comes. */
@@ -1768,7 +1771,7 @@ void fb_notify_vsync(FAR struct fb_vtable_s *vtable)
           poll_notify(priv->fds, CONFIG_VIDEO_FB_NPOLLWAITERS, POLLPRI);
         }
 
-      leave_critical_section(flags);
+      spin_unlock_irqrestore_nopreempt(&fb->lock, flags);
     }
 }
 
@@ -1810,7 +1813,7 @@ int fb_peek_paninfo(FAR struct fb_vtable_s *vtable,
       return -EINVAL;
     }
 
-  flags = enter_critical_section();
+  flags = spin_lock_irqsave(&fb->lock);
 
   /* Attempt to peek a frame from the vsync queue. */
 
@@ -1819,7 +1822,7 @@ int fb_peek_paninfo(FAR struct fb_vtable_s *vtable,
 
   /* Re-enable interrupts */
 
-  leave_critical_section(flags);
+  spin_unlock_irqrestore(&fb->lock, flags);
   return ret <= 0 ? -ENOSPC : OK;
 }
 
@@ -1859,7 +1862,7 @@ int fb_remove_paninfo(FAR struct fb_vtable_s *vtable, int overlay)
       return -EINVAL;
     }
 
-  flags = enter_critical_section();
+  flags = spin_lock_irqsave(&fb->lock);
 
   full = (circbuf_space(panbuf) == 0);
 
@@ -1870,7 +1873,7 @@ int fb_remove_paninfo(FAR struct fb_vtable_s *vtable, int overlay)
 
   /* Re-enable interrupts */
 
-  leave_critical_section(flags);
+  spin_unlock_irqrestore(&fb->lock, flags);
 
   if (ret == sizeof(union fb_paninfo_u))
     {
@@ -1921,11 +1924,11 @@ int fb_paninfo_count(FAR struct fb_vtable_s *vtable, int overlay)
       return -EINVAL;
     }
 
-  flags = enter_critical_section();
+  flags = spin_lock_irqsave(&fb->lock);
 
   ret = circbuf_used(panbuf) / sizeof(union fb_paninfo_u);
 
-  leave_critical_section(flags);
+  spin_unlock_irqrestore(&fb->lock, flags);
 
   return ret;
 }
@@ -1984,7 +1987,6 @@ int fb_register_device(int display, int plane,
   DEBUGASSERT(vtable != NULL);
   fb->plane  = plane;
   fb->vtable = vtable;
-  nxmutex_init(&fb->lock);
 
   /* Initialize the frame buffer instance. */
 
@@ -2141,6 +2143,7 @@ int fb_register_device(int display, int plane,
 #endif
 
   vtable->priv = fb;
+  spin_lock_init(&fb->lock);
   return OK;
 
 errout_with_paninfo:
@@ -2151,7 +2154,6 @@ errout_with_paninfo:
 
   kmm_free(fb->paninfo);
 errout_with_fb:
-  nxmutex_destroy(&fb->lock);
   kmm_free(fb);
   return ret;
 }

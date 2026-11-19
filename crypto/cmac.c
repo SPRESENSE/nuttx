@@ -57,9 +57,9 @@ void aes_cmac_init(FAR AES_CMAC_CTX *ctx)
 }
 
 void aes_cmac_setkey(FAR AES_CMAC_CTX *ctx,
-                     FAR const uint8_t *key)
+                     FAR const uint8_t *key, uint16_t len)
 {
-  aes_setkey(&ctx->aesctx, key, 16);
+  aes_setkey(&ctx->aesctx, key, len);
 }
 
 void aes_cmac_update(FAR AES_CMAC_CTX *ctx,
@@ -67,6 +67,16 @@ void aes_cmac_update(FAR AES_CMAC_CTX *ctx,
                      u_int len)
 {
   u_int mlen;
+
+  /* Absorbing zero bytes is a no-op.  The finalization path flushes a
+   * partial block with a NULL data pointer and zero length, which must
+   * not reach memcpy.
+   */
+
+  if (len == 0)
+    {
+      return;
+    }
 
   if (ctx->m_n > 0)
     {
