@@ -36,7 +36,7 @@
 #include <sched/sched.h>
 
 #include "arm_internal.h"
-#include "arm_gic.h"
+#include "gic.h"
 
 /****************************************************************************
  * Public Functions
@@ -121,7 +121,8 @@ void up_irqinitialize(void)
 
   /* Initialize the Generic Interrupt Controller (GIC) for CPU0 */
 
-  arm_gic_initialize();   /* Initialization common to all CPUs */
+  arm_gic0_initialize();      /* for GIC common parts */
+  arm_gic_initialize();       /* for GIC CPU interface */
 
 #ifndef CONFIG_SUPPRESS_INTERRUPTS
 

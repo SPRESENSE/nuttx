@@ -863,6 +863,27 @@ config DEBUG_CHILDSTATUS
 
 endif # SCHED_CHILD_STATUS
 
+config SCHED_PROCESS_GROUPS
+	bool "Process groups and sessions"
+	default n
+	depends on SCHED_HAVE_PARENT
+	---help---
+		Keep a process group ID and a session ID in each task group, as
+		POSIX job control defines them.  setpgid(), getpgid(), setsid()
+		and getsid() move from the C library to the kernel.  kill() with
+		a pid of 0 or less than -1, and killpg(), send the signal to each
+		process of the process group.  posix_spawn() supports
+		POSIX_SPAWN_SETPGROUP and POSIX_SPAWN_SETSID.  A terminal sends
+		SIGINT, SIGTSTP and SIGWINCH to its foreground process group.
+
+		A task that a user task starts gets the process group and the
+		session of that task, and exec() keeps them.  A task that the
+		kernel starts (for example the init task) is the leader of a new
+		session.
+
+		Without this option, a process group and a session contain one
+		process: their IDs are the process ID.
+
 config SCHED_WAITPID
 	bool "Enable waitpid() API"
 	default n
@@ -889,6 +910,12 @@ config SCHED_DUMP_ON_EXIT
 	default n
 	---help---
 		Dump all tasks state on exit()
+
+config SCHED_DUMP_FDLIST
+	bool "Dump fd list on assert"
+	default n
+	---help---
+		Dump all tasks fd list when assert is triggered.
 
 config SCHED_USER_IDENTITY
 	bool "Support per-task User Identity"

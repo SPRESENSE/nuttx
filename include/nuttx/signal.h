@@ -469,14 +469,14 @@ int nxsig_queue(int pid, int signo, const union sigval value);
  *   the POSIX standard kill() function but does not modify the application
  *   errno variable.
  *
- *   Limitation: Sending of signals to 'process groups' is not
- *   supported in NuttX
+ *   With CONFIG_SCHED_PROCESS_GROUPS, a pid of 0 is the process group of
+ *   the caller, and -pid is the process group pid.  Without it, a process
+ *   group is one process: 0 is the caller and -pid is the process pid.
  *
  * Input Parameters:
  *   pid - The id of the task to receive the signal.  The POSIX nxsig_kill
  *     specification encodes process group information as zero and
- *     negative pid values.  Only positive, non-zero values of pid are
- *     supported by this implementation.
+ *     negative pid values.  A pid of -1 (all processes) is not supported.
  *   signo - The signal number to send.  If signo is zero, no signal is
  *     sent, but all error checking is performed.
  *
@@ -489,11 +489,34 @@ int nxsig_queue(int pid, int signo, const union sigval value);
  *    EPERM  The process does not have permission to send the
  *           signal to any of the target processes.
  *    ESRCH  The pid or process group does not exist.
- *    ENOSYS Do not support sending signals to process groups.
+ *    ENOSYS pid is -1: a signal to all processes is not supported.
  *
  ****************************************************************************/
 
 int nxsig_kill(pid_t pid, int signo);
+
+/****************************************************************************
+ * Name: nxsig_kill_foreground
+ *
+ * Description:
+ *   Send a signal of a terminal to its foreground process group pgrp.  If
+ *   no process is in the process group pgrp, the process pgrp gets it.
+ *   Without CONFIG_SCHED_PROCESS_GROUPS, this is nxsig_kill().
+ *
+ * Input Parameters:
+ *   pgrp  - The foreground process group ID (or a process ID)
+ *   signo - The signal number to send
+ *
+ * Returned Value:
+ *   As nxsig_kill().
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_SCHED_PROCESS_GROUPS
+int nxsig_kill_foreground(pid_t pgrp, int signo);
+#else
+#  define nxsig_kill_foreground(pgrp, signo) nxsig_kill(pgrp, signo)
+#endif
 
 /****************************************************************************
  * Name: nxsig_tgkill

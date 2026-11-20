@@ -36,7 +36,7 @@
 #include <sched/sched.h>
 
 #include "arm_internal.h"
-#include "arm_gic.h"
+#include "gic.h"
 
 /***************************************************************************
  * Pre-processor Definitions
@@ -567,7 +567,7 @@ static void gicv3_dist_init(void)
   putreg32(0, GICD_CTLR);
   gic_wait_rwp(GIC_SPI_INT_BASE);
 
-#ifdef CONFIG_ARCH_SINGLE_SECURITY_STATE
+#ifndef CONFIG_ARCH_HAVE_TRUSTZONE
 
   /* Before configuration, we need to check whether
    * the GIC single security state mode is supported.
@@ -636,7 +636,7 @@ static void gicv3_dist_init(void)
    * it has different GIC configure with standard arrch64 A or R core
    */
 
-#ifdef CONFIG_ARCH_SINGLE_SECURITY_STATE
+#ifndef CONFIG_ARCH_HAVE_TRUSTZONE
   /* For GIC single security state(ARMv8-R), the config means
    * the GIC is under single security state which has
    * only two groups:
@@ -971,7 +971,7 @@ static void arm_gic_init(void)
 #endif
 }
 
-int arm_gic_initialize(void)
+int arm_gic0_initialize(void)
 {
   int err;
 
@@ -984,15 +984,10 @@ int arm_gic_initialize(void)
 
   gicv3_dist_init();
 
-  arm_gic_init();
-
   return 0;
 }
 
-#ifdef CONFIG_SMP
-void arm_gic_secondary_init(void)
+void arm_gic_initialize(void)
 {
   arm_gic_init();
 }
-
-#endif

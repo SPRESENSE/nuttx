@@ -20,9 +20,11 @@
 #
 # ##############################################################################
 
-set(SRCS tc3xx_timerisr.c tc3xx_serial.c tc3xx_wdt.c tc3xx_clockconfig.c)
+set(SRCS tc3xx_timerisr.c tc3xx_wdt.c tc3xx_clockconfig.c)
 
 target_sources(arch PRIVATE ${SRCS})
+
+add_subdirectory(${NUTTX_DIR}/arch/tricore/src/common/aurix aurix)
 
 set(ILLD_UNPACK "${CMAKE_CURRENT_SOURCE_DIR}/../illd/tc3xx")
 set(ILLD_TARBALL "${ILLD_UNPACK}/illd.tar.gz")
@@ -116,15 +118,10 @@ set_property(
   PROPERTY NUTTX_INCLUDE_DIRECTORIES ${SDK_INCDIR})
 
 set(SDK_CSRCS
-    "${ILLD_DIR}/Libraries/iLLD/TC3xx/Tricore/Asclin/Std/IfxAsclin.c"
     "${ILLD_DIR}/Libraries/iLLD/TC3xx/Tricore/Cpu/Std/IfxCpu.c"
-    "${ILLD_DIR}/Libraries/iLLD/TC3xx/Tricore/_Impl/IfxAsclin_cfg.c"
     "${ILLD_DIR}/Libraries/iLLD/TC3xx/Tricore/_Impl/IfxCpu_cfg.c"
-    "${ILLD_DIR}/Libraries/iLLD/TC3xx/Tricore/_Impl/TC39xB/IfxPort_cfg_TC39xB.c"
-    "${ILLD_DIR}/Libraries/iLLD/TC3xx/Tricore/_PinMap/TC39xB/IfxAsclin_PinMap_TC39xB_LFBGA292.c"
     "${ILLD_DIR}/Libraries/iLLD/TC3xx/Tricore/Pms/Std/IfxPmsEvr.c"
     "${ILLD_DIR}/Libraries/iLLD/TC3xx/Tricore/Pms/Std/IfxPmsPm.c"
-    "${ILLD_DIR}/Libraries/iLLD/TC3xx/Tricore/Port/Std/IfxPort.c"
     "${ILLD_DIR}/Libraries/iLLD/TC3xx/Tricore/Scu/Std/IfxScuCcu.c"
     "${ILLD_DIR}/Libraries/iLLD/TC3xx/Tricore/Scu/Std/IfxScuEru.c"
     "${ILLD_DIR}/Libraries/iLLD/TC3xx/Tricore/Scu/Std/IfxScuLbist.c"

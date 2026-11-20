@@ -2861,6 +2861,15 @@ config ARCH_BOARD_SABRE_6QUAD
 		This options selects support for NuttX on the NXP/Freescale Sabre
 		board featuring the iMX 6Quad CPU.
 
+config ARCH_BOARD_QEMU_RH850_U2C
+	bool "QEMU rh850-u2c machine"
+	depends on ARCH_CHIP_R7F702600
+	select ARCH_HAVE_POWEROFF
+	select ARCH_HAVE_RESET
+	---help---
+		This options selects support for NuttX on the QEMU rh850-u2c
+		machine, the Renesas RH850/U2C8 (R7F702600) with its G4KH CPU0.
+
 config ARCH_BOARD_A2G_TC397_5V_TFT
 	bool "Infineon's AURIX TC397 board: KIT_A2G_TC397_5V_TFT"
 	depends on ARCH_CHIP_TC39X
@@ -2907,6 +2916,14 @@ config ARCH_BOARD_QEMU_ARMV7R
 	---help---
 		This selects support for NuttX on the QEMU ARMv7r + virt
 		board featuring the qemu ARMv7r CPUs.
+
+config ARCH_BOARD_QEMU_ARMV8R_AARCH32
+	bool "Qemu ARMv8r CPUs board"
+	depends on ARCH_CHIP_QEMU_ARM
+	select ARCH_HAVE_IRQBUTTONS
+	---help---
+		This selects support for NuttX on the QEMU ARMv8r + virt
+		board featuring the qemu ARMv8r aarch32 CPUs.
 
 config ARCH_BOARD_PINEPHONE
 	bool "PINE64 PinePhone"
@@ -4473,12 +4490,14 @@ config ARCH_BOARD
 	default "starpro64"                    if ARCH_BOARD_EIC7700X_STARPRO64
 	default "eic7700-evb"                  if ARCH_BOARD_EIC7700X_EVB
 	default "sabre-6quad"                  if ARCH_BOARD_SABRE_6QUAD
+	default "qemu-rh850-u2c"               if ARCH_BOARD_QEMU_RH850_U2C
 	default "a2g-tc397-5v-tft"             if ARCH_BOARD_A2G_TC397_5V_TFT
 	default "triboard_tc4x9_com"           if ARCH_BOARD_TRIBOARD_TC4X9_COM
 	default "qemu-armv7a"                  if ARCH_BOARD_QEMU_ARMV7A
 	default "rtl8730e_evb"                     if ARCH_BOARD_RTL8730E_EVB
 	default "qemu-armv7r"                  if ARCH_BOARD_QEMU_ARMV7R
 	default "qemu-armv8a"                  if ARCH_BOARD_QEMU_ARMV8A
+	default "qemu-armv8r-aarch32"          if ARCH_BOARD_QEMU_ARMV8R_AARCH32
 	default "pinephone"                    if ARCH_BOARD_PINEPHONE
 	default "pinephonepro"                 if ARCH_BOARD_PINEPHONE_PRO
 	default "orangepi-5-pro"               if ARCH_BOARD_ORANGEPI_5_PRO
@@ -4719,6 +4738,9 @@ endif
 if ARCH_BOARD_SABRE_6QUAD
 source "boards/arm/imx6/sabre-6quad/Kconfig"
 endif
+if ARCH_BOARD_QEMU_RH850_U2C
+source "boards/rh850/u2c/qemu-rh850-u2c/Kconfig"
+endif
 if ARCH_BOARD_A2G_TC397_5V_TFT
 source "boards/tricore/tc3xx/a2g-tc397-5v-tft/Kconfig"
 endif
@@ -4748,6 +4770,9 @@ source "boards/arm/rtl8730e/rtl8730e_evb/Kconfig"
 endif
 if ARCH_BOARD_QEMU_ARMV8A
 source "boards/arm64/qemu/qemu-armv8a/Kconfig"
+endif
+if ARCH_BOARD_QEMU_ARMV8R_AARCH32
+source "boards/arm/qemu/qemu-armv8r-aarch32/Kconfig"
 endif
 if ARCH_BOARD_PINEPHONE
 source "boards/arm64/a64/pinephone/Kconfig"

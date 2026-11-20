@@ -35,12 +35,14 @@
 #include <sys/param.h>
 #include <sys/socket.h>
 
+#include <nuttx/atomic.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/circbuf.h>
 #include <nuttx/crc32.h>
 #include <nuttx/rpmsg/rpmsg.h>
 #include <nuttx/mutex.h>
 #include <nuttx/poll.h>
+#include <nuttx/queue.h>
 #include <nuttx/sched.h>
 #include <nuttx/semaphore.h>
 #include <nuttx/fs/ioctl.h>
@@ -98,7 +100,7 @@ struct rpmsg_socket_conn_s
 
   struct socket_conn_s           sconn;
 
-  bool                           unbind;
+  atomic_t                       unbind;
   struct rpmsg_endpoint          ept;
 
   struct sockaddr_rpmsg          rpaddr;
@@ -130,6 +132,10 @@ struct rpmsg_socket_conn_s
 
   FAR struct rpmsg_socket_conn_s *pendlist;
   FAR struct rpmsg_socket_conn_s *pendnext;
+
+  /* Entry in g_rpmsg_socket_server while the socket is listening */
+
+  struct dq_entry_s              snode;
 
   /* server listen-scoket listening: backlog > 0;
    * others: backlog = 0;
@@ -245,7 +251,14 @@ const struct sock_intf_s g_rpmsg_sockif =
  * Private Data
  ****************************************************************************/
 
-static uint32_t g_rpmsg_id;
+static atomic_t g_rpmsg_id;
+
+/* Listening sockets.  rpmsg_socket_ns_bind() holds the lock while it uses
+ * the server it found, so that close() cannot free that server meanwhile.
+ */
+
+static mutex_t g_rpmsg_socket_lock = NXMUTEX_INITIALIZER;
+static dq_queue_t g_rpmsg_socket_server;
 
 /****************************************************************************
  * Private Functions
@@ -298,7 +311,7 @@ static FAR struct rpmsg_socket_conn_s *rpmsg_socket_alloc(void)
 
   conn->recvsize = CONFIG_NET_RPMSG_RXBUF_SIZE;
   conn->crefs = 1;
-  conn->priority = RPMSG_PRIO_DEFAULT;
+  conn->priority = CONFIG_NET_RPMSG_EPT_PRIORITY;
   return conn;
 }
 
@@ -318,29 +331,61 @@ static void rpmsg_socket_free(FAR struct rpmsg_socket_conn_s *conn)
 
 static int rpmsg_socket_wakeup(FAR struct rpmsg_socket_conn_s *conn)
 {
-  struct rpmsg_socket_data_s msg;
+  FAR struct rpmsg_socket_data_s *msg;
+  uint32_t len = sizeof(*msg);
   uint32_t space;
-  int ret = 0;
+  int ret;
 
-  if (!conn->ept.rdev || conn->unbind)
+  if (!conn->ept.rdev || atomic_read(&conn->unbind))
     {
-      return ret;
+      return 0;
     }
 
   nxmutex_lock(&conn->recvlock);
   space = conn->recvpos - conn->lastpos;
+  nxmutex_unlock(&conn->recvlock);
 
-  if (space > circbuf_size(&conn->recvbuf) / 2)
+  if (space <= circbuf_size(&conn->recvbuf) / 2)
     {
-      conn->lastpos = conn->recvpos;
-      msg.cmd = RPMSG_SOCKET_CMD_DATA;
-      msg.pos = conn->recvpos;
-      msg.len = 0;
-      ret = 1;
+      return 0;
     }
 
+  /* Reserve the tx buffer without holding recvlock, since it may block
+   * waiting for a free vring buffer.
+   */
+
+  msg = rpmsg_get_tx_payload_buffer(&conn->ept, &len, true);
+  if (msg == NULL)
+    {
+      return -ENOMEM;
+    }
+
+  DEBUGASSERT(len >= sizeof(*msg));
+  nxmutex_lock(&conn->recvlock);
+
+  /* The peer may have destroyed its endpoint meanwhile.  rpmsg_send()
+   * would then wait the whole RPMSG_TICK_COUNT for dest_addr to become
+   * valid again, so check and send under recvlock, which
+   * rpmsg_socket_ns_unbind() takes too.
+   */
+
+  if (!is_rpmsg_ept_ready(&conn->ept) || atomic_read(&conn->unbind))
+    {
+      nxmutex_unlock(&conn->recvlock);
+      rpmsg_release_tx_buffer(&conn->ept, msg);
+      return -ECONNRESET;
+    }
+
+  conn->lastpos = conn->recvpos;
+  msg->cmd = RPMSG_SOCKET_CMD_DATA;
+  msg->pos = conn->recvpos;
+  msg->len = 0;
+  ret = rpmsg_send_offchannel_nocopy(&conn->ept, conn->ept.addr,
+                                     conn->ept.dest_addr, msg,
+                                     sizeof(*msg));
+
   nxmutex_unlock(&conn->recvlock);
-  return ret ? rpmsg_send(&conn->ept, &msg, sizeof(msg)) : 0;
+  return ret;
 }
 
 static inline uint32_t
@@ -369,6 +414,12 @@ static int rpmsg_socket_ept_cb(FAR struct rpmsg_endpoint *ept,
       conn->sconn.s_flags |= _SF_CONNECTED;
       _SO_CONN_SETERRNO(conn, OK);
 
+      /* SYNC means the peer (re)established the connection.  Clear any
+       * stale unbind flag left by a previous NS_DESTROY so that connect()
+       * does not wrongly fail.
+       */
+
+      atomic_set_release(&conn->unbind, 0);
       rpmsg_socket_post(&conn->sendsem);
       rpmsg_socket_poll_notify(conn, POLLOUT);
       nxmutex_unlock(&conn->sendlock);
@@ -581,15 +632,54 @@ static bool rpmsg_socket_pend_remove(FAR struct rpmsg_socket_conn_s *server,
 static void rpmsg_socket_ns_bound(struct rpmsg_endpoint *ept)
 {
   FAR struct rpmsg_socket_conn_s *conn = ept->priv;
-  struct rpmsg_socket_sync_s msg;
+  FAR struct rpmsg_socket_sync_s *msg;
+  uint32_t len = sizeof(*msg);
 
-  msg.cmd  = RPMSG_SOCKET_CMD_SYNC;
-  msg.size = circbuf_size(&conn->recvbuf);
-  msg.pid  = nxsched_getpid();
-  msg.uid  = getuid();
-  msg.gid  = getgid();
+  if (!ept->rdev)
+    {
+      return;
+    }
 
-  rpmsg_send(&conn->ept, &msg, sizeof(msg));
+  /* Reserve the tx buffer without holding recvlock, since it may block
+   * waiting for a free vring buffer.
+   */
+
+  msg = rpmsg_get_tx_payload_buffer(ept, &len, true);
+  if (msg == NULL)
+    {
+      return;
+    }
+
+  DEBUGASSERT(len >= sizeof(*msg));
+
+  msg->cmd = RPMSG_SOCKET_CMD_SYNC;
+  msg->pid = nxsched_getpid();
+  msg->uid = getuid();
+  msg->gid = getgid();
+
+  nxmutex_lock(&conn->recvlock);
+
+  /* This runs in the rx callback context, where a blocking rpmsg_send()
+   * on an endpoint unregistered meanwhile would wait the whole
+   * RPMSG_TICK_COUNT and stall every inbound message.
+   *
+   * conn->unbind is not checked:  a stale flag left by an earlier
+   * NS_DESTROY is cleared only when a SYNC is received, so bailing out on
+   * it would leave a reconnecting peer without our recvbuf size.
+   */
+
+  if (!is_rpmsg_ept_ready(ept))
+    {
+      nxmutex_unlock(&conn->recvlock);
+      rpmsg_release_tx_buffer(ept, msg);
+      return;
+    }
+
+  msg->size = circbuf_size(&conn->recvbuf);
+  rpmsg_send_offchannel_nocopy(ept, ept->addr, ept->dest_addr,
+                               msg, sizeof(*msg));
+
+  nxmutex_unlock(&conn->recvlock);
 }
 
 static void rpmsg_socket_ns_unbind(FAR struct rpmsg_endpoint *ept)
@@ -600,7 +690,7 @@ static void rpmsg_socket_ns_unbind(FAR struct rpmsg_endpoint *ept)
   nxmutex_lock(&conn->recvlock);
   server = conn->server;
   conn->server = NULL;
-  conn->unbind = true;
+  atomic_set_release(&conn->unbind, 1);
   rpmsg_socket_post(&conn->sendsem);
   rpmsg_socket_post(&conn->recvsem);
   rpmsg_socket_poll_notify(conn, POLLIN | POLLOUT | POLLHUP | POLLERR);
@@ -638,6 +728,13 @@ static void rpmsg_socket_ns_unbind(FAR struct rpmsg_endpoint *ept)
 static void rpmsg_socket_ept_release(FAR struct rpmsg_endpoint *ept)
 {
   FAR struct rpmsg_socket_conn_s *conn = ept->priv;
+
+  /* Detach the ept from its rpmsg device: the conn may outlive the device
+   * when a file descriptor is still open, and a stale rdev would keep all
+   * the "if (conn->ept.rdev)" guards passing on freed memory.
+   */
+
+  ept->rdev = NULL;
 
   /* Release conn only when close is called */
 
@@ -696,31 +793,74 @@ static bool rpmsg_socket_ns_match(FAR struct rpmsg_device *rdev,
                                   FAR void *priv, FAR const char *name,
                                   uint32_t dest)
 {
-  FAR struct rpmsg_socket_conn_s *server = priv;
-  char namebuf[RPMSG_NAME_SIZE];
+  /* Only a stream client names its endpoint with a ":<id>" suffix.  The
+   * two ends of a datagram socket use the same name, and the first
+   * announcement has to wait in the rpmsg bind list until the other end
+   * creates its endpoint, so leave those alone.
+   */
 
-  rpmsg_socket_format_name(server, namebuf);
-  if (strncmp(name, namebuf, strlen(namebuf)))
-    {
-      return false;
-    }
-
-  if (server->rpaddr.rp_cpu[0] &&
-      strcmp(server->rpaddr.rp_cpu, rpmsg_get_cpuname(rdev)))
-    {
-      /* Bind specific CPU, then only listen that CPU */
-
-      return false;
-    }
-
-  return true;
+  return strncmp(name, RPMSG_SOCKET_NAME_PREFIX,
+                 RPMSG_SOCKET_NAME_PREFIX_LEN) == 0 &&
+         strchr(name + RPMSG_SOCKET_NAME_PREFIX_LEN, ':') != NULL;
 }
 
-static void rpmsg_socket_ns_bind(FAR struct rpmsg_device *rdev,
-                                 FAR void *priv, FAR const char *name,
-                                 uint32_t dest)
+/****************************************************************************
+ * Name: rpmsg_socket_find_server
+ *
+ * Assumptions:
+ *   g_rpmsg_socket_lock is held by the caller.
+ *
+ ****************************************************************************/
+
+static FAR struct rpmsg_socket_conn_s *
+rpmsg_socket_find_server(FAR struct rpmsg_device *rdev,
+                         FAR const char *name)
 {
-  FAR struct rpmsg_socket_conn_s *server = priv;
+  FAR struct rpmsg_socket_conn_s *server;
+  char namebuf[RPMSG_NAME_SIZE];
+
+  dq_for_every_entry(&g_rpmsg_socket_server, server,
+                     struct rpmsg_socket_conn_s, snode)
+    {
+      rpmsg_socket_format_name(server, namebuf);
+      if (strncmp(name, namebuf, strlen(namebuf)))
+        {
+          continue;
+        }
+
+      if (server->rpaddr.rp_cpu[0] &&
+          strcmp(server->rpaddr.rp_cpu, rpmsg_get_cpuname(rdev)))
+        {
+          /* Bind specific CPU, then only listen that CPU */
+
+          continue;
+        }
+
+      return server;
+    }
+
+  return NULL;
+}
+
+static void rpmsg_socket_ns_destroy(FAR struct rpmsg_device *rdev,
+                                    FAR const char *name,
+                                    uint32_t dest)
+{
+  struct rpmsg_ns_msg ns_msg;
+
+  strlcpy(ns_msg.name, name, RPMSG_NAME_SIZE);
+  ns_msg.addr  = RPMSG_ADDR_ANY;
+  ns_msg.flags = RPMSG_NS_DESTROY;
+
+  rpmsg_send_offchannel_raw(&rdev->ns_ept, rdev->ns_ept.addr,
+                            RPMSG_NS_EPT_ADDR, &ns_msg, sizeof(ns_msg),
+                            true);
+}
+
+static void rpmsg_socket_ns_accept(FAR struct rpmsg_socket_conn_s *server,
+                                   FAR struct rpmsg_device *rdev,
+                                   FAR const char *name, uint32_t dest)
+{
   FAR struct rpmsg_socket_conn_s *new;
   int ret;
 
@@ -758,7 +898,8 @@ static void rpmsg_socket_ns_bind(FAR struct rpmsg_device *rdev,
        * first, this connection never joins the listener's pending list.
        */
 
-      nerr("Reject the connection, Max listen %d\n", server->backlog);
+      nerr("Reject the connection from %s (ept:%s), max listen %d\n",
+           rpmsg_get_cpuname(rdev), name, server->backlog);
       nxmutex_unlock(&server->recvlock);
 
       new->server = NULL;
@@ -824,6 +965,30 @@ errout_with_pending:
   rpmsg_socket_free(new);
 }
 
+static void rpmsg_socket_ns_bind(FAR struct rpmsg_device *rdev,
+                                 FAR void *priv, FAR const char *name,
+                                 uint32_t dest)
+{
+  FAR struct rpmsg_socket_conn_s *server;
+
+  nxmutex_lock(&g_rpmsg_socket_lock);
+  server = rpmsg_socket_find_server(rdev, name);
+  if (server != NULL)
+    {
+      rpmsg_socket_ns_accept(server, rdev, name, dest);
+    }
+  else
+    {
+      /* Nobody listens on this name:  refuse the connection, so that the
+       * client fails with ECONNREFUSED instead of waiting for a listener.
+       */
+
+      rpmsg_socket_ns_destroy(rdev, name, dest);
+    }
+
+  nxmutex_unlock(&g_rpmsg_socket_lock);
+}
+
 static int rpmsg_socket_getaddr(FAR struct rpmsg_socket_conn_s *conn,
                                 FAR struct sockaddr *addr,
                                 FAR socklen_t *addrlen)
@@ -856,7 +1021,7 @@ static int rpmsg_socket_setaddr(FAR struct rpmsg_socket_conn_s *conn,
   if (suffix)
     {
       snprintf(conn->nameid, sizeof(conn->nameid), ":%" PRIx32,
-               g_rpmsg_id++);
+               atomic_add(&g_rpmsg_id, 1));
     }
   else
     {
@@ -936,12 +1101,15 @@ static int rpmsg_socket_listen(FAR struct socket *psock, int backlog)
       return -EINVAL;
     }
 
+  nxmutex_lock(&g_rpmsg_socket_lock);
+  if (server->backlog == 0)
+    {
+      dq_addlast(&server->snode, &g_rpmsg_socket_server);
+    }
+
   server->backlog = backlog;
-  return rpmsg_register_callback(server,
-                                 NULL,
-                                 NULL,
-                                 rpmsg_socket_ns_match,
-                                 rpmsg_socket_ns_bind);
+  nxmutex_unlock(&g_rpmsg_socket_lock);
+  return 0;
 }
 
 static int rpmsg_socket_connect_internal(FAR struct socket *psock)
@@ -974,9 +1142,14 @@ static int rpmsg_socket_connect_internal(FAR struct socket *psock)
           return -EINPROGRESS;
         }
 
+      if (!conn->ept.rdev)
+        {
+          return -ECONNREFUSED;
+        }
+
       ret = net_sem_timedwait(&conn->sendsem,
                               _SO_TIMEOUT(conn->sconn.s_sndtimeo));
-      if (!conn->ept.rdev || conn->unbind)
+      if (!conn->ept.rdev || atomic_read(&conn->unbind))
         {
           ret = -ECONNRESET;
         }
@@ -1117,7 +1290,7 @@ static int rpmsg_socket_poll(FAR struct socket *psock,
         }
       else if (_SS_ISCONNECTED(conn->sconn.s_flags))
         {
-          if (!conn->ept.rdev || conn->unbind)
+          if (!conn->ept.rdev || atomic_read(&conn->unbind))
             {
               eventset |= POLLHUP;
             }
@@ -1140,10 +1313,10 @@ static int rpmsg_socket_poll(FAR struct socket *psock,
         }
       else /* !_SS_ISCONNECTED(conn->sconn.s_flags) */
         {
-          if ((!conn->ept.rdev || conn->unbind) &&
-              !_SS_INITD(conn->sconn.s_flags))
+          if (atomic_read(&conn->unbind) ||
+              (!conn->ept.rdev && !_SS_INITD(conn->sconn.s_flags)))
             {
-              eventset |= POLLHUP;
+              eventset |= POLLHUP | POLLERR;
             }
         }
 
@@ -1232,7 +1405,7 @@ static ssize_t rpmsg_socket_send_continuous(FAR struct socket *psock,
 
           ret = net_sem_timedwait(&conn->sendsem,
                                   _SO_TIMEOUT(conn->sconn.s_sndtimeo));
-          if (!conn->ept.rdev || conn->unbind)
+          if (!conn->ept.rdev || atomic_read(&conn->unbind))
             {
               ret = -ECONNRESET;
             }
@@ -1337,7 +1510,7 @@ static ssize_t rpmsg_socket_send_single(FAR struct socket *psock,
 
           ret = net_sem_timedwait(&conn->sendsem,
                                   _SO_TIMEOUT(conn->sconn.s_sndtimeo));
-          if (!conn->ept.rdev || conn->unbind)
+          if (!conn->ept.rdev || atomic_read(&conn->unbind))
             {
               ret = -ECONNRESET;
             }
@@ -1440,7 +1613,7 @@ static ssize_t rpmsg_socket_sendmsg(FAR struct socket *psock,
         }
     }
 
-  if (!conn->ept.rdev || conn->unbind)
+  if (!conn->ept.rdev || atomic_read(&conn->unbind))
     {
       /* return ECONNRESET if lower IPC closed */
 
@@ -1529,7 +1702,7 @@ static ssize_t rpmsg_socket_recvmsg(FAR struct socket *psock,
       goto out;
     }
 
-  if (!conn->ept.rdev || conn->unbind)
+  if (!conn->ept.rdev || atomic_read(&conn->unbind))
     {
       /* return EOF if lower IPC closed */
 
@@ -1551,7 +1724,7 @@ static ssize_t rpmsg_socket_recvmsg(FAR struct socket *psock,
 
   ret = net_sem_timedwait(&conn->recvsem,
                           _SO_TIMEOUT(conn->sconn.s_rcvtimeo));
-  if (!conn->ept.rdev || conn->unbind)
+  if (!conn->ept.rdev || atomic_read(&conn->unbind))
     {
       ret = 0;
     }
@@ -1588,13 +1761,12 @@ static int rpmsg_socket_close(FAR struct socket *psock)
 
   if (conn->backlog > 0)
     {
+      FAR struct rpmsg_socket_conn_s *child;
       FAR struct rpmsg_socket_conn_s *pend;
 
-      rpmsg_unregister_callback(conn,
-                                NULL,
-                                NULL,
-                                rpmsg_socket_ns_match,
-                                rpmsg_socket_ns_bind);
+      nxmutex_lock(&g_rpmsg_socket_lock);
+      dq_rem(&conn->snode, &g_rpmsg_socket_server);
+      nxmutex_unlock(&g_rpmsg_socket_lock);
 
       /* Detach any connection still waiting for its SYNC: they hold a
        * pointer to this listening socket which is about to be freed.
@@ -1623,7 +1795,23 @@ static int rpmsg_socket_close(FAR struct socket *psock)
           nxmutex_lock(&conn->recvlock);
         }
 
+      /* Drop the connections that completed the handshake but were never
+       * accepted.  Nothing else refers to them.
+       */
+
+      child = conn->next;
+      conn->next = NULL;
       nxmutex_unlock(&conn->recvlock);
+
+      while (child != NULL)
+        {
+          FAR struct rpmsg_socket_conn_s *next = child->next;
+
+          child->next  = NULL;
+          child->crefs = 0;
+          rpmsg_socket_destroy_ept(child);
+          child = next;
+        }
     }
   else
     {
@@ -1696,26 +1884,47 @@ static int rpmsg_socket_ioctl(FAR struct socket *psock,
 static int rpmsg_socket_shutdown(FAR struct socket *psock, int how)
 {
   FAR struct rpmsg_socket_conn_s *conn = psock->s_conn;
-  struct rpmsg_socket_shutdown_s msg;
+  FAR struct rpmsg_socket_shutdown_s *msg;
+  uint32_t len = sizeof(*msg);
   int ret;
 
-  if (!conn->ept.rdev || conn->unbind)
+  if (!conn->ept.rdev || atomic_read(&conn->unbind))
     {
       return -ENOTCONN;
     }
 
   conn->how |= how;
 
-  msg.cmd = RPMSG_SOCKET_CMD_SHUTDOWN;
-  msg.how = how;
+  /* Reserve the tx buffer without holding recvlock, since it may block
+   * waiting for a free vring buffer.
+   */
 
-  ret = rpmsg_send(&conn->ept, &msg, sizeof(msg));
-  if (ret < 0)
+  msg = rpmsg_get_tx_payload_buffer(&conn->ept, &len, true);
+  if (msg == NULL)
     {
-      return ret;
+      return -ENOMEM;
     }
 
-  return OK;
+  DEBUGASSERT(len >= sizeof(*msg));
+  nxmutex_lock(&conn->recvlock);
+
+  /* See rpmsg_socket_wakeup() */
+
+  if (!is_rpmsg_ept_ready(&conn->ept) || atomic_read(&conn->unbind))
+    {
+      nxmutex_unlock(&conn->recvlock);
+      rpmsg_release_tx_buffer(&conn->ept, msg);
+      return -ENOTCONN;
+    }
+
+  msg->cmd = RPMSG_SOCKET_CMD_SHUTDOWN;
+  msg->how = how;
+  ret = rpmsg_send_offchannel_nocopy(&conn->ept, conn->ept.addr,
+                                     conn->ept.dest_addr, msg,
+                                     sizeof(*msg));
+
+  nxmutex_unlock(&conn->recvlock);
+  return ret < 0 ? ret : OK;
 }
 
 #ifdef CONFIG_NET_SOCKOPTS
@@ -1860,3 +2069,23 @@ static int rpmsg_socket_setsockopt(FAR struct socket *psock, int level,
 }
 
 #endif
+
+/****************************************************************************
+ * Public Functions
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: rpmsg_socket_initialize
+ *
+ * Description:
+ *   Catch the name service announcements of all rpmsg socket clients, so
+ *   that a connection to a name nobody listens on is refused at once.
+ *
+ ****************************************************************************/
+
+void rpmsg_socket_initialize(void)
+{
+  rpmsg_register_callback(NULL, NULL, NULL,
+                          rpmsg_socket_ns_match,
+                          rpmsg_socket_ns_bind);
+}

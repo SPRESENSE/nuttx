@@ -20,10 +20,11 @@
 #
 # ##############################################################################
 
-set(SRCS tc4xx_timerisr.c tc4xx_serial.c tc4xx_wdt.c tc4xx_clockconfig.c
-         tc4xx_ram.c)
+set(SRCS tc4xx_timerisr.c tc4xx_wdt.c tc4xx_clockconfig.c tc4xx_ram.c)
 
 target_sources(arch PRIVATE ${SRCS})
+
+add_subdirectory(${NUTTX_DIR}/arch/tricore/src/common/aurix aurix)
 
 set(ILLD_UNPACK "${CMAKE_CURRENT_SOURCE_DIR}/../illd/tc4xx")
 set(ILLD_TARBALL "${ILLD_UNPACK}/illd.tar.gz")
@@ -144,16 +145,11 @@ set_property(
 set(SDK_CSRCS
     "${ILLD_DIR}/Libraries/iLLD/TC4xx/CpuGeneric/_Impl/IfxAp_cfg.c"
     "${ILLD_DIR}/Libraries/iLLD/TC4xx/CpuGeneric/_Impl/IfxDma_cfg.c"
-    "${ILLD_DIR}/Libraries/iLLD/TC4xx/CpuGeneric/_Impl/IfxAsclin_cfg.c"
-    "${ILLD_DIR}/Libraries/iLLD/TC4xx/CpuGeneric/_Impl/TC4Dx/IfxPort_cfg_TC4Dx.c"
-    "${ILLD_DIR}/Libraries/iLLD/TC4xx/CpuGeneric/_PinMap/TC4Dx/IfxAsclin_PinMap_TC4Dx_BGA436_COM.c"
-    "${ILLD_DIR}/Libraries/iLLD/TC4xx/CpuGeneric/Asclin/Std/IfxAsclin.c"
     "${ILLD_DIR}/Libraries/iLLD/TC4xx/CpuGeneric/Ap/Std/IfxApApu.c"
     "${ILLD_DIR}/Libraries/iLLD/TC4xx/CpuGeneric/Ap/Std/IfxApProt.c"
     "${ILLD_DIR}/Libraries/iLLD/TC4xx/CpuGeneric/Clock/Std/IfxClock.c"
     "${ILLD_DIR}/Libraries/iLLD/TC4xx/CpuGeneric/Dma/Dma/IfxDma_Dma.c"
     "${ILLD_DIR}/Libraries/iLLD/TC4xx/CpuGeneric/Dma/Std/IfxDma.c"
-    "${ILLD_DIR}/Libraries/iLLD/TC4xx/CpuGeneric/Port/Std/IfxPort.c"
     "${ILLD_DIR}/Libraries/iLLD/TC4xx/Tricore/_Impl/IfxCpu_cfg.c"
     "${ILLD_DIR}/Libraries/iLLD/TC4xx/Tricore/Cpu/Std/IfxCpu.c"
     "${ILLD_DIR}/Libraries/iLLD/TC4xx/Tricore/Scu/Std/IfxScuEru.c"

@@ -24,10 +24,6 @@
 
 target_sources(nuttx PRIVATE arm_vectortab.S)
 
-# Common assembly language files
-
-list(APPEND SRCS arm_head.S arm_vectors.S arm_saveusercontext.S)
-
 # Common C source files
 
 list(
@@ -46,12 +42,21 @@ list(
   arm_perf.c
   cp15_cacheops.c)
 
+# Common assembly language files
+
+list(APPEND SRCS arm_head.S arm_vectors.S arm_saveusercontext.S)
+
 if(CONFIG_ARCH_FPU)
   list(APPEND SRCS arm_fpucmp.c arm_fpuconfig.S)
 endif()
 
 if(CONFIG_ARCH_HIPRI_INTERRUPT)
   list(APPEND SRCS arm_dofiq.c)
+endif()
+
+if(CONFIG_SMP)
+  list(APPEND SRCS arm_cpuhead.S arm_cpustart.c)
+  list(APPEND SRCS arm_smpcall.c arm_cpuidlestack.c arm_scu.c)
 endif()
 
 target_sources(arch PRIVATE ${SRCS})
