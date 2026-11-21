@@ -194,7 +194,6 @@ static const char *g_white_prefix[] =
   "Dl_info", /* Ref:  include/dlfcn.h */
   "Elf",     /* Ref:  include/elf.h, include/elf32.h, include/elf64.h */
   "GL",      /* Ref:  apps/graphics/tinygl/tinygl/include/GL/gl.h */
-  "Ifx",     /* Ref:  arch/tricore/src */
   "PDC_",    /* Ref:  apps/include/graphics/curses.h */
   "PRId",    /* Ref:  inttypes.h */
   "PRIi",    /* Ref:  inttypes.h */
@@ -243,6 +242,7 @@ static const char *g_white_prefix[] =
   "RCR",
   "R_BSP",
   "R_CPG",
+  "R_XSPI_",
   "RSP_INT_STSn",
 
   /* Ref:  apps/system/microros, apps/examples/microros_*
@@ -377,6 +377,18 @@ static const char *g_white_suffix[] =
 
 static const char *g_white_content_list[] =
 {
+  /* Ref:  arch/arm/src/rzv2h (Renesas FSP register bitfield union
+   * member, e.g. R_CPG->CPG_CSDIV0_b.DIVCTL3)
+   */
+
+  "CPG_CSDIV0_b",
+
+  /* Ref:  arch/arm/src/rzv2h/rzv2h_qspi.c (Renesas FSP register
+   * bitfield union member)
+   */
+
+  "LIOCTL_b",
+
   /* Ref:
    * nuttx-apps/examples/wamr_module/module_hello.c
    * nuttx-apps/interpreters/wamr/wamr_custom_init.c
@@ -841,12 +853,6 @@ static const char *g_white_content_list[] =
 static const char *g_white_headers[] =
 {
   "windows.h",
-
-  /* Ref:
-   * arch/tricore/src/common/tricore_serial.c
-   */
-
-  "IfxAsclin_Asc.h",
   NULL
 };
 
@@ -903,15 +909,6 @@ static const char *g_white_files[] =
    */
 
   "lpc43xx/spifi/src/spifilib_fam_standard_cmd.c",
-
-  /* Skip infineon illd files
-   * Ref:
-   * arch/tricore/src/illd
-   */
-
-  "Ifx_Cfg_Ssw.c",
-  "Ifx_Cfg_Ssw.h",
-  "Ifx_Cfg.h",
 
   /* Skip the GigaDevice GD32VW55x Wi-Fi/BLE SDK glue: the vendor config
    * headers, the lwIP-compat shims and the OS-facade files reference vendor

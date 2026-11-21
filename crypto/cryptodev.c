@@ -43,10 +43,12 @@
 #include <poll.h>
 #include <errno.h>
 
+#include <nuttx/atomic.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/fs/fs.h>
 #include <nuttx/crypto/crypto.h>
 #include <nuttx/drivers/drivers.h>
+#include <nuttx/spinlock.h>
 
 #include <crypto/xform.h>
 #include <crypto/cryptodev.h>
@@ -95,7 +97,11 @@ struct csession
 struct fcrypt
 {
   TAILQ_HEAD(csessionlist, csession) csessions;
+  TAILQ_HEAD(cryptopinflight, cryptop) crp_inflight;
+  TAILQ_HEAD(cryptoplist, cryptop) crp_ret;
   TAILQ_HEAD(cryptkoplist, cryptkop) crpk_ret;
+  atomic_t refcount;
+  spinlock_t lock;
   int sesn;
   FAR struct pollfd_s *fds;
 };
@@ -135,8 +141,13 @@ static FAR struct csession *csecreate(FAR struct fcrypt *, uint64_t,
                                       uint32_t, bool, bool);
 static int csefree(FAR struct csession *);
 
-static int cryptodev_op(FAR struct csession *,
+static int cryptodev_op(FAR struct fcrypt *,
+                        FAR struct csession *,
                         FAR struct crypt_op *);
+static int cryptodev_cancel(FAR struct fcrypt *, uint32_t);
+static int cryptodevop_cb(FAR struct cryptop *);
+static int cryptodev_getopstatus(FAR struct fcrypt *,
+                                 FAR struct crypt_op *);
 static int cryptodev_key(FAR struct fcrypt *, FAR struct crypt_kop *);
 static int cryptodevkey_cb(FAR struct cryptkop *);
 static int cryptodev_getkeystatus(FAR struct fcrypt *,
@@ -184,6 +195,49 @@ static struct inode g_cryptoinode =
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
+
+static FAR struct fcrypt *fcrypt_get(FAR struct fcrypt *fcr)
+{
+  atomic_add(&fcr->refcount, 1);
+  return fcr;
+}
+
+/* Drop a reference.  The descriptor holds one reference and every
+ * in-flight asynchronous request holds one more, so the last drop is the
+ * only context that can still reach the queues.
+ */
+
+static void fcrypt_put(FAR struct fcrypt *fcr)
+{
+  if (atomic_sub(&fcr->refcount, 1) != 1)
+    {
+      return;
+    }
+
+  fcrypt_free(fcr);
+}
+
+/* Forward a cancellation to the backend that owns the session, so that a
+ * backend with its own request queue can drop a still-queued operation
+ * before it consumes hardware.  The in-flight request itself is flagged
+ * separately, so a backend without a queue is not required to act on
+ * this.
+ */
+
+static void cryptodev_cancel_dispatch(uint64_t sid, uint32_t reqid)
+{
+  struct cryptop crp;
+  struct cryptodesc crd;
+
+  memset(&crp, 0, sizeof(crp));
+  memset(&crd, 0, sizeof(crd));
+
+  crp.crp_sid = sid;
+  crp.crp_reqid = reqid;
+  crp.crp_flags = CRYPTO_F_CANCEL;
+  crp.crp_desc = &crd;
+  crypto_invoke(&crp);
+}
 
 /* ARGSUSED */
 
@@ -277,6 +331,8 @@ static int cryptof_ioctl(FAR struct file *filep,
             case CRYPTO_SHA2_256:
             case CRYPTO_SHA2_384:
             case CRYPTO_SHA2_512:
+            case CRYPTO_CRC8:
+            case CRYPTO_CRC16:
             case CRYPTO_CRC32:
             case CRYPTO_PBKDF2_HMAC_SHA1:
             case CRYPTO_PBKDF2_HMAC_SHA256:
@@ -379,13 +435,22 @@ bail:
         break;
       case CIOCCRYPT:
         cop = (FAR struct crypt_op *)arg;
+        if (cop->flags & COP_FLAG_CANCEL)
+          {
+            error = cryptodev_cancel(fcr, cop->reqid);
+            break;
+          }
+
         cse = csefind(fcr, cop->ses);
         if (cse == NULL)
           {
             return -EINVAL;
           }
 
-        error = cryptodev_op(cse, cop);
+        error = cryptodev_op(fcr, cse, cop);
+        break;
+      case CIOCCRYPTRET:
+        error = cryptodev_getopstatus(fcr, (FAR struct crypt_op *)arg);
         break;
       case CIOCKEY:
         error = cryptodev_key(fcr, (FAR struct crypt_kop *)arg);
@@ -420,42 +485,73 @@ bail:
   return error;
 }
 
-static int cryptodev_op(FAR struct csession *cse,
+static int cryptodev_op(FAR struct fcrypt *fcr,
+                        FAR struct csession *cse,
                         FAR struct crypt_op *cop)
 {
-  struct cryptop crp;
-  struct cryptodesc crda;
-  struct cryptodesc crde;
+  FAR struct cryptop *scrp = NULL;
+  struct cryptop stackcrp;
+  struct cryptodesc stackcrda;
+  struct cryptodesc stackcrde;
+  FAR struct cryptop *crp;
+  FAR struct cryptodesc *crda;
+  FAR struct cryptodesc *crde;
+  irqstate_t iflags;
   int error = OK;
   uint32_t hid;
 
   /* number of requests, not logical and */
 
-  bzero(&crp, sizeof(struct cryptop));
-  bzero(&crda, sizeof(struct cryptodesc));
-  bzero(&crde, sizeof(struct cryptodesc));
+  if (cop->flags & COP_FLAG_CBIMM)
+    {
+      /* An asynchronous request must outlive this ioctl, so build it in
+       * a shadow cryptop with the descriptors and the output buffer
+       * embedded, and let the backend complete it through crp_callback.
+       */
+
+      scrp = kmm_zalloc(sizeof(*scrp) + 2 * sizeof(struct cryptodesc) +
+                        cop->olen);
+      if (scrp == NULL)
+        {
+          return -ENOMEM;
+        }
+
+      crp  = scrp;
+      crda = (FAR struct cryptodesc *)(scrp + 1);
+      crde = crda + 1;
+    }
+  else
+    {
+      crp  = &stackcrp;
+      crda = &stackcrda;
+      crde = &stackcrde;
+    }
+
+  bzero(crp, sizeof(*crp));
+  bzero(crda, sizeof(*crda));
+  bzero(crde, sizeof(*crde));
   if (cse->thash)
     {
-      crp.crp_desc = &crda;
-      crda.crd_skip = 0;
-      crda.crd_len = cop->len;
-      crda.crd_inject = 0;
+      crp->crp_desc = crda;
+      crda->crd_skip = 0;
+      crda->crd_len = cop->len;
+      crda->crd_inject = 0;
 
-      crda.crd_alg = cse->mac;
-      crda.crd_key = cse->mackey;
-      crda.crd_klen = cse->mackeylen * 8;
+      crda->crd_alg = cse->mac;
+      crda->crd_key = cse->mackey;
+      crda->crd_klen = cse->mackeylen * 8;
       if (cop->flags & COP_FLAG_UPDATE)
         {
-          crda.crd_flags |= CRD_F_UPDATE;
+          crda->crd_flags |= CRD_F_UPDATE;
         }
       else
         {
-          crda.crd_flags &= ~CRD_F_UPDATE;
+          crda->crd_flags &= ~CRD_F_UPDATE;
         }
 
       if (cop->flags & COP_FLAG_UPDATE_AAD)
         {
-          crda.crd_flags |= CRD_F_UPDATE_AAD;
+          crda->crd_flags |= CRD_F_UPDATE_AAD;
         }
     }
 
@@ -463,97 +559,276 @@ static int cryptodev_op(FAR struct csession *cse,
     {
       if (cse->thash)
         {
-          crda.crd_next = &crde;
+          crda->crd_next = crde;
         }
       else
         {
-          crp.crp_desc = &crde;
+          crp->crp_desc = crde;
         }
 
       if (cop->op == COP_ENCRYPT)
         {
-          crde.crd_flags |= CRD_F_ENCRYPT;
+          crde->crd_flags |= CRD_F_ENCRYPT;
         }
       else
         {
-          crde.crd_flags &= ~CRD_F_ENCRYPT;
+          crde->crd_flags &= ~CRD_F_ENCRYPT;
         }
 
       if (cop->flags & COP_FLAG_UPDATE)
         {
-          crde.crd_flags |= CRD_F_UPDATE;
+          crde->crd_flags |= CRD_F_UPDATE;
         }
       else
         {
-          crde.crd_flags &= ~CRD_F_UPDATE;
+          crde->crd_flags &= ~CRD_F_UPDATE;
         }
 
-      crde.crd_len = cop->len;
-      crde.crd_inject = 0;
-      crde.crd_alg = cse->cipher;
-      crde.crd_key = cse->key;
-      crde.crd_klen = cse->keylen * 8;
+      crde->crd_len = cop->len;
+      crde->crd_inject = 0;
+      crde->crd_alg = cse->cipher;
+      crde->crd_key = cse->key;
+      crde->crd_klen = cse->keylen * 8;
     }
 
-  crp.crp_ilen = cop->len;
-  crp.crp_olen = cop->olen;
-  crp.crp_buf = cop->src;
-  crp.crp_sid = cse->sid;
-  crp.crp_opaque = cse;
+  crp->crp_ilen = cop->len;
+  crp->crp_olen = cop->olen;
+  crp->crp_buf = cop->src;
+  crp->crp_sid = cse->sid;
+  crp->crp_opaque = cse;
 
   if (cop->iv)
     {
-      crp.crp_iv = cop->iv;
-      crp.crp_ivlen = cop->ivlen;
+      crp->crp_iv = cop->iv;
+      crp->crp_ivlen = cop->ivlen;
     }
 
   if (cop->aad)
     {
-      crp.crp_aad = cop->aad;
-      crp.crp_aadlen = cop->aadlen;
+      crp->crp_aad = cop->aad;
+      crp->crp_aadlen = cop->aadlen;
     }
 
   if (cop->dst)
     {
-      crp.crp_dst = cop->dst;
+      crp->crp_dst = cop->dst;
     }
 
   if (cop->mac)
     {
-      crp.crp_mac = cop->mac;
+      crp->crp_mac = cop->mac;
     }
 
   if (cop->iterations)
     {
-      crp.crp_iter = cop->iterations;
+      crp->crp_iter = cop->iterations;
+    }
+
+  if (scrp != NULL)
+    {
+      /* The result is written to the embedded buffer and copied back on
+       * CIOCCRYPTRET, so the caller's buffers may go away once the
+       * request is submitted.  The request holds a reference to the
+       * descriptor until its completion callback has run.
+       */
+
+      scrp->crp_reqid    = cop->reqid;
+      scrp->crp_flags    = CRYPTO_F_CBIMM;
+      scrp->crp_opaque   = fcrypt_get(fcr);
+      scrp->crp_callback = cryptodevop_cb;
+
+      if (cop->dst)
+        {
+          scrp->crp_dst = (caddr_t)(crde + 1);
+        }
+      else if (cop->mac)
+        {
+          scrp->crp_mac = (caddr_t)(crde + 1);
+        }
+
+      iflags = spin_lock_irqsave(&fcr->lock);
+      TAILQ_INSERT_TAIL(&fcr->crp_inflight, scrp, crp_next);
+      spin_unlock_irqrestore(&fcr->lock, iflags);
     }
 
   /* try the fast path first */
 
-  crp.crp_flags = CRYPTO_F_IOV | CRYPTO_F_NOQUEUE;
-  hid = (crp.crp_sid >> 32) & 0xffffffff;
+  crp->crp_flags |= CRYPTO_F_IOV | CRYPTO_F_NOQUEUE;
+  hid = (crp->crp_sid >> 32) & 0xffffffff;
   if (hid >= crypto_drivers_num ||
       (crypto_drivers[hid].cc_flags & CRYPTOCAP_F_SOFTWARE) ||
       crypto_drivers[hid].cc_process == NULL)
     {
-      crp.crp_flags = CRYPTO_F_IOV;
-      crypto_invoke(&crp);
+      /* A software backend completes an asynchronous request inline
+       * through crp_callback, so CRYPTO_F_CBIMM must survive here.
+       */
+
+      crp->crp_flags &= ~CRYPTO_F_NOQUEUE;
+      crypto_invoke(crp);
     }
   else
     {
-      error = crypto_drivers[hid].cc_process(&crp);
+      error = crypto_drivers[hid].cc_process(crp);
     }
 
   if ((cop->flags & COP_FLAG_UPDATE) == 0)
     {
-      crde.crd_flags &= ~CRD_F_IV_EXPLICIT;
+      crde->crd_flags &= ~CRD_F_IV_EXPLICIT;
     }
 
-  if (!error && crp.crp_etype != 0)
+  /* An asynchronous request reports its outcome through CIOCCRYPTRET,
+   * not through the submission.
+   */
+
+  if (scrp == NULL && !error && crp->crp_etype != 0)
     {
-      error = crp.crp_etype;
+      error = crp->crp_etype;
     }
 
+  if (error && scrp)
+    {
+      /* Submission failed: the callback will not run, so clean up here. */
+
+      iflags = spin_lock_irqsave(&fcr->lock);
+      TAILQ_REMOVE(&fcr->crp_inflight, scrp, crp_next);
+      spin_unlock_irqrestore(&fcr->lock, iflags);
+
+      fcrypt_put(fcr);
+      kmm_free(scrp);
+    }
+
+  return error;
+}
+
+/****************************************************************************
+ * Name: cryptodev_cancel
+ *
+ * Description:
+ *   Cancel a pending asynchronous operation identified by reqid.
+ *
+ *   - If the op is still in-flight, flag it so its completion callback
+ *     discards the result when it arrives (the backend still owns the
+ *     cryptop, so it cannot be freed here).
+ *   - If the result already reached the completion queue, remove and free.
+ *   - Otherwise there is no such op: return -ENOENT.
+ *
+ ****************************************************************************/
+
+static int cryptodev_cancel(FAR struct fcrypt *fcr, uint32_t reqid)
+{
+  FAR struct cryptop *crp;
+  irqstate_t flags;
+  uint64_t sid;
+
+  flags = spin_lock_irqsave(&fcr->lock);
+
+  /* Still in-flight: flag it; the completion callback drops the result. */
+
+  TAILQ_FOREACH(crp, &fcr->crp_inflight, crp_next)
+    {
+      if (crp->crp_reqid == reqid)
+        {
+          sid = crp->crp_sid;
+          crp->crp_flags |= CRYPTO_F_CANCEL;
+          spin_unlock_irqrestore(&fcr->lock, flags);
+
+          cryptodev_cancel_dispatch(sid, reqid);
+          return OK;
+        }
+    }
+
+  /* Already completed: drop the result before it is retrieved. */
+
+  TAILQ_FOREACH(crp, &fcr->crp_ret, crp_next)
+    {
+      if (crp->crp_reqid == reqid)
+        {
+          TAILQ_REMOVE(&fcr->crp_ret, crp, crp_next);
+          spin_unlock_irqrestore(&fcr->lock, flags);
+          kmm_free(crp);
+          return OK;
+        }
+    }
+
+  spin_unlock_irqrestore(&fcr->lock, flags);
+  return -ENOENT;
+}
+
+static int cryptodevop_cb(FAR struct cryptop *crp)
+{
+  FAR struct fcrypt *fcr = crp->crp_opaque;
+  FAR struct pollfd_s *fds;
+  irqstate_t flags;
+
+  flags = spin_lock_irqsave(&fcr->lock);
+  TAILQ_REMOVE(&fcr->crp_inflight, crp, crp_next);
+
+  /* Discard the result if a concurrent cancel flagged this op. */
+
+  if (crp->crp_flags & CRYPTO_F_CANCEL)
+    {
+      spin_unlock_irqrestore(&fcr->lock, flags);
+      kmm_free(crp);
+      fcrypt_put(fcr);
+      return OK;
+    }
+
+  TAILQ_INSERT_TAIL(&fcr->crp_ret, crp, crp_next);
+  fds = fcr->fds;
+  spin_unlock_irqrestore(&fcr->lock, flags);
+
+  if (fds != NULL)
+    {
+      poll_notify(&fds, 1, POLLIN);
+    }
+
+  fcrypt_put(fcr);
+  return OK;
+}
+
+static FAR struct cryptop *
+fcrypt_dequeue_op(FAR struct fcrypt *fcr, uint32_t reqid)
+{
+  FAR struct cryptop *crp;
+  irqstate_t flags;
+
+  flags = spin_lock_irqsave(&fcr->lock);
+  TAILQ_FOREACH(crp, &fcr->crp_ret, crp_next)
+    {
+      if (crp->crp_reqid == reqid)
+        {
+          TAILQ_REMOVE(&fcr->crp_ret, crp, crp_next);
+          break;
+        }
+    }
+
+  spin_unlock_irqrestore(&fcr->lock, flags);
+  return crp;
+}
+
+static int cryptodev_getopstatus(FAR struct fcrypt *fcr,
+                                 FAR struct crypt_op *cop)
+{
+  FAR struct cryptop *crp = fcrypt_dequeue_op(fcr, cop->reqid);
+  int error;
+
+  if (crp == NULL)
+    {
+      return -EAGAIN;
+    }
+
+  if (cop->dst && crp->crp_dst)
+    {
+      memcpy(cop->dst, crp->crp_dst, crp->crp_olen);
+    }
+
+  if (cop->mac && crp->crp_mac)
+    {
+      memcpy(cop->mac, crp->crp_mac, crp->crp_olen);
+    }
+
+  error = crp->crp_etype;
+  kmm_free(crp);
   return error;
 }
 
@@ -662,6 +937,20 @@ static int cryptodev_key(FAR struct fcrypt *fcr, FAR struct crypt_kop *kop)
         return -EINVAL;
       case CRK_ECDSA_SECP256R1_GENKEY:
         if (in == 0 && out == 4)
+          {
+            break;
+          }
+
+        return -EINVAL;
+      case CRK_ECDH_GEN_PUBLIC:
+        if (in == 0 && out == 4)
+          {
+            break;
+          }
+
+        return -EINVAL;
+      case CRK_ECDH_COMPUTE_SHARED:
+        if (in == 3 && out == 1)
           {
             break;
           }
@@ -841,40 +1130,54 @@ fail:
 
 static int cryptodevkey_cb(FAR struct cryptkop *krp)
 {
-  TAILQ_INSERT_TAIL(&krp->krp_fcr->crpk_ret, krp, krp_next);
-  if (krp->krp_fcr->fds != NULL)
+  FAR struct fcrypt *fcr = krp->krp_fcr;
+  FAR struct pollfd_s *fds;
+  irqstate_t flags;
+
+  flags = spin_lock_irqsave(&fcr->lock);
+  TAILQ_INSERT_TAIL(&fcr->crpk_ret, krp, krp_next);
+  fds = fcr->fds;
+  spin_unlock_irqrestore(&fcr->lock, flags);
+
+  if (fds != NULL)
     {
-      poll_notify(&krp->krp_fcr->fds, 1, POLLIN);
+      poll_notify(&fds, 1, POLLIN);
     }
 
   return OK;
 }
 
-static int cryptodev_getkeystatus(struct fcrypt *fcr, struct crypt_kop *ret)
+static FAR struct cryptkop *
+fcrypt_dequeue_key(FAR struct fcrypt *fcr, uint32_t reqid)
 {
-  FAR struct cryptkop *krp = NULL;
-  int i;
-  int size;
+  FAR struct cryptkop *krp;
+  irqstate_t flags;
 
-  if (TAILQ_EMPTY(&fcr->crpk_ret))
-    {
-      return -EAGAIN;
-    }
-
+  flags = spin_lock_irqsave(&fcr->lock);
   TAILQ_FOREACH(krp, &fcr->crpk_ret, krp_next)
     {
-      if (krp->krp_reqid == ret->crk_reqid)
+      if (krp->krp_reqid == reqid)
         {
+          TAILQ_REMOVE(&fcr->crpk_ret, krp, krp_next);
           break;
         }
     }
 
+  spin_unlock_irqrestore(&fcr->lock, flags);
+  return krp;
+}
+
+static int cryptodev_getkeystatus(struct fcrypt *fcr, struct crypt_kop *ret)
+{
+  FAR struct cryptkop *krp = fcrypt_dequeue_key(fcr, ret->crk_reqid);
+  int i;
+  int size;
+
   if (krp == NULL)
     {
-      return -EINVAL;
+      return -EAGAIN;
     }
 
-  TAILQ_REMOVE(&fcr->crpk_ret, krp, krp_next);
   ret->crk_op = krp->krp_op;
   ret->crk_status = krp->krp_status;
   ret->crk_iparams = krp->krp_iparams;
@@ -901,11 +1204,18 @@ static int cryptodev_getkeystatus(struct fcrypt *fcr, struct crypt_kop *ret)
 static void fcrypt_free(FAR struct fcrypt *fcr)
 {
   FAR struct csession *cse;
+  FAR struct cryptop *crp;
 
   while ((cse = TAILQ_FIRST(&fcr->csessions)))
     {
       TAILQ_REMOVE(&fcr->csessions, cse, next);
       (void)csefree(cse);
+    }
+
+  while ((crp = TAILQ_FIRST(&fcr->crp_ret)))
+    {
+      TAILQ_REMOVE(&fcr->crp_ret, crp, crp_next);
+      kmm_free(crp);
     }
 
   kmm_free(fcr);
@@ -932,7 +1242,11 @@ static int cryptodev_clone(FAR struct fcrypt *src, FAR struct fcrypt **dst)
     }
 
   TAILQ_INIT(&fcrd->csessions);
+  TAILQ_INIT(&fcrd->crp_inflight);
+  TAILQ_INIT(&fcrd->crp_ret);
   TAILQ_INIT(&fcrd->crpk_ret);
+  atomic_set(&fcrd->refcount, 1);
+  spin_lock_init(&fcrd->lock);
 
   TAILQ_FOREACH(cse, &src->csessions, next)
     {
@@ -1019,41 +1333,64 @@ static int cryptof_poll(FAR struct file *filep,
                         FAR struct pollfd_s *fds, bool setup)
 {
   FAR struct fcrypt *fcr = filep->f_priv;
+  bool ready = false;
+  irqstate_t flags;
+  int ret = OK;
 
   if (fcr == NULL || fds == NULL)
     {
       return -EINVAL;
     }
 
+  flags = spin_lock_irqsave(&fcr->lock);
   if (setup)
     {
-      if (!TAILQ_EMPTY(&fcr->crpk_ret))
+      if (!TAILQ_EMPTY(&fcr->crp_ret) ||
+          !TAILQ_EMPTY(&fcr->crpk_ret))
         {
-          poll_notify(&fds, 1, POLLIN);
-          return OK;
+          ready = true;
         }
-
-      if (fcr->fds)
+      else if (fcr->fds)
         {
-          return -EBUSY;
+          ret = -EBUSY;
         }
-
-      fcr->fds = fds;
+      else
+        {
+          fcr->fds = fds;
+        }
     }
   else
     {
       fcr->fds = NULL;
     }
 
-  return OK;
+  spin_unlock_irqrestore(&fcr->lock, flags);
+
+  if (ready)
+    {
+      poll_notify(&fds, 1, POLLIN);
+    }
+
+  return ret;
 }
 
 /* ARGSUSED */
 
 static int cryptof_close(FAR struct file *filep)
 {
-  fcrypt_free(filep->f_priv);
+  FAR struct fcrypt *fcr = filep->f_priv;
+  irqstate_t flags;
+
+  /* Detach the poll waiter; in-flight requests still hold references,
+   * so the descriptor is freed once their callbacks have run.
+   */
+
+  flags = spin_lock_irqsave(&fcr->lock);
+  fcr->fds = NULL;
+  spin_unlock_irqrestore(&fcr->lock, flags);
+
   filep->f_priv = NULL;
+  fcrypt_put(fcr);
   return 0;
 }
 
@@ -1094,6 +1431,10 @@ static int cryptof_open(FAR struct file *filep)
     }
 
   TAILQ_INIT(&fcrd->csessions);
+  TAILQ_INIT(&fcrd->crp_inflight);
+  TAILQ_INIT(&fcrd->crp_ret);
+  atomic_set(&fcrd->refcount, 1);
+  spin_lock_init(&fcrd->lock);
   TAILQ_FOREACH(cse, &fcr->csessions, next)
     {
       bzero(&crie, sizeof(crie));
@@ -1220,7 +1561,11 @@ static int cryptoioctl(FAR struct file *filep, int cmd, unsigned long arg)
           }
 
         TAILQ_INIT(&fcr->csessions);
+        TAILQ_INIT(&fcr->crp_inflight);
+        TAILQ_INIT(&fcr->crp_ret);
         TAILQ_INIT(&fcr->crpk_ret);
+        atomic_set(&fcr->refcount, 1);
+        spin_lock_init(&fcr->lock);
 
         fd = file_allocate_from_inode(&g_cryptoinode, 0, 0, fcr, 0);
         if (fd < 0)

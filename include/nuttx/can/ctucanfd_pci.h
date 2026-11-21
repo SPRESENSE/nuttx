@@ -29,6 +29,8 @@
 
 #include <nuttx/config.h>
 
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C"
 {
@@ -47,6 +49,28 @@ extern "C"
  ****************************************************************************/
 
 int pci_ctucanfd_init(void);
+
+/****************************************************************************
+ * Name: ctucanfd_register
+ *
+ * Description:
+ *   Register a CTU CAN FD device via SysBus MMIO (without PCI).
+ *   Used on platforms where the CAN controller is memory-mapped directly,
+ *   such as the QEMU ARM virt platform with ctucan-sysbus.
+ *
+ * Input Parameters:
+ *   base - MMIO base address of the CTU CAN FD controller
+ *   irq  - IRQ number
+ *   id   - CAN channel number assigned by the caller (e.g. from
+ *          the FDT can-id property or discovery order).  Passed
+ *          explicitly so the caller controls numbering.
+ *
+ * Returned Value:
+ *   Zero on success; a negated errno on failure
+ *
+ ****************************************************************************/
+
+int ctucanfd_register(uintptr_t base, int irq, uint32_t id);
 
 #ifdef __cplusplus
 }

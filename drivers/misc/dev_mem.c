@@ -25,6 +25,7 @@
  ****************************************************************************/
 
 #include <nuttx/drivers/drivers.h>
+#include <nuttx/fs/fs.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/memoryregion.h>
 #include <sys/param.h>
@@ -66,6 +67,7 @@ static ssize_t devmem_read(FAR struct file *filep, FAR char *buffer,
                            size_t buflen);
 static ssize_t devmem_write(FAR struct file *filep, FAR const char *buffer,
                             size_t buflen);
+static off_t   devmem_seek(FAR struct file *filep, off_t offset, int whence);
 static int     devmem_mmap(FAR struct file *filep,
                            FAR struct mm_map_entry_s *map);
 
@@ -79,7 +81,7 @@ static const struct file_operations g_devmem_fops =
   NULL,                  /* close */
   devmem_read,           /* read */
   devmem_write,          /* write */
-  NULL,                  /* seek */
+  devmem_seek,           /* seek */
   NULL,                  /* ioctl */
   devmem_mmap,           /* mmap */
 };
@@ -96,7 +98,9 @@ static ssize_t devmem_read(FAR struct file *filep, FAR char *buffer,
                            size_t buflen)
 {
   FAR struct memory_region_s *region = filep->f_inode->i_private;
-  uintptr_t src = filep->f_pos;
+  size_t accumulated = 0;
+  size_t offset_in_region;
+  size_t region_size;
   uintptr_t start;
   uintptr_t end;
   ssize_t len;
@@ -104,15 +108,37 @@ static ssize_t devmem_read(FAR struct file *filep, FAR char *buffer,
 
   for (i = 0; region[i].start != 0 && region[i].end != 0; i++)
     {
-      start = MAX(src, region[i].start);
-      end = MIN(start + buflen, region[i].end);
-      len = end - start;
-      if (len > 0 && (region[i].flags & PROT_READ))
+      region_size = region[i].end - region[i].start;
+
+      /* Check if f_pos falls within this region */
+
+      if (filep->f_pos < accumulated + region_size)
         {
-          memcpy(buffer, (FAR const void *)start, len);
-          filep->f_pos = end;
-          return len;
+          /* Calculate offset within this region */
+
+          offset_in_region = filep->f_pos - accumulated;
+          start = region[i].start + offset_in_region;
+          end = MIN(start + buflen, region[i].end);
+          len = end - start;
+
+          if (len > 0 && (region[i].flags & PROT_READ))
+            {
+              memcpy(buffer, (FAR const void *)start, len);
+              filep->f_pos += len;
+              return len;
+            }
+
+          /* f_pos maps to this region but read is not permitted or
+           * buflen is 0; further iterations cannot yield a valid
+           * mapping for the same f_pos, so stop scanning.
+           */
+
+          break;
         }
+
+      /* Accumulate this region's size for next iteration */
+
+      accumulated += region_size;
     }
 
   return -EINVAL;
@@ -126,7 +152,9 @@ static ssize_t devmem_write(FAR struct file *filep, FAR const char *buffer,
                             size_t buflen)
 {
   FAR struct memory_region_s *region = filep->f_inode->i_private;
-  uintptr_t dest = filep->f_pos;
+  size_t accumulated = 0;
+  size_t offset_in_region;
+  size_t region_size;
   uintptr_t start;
   uintptr_t end;
   ssize_t len;
@@ -134,18 +162,79 @@ static ssize_t devmem_write(FAR struct file *filep, FAR const char *buffer,
 
   for (i = 0; region[i].start != 0 && region[i].end != 0; i++)
     {
-      start = MAX(dest, region[i].start);
-      end = MIN(start + buflen, region[i].end);
-      len = end - start;
-      if (len > 0 && (region[i].flags & PROT_WRITE))
+      region_size = region[i].end - region[i].start;
+
+      /* Check if f_pos falls within this region */
+
+      if (filep->f_pos < accumulated + region_size)
         {
-          memcpy((FAR void *)start, buffer, len);
-          filep->f_pos = end;
-          return len;
+          /* Calculate offset within this region */
+
+          offset_in_region = filep->f_pos - accumulated;
+          start = region[i].start + offset_in_region;
+          end = MIN(start + buflen, region[i].end);
+          len = end - start;
+
+          if (len > 0 && (region[i].flags & PROT_WRITE))
+            {
+              memcpy((FAR void *)start, buffer, len);
+              filep->f_pos += len;
+              return len;
+            }
+
+          /* f_pos maps to this region but write is not permitted or
+           * buflen is 0; further iterations cannot yield a valid
+           * mapping for the same f_pos, so stop scanning.
+           */
+
+          break;
         }
+
+      /* Accumulate this region's size for next iteration */
+
+      accumulated += region_size;
     }
 
   return -EINVAL;
+}
+
+/****************************************************************************
+ * Name: devmem_seek
+ ****************************************************************************/
+
+static off_t devmem_seek(FAR struct file *filep, off_t offset, int whence)
+{
+  FAR struct memory_region_s *region = filep->f_inode->i_private;
+  int i;
+
+  switch (whence)
+    {
+      case SEEK_CUR:
+        offset += filep->f_pos;
+        break;
+
+      case SEEK_SET:
+        break;
+
+      case SEEK_END:
+        for (i = 0; region[i].start != 0 && region[i].end != 0; i++)
+          {
+            offset += region[i].end - region[i].start;
+          }
+
+        break;
+
+      default:
+        return -EINVAL;
+    }
+
+  if (offset < 0)
+    {
+      return -EINVAL;
+    }
+
+  filep->f_pos = offset;
+  return filep->f_pos;
 }
 
 /****************************************************************************
@@ -197,6 +286,27 @@ static int devmem_mmap(FAR struct file *filep,
 
 int devmem_register(void)
 {
-  return register_driver("/dev/mem", &g_devmem_fops,
-                         0600, (FAR void *)g_memory_region);
+  return devmem_register_region("/dev/mem", g_memory_region);
+}
+
+/****************************************************************************
+ * Name: devmem_register_region
+ *
+ * Description:
+ *   Create an MEM driver with customize region.
+ *
+ * Returned Value:
+ *   Zero (OK) on success; A negated errno value on failure.
+ *
+ ****************************************************************************/
+
+int devmem_register_region(FAR const char *path,
+                           FAR const struct memory_region_s *region)
+{
+  if (path == NULL || region == NULL)
+    {
+      return -EINVAL;
+    }
+
+  return register_driver(path, &g_devmem_fops, 0600, (FAR void *)region);
 }

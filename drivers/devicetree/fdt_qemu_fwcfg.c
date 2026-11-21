@@ -1,5 +1,5 @@
 /****************************************************************************
- * arch/tricore/src/illd/tc3xx/Configurations/Ifx_Cfg_Ssw.c
+ * drivers/devicetree/fdt_qemu_fwcfg.c
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -24,42 +24,50 @@
  * Included Files
  ****************************************************************************/
 
-#include "Ifx_Cfg_Ssw.h"
-#include "Ifx_Ssw_Infra.h"
+#include <errno.h>
+
+#include <nuttx/config.h>
+#include <nuttx/fdt.h>
+#include <nuttx/drivers/qemu_fwcfg.h>
+
+#include <libfdt.h>
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
-#if defined(__TASKING__)
-#pragma optimize RL
-#elif defined(__GNUC__)
-#pragma GCC optimize ("O1")
-#endif
+/****************************************************************************
+ * Name: fdt_qemu_fwcfg_register
+ *
+ * Description:
+ *   Discover the QEMU fw_cfg device from the device tree and register it as
+ *   a character device.  Unlike virtio-mmio, fw_cfg is a system-wide
+ *   singleton, so only the first matching node is registered.
+ *
+ * Input Parameters:
+ *   fdt - Device tree handle
+ *
+ * Returned Value:
+ *   Return 0 if success, negative if failed.
+ *
+ ****************************************************************************/
 
-#if (IFX_CFG_SSW_ENABLE_LBIST == 1)
-void Ifx_Ssw_Lbist(void)
+int fdt_qemu_fwcfg_register(FAR const void *fdt)
 {
-  if (!IfxScuLbist_isDone())
+  uintptr_t base;
+  int offset;
+
+  offset = fdt_node_offset_by_compatible(fdt, -1, "qemu,fw-cfg-mmio");
+  if (offset < 0)
     {
-      if(Ifx_Ssw_isColdPoweronReset())
-        {
-          IfxScuLbist_triggerInline(&IfxScuLbist_defaultConfig);
-        }
+      return -ENODEV;
     }
 
-  if (!IfxScuLbist_evaluateResult(IfxScuLbist_defaultConfig.signature))
+  base = fdt_get_reg_base(fdt, offset, 0);
+  if (base == 0)
     {
-       __debug();
-       while(1);
+      return -EINVAL;
     }
 
-    Ifx_Ssw_jumpBackToLink();
+  return fw_cfg_register(base, "/dev/qemufwcfg");
 }
-#endif
-
-#if defined(__TASKING__)
-#pragma endoptimize
-#elif defined(__GNUC__)
-#pragma GCC reset_options
-#endif

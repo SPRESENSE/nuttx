@@ -86,7 +86,6 @@ struct clk_rpmsg_cookie_s
 begin_packed_struct struct clk_rpmsg_header_s
 {
   uint32_t                  command;
-  uint32_t                  response;
   int64_t                   result;
   uint64_t                  cookie;
 } end_packed_struct;
@@ -169,9 +168,12 @@ static void clk_rpmsg_server_bind(FAR struct rpmsg_device *rdev,
                                   FAR const char *name,
                                   uint32_t dest);
 
-static int clk_rpmsg_ept_cb(FAR struct rpmsg_endpoint *ept,
-                            FAR void *data, size_t len,
-                            uint32_t src, FAR void *priv);
+static int clk_rpmsg_server_ept_cb(FAR struct rpmsg_endpoint *ept,
+                                   FAR void *data, size_t len,
+                                   uint32_t src, FAR void *priv);
+static int clk_rpmsg_client_ept_cb(FAR struct rpmsg_endpoint *ept,
+                                   FAR void *data, size_t len,
+                                   uint32_t src, FAR void *priv);
 
 static int64_t clk_rpmsg_sendrecv(FAR struct rpmsg_endpoint *ept,
                                   uint32_t command,
@@ -483,7 +485,6 @@ static int64_t clk_rpmsg_sendrecv(FAR struct rpmsg_endpoint *ept,
   int ret;
 
   msg->command  = command;
-  msg->response = 0;
   msg->cookie   = (uintptr_t)&cookie;
 
   nxsem_init(&cookie.sem, 0, 0);
@@ -556,7 +557,7 @@ static void clk_rpmsg_server_bind(FAR struct rpmsg_device *rdev,
 
   rpmsg_create_ept(&priv->ept, rdev, name,
                    RPMSG_ADDR_ANY, RPMSG_ADDR_ANY,
-                   clk_rpmsg_ept_cb,
+                   clk_rpmsg_server_ept_cb,
                    rpmsg_destroy_ept);
 }
 
@@ -574,9 +575,10 @@ static void clk_rpmsg_client_created(FAR struct rpmsg_device *rdev,
     {
       priv->ept.priv = priv;
 
+      rpmsg_set_priority(&priv->ept, RPMSG_PRIO_RT);
       rpmsg_create_ept(&priv->ept, rdev, CLK_RPMSG_EPT_NAME,
                        RPMSG_ADDR_ANY, RPMSG_ADDR_ANY,
-                       clk_rpmsg_ept_cb, NULL);
+                       clk_rpmsg_client_ept_cb, NULL);
 
       nxsem_post(&priv->sem);
     }
@@ -596,32 +598,41 @@ static void clk_rpmsg_client_destroy(FAR struct rpmsg_device *rdev,
   rpmsg_destroy_ept(&priv->ept);
 }
 
-static int clk_rpmsg_ept_cb(FAR struct rpmsg_endpoint *ept, FAR void *data,
-                            size_t len, uint32_t src, FAR void *priv)
+static int clk_rpmsg_server_ept_cb(FAR struct rpmsg_endpoint *ept,
+                                   FAR void *data, size_t len,
+                                   uint32_t src, FAR void *priv)
 {
   FAR struct clk_rpmsg_header_s *hdr = data;
   uint32_t cmd = hdr->command;
   int ret = -EINVAL;
 
-  if (hdr->response)
+  if (cmd < nitems(g_clk_rpmsg_handler) && g_clk_rpmsg_handler[cmd])
     {
-      FAR struct clk_rpmsg_cookie_s *cookie =
-      (struct clk_rpmsg_cookie_s *)(uintptr_t)hdr->cookie;
-      if (cookie)
-        {
-          cookie->result = hdr->result;
-          nxsem_post(&cookie->sem);
-          ret = 0;
-        }
-    }
-  else if (cmd < nitems(g_clk_rpmsg_handler)
-           && g_clk_rpmsg_handler[cmd])
-    {
-      hdr->response = 1;
       ret = g_clk_rpmsg_handler[cmd](ept, data, len, src, priv);
     }
 
   return ret;
+}
+
+/* Client only receives responses, so the callback just records the result
+ * and wakes the waiter.  No blocking, safe to run in interrupt context.
+ */
+
+static int clk_rpmsg_client_ept_cb(FAR struct rpmsg_endpoint *ept,
+                                   FAR void *data, size_t len,
+                                   uint32_t src, FAR void *priv)
+{
+  FAR struct clk_rpmsg_header_s *hdr = data;
+  FAR struct clk_rpmsg_cookie_s *cookie =
+    (FAR struct clk_rpmsg_cookie_s *)(uintptr_t)hdr->cookie;
+
+  if (cookie)
+    {
+      cookie->result = hdr->result;
+      nxsem_post(&cookie->sem);
+    }
+
+  return 0;
 }
 
 static int clk_rpmsg_enable(FAR struct clk_s *clk)
@@ -676,7 +687,7 @@ static void clk_rpmsg_disable(FAR struct clk_s *clk)
   ept = clk_rpmsg_get_ept(&name);
   if (!ept)
     {
-    return;
+      return;
     }
 
   len = sizeof(*msg) + strlen(name) + 1;

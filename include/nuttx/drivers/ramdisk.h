@@ -49,6 +49,16 @@
  * Type Definitions
  ****************************************************************************/
 
+struct ramdisk_config_s
+{
+  FAR const char *name;
+  FAR uint8_t    *buffer;
+  uint32_t        nsectors;
+  uint16_t        sectsize;
+  mode_t          mode;
+  uint8_t         rdflags;
+};
+
 /****************************************************************************
  * Public Function Prototypes
  ****************************************************************************/
@@ -57,6 +67,22 @@
 extern "C"
 {
 #endif
+
+/****************************************************************************
+ * Name: ramdisk_register_with_config
+ *
+ * Description:
+ *   Non-standard function to register a ramdisk or a romdisk
+ *
+ * Input Parameters:
+ *   config: Ramdisk configuration
+ *
+ * Returned Value:
+ *   Zero on success; a negated errno value on failure.
+ *
+ ****************************************************************************/
+
+int ramdisk_register_with_config(FAR const struct ramdisk_config_s *config);
 
 /****************************************************************************
  * Name: ramdisk_register or romdisk_register
@@ -79,6 +105,16 @@ extern "C"
 int ramdisk_register(int minor, FAR uint8_t *buffer, uint32_t nsectors,
                      uint16_t sectsize, uint8_t rdflags);
 #define romdisk_register(m,b,n,s) ramdisk_register(m,(FAR uint8_t *)b,n,s,0)
+
+/****************************************************************************
+ * Name: ramdisk_unregister
+ *
+ * Description:
+ *   Non-standard function to unregister a ramdisk or a romdisk
+ ****************************************************************************/
+
+int ramdisk_unregister(FAR const char *path);
+#define romdisk_unregister(p) ramdisk_unregister(p)
 
 /****************************************************************************
  * Name: mkrd

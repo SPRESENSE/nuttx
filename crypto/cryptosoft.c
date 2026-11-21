@@ -119,6 +119,45 @@ int swcr_id = -1;
  * Private Functions
  ****************************************************************************/
 
+/* Reverse a byte string in place: cryptodev carries asymmetric integers
+ * little-endian, crypto/rsa.c and crypto/ecc.c in big-endian.
+ */
+
+static void swcr_reverse(FAR uint8_t *buf, size_t len)
+{
+  uint8_t tmp;
+  size_t i;
+
+  for (i = 0; i < len / 2; i++)
+    {
+      tmp = buf[i];
+      buf[i] = buf[len - 1 - i];
+      buf[len - 1 - i] = tmp;
+    }
+}
+
+#ifdef CONFIG_CRYPTO_CRYPTODEV_SOFTWARE_CRYPTO
+
+/* cryptodev passes ECC integers little-endian while ecc.c works on
+ * big-endian bytes, so the same byte-reversing copy serves both directions.
+ * A short operand is missing its high bytes, which are zero-filled.
+ */
+
+static int swcr_ecc_copy(FAR void *dst, FAR const void *src, size_t len)
+{
+  if (src == NULL || len == 0 || len > secp256r1)
+    {
+      return -EINVAL;
+    }
+
+  memset(dst, 0, secp256r1);
+  memcpy(dst, src, len);
+  swcr_reverse(dst, secp256r1);
+  return OK;
+}
+
+#endif /* CONFIG_CRYPTO_CRYPTODEV_SOFTWARE_CRYPTO */
+
 #ifdef CONFIG_CRYPTO_CRYPTODEV_SOFTWARE_KEYMGMT
 
 /* key data operations in flash */
@@ -597,6 +636,10 @@ static int swkey_gen_secp256r1_key(FAR struct swkey_context_s *ctx,
       return ret;
     }
 
+  swcr_reverse(priv, secp256r1);
+  swcr_reverse(pub, secp256r1);
+  swcr_reverse(pub + secp256r1, secp256r1);
+
   /* Private keys cannot be exported */
 
   ret = swkey_write(&ctx->file, priv_keyid, priv, secp256r1,
@@ -799,7 +842,8 @@ static int swkey_kprocess(FAR struct cryptkop *krp)
   uint32_t pub_keyid;
   uint32_t keylen;
   uint32_t keyid;
-  int ret;
+  int ret = OK;
+  int len;
 
   /* Sanity check */
 
@@ -811,12 +855,14 @@ static int swkey_kprocess(FAR struct cryptkop *krp)
   ctx = swkey_get_context();
   if (ctx == NULL)
     {
-      return -EINVAL;
+      ret = -EINVAL;
+      goto out;
     }
 
   if (krp->krp_param[0].crp_nbits != sizeof(uint32_t) * 8)
     {
-      return -EINVAL;
+      ret = -EINVAL;
+      goto out;
     }
 
   keyid = *(uint32_t *)krp->krp_param[0].crp_p;
@@ -846,29 +892,31 @@ static int swkey_kprocess(FAR struct cryptkop *krp)
         krp->krp_status = swkey_delete(ctx, keyid);
         break;
       case CRK_EXPORT_KEY:
-        ret = swkey_export(ctx, keyid,
+        len = swkey_export(ctx, keyid,
                            krp->krp_param[1].crp_p,
                            krp->krp_param[1].crp_nbits / 8);
-        if (ret < 0)
+        if (len < 0)
           {
-            krp->krp_status = ret;
+            krp->krp_status = len;
           }
         else
           {
-            krp->krp_param[1].crp_nbits = ret * 8;
+            krp->krp_param[1].crp_nbits = len * 8;
           }
 
         break;
       case CRK_GENERATE_AES_KEY:
         if (krp->krp_param[1].crp_nbits != sizeof(uint32_t) * 8)
           {
-            return -EINVAL;
+            ret = -EINVAL;
+            goto out;
           }
 
         keylen = *(uint32_t *)krp->krp_param[1].crp_p;
         if (keylen != 16 && keylen != 24 && keylen != 32)
           {
-            return -EINVAL;
+            ret = -EINVAL;
+            goto out;
           }
 
         krp->krp_status = swkey_gen_aes_key(ctx, keyid, keylen);
@@ -877,7 +925,8 @@ static int swkey_kprocess(FAR struct cryptkop *krp)
         priv_keyid = keyid;
         if (krp->krp_param[1].crp_nbits != sizeof(uint32_t) * 8)
           {
-            return -EINVAL;
+            ret = -EINVAL;
+            goto out;
           }
 
         pub_keyid = *(uint32_t *)krp->krp_param[1].crp_p;
@@ -901,7 +950,23 @@ static int swkey_kprocess(FAR struct cryptkop *krp)
         break;
     }
 
-  return OK;
+out:
+  /* The work is already done, so an asynchronous request is completed
+   * right away.  The caller must not touch krp after this.
+   */
+
+  if ((krp->krp_flags & CRYPTO_F_CBIMM) && krp->krp_callback != NULL)
+    {
+      if (ret < 0)
+        {
+          krp->krp_status = ret;
+        }
+
+      krp->krp_callback(krp);
+      return OK;
+    }
+
+  return ret;
 }
 
 /****************************************************************************
@@ -1862,6 +1927,14 @@ int swcr_newsession(FAR uint32_t *sid, FAR struct cryptoini *cri)
             axf = &auth_hash_poly1305;
             goto auth4common;
 
+          case CRYPTO_CRC8:
+            axf = &auth_hash_crc8;
+            goto auth4common;
+
+          case CRYPTO_CRC16:
+            axf = &auth_hash_crc16;
+            goto auth4common;
+
           case CRYPTO_CRC32:
             axf = &auth_hash_crc32;
             goto auth4common;
@@ -1998,6 +2071,8 @@ int swcr_freesession(uint64_t tid)
           case CRYPTO_SHA2_256:
           case CRYPTO_SHA2_384:
           case CRYPTO_SHA2_512:
+          case CRYPTO_CRC8:
+          case CRYPTO_CRC16:
           case CRYPTO_CRC32:
             axf = swd->sw_axf;
 
@@ -2095,6 +2170,8 @@ static int swcr_clonedata(FAR struct swcr_data *dst,
       case CRYPTO_SHA2_256:
       case CRYPTO_SHA2_384:
       case CRYPTO_SHA2_512:
+      case CRYPTO_CRC8:
+      case CRYPTO_CRC16:
       case CRYPTO_CRC32:
         axf = src->sw_axf;
         dst->sw_octx = NULL;
@@ -2287,6 +2364,8 @@ int swcr_process(struct cryptop *crp)
           case CRYPTO_SHA2_256:
           case CRYPTO_SHA2_384:
           case CRYPTO_SHA2_512:
+          case CRYPTO_CRC8:
+          case CRYPTO_CRC16:
           case CRYPTO_CRC32:
             if ((crp->crp_etype = swcr_hash(crp, crd, sw,
                 crp->crp_buf)) != 0)
@@ -2319,6 +2398,16 @@ int swcr_process(struct cryptop *crp)
     }
 
 done:
+
+  /* The work is already done, so an asynchronous request is completed
+   * right away.  The caller must not touch crp after this.
+   */
+
+  if ((crp->crp_flags & CRYPTO_F_CBIMM) && crp->crp_callback != NULL)
+    {
+      crp->crp_callback(crp);
+    }
+
   return 0;
 }
 
@@ -2389,23 +2478,6 @@ int swcr_pbkdf2(FAR struct cryptop *crp,
   return 0;
 }
 
-/* Reverse a byte string in place: cryptodev carries RSA integers in
- * little-endian order, crypto/rsa.c in big-endian.
- */
-
-static void swcr_rsa_reverse(FAR uint8_t *buf, size_t len)
-{
-  uint8_t tmp;
-  size_t i;
-
-  for (i = 0; i < len / 2; i++)
-    {
-      tmp = buf[i];
-      buf[i] = buf[len - 1 - i];
-      buf[len - 1 - i] = tmp;
-    }
-}
-
 /* Load krp_param[slot] into rsa->comp[comp], big-endian.  The component
  * is required and must fit RSA_MAX_BYTES.
  */
@@ -2433,7 +2505,7 @@ static int swcr_rsa_load(FAR struct cryptkop *krp,
     }
 
   memcpy(rsa->comp[comp], param->crp_p, len);
-  swcr_rsa_reverse(rsa->comp[comp], len);
+  swcr_reverse(rsa->comp[comp], len);
   rsa->len[comp] = len;
   return OK;
 }
@@ -2498,7 +2570,7 @@ static int swcr_rsa_run(FAR struct cryptkop *krp, int eslot, int nslot,
 
   x = rsa->comp[SWCR_RSA_X];
   memcpy(x, in, MIN(inlen, modlen));
-  swcr_rsa_reverse(x, modlen);
+  swcr_reverse(x, modlen);
 
   ret = rsa_public(x, modlen, &key);
   if (ret < 0)
@@ -2506,7 +2578,7 @@ static int swcr_rsa_run(FAR struct cryptkop *krp, int eslot, int nslot,
       goto out;
     }
 
-  swcr_rsa_reverse(x, modlen);
+  swcr_reverse(x, modlen);
   memcpy(out, x, MIN(outlen, modlen));
   if (outlen > modlen)
     {
@@ -2602,11 +2674,19 @@ int swcr_rsa_verify(FAR struct cryptkop *krp)
                      sig->crp_nbits / 8, em, RSA_MAX_BYTES);
   if (ret >= 0)
     {
-      ret = -EINVAL;
-      if (hash->crp_p != NULL && padding->crp_p != NULL &&
-          hashlen + padlen <= RSA_MAX_BYTES &&
-          timingsafe_bcmp(em, hash->crp_p, hashlen) == 0 &&
-          timingsafe_bcmp(em + hashlen, padding->crp_p, padlen) == 0)
+      if (hash->crp_p == NULL || padding->crp_p == NULL ||
+          hashlen + padlen > RSA_MAX_BYTES)
+        {
+          ret = -EINVAL;
+        }
+      else if (timingsafe_bcmp(em, hash->crp_p, hashlen) != 0 ||
+               timingsafe_bcmp(em + hashlen, padding->crp_p, padlen) != 0)
+        {
+          /* Not the signed hash: a bad signature, not a bad request */
+
+          ret = -EBADMSG;
+        }
+      else
         {
           ret = OK;
         }
@@ -2627,43 +2707,163 @@ static int swcr_ecc256_genkey(FAR struct cryptkop *krp)
       return -EINVAL;
     }
 
-  memcpy(krp->krp_param[0].crp_p, d, secp256r1);
-  memcpy(krp->krp_param[1].crp_p, x, secp256r1);
-  memcpy(krp->krp_param[2].crp_p, y, secp256r1);
+  swcr_ecc_copy(krp->krp_param[0].crp_p, d, secp256r1);
+  swcr_ecc_copy(krp->krp_param[1].crp_p, x, secp256r1);
+  swcr_ecc_copy(krp->krp_param[2].crp_p, y, secp256r1);
+  explicit_bzero(d, sizeof(d));
   return OK;
 }
 
-static int swcr_ecc256_sign(struct cryptkop *krp)
+static int swcr_ecc256_sign(FAR struct cryptkop *krp)
 {
-  uint8_t *d = (uint8_t *)krp->krp_param[0].crp_p;
-  uint8_t *hash = (uint8_t *)krp->krp_param[1].crp_p;
   uint8_t sig[secp256r1 * 2];
+  uint8_t hash[secp256r1];
+  uint8_t d[secp256r1];
+  int ret;
+
+  ret = swcr_ecc_copy(d, krp->krp_param[0].crp_p,
+                      krp->krp_param[0].crp_nbits / 8);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  ret = swcr_ecc_copy(hash, krp->krp_param[1].crp_p,
+                      krp->krp_param[1].crp_nbits / 8);
+  if (ret < 0)
+    {
+      goto out;
+    }
 
   if (ecdsa_sign(d, hash, sig) == 0)
     {
-      return -EINVAL;
+      ret = -EINVAL;
+      goto out;
     }
 
-  memcpy(krp->krp_param[2].crp_p, sig, secp256r1);
-  memcpy(krp->krp_param[3].crp_p, sig + secp256r1, secp256r1);
+  swcr_ecc_copy(krp->krp_param[2].crp_p, sig, secp256r1);
+  swcr_ecc_copy(krp->krp_param[3].crp_p, sig + secp256r1, secp256r1);
+
+out:
+  explicit_bzero(d, sizeof(d));
+  return ret;
+}
+
+static int swcr_ecc256_verify(FAR struct cryptkop *krp)
+{
+  uint8_t publickey[secp256r1 + 1];
+  uint8_t signature[secp256r1 * 2];
+  uint8_t hash[secp256r1];
+  uint8_t x[secp256r1];
+  uint8_t y[secp256r1];
+  int ret;
+
+  ret = swcr_ecc_copy(x, krp->krp_param[0].crp_p,
+                      krp->krp_param[0].crp_nbits / 8);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  ret = swcr_ecc_copy(y, krp->krp_param[1].crp_p,
+                      krp->krp_param[1].crp_nbits / 8);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  ret = swcr_ecc_copy(signature, krp->krp_param[3].crp_p,
+                      krp->krp_param[3].crp_nbits / 8);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  ret = swcr_ecc_copy(signature + secp256r1, krp->krp_param[4].crp_p,
+                      krp->krp_param[4].crp_nbits / 8);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  ret = swcr_ecc_copy(hash, krp->krp_param[5].crp_p,
+                      krp->krp_param[5].crp_nbits / 8);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  /* Compressed public key: SEC1 prefix (0x02/0x03 by Y parity) + X */
+
+  publickey[0] = 2 + (y[secp256r1 - 1] & 0x01);
+  memcpy(publickey + 1, x, secp256r1);
+  if (ecdsa_verify(publickey, hash, signature) == 0)
+    {
+      return -EBADMSG;
+    }
+
   return OK;
 }
 
-static int swcr_ecc256_verify(struct cryptkop *krp)
+static int swcr_ecdh256_gen_public(FAR struct cryptkop *krp)
 {
-  uint8_t *x = (uint8_t *)krp->krp_param[0].crp_p;
-  uint8_t *y = (uint8_t *)krp->krp_param[1].crp_p;
-  uint8_t *r = (uint8_t *)krp->krp_param[3].crp_p;
-  uint8_t *s = (uint8_t *)krp->krp_param[4].crp_p;
-  uint8_t *hash = (uint8_t *)krp->krp_param[5].crp_p;
-  uint8_t publickey[secp256r1 + 1];
-  uint8_t signature[secp256r1 * 2];
+  /* Generating an ephemeral ECDH keypair is identical to ECDSA key
+   * generation: both produce a SECP256R1 keypair in param[0]=d,
+   * param[1]=x, param[2]=y.
+   */
 
-  memcpy(publickey + 1, x, secp256r1);
+  return swcr_ecc256_genkey(krp);
+}
+
+static int swcr_ecdh256_compute_shared(FAR struct cryptkop *krp)
+{
+  uint8_t publickey[secp256r1 + 1];
+  uint8_t privatekey[secp256r1];
+  uint8_t secret[secp256r1];
+  uint8_t x[secp256r1];
+  uint8_t y[secp256r1];
+  int ret;
+
+  /* Private key: param[0]; peer public key: param[1]=Q.X, param[2]=Q.Y. */
+
+  ret = swcr_ecc_copy(x, krp->krp_param[1].crp_p,
+                      krp->krp_param[1].crp_nbits / 8);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  ret = swcr_ecc_copy(y, krp->krp_param[2].crp_p,
+                      krp->krp_param[2].crp_nbits / 8);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  ret = swcr_ecc_copy(privatekey, krp->krp_param[0].crp_p,
+                      krp->krp_param[0].crp_nbits / 8);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  /* Compress the peer public key: SEC1 prefix (0x02/0x03 by Y parity) + X */
+
   publickey[0] = 2 + (y[secp256r1 - 1] & 0x01);
-  memcpy(signature, r, secp256r1);
-  memcpy(signature + secp256r1, s, secp256r1);
-  return ecdsa_verify(publickey, hash, signature) == 0;
+  memcpy(publickey + 1, x, secp256r1);
+
+  if (ecdh_shared_secret(publickey, privatekey, secret) == 0)
+    {
+      ret = -EINVAL;
+    }
+  else
+    {
+      swcr_ecc_copy(krp->krp_param[3].crp_p, secret, secp256r1);
+    }
+
+  explicit_bzero(privatekey, sizeof(privatekey));
+  explicit_bzero(secret, sizeof(secret));
+  return ret;
 }
 
 int swcr_kprocess(struct cryptkop *krp)
@@ -2728,6 +2928,20 @@ int swcr_kprocess(struct cryptkop *krp)
           }
 
         break;
+      case CRK_ECDH_GEN_PUBLIC:
+        if ((krp->krp_status = swcr_ecdh256_gen_public(krp)) != 0)
+          {
+            goto done;
+          }
+
+        break;
+      case CRK_ECDH_COMPUTE_SHARED:
+        if ((krp->krp_status = swcr_ecdh256_compute_shared(krp)) != 0)
+          {
+            goto done;
+          }
+
+        break;
       default:
 
         /* Unknown/unsupported algorithm */
@@ -2737,6 +2951,16 @@ int swcr_kprocess(struct cryptkop *krp)
     }
 
 done:
+
+  /* The work is already done, so an asynchronous request is completed
+   * right away.  The caller must not touch krp after this.
+   */
+
+  if ((krp->krp_flags & CRYPTO_F_CBIMM) && krp->krp_callback != NULL)
+    {
+      krp->krp_callback(krp);
+    }
+
   return 0;
 }
 
@@ -2795,6 +3019,8 @@ void swcr_init(void)
   algs[CRYPTO_SHA2_256] = CRYPTO_ALG_FLAG_SUPPORTED;
   algs[CRYPTO_SHA2_384] = CRYPTO_ALG_FLAG_SUPPORTED;
   algs[CRYPTO_SHA2_512] = CRYPTO_ALG_FLAG_SUPPORTED;
+  algs[CRYPTO_CRC8] = CRYPTO_ALG_FLAG_SUPPORTED;
+  algs[CRYPTO_CRC16] = CRYPTO_ALG_FLAG_SUPPORTED;
   algs[CRYPTO_CRC32] = CRYPTO_ALG_FLAG_SUPPORTED;
   algs[CRYPTO_AES_CMAC] = CRYPTO_ALG_FLAG_SUPPORTED;
   algs[CRYPTO_AES_128_CMAC] = CRYPTO_ALG_FLAG_SUPPORTED;
@@ -2814,6 +3040,8 @@ void swcr_init(void)
   kalgs[CRK_ECDSA_SECP256R1_SIGN] = CRYPTO_ALG_FLAG_SUPPORTED;
   kalgs[CRK_ECDSA_SECP256R1_VERIFY] = CRYPTO_ALG_FLAG_SUPPORTED;
   kalgs[CRK_ECDSA_SECP256R1_GENKEY] = CRYPTO_ALG_FLAG_SUPPORTED;
+  kalgs[CRK_ECDH_GEN_PUBLIC] = CRYPTO_ALG_FLAG_SUPPORTED;
+  kalgs[CRK_ECDH_COMPUTE_SHARED] = CRYPTO_ALG_FLAG_SUPPORTED;
   crypto_kregister(swcr_id, kalgs, swcr_kprocess);
 }
 

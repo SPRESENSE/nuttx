@@ -37,6 +37,7 @@
 #include <nuttx/arch.h>
 #endif
 
+#include <nuttx/init.h>
 #include <nuttx/irq.h>
 #include <nuttx/syslog/syslog_rpmsg.h>
 
@@ -124,16 +125,22 @@ static void syslog_rpmsg_init_buffer(FAR struct syslog_rpmsg_s *priv)
   DEBUGASSERT(priv->header != NULL);
 
   flags = spin_lock_irqsave(&priv->lock);
-  if (header->magic != SYSLOG_RPMSG_MAGIC_NUMBER)
+#if CONFIG_SYSLOG_RPMSG_BUFSIZE > 0
+  header->size = CONFIG_SYSLOG_RPMSG_BUFSIZE -
+                 sizeof(struct syslog_rpmsg_buffer_header_s);
+#endif
+  /* Reset the buffer when it is uninitialized (bad magic), or when the
+   * head/tail indices are out of range.  The shared buffer may have been
+   * left corrupted by another firmware; a bad head/tail would make
+   * syslog_rpmsg_transfer() memcpy from a wild source address, so discard
+   * the content and start clean rather than replaying a corrupted buffer.
+   */
+
+  if (header->magic != SYSLOG_RPMSG_MAGIC_NUMBER ||
+      header->head >= header->size || header->tail >= header->size)
     {
       header->head = 0;
       header->tail = 0;
-
-#if CONFIG_SYSLOG_RPMSG_BUFSIZE > 0
-      header->size = CONFIG_SYSLOG_RPMSG_BUFSIZE -
-                     sizeof(struct syslog_rpmsg_buffer_header_s);
-#endif
-
       header->magic = SYSLOG_RPMSG_MAGIC_NUMBER;
     }
 
@@ -150,7 +157,7 @@ static bool syslog_rpmsg_transfer(FAR struct syslog_rpmsg_s *priv, bool wait)
   uint32_t len_end;
   uint32_t len;
 
-  if (!is_rpmsg_ept_ready(&priv->ept))
+  if (g_nx_initstate >= OSINIT_RESET || !is_rpmsg_ept_ready(&priv->ept))
     {
       return false;
     }
@@ -225,7 +232,7 @@ static void syslog_rpmsg_addbuf(FAR struct syslog_rpmsg_s *priv,
   irqstate_t flags;
   uint32_t tail;
 
-  if (len <= 0)
+  if (len == 0 || priv->header == NULL)
     {
       return;
     }
@@ -243,8 +250,6 @@ static void syslog_rpmsg_addbuf(FAR struct syslog_rpmsg_s *priv,
 
   if (SYSLOG_RPMSG_SPACE(header) < len)
     {
-      bool ret = false;
-
       if (!up_interrupt_context() && !sched_idletask())
         {
           /* Unlock before entering syslog_rpmsg_transfer,
@@ -252,11 +257,11 @@ static void syslog_rpmsg_addbuf(FAR struct syslog_rpmsg_s *priv,
            */
 
           spin_unlock_irqrestore(&priv->lock, flags);
-          ret = syslog_rpmsg_transfer(priv, true);
+          syslog_rpmsg_transfer(priv, true);
           flags = spin_lock_irqsave(&priv->lock);
         }
 
-      if (!ret)
+      if (SYSLOG_RPMSG_SPACE(header) < len)
         {
           overwritten = true;
         }
@@ -277,10 +282,10 @@ static void syslog_rpmsg_addbuf(FAR struct syslog_rpmsg_s *priv,
   header->head = (header->head + len) % header->size;
   if (overwritten)
     {
-      header->tail = header->head;
+      header->tail = (header->head + 1) % header->size;
     }
 
-  if (!priv->suspend && is_rpmsg_ept_ready(&priv->ept))
+  if (is_rpmsg_ept_ready(&priv->ept))
     {
       clock_t delay = SYSLOG_RPMSG_WORK_DELAY;
       uint32_t space = SYSLOG_RPMSG_SPACE(header);
@@ -351,17 +356,7 @@ static int syslog_rpmsg_ept_cb(FAR struct rpmsg_endpoint *ept,
   FAR struct syslog_rpmsg_s *priv = priv_;
   FAR struct syslog_rpmsg_header_s *header = data;
 
-  if (header->command == SYSLOG_RPMSG_SUSPEND)
-    {
-      work_cancel(HPWORK, &priv->work);
-      priv->suspend = true;
-    }
-  else if (header->command == SYSLOG_RPMSG_RESUME)
-    {
-      priv->suspend = false;
-      work_queue(HPWORK, &priv->work, syslog_rpmsg_work, priv, 0);
-    }
-  else if (header->command == SYSLOG_RPMSG_SYNC)
+  if (header->command == SYSLOG_RPMSG_SYNC)
     {
       syslog_rpmsg_transfer(priv, true);
       rpmsg_send(ept, data, len);
@@ -382,7 +377,7 @@ static ssize_t syslog_rpmsg_file_read(FAR struct file *filep,
   DEBUGASSERT(inode->i_private);
   priv = inode->i_private;
 
-  if (!priv->suspend && is_rpmsg_ept_ready(&priv->ept))
+  if (is_rpmsg_ept_ready(&priv->ept))
     {
       work_queue(HPWORK, &priv->work, syslog_rpmsg_work, priv, 0);
     }

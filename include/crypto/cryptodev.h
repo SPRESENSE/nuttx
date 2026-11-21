@@ -144,7 +144,9 @@
 #define CRYPTO_CHACHA20_DJB     43
 #define CRYPTO_AES_CTR_SSH      44
 #define CRYPTO_AES_256_CMAC     45
-#define CRYPTO_ALGORITHM_MAX    45 /* Keep updated */
+#define CRYPTO_CRC8             46
+#define CRYPTO_CRC16            47
+#define CRYPTO_ALGORITHM_MAX    47 /* Keep updated */
 
 /* Algorithm flags */
 
@@ -206,6 +208,7 @@ struct cryptodesc
 
 struct cryptop
 {
+  TAILQ_ENTRY(cryptop) crp_next;
   uint64_t crp_sid;  /* Session ID */
   int crp_ilen;      /* Input data total length */
   int crp_olen;      /* Result total length */
@@ -243,6 +246,7 @@ struct cryptop
   caddr_t crp_dst;
   caddr_t crp_iv;
   caddr_t crp_aad;
+  uint32_t crp_reqid;
   int crp_iter;
 };
 
@@ -333,7 +337,9 @@ struct crypt_kop
 #define CRK_SAVE_KEY               23 /* Save key data into FLASH */
 #define CRK_LOAD_KEY               24 /* Load key data from FLASH into RAM */
 #define CRK_UNLOAD_KEY             25 /* Unload key data from RAM */
-#define CRK_ALGORITHM_MAX          25 /* Keep updated */
+#define CRK_ECDH_GEN_PUBLIC        26 /* Generate an ephemeral ECDH keypair */
+#define CRK_ECDH_COMPUTE_SHARED    27 /* Compute ECDH shared secret */
+#define CRK_ALGORITHM_MAX          27 /* Keep updated */
 
 #define CRF_MOD_EXP                (1 << CRK_MOD_EXP)
 #define CRF_MOD_EXP_CRT            (1 << CRK_MOD_EXP_CRT)
@@ -347,6 +353,8 @@ struct crypt_kop
 #define CRF_ECDSA_SECP256R1_SIGN   (1 << CRK_ECDSA_SECP256R1_SIGN)
 #define CRF_ECDSA_SECP256R1_VERIFY (1 << CRK_ECDSA_SECP256R1_VERIFY)
 #define CRF_ECDSA_SECP256R1_GENKEY (1 << CRK_ECDSA_SECP256R1_GENKEY)
+#define CRF_ECDH_GEN_PUBLIC        (1 << CRK_ECDH_GEN_PUBLIC)
+#define CRF_ECDH_COMPUTE_SHARED    (1 << CRK_ECDH_COMPUTE_SHARED)
 #define CRF_ALLOCATE_KEY           (1 << CRK_ALLOCATE_KEY)
 #define CRF_VALIDATE_KEYID         (1 << CRK_VALIDATE_KEYID)
 #define CRF_IMPORT_KEY             (1 << CRK_IMPORT_KEY)
@@ -452,6 +460,9 @@ struct crypt_op
  * in the authentication algorithm.
  */
 
+#define COP_FLAG_CBIMM  (1 << 2) /* Request asynchronous processing. */
+#define COP_FLAG_CANCEL (1 << 4) /* Cancel a pending async op by reqid. */
+
   uint16_t flags;
   uint32_t iterations;
   unsigned len;
@@ -463,6 +474,7 @@ struct crypt_op
   caddr_t mac;        /* must be big enough for chosen MAC */
   caddr_t iv;
   caddr_t aad;
+  uint32_t reqid;     /* distinguishes tasks in asynchronous calling */
 };
 
 /* hamc buffer, software & hardware need it */
@@ -487,6 +499,7 @@ extern const uint8_t hmac_opad_buffer[HMAC_MAX_BLOCK_LEN];
 #define CIOCKEYRET              105
 #define CIOCASYMFEAT            106
 #define CIOCCLONE               107
+#define CIOCCRYPTRET            108
 
 int crypto_newsession(FAR uint64_t *, FAR struct cryptoini *, int);
 int crypto_clonesession(uint64_t, FAR uint64_t *);

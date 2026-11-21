@@ -149,26 +149,26 @@ static int goldfish_battery_state(FAR struct battery_gauge_dev_s *dev,
   regval = GOLDFISH_BATTERY_READ(priv, BATTERY_STATUS);
 
   switch (regval)
-  {
-    case POWER_SUPPLY_STATUS_UNKNOWN:
-      *status = BATTERY_UNKNOWN;
-      break;
-    case POWER_SUPPLY_STATUS_CHARGING:
-      *status = BATTERY_CHARGING;
-      break;
-    case POWER_SUPPLY_STATUS_DISCHARGING:
-      *status = BATTERY_DISCHARGING;
-      break;
-    case POWER_SUPPLY_STATUS_NOT_CHARGING:
-      *status = BATTERY_IDLE;
-      break;
-    case POWER_SUPPLY_STATUS_FULL:
-      *status = BATTERY_FULL;
-      break;
-    default:
-      *status = BATTERY_UNKNOWN;
-      break;
-  }
+    {
+      case POWER_SUPPLY_STATUS_UNKNOWN:
+        *status = BATTERY_UNKNOWN;
+        break;
+      case POWER_SUPPLY_STATUS_CHARGING:
+        *status = BATTERY_CHARGING;
+        break;
+      case POWER_SUPPLY_STATUS_DISCHARGING:
+        *status = BATTERY_DISCHARGING;
+        break;
+      case POWER_SUPPLY_STATUS_NOT_CHARGING:
+        *status = BATTERY_IDLE;
+        break;
+      case POWER_SUPPLY_STATUS_FULL:
+        *status = BATTERY_FULL;
+        break;
+      default:
+        *status = BATTERY_UNKNOWN;
+        break;
+    }
 
   return OK;
 }
@@ -319,6 +319,14 @@ int goldfish_battery_register(FAR void *regs, int irq)
 
   up_enable_irq(data->irq);
   GOLDFISH_BATTERY_WRITE(data, BATTERY_INT_ENABLE, BATTERY_INT_MASK);
+
+  /* Trigger initial battery state update */
+
+  ret = work_queue(HPWORK, &data->work, goldfish_battery_work, data, 0);
+  if (ret < 0)
+    {
+      batwarn("initial battery work queue failed: %d\n", ret);
+    }
 
   batinfo("goldfish_battery_register over");
   return 0;

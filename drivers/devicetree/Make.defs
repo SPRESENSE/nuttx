@@ -36,6 +36,35 @@ ifeq ($(CONFIG_MTD_CFI),y)
   CSRCS += fdt_cfi.c
 endif
 
+ifeq ($(CONFIG_TIMER_SP804),y)
+ifeq ($(CONFIG_TIMER),y)
+  CSRCS += fdt_sp804.c
+endif
+endif
+ifeq ($(CONFIG_TIMER_IMX_GPT),y)
+  CSRCS += fdt_imx_gpt.c
+endif
+
+ifeq ($(CONFIG_WATCHDOG_CMSDK),y)
+  CSRCS += fdt_cmsdk_wdt.c
+endif
+
+ifeq ($(CONFIG_QEMU_FWCFG),y)
+  CSRCS += fdt_qemu_fwcfg.c
+endif
+
+ifeq ($(CONFIG_PWM_SIFIVE),y)
+  CSRCS += fdt_sifive_pwm.c
+endif
+
+ifeq ($(CONFIG_IOEXPANDER_PL061),y)
+  CSRCS += fdt_pl061.c
+endif
+
+ifeq ($(CONFIG_CAN_CTUCANFD),y)
+  CSRCS += fdt_ctucanfd.c
+endif
+
 CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)libs$(DELIM)libc$(DELIM)fdt$(DELIM)dtc$(DELIM)libfdt
 
 DEPPATH += --dep-path devicetree

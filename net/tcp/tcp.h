@@ -1222,12 +1222,15 @@ int tcp_accept_connection(FAR struct net_driver_s *dev,
  * Description:
  *   Fill in the sequence and acknowledgment numbers, the ports, the receive
  *   window and the urgent pointer of an outgoing TCP header, and start the
- *   retransmission timer if there is unacknowledged data.
+ *   retransmission timer if there is unacknowledged data and the segment
+ *   takes sequence space.
  *
  * Input Parameters:
- *   dev  - The device driver structure to use in the send operation
- *   conn - The TCP connection structure holding connection information
- *   tcp  - The TCP header to fill in
+ *   dev   - The device driver structure to use in the send operation
+ *   conn  - The TCP connection structure holding connection information
+ *   tcp   - The TCP header to fill in
+ *   timer - True if the segment carries data, SYN or FIN.  A segment
+ *           without them (an ACK) does not restart the timer.
  *
  * Returned Value:
  *   None
@@ -1239,7 +1242,7 @@ int tcp_accept_connection(FAR struct net_driver_s *dev,
 
 void tcp_fill_header(FAR struct net_driver_s *dev,
                      FAR struct tcp_conn_s *conn,
-                     FAR struct tcp_hdr_s *tcp);
+                     FAR struct tcp_hdr_s *tcp, bool timer);
 
 /****************************************************************************
  * Name: tcp_send
@@ -2398,8 +2401,9 @@ void tcp_cc_update(FAR struct tcp_conn_s *conn, FAR struct tcp_hdr_s *tcp);
  *   Update congestion control variables
  *
  * Input Parameters:
- *   conn   - The TCP connection of interest
- *   tcp    - The TCP header.
+ *   conn    - The TCP connection of interest
+ *   tcp     - The TCP header.
+ *   datalen - The number of data bytes in the segment
  *
  * Returned Value:
  *   None
@@ -2409,7 +2413,8 @@ void tcp_cc_update(FAR struct tcp_conn_s *conn, FAR struct tcp_hdr_s *tcp);
  *
  ****************************************************************************/
 
-void tcp_cc_recv_ack(FAR struct tcp_conn_s *conn, FAR struct tcp_hdr_s *tcp);
+void tcp_cc_recv_ack(FAR struct tcp_conn_s *conn, FAR struct tcp_hdr_s *tcp,
+                     uint16_t datalen);
 #endif
 
 #ifdef __cplusplus

@@ -34,6 +34,33 @@ if(CONFIG_DEVICE_TREE)
     list(APPEND SRCS fdt_cfi.c)
   endif()
 
+  if(CONFIG_TIMER_SP804 AND CONFIG_TIMER)
+    list(APPEND SRCS fdt_sp804.c)
+  endif()
+  if(CONFIG_TIMER_IMX_GPT)
+    list(APPEND SRCS fdt_imx_gpt.c)
+  endif()
+
+  if(CONFIG_WATCHDOG_CMSDK)
+    list(APPEND SRCS fdt_cmsdk_wdt.c)
+  endif()
+
+  if(CONFIG_QEMU_FWCFG)
+    list(APPEND SRCS fdt_qemu_fwcfg.c)
+  endif()
+
+  if(CONFIG_PWM_SIFIVE)
+    list(APPEND SRCS fdt_sifive_pwm.c)
+  endif()
+
+  if(CONFIG_IOEXPANDER_PL061)
+    list(APPEND SRCS fdt_pl061.c)
+  endif()
+
+  if(CONFIG_CAN_CTUCANFD)
+    list(APPEND SRCS fdt_ctucanfd.c)
+  endif()
+
   target_include_directories(drivers
                              PRIVATE ${NUTTX_DIR}/libs/libc/fdt/dtc/libfdt)
   target_sources(drivers PRIVATE ${SRCS})

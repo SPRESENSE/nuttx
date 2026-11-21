@@ -20,22 +20,7 @@
 #
 # ##############################################################################
 
-get_directory_property(TOOLCHAIN_DIR_FLAGS DIRECTORY ${CMAKE_SOURCE_DIR}
-                                                     COMPILE_OPTIONS)
-
-set(NUTTX_EXTRA_FLAGS "")
-foreach(FLAG ${TOOLCHAIN_DIR_FLAGS})
-  if(NOT FLAG MATCHES "^\\$<.*>$")
-    if(NOT FLAG MATCHES "-nostdlib")
-      list(APPEND NUTTX_EXTRA_FLAGS ${FLAG})
-    endif()
-  else()
-    string(REGEX MATCH "\\$<\\$<COMPILE_LANGUAGE:C>:(.*)>" matched ${FLAG})
-    if(matched)
-      list(APPEND NUTTX_EXTRA_FLAGS ${CMAKE_MATCH_1})
-    endif()
-  endif()
-endforeach()
+nuttx_collect_extra_flags(EXCLUDE "-nostdlib")
 
 separate_arguments(CMAKE_C_FLAG_ARGS NATIVE_COMMAND ${CMAKE_C_FLAGS})
 

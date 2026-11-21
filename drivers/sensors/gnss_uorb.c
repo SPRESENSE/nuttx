@@ -318,7 +318,7 @@ static int gnss_close(FAR struct file *filep)
         }
 
       upper->crefs--;
-      sminfo(filep->f_inode->i_name, "crefs " PRIu8 "", upper->crefs);
+      sminfo(filep->f_inode->i_name, "crefs %" PRIu8 "", upper->crefs);
     }
 
   list_delete(&user->node);
@@ -385,7 +385,7 @@ static ssize_t gnss_write(FAR struct file *filep, FAR const char *buffer,
                           size_t buflen)
 {
   FAR struct gnss_upperhalf_s *upper;
-  int ret = -ENOTSUP;
+  int ret = -ENOTTY;
 
   upper = filep->f_inode->i_private;
 
@@ -932,6 +932,8 @@ void gnss_unregister(FAR struct gnss_lowerhalf_s *lower, int devno)
   sensor_unregister(&upper->dev[SENSOR_GNSS_IDX_GNSS_GEOFENCE].lower, devno);
   snprintf(path, PATH_MAX, GNSS_PATH_FMT, devno);
   unregister_driver(path);
+  nxmutex_destroy(&upper->lock);
+  nxmutex_destroy(&upper->bufferlock);
   nxsem_destroy(&upper->buffersem);
   circbuf_uninit(&upper->buffer);
   lib_put_pathbuffer(path);

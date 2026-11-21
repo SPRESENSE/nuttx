@@ -24,12 +24,16 @@
  * Included Files
  ****************************************************************************/
 
+#include <arch/irq.h>
+#include <debug.h>
 #include <execinfo.h>
 #include <stdio.h>
 #include <stdbool.h>
 #include <syslog.h>
-#include <sys/param.h>
 
+#include <nuttx/init.h>
+#include <nuttx/nuttx.h>
+#include <nuttx/sched.h>
 #include <nuttx/spinlock.h>
 
 #include "libc.h"
@@ -38,25 +42,20 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-#ifndef CONFIG_LIBC_BACKTRACE_BUFFSIZE
-#  define CONFIG_LIBC_BACKTRACE_BUFFSIZE 0
+#if defined(CONFIG_BUILD_FLAT) || defined(__KERNEL__)
+#  define backtrace_lock(bp) spin_lock_irqsave(&(bp)->lock)
+#  define backtrace_unlock(bp, flags) spin_unlock_irqrestore(&(bp)->lock, flags)
+#else
+#  define backtrace_lock(bp) ((irqstate_t)nxmutex_lock(&(bp)->lock))
+#  define backtrace_unlock(bp, flags) \
+          ((void)flags, nxmutex_unlock(&(bp)->lock))
 #endif
-
-/* Calculate the number of backtrace that can be saved based on
- * LIBC_BACKTRACE_BUFFSIZE. Each backtrace entry corresponds to a hash
- * table entry. The maximum number of entries that can be recorded is
- * BACKTRACE_BUFFSIZE / (backtrace entry size + hash entry size).
- */
-
-#define BACKTRACE_NUMBER (CONFIG_LIBC_BACKTRACE_BUFFSIZE / \
-                         (sizeof(struct backtrace_entry_s) + \
-                          sizeof(int)))
 
 /****************************************************************************
  * Private Types
  ****************************************************************************/
 
-#if CONFIG_LIBC_BACKTRACE_BUFFSIZE > 0
+#if CONFIG_LIBC_BACKTRACE_DEPTH > 0
 struct backtrace_entry_s
 {
   union
@@ -65,30 +64,43 @@ struct backtrace_entry_s
     struct sq_entry_s freenode;
   };
 
-  uint16_t depth; /* Depth of the backtrace */
-  uint16_t count; /* Count of the backtrace */
-  int      next;  /* Next index in the hash chain */
+  FAR void *next;  /* Next index in the hash chain */
+  uint32_t  depth; /* Depth of the backtrace */
+  uint32_t  ref;   /* Count of the backtrace */
 };
 
 struct backtrace_pool_s
 {
-  /* Pool to store the backtrace record */
-
-  struct backtrace_entry_s pool[BACKTRACE_NUMBER];
-
-  /* Hash table to store the index of the backtrace record */
-
-  int bucket[BACKTRACE_NUMBER];
+  FAR struct backtrace_entry_s **bucket;
   struct sq_queue_s freelist;
+#if defined(CONFIG_BUILD_FLAT) || defined(__KERNEL__)
   spinlock_t lock;
-  bool init;
+#else
+  mutex_t lock;
+#endif
+  size_t capacity;
+  size_t used;
+  size_t overflow;
+  bool expanding;
 };
 
 /****************************************************************************
  * Private Data
  ****************************************************************************/
 
-static struct backtrace_pool_s g_backtrace_pool;
+static struct backtrace_entry_s
+g_backtrace_entries[CONFIG_LIBC_BACKTRACE_INIT_SIZE];
+static FAR struct backtrace_entry_s *
+g_backtrace_bucket[CONFIG_LIBC_BACKTRACE_INIT_SIZE];
+
+static struct backtrace_pool_s g_backtrace_pool =
+{
+#if defined(CONFIG_BUILD_FLAT) || defined(__KERNEL__)
+  .lock = SP_UNLOCKED,
+#else
+  .lock = NXMUTEX_INITIALIZER,
+#endif
+};
 #endif
 
 /****************************************************************************
@@ -119,114 +131,286 @@ static FAR char **backtrace_malloc(FAR void *const *buffer, int size)
   return lib_malloc(length);
 }
 
-#if CONFIG_LIBC_BACKTRACE_BUFFSIZE > 0
-
-/****************************************************************************
- * Name: backtrace_init
- *
- * Description:
- *   Initialize the backtrace record
- *
- ****************************************************************************/
-
-static void backtrace_init(void)
-{
-  FAR struct backtrace_pool_s *bp = &g_backtrace_pool;
-  size_t i;
-
-  sq_init(&bp->freelist);
-  spin_lock_init(&bp->lock);
-  memset(bp->bucket, -1, sizeof(bp->bucket));
-  for (i = 0; i < nitems(bp->pool); i++)
-    {
-      sq_addlast(&bp->pool[i].freenode, &bp->freelist);
-    }
-}
+#if CONFIG_LIBC_BACKTRACE_DEPTH > 0
 
 /****************************************************************************
  * Name: backtrace_hash
  ****************************************************************************/
 
-static int backtrace_hash(FAR struct backtrace_pool_s *bp,
-                          FAR const void *backtrace, int depth)
+/* nosanitize_address: backtrace_hash is on the hot path of every recorded
+ * allocation/free (called by backtrace_record and backtrace_remove when
+ * CONFIG_MM_RECORD_STACK is on).  On KASAN-enabled debug builds each
+ * data[i] load would otherwise trip a per-access __asan_load4_noabort
+ * shadow check; multiplied across a heavy allocation phase (e.g. C++
+ * static initialization) this stretches the wall time past the test
+ * framework's busy-loop threshold and surfaces as a no-output hang.  The
+ * same reasoning was applied to backtrace_find(); this covers the
+ * remaining uninstrumented reader on the same path.  The buffer is either
+ * the caller's stack array (filled by sched_backtrace) or a pool entry's
+ * stack array, both always valid, so skipping the shadow check is safe.
+ */
+
+nosanitize_address
+static uint32_t backtrace_hash(FAR const void *backtrace, int depth)
 {
-  FAR const uint8_t *data = backtrace;
+  FAR const uintptr_t *data = backtrace;
   uint32_t hash = 5381;
   int i;
 
-  for (i = 0; i < depth * sizeof(uintptr_t); i++)
+  for (i = 0; i < depth; i++)
     {
       hash = ((hash << 5) + hash) + data[i];
     }
 
-  return hash % nitems(bp->bucket);
+  return hash;
+}
+
+/****************************************************************************
+ * Name: backtrace_rehash
+ ****************************************************************************/
+
+#if CONFIG_LIBC_BACKTRACE_LOAD_FACTOR < 100
+static void backtrace_rehash(FAR struct backtrace_pool_s *bp,
+                             FAR struct backtrace_entry_s **bucket)
+{
+  FAR struct backtrace_entry_s *entry;
+  size_t capacity = bp->capacity;
+  size_t i;
+
+  /* Rehash the backtrace record, and move the backtrace record to the new
+   * bucket
+   */
+
+  for (i = 0; i < capacity; i++)
+    {
+      entry = bp->bucket[i];
+      while (entry)
+        {
+          uint32_t slot = backtrace_hash(entry->stack, entry->depth);
+          FAR struct backtrace_entry_s *next = entry->next;
+
+          slot = slot % (capacity * 2);
+          entry->next = bucket[slot];
+          bucket[slot] = entry;
+          entry = next;
+        }
+    }
+}
+#endif /* CONFIG_LIBC_BACKTRACE_LOAD_FACTOR < 100 */
+
+/****************************************************************************
+ * Name: backtrace_expand
+ *
+ * Description:
+ *   Expand the backtrace pool. The pool lock is held on entry and is held on
+ *   return. The lock is released around the sleeping allocation path so that
+ *   a second thread recording a backtrace can still make progress: it skips
+ *   expansion because bp->expanding is true and falls back to the remaining
+ *   headroom in the current pool.
+ *
+ * Input Parameters:
+ *   bp    - The backtrace pool
+ *   flags - The irqstate_t saved by the caller when the lock was acquired;
+ *           updated in place whenever the lock is released and reacquired
+ *           inside this function.
+ ****************************************************************************/
+
+static int backtrace_expand(FAR struct backtrace_pool_s *bp,
+                            FAR irqstate_t *flags)
+{
+  size_t i;
+
+  /* If the capacity is 0, it means that the backtrace record is not
+   * initialized, we will initialize it with the static pool.
+   */
+
+  if (bp->capacity == 0)
+    {
+      /* No allocation is needed for the static pool, so the lock is held
+       * throughout the initialization to make bp->capacity visible to any
+       * waiting thread before it observes the pool.
+       */
+
+      sq_init(&bp->freelist);
+      for (i = 0; i < CONFIG_LIBC_BACKTRACE_INIT_SIZE; i++)
+        {
+          sq_addlast(&g_backtrace_entries[i].freenode, &bp->freelist);
+        }
+
+      bp->bucket = g_backtrace_bucket;
+      bp->capacity = CONFIG_LIBC_BACKTRACE_INIT_SIZE;
+      return 0;
+    }
+
+#if CONFIG_LIBC_BACKTRACE_LOAD_FACTOR < 100
+  {
+    /* When expanding, double the capacity of the bucket and release
+     * the old bucket.
+     */
+
+    FAR struct backtrace_entry_s **oldbucket;
+    FAR struct backtrace_entry_s **bucket;
+    FAR struct backtrace_entry_s *pool;
+    size_t poolsize = bp->capacity;
+    size_t capacity = bp->capacity * 2;
+
+    /* Drop the lock before the sleeping allocation so we neither deadlock
+     * on the pool spinlock nor block IRQs across heap allocation.
+     */
+
+    backtrace_unlock(bp, *flags);
+    bucket = lib_zalloc(sizeof(FAR struct backtrace_entry_s *) * capacity);
+    pool = lib_zalloc(sizeof(struct backtrace_entry_s) * poolsize);
+    if (bucket == NULL || pool == NULL)
+      {
+        lib_free(bucket);
+        lib_free(pool);
+        *flags = backtrace_lock(bp);
+        return -ENOMEM;
+      }
+
+    *flags = backtrace_lock(bp);
+    backtrace_rehash(bp, bucket);
+
+    for (i = 0; i < poolsize; i++)
+      {
+        sq_addlast(&pool[i].freenode, &bp->freelist);
+      }
+
+    oldbucket = bp->bucket;
+    bp->bucket = bucket;
+    bp->capacity = capacity;
+    backtrace_unlock(bp, *flags);
+
+    if (oldbucket != g_backtrace_bucket)
+      {
+        lib_free(oldbucket);
+      }
+
+    *flags = backtrace_lock(bp);
+  }
+#else
+  (void)flags;
+#endif /* CONFIG_LIBC_BACKTRACE_LOAD_FACTOR < 100 */
+
+  return 0;
 }
 
 /****************************************************************************
  * Name: backtrace_exist
  ****************************************************************************/
 
-static int backtrace_exist(FAR struct backtrace_pool_s *bp, int slot,
-                           FAR void *backtrace, int depth)
+nosanitize_address no_builtin("memcmp")
+static FAR struct backtrace_entry_s *
+backtrace_find(FAR struct backtrace_pool_s *bp, uint32_t slot,
+               FAR const void *stack, int depth)
 {
-  FAR struct backtrace_entry_s *entry;
-  int index;
+  FAR struct backtrace_entry_s *entry = bp->bucket[slot];
+  FAR const uintptr_t *s1 = (FAR const uintptr_t *)stack;
+  int i;
 
-  if (bp->init == false)
+  while (entry != NULL)
     {
-      bp->init = true;
-      backtrace_init();
-      return -ENOENT;
-    }
-
-  index = bp->bucket[slot];
-
-  while (index >= 0)
-    {
-      entry = &bp->pool[index];
-      if (entry->depth == depth &&
-          memcmp(backtrace, entry->stack, depth * sizeof(FAR void *)) == 0)
+      if (entry->depth == depth)
         {
-          return index;
+          FAR const uintptr_t *s2 = (FAR const uintptr_t *)entry->stack;
+
+          /* Inline word-by-word compare to avoid the per-byte KASAN shadow
+           * checks inside memcmp().  This function is on the hot path of
+           * every recorded allocation when CONFIG_MM_RECORD_STACK is on; on
+           * KASAN-enabled debug builds the per-byte instrumentation in
+           * memcmp() multiplies the cost of each lookup and can stretch
+           * heavy allocation phases (e.g. romfs_cachenode during mount of a
+           * large partition) past the test framework's busy-loop threshold.
+           * The stack array stores word-aligned function pointers, so word
+           * comparison is semantically equivalent to memcmp().
+           *
+           * The no_builtin("memcmp") attribute is required because GCC's
+           * -ftree-loop-distribute-patterns optimization (enabled at -O2)
+           * recognizes this loop as a memcmp pattern and rewrites it back
+           * into a memcmp() call, defeating the nosanitize_address intent
+           * (the called memcmp is still KASAN-instrumented per byte read).
+           */
+
+          for (i = 0; i < depth; i++)
+            {
+              if (s1[i] != s2[i])
+                {
+                  break;
+                }
+            }
+
+          if (i == depth)
+            {
+              /* If the backtrace record already exists, just increase the
+               * reference count
+               */
+
+              entry->ref++;
+              return entry;
+            }
         }
 
-      index = entry->next;
+      entry = entry->next;
     }
 
-  return -ENOENT;
+  return NULL;
 }
 
 /****************************************************************************
  * Name: backtrace_alloc
  ****************************************************************************/
 
-static int backtrace_alloc(FAR struct backtrace_pool_s *bp)
+nosanitize_address no_builtin("memcpy")
+static FAR struct backtrace_entry_s *
+backtrace_alloc(FAR struct backtrace_pool_s *bp, uint32_t slot,
+                const FAR void *stack, int depth)
 {
   FAR struct backtrace_entry_s *entry;
-  FAR struct sq_entry_s *sq;
+  FAR const uintptr_t *src = (FAR const uintptr_t *)stack;
+  FAR uintptr_t *dst;
+  int i;
 
   /* Get the first entry from the free list */
 
-  sq = sq_remfirst(&bp->freelist);
-  if (!sq)
+  entry = (FAR struct backtrace_entry_s *)sq_remfirst(&bp->freelist);
+  if (entry == NULL)
     {
-      return -ENOMEM;
+      bp->overflow++;
+      return NULL;
     }
 
-  entry = (FAR struct backtrace_entry_s *)sq;
-  return entry - bp->pool;
-}
+  entry = container_of(entry, struct backtrace_entry_s, freenode);
+  DEBUGASSERT(entry->ref == 0);
 
-/****************************************************************************
- * Name: backtrace_free
- ****************************************************************************/
+  /* Copy the backtrace to the entry */
 
-static void backtrace_free(FAR struct backtrace_pool_s *bp, int index)
-{
-  FAR struct backtrace_entry_s *entry = &bp->pool[index];
+  bp->used++;
 
-  sq_addlast(&entry->freenode, &bp->freelist);
-  entry->depth = 0;
+  /* Inline word-by-word copy to avoid the per-byte KASAN shadow checks
+   * inside memcpy().  This function is on the hot path of every recorded
+   * allocation when CONFIG_MM_RECORD_STACK is on; on KASAN-enabled debug
+   * builds the per-byte instrumentation in memcpy() multiplies the cost
+   * of each insertion and can stretch heavy allocation phases (e.g. WAMR
+   * AOT module loading) past the test framework's busy-loop threshold.
+   * The stack array stores word-aligned function pointers, so word
+   * copying is semantically equivalent to memcpy().
+   */
+
+  dst = (FAR uintptr_t *)entry->stack;
+  for (i = 0; i < depth; i++)
+    {
+      dst[i] = src[i];
+    }
+
+  entry->depth = depth;
+  entry->ref = 1;
+
+  /* Insert backtrace entry to the head of the linked list */
+
+  entry->next = bp->bucket[slot];
+  bp->bucket[slot] = entry;
+  return entry;
 }
 
 /****************************************************************************
@@ -244,56 +428,56 @@ static void backtrace_free(FAR struct backtrace_pool_s *bp, int index)
  *   a negative value.
  ****************************************************************************/
 
-int backtrace_record(int skip)
+FAR void *backtrace_record(int skip)
 {
   FAR void *buffer[CONFIG_LIBC_BACKTRACE_DEPTH];
   FAR struct backtrace_pool_s *bp = &g_backtrace_pool;
-  FAR struct backtrace_entry_s *entry;
+  FAR struct backtrace_entry_s *entry = NULL;
   irqstate_t flags;
+  uint32_t slot;
   int depth;
-  int index;
-  int slot;
 
   depth = sched_backtrace(_SCHED_GETTID(), buffer,
                           CONFIG_LIBC_BACKTRACE_DEPTH, skip);
   if (depth <= 0)
     {
-      return -ENOENT;
+      return NULL;
     }
 
-  slot = backtrace_hash(bp, buffer, depth);
-  flags = spin_lock_irqsave(&bp->lock);
-  index = backtrace_exist(bp, slot, buffer, depth);
-  if (index >= 0)
+  slot = backtrace_hash(buffer, depth);
+  flags = backtrace_lock(bp);
+
+  /* If the used amount reaches the threshold, we will expand it */
+
+  if (bp->used >= bp->capacity * CONFIG_LIBC_BACKTRACE_LOAD_FACTOR / 100 &&
+      !bp->expanding
+#if defined(CONFIG_BUILD_FLAT) || defined(__KERNEL__)
+      && OSINIT_MM_READY() && !up_interrupt_context() &&
+      (!is_idle_task(nxsched_self()) || !OSINIT_IDLELOOP())
+#endif
+     )
     {
-      /* If the backtrace record already exists, just increase the count */
-
-      entry = &bp->pool[index];
-      entry->count++;
-      spin_unlock_irqrestore(&bp->lock, flags);
-      return index;
+      bp->expanding = true;
+      backtrace_expand(bp, &flags);
+      bp->expanding = false;
     }
 
-  index = backtrace_alloc(bp);
-  if (index < 0)
+  /* Backtrace can only be recorded after initialization */
+
+  if (bp->capacity)
     {
-      spin_unlock_irqrestore(&bp->lock, flags);
-      return index;
+      slot = slot % bp->capacity;
+      entry = backtrace_find(bp, slot, buffer, depth);
+      if (entry == NULL)
+        {
+          /* If the backtrace record does not exist, allocate a new one */
+
+          entry = backtrace_alloc(bp, slot, buffer, depth);
+        }
     }
 
-  entry = &bp->pool[index];
-  memcpy(entry->stack, buffer, depth * sizeof(FAR void *));
-  entry->depth = depth;
-  entry->count = 1;
-
-  /* Insert backtrace to the head of the linked list of the
-   * current hash value
-   */
-
-  entry->next = bp->bucket[slot];
-  bp->bucket[slot] = index;
-  spin_unlock_irqrestore(&bp->lock, flags);
-  return index;
+  backtrace_unlock(bp, flags);
+  return entry;
 }
 
 /****************************************************************************
@@ -309,71 +493,72 @@ int backtrace_record(int skip)
  *   Return 0 if success, otherwise return a negative value.
  ****************************************************************************/
 
-int backtrace_remove(int index)
+/* nosanitize_address: backtrace_remove is on the hot path of every
+ * allocation/free (mempool_record calls it for each when
+ * CONFIG_MM_RECORD_STACK is on).  On KASAN-enabled debug builds the loads
+ * of entry->ref, the bucket slot and the collision chain each trip a
+ * per-access shadow check; across a heavy allocation phase (e.g. recursive
+ * directory scan at boot) this pushes wall time past the test framework's
+ * busy-loop threshold.  All pointers touched are pool-internal, so skipping
+ * the check is safe -- same reasoning as backtrace_hash()/backtrace_find();
+ * this is the remaining uninstrumented accessor on the same path.
+ */
+
+nosanitize_address
+void backtrace_remove(FAR void *index)
 {
   FAR struct backtrace_pool_s *bp = &g_backtrace_pool;
-  FAR struct backtrace_entry_s *entry;
+  FAR struct backtrace_entry_s *entry = index;
   irqstate_t flags;
-  int slot;
+  uint32_t slot;
 
-  if (index < 0 || index >= nitems(bp->pool))
+  if (entry == NULL)
     {
-      return -EINVAL;
+      return;
     }
 
-  flags = spin_lock_irqsave(&bp->lock);
-  entry = &bp->pool[index];
-  if (entry->count > 1)
+  flags = backtrace_lock(bp);
+  DEBUGASSERT(entry->ref > 0);
+  entry->ref--;
+  if (entry->ref > 0)
     {
-      entry->count--;
-      spin_unlock_irqrestore(&bp->lock, flags);
-      return OK;
+      backtrace_unlock(bp, flags);
+      return;
     }
 
-  slot = backtrace_hash(bp, entry->stack, entry->depth);
-
-  /* Remove the backtrace record from the linked list */
-
-  if (bp->bucket[slot] == index)
+  slot = backtrace_hash(entry->stack, entry->depth);
+  slot = slot % bp->capacity;
+  if (bp->bucket[slot] == entry)
     {
-      /* Remove the head of the singly linked list */
-
       bp->bucket[slot] = entry->next;
-    }
-  else if (entry->next >= 0)
-    {
-      /* Copy and delete the next node of the singly linked list
-       * to achieve O(1) deletion
-       */
-
-      FAR struct backtrace_entry_s *next = &bp->pool[entry->next];
-
-      index = entry->next;
-      memcpy(entry, next, sizeof(struct backtrace_entry_s));
     }
   else
     {
-      /* If it is the last node in the linked list, we need to traverse
-       * and find the previous node to delete it.
-       */
+      /* Remove the backtrace record from the linked list */
 
-      int prev = bp->bucket[slot];
+      FAR struct backtrace_entry_s *prev = bp->bucket[slot];
 
-      while (prev >= 0)
+      while (prev)
         {
-          if (bp->pool[prev].next == index)
+          if (prev->next == entry)
             {
-              bp->pool[prev].next = -1;
+              prev->next = entry->next;
               break;
             }
 
-          prev = bp->pool[prev].next;
+          prev = prev->next;
         }
+
+      /* If the backtrace record is not found, it means that the backtrace
+       * record entry is an invalid value.
+       */
+
+      DEBUGASSERT(prev != NULL);
     }
 
-  backtrace_free(bp, index);
-  spin_unlock_irqrestore(&bp->lock, flags);
-  return OK;
+  bp->used--;
+  sq_addlast(&entry->freenode, &bp->freelist);
+  backtrace_unlock(bp, flags);
 }
 
 /****************************************************************************
@@ -390,17 +575,15 @@ int backtrace_remove(int index)
  *   Return the backtrace record if success, otherwise return NULL
  ****************************************************************************/
 
-FAR void **backtrace_get(int index, FAR int *size)
+FAR void **backtrace_get(FAR void *index, FAR int *size)
 {
-  FAR struct backtrace_pool_s *bp = &g_backtrace_pool;
-  FAR struct backtrace_entry_s *entry;
+  FAR struct backtrace_entry_s *entry = index;
 
-  if (size == NULL || index < 0 || index >= nitems(bp->pool))
+  if (size == NULL || entry == NULL)
     {
       return NULL;
     }
 
-  entry = &bp->pool[index];
   *size = entry->depth;
   return entry->stack;
 }
@@ -410,20 +593,27 @@ void backtrace_dump(void)
   char buf[BACKTRACE_BUFFER_SIZE(CONFIG_LIBC_BACKTRACE_DEPTH)];
   FAR struct backtrace_pool_s *bp = &g_backtrace_pool;
   FAR struct backtrace_entry_s *entry;
-  size_t i;
+  size_t conflict = 0;
+  size_t slot;
 
-  syslog(LOG_INFO, "%-6s %-6s %s", "index", "count", "backtrace");
-  for (i = 0; i < nitems(bp->pool); i++)
+  syslog(LOG_INFO, "%-8s %-8s %s", "slot", "refcount", "backtrace");
+  for (slot = 0; slot < bp->capacity; slot++)
     {
-      entry = &bp->pool[i];
-      if (entry->depth)
+      entry = bp->bucket[slot];
+      while (entry)
         {
           backtrace_format(buf, sizeof(buf), entry->stack, entry->depth);
-          syslog(LOG_INFO, "%-6zu %-6u %s\n", i, entry->count, buf);
+          syslog(LOG_INFO, "%-8zu %-8d %s\n", slot, (int)entry->ref, buf);
+          conflict += entry->next != NULL;
+          entry = entry->next;
         }
     }
+
+  syslog(LOG_INFO,
+         "capacity: %zu, used: %zu, conflict: %zu, overflow: %zu\n",
+         bp->capacity, bp->used, conflict, bp->overflow);
 }
-#endif
+#endif /* CONFIG_LIBC_BACKTRACE_DEPTH > 0 */
 
 FAR char **backtrace_symbols(FAR void *const *buffer, int size)
 {
