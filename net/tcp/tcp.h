@@ -256,6 +256,10 @@ struct tcp_conn_s
                            * connection */
 #endif
   uint32_t rcv_adv;       /* The right edge of the recv window advertised */
+  uint32_t rcv_clamp;     /* Recv window limit after a loss, 0: none */
+  uint32_t rcv_clampseq;  /* rcvseq to grow rcv_clamp at */
+  uint32_t rcv_lossseq;   /* rcv_adv at the last loss */
+  uint32_t rcv_clampmax;  /* rcv_clamp limit below the lost windows */
 #ifdef CONFIG_NET_TCP_CC_NEWRENO
   uint32_t last_ackno;    /* The ack number at the last receive ack */
   uint32_t dupacks;       /* The number of duplicate ack */
@@ -483,6 +487,25 @@ extern "C"
  ****************************************************************************/
 
 FAR struct tcp_conn_s *tcp_alloc(uint8_t domain);
+
+/****************************************************************************
+ * Name: tcp_reclaim
+ *
+ * Description:
+ *   Free the oldest connection that no socket refers to and that only
+ *   waits for the end of its close (for example in TIME_WAIT).  This gives
+ *   back the connection structure and the callbacks that it holds.
+ *
+ * Input Parameters:
+ *   dev - The device whose lock the caller holds, or NULL if it holds no
+ *         device lock and no connection lock.
+ *
+ * Returned Value:
+ *   true if a connection was freed.
+ *
+ ****************************************************************************/
+
+bool tcp_reclaim(FAR struct net_driver_s *dev);
 
 /****************************************************************************
  * Name: tcp_free_rx_buffers
@@ -1827,6 +1850,22 @@ int tcp_setsockopt(FAR struct socket *psock, int option,
 int tcp_getsockopt(FAR struct socket *psock, int option,
                    FAR void *value, FAR socklen_t *value_len);
 #endif
+
+/****************************************************************************
+ * Name: tcp_recvwindow_loss
+ *
+ * Description:
+ *   A segment arrived after a gap: the frames in front of it were lost.
+ *   Limit the receive window that the connection advertises.
+ *
+ * Input Parameters:
+ *   dev  - The device that received the segment.
+ *   conn - The TCP connection.
+ *
+ ****************************************************************************/
+
+void tcp_recvwindow_loss(FAR struct net_driver_s *dev,
+                         FAR struct tcp_conn_s *conn);
 
 /****************************************************************************
  * Name: tcp_get_recvwindow
