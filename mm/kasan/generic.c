@@ -239,13 +239,33 @@ bool kasan_bypass(bool state)
 void kasan_register(FAR void *addr, FAR size_t *size)
 {
   FAR struct kasan_region_s *region;
+  uintptr_t start = (uintptr_t)kasan_clear_tag(addr);
+  uintptr_t end = start + *size;
   irqstate_t flags;
+  size_t count = atomic_read(&g_region_count);
+  size_t i;
   size_t idx;
 
-  region = (FAR struct kasan_region_s *)
-    ((FAR char *)addr + *size - KASAN_REGION_SIZE(*size));
+  for (i = 0; i < count; i++)
+    {
+      if (g_region[i] &&
+          start >= g_region[i]->begin &&
+          end <= g_region[i]->end)
+        {
+          /* Covered by a registered region, reuse its shadow but the
+           * range must still be poisoned.
+           */
 
-  region->begin = (uintptr_t)addr;
+          kasan_start();
+          kasan_poison(addr, *size);
+          return;
+        }
+    }
+
+  region = (FAR struct kasan_region_s *)
+    ((FAR char *)start + *size - KASAN_REGION_SIZE(*size));
+
+  region->begin = start;
   region->end   = region->begin + *size;
 
   flags = spin_lock_irqsave_notrace(&g_lock);

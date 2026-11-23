@@ -143,11 +143,16 @@ the following paragraphs.
 
   ``ECONNREFUSED`` No one listening on the remote address.
 
+  ``ECONNRESET`` The peer reset the connection after the handshake, before
+  ``connect()`` returned.
+
   ``EFAULT`` The socket structure address is outside the user's address
   space.
 
   ``EINPROGRESS`` The socket is non-blocking and the connection cannot be
-  completed immediately.
+  completed immediately, or the send timeout of the socket
+  (``SO_SNDTIMEO``) expired first.  The connection goes on: ``poll()``
+  reports ``POLLOUT`` when it completes.
 
   ``EINTR`` The system call was interrupted by a signal that was caught.
 

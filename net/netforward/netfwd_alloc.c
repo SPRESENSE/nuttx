@@ -35,6 +35,7 @@
 #include <nuttx/net/udp.h>
 #include <nuttx/net/icmp.h>
 #include <nuttx/net/icmpv6.h>
+#include <nuttx/mm/mempool.h>
 
 #include "netforward/netforward.h"
 #include "utils/utils.h"
@@ -72,10 +73,10 @@ static_assert(MAX_HDRLEN <= CONFIG_IOB_BUFSIZE, "IOB buffer size too small");
 
 /* This is the state of the global forwarding structures */
 
-NET_BUFPOOL_DECLARE(g_fwdpool, sizeof(struct forward_s),
-                    CONFIG_NET_FORWARD_NSTRUCT,
-                    CONFIG_NET_FORWARD_ALLOC_STRUCT,
-                    CONFIG_IOB_NBUFFERS - CONFIG_IOB_THROTTLE);
+MEMPOOL_DEFINE(g_fwdpool, sizeof(struct forward_s),
+               CONFIG_NET_FORWARD_NSTRUCT,
+               CONFIG_IOB_NBUFFERS - CONFIG_IOB_THROTTLE,
+               CONFIG_NET_FORWARD_ALLOC_STRUCT);
 
 /****************************************************************************
  * Public Functions
@@ -96,7 +97,14 @@ NET_BUFPOOL_DECLARE(g_fwdpool, sizeof(struct forward_s),
 
 FAR struct forward_s *netfwd_alloc(void)
 {
-  return NET_BUFPOOL_TRYALLOC(g_fwdpool);
+  FAR struct forward_s *fwd = mempool_allocate(&g_fwdpool, 0);
+
+  if (fwd != NULL)
+    {
+      memset(fwd, 0, sizeof(*fwd));
+    }
+
+  return fwd;
 }
 
 /****************************************************************************
@@ -113,5 +121,5 @@ FAR struct forward_s *netfwd_alloc(void)
 
 void netfwd_free(FAR struct forward_s *fwd)
 {
-  NET_BUFPOOL_FREE(g_fwdpool, fwd);
+  mempool_release(&g_fwdpool, fwd);
 }

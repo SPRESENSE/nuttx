@@ -35,6 +35,7 @@
 #include <nuttx/queue.h>
 #include <nuttx/semaphore.h>
 #include <nuttx/mm/iob.h>
+#include <nuttx/mutex.h>
 #include <nuttx/net/ip.h>
 #include <nuttx/net/net.h>
 #include <nuttx/net/tcp.h>
@@ -100,6 +101,30 @@
 #define TCP_SEQ_ADD(a, b)   ((uint32_t)((a) + (b)))
 #define TCP_SEQ_SUB(a, b)   ((uint32_t)((a) - (b)))
 
+/* The send and receive buffer size of a connection.  When
+ * CONFIG_NET_SEND_BUFSIZE or CONFIG_NET_RECV_BUFSIZE is 0, a connection
+ * may queue in its write buffers and in its read-ahead 1/8 of the IOBs
+ * above the throttle each, but at least one segment of the largest MSS.
+ * So one connection cannot take all free IOBs.
+ */
+
+#define TCP_IOB_BUFSIZE \
+  ((CONFIG_IOB_NBUFFERS - CONFIG_IOB_THROTTLE) * CONFIG_IOB_BUFSIZE / 8)
+#define TCP_DEFAULT_BUFSIZE \
+  (TCP_IOB_BUFSIZE > MAX_TCP_MSS ? TCP_IOB_BUFSIZE : MAX_TCP_MSS)
+
+#if CONFIG_NET_RECV_BUFSIZE > 0
+#  define TCP_RECV_BUFSIZE  CONFIG_NET_RECV_BUFSIZE
+#else
+#  define TCP_RECV_BUFSIZE  TCP_DEFAULT_BUFSIZE
+#endif
+
+#if CONFIG_NET_SEND_BUFSIZE > 0
+#  define TCP_SEND_BUFSIZE  CONFIG_NET_SEND_BUFSIZE
+#else
+#  define TCP_SEND_BUFSIZE  TCP_DEFAULT_BUFSIZE
+#endif
+
 /* The error of a send on a TCP socket that is not connected: -ECONNRESET
  * if the peer reset the connection and this is not yet reported, -EPIPE if
  * the connection was closed (POSIX: the socket is no longer connected),
@@ -126,6 +151,7 @@
 
 #define TCP_RESET             0x20U /* The peer reset the connection */
 #define TCP_RESETERR          0x40U /* ECONNRESET of it not yet reported */
+#define TCP_SYNFIRST          0x80U /* The first SYN of connect() not sent */
 
 /* The Max Range count of TCP Selective ACKs */
 
@@ -280,10 +306,8 @@ struct tcp_conn_s
 #endif
   uint32_t snd_wl1;
   uint32_t snd_wl2;
-#if CONFIG_NET_RECV_BUFSIZE > 0
   int32_t  rcv_bufs;      /* Maximum amount of bytes queued in recv */
-#endif
-#if CONFIG_NET_SEND_BUFSIZE > 0
+#ifdef CONFIG_NET_TCP_WRITE_BUFFERS
   int32_t  snd_bufs;      /* Maximum amount of bytes queued in send */
   sem_t    snd_sem;       /* Semaphore signals send completion */
 #endif
@@ -336,8 +360,6 @@ struct tcp_conn_s
 
   sq_queue_t write_q;     /* Write buffering for segments */
   sq_queue_t unacked_q;   /* Write buffering for un-ACKed segments */
-  uint16_t   expired;     /* Number segments retransmitted but not yet ACKed,
-                           * it can only be updated at TCP_ESTABLISHED state */
   uint32_t   sent;        /* The number of bytes sent (ACKed and un-ACKed) */
   uint32_t   isn;         /* Initial sequence number */
   uint32_t   sndseq_max;  /* The sequence number of next not-retransmitted
@@ -470,6 +492,38 @@ struct tcp_callback_s
 extern "C"
 {
 #endif
+
+extern rmutex_t g_tcp_connections_lock;
+
+/****************************************************************************
+ * Inline Functions
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: tcp_conn_list_lock
+ *
+ * Description:
+ *   Lock the TCP connection list.
+ *
+ ****************************************************************************/
+
+static inline_function void tcp_conn_list_lock(void)
+{
+  nxrmutex_lock(&g_tcp_connections_lock);
+}
+
+/****************************************************************************
+ * Name: tcp_conn_list_unlock
+ *
+ * Description:
+ *   Unlock the TCP connection list.
+ *
+ ****************************************************************************/
+
+static inline_function void tcp_conn_list_unlock(void)
+{
+  nxrmutex_unlock(&g_tcp_connections_lock);
+}
 
 /****************************************************************************
  * Public Function Prototypes
@@ -772,26 +826,6 @@ void tcp_removeconn(FAR struct tcp_conn_s *conn);
 void tcp_remove_syn_backlog(FAR struct tcp_conn_s *listener);
 
 /****************************************************************************
- * Name: tcp_conn_list_lock
- *
- * Description:
- *   Lock the TCP connection list.
- *
- ****************************************************************************/
-
-void tcp_conn_list_lock(void);
-
-/****************************************************************************
- * Name: tcp_conn_list_unlock
- *
- * Description:
- *   Unlock the TCP connection list.
- *
- ****************************************************************************/
-
-void tcp_conn_list_unlock(void);
-
-/****************************************************************************
  * Name: psock_tcp_connect
  *
  * Description:
@@ -824,8 +858,8 @@ int psock_tcp_connect(FAR struct socket *psock,
  * Returned Value:
  *   On success, tcp_start_monitor returns OK; On any failure,
  *   tcp_start_monitor will return a negated errno value.  The only failure
- *   that can occur is if the socket has already been closed and, in this
- *   case, -ENOTCONN is returned.
+ *   that can occur is if the connection has already been lost:
+ *   -ECONNRESET if the peer reset it, else -ENOTCONN.
  *
  * Assumptions:
  *   The caller holds the network lock (if not, it will be locked momentarily
@@ -2005,7 +2039,7 @@ void tcp_wrbuffer_release(FAR struct tcp_wrbuffer_s *wrb);
  *
  ****************************************************************************/
 
-#if CONFIG_NET_SEND_BUFSIZE > 0
+#ifdef CONFIG_NET_TCP_WRITE_BUFFERS
 uint32_t tcp_wrbuffer_inqueue_size(FAR struct tcp_conn_s *conn);
 #endif
 
@@ -2331,9 +2365,9 @@ int tcp_ioctl(FAR struct tcp_conn_s *conn, int cmd, unsigned long arg);
  *
  ****************************************************************************/
 
-#if CONFIG_NET_SEND_BUFSIZE > 0
+#ifdef CONFIG_NET_TCP_WRITE_BUFFERS
 void tcp_sendbuffer_notify(FAR struct tcp_conn_s *conn);
-#endif /* CONFIG_NET_SEND_BUFSIZE */
+#endif
 
 /****************************************************************************
  * Name: tcpip_hdrsize

@@ -331,6 +331,9 @@ Retransmission timer
 * At each expiry the timeout doubles (RFC 6298, section 5.5): the next timeout
 	is the initial timeout (``NET_TCP_RTO``) times 2, 4, 8 and then 16.  With
 	``NET_TCP_FIXED_RTO`` it does not change.
+* The first SYN of ``connect()`` is not a retransmission: it goes out with the
+	initial timeout and is not counted.  ``NET_TCP_MAXSYNRTX`` limits the
+	resends of the SYN, as ``NET_TCP_MAXRTX`` limits the resends of data.
 * A duplicate ACK carries no data (RFC 5681, section 2).  A segment with data
 	that repeats the ACK number does not count toward a fast retransmission.
 
@@ -348,6 +351,24 @@ gives end-of-file and a send gives ``EPIPE`` (and ``SIGPIPE`` without
 ``POLLERR`` while the ``ECONNRESET`` is not yet reported.  After the FIN of
 the peer the application already read the end of the stream: a RST does not
 change what a receive (end-of-file) or a send (``EPIPE``) gives.
+
+Close or reset before accept() or connect() returns
+---------------------------------------------------
+
+The peer can close (FIN) or reset (RST) the connection after the handshake,
+before ``accept()`` or ``connect()`` returns.  After a FIN (``TCP_CLOSE_WAIT``)
+``accept()`` and ``connect()`` succeed: a receive gives the data that came,
+then end-of-file, and a send still reaches the peer.  After a RST
+``accept()`` gives the socket, and the reset is reported as above (the data
+that came before the RST, then ``ECONNRESET`` once, then end-of-file).
+``connect()`` fails with ``ECONNRESET``, and the socket is not connected.  A
+connection that the peer resets while it waits in the backlog of the
+listener is freed: ``accept()`` waits for the next connection.
+
+``tcp_start_monitor()`` sets the connection state of the socket
+(``_SF_CONNECTED``, ``_SF_CLOSED``) with the device locked, where the monitor
+changes it for an event of the peer.  ``accept()`` and ``connect()`` do not
+change it after that (``SOCKCAP_CONNSTATE``).
 
 Deviations and Notable Simplifications
 ======================================

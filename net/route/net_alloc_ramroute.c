@@ -26,11 +26,15 @@
 
 #include <nuttx/config.h>
 
+#include <string.h>
+
 #include <stdint.h>
 #include <errno.h>
 #include <assert.h>
 
+#include <nuttx/mutex.h>
 #include <nuttx/net/net.h>
+#include <nuttx/mm/mempool.h>
 #include <arch/irq.h>
 
 #include "utils/utils.h"
@@ -62,13 +66,21 @@ FAR struct net_route_ipv6_queue_s g_ipv6_routes;
 /* The array containing all routing table entries. */
 
 #ifdef CONFIG_ROUTE_IPv4_RAMROUTE
-NET_BUFPOOL_DECLARE(g_ipv4routes, sizeof(struct net_route_ipv4_entry_s),
-                    CONFIG_ROUTE_MAX_IPv4_RAMROUTES, 0, 0);
+MEMPOOL_DEFINE(g_ipv4routes, sizeof(struct net_route_ipv4_entry_s),
+               CONFIG_ROUTE_MAX_IPv4_RAMROUTES, 0, 0);
+
+/* The IPv4 routing table pool is protected by this rmutex. */
+
+static rmutex_t g_ipv4routes_lock = NXRMUTEX_INITIALIZER;
 #endif
 
 #ifdef CONFIG_ROUTE_IPv6_RAMROUTE
-NET_BUFPOOL_DECLARE(g_ipv6routes, sizeof(struct net_route_ipv6_entry_s),
-                    CONFIG_ROUTE_MAX_IPv6_RAMROUTES, 0, 0);
+MEMPOOL_DEFINE(g_ipv6routes, sizeof(struct net_route_ipv6_entry_s),
+               CONFIG_ROUTE_MAX_IPv6_RAMROUTES, 0, 0);
+
+/* The IPv6 routing table pool is protected by this rmutex. */
+
+static rmutex_t g_ipv6routes_lock = NXRMUTEX_INITIALIZER;
 #endif
 
 /****************************************************************************
@@ -99,7 +111,12 @@ FAR struct net_route_ipv4_s *net_allocroute_ipv4(void)
    * then remove the first entry from the g_ipv4routes pool
    */
 
-  route = NET_BUFPOOL_TRYALLOC(g_ipv4routes);
+  route = mempool_allocate(&g_ipv4routes, 0);
+  if (route != NULL)
+    {
+      memset(route, 0, sizeof(*route));
+    }
+
   if (!route)
     {
       return NULL;
@@ -118,7 +135,12 @@ FAR struct net_route_ipv6_s *net_allocroute_ipv6(void)
    * then remove the first entry from the g_ipv6routes pool
    */
 
-  route = NET_BUFPOOL_TRYALLOC(g_ipv6routes);
+  route = mempool_allocate(&g_ipv6routes, 0);
+  if (route != NULL)
+    {
+      memset(route, 0, sizeof(*route));
+    }
+
   if (!route)
     {
       return NULL;
@@ -149,7 +171,7 @@ void net_freeroute_ipv4(FAR struct net_route_ipv4_s *route)
 
   /* Add the new entry to the g_ipv4routes pool */
 
-  NET_BUFPOOL_FREE(g_ipv4routes, (FAR struct net_route_ipv4_entry_s *)route);
+  mempool_release(&g_ipv4routes, (FAR struct net_route_ipv4_entry_s *)route);
 }
 #endif
 
@@ -160,7 +182,7 @@ void net_freeroute_ipv6(FAR struct net_route_ipv6_s *route)
 
   /* Add the new entry to the g_ipv6routes pool */
 
-  NET_BUFPOOL_FREE(g_ipv6routes, (FAR struct net_route_ipv6_entry_s *)route);
+  mempool_release(&g_ipv6routes, (FAR struct net_route_ipv6_entry_s *)route);
 }
 #endif
 
@@ -175,12 +197,12 @@ void net_freeroute_ipv6(FAR struct net_route_ipv6_s *route)
 #ifdef CONFIG_ROUTE_IPv4_RAMROUTE
 void net_lockroute_ipv4(void)
 {
-  NET_BUFPOOL_LOCK(g_ipv4routes);
+  nxrmutex_lock(&g_ipv4routes_lock);
 }
 
 void net_unlockroute_ipv4(void)
 {
-  NET_BUFPOOL_UNLOCK(g_ipv4routes);
+  nxrmutex_unlock(&g_ipv4routes_lock);
 }
 #endif
 
@@ -195,12 +217,12 @@ void net_unlockroute_ipv4(void)
 #ifdef CONFIG_ROUTE_IPv6_RAMROUTE
 void net_lockroute_ipv6(void)
 {
-  NET_BUFPOOL_LOCK(g_ipv6routes);
+  nxrmutex_lock(&g_ipv6routes_lock);
 }
 
 void net_unlockroute_ipv6(void)
 {
-  NET_BUFPOOL_UNLOCK(g_ipv6routes);
+  nxrmutex_unlock(&g_ipv6routes_lock);
 }
 #endif
 

@@ -27,6 +27,7 @@
 #include <nuttx/config.h>
 
 #include <aio.h>
+#include <stdbool.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <signal.h>
@@ -39,6 +40,7 @@
 #include <nuttx/sched.h>
 #include <nuttx/fs/fs.h>
 #include <nuttx/mm/mm.h>
+#include <nuttx/spinlock.h>
 
 #include "sched/sched.h"
 #include "group/group.h"
@@ -48,6 +50,50 @@
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
+
+/****************************************************************************
+ * Name: nxtask_lastmember
+ *
+ * Description:
+ *   Mark the exiting thread as counted in its task group, and return true
+ *   if every member of the group is counted: the thread is the last one of
+ *   the group to exit.
+ *
+ *   A thread leaves the member list only later, in group_leave().  Two
+ *   threads of a group can exit at the same time: on SMP, or when one of
+ *   them is switched out before group_leave().  If each one tested only
+ *   that it is alone in the member list, each one could see the other, and
+ *   the parent would get no SIGCHLD and no exit status.  The mark and the
+ *   test are done together under tg_lock, so exactly one thread sees all
+ *   of the members marked.
+ *
+ ****************************************************************************/
+
+#if defined(HAVE_GROUP_MEMBERS) && \
+    (defined(CONFIG_SCHED_HAVE_PARENT) || defined(CONFIG_SCHED_WAITPID))
+static bool nxtask_lastmember(FAR struct tcb_s *tcb)
+{
+  FAR struct task_group_s *group = tcb->group;
+  FAR struct tcb_s *mtcb;
+  irqstate_t flags;
+  bool last = true;
+
+  flags = spin_lock_irqsave(&group->tg_lock);
+
+  tcb->flags |= TCB_FLAG_EXIT_COUNTED;
+  sq_for_every_entry(&group->tg_members, mtcb, struct tcb_s, member)
+    {
+      if ((mtcb->flags & TCB_FLAG_EXIT_COUNTED) == 0)
+        {
+          last = false;
+          break;
+        }
+    }
+
+  spin_unlock_irqrestore(&group->tg_lock, flags);
+  return last;
+}
+#endif
 
 /****************************************************************************
  * Name: nxtask_exitstatus
@@ -82,6 +128,13 @@ static inline void nxtask_exitstatus(FAR struct task_group_s *group,
           child->ch_status = status;
 #ifdef CONFIG_SCHED_USER_IDENTITY
           child->ch_uid    = ctcb->group->tg_uid;
+#endif
+#ifdef CONFIG_SCHED_PROCESS_GROUPS
+          /* waitpid() with a process group finds the child after the
+           * exit.
+           */
+
+          child->ch_pgid   = ctcb->group->tg_pgid;
 #endif
         }
     }
@@ -183,7 +236,7 @@ static inline void nxtask_sigchild(pid_t ppid, FAR struct tcb_s *ctcb,
    * should generate SIGCHLD.
    */
 
-  if (sq_is_singular(&chgrp->tg_members))
+  if (nxtask_lastmember(ctcb))
     {
       /* Mark that all of the threads in the task group have exited */
 
@@ -236,9 +289,12 @@ static inline void nxtask_sigchild(FAR struct tcb_s *ptcb,
 #endif
     {
 #ifdef CONFIG_SCHED_CHILD_STATUS
-      /* Save the exit status now of the main thread */
+      /* Save the exit status now of the main thread.  Without group
+       * members, the main thread is the last thread of the task group.
+       */
 
       nxtask_exitstatus(ptcb->group, ctcb, status);
+      nxtask_groupexit(ptcb->group, ctcb->group->tg_pid);
 
 #else /* CONFIG_SCHED_CHILD_STATUS */
       /* Exit status is not retained.  Just decrement the number of
@@ -387,8 +443,8 @@ static inline void nxtask_exitwakeup(FAR struct tcb_s *tcb, int status)
 
       /* Is this the last thread in the group? */
 
-#ifndef CONFIG_DISABLE_PTHREAD
-      if (sq_is_singular(&group->tg_members))
+#ifdef HAVE_GROUP_MEMBERS
+      if (nxtask_lastmember(tcb))
 #endif
         {
           /* Yes.. Wakeup any tasks waiting for this task to exit */

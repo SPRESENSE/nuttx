@@ -25,6 +25,8 @@
  ****************************************************************************/
 
 #include <nuttx/config.h>
+
+#include <string.h>
 #if defined(CONFIG_NET) && defined(CONFIG_NET_PKT)
 
 #include <assert.h>
@@ -42,6 +44,7 @@
 #include <nuttx/net/net.h>
 #include <nuttx/net/netdev.h>
 #include <nuttx/net/ethernet.h>
+#include <nuttx/mm/mempool.h>
 
 #include "devif/devif.h"
 #include "netdev/netdev.h"
@@ -67,9 +70,15 @@
 
 /* The array containing all packet socket connections */
 
-NET_BUFPOOL_DECLARE(g_pkt_connections, sizeof(struct pkt_conn_s),
-                    CONFIG_NET_PKT_PREALLOC_CONNS,
-                    CONFIG_NET_PKT_ALLOC_CONNS, CONFIG_NET_PKT_MAX_CONNS);
+MEMPOOL_DEFINE(g_pkt_connections, sizeof(struct pkt_conn_s),
+               CONFIG_NET_PKT_PREALLOC_CONNS, CONFIG_NET_PKT_MAX_CONNS,
+               CONFIG_NET_PKT_ALLOC_CONNS);
+
+/* The list of all allocated packet socket connections is protected by this
+ * rmutex.
+ */
+
+static rmutex_t g_pkt_connections_lock = NXRMUTEX_INITIALIZER;
 
 /* A list of all allocated packet socket connections */
 
@@ -94,11 +103,13 @@ FAR struct pkt_conn_s *pkt_alloc(void)
 
   /* The free list is protected by a mutex. */
 
-  NET_BUFPOOL_LOCK(g_pkt_connections);
+  pkt_conn_list_lock();
 
-  conn = NET_BUFPOOL_TRYALLOC(g_pkt_connections);
+  conn = mempool_allocate(&g_pkt_connections, 0);
   if (conn)
     {
+      memset(conn, 0, sizeof(*conn));
+
       /* Use conn_init to initialize the connection structure */
 
       conn_init(&conn->sconn);
@@ -108,7 +119,7 @@ FAR struct pkt_conn_s *pkt_alloc(void)
       dq_addlast(&conn->sconn.s_node, &g_active_pkt_connections);
     }
 
-  NET_BUFPOOL_UNLOCK(g_pkt_connections);
+  pkt_conn_list_unlock();
   return conn;
 }
 
@@ -127,7 +138,7 @@ void pkt_free(FAR struct pkt_conn_s *conn)
 
   DEBUGASSERT(conn->crefs == 0);
 
-  NET_BUFPOOL_LOCK(g_pkt_connections);
+  pkt_conn_list_lock();
 
   /* Remove the connection from the active list */
 
@@ -165,9 +176,9 @@ void pkt_free(FAR struct pkt_conn_s *conn)
 
   /* Free the connection. */
 
-  NET_BUFPOOL_FREE(g_pkt_connections, conn);
+  mempool_release(&g_pkt_connections, conn);
 
-  NET_BUFPOOL_UNLOCK(g_pkt_connections);
+  pkt_conn_list_unlock();
 }
 
 /****************************************************************************
@@ -362,7 +373,7 @@ int pkt_sendmsg_is_valid(FAR struct socket *psock,
 
 void pkt_conn_list_lock(void)
 {
-  NET_BUFPOOL_LOCK(g_pkt_connections);
+  nxrmutex_lock(&g_pkt_connections_lock);
 }
 
 /****************************************************************************
@@ -378,7 +389,7 @@ void pkt_conn_list_lock(void)
 
 void pkt_conn_list_unlock(void)
 {
-  NET_BUFPOOL_UNLOCK(g_pkt_connections);
+  nxrmutex_unlock(&g_pkt_connections_lock);
 }
 
 #endif /* CONFIG_NET && CONFIG_NET_PKT */

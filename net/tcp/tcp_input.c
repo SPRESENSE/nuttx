@@ -1195,6 +1195,15 @@ found:
 
   dev->d_len -= (len + iplen);
 
+  /* No data is queued for the response yet.  d_sndlen can still hold the
+   * length of the last segment that the device sent (over the loopback
+   * device: the segment that is this input).  The paths below that do not
+   * clear it (FIN_WAIT_1, FIN_WAIT_2, a FIN in ESTABLISHED) would then send
+   * that many bytes of the input buffer back to the peer as our data.
+   */
+
+  dev->d_sndlen = 0;
+
 #if defined(CONFIG_NET_STATISTICS) && \
     defined(CONFIG_NET_TCP_DEBUG_DROP_RECV)
 
@@ -1473,17 +1482,9 @@ skip_rtt:
             {
               /* A segment without data, SYN or FIN is acceptable if
                * RCV.NXT =< SEG.SEQ < RCV.NXT+RCV.WND (RFC 9293, 3.10.7.4).
-               * Pass a new ACK to the application, but do not answer it.
+               * It goes on to the window update and the state machine, and
+               * gets no ACK.
                */
-
-              if ((flags & TCP_ACKDATA) != 0)
-                {
-                  dev->d_sndlen = 0;
-                  tcp_appsend(dev, conn,
-                              tcp_callback(dev, conn, TCP_ACKDATA));
-                }
-
-              return;
             }
           else if ((conn->tcpstateflags & TCP_STATE_MASK) <= TCP_FIN_WAIT_2)
             {
