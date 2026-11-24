@@ -137,6 +137,7 @@ FAR struct tcp_conn_s *tcp_findlistener(FAR union ip_binding_u *uaddr,
 
 int tcp_unlisten(FAR struct tcp_conn_s *conn)
 {
+  uint32_t lastid;
   int ndx;
   int ret = -EINVAL;
 
@@ -146,13 +147,25 @@ int tcp_unlisten(FAR struct tcp_conn_s *conn)
       if (tcp_listenports[ndx] == conn)
         {
           tcp_listenports[ndx] = NULL;
-          tcp_remove_syn_backlog(conn);
           ret = OK;
           break;
         }
     }
 
+  lastid = tcp_conn_lastid();
   tcp_conn_list_unlock();
+
+  /* Free its connections in TCP_SYN_RCVD without the list lock: that
+   * takes their device locks, which come before the list lock.  Only the
+   * ones that are there now: a new listener on the same port can come
+   * before the end.
+   */
+
+  if (ret == OK)
+    {
+      tcp_remove_syn_backlog(conn, lastid);
+    }
+
   return ret;
 }
 
@@ -234,7 +247,7 @@ int tcp_listen(FAR struct tcp_conn_s *conn)
  *   Accept the new connection for the specified listening port.
  *
  * Assumptions:
- *   Called with the network locked.
+ *   Called from the input path with the device locked.
  *
  ****************************************************************************/
 
@@ -247,7 +260,14 @@ int tcp_accept_connection(FAR struct net_driver_s *dev,
   /* The event processing logic has already allocated and initialized a TCP
    * connection -- now check there if is an application in place to accept
    * the connection.
+   *
+   * Keep the connection list locked until the listener has the new
+   * connection: close() of the listener removes it from the table of
+   * listeners (tcp_unlisten()) and takes its backlog away (tcp_free())
+   * under this lock, and then frees it.
    */
+
+  tcp_conn_list_lock();
 
 #if defined(CONFIG_NET_IPv4) && defined(CONFIG_NET_IPv6)
   listener = tcp_findlistener(&conn->u, portno, conn->domain);
@@ -291,6 +311,7 @@ int tcp_accept_connection(FAR struct net_driver_s *dev,
       conn_unlock(&listener->sconn);
     }
 
+  tcp_conn_list_unlock();
   return ret;
 }
 

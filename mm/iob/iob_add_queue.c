@@ -24,59 +24,11 @@
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
-
 #include <assert.h>
-#include <errno.h>
 
-#include <nuttx/debug.h>
-#include <nuttx/irq.h>
-#include <nuttx/arch.h>
 #include <nuttx/mm/iob.h>
 
 #include "iob.h"
-
-#if CONFIG_IOB_NCHAINS > 0
-
-/****************************************************************************
- * Private Functions
- ****************************************************************************/
-
-/****************************************************************************
- * Name: iob_add_queue_internal
- *
- * Description:
- *   Add one I/O buffer chain to the end of a queue.  May fail due to lack
- *   of resources.
- *
- ****************************************************************************/
-
-static int iob_add_queue_internal(FAR struct iob_s *iob,
-                                  FAR struct iob_queue_s *iobq,
-                                  FAR struct iob_qentry_s *qentry)
-{
-  /* Add the I/O buffer chain to the container */
-
-  qentry->qe_head = iob;
-
-  /* Add the container to the end of the queue */
-
-  qentry->qe_flink = NULL;
-
-  if (!iobq->qh_head)
-    {
-      iobq->qh_head = qentry;
-      iobq->qh_tail = qentry;
-    }
-  else
-    {
-      DEBUGASSERT(iobq->qh_tail);
-      iobq->qh_tail->qe_flink = qentry;
-      iobq->qh_tail = qentry;
-    }
-
-  return 0;
-}
 
 /****************************************************************************
  * Public Functions
@@ -86,25 +38,64 @@ static int iob_add_queue_internal(FAR struct iob_s *iob,
  * Name: iob_add_queue
  *
  * Description:
- *   Add one I/O buffer chain to the end of a queue.  May fail due to lack
- *   of resources.
+ *   Add one I/O buffer chain to the end of a queue.
  *
  ****************************************************************************/
 
 int iob_add_queue(FAR struct iob_s *iob, FAR struct iob_queue_s *iobq)
 {
-  FAR struct iob_qentry_s *qentry;
+  FAR struct iob_s *last;
 
-  /* Allocate a container to hold the I/O buffer chain */
+  DEBUGASSERT(iob != NULL && iobq != NULL);
 
-  qentry = iob_alloc_qentry();
-  if (!qentry)
+  /* Find the last IOB in this chain */
+
+  last = iob;
+  while (IOB_LINK_GET(last) != NULL)
     {
-      ioberr("ERROR: Failed to allocate a container\n");
-      return -ENOMEM;
+      last = IOB_LINK_GET(last);
     }
 
-  return iob_add_queue_internal(iob, iobq, qentry);
+  /* Mark this IOB as the end of a chain in the queue using
+   * io_flink low bits
+   */
+
+  IOB_FLAG_SET(last, NULL, IOB_CHAIN_END);
+
+  /* Add to the end of the queue */
+
+  if (iobq->qh_head == NULL)
+    {
+      /* Empty queue */
+
+      iobq->qh_head = iob;
+      iobq->qh_tail = last;
+    }
+  else
+    {
+      /* Link after current tail, setting the chain end flag.
+       *
+       * The chain that is currently at the tail of the queue may have been
+       * extended (e.g. via iob_copyin()) after it was enqueued.  In that
+       * case the IOB_CHAIN_END flag has been carried forward to the new
+       * last IOB while qh_tail still points at the original (now mid-chain)
+       * IOB.  Advance to the real end of the tail chain so that we do not
+       * overwrite its io_flink and corrupt/truncate the chain.
+       */
+
+      FAR struct iob_s *tail = iobq->qh_tail;
+
+      DEBUGASSERT(tail != NULL);
+      while (!IOB_FLAG_TEST(tail, IOB_CHAIN_END))
+        {
+          tail = IOB_LINK_GET(tail);
+        }
+
+      IOB_FLAG_SET(tail, iob, IOB_CHAIN_END);
+      iobq->qh_tail = last;
+    }
+
+  return 0;
 }
 
 /****************************************************************************
@@ -118,18 +109,9 @@ int iob_add_queue(FAR struct iob_s *iob, FAR struct iob_queue_s *iobq)
 
 int iob_tryadd_queue(FAR struct iob_s *iob, FAR struct iob_queue_s *iobq)
 {
-  FAR struct iob_qentry_s *qentry;
+  /* No resource allocation needed, just call iob_add_queue */
 
-  /* Allocate a container to hold the I/O buffer chain */
-
-  qentry = iob_tryalloc_qentry();
-  if (!qentry)
-    {
-      ioberr("ERROR: Failed to allocate a container\n");
-      return -ENOMEM;
-    }
-
-  return iob_add_queue_internal(iob, iobq, qentry);
+  return iob_add_queue(iob, iobq);
 }
 
 /****************************************************************************
@@ -143,33 +125,80 @@ int iob_tryadd_queue(FAR struct iob_s *iob, FAR struct iob_queue_s *iobq)
 int iob_concat_queue(FAR struct iob_queue_s *dest,
                      FAR struct iob_queue_s *src)
 {
-  FAR struct iob_qentry_s *qentry;
-  FAR struct iob_qentry_s *tailq;
+  FAR struct iob_s *iob;
+  FAR struct iob_s *tail;
 
-  /* Detach the list from the queue head so first for safety (should be safe
-   * anyway).
-   */
+  /* Detach the list from the source queue */
 
-  qentry = src->qh_head;
-  tailq = src->qh_tail;
+  iob = src->qh_head;
+  tail = src->qh_tail;
   src->qh_head = NULL;
   src->qh_tail = NULL;
 
-  if (qentry)
+  if (iob != NULL)
     {
-      if (!dest->qh_head)
+      if (dest->qh_head == NULL)
         {
-          dest->qh_head = qentry;
-          dest->qh_tail = tailq;
+          /* Destination queue is empty */
+
+          dest->qh_head = iob;
+          dest->qh_tail = tail;
         }
       else
         {
-          DEBUGASSERT(dest->qh_tail);
-          dest->qh_tail->qe_flink = qentry;
-          dest->qh_tail = tailq;
+          /* Link source to destination tail, preserving CHAIN_END flag.
+           * The tail chain may have been extended after being enqueued, so
+           * advance to its real end (marked by IOB_CHAIN_END) before
+           * linking to avoid corrupting/truncating that chain.
+           */
+
+          FAR struct iob_s *dtail = dest->qh_tail;
+
+          DEBUGASSERT(dtail != NULL);
+          while (!IOB_FLAG_TEST(dtail, IOB_CHAIN_END))
+            {
+              dtail = IOB_LINK_GET(dtail);
+            }
+
+          IOB_FLAG_SET(dtail, iob, IOB_CHAIN_END);
+          dest->qh_tail = tail;
         }
     }
 
   return 0;
 }
-#endif /* CONFIG_IOB_NCHAINS > 0 */
+
+/****************************************************************************
+ * Name: iob_add_queue_head
+ *
+ * Description:
+ *   Add one I/O buffer chain to the head of a queue.  This is the
+ *   counterpart of iob_add_queue() which appends to the tail.
+ *
+ ****************************************************************************/
+
+void iob_add_queue_head(FAR struct iob_s *iob,
+                        FAR struct iob_queue_s *iobq)
+{
+  FAR struct iob_s *last;
+
+  DEBUGASSERT(iob != NULL && iobq != NULL);
+
+  /* Find the last IOB in this chain */
+
+  last = iob;
+  while (IOB_LINK_GET(last) != NULL)
+    {
+      last = IOB_LINK_GET(last);
+    }
+
+  /* Link this chain's tail to the current head (NULL if empty) */
+
+  IOB_FLAG_SET(last, iobq->qh_head, IOB_CHAIN_END);
+  iobq->qh_head = iob;
+
+  if (iobq->qh_tail == NULL)
+    {
+      iobq->qh_tail = last;
+    }
+}

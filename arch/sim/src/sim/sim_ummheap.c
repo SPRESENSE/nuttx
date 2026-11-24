@@ -107,18 +107,31 @@ struct mm_allocnode_s
 struct mm_delaynode_s
 {
   struct mm_delaynode_s *flink;
+  mm_delaycb_t cb;  /* Optional callback, NULL just free */
 };
+
+struct mm_delayhead_s
+{
+  struct mm_delaynode_s *head;
+
+#if CONFIG_MM_FREE_DELAYCOUNT_MAX > 0
+  size_t delaycount;
+#endif
+};
+
+#ifdef CONFIG_SMP
+typedef struct mm_delayhead_s mm_delaylist_t[CONFIG_SMP_NCPUS];
+#else
+typedef struct mm_delayhead_s mm_delaylist_t;
+#endif
 
 struct mm_heap_s
 {
   spinlock_t lock;
 
-  struct mm_delaynode_s *delaylist[CONFIG_SMP_NCPUS];
   struct list_node alloclist;
 
-#if CONFIG_MM_FREE_DELAYCOUNT_MAX > 0
-  size_t delaycount[CONFIG_SMP_NCPUS];
-#endif
+  mm_delaylist_t delay;
 
 #if defined(CONFIG_FS_PROCFS) && !defined(CONFIG_FS_PROCFS_EXCLUDE_MEMINFO)
   struct procfs_meminfo_entry_s procfs;
@@ -170,12 +183,6 @@ struct mm_heap_s
       __item->prev = __item->next = NULL;          \
     }                                              \
   while (0)
-
-/****************************************************************************
- * Private Function Prototypes
- ****************************************************************************/
-
-static void delay_free(struct mm_heap_s *heap, void *mem, bool delay);
 
 /****************************************************************************
  * Private Data
@@ -257,8 +264,19 @@ static void *init_allocnode(struct mm_heap_s *heap, void *alloc_mem,
   return mem;
 }
 
-static void add_delaylist(struct mm_heap_s *heap, void *mem)
+static inline_function
+struct mm_delayhead_s *get_delayhead(struct mm_heap_s *heap)
 {
+#ifdef CONFIG_SMP
+  return &heap->delay[this_cpu()];
+#else
+  return &heap->delay;
+#endif
+}
+
+static void add_delaylist(struct mm_heap_s *heap, void *mem, mm_delaycb_t cb)
+{
+  struct mm_delayhead_s *delay = get_delayhead(heap);
   struct mm_delaynode_s *tmp = mem;
   irqstate_t flags;
 
@@ -266,40 +284,74 @@ static void add_delaylist(struct mm_heap_s *heap, void *mem)
 
   flags = spin_lock_irqsave(&heap->lock);
 
-  tmp->flink = heap->delaylist[this_cpu()];
-  heap->delaylist[this_cpu()] = tmp;
+  tmp->flink  = delay->head;
+  tmp->cb     = cb;
+  delay->head = tmp;
 
 #if CONFIG_MM_FREE_DELAYCOUNT_MAX > 0
-  heap->delaycount[this_cpu()]++;
+  delay->delaycount++;
 #endif
 
   spin_unlock_irqrestore(&heap->lock, flags);
 }
 
+/****************************************************************************
+ * Name: forcefree
+ *
+ * Description:
+ *   Delay free memory if `delay` is true, otherwise free it immediately.
+ *
+ ****************************************************************************/
+
+static void forcefree(struct mm_heap_s *heap, void *mem)
+{
+  struct mm_allocnode_s *node;
+
+  if (up_interrupt_context() || nxsched_gettid() < 0)
+    {
+      /* In ISR, or nxsched_gettid() returns -ESRCH during context
+       * switching (see nxsched_gettid's comment): the block may be the
+       * running thread stack, add it to the delay list.
+       */
+
+      add_delaylist(heap, mem, NULL);
+      return;
+    }
+
+  node = (struct mm_allocnode_s *)((uintptr_t)mem - MM_ALLOCNODE_SIZE);
+#ifdef CONFIG_MM_FILL_ALLOCATIONS
+  memset(mem, MM_FREE_MAGIC,
+         node->size - MM_ALLOCNODE_SIZE - node->padding);
+#endif
+  update_stats(heap, mem, node->size, false);
+  sched_note_heap(NOTE_HEAP_FREE, heap, mem, node->size, 0);
+  host_free(node->allocmem);
+}
+
 static bool free_delaylist(struct mm_heap_s *heap, bool force)
 {
-  bool ret = false;
+  struct mm_delayhead_s *delay = get_delayhead(heap);
   struct mm_delaynode_s *tmp;
   irqstate_t flags;
+  bool ret = false;
 
   /* Move the delay list to local */
 
   flags = spin_lock_irqsave(&heap->lock);
 
-  tmp = heap->delaylist[this_cpu()];
+  tmp = delay->head;
 
 #if CONFIG_MM_FREE_DELAYCOUNT_MAX > 0
-  if (tmp == NULL ||
-      (!force &&
-        heap->delaycount[this_cpu()] < CONFIG_MM_FREE_DELAYCOUNT_MAX))
+  if (tmp == NULL || (!force &&
+       delay->delaycount < CONFIG_MM_FREE_DELAYCOUNT_MAX))
     {
       spin_unlock_irqrestore(&heap->lock, flags);
       return false;
     }
 
-  heap->delaycount[this_cpu()] = 0;
+  delay->delaycount = 0;
 #endif
-  heap->delaylist[this_cpu()] = NULL;
+  delay->head = NULL;
 
   spin_unlock_irqrestore(&heap->lock, flags);
 
@@ -309,63 +361,18 @@ static bool free_delaylist(struct mm_heap_s *heap, bool force)
 
   while (tmp)
     {
-      void *address;
+      struct mm_delaynode_s *next = tmp->flink;
 
-      /* Get the first delayed deallocation */
+      if (tmp->cb)
+        {
+          tmp->cb(tmp);
+        }
 
-      address = tmp;
-      tmp = tmp->flink;
-
-      /* The address should always be non-NULL since that was checked in the
-       * 'while' condition above.
-       */
-
-      delay_free(heap, address, false);
+      forcefree(heap, tmp);
+      tmp = next;
     }
 
   return ret;
-}
-
-/****************************************************************************
- * Name: delay_free
- *
- * Description:
- *   Delay free memory if `delay` is true, otherwise free it immediately.
- *
- ****************************************************************************/
-
-static void delay_free(struct mm_heap_s *heap, void *mem, bool delay)
-{
-  struct mm_allocnode_s *node;
-
-  /* Check current environment */
-
-  if (up_interrupt_context())
-    {
-      /* We are in ISR, add to the delay list */
-
-      add_delaylist(heap, mem);
-    }
-  else if (nxsched_gettid() < 0 || delay)
-    {
-      /* nxsched_gettid() return -ESRCH, means we are in situations
-       * during context switching(See nxsched_gettid's comment).
-       * Then add to the delay list.
-       */
-
-      add_delaylist(heap, mem);
-    }
-  else
-    {
-      node = (struct mm_allocnode_s *)((uintptr_t)mem - MM_ALLOCNODE_SIZE);
-#ifdef CONFIG_MM_FILL_ALLOCATIONS
-      memset(mem, MM_FREE_MAGIC,
-             node->size - MM_ALLOCNODE_SIZE - node->padding);
-#endif
-      update_stats(heap, mem, node->size, false);
-      sched_note_heap(NOTE_HEAP_FREE, heap, mem, node->size, 0);
-      host_free(node->allocmem);
-    }
 }
 
 static void *reallocate(void *oldmem, size_t alignment, size_t size)
@@ -549,7 +556,33 @@ void free(void *mem)
       return;
     }
 
-  delay_free(g_mmheap, mem, CONFIG_MM_FREE_DELAYCOUNT_MAX > 0);
+#if CONFIG_MM_FREE_DELAYCOUNT_MAX > 0
+  add_delaylist(g_mmheap, mem, NULL);
+#else
+  forcefree(g_mmheap, mem);
+#endif
+}
+
+/****************************************************************************
+ * Name: umm_delayfreecb
+ *
+ * Description:
+ *   Add mem to delaylist with optional callback. mem is always freed instead
+ *   heap manager, the callback is for freeing the sub field only.
+ *   If cb is provided, cb(mem) will be called instead.
+ *
+ ****************************************************************************/
+
+void umm_delayfreecb(void *mem, mm_delaycb_t cb)
+{
+  /* Protect against attempts to free a NULL reference */
+
+  if (mem == NULL)
+    {
+      return;
+    }
+
+  add_delaylist(g_mmheap, mem, cb);
 }
 
 /****************************************************************************

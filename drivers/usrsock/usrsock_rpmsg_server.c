@@ -32,6 +32,7 @@
 #include <poll.h>
 #include <string.h>
 
+#include <net/if.h>
 #include <sys/ioctl.h>
 
 #include <nuttx/kmalloc.h>
@@ -83,6 +84,15 @@ struct usrsock_rpmsg_ept_s
   sq_queue_t                 req_free;
   sq_queue_t                 req_pending;
   struct usrsock_rpmsg_req_s reqs[CONFIG_NET_USRSOCK_RPMSG_SERVER_NIOVEC];
+};
+
+struct usrsock_rpmsg_work_s
+{
+  struct work_s                             work;
+  FAR struct usrsock_message_datareq_ack_s *ack;
+  FAR struct rpmsg_endpoint                *ept;
+  FAR struct usrsock_rpmsg_s               *priv;
+  struct usrsock_request_ioctl_s            req;
 };
 
 /****************************************************************************
@@ -906,52 +916,98 @@ static int usrsock_rpmsg_accept_handler(FAR struct rpmsg_endpoint *ept,
   return retr;
 }
 
-static int usrsock_rpmsg_ioctl_handler(FAR struct rpmsg_endpoint *ept,
-                                       FAR void *data, size_t len_,
-                                       uint32_t src, FAR void *priv_)
+static void usrsock_rpmsg_worker(FAR void *arg)
 {
-  FAR struct usrsock_request_ioctl_s *req = data;
-  FAR struct usrsock_message_datareq_ack_s *ack;
-  FAR struct usrsock_rpmsg_s *priv = priv_;
-#ifdef CONFIG_NETDEV_WIRELESS_IOCTL
-  FAR struct iwreq *wlreq;
-  FAR struct iwreq *wlack;
-#endif
+  FAR struct usrsock_rpmsg_work_s *work = arg;
+  FAR struct rpmsg_endpoint *ept = work->ept;
+  FAR struct usrsock_request_ioctl_s req;
+  FAR struct usrsock_message_datareq_ack_s *ack = work->ack;
+  FAR struct usrsock_rpmsg_s *priv = work->priv;
   int ret = -EBADF;
-  uint32_t len;
 
-  ack = rpmsg_get_tx_payload_buffer(ept, &len, true);
-  if (req->usockid >= 0 &&
-      req->usockid < CONFIG_NET_USRSOCK_RPMSG_SERVER_NSOCKS)
+  memcpy(&req, &work->req, sizeof(req));
+  if (req.usockid >= 0 &&
+      req.usockid < CONFIG_NET_USRSOCK_RPMSG_SERVER_NSOCKS)
     {
-      memcpy(ack + 1, req + 1, len_ - sizeof(*req));
+      FAR struct ifconf *ifc = (FAR struct ifconf *)(ack + 1);
+      FAR void *ifcu_buf = ifc->ifc_buf;
+      size_t ifc_len = ifc->ifc_len;
+
+      if (req.cmd == SIOCGIFCONF && ifcu_buf)
+        {
+          /* The list is returned behind the ifconf, in the space left in
+           * this TX buffer before the work struct at its tail.
+           */
+
+          ifc->ifc_buf = (FAR char *)(ifc + 1);
+        }
+
 #ifdef CONFIG_NETDEV_WIRELESS_IOCTL
-      wlreq = (FAR struct iwreq *)(req + 1);
-      wlack = (FAR struct iwreq *)(ack + 1);
-      if (WL_IS80211POINTERCMD(req->cmd) && wlreq->u.data.pointer)
+      FAR struct iwreq *wlack = (FAR struct iwreq *)(ack + 1);
+      FAR void *pointer = wlack->u.data.pointer;
+
+      if (WL_IS80211POINTERCMD(req.cmd) && pointer)
         {
           wlack->u.data.pointer = wlack + 1;
         }
 #endif
 
-      ret = psock_ioctl(&priv->socks[req->usockid],
-              req->cmd, (unsigned long)(ack + 1));
+      ret = psock_ioctl(&priv->socks[req.usockid],
+              req.cmd, (unsigned long)(ack + 1));
 
+      if (req.cmd == SIOCGIFCONF && ifcu_buf)
+        {
+          /* netdev_ipv4_ifconf() keeps counting entries that did not fit,
+           * and the client rejects a result larger than its buffer.
+           */
+
+          if (ret >= 0)
+            {
+              ret = MIN(ifc->ifc_len, ifc_len);
+            }
+
+          ifc->ifc_buf = ifcu_buf;
+        }
 #ifdef CONFIG_NETDEV_WIRELESS_IOCTL
-      if (WL_IS80211POINTERCMD(req->cmd) && wlreq->u.data.pointer)
+      else if (WL_IS80211POINTERCMD(req.cmd) && pointer)
         {
           if (ret >= 0)
             {
-              ret = wlreq->u.data.length;
+              ret = wlack->u.data.length;
             }
 
-          wlack->u.data.pointer = wlreq->u.data.pointer;
+          wlack->u.data.pointer = pointer;
         }
 #endif
     }
 
-  return usrsock_rpmsg_send_data_ack(ept,
-           ack, 0, req->head.xid, ret, req->arglen, req->arglen, ret);
+  usrsock_rpmsg_send_data_ack(ept, ack, 0, req.head.xid, ret, req.arglen,
+                              req.arglen, ret);
+}
+
+static int usrsock_rpmsg_ioctl_handler(FAR struct rpmsg_endpoint *ept,
+                                       FAR void *data, size_t len_,
+                                       uint32_t src, FAR void *priv)
+{
+  FAR struct usrsock_message_datareq_ack_s *ack;
+  FAR struct usrsock_request_ioctl_s *req = data;
+  FAR struct usrsock_rpmsg_work_s *work;
+  uint32_t len;
+
+  ack = rpmsg_get_tx_payload_buffer(ept, &len, true);
+  work = (FAR struct usrsock_rpmsg_work_s *)
+         ((FAR uint8_t *)ack + len - sizeof(*work));
+
+  memcpy(ack + 1, req + 1, len_ - sizeof(*req));
+  memcpy(&work->req, req, sizeof(*req));
+  memset(&work->work, 0, sizeof(work->work));
+  work->ack  = ack;
+  work->ept  = ept;
+  work->priv = priv;
+
+  work_queue(HPWORK, &work->work, usrsock_rpmsg_worker, work, 0);
+
+  return 0;
 }
 
 static int usrsock_rpmsg_shutdown_handler(FAR struct rpmsg_endpoint *ept,
@@ -1098,7 +1154,7 @@ static int usrsock_rpmsg_ept_do_cb(FAR struct usrsock_rpmsg_ept_s *uept,
     {
       return usrsock_rpmsg_sendto_handler(&uept->ept, data, len, src, priv);
     }
-  else if (common->reqid >= 0 && common->reqid <= USRSOCK_REQUEST__MAX)
+  else if (common->reqid <= USRSOCK_REQUEST__MAX)
     {
       return g_usrsock_rpmsg_handler[common->reqid](&uept->ept, data, len,
                                                     src, priv);
@@ -1171,7 +1227,6 @@ static void usrsock_rpmsg_poll_setup(FAR struct pollfd_s *pfds,
 {
   FAR struct usrsock_rpmsg_s *priv = (FAR struct usrsock_rpmsg_s *)pfds->arg;
   FAR struct socket *psock = &priv->socks[pfds->fd];
-  FAR struct socket_conn_s *conn = psock->s_conn;
   int ret = 0;
 
   /* No poll for SOCK_CTRL. */
@@ -1181,13 +1236,24 @@ static void usrsock_rpmsg_poll_setup(FAR struct pollfd_s *pfds,
       return;
     }
 
-  nxrmutex_lock(&conn->s_lock);
-
   if (events)
     {
       if (pfds->events)
         {
           ret = psock_poll(psock, pfds, false);
+
+          /* poll_cb running in hpwork may concurrently nest into
+           * poll_setup(pfds, 0) and tear the callback down between our
+           * read of pfds->events above and the call to psock_poll()
+           * here. When that happens udp_pollteardown()/tcp_pollteardown()
+           * return -EINVAL because fds->priv has already been cleared.
+           * Treat that as benign and proceed to setup the fresh callback.
+           */
+
+          if (ret == -EINVAL)
+            {
+              ret = 0;
+            }
         }
 
       if (ret >= 0)
@@ -1215,8 +1281,6 @@ static void usrsock_rpmsg_poll_setup(FAR struct pollfd_s *pfds,
            ret, psock->s_domain, psock->s_type, pfds->fd,
            pfds->events, pfds->revents);
     }
-
-  nxrmutex_unlock(&conn->s_lock);
 }
 
 static void usrsock_rpmsg_poll_cb(FAR struct pollfd_s *pfds)

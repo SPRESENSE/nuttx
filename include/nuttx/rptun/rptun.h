@@ -46,6 +46,7 @@
 #define RPTUNIOC_START        _RPTUNIOC(1)
 #define RPTUNIOC_STOP         _RPTUNIOC(2)
 #define RPTUNIOC_RESET        _RPTUNIOC(3)
+#define RPTUNIOC_DUMP         _RPTUNIOC(4)
 
 #define RPTUN_NOTIFY_ALL      UINT32_MAX
 
@@ -351,8 +352,10 @@ extern "C"
 #endif
 
 int rptun_initialize(FAR struct rptun_dev_s *dev);
+void rptun_dump_resource(FAR const struct resource_table *rsc);
 int rptun_boot(FAR const char *cpuname);
 int rptun_poweroff(FAR const char *cpuname);
+int rptun_uninitialize(FAR const char *cpuname);
 int rptun_reset(FAR const char *cpuname, unsigned long value);
 
 #ifdef __cplusplus

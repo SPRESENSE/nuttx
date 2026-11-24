@@ -219,6 +219,26 @@ void syslog(int priority, FAR const IPTR char *fmt, ...) syslog_like(2, 3);
 void vsyslog(int priority, FAR const IPTR char *fmt, va_list ap)
      syslog_like(2, 0);
 
+/****************************************************************************
+ * Name: nx_syslog
+ *
+ * Description:
+ *   nx_syslog() is the syslog() of the kernel.  The kernel logs on behalf
+ *   of the whole system, not of the task it happens to run in, so it is
+ *   filtered by the system wide mask that nx_setlogmask() sets, not by the
+ *   setlogmask() mask of the current task.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_SYSLOG
+void nx_syslog(int priority, FAR const IPTR char *fmt, ...)
+     syslog_like(2, 3);
+#  ifdef __KERNEL__
+#    define syslog(priority, fmt, ...) \
+            nx_syslog(priority, fmt, ##__VA_ARGS__)
+#  endif
+#endif
+
 /* With CONFIG_SYSLOG_TO_SCHED_NOTE, these macros replace the calls.  The
  * functions remain for code that takes their address.
  */
@@ -245,17 +265,9 @@ void vsyslog(int priority, FAR const IPTR char *fmt, va_list ap)
  *   NOTE:  setlogmask is not a thread-safe, re-entrant function.  Concurrent
  *   use of setlogmask() will have undefined behavior.
  *
- *   REVISIT: Per POSIX the syslog mask should be a per-process value but in
- *   NuttX, the scope of the mask is dependent on the nature of the build:
- *
- *   Flat Build:  There is one, global SYSLOG mask that controls all output.
- *   Protected Build:  There are two SYSLOG masks.  One within the kernel
- *     that controls only kernel output.  And one in user-space that controls
- *     only user SYSLOG output.
- *   Kernel Build:  The kernel build is compliant with the POSIX requirement:
- *     There will be one mask for for each user process, controlling the
- *     SYSLOG output only form that process.  There will be a separate mask
- *     accessible only in the kernel code to control kernel SYSLOG output.
+ *   As POSIX requires, the mask is a per-process value: it controls the
+ *   SYSLOG output of the calling task group only.  A new task group starts
+ *   with the system wide mask, which nx_setlogmask() sets.
  *
  ****************************************************************************/
 

@@ -54,8 +54,21 @@
 
 void kmm_free(FAR void *mem)
 {
-  DEBUGASSERT((mem == NULL) || kmm_heapmember(mem));
   mm_free(KNR_HEAP, mem);
+}
+
+/****************************************************************************
+ * Name: kmm_delayfreecb
+ *
+ * Description:
+ *   Add mem to delaylist with optional callback. If cb is NULL, mem will be
+ *   freed on next malloc. If cb is provided, cb(mem) will be called instead.
+ *
+ ****************************************************************************/
+
+void kmm_delayfreecb(FAR void *mem, mm_delaycb_t cb)
+{
+  mm_delayfreecb(KNR_HEAP, mem, cb);
 }
 
 #endif /* CONFIG_MM_KERNEL_HEAP */

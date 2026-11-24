@@ -43,10 +43,12 @@
 
 /* VHost ioctl command definitions.  They carry the same values as the
  * VirtIO ones, so one command number drives both /dev/virtio and
- * /dev/vhost.
+ * /dev/vhost.  The PING argument is a struct virtio_ping_s, which names
+ * the target device since both nodes are single and global.
  */
 
 #define VHOSTIOC_DUMP         VIRTIOIOC_DUMP
+#define VHOSTIOC_PING         VIRTIOIOC_PING
 
 /****************************************************************************
  * Public Type Definitions
@@ -72,6 +74,13 @@
 /* Wrapper the struct vhost_device to struct virtio_device */
 
 #define vhost_device            virtio_device
+
+/* Called for each device visited by vhost_foreach_device().  Returning a
+ * negative errno stops the walk and is handed back to the caller.
+ */
+
+typedef CODE int (*vhost_foreach_t)(FAR struct vhost_device *hdev,
+                                    FAR void *arg);
 
 struct vhost_driver
 {
@@ -159,6 +168,28 @@ FAR void *up_vhost_iomap(uint64_t pa, FAR size_t *avail);
  ****************************************************************************/
 
 void vhost_register_drivers(void);
+
+/****************************************************************************
+ * Name: vhost_foreach_device
+ *
+ * Description:
+ *   Walk every device on the vhost bus whose device id is 'id' and which a
+ *   driver has claimed, so hdev->priv is that driver's context.  The bus
+ *   lock is held across the walk, which keeps a device from being removed
+ *   underneath the handler.
+ *
+ * Input Parameters:
+ *   id      - Device id to match
+ *   handler - Called once per matching device
+ *   arg     - Opaque argument passed to handler
+ *
+ * Returned Value:
+ *   Zero on success, or the first negative errno a handler returned.
+ *
+ ****************************************************************************/
+
+int vhost_foreach_device(uint32_t id, vhost_foreach_t handler,
+                         FAR void *arg);
 
 /****************************************************************************
  * Name: vhost_gpio_get_ioe

@@ -42,6 +42,30 @@
 
 #define VIRTIOIOC_DUMP        _VIRTIOIOC(1)
 
+/* Run a ping measurement.  arg is a struct virtio_ping_s, which names the
+ * target device, since /dev/virtio is a single global node.
+ */
+
+#define VIRTIOIOC_PING        _VIRTIOIOC(2)
+
+/* Instance name length, NUL included.  The name selects one ping device
+ * out of several and is shown by "virtio dump" / "vhost dump".
+ */
+
+#define VIRTIO_PING_NAMELEN   32
+
+/* Argument to VIRTIOIOC_PING and VHOSTIOC_PING.  Kept beside the commands
+ * it serves, so including this header is enough to issue one.
+ */
+
+struct virtio_ping_s
+{
+  char name[VIRTIO_PING_NAMELEN];  /* Instance name, or "all" */
+  int  times;                      /* Number of ping operations */
+  int  len;                        /* Request length, header included */
+  int  sleep;                      /* Interval between operations, ms */
+};
+
 #ifdef CONFIG_OPENAMP
 
 /****************************************************************************
@@ -49,6 +73,13 @@
  ****************************************************************************/
 
 #ifdef CONFIG_DRIVERS_VIRTIO
+/* Called for each device visited by virtio_foreach_device().  Returning a
+ * negative errno stops the walk and is handed back to the caller.
+ */
+
+typedef CODE int (*virtio_foreach_t)(FAR struct virtio_device *vdev,
+                                     FAR void *arg);
+
 struct virtio_driver
 {
   uint32_t           device;   /* device id */
@@ -236,6 +267,28 @@ int virtio_unregister_device(FAR struct virtio_device *device);
 /* VirtIO driver initailied function, called in NuttX driver_intialize() */
 
 void virtio_register_drivers(void);
+
+/****************************************************************************
+ * Name: virtio_foreach_device
+ *
+ * Description:
+ *   Walk every device on the virtio bus whose device id is 'id' and which a
+ *   driver has claimed, so vdev->priv is that driver's context.  The bus
+ *   lock is held across the walk, which keeps a device from being removed
+ *   underneath the handler.
+ *
+ * Input Parameters:
+ *   id      - Device id to match
+ *   handler - Called once per matching device
+ *   arg     - Opaque argument passed to handler
+ *
+ * Returned Value:
+ *   Zero on success, or the first negative errno a handler returned.
+ *
+ ****************************************************************************/
+
+int virtio_foreach_device(uint32_t id, virtio_foreach_t handler,
+                          FAR void *arg);
 
 /* Buffer map ops for MMIO/PCI with per-process address environments */
 

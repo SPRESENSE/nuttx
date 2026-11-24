@@ -49,8 +49,13 @@ struct rpmsgmtd_s
 {
   struct mtd_dev_s      mtd;         /* MTD device */
   struct rpmsg_endpoint ept;         /* Rpmsg endpoint */
-  FAR const char       *remotecpu;   /* The server cpu name */
-  FAR const char       *remotepath;  /* The device path in the server cpu */
+
+  /* The server cpu name and the device path in the server cpu */
+
+  char                  remotecpu[RPMSG_NAME_SIZE];
+  char                  remotepath[RPMSG_NAME_SIZE -
+                                   RPMSGMTD_NAME_PREFIX_LEN];
+
   sem_t                 wait;        /* Wait sem, used for preventing any
                                       * operation until the connection
                                       * between two cpu established.
@@ -649,13 +654,14 @@ static int rpmsgmtd_ioctl(FAR struct mtd_dev_s *dev, int cmd,
   msg->arg     = arg;
   msg->arglen  = arglen;
 
-  if (arglen > 0)
+  if (arg != 0 && arglen > 0)
     {
       memcpy(msg->buf, (FAR void *)(uintptr_t)arg, arglen);
     }
 
   return rpmsgmtd_send_recv(priv, RPMSGMTD_IOCTL, false, &msg->header,
-                            msglen, arglen > 0 ? (FAR void *)arg : NULL);
+                            msglen, arglen > 0 && arg != 0 ?
+                            (FAR void *)arg : NULL);
 }
 
 /****************************************************************************
@@ -678,7 +684,7 @@ static int rpmsgmtd_ioctl(FAR struct mtd_dev_s *dev, int cmd,
 static FAR void *rpmsgmtd_get_tx_payload_buffer(FAR struct rpmsgmtd_s *priv,
                                                 FAR uint32_t *len)
 {
-  int sval;
+  int sval = 0;
 
   nxsem_get_value(&priv->wait, &sval);
   if (sval <= 0)
@@ -740,13 +746,22 @@ static int rpmsgmtd_send_recv(FAR struct rpmsgmtd_s *priv,
 
   if (copy)
     {
-      ret = rpmsg_send(&priv->ept, msg, len);
-    }
-  else
-    {
-      ret = rpmsg_send_nocopy(&priv->ept, msg, len);
+      uint32_t buflen;
+      FAR void *buf;
+
+      buf = rpmsgmtd_get_tx_payload_buffer(priv, &buflen);
+      if (buf == NULL)
+        {
+          ret = -ENOMEM;
+          goto fail;
+        }
+
+      DEBUGASSERT(len <= buflen);
+      memcpy(buf, msg, len);
+      msg = buf;
     }
 
+  ret = rpmsg_send_nocopy(&priv->ept, msg, len);
   if (ret < 0)
     {
       goto fail;
@@ -960,7 +975,7 @@ static int rpmsgmtd_ioctl_handler(FAR struct rpmsg_endpoint *ept,
   cookie->result = header->result;
   if (cookie->result >= 0 && rsp->arglen > 0)
     {
-      memcpy(cookie->data, (FAR void *)(uintptr_t)rsp->buf, rsp->arglen);
+      memcpy(cookie->data, (FAR void *)rsp->buf, rsp->arglen);
     }
 
   rpmsg_post(ept, &cookie->sem);
@@ -1017,6 +1032,7 @@ static void rpmsgmtd_device_created(FAR struct rpmsg_device *rdev,
       priv->ept.ns_bound_cb = rpmsgmtd_ns_bound;
       snprintf(buf, sizeof(buf), "%s%s", RPMSGMTD_NAME_PREFIX,
                priv->remotepath);
+      rpmsg_set_priority(&priv->ept, RPMSG_PRIO_RT);
       rpmsg_create_ept(&priv->ept, rdev, buf,
                        RPMSG_ADDR_ANY, RPMSG_ADDR_ANY,
                        rpmsgmtd_ept_cb, NULL);
@@ -1146,8 +1162,8 @@ int rpmsgmtd_register(FAR const char *remotecpu, FAR const char *remotepath,
 
   /* Initialize the rpmsg device */
 
-  dev->remotecpu  = remotecpu;
-  dev->remotepath = remotepath;
+  strlcpy(dev->remotecpu, remotecpu, sizeof(dev->remotecpu));
+  strlcpy(dev->remotepath, remotepath, sizeof(dev->remotepath));
 
   nxsem_init(&dev->wait, 0, 0);
   nxmutex_init(&dev->geolock);
@@ -1189,6 +1205,63 @@ fail_with_rpmsg:
                             NULL);
 
 fail:
+  nxsem_destroy(&dev->wait);
+  nxmutex_destroy(&dev->geolock);
+  kmm_free(dev);
+  return ret;
+}
+
+/****************************************************************************
+ * Name: rpmsgmtd_unregister
+ *
+ * Description:
+ *   Rpmsg-mtd client unregister function, the client cpu should call
+ *   this function in the board uninitialize process.
+ *
+ * Parameters:
+ *   localpath - the device name
+ *
+ * Returned Values:
+ *   OK on success; A negated errno value is returned on any failure.
+ *
+ ****************************************************************************/
+
+int rpmsgmtd_unregister(FAR const char *localpath)
+{
+  FAR struct rpmsgmtd_s *dev;
+  FAR struct inode *inode;
+  int ret;
+
+  ret = find_mtddriver(localpath, &inode);
+  if (ret < 0)
+    {
+      ferr("ERROR: Failed to find mtddriver, ret=%d\n", ret);
+      return ret;
+    }
+
+  dev = inode->i_private;
+  ret = close_mtddriver(inode);
+  if (ret < 0)
+    {
+      ferr("ERROR: Failed to close mtddriver, ret=%d\n", ret);
+      return ret;
+    }
+
+  ret = unregister_mtddriver(localpath);
+  if (ret < 0)
+    {
+      ferr("ERROR: unregister driver failed, ret=%d\n", ret);
+      return ret;
+    }
+
+  /* Unregister the rpmsg callback */
+
+  rpmsg_unregister_callback(dev,
+                            rpmsgmtd_device_created,
+                            rpmsgmtd_device_destroy,
+                            NULL,
+                            NULL);
+
   nxsem_destroy(&dev->wait);
   nxmutex_destroy(&dev->geolock);
   kmm_free(dev);

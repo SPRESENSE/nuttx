@@ -347,7 +347,7 @@ void rpmsg_initialize(void)
   rpmsg_procfs_initialize();
 #ifdef CONFIG_RPMSG_WQUEUE_GLOBAL
   DEBUGVERIFY(rpmsg_create_wqueues(g_rpmsg_wqueues, "glb",
-              CONFIG_RPMSG_WQUEUE_PRIORITY) == 0);
+              CONFIG_RPMSG_WQUEUE_PRIORITY));
 #endif
 }
 
@@ -1061,7 +1061,7 @@ int rpmsg_queue_work(FAR struct rpmsg_s *rpmsg, int priority,
       if (wqueues[i].priority == 0)
         {
           DEBUGVERIFY(work_queue_setpriority_wq(wqueues[i].kwqueue,
-                                                priority) == 0);
+                                                priority));
           wqueues[i].priority = priority;
           idx = i;
           break;

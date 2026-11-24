@@ -118,7 +118,9 @@ struct pty_devpair_s
   bool pp_unlinked;             /* File has been unlinked */
   uint8_t pp_minor;             /* Minor device number */
   uint16_t pp_nopen;            /* Open file count */
+#ifdef CONFIG_SERIAL_WINSIZE
   struct winsize pp_winsize;    /* Window size, same for both ends */
+#endif
   sem_t pp_slavesem;            /* Slave lock semaphore */
   mutex_t pp_lock;              /* Mutual exclusion */
 };
@@ -761,7 +763,8 @@ static int pty_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
   FAR struct inode *inode;
   FAR struct pty_dev_s *dev;
   FAR struct pty_devpair_s *devpair;
-#if defined(CONFIG_TTY_SIGINT) || defined(CONFIG_TTY_SIGTSTP)
+#if defined(CONFIG_SERIAL_WINSIZE) && \
+    (defined(CONFIG_TTY_SIGINT) || defined(CONFIG_TTY_SIGTSTP))
   pid_t winchpid = INVALID_PROCESS_ID;
 #endif
   int ret;
@@ -932,6 +935,7 @@ static int pty_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
         }
         break;
 
+#ifdef CONFIG_SERIAL_WINSIZE
       case TIOCGWINSZ:
         {
           FAR struct winsize *ws = (FAR struct winsize *)arg;
@@ -971,6 +975,7 @@ static int pty_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
             }
         }
         break;
+#endif
 
 #if defined(CONFIG_TTY_SIGINT) || defined(CONFIG_TTY_SIGTSTP)
       /* Make the controlling terminal of the calling process */
@@ -1066,7 +1071,8 @@ static int pty_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 
   nxmutex_unlock(&devpair->pp_lock);
 
-#if defined(CONFIG_TTY_SIGINT) || defined(CONFIG_TTY_SIGTSTP)
+#if defined(CONFIG_SERIAL_WINSIZE) && \
+    (defined(CONFIG_TTY_SIGINT) || defined(CONFIG_TTY_SIGTSTP))
   /* In a flat build, the signal handler of the caller runs in nxsig_kill()
    * and can use this PTY.
    */
@@ -1261,7 +1267,8 @@ int pty_register2(int minor, bool susv1)
   nxsem_init(&devpair->pp_slavesem, 0, 0);
   nxmutex_init(&devpair->pp_lock);
 
-  /* Map CR -> NL from terminal input (master)
+  /* Map CR -> NL from terminal input (master) with ICRNL of the slave, so
+   * that a raw mode set through either end turns it off.
    * For some usage like adb shell:
    *   adb shell write \r -> nsh read \n and echo input
    *   nsh write \n -> adb shell read \r\n
@@ -1273,8 +1280,8 @@ int pty_register2(int minor, bool susv1)
   devpair->pp_master.pd_devpair = devpair;
   devpair->pp_master.pd_master  = true;
   devpair->pp_slave.pd_devpair  = devpair;
-  uart_termios_init(&devpair->pp_master.pd_termios, 0, OPOST | OCRNL, 0);
-  uart_termios_init(&devpair->pp_slave.pd_termios, 0, OPOST | ONLCR,
+  uart_termios_init(&devpair->pp_master.pd_termios, 0, OPOST, 0);
+  uart_termios_init(&devpair->pp_slave.pd_termios, ICRNL, OPOST | ONLCR,
                     ECHO | ICANON | ISIG);
 #if defined(CONFIG_TTY_SIGINT) || defined(CONFIG_TTY_SIGTSTP)
   /* Initialize  of the task that will receive SIGINT signals. */

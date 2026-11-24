@@ -24,7 +24,6 @@
 
 set(SRCS
     arm_exception.S
-    arm_saveusercontext.S
     arm_busfault.c
     arm_cache.c
     arm_cpuinfo.c
@@ -39,10 +38,6 @@ set(SRCS
     arm_trigger_irq.c
     arm_usagefault.c
     arm_dbgmonitor.c)
-
-if(CONFIG_ENABLE_ALL_SIGNALS)
-  list(APPEND SRCS arm_schedulesigaction.c arm_sigdeliver.c)
-endif()
 
 if(NOT CONFIG_ARCH_HAVE_CUSTOM_VECTORS)
   list(APPEND SRCS arm_vectors.c)

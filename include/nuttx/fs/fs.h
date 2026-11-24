@@ -86,7 +86,6 @@
 #  define _NX_READ(f,b,s)      nx_read(f,b,s)
 #  define _NX_WRITE(f,b,s)     nx_write(f,b,s)
 #  define _NX_SEEK(f,o,w)      nx_seek(f,o,w)
-#  define _NX_STAT(f,s)        nx_fstat(f,s)
 #  define _NX_GETERRNO(r)      (-(r))
 #  define _NX_SETERRNO(r)      set_errno(-(r))
 #  define _NX_GETERRVAL(r)     (r)
@@ -96,10 +95,39 @@
 #  define _NX_READ(f,b,s)      read(f,b,s)
 #  define _NX_WRITE(f,b,s)     write(f,b,s)
 #  define _NX_SEEK(f,o,w)      lseek(f,o,w)
-#  define _NX_STAT(f,s)        fstat(f,s)
 #  define _NX_GETERRNO(r)      errno
 #  define _NX_SETERRNO(r)      ((void)(r))
 #  define _NX_GETERRVAL(r)     (-errno)
+#endif
+
+/* The library code uses these interfaces for a file that it opens itself.
+ * The flat build and the kernel use a struct file: it takes no descriptor
+ * of the calling task and does not set its errno.  The user space of the
+ * protected and kernel builds uses a descriptor.  A result < 0 is an error,
+ * and _NX_FILE_ERRVAL() gives its negated errno value.  _NX_FILE_CLOSE() of
+ * a file that did not open does nothing.
+ */
+
+#if defined(CONFIG_BUILD_FLAT) || defined(__KERNEL__)
+#  define _NX_FILE                  struct file
+#  define _NX_FILE_OPEN(f,p,o,m)    file_open(f,p,o,m)
+#  define _NX_FILE_CLOSE(f)         file_close(f)
+#  define _NX_FILE_READ(f,b,s)      file_read(f,b,s)
+#  define _NX_FILE_WRITE(f,b,s)     file_write(f,b,s)
+#  define _NX_FILE_SEEK(f,o,w)      file_seek(f,o,w)
+#  define _NX_FILE_STAT(f,s)        file_fstat(f,s)
+#  define _NX_FILE_IOCTL(f,r,a)     file_ioctl(f,r,a)
+#  define _NX_FILE_ERRVAL(r)        (r)
+#else
+#  define _NX_FILE                  int
+#  define _NX_FILE_OPEN(f,p,o,m)    (*(f) = open(p,o,m))
+#  define _NX_FILE_CLOSE(f)         (*(f) < 0 ? 0 : close(*(f)))
+#  define _NX_FILE_READ(f,b,s)      read(*(f),b,s)
+#  define _NX_FILE_WRITE(f,b,s)     write(*(f),b,s)
+#  define _NX_FILE_SEEK(f,o,w)      lseek(*(f),o,w)
+#  define _NX_FILE_STAT(f,s)        fstat(*(f),s)
+#  define _NX_FILE_IOCTL(f,r,a)     ioctl(*(f),r,a)
+#  define _NX_FILE_ERRVAL(r)        (-errno)
 #endif
 
 /* Inode i_flags values:
@@ -262,7 +290,7 @@ struct file_operations
 
 /* This structure provides information about the state of a block driver */
 
-#ifndef CONFIG_DISABLE_MOUNTPOINT
+#ifdef CONFIG_FS_BLOCK_DRIVER
 /* This structure is provided by block devices when they register with the
  * system.  It is used by file systems to perform filesystem transfers.  It
  * differs from the normal driver vtable in several ways -- most notably in
@@ -286,7 +314,9 @@ struct block_operations
   CODE int     (*unlink)(FAR struct inode *inode);
 #endif
 };
+#endif /* CONFIG_FS_BLOCK_DRIVER */
 
+#ifndef CONFIG_DISABLE_MOUNTPOINT
 /* This structure is provided by a filesystem to describe a mount point.
  * Note that this structure differs from file_operations ONLY in the form of
  * the open method.  Once the file is opened, it can be accessed either as a
@@ -465,9 +495,13 @@ struct mountpt_operations
 union inode_ops_u
 {
   FAR const struct file_operations     *i_ops;    /* Driver operations for inode */
-#ifndef CONFIG_DISABLE_MOUNTPOINT
+#ifdef CONFIG_FS_BLOCK_DRIVER
   FAR const struct block_operations    *i_bops;   /* Block driver operations */
+#endif
+#if !defined(CONFIG_DISABLE_MOUNTPOINT) || defined(CONFIG_MTD)
   FAR struct mtd_dev_s                 *i_mtd;    /* MTD device driver */
+#endif
+#ifndef CONFIG_DISABLE_MOUNTPOINT
   FAR const struct mountpt_operations  *i_mops;   /* Operations on a mountpoint */
 #endif
 #ifdef CONFIG_FS_NAMED_SEMAPHORES
@@ -680,7 +714,7 @@ int register_driver_with_size(FAR const char *path,
  *
  ****************************************************************************/
 
-#ifndef CONFIG_DISABLE_MOUNTPOINT
+#ifdef CONFIG_FS_BLOCK_DRIVER
 int register_blockdriver(FAR const char *path,
                          FAR const struct block_operations *bops,
                          mode_t mode, FAR void *priv);
@@ -710,7 +744,7 @@ int register_blockdriver(FAR const char *path,
  *
  ****************************************************************************/
 
-#ifndef CONFIG_DISABLE_MOUNTPOINT
+#ifdef CONFIG_BLOCK_MERGE
 int register_merge_blockdriver(FAR const char *merge, ...);
 #endif
 
@@ -737,7 +771,7 @@ int register_merge_blockdriver(FAR const char *merge, ...);
  *
  ****************************************************************************/
 
-#ifndef CONFIG_DISABLE_MOUNTPOINT
+#ifdef CONFIG_BLOCK_PARTITION
 int register_blockpartition(FAR const char *partition,
                             mode_t mode, FAR const char *parent,
                             off_t firstsector, off_t nsectors);
@@ -761,7 +795,9 @@ int unregister_driver(FAR const char *path);
  *
  ****************************************************************************/
 
+#ifdef CONFIG_FS_BLOCK_DRIVER
 int unregister_blockdriver(FAR const char *path);
+#endif
 
 /****************************************************************************
  * Name: register_mtddriver
@@ -930,6 +966,34 @@ int nx_umount2(FAR const char *target, unsigned int flags);
 #ifdef CONFIG_FS_NOTIFY
 void notify_event(FAR struct inode *mountpt, FAR const char *relpath,
                   uint32_t mask);
+
+/* Callback invoked for each event on an in-kernel inotify instance.
+ * Runs in the context that generated the event and must not block.
+ */
+
+typedef CODE void (*inotify_callback_t)(FAR void *arg, int wd,
+                                        uint32_t mask,
+                                        FAR const char *name);
+
+/****************************************************************************
+ * Name: file_notify_open / file_notify_add_watch / file_notify_rm_watch /
+ *       file_notify_close
+ *
+ * Description:
+ *   In-kernel inotify: watch paths and receive events through a callback
+ *   instead of a file descriptor and event queue.  file_notify_open()
+ *   initializes a caller provided struct file; watches are added and
+ *   removed with the returned watch descriptors; file_notify_close()
+ *   removes all watches and releases the instance.
+ *
+ ****************************************************************************/
+
+int file_notify_open(FAR struct file *filep, inotify_callback_t callback,
+                     FAR void *arg);
+int file_notify_add_watch(FAR struct file *filep, FAR const char *pathname,
+                          uint32_t mask);
+int file_notify_rm_watch(FAR struct file *filep, int wd);
+void file_notify_close(FAR struct file *filep);
 #endif
 
 /****************************************************************************
@@ -1426,8 +1490,10 @@ FAR void *find_driver(FAR const char *pathname);
  *
  ****************************************************************************/
 
+#ifdef CONFIG_FS_BLOCK_DRIVER
 int open_blockdriver(FAR const char *pathname, int mountflags,
                      FAR struct inode **ppinode);
+#endif
 
 /****************************************************************************
  * Name: close_blockdriver
@@ -1447,7 +1513,9 @@ int open_blockdriver(FAR const char *pathname, int mountflags,
  *
  ****************************************************************************/
 
+#ifdef CONFIG_FS_BLOCK_DRIVER
 int close_blockdriver(FAR struct inode *inode);
+#endif
 
 /****************************************************************************
  * Name: find_blockdriver
@@ -1471,8 +1539,10 @@ int close_blockdriver(FAR struct inode *inode);
  *
  ****************************************************************************/
 
+#ifdef CONFIG_FS_BLOCK_DRIVER
 int find_blockdriver(FAR const char *pathname, int mountflags,
                      FAR struct inode **ppinode);
+#endif
 
 /****************************************************************************
  * Name: find_mtddriver

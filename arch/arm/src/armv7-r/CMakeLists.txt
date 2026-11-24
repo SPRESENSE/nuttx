@@ -35,11 +35,7 @@ list(
   SRCS
   arm_cache.c
   arm_cpuinfo.c
-  arm_dataabort.c
-  arm_doirq.c
   arm_initialstate.c
-  arm_prefetchabort.c
-  arm_syscall.c
   arm_undefinedinsn.c
   arm_perf.c
   cp15_cacheops.c)

@@ -36,6 +36,7 @@
 #include <nuttx/mutex.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/virtio/virtio.h>
+#include <nuttx/virtio/virtio-ping.h>
 
 #include "virtio-blk.h"
 #include "virtio-crypto.h"
@@ -44,6 +45,7 @@
 #include "virtio-i2c.h"
 #include "virtio-input.h"
 #include "virtio-net.h"
+#include "virtio-ping.h"
 #include "virtio-rng.h"
 #include "virtio-rpmb.h"
 #include "virtio-rpmsg.h"
@@ -193,6 +195,13 @@ static int virtio_dev_ioctl(FAR struct file *filep, int cmd,
         ret = OK;
         break;
 
+#ifdef CONFIG_DRIVERS_VIRTIO_PING
+      case VIRTIOIOC_PING:
+        ret = virtio_ping((FAR const struct virtio_ping_s *)
+                          (uintptr_t)arg);
+        break;
+#endif
+
       default:
         break;
     }
@@ -335,6 +344,14 @@ void virtio_register_drivers(void)
     }
 #endif
 
+#ifdef CONFIG_DRIVERS_VIRTIO_PING
+  ret = virtio_register_ping_driver();
+  if (ret < 0)
+    {
+      vrterr("virtio_register_ping_driver failed, ret=%d\n", ret);
+    }
+#endif
+
 #ifdef CONFIG_DRIVERS_VIRTIO_RNG
   ret = virtio_register_rng_driver();
   if (ret < 0)
@@ -392,6 +409,50 @@ void virtio_register_drivers(void)
 #endif
 
   UNUSED(ret);
+}
+
+/****************************************************************************
+ * Name: virtio_foreach_device
+ ****************************************************************************/
+
+int virtio_foreach_device(uint32_t id, virtio_foreach_t handler,
+                          FAR void *arg)
+{
+  FAR struct dq_entry_s *node;
+  int ret;
+
+  DEBUGASSERT(handler != NULL);
+
+  ret = nxmutex_lock(&g_virtio_bus.lock);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  dq_for_every(&g_virtio_bus.device, node)
+    {
+      FAR struct virtio_device_item_s *item =
+        container_of(node, struct virtio_device_item_s, node);
+
+      /* Only a claimed device is handed out: an unclaimed one still has the
+       * driver pointer parked in vdev->priv by virtio_register_device(),
+       * not the driver's own context.
+       */
+
+      if (item->driver == NULL || item->device->id.device != id)
+        {
+          continue;
+        }
+
+      ret = handler(item->device, arg);
+      if (ret < 0)
+        {
+          break;
+        }
+    }
+
+  nxmutex_unlock(&g_virtio_bus.lock);
+  return ret;
 }
 
 /****************************************************************************

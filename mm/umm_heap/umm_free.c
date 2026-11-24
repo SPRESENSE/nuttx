@@ -50,3 +50,17 @@ void free(FAR void *mem)
 {
   mm_free(USR_HEAP, mem);
 }
+
+/****************************************************************************
+ * Name: umm_delayfreecb
+ *
+ * Description:
+ *   Add mem to delaylist with optional callback. If cb is NULL, mem will be
+ *   freed on next malloc. If cb is provided, cb(mem) will be called instead.
+ *
+ ****************************************************************************/
+
+void umm_delayfreecb(FAR void *mem, mm_delaycb_t cb)
+{
+  mm_delayfreecb(USR_HEAP, mem, cb);
+}

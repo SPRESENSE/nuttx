@@ -18,10 +18,14 @@
 #
 # ##############################################################################
 
-list(APPEND CSRCS arm_tcbinfo.c)
+list(APPEND SRCS arm_saveusercontext.S arm_tcbinfo.c)
 
-target_sources(arch PRIVATE ${CSRCS})
+if(CONFIG_ENABLE_ALL_SIGNALS)
+  list(APPEND SRCS arm_sigdeliver.c arm_schedulesigaction.c)
+endif()
 
 if(CONFIG_LIB_SYSCALL)
   list(APPEND SRCS arm_dispatch_syscall.S)
 endif()
+
+target_sources(arch PRIVATE ${SRCS})

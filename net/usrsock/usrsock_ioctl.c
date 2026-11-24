@@ -136,6 +136,7 @@ static int do_ioctl_request(FAR struct usrsock_conn_s *conn, int cmd,
   if (WL_IS80211POINTERCMD(cmd))
     {
       FAR struct iwreq *wlreq = arg;
+
       bufs[2].iov_base = wlreq->u.data.pointer;
       bufs[2].iov_len = wlreq->u.data.length;
     }
@@ -220,10 +221,18 @@ int usrsock_ioctl(FAR struct socket *psock, int cmd, unsigned long arg_)
   inbufs[0].iov_base = arg;
   inbufs[0].iov_len = arglen;
 
+  if (cmd == SIOCGIFCONF)
+    {
+      FAR struct ifconf *ifc = arg;
+
+      inbufs[1].iov_base = ifc->ifc_buf;
+      inbufs[1].iov_len = ifc->ifc_len;
+    }
 #ifdef CONFIG_NETDEV_WIRELESS_IOCTL
-  if (WL_IS80211POINTERCMD(cmd))
+  else if (WL_IS80211POINTERCMD(cmd))
     {
       FAR struct iwreq *wlreq = arg;
+
       inbufs[1].iov_base = wlreq->u.data.pointer;
       inbufs[1].iov_len = wlreq->u.data.length;
     }

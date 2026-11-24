@@ -28,6 +28,7 @@
 #include <nuttx/irq.h>
 
 #include "arm.h"
+#include "mmu.h"
 
 	.file	"arm_vectors.S"
 
@@ -397,10 +398,8 @@ arm_vectordata:
 
 	mov	fp, #0			/* Init frame pointer */
 	mov	r0, sp			/* Get r0=xcp */
-#ifdef CONFIG_LEGACY_PAGING
 	mrc	p15, 0, r1, c6, c0, 0	/* Get R1=FAR */
 	mrc	p15, 0, r2, c5, c0, 0	/* Get r2=FSR */
-#endif
 	bl	arm_dataabort		/* Call the handler */
 
 #ifdef CONFIG_ARCH_FPU
@@ -490,6 +489,9 @@ arm_vectorprefetch:
 	add	r0, sp, #(4*REG_S0)	/* R1=Address of FP register storage */
 	savefpu	r0, r1
 #endif
+
+	mrc	CP15_IFAR(r1)	/* Get R1=IFAR */
+	mrc	CP15_IFSR(r2)	/* Get r2=IFSR */
 
 	/* Then call the prefetch abort handler with interrupts disabled.
 	 * void arm_prefetchabort(struct xcptcontext *xcp)

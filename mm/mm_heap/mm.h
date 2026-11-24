@@ -212,7 +212,23 @@ static_assert(MM_ALIGN >= sizeof(uintptr_t) &&
 struct mm_delaynode_s
 {
   FAR struct mm_delaynode_s *flink;
+  mm_delaycb_t cb;  /* Optional callback, NULL just free */
 };
+
+struct mm_delayhead_s
+{
+  FAR struct mm_delaynode_s *head;
+
+#if CONFIG_MM_FREE_DELAYCOUNT_MAX > 0
+  size_t delaycount;
+#endif
+};
+
+#ifdef CONFIG_SMP
+typedef struct mm_delayhead_s mm_delaylist_t[CONFIG_SMP_NCPUS];
+#else
+typedef struct mm_delayhead_s mm_delaylist_t;
+#endif
 
 /* This describes one heap (possibly with multiple regions) */
 
@@ -252,11 +268,7 @@ struct mm_heap_s
 
   /* Free delay list, as sometimes we can't do free immdiately. */
 
-  FAR struct mm_delaynode_s *mm_delaylist[CONFIG_SMP_NCPUS];
-
-#if CONFIG_MM_FREE_DELAYCOUNT_MAX > 0
-  size_t mm_delaycount[CONFIG_SMP_NCPUS];
-#endif
+  mm_delaylist_t delay;
 
   /* The is a multiple mempool of the heap */
 
@@ -302,7 +314,7 @@ void mm_foreach(FAR struct mm_heap_s *heap, mm_node_handler_t handler,
 
 /* Functions contained in mm_free.c *****************************************/
 
-void mm_delayfree(FAR struct mm_heap_s *heap, FAR void *mem, bool delay);
+void mm_forcefree(FAR struct mm_heap_s *heap, FAR void *mem);
 
 /* Functions contained in mm_malloc.c ***************************************/
 
@@ -375,5 +387,15 @@ void mm_addfreechunk(FAR struct mm_heap_s *heap,
     }
 }
 #endif
+
+static inline_function
+FAR struct mm_delayhead_s *get_delayhead(FAR struct mm_heap_s *heap)
+{
+#ifdef CONFIG_SMP
+  return &heap->delay[this_cpu()];
+#else
+  return &heap->delay;
+#endif
+}
 
 #endif /* __MM_MM_HEAP_MM_H */

@@ -95,7 +95,11 @@
 #define MTD_BREAD(d,s,n,b) ((d)->bread   ? (d)->bread(d,s,n,b)  : (-ENOSYS))
 #define MTD_BWRITE(d,s,n,b)((d)->bwrite  ? (d)->bwrite(d,s,n,b) : (-ENOSYS))
 #define MTD_READ(d,s,n,b)  ((d)->read    ? (d)->read(d,s,n,b)   : (-ENOSYS))
-#define MTD_WRITE(d,s,n,b) ((d)->write   ? (d)->write(d,s,n,b)  : (-ENOSYS))
+#ifdef CONFIG_MTD_BYTE_WRITE
+#  define MTD_WRITE(d,s,n,b) ((d)->write ? (d)->write(d,s,n,b)  : (-ENOSYS))
+#else
+#  define MTD_WRITE(d,s,n,b)                                      (-ENOSYS)
+#endif
 #define MTD_IOCTL(d,c,a)   ((d)->ioctl   ? (d)->ioctl(d,c,a)    : (-ENOSYS))
 
 #ifdef CONFIG_FTL_BBM
@@ -849,6 +853,25 @@ FAR struct mtd_dev_s *nullmtd_initialize(size_t mtdlen, int16_t sectsize,
 #ifdef CONFIG_RPMSGMTD
 int rpmsgmtd_register(FAR const char *remotecpu, FAR const char *remotepath,
                       FAR const char *localpath);
+#endif
+
+/****************************************************************************
+ * Name: rpmsgmtd_unregister
+ *
+ * Description:
+ *   Rpmsg-mtd client unregister function, the client cpu should call
+ *   this function in the board uninitialize process.
+ *
+ * Parameters:
+ *   localpath - the device name
+ *
+ * Returned Values:
+ *   OK on success; A negated errno value is returned on any failure.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_RPMSGMTD
+int rpmsgmtd_unregister(FAR const char *localpath);
 #endif
 
 /****************************************************************************

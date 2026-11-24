@@ -30,11 +30,13 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdbool.h>
+#include <string.h>
 #include <sys/boardctl.h>
 #include <sys/param.h>
 #include <sys/wait.h>
 
 #include <nuttx/clock.h>
+#include <nuttx/coredump.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/kthread.h>
 #include <nuttx/mm/mm.h>
@@ -46,6 +48,7 @@
 #include <nuttx/virtio/virtio.h>
 #include <nuttx/panic_notifier.h>
 #include <nuttx/reboot_notifier.h>
+#include <nuttx/syslog/syslog_rpmsg.h>
 #include <openamp/remoteproc_loader.h>
 #include <openamp/remoteproc_virtio.h>
 #include <openamp/rsc_table_parser.h>
@@ -54,14 +57,19 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-#define RPTUN_RETRY_PERIOD_US  1000000
+#define RPTUN_RETRY_PERIOD_US    1000
 
-#define RPTUN_STATUS_CHECK(s, v) ((s) & (1u << (v))) != 0
+#define RPTUN_STATUS_CHECK(s, v) (((s) & (1u << (v))) != 0)
 #define RPTUN_STATUS_SET(s, v)   ((s) |= (1u << (v)))
 #define RPTUN_REASON_GET(s)      (ffs(s) - 1u)
 
 #define RPTUN_RSC2STATUS(r)      \
   ((FAR struct rptun_status_s *)&((FAR struct resource_table *)(r))->reserved[0])
+
+#define rptunvbs(format, ...)    syslog(LOG_ALERT, format, ##__VA_ARGS__)
+
+#define RPTUN_STATUS_PAUSE       BOARDIOC_SOFTRESETCAUSE_MAX
+#define RPTUN_STATUS_STOP        (BOARDIOC_SOFTRESETCAUSE_MAX + 1)
 
 /****************************************************************************
  * Private Types
@@ -72,6 +80,7 @@ struct rptun_carveout_s
   FAR struct mm_heap_s       *heap;
   FAR void                   *base;
   size_t                      size;
+  char                        name[RPROC_MAX_NAME_LEN];
 };
 
 struct rptun_priv_s
@@ -82,9 +91,8 @@ struct rptun_priv_s
   bool                        rreset;
   bool                        stop;
   pid_t                       pid;
-#if defined(CONFIG_BOARDCTL_RESET) || defined(CONFIG_BOARDCTL_POWEROFF)
+  FAR const void             *trace_va;
   struct work_s               work;
-#endif
 };
 
 struct rptun_store_s
@@ -124,6 +132,9 @@ static int rptun_dev_start(FAR struct rptun_priv_s *priv);
 static int rptun_dev_stop(FAR struct remoteproc *rproc);
 static int rptun_dev_ioctl(FAR struct file *filep, int cmd,
                            unsigned long arg);
+#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
+static int rptun_dev_unlink(FAR struct inode *inode);
+#endif
 
 #ifdef CONFIG_RPTUN_LOADER
 static int rptun_store_open(FAR void *store_, FAR const char *path,
@@ -177,12 +188,10 @@ static const struct remoteproc_ops g_rptun_ops =
 
 static const struct file_operations g_rptun_fops =
 {
-  0,                /* open */
-  0,                /* close */
-  0,                /* read */
-  0,                /* write */
-  0,                /* seek */
-  rptun_dev_ioctl,  /* ioctl */
+  .ioctl  = rptun_dev_ioctl,
+#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
+  .unlink = rptun_dev_unlink,
+#endif
 };
 
 #ifdef CONFIG_RPTUN_LOADER
@@ -277,7 +286,19 @@ static int rptun_stop(FAR struct remoteproc *rproc)
 
   if (RPTUN_IS_MASTER(priv->dev))
     {
-      ret = RPTUN_STOP(priv->dev);
+      ret = -ENOTSUP;
+      if (priv->dev->ops->stop != NULL)
+        {
+          ret = RPTUN_STOP(priv->dev);
+        }
+
+      /* The transport cannot stop the peer, ask the peer to stop itself */
+
+      if (ret == -ENOTSUP)
+        {
+          rptun_set_status(priv, RPTUN_STATUS_STOP);
+          ret = OK;
+        }
     }
 
   return ret;
@@ -504,8 +525,10 @@ static int rptun_init_carveout(FAR struct rptun_priv_s *priv,
   carveout = kmm_zalloc(sizeof(*carveout));
   if (carveout != NULL)
     {
+      strlcpy(carveout->name, shmname, sizeof(carveout->name));
+
       memset(&config, 0, sizeof(config));
-      config.name      = shmname;
+      config.name      = carveout->name;
       config.start     = shmbase;
       config.size      = shmlen;
       config.nokasan   = true;
@@ -923,6 +946,13 @@ static void rptun_boardctl_work(FAR void *arg)
 }
 #endif
 
+static void rptun_stop_work(FAR void *arg)
+{
+  FAR struct rptun_priv_s *priv = arg;
+
+  rptun_dev_stop(&priv->rproc);
+}
+
 static void rptun_check_peer_status(FAR struct rptun_priv_s *priv)
 {
   uint32_t status;
@@ -934,11 +964,39 @@ static void rptun_check_peer_status(FAR struct rptun_priv_s *priv)
 
   status = rptun_get_peer_status(priv);
 
+  if (RPTUN_STATUS_CHECK(status, RPTUN_STATUS_PAUSE))
+    {
+      int timeout = CONFIG_RPTUN_STATUS_TIMEOUT_MS;
+
+      /* Wait for the crashing core to finish printing its log */
+
+      while (timeout-- > 0 &&
+             (!RPTUN_STATUS_CHECK(status, BOARDIOC_SOFTRESETCAUSE_PANIC)))
+        {
+          status = rptun_get_peer_status(priv);
+          up_udelay(1000);
+        }
+    }
+
   if (RPTUN_STATUS_CHECK(status, BOARDIOC_SOFTRESETCAUSE_PANIC))
     {
-      syslog(LOG_EMERG, "FATAL: Panic by remote core: %s\n",
+      char msg[64];
+
+      snprintf(msg, sizeof(msg), "Panic by remote core: %s",
+               RPTUN_GET_CPUNAME(priv->dev));
+      PANIC_WITH_MSG(msg);
+    }
+  else if (RPTUN_STATUS_CHECK(status, RPTUN_STATUS_STOP))
+    {
+      /* Remote requested channel stop, stop local side.
+       * Clear rsc_table to prevent re-triggering from shared
+       * interrupt line (function returns early if rsc_table is NULL).
+       */
+
+      priv->rproc.rsc_table = NULL;
+      syslog(LOG_EMERG, "Stop by remote core: %s\n",
              RPTUN_GET_CPUNAME(priv->dev));
-      PANIC();
+      work_queue(HPWORK, &priv->work, rptun_stop_work, priv, 0);
     }
   else if(status != 0u)
     {
@@ -973,6 +1031,61 @@ static int rptun_callback(FAR void *arg, uint32_t vqid)
   rptun_check_peer_status(priv);
   return remoteproc_get_notification(&priv->rproc, vqid);
 }
+
+/****************************************************************************
+ * Name: rptun_update_coredump_regions
+ *
+ * Description:
+ *   Scan RSC_CARVEOUT entries with name prefix "coredump" and register
+ *   or unregister them from the system coredump list.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_COREDUMP
+static void rptun_update_coredump_regions(FAR struct rptun_priv_s *priv,
+                                          bool add)
+{
+  FAR char *rsc = priv->rproc.rsc_table;
+  FAR struct fw_rsc_carveout *carv;
+  size_t off;
+  uint32_t i;
+
+  if (!RPTUN_IS_MASTER(priv->dev) || rsc == NULL)
+    {
+      return;
+    }
+
+  for (i = 0; ; i++)
+    {
+      off = find_rsc(rsc, RSC_CARVEOUT, i);
+      if (off == 0u)
+        {
+          break;
+        }
+
+      carv = (FAR struct fw_rsc_carveout *)(rsc + off);
+      if (strncmp((FAR const char *)carv->name, "coredump", 8) == 0)
+        {
+          metal_phys_addr_t da = carv->da;
+          FAR void *va;
+
+          va = remoteproc_mmap(&priv->rproc, NULL, &da,
+                               carv->len, 0, NULL);
+          if (va != NULL)
+            {
+              if (add)
+                {
+                  coredump_add_memory_region(va, carv->len, carv->flags);
+                }
+              else
+                {
+                  coredump_remove_memory_region(va, carv->len);
+                }
+            }
+        }
+    }
+}
+#endif
 
 static int rptun_do_start(FAR struct remoteproc *rproc)
 {
@@ -1030,6 +1143,26 @@ static int rptun_do_start(FAR struct remoteproc *rproc)
           ret = remoteproc_start(rproc);
           if (ret >= 0)
             {
+              size_t off = find_rsc((FAR char *)rsc, RSC_TRACE, 0);
+
+              if (off != 0u)
+                {
+                  FAR struct fw_rsc_trace *trace =
+                    (FAR struct fw_rsc_trace *)((FAR char *)rsc + off);
+                  metal_phys_addr_t da = trace->da;
+
+                  priv->trace_va = remoteproc_mmap(rproc, NULL, &da,
+                                                   trace->len, 0, NULL);
+                }
+
+#ifdef CONFIG_COREDUMP
+              /* Register dump regions after remote core is started,
+               * at which point the memory layout is determined.
+               */
+
+              rptun_update_coredump_regions(priv, true);
+#endif
+
               /* Register callback to mbox for receiving remote message */
 
               RPTUN_REGISTER_CALLBACK(priv->dev, rptun_callback, priv);
@@ -1131,6 +1264,9 @@ static int rptun_dev_stop(FAR struct remoteproc *rproc)
 
       RPTUN_UNREGISTER_CALLBACK(priv->dev);
       rptun_remove_devices(priv);
+#ifdef CONFIG_COREDUMP
+      rptun_update_coredump_regions(priv, false);
+#endif
       remoteproc_shutdown(rproc);
     }
 
@@ -1160,6 +1296,11 @@ static int rptun_dev_reset(FAR struct rptun_priv_s *priv, unsigned long val)
     {
       rptun_set_status(priv, val);
 
+      if (val == RPTUN_STATUS_PAUSE)
+        {
+          return OK;
+        }
+
       ret = -ETIMEDOUT;
       while (timeout-- > 0)
         {
@@ -1182,6 +1323,16 @@ static int rptun_dev_reset(FAR struct rptun_priv_s *priv, unsigned long val)
 
   return ret;
 }
+
+#ifdef CONFIG_SYSLOG_RPMSG_SERVER
+static void rptun_dev_dump(FAR struct rptun_priv_s *priv)
+{
+  if (priv->trace_va != NULL)
+    {
+      syslog_rpmsg_dump(priv->trace_va);
+    }
+}
+#endif
 
 static int rptun_do_ioctl(FAR struct rptun_priv_s *priv, int cmd,
                           unsigned long arg)
@@ -1210,6 +1361,11 @@ static int rptun_do_ioctl(FAR struct rptun_priv_s *priv, int cmd,
       case RPTUNIOC_RESET:
         ret = rptun_dev_reset(priv, arg);
         break;
+#ifdef CONFIG_SYSLOG_RPMSG_SERVER
+      case RPTUNIOC_DUMP:
+        rptun_dev_dump(priv);
+        break;
+#endif
       default:
         ret = -ENOTTY;
         break;
@@ -1217,6 +1373,29 @@ static int rptun_do_ioctl(FAR struct rptun_priv_s *priv, int cmd,
 
   return ret;
 }
+
+#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
+static int rptun_dev_unlink(FAR struct inode *inode)
+{
+  FAR struct rptun_priv_s *priv = inode->i_private;
+  int ret;
+
+  ret = rptun_dev_stop(&priv->rproc);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  nxrmutex_lock(&g_rptun_lock);
+  dq_rem(&priv->entry, &g_rptun_priv);
+  nxrmutex_unlock(&g_rptun_lock);
+
+  remoteproc_remove(&priv->rproc);
+  work_cancel_sync(HPWORK, &priv->work);
+  kmm_free(priv);
+  return OK;
+}
+#endif
 
 static int rptun_dev_ioctl(FAR struct file *filep, int cmd,
                            unsigned long arg)
@@ -1408,6 +1587,18 @@ static int rptun_notifier(FAR struct notifier_block *block,
         }
 
       rptun_ioctl_foreach(NULL, RPTUNIOC_RESET, val);
+
+#ifdef CONFIG_SYSLOG_RPMSG_SERVER
+      if (action == SYS_HALT)
+        {
+          rptun_ioctl_foreach(NULL, RPTUNIOC_DUMP, 0);
+        }
+#endif
+    }
+  else if (action == PANIC_KERNEL)
+    {
+      rptun_ioctl_foreach(NULL, RPTUNIOC_RESET,
+                          (unsigned long)RPTUN_STATUS_PAUSE);
     }
 #ifdef CONFIG_RPTUN_AUTO_RESET_IN_PANIC_NOTIFIER
   else if (action == PANIC_KERNEL_FINAL)
@@ -1420,6 +1611,61 @@ static int rptun_notifier(FAR struct notifier_block *block,
   return 0;
 }
 #endif
+
+static void rptun_dump_vdev_rsc(FAR void *rsc, uint32_t index)
+{
+  FAR struct fw_rsc_vdev *vdev = rsc;
+  uint8_t i;
+
+  rptunvbs("[vdev] Rsc %" PRIu32 " %p\n", index, rsc);
+  rptunvbs("[vdev] VirtIO %s\n", virtio_dev_name(vdev->id));
+  rptunvbs("[vdev] id %" PRIu32 " notifyid %" PRIu32
+           " dfeatures 0x%08" PRIx32 " gfeatures 0x%08" PRIx32 "\n",
+           vdev->id, vdev->notifyid, vdev->dfeatures, vdev->gfeatures);
+  rptunvbs("[vdev] config_len %" PRIu32 " status %u num_of_vrings %u"
+           " reserved[0] %u reserved[1] %u\n",
+           vdev->config_len, vdev->status, vdev->num_of_vrings,
+           vdev->reserved[0], vdev->reserved[1]);
+
+  for (i = 0; i < vdev->num_of_vrings; i++)
+    {
+      FAR struct fw_rsc_vdev_vring *vr = &vdev->vring[i];
+
+      rptunvbs("[vdev] [vring%u] da 0x%08" PRIx32 " align %" PRIu32
+               " num %" PRIu32 " notifyid %" PRIu32
+               " reserved %" PRIx32 "\n",
+               i, vr->da, vr->align, vr->num, vr->notifyid, vr->reserved);
+    }
+
+  if (vdev->config_len != 0)
+    {
+      lib_dumpbuffer("[vdev] [config]",
+                     (FAR uint8_t *)&vdev->vring[vdev->num_of_vrings],
+                     vdev->config_len);
+    }
+}
+
+static void rptun_dump_carveout_rsc(FAR void *rsc, uint32_t index)
+{
+  FAR struct fw_rsc_carveout *car = rsc;
+
+  rptunvbs("[carveout] Rsc %" PRIu32 " %p\n", index, rsc);
+  rptunvbs("[carveout] Carveout %s\n", car->name);
+  rptunvbs("[carveout] da 0x%08" PRIx32 " pa 0x%08" PRIx32 " len %" PRIu32
+           " flags 0x%" PRIx32 " reserved %" PRIx32 "\n",
+           car->da, car->pa, car->len, car->flags, car->reserved);
+}
+
+static void rptun_dump_trace_rsc(FAR void *rsc, uint32_t index)
+{
+  FAR struct fw_rsc_trace *trc = rsc;
+
+  rptunvbs("[trace] Rsc %" PRIu32 " %p\n", index, rsc);
+  rptunvbs("[trace] Trace %s\n", trc->name);
+  rptunvbs("[trace] da 0x%08" PRIx32 " len %" PRIu32
+           " reserved %" PRIu32 "\n",
+           trc->da, trc->len, trc->reserved);
+}
 
 /****************************************************************************
  * Public Functions
@@ -1475,6 +1721,48 @@ int rptun_initialize(FAR struct rptun_dev_s *dev)
     }
 
   return ret;
+}
+
+void rptun_dump_resource(FAR const struct resource_table *rsc)
+{
+  FAR struct fw_rsc_hdr *hdr;
+  uint32_t i;
+
+  if (rsc == NULL)
+    {
+      rptunerr("Resource table is NULL\n");
+      return;
+    }
+
+  rptunvbs("Dump resource table: %p num: %" PRIu32 "\n", rsc, rsc->num);
+  for (i = 0; i < rsc->num; i++)
+    {
+      hdr = (FAR struct fw_rsc_hdr *)((FAR char *)rsc + rsc->offset[i]);
+      switch (hdr->type)
+        {
+          case RSC_VDEV:
+            rptun_dump_vdev_rsc(hdr, i);
+            break;
+          case RSC_CARVEOUT:
+            rptun_dump_carveout_rsc(hdr, i);
+            break;
+          case RSC_TRACE:
+            rptun_dump_trace_rsc(hdr, i);
+            break;
+          default:
+            rptunerr("Not support rsc type: %" PRIu32 " %" PRIu32 "\n",
+                     i, hdr->type);
+            break;
+        }
+    }
+}
+
+int rptun_uninitialize(FAR const char *cpuname)
+{
+  char name[32];
+
+  snprintf(name, sizeof(name), "/dev/rptun/%s", cpuname);
+  return unregister_driver(name);
 }
 
 int rptun_boot(FAR const char *cpuname)

@@ -50,7 +50,7 @@
 
 static int iob_next(FAR struct iob_s *iob, bool throttled, bool block)
 {
-  FAR struct iob_s *next = iob->io_flink;
+  FAR struct iob_s *next = IOB_LINK_GET(iob);
 
   /* Allocate new destination I/O buffer and hook it into the
    * destination I/O buffer chain.
@@ -73,6 +73,19 @@ static int iob_next(FAR struct iob_s *iob, bool throttled, bool block)
           return -ENOMEM;
         }
 
+      /* Add the new, empty I/O buffer to the end of the buffer chain.
+       * Carry over any queue flags (e.g. IOB_CHAIN_END) from the
+       * current tail to the new tail so that the chain boundary is
+       * preserved, then clear the flags on the old tail since it is
+       * no longer the last buffer in the chain.  Without this, extending
+       * a chain that also resides in an iob_queue loses the IOB_CHAIN_END
+       * marker and can later make iob_add_queue()/iob_remove_queue() walk
+       * past the real chain end and dereference stale/freed IOB pointers.
+       * Mirrors the chain-extension logic in iob_copyin() and
+       * iob_update_pktlen().
+       */
+
+      IOB_FLAG_SET(next, NULL, IOB_FLAG_GET(iob));
       iob->io_flink = next;
     }
   else
@@ -140,7 +153,7 @@ int iob_clone_partial(FAR struct iob_s *iob1, unsigned int len,
   while (iob1 != NULL && (int)(offset1 - iob1->io_len) >= 0)
     {
       offset1 -= iob1->io_len;
-      iob1     = iob1->io_flink;
+      iob1     = IOB_LINK_GET(iob1);
     }
 
   /* Skip requested offset from the destination iob */
@@ -162,7 +175,7 @@ int iob_clone_partial(FAR struct iob_s *iob1, unsigned int len,
           return ret;
         }
 
-      iob2 = iob2->io_flink;
+      iob2 = IOB_LINK_GET(iob2);
     }
 
   /* Pack each entry from iob1 to iob2 */
@@ -179,6 +192,11 @@ int iob_clone_partial(FAR struct iob_s *iob1, unsigned int len,
       /* Get the destination I/O buffer pointer and the number of bytes to
        * copy to that address.
        */
+
+      if (iob2 == NULL)
+        {
+          return -ENOMEM;
+        }
 
       dest   = &iob2->io_data[iob2->io_offset + offset2];
       avail2 = IOB_BUFSIZE(iob2) - iob2->io_offset - offset2;
@@ -213,7 +231,7 @@ int iob_clone_partial(FAR struct iob_s *iob1, unsigned int len,
             {
               /* Yes.. move to the next source I/O buffer */
 
-              iob1 = iob1->io_flink;
+              iob1 = IOB_LINK_GET(iob1);
             }
           while (iob1 && iob1->io_len <= 0);
 
@@ -235,7 +253,7 @@ int iob_clone_partial(FAR struct iob_s *iob1, unsigned int len,
               return ret;
             }
 
-          iob2 = iob2->io_flink;
+          iob2 = IOB_LINK_GET(iob2);
           offset2 = 0;
         }
     }
@@ -255,7 +273,7 @@ int iob_clone(FAR struct iob_s *iob1, FAR struct iob_s *iob2,
               bool throttled, bool block)
 {
   DEBUGASSERT(iob2->io_len == 0 && iob2->io_offset == 0 &&
-            iob2->io_pktlen == 0 && iob2->io_flink == NULL);
+            iob2->io_pktlen == 0 && IOB_LINK_GET(iob2) == NULL);
 
   return iob_clone_partial(iob1, iob1->io_pktlen, 0,
                            iob2, 0, throttled, block);

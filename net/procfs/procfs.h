@@ -59,10 +59,15 @@ struct netprocfs_file_s
 {
   struct procfs_file_s base;         /* Base open file structure */
   FAR struct net_driver_s *dev;      /* Current network device */
-  uint8_t lineno;                    /* Line number */
+  uint16_t lineno;                   /* Line number */
   uint8_t linesize;                  /* Number of valid characters in line[] */
   uint8_t offset;                    /* Offset to first valid character in line[] */
   uint8_t entry;                     /* Entry index of netprocfs_entry_s */
+  unsigned int lines;                /* Lines of a table written so far */
+  uint32_t last;                     /* List id of the last connection
+                                      * written */
+  uint32_t limit;                    /* List id of the last connection at
+                                      * the first read */
   char line[NET_LINELEN];            /* Pre-allocated buffer for formatted lines */
 };
 

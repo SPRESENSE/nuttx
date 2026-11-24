@@ -35,6 +35,7 @@
 #include <nuttx/lib/lib.h>
 #include <nuttx/nuttx.h>
 #include <nuttx/sched.h>
+#include <nuttx/syslog/syslog.h>
 
 #include "sched/sched.h"
 #include "coredump.h"
@@ -772,7 +773,7 @@ static void coredump_dump_syslog(pid_t pid)
   FAR const char *streamname;
   int logmask;
 
-  logmask = setlogmask(LOG_UPTO(LOG_ALERT));
+  logmask = nx_setlogmask(LOG_UPTO(LOG_ALERT));
 
   _alert("Start coredump:\n");
 
@@ -809,7 +810,7 @@ static void coredump_dump_syslog(pid_t pid)
   _alert("Coredump finish. %s formatted\n", streamname);
 #  endif
 
-  setlogmask(logmask);
+  nx_setlogmask(logmask);
 }
 #endif
 
@@ -966,6 +967,46 @@ int coredump_add_memory_region(FAR const void *ptr, size_t size,
 
   g_regions = region;
   return 0;
+}
+
+/****************************************************************************
+ * Name: coredump_remove_memory_region
+ *
+ * Description:
+ *   Remove a previously registered memory region from the coredump list.
+ *
+ ****************************************************************************/
+
+int coredump_remove_memory_region(FAR const void *ptr, size_t size)
+{
+  FAR struct memory_region_s *region;
+  size_t i;
+
+  if (g_regions == NULL)
+    {
+      return -ENOENT;
+    }
+
+  region = (FAR struct memory_region_s *)g_regions;
+
+  for (i = 0; region[i].start < region[i].end; i++)
+    {
+      if (region[i].start == (uintptr_t)ptr &&
+          region[i].end == (uintptr_t)ptr + size)
+        {
+          /* Copy each subsequent entry forward, including terminator */
+
+          do
+            {
+              region[i] = region[i + 1];
+            }
+          while (region[i++].start != 0);
+
+          return 0;
+        }
+    }
+
+  return -ENOENT;
 }
 
 /****************************************************************************

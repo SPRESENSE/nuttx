@@ -125,6 +125,12 @@
 #  define TCP_SEND_BUFSIZE  TCP_DEFAULT_BUFSIZE
 #endif
 
+/* True if the connection with list id a entered the list of active
+ * connections after the one with list id b (the ids wrap).
+ */
+
+#define TCP_LISTID_AFTER(a, b) ((int32_t)((uint32_t)(a) - (uint32_t)(b)) > 0)
+
 /* The error of a send on a TCP socket that is not connected: -ECONNRESET
  * if the peer reset the connection and this is not yet reported, -EPIPE if
  * the connection was closed (POSIX: the socket is no longer connected),
@@ -252,6 +258,8 @@ struct tcp_conn_s
                            * receive next */
   uint8_t  sndseq[4];     /* The sequence number that was last sent by us */
   uint32_t rexmit_seq;    /* The sequence number to be retrasmitted */
+  uint32_t listid;        /* The order of entry in the list of active
+                           * connections (tcp_add_active_conn()) */
   uint8_t  crefs;         /* Reference counts on this instance */
 #if defined(CONFIG_NET_IPv4) && defined(CONFIG_NET_IPv6)
   uint8_t  domain;        /* IP domain: PF_INET or PF_INET6 */
@@ -426,6 +434,10 @@ struct tcp_conn_s
    *     accept() handler when it is invoked with a point to this structure
    *     as an argument.
    *   accept: This is the pointer to the accept handler.
+   *
+   *   tcp_accept_connection() calls accept() with the device of the new
+   *   connection and the TCP connection list locked, so accept() must not
+   *   take a device lock.
    */
 
   FAR void *accept_private;
@@ -802,6 +814,20 @@ int tcp_connect(FAR struct tcp_conn_s *conn,
 void tcp_add_active_conn(FAR struct tcp_conn_s *conn);
 
 /****************************************************************************
+ * Name: tcp_conn_lastid
+ *
+ * Description:
+ *   Return the list id of the connection that entered the list of active
+ *   TCP connections last.
+ *
+ * Assumptions:
+ *   The TCP connection list is locked.
+ *
+ ****************************************************************************/
+
+uint32_t tcp_conn_lastid(void);
+
+/****************************************************************************
  * Name: tcp_removeconn
  *
  * Description:
@@ -821,9 +847,17 @@ void tcp_removeconn(FAR struct tcp_conn_s *conn);
  *   This function is used to remove the currently SYN_RCVD connection
  *   created by the listener
  *
+ *   Only the connections up to the list id lastid are freed.
+ *
+ * Assumptions:
+ *   The listener is no longer in the table of listeners.  lastid is the
+ *   value of tcp_conn_lastid() when it was taken out.  The caller holds no
+ *   lock of the network.
+ *
  ****************************************************************************/
 
-void tcp_remove_syn_backlog(FAR struct tcp_conn_s *listener);
+void tcp_remove_syn_backlog(FAR struct tcp_conn_s *listener,
+                            uint32_t lastid);
 
 /****************************************************************************
  * Name: psock_tcp_connect
@@ -1265,8 +1299,12 @@ int tcp_listen(FAR struct tcp_conn_s *conn);
  * Description:
  *   Accept the new connection for the specified listening port.
  *
+ *   The listener's accept() handler, or the TCP_BACKLOG event of its
+ *   callbacks, runs with the TCP connection list locked: they must not
+ *   take a device lock, which comes before the list lock.
+ *
  * Assumptions:
- *   Called from network stack logic with the network stack locked
+ *   Called from the input path with the device locked.
  *
  ****************************************************************************/
 
@@ -1593,24 +1631,44 @@ int tcp_backlogcreate(FAR struct tcp_conn_s *conn, int nblg);
 #endif
 
 /****************************************************************************
- * Name: tcp_backlogdestroy
+ * Name: tcp_backlogdetach
  *
  * Description:
- *   (1) Called from tcp_free() whenever a connection is freed.
- *   (2) Called from tcp_backlogcreate() to destroy any old backlog
+ *   Take the backlog of a connection away from it, with the pending
+ *   connections in it: their blparent is set to NULL.  tcp_backlogfree()
+ *   frees them later.  (1) Called from tcp_free() whenever a connection is
+ *   freed, with the TCP connection list locked.  (2) Called from
+ *   tcp_backlogcreate() for the old backlog, with the connection locked.
  *
- *   NOTE: This function may re-enter tcp_free when a connection that
- *   is freed that has pending connections.
- *
- * Assumptions:
- *   Called from network socket logic with the network stack locked
+ * Returned Value:
+ *   The backlog that was detached, or NULL if there was none.
  *
  ****************************************************************************/
 
 #ifdef CONFIG_NET_TCPBACKLOG
-int tcp_backlogdestroy(FAR struct tcp_conn_s *conn);
+FAR struct tcp_backlog_s *tcp_backlogdetach(FAR struct tcp_conn_s *conn);
 #else
-#  define tcp_backlogdestroy(conn)     (-ENOSYS)
+#  define tcp_backlogdetach(conn)      (NULL)
+#endif
+
+/****************************************************************************
+ * Name: tcp_backlogfree
+ *
+ * Description:
+ *   Free a backlog that tcp_backlogdetach() returned, and the pending
+ *   connections in it.
+ *
+ *   NOTE: This function re-enters tcp_free() for each pending connection,
+ *   which takes the device lock of that connection.  So the caller holds
+ *   no lock of the network: not the TCP connection list lock, which the
+ *   input path takes under a device lock, and not the lock of a connection.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_NET_TCPBACKLOG
+void tcp_backlogfree(FAR struct tcp_backlog_s *blg);
+#else
+#  define tcp_backlogfree(blg)
 #endif
 
 /****************************************************************************

@@ -91,14 +91,14 @@ static int iob_copyin_internal(FAR struct iob_s *iob, FAR const uint8_t *src,
   while ((int)(offset - iob->io_len) > 0)
     {
       offset -= iob->io_len;
-      iob     = iob->io_flink;
+      iob     = IOB_LINK_GET(iob);
     }
 
   /* Then loop until all of the I/O data is copied from the user buffer */
 
   while (len > 0)
     {
-      next = iob->io_flink;
+      next = IOB_LINK_GET(iob);
 
       /* Get the destination I/O buffer address and the amount of data
        * available from that address.
@@ -163,7 +163,7 @@ static int iob_copyin_internal(FAR struct iob_s *iob, FAR const uint8_t *src,
 
       /* Copy from the user buffer to the I/O buffer.  */
 
-      memcpy(dest, src, ncopy);
+      memmove(dest, src, ncopy);
       iobinfo("iob=%p Copy %u bytes new len=%u\n",
               iob, ncopy, iob->io_len);
 
@@ -200,8 +200,14 @@ static int iob_copyin_internal(FAR struct iob_s *iob, FAR const uint8_t *src,
               return -ENOMEM;
             }
 
-          /* Add the new, empty I/O buffer to the end of the buffer chain. */
+          /* Add the new, empty I/O buffer to the end of the buffer chain.
+           * Carry over any queue flags (e.g. IOB_CHAIN_END) from the
+           * current tail to the new tail so that the chain boundary is
+           * preserved, then clear the flags on the old tail since it is
+           * no longer the last buffer in the chain.
+           */
 
+          IOB_FLAG_SET(next, NULL, IOB_FLAG_GET(iob));
           iob->io_flink = next;
           iobinfo("iob=%p added to the chain\n", iob);
         }

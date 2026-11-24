@@ -66,6 +66,7 @@ static const char *dequote_list[] =
   "CONFIG_TTY_LAUNCH_ARGS",               /* Argument list of entry point from tty launch */
   "CONFIG_BOARD_MEMORY_RANGE",            /* Memory range for board */
   "CONFIG_FAKE_AUDIO_DEVICE_PARAMS",      /* Arguments for the fake audio device */
+  "CONFIG_VIDEO_FAKE_DEVICE_PARAMS",      /* Arguments for the fake video device */
 
   /* NxWidgets/NxWM */
 
@@ -92,7 +93,11 @@ static const char *dequote_list[] =
 
 static char *skip_space(char *ptr)
 {
-  while (*ptr && isspace((int)*ptr)) ptr++;
+  while (*ptr && isspace((int)*ptr))
+    {
+      ptr++;
+    }
+
   return ptr;
 }
 
@@ -100,7 +105,11 @@ static char *skip_space(char *ptr)
 
 static char *find_name_end(char *ptr)
 {
-  while (*ptr && (isalnum((int)*ptr) || *ptr == '_')) ptr++;
+  while (*ptr && (isalnum((int)*ptr) || *ptr == '_'))
+    {
+      ptr++;
+    }
+
   return ptr;
 }
 
@@ -112,12 +121,24 @@ static char *find_value_end(char *ptr)
     {
       if (*ptr == '"')
         {
-          do ptr++; while (*ptr && (*ptr != '"' || *(ptr - 1) == '\\'));
-          if (*ptr) ptr++;
+          do
+            {
+              ptr++;
+            }
+          while (*ptr && (*ptr != '"' || *(ptr - 1) == '\\'));
+
+          if (*ptr)
+            {
+              ptr++;
+            }
         }
       else
         {
-          do ptr++; while (*ptr && !isspace((int)*ptr) && *ptr != '"');
+          do
+            {
+              ptr++;
+            }
+          while (*ptr && !isspace((int)*ptr) && *ptr != '"');
         }
     }
 
@@ -170,7 +191,7 @@ static void parse_line(char *ptr, char **varname, char **varval)
        */
 
       *ptr = '\0';
-       ptr = skip_space(ptr + 1);
+      ptr = skip_space(ptr + 1);
     }
 
   /* Verify that the equal sign is present */
