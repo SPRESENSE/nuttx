@@ -64,8 +64,6 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-#define DEADLOCK_MAX 8
-
 /* The dump_lockholder() buffer must hold the deeper of the two backtrace
  * sources: the spinlock backtrace (CONFIG_LIBC_BACKTRACE_DEPTH) and this
  * tree's fixed mutex backtrace (CONFIG_LIBC_MUTEX_BACKTRACE, an
@@ -98,7 +96,7 @@
 #  undef CONFIG_ARCH_USBDUMP
 #endif
 
-#define DUMP_PTR(p, x) ((uintptr_t)(&(p)[(x)]) < stack_top ? (p)[(x)] : 0)
+#define DUMP_PTR(p, x) ((uintptr_t)(&(p)[(x) + 1]) <= stack_top ? (p)[(x)] : 0)
 #define DUMP_STRIDE    (sizeof(FAR void *) * 8)
 
 #if UINTPTR_MAX <= UINT32_MAX
@@ -194,6 +192,7 @@ static void sp_out_of_range(uintptr_t sp)
  * Name: stack_dump
  ****************************************************************************/
 
+nosanitize_address
 static void stack_dump(uintptr_t sp, uintptr_t stack_top)
 {
   uintptr_t stack;
@@ -235,6 +234,13 @@ static void dump_stackinfo(FAR const char *tag, uintptr_t sp,
         {
           sp -= DUMP_STRIDE;
         }
+
+#if CONFIG_ARCH_STACKDUMP_MAX_LENGTH > 0
+      if (top - sp > CONFIG_ARCH_STACKDUMP_MAX_LENGTH)
+        {
+          top = sp + CONFIG_ARCH_STACKDUMP_MAX_LENGTH;
+        }
+#endif
 
       stack_dump(sp, top);
     }
@@ -451,11 +457,12 @@ static void dump_task(FAR struct tcb_s *tcb, FAR void *arg)
          , tcb->cpu
 #endif
          , tcb->sched_priority
-         , g_policy[(tcb->flags & TCB_FLAG_POLICY_MASK) >>
+         , g_policy[nxsched_get_policy(tcb) >>
                     TCB_FLAG_POLICY_SHIFT]
          , g_ttypenames[(tcb->flags & TCB_FLAG_TTYPE_MASK)
                         >> TCB_FLAG_TTYPE_SHIFT]
-         , tcb->flags & TCB_FLAG_EXIT_PROCESSING ? 'P' : '-'
+         , atomic_read(&tcb->shared_flags) &
+           TCB_FLAG_EXIT_PROCESSING ? 'P' : '-'
          , state
 #ifndef CONFIG_DISABLE_ALL_SIGNALS
          , SIGSET_ELEM(&tcb->sigprocmask)
@@ -480,7 +487,7 @@ static void dump_task(FAR struct tcb_s *tcb, FAR void *arg)
  * Name: dump_backtrace
  ****************************************************************************/
 
-#ifdef CONFIG_SCHED_BACKTRACE
+#ifdef CONFIG_SCHED_DUMP_BACKTRACE
 static void dump_backtrace(FAR struct tcb_s *tcb, FAR void *arg)
 {
   sched_dumpstack(tcb->pid);
@@ -580,7 +587,7 @@ static void dump_tasks(void)
   nxsched_foreach(dump_task, NULL);
 #endif /* CONFIG_SCHED_DUMP_TASKS */
 
-#ifdef CONFIG_SCHED_BACKTRACE
+#ifdef CONFIG_SCHED_DUMP_BACKTRACE
   nxsched_foreach(dump_backtrace, NULL);
 #endif
 
@@ -640,8 +647,9 @@ static void dump_lockholder(pid_t tid)
 
 static void dump_deadlock(void)
 {
-  pid_t deadlock[DEADLOCK_MAX];
-  size_t i = nxsched_collect_deadlock(deadlock, DEADLOCK_MAX);
+  pid_t deadlock[CONFIG_ARCH_DEADLOCKDUMP_MAX];
+  size_t i = nxsched_collect_deadlock(deadlock,
+                                      CONFIG_ARCH_DEADLOCKDUMP_MAX);
 
   while (i-- > 0)
     {
@@ -822,7 +830,15 @@ static void dump_fatal_info(FAR struct tcb_s *rtcb,
   /* Flush previous SYSLOG data before possible long time coredump */
 
   syslog_flush();
+}
 
+/****************************************************************************
+ * Name: dump_core_info
+ ****************************************************************************/
+
+static void dump_core_info(FAR struct tcb_s *rtcb, FAR const char *filename,
+                           int linenum, FAR const char *msg, FAR void *regs)
+{
 #ifdef CONFIG_BOARD_CRASHDUMP_CUSTOM
   board_crashdump(up_getsp(), rtcb, filename, linenum, msg, regs);
 #endif
@@ -855,7 +871,17 @@ static void reset_board(void)
 #if CONFIG_BOARD_RESET_ON_ASSERT >= 1
   up_flush_dcache_all();
   board_reset(CONFIG_BOARD_ASSERT_RESET_VALUE);
-#else
+
+  /* board_reset() is permitted to be asynchronous (e.g. it just requests an
+   * external reset via a GPIO pin and returns immediately).  Per the
+   * function contract documented above ("It should never return."), spin
+   * here so that we do not fall back into the caller while g_nx_initstate
+   * is already OSINIT_PANIC.  If we did return, any subsequent fault would
+   * re-enter _assert(), hit the recursive-assert fast path, and mask the
+   * original crash context.
+   */
+#endif
+
   for (; ; )
     {
 #ifdef CONFIG_ARCH_LEDS
@@ -867,7 +893,6 @@ static void reset_board(void)
 #endif
       up_mdelay(250);
     }
-#endif
 }
 
 /****************************************************************************
@@ -962,7 +987,17 @@ void _assert(FAR const char *filename, int linenum,
 
       dump_fatal_info(rtcb, filename, linenum, msg, regs);
 
+      /* Flush dcache before notify other CPU */
+
+      up_flush_dcache_all();
+
+      /* Notify PANIC_KERNEL_FINAL */
+
       panic_notifier_call_chain(PANIC_KERNEL_FINAL, &notifier_data);
+
+      /* Dump core information */
+
+      dump_core_info(rtcb, filename, linenum, msg, regs);
 
       reboot_notifier_call_chain(SYS_HALT, NULL);
 

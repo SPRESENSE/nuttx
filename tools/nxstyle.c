@@ -248,6 +248,7 @@ static const char *g_white_prefix[] =
   "R_CPG",
   "R_XSPI_",
   "RSP_INT_STSn",
+  "R_RTC",
 
   /* Ref:  apps/system/microros, apps/examples/microros_*
    * ROS 2 standard message package names and rosidl scalar type names
@@ -943,6 +944,14 @@ static const char *g_white_files[] =
   "gd32vw55x/gdwifi/gdwifi_glue.c",
   "gd32vw55x/gdwifi/gdwifi_newlib_compat.c",
   "gd32vw55x/gdble/gd32_ble.c",
+
+  /* Skip the OpenSSL-to-Mbed-TLS compatibility wrapper: it implements the
+   * OpenSSL API, whose identifiers (X509_*, PKCS12_*, EVP_*, BIO_*, ...)
+   * are mixed case by definition.  Ref:
+   * apps/crypto/openssl_mbedtls_wrapper
+   */
+
+  "openssl_mbedtls_wrapper/",
 
   /* Skip libcxx support header (C++ file, not NuttX style) */
 
@@ -2576,6 +2585,7 @@ int main(int argc, char **argv, char **envp)
                    strncmp(&line[indent], "union\n", 6) == 0 ||  /* May be unnamed */
                    strncmp(&line[indent], "unsigned ", 9) == 0 ||
                    strncmp(&line[indent], "void ", 5) == 0 ||
+                   strncmp(&line[indent], "DEFINE_PER_CPU_", 15) == 0 ||  /* Maybe the percpu define */
                    strncmp(&line[indent], "volatile ", 9) == 0)
             {
               /* Check if this is extern "C";  We don't typically indent
@@ -4378,7 +4388,7 @@ int main(int argc, char **argv, char **envp)
                 }
               else if (!bfunctions && (indent & 1) != 0)
                 {
-                  ERROR("Bad left brace alignment", lineno, indent);
+                  ERROR("Bad right brace alignment", lineno, indent);
                 }
               else if (indent > 0 && prevdnest == 0 &&
                        (bexact ? indent != stmt_indent : (indent & 3) != 0))

@@ -86,7 +86,9 @@ struct rpmsg_virtio_priv_s
   uint16_t                        headtx;
   int                             sleepertx;
   int                             timeouttx;  /* Consecutive tx wait slices */
+#ifndef CONFIG_RPMSG_VIRTIO_START_SYNC
   struct work_s                   startwork;
+#endif
 #ifdef CONFIG_RPMSG_VIRTIO_PM
   spinlock_t                      lock;
   struct pm_wakelock_s            wakelock;
@@ -101,7 +103,9 @@ struct rpmsg_virtio_priv_s
 
 static int rpmsg_virtio_wait(FAR struct rpmsg_s *rpmsg, clock_t delay);
 static int rpmsg_virtio_post(FAR struct rpmsg_s *rpmsg);
+#if CONFIG_RPMSG_DUMP_LEVEL > RPMSG_DUMP_DISABLE
 static void rpmsg_virtio_dump(FAR struct rpmsg_s *rpmsg, bool verbose);
+#endif
 static FAR void *rpmsg_virtio_alloc_buf(FAR struct rpmsg_s *rpmsg,
                                         size_t size, size_t align);
 static void rpmsg_virtio_free_buf(FAR struct rpmsg_s *rpmsg,
@@ -119,6 +123,8 @@ static void rpmsg_virtio_tx_notify(FAR struct virtqueue *vq);
  * Private Functions
  ****************************************************************************/
 
+#if CONFIG_RPMSG_DUMP_LEVEL > RPMSG_DUMP_DISABLE || \
+    defined(CONFIG_RPMSG_VIRTIO_PM)
 /****************************************************************************
  * Name: rpmsg_virtio_buffer_nused
  ****************************************************************************/
@@ -146,6 +152,7 @@ rpmsg_virtio_buffer_nused(FAR struct rpmsg_virtio_device *rvdev, bool rx)
 
   return nused;
 }
+#endif
 
 /****************************************************************************
  * Name: rpmsg_virtio_pm_callback
@@ -333,6 +340,7 @@ static int rpmsg_virtio_post(FAR struct rpmsg_s *rpmsg)
   return OK;
 }
 
+#if CONFIG_RPMSG_DUMP_LEVEL > RPMSG_DUMP_DISABLE
 /****************************************************************************
  * Name: rpmsg_virtio_dump_buffer
  ****************************************************************************/
@@ -470,6 +478,7 @@ static void rpmsg_virtio_dump(FAR struct rpmsg_s *rpmsg, bool verbose)
       metal_mutex_release(&rdev->lock);
     }
 }
+#endif
 
 /****************************************************************************
  * Name: rpmsg_virtio_alloc_buf
@@ -624,6 +633,16 @@ static void rpmsg_virtio_rx_dispatch(FAR struct rpmsg_virtio_priv_s *priv)
                 }
               else
                 {
+                  /* Unbound RT endpoint: its NS message was queued with
+                   * ns_ept's priority, use the same one to keep order.
+                   */
+
+                  if (priority == RPMSG_PRIO_RT &&
+                      ept->dest_addr == RPMSG_ADDR_ANY)
+                    {
+                      priority = rdev->ns_ept.priority;
+                    }
+
                   rpmsg_queue_rx_work(&priv->rpmsg, priority,
                                       rpmsg_virtio_rx_worker, hdr);
                   status = RPMSG_SUCCESS_BUFFER_RELEASED;
@@ -782,6 +801,12 @@ static int rpmsg_virtio_notify_wait(FAR struct rpmsg_device *rdev,
 
 /****************************************************************************
  * Name: rpmsg_virtio_start_worker
+ *
+ * Description:
+ *   Register the rpmsg device and bring up the rpmsg virtio device.  Runs
+ *   either inline in the probe context (CONFIG_RPMSG_VIRTIO_START_SYNC) or
+ *   on the rpmsg work queue.
+ *
  ****************************************************************************/
 
 static void rpmsg_virtio_start_worker(FAR void *arg)
@@ -792,7 +817,11 @@ static void rpmsg_virtio_start_worker(FAR void *arg)
     rpmsg_virtio_post,
     NULL,
     NULL,
+#if CONFIG_RPMSG_DUMP_LEVEL > RPMSG_DUMP_DISABLE
     rpmsg_virtio_dump,
+#else
+    NULL,
+#endif
     NULL,
     rpmsg_virtio_alloc_buf,
     rpmsg_virtio_free_buf,
@@ -992,9 +1021,13 @@ int rpmsg_virtio_probe_cpuname(FAR struct virtio_device *vdev,
           pm_wakelock_init(&priv->wakelock, name, PM_IDLE_DOMAIN, PM_IDLE);
 #endif
 
+#ifdef CONFIG_RPMSG_VIRTIO_START_SYNC
+          rpmsg_virtio_start_worker(&priv->rpmsg);
+#else
           rpmsg_queue_work(&priv->rpmsg, RPMSG_PRIO_DEFAULT,
                            &priv->startwork, rpmsg_virtio_start_worker,
                            &priv->rpmsg);
+#endif
         }
       else
         {
@@ -1035,22 +1068,22 @@ void rpmsg_virtio_remove(FAR struct virtio_device *vdev)
   pm_wakelock_uninit(&priv->wakelock);
 #endif
 
-  /* Unregister the rpmsg */
-
-  snprintf(name, sizeof(name), "/dev/rpmsg/%s", priv->rpmsg.cpuname);
-  rpmsg_unregister(name, &priv->rpmsg);
-
   /* Disable tx buffer return callback */
 
   virtqueue_disable_cb(priv->rvdev.svq);
+
+  /* Destroy all the rpmsg services */
+
+  rpmsg_device_destroy(&priv->rpmsg);
 
   /* Deinit the rpmsg wqueues */
 
   rpmsg_deinit_wqueues(&priv->rpmsg);
 
-  /* Destroy all the rpmsg services */
+  /* Unregister the rpmsg */
 
-  rpmsg_device_destroy(&priv->rpmsg);
+  snprintf(name, sizeof(name), "/dev/rpmsg/%s", priv->rpmsg.cpuname);
+  rpmsg_unregister(name, &priv->rpmsg);
 
   /* Reset the rpmsg virtio device for driver */
 

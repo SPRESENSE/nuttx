@@ -792,10 +792,6 @@ config NET_E1000_RXDESC
 	int "Intel E1000 RX descriptors"
 	default 256
 
-config NET_E1000_RXSPARE
-	int "Intel E1000 spare RX buffers"
-	default 8
-
 endif # NET_E1000
 
 menuconfig NET_IGB
@@ -814,10 +810,6 @@ config NET_IGB_TXDESC
 config NET_IGB_RXDESC
 	int "Intel IGB RX descriptors"
 	default 256
-
-config NET_IGB_RXSPARE
-	int "Intel IGB spare RX buffers"
-	default 8
 
 config NET_IGB_INT_INTERVAL
 	int "Intel IGB interrupt interval"
@@ -844,10 +836,6 @@ config NET_IGC_TXDESC
 config NET_IGC_RXDESC
 	int "Intel IGC RX descriptors"
 	default 256
-
-config NET_IGC_RXSPARE
-	int "Intel IGC spare RX buffers"
-	default 8
 
 config NET_IGC_INT_INTERVAL
 	int "Intel IGC interrupt interval"
