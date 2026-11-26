@@ -28,6 +28,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #include <assert.h>
 #include <fcntl.h>
@@ -48,6 +49,7 @@
 #include <nuttx/drivers/rpmsgdev.h>
 #include <nuttx/power/battery_ioctl.h>
 #include <nuttx/input/mouse.h>
+#include <nuttx/mtd/configdata.h>
 
 #include "rpmsgdev.h"
 
@@ -63,24 +65,39 @@
  * Private Types
  ****************************************************************************/
 
+/* The private data slots are preallocated in the device instance and the
+ * unused ones are kept on the 'free' list.  A slot is claimed by removing it
+ * from that list under the lock, which is atomic with respect to any other
+ * open(), so no in-use flag is needed.  The opened slots are reachable from
+ * filep->f_priv and therefore do not need to be linked anywhere.
+ */
+
 struct rpmsgdev_priv_s
 {
-  uint64_t filep;    /* store server file pointer */
-  bool     nonblock; /* true: open with O_NONBLOCK */
-  mutex_t  lock;     /* Mutex used to protect the file operation */
+  uint64_t         filep;    /* store server file pointer */
+  bool             nonblock; /* true: open with O_NONBLOCK */
+  struct list_node node;     /* Free list node, unlinked while in use */
+  mutex_t          lock;     /* Mutex used to protect the file operation */
 };
 
 struct rpmsgdev_s
 {
-  struct rpmsg_endpoint ept;         /* Rpmsg endpoint */
-  FAR const char       *remotecpu;   /* The server cpu name */
-  FAR const char       *remotepath;  /* The device path in the server cpu */
-  sem_t                 wait;        /* Wait sem, used for preventing any
-                                      * operation until the connection
-                                      * between two cpu established.
-                                      */
-  struct list_node      cookies;     /* Requests waiting for a reply */
-  spinlock_t            lock;        /* Protect the cookie list */
+  struct rpmsg_endpoint  ept;         /* Rpmsg endpoint */
+
+  /* The server cpu name and the device path in the server cpu */
+
+  char                   remotecpu[RPMSG_NAME_SIZE];
+  char                   remotepath[RPMSG_NAME_SIZE -
+                                    RPMSGDEV_NAME_PREFIX_LEN];
+
+  sem_t                  wait;        /* Wait sem, used for preventing any
+                                       * operation until the connection
+                                       * between two cpu established.
+                                       */
+  struct list_node       free;        /* List head of the free slots */
+  struct list_node       cookies;     /* Requests waiting for a reply */
+  spinlock_t             lock;        /* Protect the free and cookie lists */
+  struct rpmsgdev_priv_s priv[CONFIG_DEV_RPMSG_OPEN_MAX];
 };
 
 /* Rpmsg device cookie used to handle the response from the remote cpu */
@@ -208,6 +225,7 @@ static int rpmsgdev_open(FAR struct file *filep)
   FAR struct rpmsgdev_s *dev;
   FAR struct rpmsgdev_priv_s *priv;
   struct rpmsgdev_open_s msg;
+  irqstate_t flags;
   int ret;
 
   /* Get the mountpoint inode reference from the file structure and the
@@ -217,7 +235,12 @@ static int rpmsgdev_open(FAR struct file *filep)
   dev = filep->f_inode->i_private;
   DEBUGASSERT(dev != NULL);
 
-  priv = kmm_zalloc(sizeof(*priv));
+  /* Claim a free private data slot by removing it from the free list */
+
+  flags = spin_lock_irqsave(&dev->lock);
+  priv = list_remove_head_type(&dev->free, struct rpmsgdev_priv_s, node);
+  spin_unlock_irqrestore(&dev->lock, flags);
+
   if (priv == NULL)
     {
       return -ENOMEM;
@@ -234,7 +257,9 @@ static int rpmsgdev_open(FAR struct file *filep)
   if (ret < 0)
     {
       rpmsgdeverr("open failed, ret=%d\n", ret);
-      kmm_free(priv);
+      flags = spin_lock_irqsave(&dev->lock);
+      list_add_tail(&dev->free, &priv->node);
+      spin_unlock_irqrestore(&dev->lock, flags);
       return ret;
     }
 
@@ -267,6 +292,7 @@ static int rpmsgdev_close(FAR struct file *filep)
   FAR struct rpmsgdev_s *dev;
   FAR struct rpmsgdev_priv_s *priv;
   struct rpmsgdev_close_s msg;
+  irqstate_t flags;
   int ret;
 
   /* Recover our private data from the struct file instance */
@@ -288,7 +314,9 @@ static int rpmsgdev_close(FAR struct file *filep)
 
   filep->f_priv = NULL;
   nxmutex_destroy(&priv->lock);
-  kmm_free(priv);
+  flags = spin_lock_irqsave(&dev->lock);
+  list_add_tail(&dev->free, &priv->node);
+  spin_unlock_irqrestore(&dev->lock, flags);
 
   return ret;
 }
@@ -575,6 +603,53 @@ static off_t rpmsgdev_seek(FAR struct file *filep, off_t offset, int whence)
 }
 
 /****************************************************************************
+ * Name: rpmsgdev_marshal_cfgdata
+ ****************************************************************************/
+
+static void rpmsgdev_marshal_cfgdata(FAR void *buf, FAR void *cfg)
+{
+  FAR struct config_data_s *src = (FAR struct config_data_s *)cfg;
+  FAR struct config_data_s *dst = (FAR struct config_data_s *)buf;
+
+#ifdef CONFIG_MTD_CONFIG_NAMED
+  memcpy(dst->name, src->name, sizeof(dst->name));
+#else
+  dst->id = src->id;
+  dst->instance = src->instance;
+#endif
+  dst->len = src->len;
+  dst->configdata = (FAR uint8_t *)(dst + 1);
+  if (src->configdata != NULL && src->len > 0)
+    {
+      memcpy(dst->configdata, src->configdata, src->len);
+    }
+}
+
+/****************************************************************************
+ * Name: rpmsgdev_unmarshal_cfgdata
+ ****************************************************************************/
+
+static void rpmsgdev_unmarshal_cfgdata(FAR void *buf, FAR void *cfg)
+{
+  FAR struct config_data_s *src = (FAR struct config_data_s *)buf;
+  FAR struct config_data_s *dst = (FAR struct config_data_s *)cfg;
+
+  if (dst->configdata != NULL && src->len > 0)
+    {
+      memcpy(dst->configdata, (FAR uint8_t *)(src + 1),
+             MIN(src->len, dst->len));
+    }
+
+#ifdef CONFIG_MTD_CONFIG_NAMED
+  memcpy(dst->name, src->name, sizeof(dst->name));
+#else
+  dst->id = src->id;
+  dst->instance = src->instance;
+#endif
+  dst->len = src->len;
+}
+
+/****************************************************************************
  * Name: rpmsgdev_ioctl_arglen
  *
  * Description:
@@ -604,6 +679,7 @@ static ssize_t rpmsgdev_ioctl_arglen(int cmd, unsigned long arg)
       case BATIOC_TEMPERATURE:
       case BATIOC_INPUT_CURRENT:
       case BATIOC_STATE:
+      case BATIOC_ONLINE:
       case BATIOC_CAPACITY:
       case BATIOC_CHIPID:
         return sizeof(int);
@@ -620,6 +696,14 @@ static ssize_t rpmsgdev_ioctl_arglen(int cmd, unsigned long arg)
                ((FAR struct mouse_vendor_cmd_s *)(uintptr_t)arg)->len;
       case MSIOC_GRAB:
         return 0;
+      case CFGDIOC_GETCONFIG:
+      case CFGDIOC_SETCONFIG:
+      case CFGDIOC_FIRSTCONFIG:
+      case CFGDIOC_NEXTCONFIG:
+        return sizeof(struct config_data_s) +
+               ((FAR struct config_data_s *)(uintptr_t)arg)->len;
+      case CFGDIOC_DELCONFIG:
+        return sizeof(struct config_data_s);
       case RPMSGDEV_PRIVATE_IOCTL:
         return sizeof(struct rpmsgdev_private_ioctl) +
                ((FAR struct rpmsgdev_private_ioctl *)(uintptr_t)arg)->len;
@@ -701,7 +785,14 @@ static int rpmsgdev_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 
   if (arglen > 0)
     {
-      memcpy(msg->buf, argp, arglen);
+      if (cmd >= CFGDIOC_GETCONFIG && cmd <= CFGDIOC_NEXTCONFIG)
+        {
+          rpmsgdev_marshal_cfgdata(msg->buf, argp);
+        }
+      else
+        {
+          memcpy(msg->buf, argp, arglen);
+        }
     }
 
   return rpmsgdev_send_recv(dev, RPMSGDEV_IOCTL, false, &msg->header,
@@ -989,7 +1080,15 @@ static int rpmsgdev_ioctl_handler(FAR struct rpmsg_endpoint *ept,
   cookie->result = header->result;
   if (cookie->result >= 0 && rsp->arglen > 0)
     {
-      memcpy(cookie->data, rsp->buf, rsp->arglen);
+      if (rsp->request >= CFGDIOC_GETCONFIG &&
+          rsp->request <= CFGDIOC_NEXTCONFIG)
+        {
+          rpmsgdev_unmarshal_cfgdata(rsp->buf, cookie->data);
+        }
+      else
+        {
+          memcpy(cookie->data, rsp->buf, rsp->arglen);
+        }
     }
 
   rpmsg_post(ept, &cookie->sem);
@@ -1116,6 +1215,7 @@ static void rpmsgdev_device_created(FAR struct rpmsg_device *rdev,
       priv->ept.ns_bound_cb = rpmsgdev_ns_bound;
       snprintf(buf, sizeof(buf), "%s%s", RPMSGDEV_NAME_PREFIX,
                priv->remotepath);
+      rpmsg_set_priority(&priv->ept, RPMSG_PRIO_RT);
       rpmsg_create_ept(&priv->ept, rdev, buf,
                        RPMSG_ADDR_ANY, RPMSG_ADDR_ANY,
                        rpmsgdev_ept_cb, rpmsgdev_ns_unbind);
@@ -1213,6 +1313,7 @@ int rpmsgdev_register(FAR const char *remotecpu, FAR const char *remotepath,
 {
   FAR struct rpmsgdev_s *dev;
   int ret;
+  int i;
 
   /* Arguments check */
 
@@ -1221,7 +1322,7 @@ int rpmsgdev_register(FAR const char *remotecpu, FAR const char *remotepath,
       return -EINVAL;
     }
 
-  DEBUGASSERT(strlen(remotepath) + RPMSGDEV_NAME_PREFIX_LEN <=
+  DEBUGASSERT(strlen(remotepath) + RPMSGDEV_NAME_PREFIX_LEN <
               RPMSG_NAME_SIZE);
 
   dev = kmm_zalloc(sizeof(*dev));
@@ -1232,12 +1333,18 @@ int rpmsgdev_register(FAR const char *remotecpu, FAR const char *remotepath,
 
   /* Initialize the rpmsg device */
 
-  dev->remotecpu  = remotecpu;
-  dev->remotepath = remotepath;
+  strlcpy(dev->remotecpu, remotecpu, sizeof(dev->remotecpu));
+  strlcpy(dev->remotepath, remotepath, sizeof(dev->remotepath));
 
   nxsem_init(&dev->wait, 0, 0);
   spin_lock_init(&dev->lock);
+
+  list_initialize(&dev->free);
   list_initialize(&dev->cookies);
+  for (i = 0; i < CONFIG_DEV_RPMSG_OPEN_MAX; i++)
+    {
+      list_add_tail(&dev->free, &dev->priv[i].node);
+    }
 
   /* Register the rpmsg callback */
 

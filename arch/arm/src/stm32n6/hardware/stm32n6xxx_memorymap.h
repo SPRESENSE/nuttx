@@ -125,6 +125,8 @@
 /* APB5 peripherals *********************************************************/
 
 #define STM32_LTDC_BASE       0x58001000
+#define STM32_DCMIPP_BASE     0x58002000    /* DCMIPP pixel pipelines */
+#define STM32_CSI_BASE        0x58006000    /* CSI-2 host and D-PHY */
 
 /* Debug ********************************************************************/
 
@@ -194,6 +196,7 @@
 
 #define STM32_DMA1_BASE       STM32_GPDMA1_BASE
 #define STM32_DMA2_BASE       STM32_HPDMA1_BASE
+#define STM32_DMA2D_BASE      0x58021000    /* DMA2D (AHB5, Secure) */
 #define STM32_SDMMC2_BASE     0x58026800    /* SDMMC2 (AHB5, Secure) */
 #define STM32_SDMMC1_BASE     0x58027000    /* SDMMC1 (AHB5, Secure) */
 #define STM32_XSPI2_BASE      0x5802A000    /* XSPI2 controller (AHB5, Secure) */

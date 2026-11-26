@@ -35,6 +35,7 @@ if RPTUN
 
 choice RPTUN_AUTO_RESET
 	prompt "rptun auto reset peer"
+	default RPTUN_AUTO_RESET_IN_REBOOT_NOTIFIER if BMP
 	default RPTUN_AUTO_RESET_IN_PANIC_NOTIFIER
 
 config RPTUN_AUTO_RESET_DISABLE
@@ -55,6 +56,15 @@ config RPTUN_AUTO_RESET_IN_REBOOT_NOTIFIER
 		coredump by itself.
 
 endchoice # RPTUN_AUTO_RESET
+
+config RPTUN_REMOTE_PANIC_SILENT
+	bool "Silence syslog on remote-triggered panic"
+	default n
+	---help---
+		When a remote core asks this core to panic, set the system
+		wide log mask to LOG_NONE first, so that only the core that
+		crashed prints its crash log. The mask is not restored; a
+		coredump to syslog still prints, as it raises the mask itself.
 
 config RPTUN_BMP
 	bool "rptun bmp support"
@@ -150,5 +160,20 @@ config RPTUN_STATUS_TIMEOUT_MS
 config RPTUN_LOADER
 	bool "rptun loader support"
 	default n
+
+config RPTUN_TRACE_DUMP
+	bool "rptun dump remote core's syslog"
+	default y
+	depends on SYSLOG_RPMSG_SERVER
+	---help---
+		Print the remote core's syslog buffer (its RSC_TRACE entry) on
+		halt and on RPTUNIOC_DUMP.
+
+config RPTUN_RSC_DUMP
+	bool "rptun dump the resource table"
+	default n
+	---help---
+		Let RPTUNIOC_DUMP with RPTUN_DUMP_RSC print the resource table
+		through rptun_dump_resource().
 
 endif # RPTUN

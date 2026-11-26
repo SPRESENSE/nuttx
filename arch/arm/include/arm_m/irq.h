@@ -33,7 +33,6 @@
 
 #include <nuttx/config.h>
 
-#include <nuttx/irq.h>
 #ifndef __ASSEMBLY__
 #  include <nuttx/compiler.h>
 #  include <arch/arm_m/nvicpri.h>
@@ -121,12 +120,23 @@
 
 #ifdef CONFIG_ARMV8M_STACKCHECK_HARDWARE
 #  define REG_SPLIM         (SW_INT_REGS + SW_FPU_REGS + 0) /* REG_SPLIM */
-#  define SW_XCPT_REGS      (SW_INT_REGS + SW_FPU_REGS + 1)
+
+/* REG_ALIGN For 8-bytes align
+ * If Enabling CONFIG_ARMV8M_STACKCHECK_HARDWARE
+ * it will push a value to this location
+ */
+
+#  define REG_ALIGN         (SW_INT_REGS + SW_FPU_REGS + 1)
+#  define SW_XCPT_REGS      (SW_INT_REGS + SW_FPU_REGS + 2)
 #else
 #  define SW_XCPT_REGS      (SW_INT_REGS + SW_FPU_REGS)
 #endif
 
 #define SW_XCPT_SIZE        (4 * SW_XCPT_REGS)
+
+#if SW_XCPT_SIZE % 8 != 0
+#  error "SW_XCPT_SIZE must be a multiple of 8"
+#endif
 
 /* On entry into an IRQ, the hardware automatically saves the following
  * registers on the stack in this (address) order:

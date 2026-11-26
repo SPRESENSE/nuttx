@@ -54,8 +54,13 @@ struct rpmsgblk_s
 {
   struct block_operations blk;         /* Rpmsg-Block device operation */
   struct rpmsg_endpoint   ept;         /* Rpmsg endpoint */
-  FAR const char         *remotecpu;   /* The server cpu name */
-  FAR const char         *remotepath;  /* The device path in the server cpu */
+
+  /* The server cpu name and the device path in the server cpu */
+
+  char                    remotecpu[RPMSG_NAME_SIZE];
+  char                    remotepath[RPMSG_NAME_SIZE -
+                                     RPMSGBLK_NAME_PREFIX_LEN];
+
   sem_t                   wait;        /* Wait sem, used for preventing any
                                         * operation until the connection
                                         * between two cpu established.
@@ -703,13 +708,14 @@ static int rpmsgblk_default_ioctl(FAR struct inode *inode, int cmd,
   msg->arg     = arg;
   msg->arglen  = arglen;
 
-  if (arglen > 0)
+  if (arg != 0 && arglen > 0)
     {
       memcpy(msg->buf, (FAR void *)(uintptr_t)arg, arglen);
     }
 
   return rpmsgblk_send_recv(priv, RPMSGBLK_IOCTL, false, &msg->header,
-                            msglen, arglen > 0 ? (FAR void *)arg : NULL);
+                            msglen, arglen > 0 && arg != 0 ?
+                            (FAR void *)arg : NULL);
 }
 
 /****************************************************************************
@@ -1288,8 +1294,8 @@ int rpmsgblk_register(FAR const char *remotecpu, FAR const char *remotepath,
 
   /* Initialize the rpmsg device */
 
-  dev->remotecpu  = remotecpu;
-  dev->remotepath = remotepath;
+  strlcpy(dev->remotecpu, remotecpu, sizeof(dev->remotecpu));
+  strlcpy(dev->remotepath, remotepath, sizeof(dev->remotepath));
 
   nxsem_init(&dev->wait, 0, 0);
   nxmutex_init(&dev->lock);

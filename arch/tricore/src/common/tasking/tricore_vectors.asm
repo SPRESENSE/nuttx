@@ -40,7 +40,10 @@
 	.extern	tricore_svcall
 	.extern	tricore_fcutrap_recover
 	.extern	g_fcu_csa_base
-	.extern	tricore_doirq
+	.extern	tricore_irq_sched
+#ifdef CONFIG_ARCH_IRQPRIO
+	.extern	tricore_irq_direct
+#endif
 
 TRAPSLOT	.macro	cls, entry
 	svlcx
@@ -137,8 +140,14 @@ ctx_notfcu:
 	.size	tricore_traptab, * - tricore_traptab
 
 ;****************************************************************************
-; Interrupt vector table.  One entry serves all priorities; the startup
-; code sets the BIV priority bits accordingly.
+; Interrupt vector table
+;
+;   CONFIG_ARCH_IRQPRIO=y (Hardware-managed, Full BIV table):
+;     SRPN 1 -> tricore_irq_sched (lowest priority, task switch only),
+;     SRPN 2~MAX -> tricore_irq_direct (fast dispatch, nestable).
+;   CONFIG_ARCH_IRQPRIO=n (Software-managed, One-entry BIV table):
+;     Only the SRPN 255 entry exists, all IRQs vector to
+;     tricore_irq_sched. No nesting support. Saves BIV flash (~8KB).
 ;****************************************************************************
 
 	.sdecl	".text.inttab",code,protect
@@ -146,7 +155,12 @@ ctx_notfcu:
 	.align	32
 	.global	tricore_inttab
 tricore_inttab:	.type	func
-	INTSLOT	tricore_doirq
+	INTSLOT	tricore_irq_sched
+#ifdef CONFIG_ARCH_IRQPRIO
+	.dup	TRICORE_IRQ_MAX_PRIORITY - 1
+	INTSLOT	tricore_irq_direct
+	.endm
+#endif
 	.size	tricore_inttab, * - tricore_inttab
 
 	.end

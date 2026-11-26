@@ -26,6 +26,9 @@ The following list indicates peripherals supported in NuttX:
 Peripheral  Support  Notes
 ==========  =======  ===============================================
 Cache       Yes      L1 I- and D-cache.
+DCMIPP      Yes      Pipe1 with the CSI-2 host as a V4L2 capture
+                     interface: raw Bayer to RGB565 with scaling,
+                     automatic exposure and white balance.
 GPIO        Yes
 I2C         Yes      I2C1-4 through the common I2C v2 driver.
 LTDC        Yes      Common LTDC driver (v2 register layout), RGB565,
@@ -35,6 +38,8 @@ EXTI        Yes      GPIO interrupts through the common driver.
 ETH         Yes      ETH1 through the common Ethernet v2 driver, MII, RMII
                      or RGMII up to 1000 Mbps.
 DMA         Yes      GPDMA1 and HPDMA1 through the common GPDMA driver.
+DMA2D       Yes      Common DMA2D driver as LTDC framebuffer overlays
+                     (fill, blit, blend).
 PWR         Yes      Supply configuration, VOS, I/O supply validity.
 RCC         Yes      HSI/HSE, PLL1-4, IC1-20, bus prescalers and kernel
                      clock selection from board.h.
@@ -50,7 +55,6 @@ USB         Yes      USB1 or USB2 OTG HS host through the common OTG v2
                      driver, full and low speed on the embedded HS PHY.
 
 ADC         No
-DCMIPP      No
 IWDG        No
 LPTIM       No
 MPU         No

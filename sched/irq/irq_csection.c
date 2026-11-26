@@ -285,7 +285,7 @@ irqstate_t enter_critical_section_notrace(void)
 }
 #endif
 
-#if CONFIG_SCHED_CRITMONITOR_MAXTIME_CSECTION >= 0 || \
+#if CONFIG_SCHED_CRITMONITOR_MAXTIME_IRQDISABLE >= 0 || \
     CONFIG_SCHED_CRITMONITOR_MAXTIME_BUSYWAIT >= 0 || \
     defined(CONFIG_SCHED_INSTRUMENTATION_CSECTION)
 irqstate_t enter_critical_section(void)
@@ -305,16 +305,25 @@ irqstate_t enter_critical_section(void)
 
   nxsched_critmon_busywait(false, return_address(0));
 
+  /* Start counting the IRQ-disabled duration.
+   *
+   * enter_critical_section_notrace() deliberately bypasses the irq_save()
+   * wrapper where this accounting normally happens: in the non-SMP
+   * configuration it expands to a bare up_irq_save(), and in the SMP
+   * configuration to rspin_lock_irqsave_notrace(), neither of which
+   * accounts for the time.  Do it explicitly here so that the critical
+   * sections entered through this function are measured as well.
+   */
+
+  nxsched_critmon_irqdisable(true, false, return_address(0));
+
   if (!up_interrupt_context())
     {
       rtcb = this_task();
       if (rtcb->irqcount == 1)
         {
-#if CONFIG_SCHED_CRITMONITOR_MAXTIME_CSECTION >= 0
-          nxsched_critmon_csection(rtcb, true, return_address(0));
-#endif
 #ifdef CONFIG_SCHED_INSTRUMENTATION_CSECTION
-          sched_note_csection(rtcb, true);
+          sched_note_csection_enter(rtcb);
 #endif
         }
     }
@@ -460,7 +469,7 @@ void leave_critical_section_notrace(irqstate_t flags)
 }
 #endif
 
-#if CONFIG_SCHED_CRITMONITOR_MAXTIME_CSECTION >= 0 || \
+#if CONFIG_SCHED_CRITMONITOR_MAXTIME_IRQDISABLE >= 0 || \
     defined(CONFIG_SCHED_INSTRUMENTATION_CSECTION)
 void leave_critical_section(irqstate_t flags)
 {
@@ -471,14 +480,18 @@ void leave_critical_section(irqstate_t flags)
       rtcb = this_task();
       if (rtcb->irqcount == 1)
         {
-#  if CONFIG_SCHED_CRITMONITOR_MAXTIME_CSECTION >= 0
-          nxsched_critmon_csection(rtcb, false, return_address(0));
-#  endif
 #  ifdef CONFIG_SCHED_INSTRUMENTATION_CSECTION
-          sched_note_csection(rtcb, false);
+          sched_note_csection_leave(rtcb);
 #  endif
         }
     }
+
+  /* Stop counting the IRQ-disabled duration.  This must happen before
+   * interrupts are actually re-enabled below, mirroring the ordering in
+   * irq_restore().
+   */
+
+  nxsched_critmon_irqdisable(false, false, return_address(0));
 
   leave_critical_section_notrace(flags);
 }

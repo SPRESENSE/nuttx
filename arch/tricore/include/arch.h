@@ -45,6 +45,45 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
+/* Address <--> Context Save Areas */
+
+#define tricore_csa2addr(csa) ((uintptr_t *)((((csa) & 0x000F0000) << 12) \
+                                             | (((csa) & 0x0000FFFF) << 6)))
+#define tricore_addr2csa(addr) ((uintptr_t)(((((uintptr_t)(addr)) & 0xF0000000) >> 12) \
+                                            | (((uintptr_t)(addr) & 0x003FFFC0) >> 6)))
+
+/* Read and write global address registers */
+
+#ifdef CONFIG_TRICORE_TOOLCHAIN_TASKING
+#  define read_sysreg(reg)                                                 \
+    ({                                                                     \
+      uint32_t __val;                                                      \
+      __asm__ __volatile__("mov.d\t %0, "#reg"" : "=d" (__val)            \
+                           :: "memory");                                   \
+      __val;                                                               \
+    })
+
+#  define write_sysreg(__val, reg)                                         \
+    ({                                                                     \
+      __asm__ __volatile__("mov.a\t "#reg", %0" :: "d" (__val)             \
+                           : "memory");                                    \
+    })
+#else
+#  define read_sysreg(reg)                                                 \
+    ({                                                                     \
+      uint32_t __val;                                                      \
+      __asm__ __volatile__("mov.d\t %0, %%"#reg"" : "=d" (__val)          \
+                           :: "memory");                                   \
+      __val;                                                               \
+    })
+
+#  define write_sysreg(__val, reg)                                         \
+    ({                                                                     \
+      __asm__ __volatile__("mov.a\t %%"#reg", %0" :: "d" (__val)          \
+                           : "memory");                                    \
+    })
+#endif
+
 /* MTCR and MFCR - move to / from Core Special Function Register */
 
 #define tricore_mtcr(reg, val)                                             \

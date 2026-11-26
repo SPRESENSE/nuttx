@@ -127,11 +127,18 @@ FAR FILE *fdopen(int fd, FAR const char *mode)
   filep->fs_bufpos   = filep->fs_bufstart;
   filep->fs_bufread  = filep->fs_bufstart;
   filep->fs_flags    = __FS_FLAG_UBF; /* Fake setvbuf and fclose */
+#if CONFIG_NUNGET_CHARS > 0
+  /* clear any characters pushed back onto the stream */
 
+  filep->fs_nungotten = 0;
+#endif
 #  ifdef CONFIG_STDIO_LINEBUFFER
   /* Setup buffer flags */
 
-  filep->fs_flags   |= __FS_FLAG_LBF; /* Line buffering */
+  if ((oflags & O_WRONLY) != 0 && isatty(fd))
+    {
+      filep->fs_flags |= __FS_FLAG_LBF; /* Enable LBF only for terminals */
+    }
 
 #  endif /* CONFIG_STDIO_LINEBUFFER */
 #endif /* !CONFIG_STDIO_DISABLE_BUFFERING && CONFIG_STDIO_BUFFER_SIZE > 0 */

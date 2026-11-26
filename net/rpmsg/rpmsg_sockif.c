@@ -41,6 +41,7 @@
 #include <nuttx/crc32.h>
 #include <nuttx/rpmsg/rpmsg.h>
 #include <nuttx/mutex.h>
+#include <nuttx/percpu.h>
 #include <nuttx/poll.h>
 #include <nuttx/queue.h>
 #include <nuttx/sched.h>
@@ -208,6 +209,8 @@ static int        rpmsg_socket_close(FAR struct socket *psock);
 static int        rpmsg_socket_ioctl(FAR struct socket *psock,
                                      int cmd, unsigned long arg);
 static int        rpmsg_socket_shutdown(FAR struct socket *psock, int how);
+static int        rpmsg_socket_mmap(FAR struct socket *psock,
+                                    FAR struct mm_map_entry_s *mmap);
 #ifdef CONFIG_NET_SOCKOPTS
 static int        rpmsg_socket_getsockopt(FAR struct socket *psock,
                                           int level, int option,
@@ -245,20 +248,29 @@ const struct sock_intf_s g_rpmsg_sockif =
   , rpmsg_socket_getsockopt /* si_getsockopt */
   , rpmsg_socket_setsockopt /* si_setsockopt */
 #endif
+#ifdef CONFIG_NET_SENDFILE
+  , NULL                    /* si_sendfile */
+#endif
+  , rpmsg_socket_mmap       /* si_mmap */
 };
 
 /****************************************************************************
  * Private Data
  ****************************************************************************/
 
-static atomic_t g_rpmsg_id;
+static DEFINE_PER_CPU_BSS_BMP(atomic_t, g_rpmsg_id);
+#define g_rpmsg_id this_cpu_var_bmp(g_rpmsg_id)
 
 /* Listening sockets.  rpmsg_socket_ns_bind() holds the lock while it uses
  * the server it found, so that close() cannot free that server meanwhile.
  */
 
-static mutex_t g_rpmsg_socket_lock = NXMUTEX_INITIALIZER;
-static dq_queue_t g_rpmsg_socket_server;
+static DEFINE_PER_CPU_BMP(mutex_t, g_rpmsg_socket_lock) =
+  NXMUTEX_INITIALIZER;
+#define g_rpmsg_socket_lock this_cpu_var_bmp(g_rpmsg_socket_lock)
+
+static DEFINE_PER_CPU_BSS_BMP(dq_queue_t, g_rpmsg_socket_server);
+#define g_rpmsg_socket_server this_cpu_var_bmp(g_rpmsg_socket_server)
 
 /****************************************************************************
  * Private Functions
@@ -1925,6 +1937,50 @@ static int rpmsg_socket_shutdown(FAR struct socket *psock, int how)
 
   nxmutex_unlock(&conn->recvlock);
   return ret < 0 ? ret : OK;
+}
+
+static int rpmsg_socket_munmap(FAR struct task_group_s *group,
+                               FAR struct mm_map_entry_s *mmap,
+                               FAR void *start, size_t length)
+{
+  FAR struct rpmsg_device *rdev = mmap->priv.p;
+  FAR void *addr = mmap->vaddr;
+
+  mm_map_remove(get_current_mm(), mmap);
+  rpmsg_free_buf(rdev, addr);
+
+  return OK;
+}
+
+static int rpmsg_socket_mmap(FAR struct socket *psock,
+                             FAR struct mm_map_entry_s *mmap)
+{
+  FAR struct rpmsg_socket_conn_s *conn = psock->s_conn;
+  int ret = OK;
+
+  if (rpmsg_support_alloc_buf(conn->ept.rdev))
+    {
+      FAR void *addr;
+
+      addr = rpmsg_alloc_buf(conn->ept.rdev, mmap->length, 8);
+      if (addr == NULL)
+        {
+          ret = -ENOMEM;
+        }
+      else
+        {
+          mmap->vaddr = addr;
+          mmap->priv.p = conn->ept.rdev;
+          mmap->munmap = rpmsg_socket_munmap;
+          mm_map_add(get_current_mm(), mmap);
+        }
+    }
+  else
+    {
+      ret = -ENOSYS;
+    }
+
+  return ret;
 }
 
 #ifdef CONFIG_NET_SOCKOPTS

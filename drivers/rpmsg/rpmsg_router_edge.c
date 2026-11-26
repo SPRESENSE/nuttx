@@ -26,11 +26,13 @@
 
 #include <nuttx/config.h>
 
+#include <inttypes.h>
 #include <nuttx/debug.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
 #include <stdbool.h>
+#include <syslog.h>
 
 #include <nuttx/kmalloc.h>
 #include <nuttx/nuttx.h>
@@ -87,6 +89,9 @@ static int
 rpmsg_router_edge_get_rx_buffer_size(FAR struct rpmsg_device *rdev);
 static int
 rpmsg_router_edge_get_tx_buffer_size(FAR struct rpmsg_device *rdev);
+#if CONFIG_RPMSG_DUMP_LEVEL > RPMSG_DUMP_DISABLE
+static void rpmsg_router_edge_dump(FAR struct rpmsg_s *rpmsg, bool verbose);
+#endif
 
 /****************************************************************************
  * Private Data
@@ -94,11 +99,15 @@ rpmsg_router_edge_get_tx_buffer_size(FAR struct rpmsg_device *rdev);
 
 static const struct rpmsg_ops_s g_rpmsg_router_edge_ops =
 {
-  NULL,
-  NULL,
-  NULL,
-  NULL,
-  NULL,
+  NULL,                       /* wait */
+  NULL,                       /* post */
+  NULL,                       /* ioctl */
+  NULL,                       /* panic */
+#if CONFIG_RPMSG_DUMP_LEVEL > RPMSG_DUMP_DISABLE
+  rpmsg_router_edge_dump,     /* dump */
+#else
+  NULL,                       /* dump */
+#endif
 };
 
 /****************************************************************************
@@ -225,6 +234,53 @@ rpmsg_router_edge_get_tx_buffer_size(FAR struct rpmsg_device *rdev)
 
   return edge->tx_len;
 }
+
+#if CONFIG_RPMSG_DUMP_LEVEL > RPMSG_DUMP_DISABLE
+/****************************************************************************
+ * Name: rpmsg_router_edge_dump
+ *
+ * Description:
+ *   Dump the router edge transport debug information. The edge is a
+ *   transparent proxy, so the dump shows its identity (local/remote cpu),
+ *   the negotiated buffer sizes, the underlying hub device it delegates
+ *   to, and the router endpoints registered on its rdev.
+ *
+ * Parameters:
+ *   rpmsg - rpmsg handler of the router edge device
+ *   verbose - whether to dump the router endpoint list
+ *
+ ****************************************************************************/
+
+static void rpmsg_router_edge_dump(FAR struct rpmsg_s *rpmsg, bool verbose)
+{
+  FAR struct rpmsg_router_edge_s *edge =
+    container_of(rpmsg, struct rpmsg_router_edge_s, rpmsg);
+  FAR struct rpmsg_device *rdev = &edge->rdev;
+  bool needunlock = false;
+
+  syslog(LOG_EMERG, "Dump rpmsg router edge:\n");
+  syslog(LOG_EMERG, "local: %s remote: %s name: %s\n",
+         edge->rpmsg.local_cpuname, edge->rpmsg.cpuname, edge->name);
+  syslog(LOG_EMERG, "tx_len: %" PRIu32 " rx_len: %" PRIu32 " hubdev: %p\n",
+         edge->tx_len, edge->rx_len, edge->hubdev);
+
+  if (verbose)
+    {
+      if (!up_interrupt_context() && !sched_idletask())
+        {
+          metal_mutex_acquire(&rdev->lock);
+          needunlock = true;
+        }
+
+      rpmsg_dump_epts(rdev);
+
+      if (needunlock)
+        {
+          metal_mutex_release(&rdev->lock);
+        }
+    }
+}
+#endif
 
 /****************************************************************************
  * Name: rpmsg_router_edge_cb
@@ -432,6 +488,7 @@ rpmsg_router_edge_send_offchannel_raw(FAR struct rpmsg_device *rdev,
       ept->priv = usr_ept;
       ept->ns_bound_cb = rpmsg_router_edge_bound;
       ept->release_cb = rpmsg_router_edge_release;
+      rpmsg_set_priority(ept, usr_ept->priority);
 
       /* Create endpoint (r:cpu:name) for real communication */
 
@@ -501,14 +558,72 @@ static bool rpmsg_router_edge_match(FAR struct rpmsg_device *rdev,
 
 static void rpmsg_router_edge_bind(FAR struct rpmsg_device *rdev,
                                    FAR void *priv, FAR const char *name,
-                                   uint32_t dest)
+                                   uint32_t dest, FAR const void *extra,
+                                   size_t extra_len)
 {
   FAR struct rpmsg_router_edge_s *edge = priv;
   FAR struct rpmsg_device *edgedev = &edge->rdev;
 
-  edgedev->ns_bind_cb(edgedev,
-                      name + RPMSG_ROUTER_NAME_PREFIX_LEN +
-                      strlen(edge->rpmsg.cpuname) + 1, dest);
+  /* Relay the announced extra data to the user side of the edge device */
+
+  edgedev->ns_bind_extra_cb(edgedev,
+                            name + RPMSG_ROUTER_NAME_PREFIX_LEN +
+                            strlen(edge->rpmsg.cpuname) + 1, dest,
+                            extra, extra_len);
+}
+
+/****************************************************************************
+ * Name: rpmsg_router_edge_destroy_epts
+ *
+ * Description:
+ *   Destroy all router epts on hubdev that belong to this edge.
+ *   When the edge is destroyed, some user services (e.g. rpmsg_socket)
+ *   only mark the connection as unbound in their ns_unbind_cb without
+ *   destroying the usr_ept. This leaves the corresponding router ept
+ *   orphaned on hubdev. After kmm_free(edge), usr_ept->rdev becomes a
+ *   dangling pointer, and the router ept's priv still references the
+ *   usr_ept. If the remote edge reconnects, a stale router ept may be
+ *   matched by NS_CREATE_ACK, causing a use-after-free crash.
+ *
+ * Parameters:
+ *   edge - rpmsg router edge device being destroyed
+ *
+ ****************************************************************************/
+
+static void
+rpmsg_router_edge_destroy_epts(FAR struct rpmsg_router_edge_s *edge)
+{
+  FAR struct rpmsg_device *hubdev = edge->hubdev;
+  FAR struct rpmsg_endpoint *ept;
+  FAR struct metal_list *node;
+  FAR struct metal_list *tmp;
+  struct metal_list list = METAL_INIT_LIST(list);
+  char prefix[RPMSG_NAME_SIZE];
+  int len;
+
+  len = snprintf(prefix, sizeof(prefix), RPMSG_ROUTER_NAME_PREFIX"%s:",
+                 edge->rpmsg.cpuname);
+
+  metal_mutex_acquire(&hubdev->lock);
+  metal_list_for_each_safe(&hubdev->endpoints, tmp, node)
+    {
+      ept = metal_container_of(node, struct rpmsg_endpoint, node);
+      if (ept->release_cb == rpmsg_router_edge_release &&
+          !strncmp(ept->name, prefix, len))
+        {
+          ept->priv = NULL;
+          metal_list_del(node);
+          metal_list_add_tail(&list, node);
+        }
+    }
+
+  metal_mutex_release(&hubdev->lock);
+
+  metal_list_for_each_safe(&list, tmp, node)
+    {
+      ept = metal_container_of(node, struct rpmsg_endpoint, node);
+      rpmsg_destroy_ept(ept);
+    }
 }
 
 /****************************************************************************
@@ -524,10 +639,11 @@ static void rpmsg_router_edge_bind(FAR struct rpmsg_device *rdev,
 
 static void rpmsg_router_edge_destroy(FAR struct rpmsg_router_edge_s *edge)
 {
-  rpmsg_unregister_callback(edge, NULL, NULL,
-                            rpmsg_router_edge_match,
-                            rpmsg_router_edge_bind);
+  rpmsg_unregister_callback_extra(edge, NULL, NULL,
+                                  rpmsg_router_edge_match,
+                                  rpmsg_router_edge_bind);
   rpmsg_unregister(edge->name, &edge->rpmsg);
+  rpmsg_router_edge_destroy_epts(edge);
   rpmsg_device_destroy(&edge->rpmsg);
   kmm_free(edge);
 }
@@ -575,7 +691,7 @@ rpmsg_router_edge_create(FAR struct rpmsg_device *hubdev,
 
   rdev = &edge->rdev;
   metal_mutex_init(&rdev->lock);
-  rdev->ns_bind_cb = rpmsg_ns_bind;
+  rdev->ns_bind_extra_cb = rpmsg_ns_bind_extra;
   rdev->ns_unbind_cb = rpmsg_ns_unbind;
   rdev->ops.hold_rx_buffer = rpmsg_router_edge_hold_rx_buffer;
   rdev->ops.release_rx_buffer = rpmsg_router_edge_release_rx_buffer;
@@ -604,9 +720,9 @@ rpmsg_router_edge_create(FAR struct rpmsg_device *hubdev,
 
   /* Register callback for edge core */
 
-  ret = rpmsg_register_callback(edge, NULL, NULL,
-                                rpmsg_router_edge_match,
-                                rpmsg_router_edge_bind);
+  ret = rpmsg_register_callback_extra(edge, NULL, NULL,
+                                      rpmsg_router_edge_match,
+                                      rpmsg_router_edge_bind);
 
   if (ret < 0)
     {

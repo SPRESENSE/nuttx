@@ -37,92 +37,84 @@
 #  include <syscall.h>
 #endif
 
-/* Include NuttX-specific IRQ definitions */
-
-#include <nuttx/irq.h>
+#include <arch/arch.h>
 
 /* Include chip-specific IRQ definitions (including IRQ numbers) */
 
 #include <arch/chip/irq.h>
-#include <arch/arch.h>
 
 /****************************************************************************
  * Pre-processor Prototypes
  ****************************************************************************/
 
-/* Address <--> Context Save Areas */
-
-#define tricore_csa2addr(csa) ((uintptr_t *)((((csa) & 0x000F0000) << 12) \
-                                             | (((csa) & 0x0000FFFF) << 6)))
-#define tricore_addr2csa(addr) ((uintptr_t)(((((uintptr_t)(addr)) & 0xF0000000) >> 12) \
-                                            | (((uintptr_t)(addr) & 0x003FFFC0) >> 6)))
-
 /* Upper CSA */
 
-#define REG_UPCXI        0
-#define REG_PSW          1
-#define REG_A10          2
-#define REG_UA11         3
-#define REG_D8           4
-#define REG_D9           5
-#define REG_D10          6
-#define REG_D11          7
-#define REG_A12          8
-#define REG_A13          9
-#define REG_A14          10
-#define REG_A15          11
-#define REG_D12          12
-#define REG_D13          13
-#define REG_D14          14
-#define REG_D15          15
+#define REG_UPCXI           0
+#define REG_PSW             1
+#define REG_A10             2
+#define REG_UA11            3
+#define REG_D8              4
+#define REG_D9              5
+#define REG_D10             6
+#define REG_D11             7
+#define REG_A12             8
+#define REG_A13             9
+#define REG_A14             10
+#define REG_A15             11
+#define REG_D12             12
+#define REG_D13             13
+#define REG_D14             14
+#define REG_D15             15
 
 /* Lower CSA */
 
-#define REG_LPCXI        0
-#define REG_LA11         1
-#define REG_A2           2
-#define REG_A3           3
-#define REG_D0           4
-#define REG_D1           5
-#define REG_D2           6
-#define REG_D3           7
-#define REG_A4           8
-#define REG_A5           9
-#define REG_A6           10
-#define REG_A7           11
-#define REG_D4           12
-#define REG_D5           13
-#define REG_D6           14
-#define REG_D7           15
+#define REG_LPCXI           0
+#define REG_LA11            1
+#define REG_A2              2
+#define REG_A3              3
+#define REG_D0              4
+#define REG_D1              5
+#define REG_D2              6
+#define REG_D3              7
+#define REG_A4              8
+#define REG_A5              9
+#define REG_A6              10
+#define REG_A7              11
+#define REG_D4              12
+#define REG_D5              13
+#define REG_D6              14
+#define REG_D7              15
 
-#define REG_RA           REG_UA11
-#define REG_SP           REG_A10
-#define REG_UPC          REG_UA11
+#define REG_RA              REG_UA11
+#define REG_SP              REG_A10
+#define REG_UPC             REG_UA11
+#define REG_LPC             REG_LA11
 
-#define REG_LPC          REG_LA11
+#define TC_CONTEXT_REGS     (16)
+#define TC_CONTEXT_SIZE     (4 * TC_CONTEXT_REGS)
+#define TC_CONTEXT_ALIGNED(addr) \
+  (((uintptr_t)(addr) & (TC_CONTEXT_SIZE - 1)) == 0)
 
-#define TC_CONTEXT_REGS  (16)
-#define TC_CONTEXT_SIZE  (sizeof(void *) * TC_CONTEXT_REGS)
+#define XCPTCONTEXT_REGS    (TC_CONTEXT_REGS * 2)
+#define XCPTCONTEXT_SIZE    (sizeof(void *) * XCPTCONTEXT_REGS)
 
-#define FCD_RESERVE_SIZE (TC_CONTEXT_SIZE * 4)
-
-#define XCPTCONTEXT_REGS (TC_CONTEXT_REGS * 2)
-#define XCPTCONTEXT_SIZE (sizeof(void *) * XCPTCONTEXT_REGS)
-
-#define NR_IRQS          (2048)
+#define FCD_RESERVE_SIZE    (TC_CONTEXT_SIZE * 4)
 
 /* PSW: Program Status Word Register */
 
-#define PSW_CDE         (1 << 7) /* Bits 7: Call Depth Count Enable */
-#define PSW_IS          (1 << 9) /* Bits 9: Interrupt Stack Control */
-#define PSW_IO          (10)     /* Bits 10-11: Access Privilege Level Control (I/O Privilege) */
+#define PSW_CDE             (1 << 7) /* Bits 7: Call Depth Count Enable */
+#define PSW_GW              (1 << 8) /* Global address register write permission */
+#define PSW_IS              (1 << 9) /* Bits 9: Interrupt Stack Control */
+#define PSW_IO              (10)     /* Bits 10-11: Access Privilege Level Control (I/O Privilege) */
 #  define PSW_MODE_MASK     (3 << PSW_IO)
 #  define PSW_IO_USER0      (0 << PSW_IO)
 #  define PSW_IO_USER1      (1 << PSW_IO)
 #  define PSW_IO_SUPERVISOR (2 << PSW_IO)
+#define PSW_STATUS_BITS     (31 << 27) /* Bits 27-31: Execution Effect Status Bits */
 
 #define PSW_PRS_KERNEL_SET  (0)
 #define PSW_PRS_USER_SET    (1)
+
 #ifdef CONFIG_ARCH_HAVE_PPRS
   #define PSW_PRS_MASK                           (0)
   #define PSW_PRS_USER                           (0)
@@ -164,18 +156,30 @@
 #define FCX_FCXS_MASK   (0xf    << FCX_FCXS)
 #define FCX_FREE        (FCX_FCXS_MASK | FCX_FCXO_MASK) /* Free CSA manipulation */
 
-#define TRICORE_SRCNUM_PER_GPSR  8
-#define TRICORE_SRC2IRQ(src_addr) \
-  (((uintptr_t)(src_addr) - TRICORE_SRC_BASE) / 4)
+#define TRICORE_SRCNUM_PER_GPSR 8
+#define TRICORE_SRC_SPACING     4
+
+#define TRICORE_SRC2IRQ(src) \
+  (((uintptr_t)(src) - TRICORE_SRC_BASE) / TRICORE_SRC_SPACING)
 #define TRICORE_IRQ2SRC(irq) \
-  ((volatile uint32_t *)(TRICORE_SRC_BASE + (irq) * 4))
-#define TRICORE_GPSR_IRQNUM(src_cpu, dest_cpu)  \
+  (TRICORE_SRC_BASE + (irq) * TRICORE_SRC_SPACING)
+#define TRICORE_GPSR2IRQ(src_cpu, dest_cpu) \
   TRICORE_SRC2IRQ(TRICORE_SRC_GPSR_BASE + \
-                  ((src_cpu) * TRICORE_SRCNUM_PER_GPSR + (dest_cpu)) * 4)
+                  (src_cpu) * TRICORE_SRCNUM_PER_GPSR * TRICORE_SRC_SPACING + \
+                  (dest_cpu) * TRICORE_SRC_SPACING)
+
+#ifdef CONFIG_ARCH_IRQPRIO
+#  define TRICORE_SCHEDIRQ TRICORE_GPSR2IRQ(up_this_cpu(), up_this_cpu())
+#endif
+
+/* TriCore interrupt priority range, higher value means higher priority. */
 
 #ifdef CONFIG_ARCH_HIPRI_INTERRUPT
   #define TRICORE_IRQ_DISABLE_PRIORITY CONFIG_ARCH_IRQ_DISABLE_PRIORITY
 #endif
+
+#define TRICORE_IRQ_MIN_PRIORITY 1
+#define TRICORE_IRQ_MAX_PRIORITY 255
 
 /* For use with EABI and floating point, the stack must be aligned to 8-byte
  * addresses.
@@ -194,6 +198,8 @@
 #endif
 #define FPU_TRAP_FZE_SHIFT    20
 #define FPU_TRAP_TCL_SHIFT    1
+
+#define up_tls_info() ((struct tls_info_s *)read_sysreg(a8) - 1)
 
 #ifndef __ASSEMBLY__
 
@@ -216,22 +222,6 @@ struct xcptcontext
   uintptr_t *saved_regs;
 #endif
 
-#ifdef CONFIG_BUILD_PROTECTED
-  /* This is the saved address to use when returning from a user-space
-   * signal handler.
-   */
-
-  uint32_t sigreturn;
-#endif
-
-#ifdef CONFIG_LIB_SYSCALL
-  uint8_t nsyscalls;
-  uintptr_t *syscall_regs[CONFIG_SYS_NNEST];
-#ifdef CONFIG_ARCH_HAVE_PPRS
-  uint32_t syscall_pprs[CONFIG_SYS_NNEST];
-#endif
-#endif
-
   /* Register save area with XCPTCONTEXT_SIZE, only valid when:
    * 1.The task isn't running or
    * 2.The task is interrupted
@@ -239,6 +229,27 @@ struct xcptcontext
    */
 
   uintptr_t *regs;
+
+#ifdef CONFIG_LIB_SYSCALL
+  /* The following array holds information needed to return from each nested
+   * system call.
+   */
+
+  int nsyscalls;
+  uintptr_t *syscall_regs[CONFIG_SYS_NNEST];
+#ifdef CONFIG_ARCH_HAVE_PPRS
+  uint32_t syscall_pprs[CONFIG_SYS_NNEST];
+#endif
+#endif
+
+#ifdef CONFIG_BUILD_PROTECTED
+  /* This is the saved address to use when returning from a user-space
+   * signal handler.
+   */
+
+  uint32_t sigreturn;
+
+#endif
 
 #ifdef CONFIG_ARCH_HAVE_PPRS
   uint32_t pprs;
@@ -292,14 +303,7 @@ void up_irq_enable(void);
 
 noinstrument_function static inline_function uintptr_t up_getpc(void)
 {
-#ifdef CONFIG_TRICORE_TOOLCHAIN_TASKING
-  return (uintptr_t)__mfcr(TRICORE_CPU_PC);
-#else
-  uintptr_t pc;
-  __asm__ __volatile__ ("mfcr %0,%1": "=d" (pc) :"i"(TRICORE_CPU_PC):
-                        "memory");
-  return pc;
-#endif
+  return (uintptr_t)tricore_mfcr(TRICORE_CPU_PC);
 }
 
 noinstrument_function static inline_function uintptr_t up_getsp(void)
@@ -330,28 +334,25 @@ noinstrument_function static inline_function uintptr_t up_getsp(void)
 
 noinstrument_function static inline_function irqstate_t up_irq_save(void)
 {
+  irqstate_t flags;
+
 #ifdef CONFIG_ARCH_HIPRI_INTERRUPT
-  irqstate_t icr;
-  irqstate_t ccpn;
+  uint32_t icr = tricore_mfcr(TRICORE_CPU_ICR);
 
-  icr  = tricore_mfcr(TRICORE_CPU_ICR);
-  ccpn = icr & TRICORE_ICR_CCPN_MASK;
+  flags = icr & TRICORE_ICR_CCPN_MASK;
 
-  if (TRICORE_IRQ_DISABLE_PRIORITY > ccpn)
+  if (TRICORE_IRQ_DISABLE_PRIORITY > flags)
     {
       icr = (icr & ~TRICORE_ICR_CCPN_MASK) |
             TRICORE_IRQ_DISABLE_PRIORITY;
       tricore_mtcr(TRICORE_CPU_ICR, icr);
       UP_ISB();
     }
-
-  return ccpn;
 #else
-  irqstate_t flags;
-
-  __asm__ __volatile__ ("disable %0" : "=d"(flags) : : "memory");
-  return flags;
+  __asm__ __volatile__ ("disable %0" : "=d"(flags) :: "memory");
 #endif
+
+  return flags;
 }
 
 /****************************************************************************
@@ -369,9 +370,8 @@ noinstrument_function static inline_function
 void up_irq_restore(irqstate_t flags)
 {
 #ifdef CONFIG_ARCH_HIPRI_INTERRUPT
-  irqstate_t icr;
+  uint32_t icr = tricore_mfcr(TRICORE_CPU_ICR);
 
-  icr = tricore_mfcr(TRICORE_CPU_ICR);
   if (flags < (icr & TRICORE_ICR_CCPN_MASK))
     {
       icr = (icr & ~TRICORE_ICR_CCPN_MASK) | flags;
@@ -379,7 +379,7 @@ void up_irq_restore(irqstate_t flags)
       UP_ISB();
     }
 #else
-  __asm__ __volatile__ ("restore %0" : : "d"(flags) : "memory");
+  __asm__ __volatile__ ("restore %0" :: "d"(flags) : "memory");
 #endif
 }
 
@@ -410,13 +410,18 @@ static inline_function uintptr_t up_getusrsp(void *regs)
 {
   uintptr_t *csaregs = (uintptr_t *)regs;
 
+  if (csaregs == NULL)
+    {
+      return 0;
+    }
+
   if (csaregs[REG_LPCXI] & PCXI_UL)
     {
       csaregs = tricore_csa2addr(csaregs[REG_LPCXI]);
     }
   else
     {
-       csaregs += TC_CONTEXT_REGS;
+      csaregs += TC_CONTEXT_REGS;
     }
 
   return csaregs[REG_SP];
@@ -434,7 +439,7 @@ static inline_function uintptr_t up_getusrsp(void *regs)
       {                                                           \
         sys_call0(SYS_switch_context);                            \
       }                                                           \
-      UNUSED(rtcb);                                               \
+    UNUSED(rtcb);                                                 \
   } while (0)
 
 /****************************************************************************

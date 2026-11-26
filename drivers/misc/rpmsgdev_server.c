@@ -36,9 +36,11 @@
 #include <nuttx/kmalloc.h>
 #include <nuttx/mutex.h>
 #include <nuttx/fs/fs.h>
+#include <nuttx/percpu.h>
 #include <nuttx/wqueue.h>
 #include <nuttx/drivers/rpmsgdev.h>
 #include <nuttx/rpmsg/rpmsg.h>
+#include <nuttx/mtd/configdata.h>
 
 #include "rpmsgdev.h"
 
@@ -58,12 +60,18 @@ struct rpmsgdev_read_pend_s
   bool                   cancel;
 };
 
+/* The device slots are preallocated in the endpoint instance and managed by
+ * two lists: 'free' holds the unused slots and 'head' the opened ones.  A
+ * slot is claimed by removing it from the free list under the lock, which is
+ * atomic with respect to any other open, so no in-use flag is needed.
+ */
+
 struct rpmsgdev_device_s
 {
   struct file                 file;      /* The open file */
   struct pollfd_s             fd;        /* The poll fd */
   uint64_t                    cfd;       /* The client poll fd pointer */
-  struct list_node            node;      /* The double-linked list node */
+  struct list_node            node;      /* Free or opened list node */
   struct work_s               work;      /* Poll notify work */
   struct rpmsgdev_read_pend_s readpend;
 };
@@ -77,14 +85,14 @@ struct rpmsgdev_export_s
 
 struct rpmsgdev_server_s
 {
-  struct rpmsg_endpoint ept;   /* Rpmsg end point */
-  struct list_node      head;  /* The double-linked list head of opened
-                                * devices
-                                */
-  mutex_t               lock;  /* The mutex used to protect the list
-                                * operation
-                                */
+  struct rpmsg_endpoint        ept;   /* Rpmsg end point */
+  struct list_node             head;  /* List head of the opened devices */
+  struct list_node             free;  /* List head of the free device slots */
+  mutex_t                      lock;  /* Protect the device lists below */
   FAR struct rpmsgdev_export_s *export;
+  struct rpmsgdev_device_s     dev[CONFIG_DEV_RPMSG_OPEN_MAX];
+
+                               /* Preallocated per-open device slots */
 };
 
 /****************************************************************************
@@ -131,9 +139,9 @@ static bool rpmsgdev_ns_match(FAR struct rpmsg_device *rdev,
 static void rpmsgdev_ns_bind(FAR struct rpmsg_device *rdev,
                              FAR void *priv, FAR const char *name,
                              uint32_t dest);
-static int  rpmsgdev_ept_cb(FAR struct rpmsg_endpoint *ept,
-                            FAR void *data, size_t len, uint32_t src,
-                            FAR void *priv);
+static int  rpmsgdev_server_ept_cb(FAR struct rpmsg_endpoint *ept,
+                                   FAR void *data, size_t len, uint32_t src,
+                                   FAR void *priv);
 
 /****************************************************************************
  * Private Data
@@ -151,7 +159,9 @@ static const rpmsg_ept_cb g_rpmsgdev_handler[] =
   [RPMSGDEV_POLL]          = rpmsgdev_poll_handler,
 };
 
-static FAR struct kwork_wqueue_s *g_rpmsgdev_wqueue = NULL;
+static DEFINE_PER_CPU_BSS_BMP(FAR struct kwork_wqueue_s *,
+                              g_rpmsgdev_wqueue);
+#define g_rpmsgdev_wqueue this_cpu_var_bmp(g_rpmsgdev_wqueue)
 
 /****************************************************************************
  * Private Functions
@@ -170,27 +180,40 @@ static int rpmsgdev_open_handler(FAR struct rpmsg_endpoint *ept,
   FAR struct rpmsgdev_open_s *msg = data;
   FAR struct rpmsgdev_device_s *dev;
 
-  dev = kmm_zalloc(sizeof(*dev));
+  /* Claim a free device slot by removing it from the free list */
+
+  nxmutex_lock(&server->lock);
+  dev = list_remove_head_type(&server->free, struct rpmsgdev_device_s, node);
+  nxmutex_unlock(&server->lock);
+
   if (dev == NULL)
     {
       msg->header.result = -ENOMEM;
       goto out;
     }
 
+  /* Clear the stale poll/work state left by a previous user of this slot.
+   * The node is unlinked while the slot is claimed, so clearing it is safe.
+   */
+
+  memset(dev, 0, sizeof(*dev));
+
   msg->header.result = file_open(&dev->file,
                                  export ? export->localpath :
                                  strchr(ept->name, '/'),
                                  msg->flags, 0);
-  if (msg->header.result < 0)
-    {
-      kmm_free(dev);
-      goto out;
-    }
-
-  msg->filep = (uint64_t)(uintptr_t)&dev->file;
 
   nxmutex_lock(&server->lock);
-  list_add_tail(&server->head, &dev->node);
+  if (msg->header.result < 0)
+    {
+      list_add_tail(&server->free, &dev->node);
+    }
+  else
+    {
+      list_add_tail(&server->head, &dev->node);
+      msg->filep = (uint64_t)(uintptr_t)&dev->file;
+    }
+
   nxmutex_unlock(&server->lock);
 
 out:
@@ -244,9 +267,8 @@ static int rpmsgdev_close_handler(FAR struct rpmsg_endpoint *ept,
       list_delete(&dev->node);
       work_cancel_sync_wq(g_rpmsgdev_wqueue, &dev->work);
       work_cancel_sync_wq(g_rpmsgdev_wqueue, &dev->readpend.work);
+      list_add_tail(&server->free, &dev->node);
       nxmutex_unlock(&server->lock);
-
-      kmm_free(dev);
     }
 
   return rpmsg_send(ept, msg, sizeof(*msg));
@@ -477,10 +499,32 @@ static int rpmsgdev_ioctl_handler(FAR struct rpmsg_endpoint *ept,
 {
   FAR struct rpmsgdev_ioctl_s *msg = data;
   FAR struct file *filep = (FAR struct file *)(uintptr_t)msg->filep;
+  bool   is_cfg = (msg->request >= CFGDIOC_GETCONFIG &&
+                   msg->request <= CFGDIOC_NEXTCONFIG);
+  size_t cfglen = 0;
 
-  msg->header.result = file_ioctl(filep, msg->request,
-                                  msg->arglen == 0 ? msg->arg :
-                                  (unsigned long)msg->buf);
+  if (is_cfg)
+    {
+      /* msg->buf is a char[] inside a packed wire struct and may be
+       * unaligned; use memcpy to read config_data_s::len safely instead
+       * of casting to (struct config_data_s *).
+       */
+
+      memcpy(&cfglen,
+             msg->buf + offsetof(struct config_data_s, len),
+             sizeof(cfglen));
+    }
+
+  if (is_cfg && msg->arglen != sizeof(struct config_data_s) + cfglen)
+    {
+      msg->header.result = -EMSGSIZE;
+    }
+  else
+    {
+      msg->header.result = file_ioctl(filep, msg->request,
+                                      msg->arglen == 0 ? msg->arg :
+                                      (unsigned long)(FAR void *)msg->buf);
+    }
 
   return rpmsg_send(ept, msg, len);
 }
@@ -606,8 +650,8 @@ static void rpmsgdev_ept_release(FAR struct rpmsg_endpoint *ept)
           file_poll(&dev->file, &dev->fd, false);
         }
 
-      /* dev is freed below: nothing may still point at it from the
-       * device poll list or the work queue.
+      /* The slots live in server, freed below: nothing may still point
+       * at them from the device poll list or the work queue.
        */
 
       rpmsgdev_read_cancel(dev);
@@ -619,7 +663,7 @@ static void rpmsgdev_ept_release(FAR struct rpmsg_endpoint *ept)
         }
 
       list_delete(&dev->node);
-      kmm_free(dev);
+      list_add_tail(&server->free, &dev->node);
     }
 
   nxmutex_unlock(&server->lock);
@@ -637,6 +681,7 @@ static void rpmsgdev_ns_bind(FAR struct rpmsg_device *rdev,
 {
   FAR struct rpmsgdev_server_s *server;
   int ret;
+  int i;
 
   server = kmm_zalloc(sizeof(*server));
   if (server == NULL)
@@ -645,6 +690,12 @@ static void rpmsgdev_ns_bind(FAR struct rpmsg_device *rdev,
     }
 
   list_initialize(&server->head);
+  list_initialize(&server->free);
+  for (i = 0; i < CONFIG_DEV_RPMSG_OPEN_MAX; i++)
+    {
+      list_add_tail(&server->free, &server->dev[i].node);
+    }
+
   nxmutex_init(&server->lock);
   server->ept.priv = server;
   server->export = priv;
@@ -652,7 +703,7 @@ static void rpmsgdev_ns_bind(FAR struct rpmsg_device *rdev,
 
   ret = rpmsg_create_ept(&server->ept, rdev, name,
                          RPMSG_ADDR_ANY, dest,
-                         rpmsgdev_ept_cb, rpmsg_destroy_ept);
+                         rpmsgdev_server_ept_cb, rpmsg_destroy_ept);
   if (ret < 0)
     {
       nxmutex_destroy(&server->lock);
@@ -661,12 +712,12 @@ static void rpmsgdev_ns_bind(FAR struct rpmsg_device *rdev,
 }
 
 /****************************************************************************
- * Name: rpmsgdev_ept_cb
+ * Name: rpmsgdev_server_ept_cb
  ****************************************************************************/
 
-static int rpmsgdev_ept_cb(FAR struct rpmsg_endpoint *ept,
-                           FAR void *data, size_t len, uint32_t src,
-                           FAR void *priv)
+static int rpmsgdev_server_ept_cb(FAR struct rpmsg_endpoint *ept,
+                                  FAR void *data, size_t len, uint32_t src,
+                                  FAR void *priv)
 {
   FAR struct rpmsgdev_header_s *header = data;
   uint32_t command = header->command;

@@ -444,6 +444,21 @@ config RAMLOG_BUFSIZE
 
 endif # RAMLOG_SYSLOG
 
+if SYSLOG_DEFAULT
+
+config SYSLOG_DEFAULT_PANIC_ONLY
+	bool "Use syslog default channel for panic only"
+	default n
+	depends on SYSLOG_IOCTL
+	---help---
+		If enabled, a panic notifier will be registered to
+		re-enable the default SYSLOG channel when panic() is
+		called. This is useful when the default channel is
+		disabled at runtime (e.g. by DFX via SYSLOGIOC_SETFILTER),
+		ensuring serial output is restored during a panic.
+
+endif # SYSLOG_DEFAULT
+
 if SYSLOG_RPMSG
 
 config SYSLOG_RPMSG_SERVER_NAME
@@ -473,6 +488,15 @@ config SYSLOG_RPMSG_SERVER
 	depends on RPMSG
 	---help---
 		Use RPMSG to receive message from remote proc.
+
+config SYSLOG_RPMSG_SERVER_CPUID
+	int "The cpuid on which the SYSLOG RPMSG server runs"
+	depends on SYSLOG_RPMSG_SERVER && BMP
+	---help---
+		In BMP mode all CPUs share the same firmware image, so
+		syslog_rpmsg_server_init() would otherwise register the RPMSG
+		server channel on every CPU. Set this to the cpuid of the log
+		aggregation core to only initialize the server there.
 
 config SYSLOG_RPMSG_SERVER_CHARDEV
 	bool "SYSLOG RPMSG server character device"

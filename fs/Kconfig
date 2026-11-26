@@ -234,11 +234,41 @@ config PSEUDOFS_FILE
 	---help---
 		Support to create a file on pseudo filesystem.
 
+config PSEUDOFS_FILE_READONLY
+	bool "Pseudo files are read-only"
+	default DEFAULT_SMALL
+	depends on PSEUDOFS_FILE
+	---help---
+		Reject write access to pseudo files and disable write, truncate,
+		and writable memory mapping operations.
+
 config SENDFILE_BUFSIZE
 	int "sendfile() buffer size"
 	default 512
 	---help---
 		Size of the I/O buffer to allocate in sendfile().  Default: 512b
+
+config FS_PREALLOC_FILES
+	int "Preallocated file objects"
+	default 0
+	range 0 65535
+	---help---
+		Number of statically reserved struct file objects. If this or
+		FS_ALLOC_FILES is nonzero, file objects use a dedicated memory pool.
+		Otherwise they are allocated directly from fs_heap as before.
+
+		With FS_ALLOC_FILES set to zero, the pool has a fixed capacity and
+		allocation fails immediately when it is empty. Reserve enough objects
+		for system startup as well as all concurrently open files.
+
+config FS_ALLOC_FILES
+	int "File object pool expansion batch size"
+	default 0
+	range 0 65535
+	---help---
+		Number of file objects allocated from fs_heap when the file pool is
+		empty. Set to zero to disable expansion. Expanded blocks are retained
+		for reuse, so heap use follows the peak number of open file objects.
 
 config FS_HEAPSIZE
 	int "Independent heap bytes"

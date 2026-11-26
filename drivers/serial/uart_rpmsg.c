@@ -31,9 +31,10 @@
 #include <string.h>
 
 #include <nuttx/debug.h>
+#include <nuttx/irq.h>
 #include <nuttx/fs/ioctl.h>
 #include <nuttx/kmalloc.h>
-#include <nuttx/mutex.h>
+#include <nuttx/spinlock.h>
 #include <nuttx/rpmsg/rpmsg.h>
 #include <nuttx/serial/serial.h>
 #include <nuttx/serial/uart_rpmsg.h>
@@ -78,11 +79,10 @@ begin_packed_struct struct uart_rpmsg_wakeup_s
 struct uart_rpmsg_priv_s
 {
   struct rpmsg_endpoint ept;
-  mutex_t               lock;
   char                  devname[UART_RPMSG_NAME_SIZE];
   char                  cpuname[UART_RPMSG_NAME_SIZE];
   FAR void              *recv_data;
-  bool                  last_upper;
+  atomic_t              last_upper;
 };
 
 /****************************************************************************
@@ -165,8 +165,7 @@ static bool uart_rpmsg_rxflowcontrol(FAR struct uart_dev_s *dev,
   FAR struct uart_rpmsg_priv_s *priv = dev->priv;
   FAR struct uart_rpmsg_wakeup_s msg;
 
-  nxmutex_lock(&priv->lock);
-  if (!upper && upper != priv->last_upper)
+  if (atomic_xchg(&priv->last_upper, upper) != upper && !upper)
     {
       memset(&msg, 0, sizeof(msg));
 
@@ -177,8 +176,6 @@ static bool uart_rpmsg_rxflowcontrol(FAR struct uart_dev_s *dev,
         }
     }
 
-  priv->last_upper = upper;
-  nxmutex_unlock(&priv->lock);
   return false;
 }
 
@@ -187,13 +184,33 @@ static void uart_rpmsg_dmasend(FAR struct uart_dev_s *dev)
   FAR struct uart_rpmsg_priv_s *priv = dev->priv;
   FAR struct uart_dmaxfer_s *xfer = &dev->dmatx;
   FAR struct uart_rpmsg_write_s *msg;
-  size_t len = xfer->length + xfer->nlength;
   uint32_t space;
+  uint16_t count;
+  size_t len;
+
+  /* Release the spinlock before getting TX buffer.
+   * Use breaklock/restorelock to properly release/restore the
+   * recursive spinlock regardless of nesting depth.
+   */
+
+  count = rspin_breaklock(&dev->lock);
 
   msg = rpmsg_get_tx_payload_buffer(&priv->ept, &space, true);
+
+  rspin_restorelock(&dev->lock, count);
+
   if (!msg)
     {
       dev->dmatx.length = 0;
+      return;
+    }
+
+  /* Re-read xfer after re-acquiring the lock, state may have changed */
+
+  len = xfer->length + xfer->nlength;
+  if (len == 0)
+    {
+      rpmsg_release_tx_buffer(&priv->ept, msg);
       return;
     }
 
@@ -224,6 +241,7 @@ static void uart_rpmsg_dmasend(FAR struct uart_dev_s *dev)
   if (rpmsg_send_nocopy(&priv->ept, msg, sizeof(*msg) + len) < 0)
     {
       rpmsg_release_tx_buffer(&priv->ept, msg);
+      dev->dmatx.length = 0;
     }
 }
 
@@ -269,14 +287,12 @@ static void uart_rpmsg_dmatxavail(FAR struct uart_dev_s *dev)
 {
   FAR struct uart_rpmsg_priv_s *priv = dev->priv;
 
-  nxmutex_lock(&priv->lock);
+  /* Caller must hold dev->lock */
 
   if (is_rpmsg_ept_ready(&priv->ept) && dev->dmatx.length == 0)
     {
       uart_xmitchars_dma(dev);
     }
-
-  nxmutex_unlock(&priv->lock);
 }
 
 static void uart_rpmsg_send(FAR struct uart_dev_s *dev, int ch)
@@ -325,8 +341,11 @@ static bool uart_rpmsg_txempty(FAR struct uart_dev_s *dev)
 static void uart_rpmsg_ns_bound(struct rpmsg_endpoint *ept)
 {
   FAR struct uart_dev_s *dev = ept->priv;
+  irqstate_t flags;
 
+  flags = uart_spinlock(dev, true);
   uart_rpmsg_dmatxavail(dev);
+  uart_spinunlock(dev, true, flags);
 }
 
 static void uart_rpmsg_device_created(FAR struct rpmsg_device *rdev,
@@ -371,12 +390,13 @@ static int uart_rpmsg_ept_cb(FAR struct rpmsg_endpoint *ept, FAR void *data,
   FAR struct uart_rpmsg_priv_s *priv = dev->priv;
   FAR struct uart_rpmsg_header_s *header = data;
   FAR struct uart_rpmsg_write_s *msg = data;
+  irqstate_t flags;
+
+  flags = uart_spinlock(dev, true);
 
   if (header->response)
     {
       /* Get write-cmd response, this tell how many data have sent */
-
-      nxmutex_lock(&priv->lock);
 
       dev->dmatx.nbytes = header->result;
       if (header->result < 0)
@@ -386,9 +406,12 @@ static int uart_rpmsg_ept_cb(FAR struct rpmsg_endpoint *ept, FAR void *data,
 
       uart_xmitchars_done(dev);
 
-      nxmutex_unlock(&priv->lock);
-
-      /* If have sent some data succeed, then continue send */
+      /* If have sent some data succeed, then continue send.
+       * Do it inline since xmit buffer may have more data pending.
+       * Note: uart_xmitchars_dma -> dmasend uses breaklock which
+       * releases the spinlock before blocking on TX buffer, allowing
+       * other work to proceed.
+       */
 
       if (msg->count == header->result)
         {
@@ -399,14 +422,14 @@ static int uart_rpmsg_ept_cb(FAR struct rpmsg_endpoint *ept, FAR void *data,
     {
       /* Get write-cmd, there are some data, we need receive them */
 
-      nxmutex_lock(&dev->recv.lock);
       priv->recv_data = data;
       uart_recvchars_dma(dev);
       priv->recv_data = NULL;
-      nxmutex_unlock(&dev->recv.lock);
+      uart_spinunlock(dev, true, flags);
 
       header->response = 1;
       rpmsg_send(ept, msg, sizeof(*msg));
+      return 0;
     }
   else if (header->command == UART_RPMSG_TTY_WAKEUP)
     {
@@ -415,6 +438,7 @@ static int uart_rpmsg_ept_cb(FAR struct rpmsg_endpoint *ept, FAR void *data,
       uart_rpmsg_dmatxavail(dev);
     }
 
+  uart_spinunlock(dev, true, flags);
   return 0;
 }
 
@@ -450,8 +474,6 @@ int uart_rpmsg_init(FAR const char *cpuname, FAR const char *devname,
   strlcpy(priv->cpuname, cpuname, sizeof(priv->cpuname));
   strlcpy(priv->devname, devname, sizeof(priv->devname));
 
-  nxmutex_init(&priv->lock);
-
   ret = rpmsg_register_callback(dev,
                                 uart_rpmsg_device_created,
                                 uart_rpmsg_device_destroy,
@@ -459,7 +481,6 @@ int uart_rpmsg_init(FAR const char *cpuname, FAR const char *devname,
                                 NULL);
   if (ret < 0)
     {
-      nxmutex_destroy(&priv->lock);
       kmm_free(dev);
       return ret;
     }
@@ -492,7 +513,6 @@ fail_with_rpmsg:
                             uart_rpmsg_device_destroy,
                             NULL,
                             NULL);
-  nxmutex_destroy(&priv->lock);
   kmm_free(dev);
   return ret;
 }

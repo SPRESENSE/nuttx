@@ -236,6 +236,10 @@ static inline_function void spin_lock(FAR volatile spinlock_t *lock)
 
   spin_lock_notrace(lock);
 
+  /* Mark the spinlock has been locked */
+
+  spinlock_mark_locked(&lock->info);
+
   /* Get the lock, end counting busy-waiting */
 
   nxsched_critmon_busywait(false, return_address(0));
@@ -243,10 +247,6 @@ static inline_function void spin_lock(FAR volatile spinlock_t *lock)
   /* Notify that we have the spinlock */
 
   sched_note_spinlock_locked(lock);
-
-  /* Mark the spinlock has been locked */
-
-  spinlock_mark_locked(&lock->info);
 }
 #else
 #  define spin_lock(lock) ((void)(lock))
@@ -275,7 +275,7 @@ static inline_function void spin_lock(FAR volatile spinlock_t *lock)
  ****************************************************************************/
 
 #ifdef CONFIG_SPINLOCK
-static inline_function bool
+static inline_function noinstrument_function bool
 spin_trylock_notrace(FAR volatile spinlock_t *lock)
 {
 #ifdef CONFIG_TICKET_SPINLOCK
@@ -332,13 +332,13 @@ static inline_function bool spin_trylock(FAR volatile spinlock_t *lock)
   locked = spin_trylock_notrace(lock);
   if (locked)
     {
-      /* Notify that we have the spinlock */
-
-      sched_note_spinlock_locked(lock);
-
       /* Mark the spinlock has been locked */
 
       spinlock_mark_locked(&lock->info);
+
+      /* Notify that we have the spinlock */
+
+      sched_note_spinlock_locked(lock);
     }
   else
     {
@@ -374,7 +374,7 @@ static inline_function bool spin_trylock(FAR volatile spinlock_t *lock)
  ****************************************************************************/
 
 #ifdef CONFIG_SPINLOCK
-static inline_function void
+static inline_function noinstrument_function void
 spin_unlock_notrace(FAR volatile spinlock_t *lock)
 {
 #ifdef CONFIG_TICKET_SPINLOCK
@@ -455,18 +455,18 @@ static inline_function void spin_unlock(FAR volatile spinlock_t *lock)
  ****************************************************************************/
 
 #ifdef CONFIG_SPINLOCK
-static inline_function
+static inline_function noinstrument_function
 irqstate_t spin_lock_irqsave_notrace(FAR volatile spinlock_t *lock)
 {
   irqstate_t flags;
-  flags = irq_save();
+  flags = up_irq_save();
 
   spin_lock_notrace(lock);
 
   return flags;
 }
 #else
-#  define spin_lock_irqsave_notrace(l) ((void)(l), irq_save())
+#  define spin_lock_irqsave_notrace(l) ((void)(l), up_irq_save())
 #endif
 
 /****************************************************************************
@@ -497,7 +497,7 @@ irqstate_t spin_lock_irqsave_notrace(FAR volatile spinlock_t *lock)
 static inline_function
 irqstate_t spin_lock_irqsave(FAR volatile spinlock_t *lock)
 {
-  irqstate_t flags;
+  irqstate_t flags = irq_save();
 
   /* Mark that we want to hold lock */
 
@@ -513,7 +513,11 @@ irqstate_t spin_lock_irqsave(FAR volatile spinlock_t *lock)
 
   /* Lock without trace note */
 
-  flags = spin_lock_irqsave_notrace(lock);
+  spin_lock_notrace(lock);
+
+  /* Mark the spinlock has been locked */
+
+  spinlock_mark_locked(&lock->info);
 
   /* Get the lock, end counting busy-waiting */
 
@@ -522,10 +526,6 @@ irqstate_t spin_lock_irqsave(FAR volatile spinlock_t *lock)
   /* Notify that we have the spinlock */
 
   sched_note_spinlock_locked(lock);
-
-  /* Mark the spinlock has been locked */
-
-  spinlock_mark_locked(&lock->info);
 
   return flags;
 }
@@ -618,10 +618,15 @@ bool rspin_lock_is_hold(FAR volatile rspinlock_t *lock)
    * leading to incorrect judgment.
    */
 
-  irqstate_t flags = up_irq_save();
-  ret = (RSPINLOCK_OWNER(atomic_read(&lock->val)) ==
-         (uint32_t)this_cpu() + 1u);
-  up_irq_restore(flags);
+#ifdef CONFIG_SPINLOCK
+  irqstate_t flags = irq_save();
+  ret = RSPINLOCK_OWNER(atomic_read(&lock->val)) ==
+                        (uint32_t)this_cpu() + 1u;
+  irq_restore(flags);
+#else
+  ret = RSPINLOCK_COUNT(lock->local_val) > 0u;
+#endif
+
   return ret;
 }
 
@@ -675,7 +680,7 @@ uint16_t rspin_lock_count(FAR volatile rspinlock_t *lock)
  * Name: rspin_lock_irqsave/rspin_lock_irqsave_nopreempt
  *
  * Description:
- *   Nest supported spinlock, can support UINT8_MAX max depth.
+ *   Nest supported spinlock, can support UINT16_MAX max depth.
  *   As we should not disable irq for long time, sched also locked.
  *   Similar feature with enter_critical_section, but isolate by instance.
  *
@@ -698,7 +703,7 @@ uint16_t rspin_lock_count(FAR volatile rspinlock_t *lock)
 #ifdef CONFIG_SPINLOCK
 #  ifdef CONFIG_SPINLOCK_INLINE
 SPINLOCK_INLINE noinstrument_function
-void rspin_lock(FAR rspinlock_t *lock)
+void rspin_lock_notrace(FAR rspinlock_t *lock)
 {
   uint32_t new_val;
   uint32_t old_val;
@@ -716,10 +721,6 @@ void rspin_lock(FAR rspinlock_t *lock)
     }
   else
     {
-      /* Mark that we want to hold lock */
-
-      spinlock_mark_locking(&lock->info);
-
       /* Try seize the ownership of the lock using CAS. */
 
       new_val = RSPINLOCK_VALUE(owner, 1u);
@@ -735,22 +736,47 @@ void rspin_lock(FAR rspinlock_t *lock)
           SPIN_WAIT();
         }
 
-      /* The local value shares the same memory location with the
-       * global atomic value. So if the atomic operation success,
-       * the local value should also change to the new_val.
-       */
-
       compiler_assume(lock->local_val == new_val);
+    }
+}
 
-      /* Mark locked only when the lock is acquired for the first time. */
+SPINLOCK_INLINE
+void rspin_lock(FAR rspinlock_t *lock)
+{
+  uint32_t old_val;
+  uint32_t owner = (uint32_t)this_cpu() + 1u;
 
+  old_val = atomic_read(&lock->val);
+
+  /* Only trace first-time lock acquisition, not recursive */
+
+  if (RSPINLOCK_OWNER(old_val) != owner)
+    {
+      spinlock_mark_locking(&lock->info);
+      sched_note_spinlock_lock(lock);
+    }
+
+  rspin_lock_notrace(lock);
+
+  if (RSPINLOCK_OWNER(old_val) != owner)
+    {
       spinlock_mark_locked(&lock->info);
+      sched_note_spinlock_locked(lock);
     }
 }
 #  else
 noinstrument_function
+void rspin_lock_notrace(FAR rspinlock_t *lock);
 void rspin_lock(FAR rspinlock_t *lock);
 #  endif
+
+static inline_function noinstrument_function
+irqstate_t rspin_lock_irqsave_notrace(FAR rspinlock_t *lock)
+{
+  irqstate_t flags = up_irq_save();
+  rspin_lock_notrace(lock);
+  return flags;
+}
 
 static inline_function
 irqstate_t rspin_lock_irqsave(FAR rspinlock_t *lock)
@@ -761,6 +787,7 @@ irqstate_t rspin_lock_irqsave(FAR rspinlock_t *lock)
 }
 #else
 #  define rspin_lock_irqsave(l) ((void)(l), irq_save())
+#  define rspin_lock_irqsave_notrace(l) ((void)(l), up_irq_save())
 #endif
 
 static inline_function
@@ -891,15 +918,15 @@ bool rspin_trylock(FAR rspinlock_t *lock);
 #ifdef CONFIG_SPINLOCK
 #  define spin_trylock_irqsave_notrace(l, f) \
 ({ \
-  f = irq_save(); \
+  f = up_irq_save(); \
   spin_trylock_notrace(l) ? \
-  true : ({ irq_restore(f); false; }); \
+  true : ({ up_irq_restore(f); false; }); \
 })
 #else
 #  define spin_trylock_irqsave_notrace(l, f) \
 ({ \
   (void)(l); \
-  f = irq_save(); \
+  f = up_irq_save(); \
   true; \
 })
 #endif /* CONFIG_SPINLOCK */
@@ -973,16 +1000,16 @@ bool rspin_trylock(FAR rspinlock_t *lock);
  ****************************************************************************/
 
 #ifdef CONFIG_SPINLOCK
-static inline_function
+static inline_function noinstrument_function
 void spin_unlock_irqrestore_notrace(FAR volatile spinlock_t *lock,
                                 irqstate_t flags)
 {
   spin_unlock_notrace(lock);
 
-  irq_restore(flags);
+  up_irq_restore(flags);
 }
 #else
-#  define spin_unlock_irqrestore_notrace(l, f) ((void)(l), irq_restore(f))
+#  define spin_unlock_irqrestore_notrace(l, f) ((void)(l), up_irq_restore(f))
 #endif
 
 /****************************************************************************
@@ -1017,11 +1044,12 @@ void spin_unlock_irqrestore(FAR volatile spinlock_t *lock, irqstate_t flags)
 
   /* Unlock without trace note */
 
-  spin_unlock_irqrestore_notrace(lock, flags);
+  spin_unlock_notrace(lock);
 
   /* Notify that we are unlocking the spinlock */
 
   sched_note_spinlock_unlock(lock);
+  irq_restore(flags);
 }
 #else
 #  define spin_unlock_irqrestore(l, f) ((void)(l), irq_restore(f))
@@ -1063,7 +1091,7 @@ void spin_unlock_irqrestore_nopreempt(FAR volatile spinlock_t *lock,
  * Name: rspin_unlock_irqrestore/rspin_unlock_irqrestore_nopreempt
  *
  * Description:
- *   Nest supported spinunlock, can support UINT8_MAX max depth.
+ *   Nest supported spinunlock, can support UINT16_MAX max depth.
  *   Should work with rspin_lock_irqsave_nopreempt().
  *   Similar feature with leave_critical_section, but isolate by instance.
  *
@@ -1087,8 +1115,8 @@ void spin_unlock_irqrestore_nopreempt(FAR volatile spinlock_t *lock,
  ****************************************************************************/
 
 #ifdef CONFIG_SPINLOCK
-static inline_function
-bool rspin_unlock(FAR rspinlock_t *lock)
+static inline_function noinstrument_function
+bool rspin_unlock_notrace(FAR rspinlock_t *lock)
 {
   bool     ret = false;
   uint32_t val = lock->local_val;
@@ -1098,7 +1126,6 @@ bool rspin_unlock(FAR rspinlock_t *lock)
 
   if (RSPINLOCK_COUNT(val) == 1u)
     {
-      spinlock_mark_unlocked(&lock->info);
       atomic_set_release(&lock->val, 0u);
       SPIN_KICK();
       ret = true;
@@ -1112,17 +1139,51 @@ bool rspin_unlock(FAR rspinlock_t *lock)
 }
 
 static inline_function
+bool rspin_unlock(FAR rspinlock_t *lock)
+{
+  uint32_t val = lock->local_val;
+
+  /* Only trace final unlock, not recursive */
+
+  if (RSPINLOCK_COUNT(val) == 1u)
+    {
+      sched_note_spinlock_unlock(lock);
+      spinlock_mark_unlocked(&lock->info);
+    }
+
+  return rspin_unlock_notrace(lock);
+}
+
+static inline_function noinstrument_function
+void rspin_unlock_irqrestore_notrace(FAR rspinlock_t *lock,
+                                     irqstate_t flags)
+{
+  if (rspin_unlock_notrace(lock))
+    {
+      up_irq_restore(flags);
+    }
+}
+
+static inline_function
 void rspin_unlock_irqrestore(FAR rspinlock_t *lock, irqstate_t flags)
 {
   if (rspin_unlock(lock))
     {
       irq_restore(flags);
     }
+  else
+    {
+      /* Not last unlock, irq_restore is not called, but we need to
+       * balance the crit_count that was incremented by irq_save()
+       * in the corresponding rspin_lock_irqsave().
+       */
 
-  /* If not last rspinlock restore,  irq_restore should not required */
+      nxsched_critmon_irqdisable(false, false, return_address(0));
+    }
 }
 #else
 #  define rspin_unlock_irqrestore(l, f) ((void)(l), irq_restore(f))
+#  define rspin_unlock_irqrestore_notrace(l, f) ((void)(l), up_irq_restore(f))
 #endif
 
 static inline_function
@@ -1145,6 +1206,12 @@ uint16_t rspin_breaklock(FAR rspinlock_t *lock)
 
   if (RSPINLOCK_OWNER(val) == owner)
     {
+      /* When context switch, we need to mark that current thread has
+       * enabled interrupt.
+       */
+
+      nxsched_critmon_irqdisable(false, true, return_address(0));
+
       oldcount        = RSPINLOCK_COUNT(val);
       lock->local_val = RSPINLOCK_VALUE(owner, 1u);
       rspin_unlock(lock);
@@ -1162,11 +1229,17 @@ void rspin_restorelock(FAR rspinlock_t *lock, uint16_t count)
       rspin_lock(lock);
       val = lock->local_val;
       lock->local_val = RSPINLOCK_VALUE(RSPINLOCK_OWNER(val), count);
+
+      /* When context switch, we need to mark that current thread has
+       * disabled interrupt.
+       */
+
+      nxsched_critmon_irqdisable(true, true, return_address(0));
     }
 }
 #else
 #  define rspin_breaklock(lock) (0)
-#  define rspin_restorelock(lock, count)
+#  define rspin_restorelock(lock, count) ((void)(count))
 #endif
 
 #ifdef CONFIG_RW_SPINLOCK

@@ -138,13 +138,6 @@
 
 #define IRQ_WAKE_THREAD 1
 
-/* Disable/restore local interrupts from code above the arch layer */
-
-#ifndef __ASSEMBLY__
-#  define irq_save()          up_irq_save()
-#  define irq_restore(flags)  up_irq_restore(flags)
-#endif
-
 /* Scheduling monitor */
 
 #ifndef CONFIG_SCHED_CRITMONITOR_MAXTIME_THREAD
@@ -159,8 +152,8 @@
 #  define CONFIG_SCHED_CRITMONITOR_MAXTIME_PREEMPTION -1
 #endif
 
-#ifndef CONFIG_SCHED_CRITMONITOR_MAXTIME_CSECTION
-#  define CONFIG_SCHED_CRITMONITOR_MAXTIME_CSECTION -1
+#ifndef CONFIG_SCHED_CRITMONITOR_MAXTIME_IRQDISABLE
+#  define CONFIG_SCHED_CRITMONITOR_MAXTIME_IRQDISABLE -1
 #endif
 
 #ifndef CONFIG_SCHED_CRITMONITOR_MAXTIME_BUSYWAIT
@@ -245,6 +238,38 @@ int ndx_to_irq(int ndx);
 /****************************************************************************
  * Public Function Prototypes
  ****************************************************************************/
+
+/****************************************************************************
+ * Name: irq_save / irq_restore
+ *
+ * Description:
+ *   Wrapper around up_irq_save/up_irq_restore with IRQ disabled duration
+ *   monitoring via nxsched_critmon_irqdisable.
+ *
+ ****************************************************************************/
+
+#ifndef __ASSEMBLY__
+#  if CONFIG_SCHED_CRITMONITOR_MAXTIME_IRQDISABLE >= 0
+void nxsched_critmon_irqdisable(bool state, bool force, FAR void *caller);
+
+static inline_function irqstate_t irq_save(void)
+{
+  irqstate_t flags = up_irq_save();
+  nxsched_critmon_irqdisable(true, false, return_address(0));
+  return flags;
+}
+
+static inline_function void irq_restore(irqstate_t flags)
+{
+  nxsched_critmon_irqdisable(false, false, return_address(0));
+  up_irq_restore(flags);
+}
+#  else
+#    define nxsched_critmon_irqdisable(state, force, caller)
+#    define irq_save()          up_irq_save()
+#    define irq_restore(flags)  up_irq_restore(flags)
+#  endif
+#endif /* __ASSEMBLY__ */
 
 /****************************************************************************
  * Name: irq_attach
@@ -344,7 +369,7 @@ int irqchain_detach(int irq, xcpt_t isr, FAR void *arg);
  ****************************************************************************/
 
 #ifdef CONFIG_IRQCOUNT
-#  if CONFIG_SCHED_CRITMONITOR_MAXTIME_CSECTION >= 0 || \
+#  if CONFIG_SCHED_CRITMONITOR_MAXTIME_IRQDISABLE >= 0 || \
       CONFIG_SCHED_CRITMONITOR_MAXTIME_BUSYWAIT >= 0 || \
       defined(CONFIG_SCHED_INSTRUMENTATION_CSECTION)
 irqstate_t enter_critical_section(void) noinstrument_function;
@@ -383,7 +408,7 @@ irqstate_t enter_critical_section_notrace(void) noinstrument_function;
  ****************************************************************************/
 
 #ifdef CONFIG_IRQCOUNT
-#  if CONFIG_SCHED_CRITMONITOR_MAXTIME_CSECTION >= 0 || \
+#  if CONFIG_SCHED_CRITMONITOR_MAXTIME_IRQDISABLE >= 0 || \
       defined(CONFIG_SCHED_INSTRUMENTATION_CSECTION)
 void leave_critical_section(irqstate_t flags) noinstrument_function;
 #  else

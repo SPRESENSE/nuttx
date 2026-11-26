@@ -2877,12 +2877,26 @@ config ARCH_BOARD_A2G_TC397_5V_TFT
 		This options selects support for NuttX on the Infineon's AURIX board
 		board featuring the TC397 6Quad CPU.
 
+config ARCH_BOARD_A2G_TC375_LITE
+	bool "Infineon's AURIX TC375 board: KIT_A2G_TC375_LITE"
+	depends on ARCH_CHIP_TC375
+	---help---
+		This options selects support for NuttX on the Infineon's AURIX board
+		board featuring the TC375 3-core CPU.
+
 config ARCH_BOARD_TRIBOARD_TC4X9_COM
 	bool "Infineon's AURIX TC4DA board: TRIBOARD_TC4X9_COM"
 	depends on ARCH_CHIP_TC4DX
 	---help---
 		This options selects support for NuttX on the Infineon's AURIX board
 		board featuring the TC4DA 6Quad CPU.
+
+config ARCH_BOARD_A3G_TC4D7_LITE
+	bool "Infineon's AURIX TC4D7 board: KIT_A3G_TC4D7_LITE"
+	depends on ARCH_CHIP_TC4DX
+	---help---
+		This options selects support for NuttX on the Infineon's AURIX board
+		board featuring the TC4D7 6-core CPU.
 
 config ARCH_BOARD_QEMU_ARMV7A
 	bool "Qemu ARMv7a CPUs board"
@@ -4492,7 +4506,9 @@ config ARCH_BOARD
 	default "sabre-6quad"                  if ARCH_BOARD_SABRE_6QUAD
 	default "qemu-rh850-u2c"               if ARCH_BOARD_QEMU_RH850_U2C
 	default "a2g-tc397-5v-tft"             if ARCH_BOARD_A2G_TC397_5V_TFT
+	default "a2g-tc375-lite"               if ARCH_BOARD_A2G_TC375_LITE
 	default "triboard_tc4x9_com"           if ARCH_BOARD_TRIBOARD_TC4X9_COM
+	default "a3g-tc4d7-lite"               if ARCH_BOARD_A3G_TC4D7_LITE
 	default "qemu-armv7a"                  if ARCH_BOARD_QEMU_ARMV7A
 	default "rtl8730e_evb"                     if ARCH_BOARD_RTL8730E_EVB
 	default "qemu-armv7r"                  if ARCH_BOARD_QEMU_ARMV7R
@@ -4742,7 +4758,13 @@ if ARCH_BOARD_QEMU_RH850_U2C
 source "boards/rh850/u2c/qemu-rh850-u2c/Kconfig"
 endif
 if ARCH_BOARD_A2G_TC397_5V_TFT
-source "boards/tricore/tc3xx/a2g-tc397-5v-tft/Kconfig"
+source "boards/tricore/tc3x/a2g-tc397-5v-tft/Kconfig"
+endif
+if ARCH_BOARD_A2G_TC375_LITE
+source "boards/tricore/tc3x/a2g-tc375-lite/Kconfig"
+endif
+if ARCH_BOARD_A3G_TC4D7_LITE
+source "boards/tricore/tc4x/a3g-tc4d7-lite/Kconfig"
 endif
 if ARCH_BOARD_MPS2_AN500
 source "boards/arm/mps/mps2-an500/Kconfig"
@@ -6022,6 +6044,25 @@ config BOARD_CRASHDUMP_CUSTOM
 	---help---
 		Enable save crash dump info with custom method. only work with
 		board_crashdump api.
+
+config BOARD_COREDUMP_CPUID
+	int "The Coredump CPU ID"
+	default -1
+	depends on BMP && (!BOARD_CRASHDUMP_NONE || BOARD_CRASHDUMP_CUSTOM)
+	---help---
+		Specify which CPU is responsible for executing coredump in BMP
+		(Bound Multi-Processing) mode. In BMP mode, multiple CPUs may
+		trigger a panic simultaneously. Without this setting, each CPU
+		could attempt to perform a coredump at the same time, leading to
+		output corruption or resource conflicts (e.g., contention on the
+		syslog or storage device).
+
+		By setting this to a valid CPU ID (e.g., 0), only the designated
+		CPU will execute the coredump logic; other CPUs will skip it.
+
+		Set to -1 (default) to allow any CPU to perform the coredump,
+		which preserves the original behavior for single-core or SMP
+		configurations.
 
 config BOARD_COREDUMP_DEVPATH
 	string "Save Core Dump data with device PATH"

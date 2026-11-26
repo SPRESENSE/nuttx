@@ -450,9 +450,19 @@ static void rpmsg_port_rx_callback(FAR struct rpmsg_port_s *port,
 
   if (ept != NULL)
     {
+      metal_mutex_acquire(&rdev->lock);
       if (ept->dest_addr == RPMSG_ADDR_ANY)
         {
           ept->dest_addr = rphdr->src;
+          metal_mutex_release(&rdev->lock);
+          if (ept->ns_bound_cb != NULL)
+            {
+              ept->ns_bound_cb(ept);
+            }
+        }
+      else
+        {
+          metal_mutex_release(&rdev->lock);
         }
 
       rpmsg_trace(ept->name, false, rphdr, len,
@@ -493,12 +503,11 @@ static int rpmsg_port_ns_callback(FAR struct rpmsg_endpoint *ept,
 {
   FAR struct rpmsg_port_s *port = priv;
   FAR struct rpmsg_device *rdev = &port->rdev;
-  struct rpmsg_ns_msg msg;
-  FAR const char *name;
-  uint32_t dest;
-  bool decref = false;
+  struct rpmsg_ns_msg_max msg;
 
-  if (len != sizeof(msg))
+  /* The announcement has to be there and to fit in the local message */
+
+  if (len < sizeof(struct rpmsg_ns_msg) || len > sizeof(msg))
     {
       return RPMSG_SUCCESS;
     }
@@ -507,95 +516,10 @@ static int rpmsg_port_ns_callback(FAR struct rpmsg_endpoint *ept,
    * improve the buffer utilization.
    */
 
-  memcpy(&msg, data, sizeof(msg));
+  memcpy(&msg, data, len);
   rpmsg_port_release_rx_buffer(rdev, data);
 
-  name = msg.name;
-  dest = msg.addr;
-
-  metal_mutex_acquire(&rdev->lock);
-  ept = rpmsg_get_endpoint(rdev, name, RPMSG_ADDR_ANY, dest);
-
-  if (msg.flags == RPMSG_NS_DESTROY)
-    {
-      if (ept != NULL)
-        {
-          ept->dest_addr = RPMSG_ADDR_ANY;
-          if (ept->release_cb != NULL)
-            {
-              rpmsg_ept_incref(ept);
-              decref = true;
-            }
-        }
-
-      metal_mutex_release(&rdev->lock);
-      if (ept != NULL && ept->ns_unbind_cb != NULL)
-        {
-          ept->ns_unbind_cb(ept);
-        }
-
-      if (rdev->ns_unbind_cb != NULL)
-        {
-          rdev->ns_unbind_cb(rdev, name, dest);
-        }
-
-      if (decref)
-        {
-          metal_mutex_acquire(&rdev->lock);
-          rpmsg_ept_decref(ept);
-          metal_mutex_release(&rdev->lock);
-        }
-    }
-  else if (msg.flags == RPMSG_NS_CREATE)
-    {
-      if (ept == NULL)
-        {
-          metal_mutex_release(&rdev->lock);
-          if (rdev->ns_bind_cb != NULL)
-            {
-              rdev->ns_bind_cb(rdev, name, dest);
-            }
-        }
-      else if (ept->dest_addr == RPMSG_ADDR_ANY)
-        {
-          ept->dest_addr = dest;
-          metal_mutex_release(&rdev->lock);
-          if (ept->name[0] && rdev->support_ack)
-            {
-              rpmsg_send_ns_message(ept, RPMSG_NS_CREATE_ACK);
-            }
-
-          /* Notify application that the endpoint has been bound */
-
-          if (ept->ns_bound_cb != NULL)
-            {
-              ept->ns_bound_cb(ept);
-            }
-        }
-      else
-        {
-          metal_mutex_release(&rdev->lock);
-        }
-    }
-  else
-    {
-      /* RPMSG_NS_CREATE_ACK */
-
-      if (ept != NULL && ept->dest_addr == RPMSG_ADDR_ANY)
-        {
-          ept->dest_addr = dest;
-          metal_mutex_release(&rdev->lock);
-
-          if (ept->ns_bound_cb != NULL)
-            {
-              ept->ns_bound_cb(ept);
-            }
-        }
-      else
-        {
-          metal_mutex_release(&rdev->lock);
-        }
-    }
+  rpmsg_ns_handle_msg(rdev, (FAR struct rpmsg_ns_msg *)&msg, len);
 
   return RPMSG_SUCCESS_BUFFER_RELEASED;
 }
@@ -632,7 +556,7 @@ int rpmsg_port_initialize(FAR struct rpmsg_port_s *port,
   rdev = &port->rdev;
   memset(rdev, 0, sizeof(*rdev));
   metal_mutex_init(&rdev->lock);
-  rdev->ns_bind_cb = rpmsg_ns_bind;
+  rdev->ns_bind_extra_cb = rpmsg_ns_bind_extra;
   rdev->ns_unbind_cb = rpmsg_ns_unbind;
   rdev->ops.send_offchannel_raw = rpmsg_port_send_offchannel_raw;
   rdev->ops.hold_rx_buffer = rpmsg_port_hold_rx_buffer;

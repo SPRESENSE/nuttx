@@ -47,10 +47,16 @@ typedef struct spinlock_debug_s
 {
   sq_entry_t flink;
   FAR struct tcb_s *holder;
-  FAR void *caller;
+#  if defined(CONFIG_SPINLOCK_BACKTRACE)
+  FAR void *stack;
+#  endif
 } spinlock_debug_t;
 #  define SPINLOCK_DEBUG_INFO spinlock_debug_t info;
-#  define SPINLOCK_DEBUG_INIT {{NULL}, NULL, NULL}
+#  if defined(CONFIG_SPINLOCK_BACKTRACE)
+#    define SPINLOCK_DEBUG_INIT {{NULL}, NULL, NULL},
+#  else
+#    define SPINLOCK_DEBUG_INIT {{NULL}, NULL},
+#  endif
 #else
 #  define SPINLOCK_DEBUG_INFO
 #  define SPINLOCK_DEBUG_INIT
@@ -123,9 +129,13 @@ typedef struct rspinlock_s
 
 #define SEQLOCK_INITIALIZER { 0u }
 
-typedef struct seqcount_s
+typedef struct seqclock
 {
-  uint32_t sequence;
+#ifdef CONFIG_SMP
+  atomic_t sequence;
+#else
+  volatile uint32_t sequence;
+#endif
 } seqcount_t;
 
 #if defined(__cplusplus)

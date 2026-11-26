@@ -287,6 +287,9 @@ config STM32_HAVE_DCMI
 config STM32_HAVE_IP_DCMI_V1
 	bool
 
+config STM32_HAVE_DCMIPP
+	bool
+
 # DFSDM capabilities
 
 config STM32_HAVE_MDF1
@@ -347,7 +350,7 @@ config STM32_HAVE_IP_DMA_V1_8CH_DMAMUX
 config STM32_HAVE_IP_DMA_V2_STREAM
 	bool
 
-config STM32_HAVE_IP_DMA2D_M3M4_V1
+config STM32_HAVE_IP_DMA2D_V1
 	bool
 
 # DTS capabilities

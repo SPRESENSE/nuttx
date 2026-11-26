@@ -89,7 +89,7 @@
 #  define CONFIG_ARCH_INTERRUPTSTACK 0
 #endif
 
-#define INTSTACK_SIZE (CONFIG_ARCH_INTERRUPTSTACK & ~STACKFRAME_ALIGN_MASK)
+#define INTSTACK_SIZE STACKFRAME_ALIGN_DOWN(CONFIG_ARCH_INTERRUPTSTACK)
 
 /* This is the value used to mark the stack for subsequent stack monitoring
  * logic.
@@ -116,6 +116,18 @@
 #define modreg64(v,m,a) putreg64((getreg64(a) & ~(m)) | ((v) & (m)), (a))
 
 #define tricore_fullcontextrestore() sys_call0(SYS_restore_context)
+
+/* Update tls_info when task switches */
+
+#define tricore_set_tls_info(val)                                      \
+  do                                                                   \
+    {                                                                  \
+      tricore_mtcr(TRICORE_CPU_PSW,                                    \
+                   tricore_mfcr(TRICORE_CPU_PSW) | PSW_GW);            \
+      write_sysreg(val, a8);                                           \
+      tricore_mtcr(TRICORE_CPU_PSW,                                    \
+                   tricore_mfcr(TRICORE_CPU_PSW) & (~PSW_GW));         \
+    } while (0)
 
 /****************************************************************************
  * Public Types
@@ -163,13 +175,31 @@ extern uintptr_t        _eheap[]; /* End+1 of .heap */
  ****************************************************************************/
 
 /****************************************************************************
+ * Name: tricore_irq_from_lasr
+ *
+ * Description:
+ *   Get irq number from ICU's last acknowledged SRN register
+ *
+ ****************************************************************************/
+
+static inline_function int tricore_irq_from_lasr(void)
+{
+  uintptr_t addr = TRICORE_INT_LASR_BASE +
+                   up_cpu_index() * TRICORE_INT_LASR_SPACING;
+
+  return (getreg32(addr) >> 16) & 0x7ff;
+}
+
+/****************************************************************************
  * Public Function Prototypes
  ****************************************************************************/
 
 /* Interrupt ****************************************************************/
 
 void tricore_ack_irq(int irq);
-void tricore_doirq(void);
+int tricore_srpn_to_irq(int srpn);
+int tricore_irq_to_srpn(int irq);
+void tricore_src_init(int irq, uint8_t tos, uint8_t srpn);
 
 /* Startup ******************************************************************/
 

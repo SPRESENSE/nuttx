@@ -28,6 +28,7 @@
 #ifdef CONFIG_RPMSG
 
 #include <nuttx/list.h>
+#include <nuttx/queue.h>
 #include <nuttx/panic_notifier.h>
 #include <nuttx/rpmsg/rpmsg.h>
 #include <nuttx/wqueue.h>
@@ -77,7 +78,7 @@ struct rpmsg_s
   bool                         init;
   struct list_node             bind;
   rmutex_t                     lock;
-  struct list_node             node;
+  dq_entry_t                   node;
   char                         local_cpuname[RPMSG_NAME_SIZE];
   char                         cpuname[RPMSG_NAME_SIZE];
   FAR const struct rpmsg_ops_s *ops;
@@ -136,8 +137,9 @@ struct rpmsg_ops_s
 void rpmsg_modify_signals(FAR struct rpmsg_s *rpmsg,
                           int setflags, int clrflags);
 
-void rpmsg_ns_bind(FAR struct rpmsg_device *rdev,
-                   FAR const char *name, uint32_t dest);
+void rpmsg_ns_bind_extra(FAR struct rpmsg_device *rdev,
+                         FAR const char *name, uint32_t dest,
+                         FAR const void *extra, size_t extra_len);
 void rpmsg_ns_unbind(FAR struct rpmsg_device *rdev,
                      FAR const char *name, uint32_t dest);
 

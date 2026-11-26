@@ -113,6 +113,11 @@ FAR FILE *freopen(FAR const char *path, FAR const char *mode,
 #ifndef CONFIG_STDIO_DISABLE_BUFFERING
       lib_rdflush_unlocked(stream);
 #endif
+#if CONFIG_NUNGET_CHARS > 0
+      /* Clear any characters pushed back onto the stream */
+
+      stream->fs_nungotten = 0;
+#endif
 
       funlockfile(stream);
 
@@ -184,6 +189,13 @@ FAR FILE *freopen(FAR const char *path, FAR const char *mode,
           return NULL;
         }
 
+      /* Write out buffered data before the mode changes, as POSIX
+       * requires, so that it is not dropped when the stream is no longer
+       * writable.
+       */
+
+      lib_fflush(stream);
+
       /* Set the new file mode for the file descriptor */
 
       ret = fcntl(fd, F_SETFL, oflags);
@@ -191,6 +203,10 @@ FAR FILE *freopen(FAR const char *path, FAR const char *mode,
         {
           return NULL;
         }
+
+      /* Set the new file mode for the file stream */
+
+      stream->fs_oflags = oflags;
 
       clearerr(stream);
       return stream;

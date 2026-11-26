@@ -326,6 +326,13 @@ config SPINLOCK_DEBUG
 	---help---
 		Enable to support debug tools for spinlock.
 
+config SPINLOCK_BACKTRACE
+	bool "Enable spinlock backtrace"
+	depends on SPINLOCK_DEBUG && LIBC_BACKTRACE_DEPTH > 0
+	default n
+	---help---
+		Enable to record backtrace when a task holds a spinlock.
+
 config SPINLOCK_INLINE
 	bool "Inline spinlock helpers"
 	default !DEFAULT_SMALL
@@ -1136,27 +1143,28 @@ config SCHED_CRITMONITOR_MAXTIME_PREEMPTION
 		SCHED_CRITMONITOR_MAXTIME_PREEMPTION, or system will give a warning.
 		For debugging system latency, 0 means disabled.
 
-config SCHED_CRITMONITOR_MAXTIME_CSECTION
-	int "Csection (enter_critical_section) max holding time"
+config SCHED_CRITMONITOR_MAXTIME_IRQDISABLE
+	int "IRQ disabled (irq_save/irq_restore) max holding time"
 	default SCHED_CRITMONITOR_MAXTIME_PREEMPTION
 	---help---
-		Csection holding time should be smaller than
-		SCHED_CRITMONITOR_MAXTIME_CSECTION, or system will give a warning.
+		IRQ disabled time (via irq_save/irq_restore, covering
+		enter_critical_section, spin_lock_irqsave,
+		rspin_lock_irqsave, etc.) should be smaller than
+		SCHED_CRITMONITOR_MAXTIME_IRQDISABLE, or system will give a warning.
 		For debugging system latency, 0 means disabled.
 
 config SCHED_CRITMONITOR_MAXTIME_BUSYWAIT
-	int "Critical section or spinlock max busy waiting time"
+	int "Spinlock max busy waiting time"
 	default -1
 	---help---
-		Busy waiting time to enter critical section or
-		get spinlock should be smaller than
+		Busy waiting time to acquire a spinlock should be smaller than
 		SCHED_CRITMONITOR_MAXTIME_BUSYWAIT, or system will give a warning.
 		For debugging system latency, 0 means disabled, -1 means not
 		configured (feature off, no statistics collected).
 
 config SCHED_CRITMONITOR_MAXTIME_IRQ
 	int "IRQ max execution time"
-	default SCHED_CRITMONITOR_MAXTIME_CSECTION
+	default SCHED_CRITMONITOR_MAXTIME_IRQDISABLE
 	---help---
 		IRQ handler execution time should be smaller than
 		SCHED_CRITMONITOR_MAXTIME_IRQ, or system will give a warning.
@@ -1179,7 +1187,7 @@ config SCHED_CRITMONITOR_MAXTIME_PANIC
 		SCHED_CRITMONITOR_MAXTIME_WDOG > 0 || \
 		SCHED_CRITMONITOR_MAXTIME_WQUEUE > 0 || \
 		SCHED_CRITMONITOR_MAXTIME_PREEMPTION > 0 || \
-		SCHED_CRITMONITOR_MAXTIME_CSECTION > 0 || \
+		SCHED_CRITMONITOR_MAXTIME_IRQDISABLE > 0 || \
 		SCHED_CRITMONITOR_MAXTIME_BUSYWAIT > 0 || \
 		SCHED_CRITMONITOR_MAXTIME_IRQ > 0
 	default n
