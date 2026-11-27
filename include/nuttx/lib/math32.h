@@ -79,12 +79,7 @@
  */
 
 #define LOG2_FLOOR(n) (FLS(n) - 1)
-
-#ifdef CONFIG_HAVE_BUILTIN_CLZ
-#  define LOG2_CEIL(n) log2ceil(n)
-#else
-#  define LOG2_CEIL(n) (FLS((n) - 1))
-#endif
+#define LOG2_CEIL(n)  (FLS((n) - 1))
 
 /****************************************************************************
  * Public Types
@@ -262,8 +257,13 @@ extern "C"
 
 #define invdiv_init_param(d, ip) \
   sizeof((ip)->mult) == sizeof(uint32_t) ? \
-    invdiv_init_param32((d), (FAR invdiv_param32_t *)(ip)) : \
-    invdiv_init_param64((d), (FAR invdiv_param64_t *)(ip))
+    invdiv_init_param32((d), log2ceil(d), (FAR invdiv_param32_t *)(ip)) : \
+    invdiv_init_param64((d), log2ceil(d), (FAR invdiv_param64_t *)(ip))
+
+#define invdiv_init_param_const(d, ip) \
+  sizeof((ip)->mult) == sizeof(uint32_t) ? \
+    invdiv_init_param32((d), LOG2_CEIL(d), (FAR invdiv_param32_t *)(ip)) : \
+    invdiv_init_param64((d), LOG2_CEIL(d), (FAR invdiv_param64_t *)(ip))
 
 /****************************************************************************
  * Name: invdiv_init_param32
@@ -274,6 +274,7 @@ extern "C"
  *
  * Input Parameters:
  *   d - The divisor (unsigned integer). d != 0 and d != 1 is required.
+ *   l - log2ceil(d)
  *
  * Output Parameters:
  *   ip    - The invariant division parameter to be cached.
@@ -281,9 +282,8 @@ extern "C"
  ****************************************************************************/
 
 static inline_function
-void invdiv_init_param32(uint32_t d, FAR invdiv_param32_t *ip)
+void invdiv_init_param32(uint32_t d, int l, FAR invdiv_param32_t *ip)
 {
-  int      l  = LOG2_CEIL(d);
   uint64_t t1 = (uint64_t)1u << 32;
   uint64_t t2 = (uint64_t)1u << l;
 
@@ -441,7 +441,7 @@ static inline_function uint64_t up_umulh64(uint64_t a, uint64_t b)
 {
   /* Compiles to a single UMULH instruction on x86_64 and AArch64. */
 
-  _uint128_t a128 = a;
+  _uint128_t a128   = a;
   _uint128_t res128 = a128 * b;
   return res128 >> 64;
 }
@@ -463,6 +463,7 @@ uint64_t up_umulh64(uint64_t a, uint64_t b);
  *   d - The divisor (unsigned integer), d != 0 and d != 1 is required,
  *       and d <= 2^63 is asserted: the 1 << l setup is undefined for
  *       larger divisors.
+ *   l - log2ceil(d)
  *
  * Output Parameters:
  *   ip    - The invariant division parameter to be cached.
@@ -470,9 +471,8 @@ uint64_t up_umulh64(uint64_t a, uint64_t b);
  ****************************************************************************/
 
 static inline_function
-void invdiv_init_param64(uint64_t d, FAR invdiv_param64_t *ip)
+void invdiv_init_param64(uint64_t d, int l, FAR invdiv_param64_t *ip)
 {
-  int      l = LOG2_CEIL(d);
   uint64_t t = ((uint64_t)1u << l) - d;
 
   DEBUGASSERT(d > 1u && d <= ((uint64_t)1u << 63));
@@ -530,7 +530,7 @@ static inline_function uint64_t div64_const32(uint64_t n, uint32_t b)
   invdiv_param64_t ip;
 
   DEBUGASSERT(b > 1u);
-  invdiv_init_param(b, &ip);
+  invdiv_init_param_const(b, &ip);
 
   return invdiv_u64(n, &ip);
 }

@@ -86,6 +86,7 @@ config ARMV8M_STACKCHECK_NONE
 
 config ARMV8M_STACKCHECK
 	bool "Check for stack overflow on each function call"
+	select ARM_STACKCHECK
 	---help---
 		This check uses R10 to check for a stack overflow within each
 		function call. This has performances and code size impacts, but it
@@ -121,6 +122,7 @@ config ARMV8M_STACKCHECK_BREAKPOINT
 	bool "Breakpoint on stack overflow"
 	default n
 	depends on ARMV8M_STACKCHECK
+	select ARM_STACKCHECK_BREAKPOINT
 	---help---
 		If enabled, a hard-coded breakpoint will be inserted to the stack
 		overflow trap. This is useful to stop the execution of the program
@@ -153,6 +155,7 @@ endif # ARMV8M_ITMSYSLOG
 config ARMV8M_SYSTICK
 	bool "SysTick timer driver"
 	depends on TIMER
+	select ARM_SYSTICK
 	---help---
 		Enable SysTick timer driver.
 

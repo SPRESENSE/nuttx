@@ -135,6 +135,14 @@ When a SYN arrives:
 		-> TCP_ESTABLISHED         (tcp_input receives final ACK)
 		-> accept() wakes up       (tcp_accept_connection())
 
+The connections in ``TCP_SYN_RCVD`` of a listener and the connections that
+wait for ``accept()`` together take at most the backlog of ``listen()``.  A
+SYN to a listener whose backlog is full of connections in ``TCP_SYN_RCVD``
+frees the oldest of them.  The last ``CONFIG_NET_TCP_SYN_RESERVE`` free
+connections are kept for ``socket()`` and ``connect()``: then a SYN also
+frees the oldest connection in ``TCP_SYN_RCVD`` of its listener, or it is
+refused.
+
 Graceful close (active close)
 -----------------------------
 
@@ -329,6 +337,10 @@ Retransmission timer
 * An incoming ACK restarts the timer only when it acknowledges new data.  An
 	ACK that is not beyond the highest ACK so far gives no RTT sample and does
 	not reset the count of retransmissions.
+* An ACK of new data resets the count of retransmissions, also when it
+	acknowledges only a part of the data sent (RFC 1122, section 4.2.3.5).
+	The first ACK after a retransmission gives no RTT sample (Karn's
+	algorithm).
 * At each expiry the timeout doubles (RFC 6298, section 5.5): the next timeout
 	is the initial timeout (``NET_TCP_RTO``) times 2, 4, 8 and then 16.  With
 	``NET_TCP_FIXED_RTO`` it does not change.
@@ -365,6 +377,10 @@ that came before the RST, then ``ECONNRESET`` once, then end-of-file).
 ``connect()`` fails with ``ECONNRESET``, and the socket is not connected.  A
 connection that the peer resets while it waits in the backlog of the
 listener is freed: ``accept()`` waits for the next connection.
+
+When the listener is closed, each connection that waits in its backlog gets
+a RST and is freed, as on Linux.  ``listen()`` again with a smaller backlog
+does the same to the connections that the new backlog cannot hold.
 
 ``tcp_start_monitor()`` sets the connection state of the socket
 (``_SF_CONNECTED``, ``_SF_CLOSED``) with the device locked, where the monitor

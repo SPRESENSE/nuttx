@@ -1869,8 +1869,38 @@ config UNWINDER_ARM
 
 endchoice # Choose ARM unwinder
 
-endif
+endif # SCHED_BACKTRACE
 
+config ARM_STACKCHECK
+	bool
+	default n
+	---help---
+		This check uses R10 to check for a stack overflow within each
+		function call. This has performances and code size impacts, but it
+		will be able to catch hard to find stack overflows.
+
+		Currently only available only for the STM32, SAM3/4 and SAMA5D
+		architectures.  The changes are not complex and patches for
+		other architectures will be accepted.
+
+		This option requires that you are using a GCC toolchain and that
+		you also include -finstrument-functions in your CFLAGS when you
+		compile.  This addition to your CFLAGS should probably be added
+		to the definition of the CFFLAGS in your board Make.defs file.
+
+config ARM_STACKCHECK_BREAKPOINT
+	bool
+	default n
+	depends on ARM_STACKCHECK
+	---help---
+		If enabled, a hard-coded breakpoint will be inserted to the stack
+		overflow trap. This is useful to stop the execution of the program
+		and diagnose the issue before the hardfault handler is called (and
+		context information is lost).
+
+if ARCH_ARM_M
+source "arch/arm/src/arm_m/Kconfig"
+endif
 if ARCH_ARMV6M
 source "arch/arm/src/armv6-m/Kconfig"
 endif

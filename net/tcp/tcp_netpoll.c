@@ -161,7 +161,10 @@ static uint32_t tcp_poll_eventhandler(FAR struct net_driver_s *dev,
           eventset |= POLLIN | POLLRDHUP | POLLERR | POLLHUP;
         }
 
-      /* A poll is a sign that we are free to send data. */
+      /* A poll is a sign that we are free to send data.  An epoll set
+       * (POLLALWAYS) stays set up: a poll of the device alone (TCP_POLL)
+       * does not change the socket, and reports no POLLOUT to it.
+       */
 
       /* Wake up poll() speculatively on TCP_ACKDATA.
        * Note: our event handler is usually executed before
@@ -170,11 +173,14 @@ static uint32_t tcp_poll_eventhandler(FAR struct net_driver_s *dev,
        * this callback to be inserted after psock_send_eventhandler.
        */
 
-      else if (psock_tcp_cansend(info->conn) >= 0
+      else if (((info->fds->events & POLLALWAYS) == 0 ||
+                (flags & (TCP_ACKDATA | TCP_CONNECTED | TCP_NEWDATA |
+                          TCP_BACKLOG | TCP_RXCLOSE)) != 0) &&
+               (psock_tcp_cansend(info->conn) >= 0
 #if defined(CONFIG_NET_TCP_WRITE_BUFFERS)
-               || (flags & TCP_ACKDATA) != 0
+                || (flags & TCP_ACKDATA) != 0
 #endif
-              )
+              ))
         {
           eventset |= POLLOUT;
         }
@@ -183,10 +189,13 @@ static uint32_t tcp_poll_eventhandler(FAR struct net_driver_s *dev,
 
       poll_notify(&info->fds, 1, eventset);
 
-      if (info->fds->revents != 0)
-        {
-          /* Stop further callbacks */
+      /* poll() is woken up once: stop further callbacks.  An epoll set
+       * (POLLALWAYS) keeps the poll set up across its waits (EPOLLET):
+       * it needs the next events too.
+       */
 
+      if (info->fds->revents != 0 && (info->fds->events & POLLALWAYS) == 0)
+        {
           info->cb->flags = 0;
           info->cb->priv  = NULL;
           info->cb->event = NULL;
