@@ -280,7 +280,7 @@ Peripheral    Core version  Driver
 ============  ============  =================================================
 ADC           v1            arch/arm/src/common/stm32/stm32_adc_m0_v1.c      
 AES/CRYP      v1            not supported                                    
-CAN/FDCAN     FDCAN         arch/arm/src/common/stm32/stm32_fdcan_m0_v1.c    
+CAN/FDCAN     FDCAN         arch/arm/src/common/stm32/stm32_fdcan_mcan_v1.c  
 CRC           to be done    not supported                                    
 DAC           v1            not supported                                    
 DBGMCU        v3            not supported                                    
@@ -317,7 +317,7 @@ CRS           to be done    not supported
 DAC           to be done    not supported
 DBGMCU        v5            not supported
 EXTI          M33M55 v1     arch/arm/src/common/stm32/stm32_exti_gpio_m33m55_v1.c
-FDCAN         FDCAN         not supported
+FDCAN         FDCAN         arch/arm/src/common/stm32/stm32_fdcan_mcan_v1.c
 FLASH         to be done    not supported
 GPIO          M33M55 v1     arch/arm/src/common/stm32/stm32_gpio_m33m55_v1.c
 HASH          to be done    not supported
@@ -377,7 +377,7 @@ STM32F1
 Peripheral    Core version   Driver                                                 
 ============  =============  =======================================================
 ADC           v1 basic       arch/arm/src/common/stm32/stm32_adc_m3m4_v1v2.c        
-CAN/FDCAN     bxCAN          arch/arm/src/common/stm32/stm32_can_m3m4_v1.c          
+CAN/FDCAN     bxCAN          arch/arm/src/common/stm32/stm32_can_bxcan.c          
 CRC           to be done     not supported                                          
 DAC           v1             arch/arm/src/common/stm32/stm32_dac_m3m4_v1.c          
 DBGMCU        v1             not supported                                          
@@ -407,7 +407,7 @@ STM32F2
 Peripheral    Core version  Driver                                                 
 ============  ============  =======================================================
 ADC           v1            arch/arm/src/common/stm32/stm32_adc_m3m4_v1v2.c        
-CAN/FDCAN     bxCAN         arch/arm/src/common/stm32/stm32_can_m3m4_v1.c          
+CAN/FDCAN     bxCAN         arch/arm/src/common/stm32/stm32_can_bxcan.c          
 CRYP          v1            arch/arm/src/common/stm32/stm32_aes_m3m4_v1.c          
 DAC           v1            arch/arm/src/common/stm32/stm32_dac_m3m4_v1.c          
 DMA           v2            arch/arm/src/common/stm32/stm32_dma_m3m4_v2_stream.c   
@@ -437,7 +437,7 @@ STM32F3
 Peripheral    Core version    Driver                                                 
 ============  ==============  =======================================================
 ADC           v1 basic or v2  arch/arm/src/common/stm32/stm32_adc_m3m4_v1v2.c        
-CAN/FDCAN     bxCAN           arch/arm/src/common/stm32/stm32_can_m3m4_v1.c          
+CAN/FDCAN     bxCAN           arch/arm/src/common/stm32/stm32_can_bxcan.c          
 COMP          v1              arch/arm/src/common/stm32/stm32_comp_m3m4_v1.c         
 DAC           v1              arch/arm/src/common/stm32/stm32_dac_m3m4_v1.c          
 DBGMCU        v2              not supported                                          
@@ -467,7 +467,7 @@ STM32F4
 Peripheral    Core version  Driver                                                
 ============  ============  ======================================================
 ADC           v1            arch/arm/src/common/stm32/stm32_adc_m3m4_v1v2.c       
-CAN/FDCAN     bxCAN         arch/arm/src/common/stm32/stm32_can_m3m4_v1.c         
+CAN/FDCAN     bxCAN         arch/arm/src/common/stm32/stm32_can_bxcan.c         
 CRYP          v1            arch/arm/src/common/stm32/stm32_aes_m3m4_v1.c         
 DAC           v1            arch/arm/src/common/stm32/stm32_dac_m3m4_v1.c         
 DMA           v2            arch/arm/src/common/stm32/stm32_dma_m3m4_v2_stream.c  
@@ -502,7 +502,7 @@ Peripheral    Core version  Driver
 ============  ============  =======================================================
 ADC           v2            arch/arm/src/common/stm32/stm32_adc_m3m4_v1v2.c        
 AES           v1            arch/arm/src/common/stm32/stm32_aes_m3m4_v1.c          
-CAN/FDCAN     FDCAN         arch/arm/src/common/stm32/stm32_can_m3m4_v1.c          
+CAN/FDCAN     FDCAN         arch/arm/src/common/stm32/stm32_can_bxcan.c          
 COMP          v2            arch/arm/src/common/stm32/stm32_comp_m3m4_v2.c         
 CORDIC        v1            arch/arm/src/common/stm32/stm32_cordic_m3m4_v1.c       
 DAC           v2            arch/arm/src/common/stm32/stm32_dac_m3m4_v1.c          
@@ -533,7 +533,7 @@ STM32L4
 Peripheral    Core version  Driver                                   
 ============  ============  ============================================
 ADC           to be done    arch/arm/src/stm32l4/stm32l4_adc.c       
-CAN/FDCAN     bxCAN         arch/arm/src/stm32l4/stm32l4_can.c       
+CAN/FDCAN     bxCAN         arch/arm/src/common/stm32/stm32_can_bxcan.c
 COMP          to be done    arch/arm/src/stm32l4/stm32l4_comp.c      
 DAC           to be done    arch/arm/src/stm32l4/stm32l4_dac.c       
 DFSDM         to be done    arch/arm/src/stm32l4/stm32l4_dfsdm.c     
@@ -569,7 +569,7 @@ STM32F7
 Peripheral    Core version  Driver                                 
 ============  ============  ============================================
 ADC           to be done    arch/arm/src/stm32f7/stm32_adc.c       
-CAN/FDCAN     bxCAN         arch/arm/src/stm32f7/stm32_can.c       
+CAN/FDCAN     bxCAN         arch/arm/src/common/stm32/stm32_can_bxcan.c
 DAC           to be done    not supported                          
 DMA           v2 style      arch/arm/src/stm32f7/stm32_dma.c       
 DMA2D         v1            arch/arm/src/common/stm32/stm32_dma2d_v1.c
@@ -641,7 +641,7 @@ Peripheral    Core version  Driver
 ============  ============  ============================================
 ADC           to be done    arch/arm/src/stm32h5/stm32_adc.c       
 AES/CRYP      to be done    not supported                          
-CAN/FDCAN     FDCAN         arch/arm/src/stm32h5/stm32_fdcan.c     
+CAN/FDCAN     FDCAN         arch/arm/src/common/stm32/stm32_fdcan_mcan_v1.c
 DAC           M33 v1        arch/arm/src/common/stm32/stm32_dac_m33_v1.c
 DTS           to be done    arch/arm/src/stm32h5/stm32_dts.c       
 ETH           v2            arch/arm/src/common/stm32/stm32_eth_v2.c
@@ -676,7 +676,7 @@ Peripheral    Core version  Driver
 ============  ============  ============================================
 ADC           to be done    arch/arm/src/stm32h7/stm32_adc.c       
 BDMA          to be done    arch/arm/src/stm32h7/stm32_dma.c       
-CAN/FDCAN     FDCAN         arch/arm/src/stm32h7/stm32_fdcan_sock.c
+CAN/FDCAN     FDCAN         arch/arm/src/common/stm32/stm32_fdcan_mcan_v2_sock.c
 DAC           to be done    not supported                          
 DMA           v2 style      arch/arm/src/stm32h7/stm32_dma.c       
 DMA2D         to be done    not supported                          
@@ -880,7 +880,7 @@ DAC           M33 v1        arch/arm/src/common/stm32/stm32_dac_m33_v1.c
 DBGMCU        v5            not supported
 DLYB          to be done    not supported
 EXTI          M33M55 v1     arch/arm/src/common/stm32/stm32_exti_gpio_m33m55_v1.c
-FDCAN         to be done    not supported
+FDCAN         FDCAN         arch/arm/src/common/stm32/stm32_fdcan_mcan_v1.c
 FLASH         to be done    not supported
 GPDMA         GPDMA         arch/arm/src/common/stm32/stm32_dma_gpdma.c
 GPIO          M33M55 v1     arch/arm/src/common/stm32/stm32_gpio_m33m55_v1.c

@@ -190,7 +190,11 @@ The MB1854 module (Sony IMX335) is on the CSI-2 host (two lanes) and I2C1
 DCMIPP converts the raw frames to RGB565 and scales them, with automatic
 exposure (``CONFIG_STM32_DCMIPP_AE``) and white balance
 (``CONFIG_STM32_DCMIPP_AWB``), switched off with ``V4L2_CID_EXPOSURE_AUTO``
-and ``V4L2_CID_AUTO_WHITE_BALANCE``.
+and ``V4L2_CID_AUTO_WHITE_BALANCE``.  The board registers ``/dev/video``.
+
+The module's ISM330DLC IMU (I2C1, 0x6a) uses the LSM6DS3TR-C driver
+(``CONFIG_SENSORS_LSM6DS3TRC``), polled, as ``/dev/uorb/sensor_accel0`` and
+``/dev/uorb/sensor_gyro0``.
 
 Time-of-flight sensor
 =====================
@@ -280,11 +284,13 @@ lvgl
 with ``lvgldemo &``.  The image is close to the 511 KiB limit of the boot
 ROM, so LVGL logging and extra fonts are left out.
 
-camera
-------
+lvglcam
+-------
 
-``fb`` plus the IMX335 camera and the ``camera`` example, see `Camera module`_.
-``camera 0`` shows a 320x240 preview on the LCD.
+The :doc:`lvglcam </applications/examples/lvglcam/index>` dashboard with
+the camera view, the IMU, the time-of-flight sensor, the network state and
+snapshots to the microSD card, see `Camera module`_.  Mount the card and
+start it with ``mount -t vfat /dev/mmcsd0 /mnt`` and ``lvglcam &``.
 
 jumbo
 -----

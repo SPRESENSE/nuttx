@@ -32,6 +32,7 @@
 #include <sys/types.h>
 #include <poll.h>
 
+#include <netpacket/cangw.h>
 #include <netpacket/netlink.h>
 #include <nuttx/queue.h>
 #include <nuttx/net/icmpv6.h>
@@ -202,30 +203,6 @@ struct netlink_conn_s
   /* Queued response data */
 
   sq_queue_t resplist;               /* Singly linked list of responses */
-};
-
-/* Standard attribute types to specify validation policy */
-
-enum
-{
-  NLA_UNSPEC,
-  NLA_U8,
-  NLA_U16,
-  NLA_U32,
-  NLA_U64,
-  NLA_STRING,
-  NLA_FLAG,
-  NLA_MSECS,
-  NLA_NESTED,
-  NLA_NESTED_COMPAT,
-  NLA_NUL_STRING,
-  NLA_BINARY,
-  NLA_S8,
-  NLA_S16,
-  NLA_S32,
-  NLA_S64,
-  NLA_BITFIELD32,
-  NLA_TYPE_MAX = NLA_BITFIELD32,
 };
 
 /* struct netlink_ext_ack - netlink extended ACK report struct
@@ -414,6 +391,27 @@ int netlink_add_terminator(NETLINK_HANDLE handle,
                            FAR const struct nlmsghdr *req, int group);
 
 /****************************************************************************
+ * Name: netlink_add_ack
+ *
+ * Description:
+ *   Add one NLMSG_ERROR response with error 0 (an ACK) for a request.
+ *
+ * Input Parameters:
+ *   handle - The handle previously provided to the sendto() implementation
+ *            for the protocol.  This is an opaque reference to the Netlink
+ *            socket state structure.
+ *   req    - The request message header.
+ *
+ * Returned Value:
+ *   Zero (OK) is returned if the ACK was successfully added to the
+ *   response list.
+ *   A negated error value is returned if an unexpected error occurred.
+ *
+ ****************************************************************************/
+
+int netlink_add_ack(NETLINK_HANDLE handle, FAR const struct nlmsghdr *req);
+
+/****************************************************************************
  * Name: netlink_tryget_response
  *
  * Description:
@@ -593,6 +591,18 @@ int nla_parse(FAR struct nlattr **tb, int maxtype,
               FAR const struct nlattr *head,
               int len, FAR const struct nla_policy *policy,
               FAR struct netlink_ext_ack *extack);
+
+/****************************************************************************
+ * nla_memcpy - Copy a netlink attribute into another memory area
+ *
+ * Note: The number of bytes copied is limited by the length of
+ *       attribute's payload. memcpy
+ *
+ * Returns the number of bytes copied.
+ ****************************************************************************/
+
+int nla_memcpy(FAR void *dest, FAR const struct nlattr *src, int count);
+
 #endif /* CONFIG_NETLINK_ROUTE */
 
 /****************************************************************************

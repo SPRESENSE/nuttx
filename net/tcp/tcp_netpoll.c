@@ -143,13 +143,20 @@ static uint32_t tcp_poll_eventhandler(FAR struct net_driver_s *dev,
               reason = ECONNRESET;
             }
 
-          /* TCP_ABORT: The remote host has aborted the connection */
+          /* TCP_ABORT: The remote host refused the connection */
+
+          else if (_SS_ISCONNECTING(info->conn->sconn.s_flags))
+            {
+              reason = ECONNREFUSED;
+            }
+
+          /* TCP_ABORT: a reset after the FIN of the peer.  tcp_input()
+           * set the error.
+           */
 
           else
             {
-              /* Indicate that remote host refused the connection */
-
-              reason = ECONNREFUSED;
+              reason = info->conn->sconn.s_error;
             }
 
           _SO_CONN_SETERRNO(info->conn, reason);
@@ -247,11 +254,14 @@ int tcp_pollsetup(FAR struct socket *psock, FAR struct pollfd_s *fds)
 
   conn_dev_lock(&conn->sconn, conn->dev);
 
-  /* Non-blocking connection ? */
+  /* Non-blocking connection, or a blocking connect() that a signal
+   * ended while the handshake goes on?
+   */
 
   nonblock_conn = ((conn->tcpstateflags == TCP_ALLOCATED ||
                     conn->tcpstateflags == TCP_SYN_SENT) &&
-                   _SS_ISNONBLOCK(conn->sconn.s_flags));
+                   (_SS_ISNONBLOCK(conn->sconn.s_flags) ||
+                    _SS_ISCONNECTING(conn->sconn.s_flags)));
 
   /* Find a container to hold the poll information */
 
@@ -427,8 +437,19 @@ int tcp_pollsetup(FAR struct socket *psock, FAR struct pollfd_s *fds)
         }
       else
         {
-          _SO_CONN_SETERRNO(conn, (_SS_ISCLOSED(conn->sconn.s_flags) ?
-                                   ECONNREFUSED : ENOTCONN));
+          /* A timeout, or a refused connection.  For a reset after the
+           * FIN of the peer, tcp_input() set the error.
+           */
+
+          if (!_SS_ISCLOSED(conn->sconn.s_flags))
+            {
+              _SO_CONN_SETERRNO(conn, ENOTCONN);
+            }
+          else if (_SS_ISCONNECTING(conn->sconn.s_flags))
+            {
+              _SO_CONN_SETERRNO(conn, ECONNREFUSED);
+            }
+
           eventset |= POLLERR | POLLHUP;
         }
 

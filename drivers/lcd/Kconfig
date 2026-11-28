@@ -1101,6 +1101,139 @@ config LCD_JD9851_TE
 
 endif # LCD_JD9851
 
+config LCD_CO5300
+	bool "Chipone CO5300 QSPI AMOLED Controller"
+	default n
+	---help---
+		Driver for AMOLED panels with the Chipone CO5300 controller
+		connected through a QSPI (4-line SPI) bus.  Only RGB565 is
+		supported.  The QSPI controller must support single-line command
+		transfers and 1-1-4 memory writes (QSPIMEM_QUADDATA).
+
+if LCD_CO5300
+
+config LCD_CO5300_XRES
+	int "CO5300 X Resolution"
+	default 480
+	---help---
+		Specifies the X resolution of the panel.
+
+config LCD_CO5300_YRES
+	int "CO5300 Y Resolution"
+	default 480
+	---help---
+		Specifies the Y resolution of the panel.
+
+config LCD_CO5300_XOFFSET
+	int "CO5300 X Offset"
+	default 0
+	---help---
+		Column of the controller RAM where the panel starts.
+
+config LCD_CO5300_YOFFSET
+	int "CO5300 Y Offset"
+	default 0
+	---help---
+		Row of the controller RAM where the panel starts.
+
+config LCD_CO5300_MIRRORX
+	bool "CO5300 Mirror X"
+	default n
+	---help---
+		Mirror the display horizontally (reverse the column address
+		order).
+
+config LCD_CO5300_MIRRORY
+	bool "CO5300 Mirror Y"
+	default n
+	---help---
+		Mirror the display vertically (reverse the row address order).
+
+config LCD_CO5300_MIRRORV
+	bool "CO5300 Mirror V"
+	default n
+	---help---
+		Exchange rows and columns.  The panel orientation is set in
+		hardware, at no cost: mirror X and Y together rotate the image
+		by 180 degrees; this option with mirror Y rotates it by 90
+		degrees one way, with mirror X by 90 degrees the other way.
+		On a non-square panel the resolution and offsets then refer to
+		the exchanged axes.
+
+config LCD_CO5300_BGR
+	bool "CO5300 Use BGR Instead Of RGB"
+	default n
+	---help---
+		Set the BGR bit of MADCTL, for panels whose red and blue
+		sub-pixels are swapped.
+
+config LCD_CO5300_FREQUENCY
+	int "CO5300 QSPI Frequency"
+	default 40000000
+	---help---
+		QSPI clock frequency in Hz.
+
+config LCD_CO5300_BRIGHTNESS
+	int "CO5300 Initial Brightness"
+	default 208
+	range 0 255
+	---help---
+		Brightness (DCS command 0x51) set at initialization.  It can be
+		changed at runtime with the LCD contrast setting.
+
+config LCD_CO5300_BUFSIZE
+	int "CO5300 Transfer Buffer Size"
+	default 2048
+	range 4 65536
+	---help---
+		Size in bytes of the DMA transfer buffer.  Pixel data is sent in
+		QSPI memory transfers of at most this size, so it must not be
+		larger than the maximum transfer size of the QSPI controller
+		(e.g. ESP32S3_SPI_DMA_BUFSIZE on ESP32-S3).  Larger values
+		reduce the per-transfer overhead.  Must be even.  With
+		LCD_CO5300_TXTHREAD the buffer is split in two halves.
+
+config LCD_CO5300_TXTHREAD
+	bool "CO5300 Transmit Thread"
+	default n
+	---help---
+		Send the pixel data from a kernel thread, so that the next part
+		of the transfer buffer is filled (and the caller, e.g. LVGL,
+		renders the next area) while the previous part is on the bus.
+		A transfer error is then reported by the next write.
+
+if LCD_CO5300_TXTHREAD
+
+config LCD_CO5300_TXTHREAD_PRIORITY
+	int "CO5300 Transmit Thread Priority"
+	default 120
+	---help---
+		Priority of the transmit thread.  It should be higher than the
+		priority of the tasks drawing to the display, so that the next
+		buffer is sent as soon as the previous transfer completes.
+
+config LCD_CO5300_TXTHREAD_STACKSIZE
+	int "CO5300 Transmit Thread Stack Size"
+	default 1536
+	---help---
+		Stack size of the transmit thread.  It only runs the QSPI
+		transfers, so a small stack is sufficient.
+
+endif # LCD_CO5300_TXTHREAD
+
+config LCD_CO5300_SHADOWBUF
+	bool "CO5300 Shadow Buffer"
+	default n
+	---help---
+		Keep a copy of the display RAM (XRES * YRES * 2 bytes) in the
+		driver.  The panel only accepts windows with even start and
+		size, so unaligned updates are widened using pixels from this
+		copy.  It also allows reading pixels back (getrun).  Without it,
+		unaligned updates are sent unmodified and the panel may not
+		show them correctly.
+
+endif # LCD_CO5300
+
 config LCD_PCD8544
 	bool "Nokia 5110 LCD Display (Philips PCD8544)"
 	default n

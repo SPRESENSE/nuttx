@@ -34,6 +34,14 @@
 #include <nuttx/video/imgsensor.h>
 #include <nuttx/video/imx335.h>
 
+#if defined(CONFIG_STM32_DCMIPP) && defined(CONFIG_VIDEO_IMX335)
+#  include <nuttx/video/v4l2_cap.h>
+#endif
+
+#ifdef CONFIG_SENSORS_LSM6DS3TRC
+#  include <nuttx/sensors/lsm6ds3trc.h>
+#endif
+
 #include "stm32_gpio.h"
 #include "stm32_i2c.h"
 #include "stm32_dcmipp.h"
@@ -145,7 +153,7 @@ void stm32_camera_power(void)
  *
  * Description:
  *   Power the camera module, release the IMX335 reset and register the
- *   sensor and the DCMIPP.
+ *   sensor, the DCMIPP and /dev/video.
  *
  * Input Parameters:
  *   None.
@@ -159,6 +167,7 @@ int stm32_camera_initialize(void)
 {
   FAR struct i2c_master_s *i2c;
   FAR struct imgsensor_s *sensor;
+  int ret;
 
   /* Power the module, then release the sensor reset */
 
@@ -180,7 +189,47 @@ int stm32_camera_initialize(void)
 
   /* The DCMIPP registers itself in front of the raw sensor */
 
-  return stm32_dcmipp_initialize(&g_camera_config, sensor);
+  ret = stm32_dcmipp_initialize(&g_camera_config, sensor);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  return capture_initialize("/dev/video");
 }
 
 #endif /* HAVE_IMX335 */
+
+#ifdef CONFIG_SENSORS_LSM6DS3TRC
+
+/****************************************************************************
+ * Name: stm32_imu_initialize
+ *
+ * Description:
+ *   Power the camera module and register its IMU, polled.
+ *
+ * Input Parameters:
+ *   None.
+ *
+ * Returned Value:
+ *   Zero (OK) on success; a negated errno value on failure.
+ *
+ ****************************************************************************/
+
+int stm32_imu_initialize(void)
+{
+  static struct lsm6ds3trc_config_s config;
+  FAR struct i2c_master_s *i2c;
+
+  stm32_camera_power();
+
+  i2c = stm32_i2cbus_initialize(CAMERA_I2C_BUS);
+  if (i2c == NULL)
+    {
+      return -ENODEV;
+    }
+
+  return lsm6ds3trc_register(i2c, IMU_I2C_ADDR, 0, &config);
+}
+
+#endif /* CONFIG_SENSORS_LSM6DS3TRC */

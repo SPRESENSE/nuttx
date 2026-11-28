@@ -28,6 +28,7 @@
 
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/param.h>
 #include <stdbool.h>
 #include <string.h>
 #include <poll.h>
@@ -258,7 +259,10 @@ static int netlink_bind(FAR struct socket *psock,
   FAR struct sockaddr_nl *nladdr;
   FAR struct netlink_conn_s *conn;
 
-  DEBUGASSERT(addrlen >= sizeof(struct sockaddr_nl));
+  if (addrlen < sizeof(struct sockaddr_nl))
+    {
+      return -EINVAL;
+    }
 
   /* Save the address information in the connection structure */
 
@@ -297,23 +301,24 @@ static int netlink_getsockname(FAR struct socket *psock,
                                FAR struct sockaddr *addr,
                                FAR socklen_t *addrlen)
 {
-  FAR struct sockaddr_nl *nladdr;
   FAR struct netlink_conn_s *conn;
-
-  DEBUGASSERT(*addrlen >= sizeof(struct sockaddr_nl));
+  struct sockaddr_nl nladdr;
 
   conn = psock->s_conn;
 
   /* Return the address information in the address structure */
 
-  nladdr = (FAR struct sockaddr_nl *)addr;
-  memset(nladdr, 0, sizeof(struct sockaddr_nl));
+  memset(&nladdr, 0, sizeof(nladdr));
+  nladdr.nl_family = AF_NETLINK;
+  nladdr.nl_pid    = conn->pid;
+  nladdr.nl_groups = conn->groups;
 
-  nladdr->nl_family = AF_NETLINK;
-  nladdr->nl_pid    = conn->pid;
-  nladdr->nl_groups = conn->groups;
+  /* Copy as much of the address as the buffer holds.  *addrlen gives the
+   * length of the whole address, so the caller sees a truncation.
+   */
 
-  *addrlen = sizeof(struct sockaddr_nl);
+  memcpy(addr, &nladdr, MIN(*addrlen, sizeof(nladdr)));
+  *addrlen = sizeof(nladdr);
   return OK;
 }
 
@@ -349,23 +354,24 @@ static int netlink_getpeername(FAR struct socket *psock,
                                FAR struct sockaddr *addr,
                                FAR socklen_t *addrlen)
 {
-  FAR struct sockaddr_nl *nladdr;
   FAR struct netlink_conn_s *conn;
-
-  DEBUGASSERT(*addrlen >= sizeof(struct sockaddr_nl));
+  struct sockaddr_nl nladdr;
 
   conn = psock->s_conn;
 
   /* Return the address information in the address structure */
 
-  nladdr = (FAR struct sockaddr_nl *)addr;
-  memset(nladdr, 0, sizeof(struct sockaddr_nl));
+  memset(&nladdr, 0, sizeof(nladdr));
+  nladdr.nl_family = AF_NETLINK;
+  nladdr.nl_pid    = conn->dst_pid;
+  nladdr.nl_groups = conn->dst_groups;
 
-  nladdr->nl_family = AF_NETLINK;
-  nladdr->nl_pid    = conn->dst_pid;
-  nladdr->nl_groups = conn->dst_groups;
+  /* Copy as much of the address as the buffer holds.  *addrlen gives the
+   * length of the whole address, so the caller sees a truncation.
+   */
 
-  *addrlen = sizeof(struct sockaddr_nl);
+  memcpy(addr, &nladdr, MIN(*addrlen, sizeof(nladdr)));
+  *addrlen = sizeof(nladdr);
   return OK;
 }
 
@@ -394,7 +400,10 @@ static int netlink_connect(FAR struct socket *psock,
   FAR struct sockaddr_nl *nladdr;
   FAR struct netlink_conn_s *conn;
 
-  DEBUGASSERT(addrlen >= sizeof(struct sockaddr_nl));
+  if (addrlen < sizeof(struct sockaddr_nl))
+    {
+      return -EINVAL;
+    }
 
   /* Save the address information in the connection structure */
 
@@ -677,6 +686,23 @@ static ssize_t netlink_sendmsg(FAR struct socket *psock,
       default:
         ret = -EOPNOTSUPP;
         break;
+    }
+
+  /* As Linux, answer a request with NLM_F_ACK with an ACK.  A dump ends
+   * with NLMSG_DONE instead.  A request that fails still returns its error
+   * from sendto() and gets no ACK.
+   */
+
+  if (ret >= 0 && (nlmsg->nlmsg_flags & NLM_F_ACK) != 0 &&
+      (nlmsg->nlmsg_flags & NLM_F_DUMP) == 0)
+    {
+      int err;
+
+      err = netlink_add_ack(conn, nlmsg);
+      if (err < 0)
+        {
+          ret = err;
+        }
     }
 
   return ret;

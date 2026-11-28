@@ -493,7 +493,7 @@ static void pcm_subsample_configure(FAR struct pcm_decode_s *priv,
        * next audio buffer that we receive.
        */
 
-       priv->subsample = subsample;
+      priv->subsample = subsample;
     }
 }
 #endif
@@ -1089,9 +1089,11 @@ static int pcm_enqueuebuffer(FAR struct audio_lowerhalf_s *dev,
 #ifndef CONFIG_AUDIO_FORMAT_RAW
   ssize_t headersize = pcm_parsewav(priv, &apb->samp[apb->curbyte],
                                     bytesleft);
+
   if (headersize > 0)
     {
       struct audio_caps_s caps;
+
       memset(&caps, 0, sizeof(caps));
 
       /* Configure the lower level for the number of channels, bitrate,
@@ -1115,7 +1117,7 @@ static int pcm_enqueuebuffer(FAR struct audio_lowerhalf_s *dev,
       if (ret < 0)
         {
           auderr("ERROR: Failed to set PCM configuration: %d\n", ret);
-          return ret;
+          goto errout;
         }
 
       /* Bump up the data offset */
@@ -1149,36 +1151,47 @@ static int pcm_enqueuebuffer(FAR struct audio_lowerhalf_s *dev,
           return OK;
         }
 
-      /* The normal protocol for streaming errors is as follows:
-       *
-       * (1) Fail the enqueueing by returned a negated error value.  The
-       *     upper level then knows that this buffer was not queue.
-       * (2) Return all queued buffers to the caller using the
-       *     AUDIO_CALLBACK_DEQUEUE callback
-       * (3) Terminate playing using the AUDIO_CALLBACK_COMPLETE
-       *     callback.
-       *
-       * In this case we fail on the very first buffer and we need only
-       * do (1) and (3).
-       */
-
-#ifdef CONFIG_AUDIO_MULTI_SESSION
-      priv->export.upper(priv->export.priv, AUDIO_CALLBACK_COMPLETE,
-                         NULL, OK, NULL);
-#else
-      priv->export.upper(priv->export.priv, AUDIO_CALLBACK_COMPLETE,
-                         NULL, OK);
-#endif
+      if (ret < 0)
+        {
+          auderr("ERROR: Lower half enqueuebuffer failed: %d\n", ret);
+        }
 
 #ifndef CONFIG_AUDIO_FORMAT_RAW
     }
+  else
+    {
+      /* This is not a WAV file! */
 
-  /* This is not a WAV file! */
+      auderr("ERROR: Invalid PCM WAV file\n");
+      ret = -EINVAL;
+    }
 
-  auderr("ERROR: Invalid PCM WAV file\n");
+errout:
 #endif
 
-  return -EINVAL;
+  /* The normal protocol for streaming errors is as follows:
+   *
+   * (1) Fail the enqueueing by returned a negated error value.  The
+   *     upper level then knows that this buffer was not queue.
+   * (2) Return all queued buffers to the caller using the
+   *     AUDIO_CALLBACK_DEQUEUE callback
+   * (3) Terminate playing using the AUDIO_CALLBACK_COMPLETE
+   *     callback.
+   *
+   * In this case we fail on the very first buffer and we need only
+   * do (1) and (3).  Without (3) the client (e.g. nxplayer) waits
+   * forever for the completion of the stream.
+   */
+
+#ifdef CONFIG_AUDIO_MULTI_SESSION
+  priv->export.upper(priv->export.priv, AUDIO_CALLBACK_COMPLETE,
+                     NULL, ret, NULL);
+#else
+  priv->export.upper(priv->export.priv, AUDIO_CALLBACK_COMPLETE,
+                     NULL, ret);
+#endif
+
+  return ret;
 }
 
 /****************************************************************************

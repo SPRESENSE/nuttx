@@ -43,9 +43,12 @@
 #include <nuttx/net/ip.h>
 #include <nuttx/net/neighbor.h>
 #include <nuttx/net/netlink.h>
-
+#ifdef CONFIG_NET_CANFORWARD
+#include <nuttx/net/cangw.h>
+#endif
 #include "netdev/netdev.h"
 #include "arp/arp.h"
+#include "inet/inet.h"
 #include "net/if_arp.h"
 #include "neighbor/neighbor.h"
 #include "route/route.h"
@@ -209,6 +212,20 @@ struct getprefix_recvfrom_rsplist_s
   struct getprefix_recvfrom_response_s payload;
 };
 
+/* RTM_NEWROUTE:  response the ack of adding a new route */
+
+struct new_ccgw_rule_response_s
+{
+  struct nlmsghdr hdr;
+  struct nlmsgerr err;
+};
+
+struct new_ccgw_rule_resplist_s
+{
+  sq_entry_t flink;
+  struct new_ccgw_rule_response_s payload;
+};
+
 /* netdev_foreach() callback */
 
 struct nlroute_sendto_request_s
@@ -271,6 +288,88 @@ static_assert(nitems(g_ifa_ipv6_policy) ==
 #  define g_ifa_ipv6_policy NULL
 #endif
 
+#if (!defined(CONFIG_NETLINK_DISABLE_NEWROUTE) || \
+     !defined(CONFIG_NETLINK_DISABLE_DELROUTE)) && \
+    defined(CONFIG_NET_CANFORWARD)
+const struct nla_policy g_cgw_policy[CGW_MAX + 1] =
+{
+  [CGW_MOD_AND] =
+    {
+      .len = sizeof(struct cgw_frame_mod)
+    },
+
+  [CGW_MOD_OR] =
+    {
+      .len = sizeof(struct cgw_frame_mod)
+    },
+
+  [CGW_MOD_XOR] =
+    {
+      .len = sizeof(struct cgw_frame_mod)
+    },
+
+  [CGW_MOD_SET] =
+    {
+      .len = sizeof(struct cgw_frame_mod)
+    },
+
+  [CGW_CS_XOR] =
+    {
+      .len = sizeof(struct cgw_csum_xor)
+    },
+
+  [CGW_CS_CRC8] =
+    {
+      .len = sizeof(struct cgw_csum_crc8)
+    },
+
+  [CGW_SRC_IF] =
+    {
+      .type = NLA_U32
+    },
+
+  [CGW_DST_IF] =
+    {
+      .type = NLA_U32
+    },
+
+  [CGW_FILTER] =
+    {
+      .len = sizeof(struct can_filter)
+    },
+
+  [CGW_LIM_HOPS] =
+    {
+      .type = NLA_U8
+    },
+
+  [CGW_MOD_UID] =
+    {
+      .type = NLA_U32
+    },
+
+  [CGW_FDMOD_AND] =
+    {
+      .len = sizeof(struct cgw_fdframe_mod)
+    },
+
+  [CGW_FDMOD_OR] =
+    {
+      .len = sizeof(struct cgw_fdframe_mod)
+    },
+
+  [CGW_FDMOD_XOR] =
+    {
+      .len = sizeof(struct cgw_fdframe_mod)
+    },
+
+  [CGW_FDMOD_SET] =
+    {
+      .len = sizeof(struct cgw_fdframe_mod)
+    },
+};
+#endif
+
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
@@ -280,6 +379,15 @@ static_assert(nitems(g_ifa_ipv6_policy) ==
  *
  * Description:
  *   Generate one device response.
+ *
+ * Input Parameters:
+ *   dev  - The network device to report on.
+ *   type - The netlink message type to report, either RTM_NEWLINK or
+ *          RTM_DELLINK.  The caller decides this because the meaning
+ *          differs per usage:  a RTM_GETLINK dump always reports
+ *          RTM_NEWLINK (link state is carried by ifi_flags), while an
+ *          RTNLGRP_LINK broadcast reports the actual link event.
+ *   req  - The originating request, or NULL for an unsolicited broadcast.
  *
  ****************************************************************************/
 
@@ -323,12 +431,11 @@ static uint16_t netlink_convert_device_type(uint8_t lltype)
 }
 
 static FAR struct netlink_response_s *
-netlink_get_device(FAR struct net_driver_s *dev,
+netlink_get_device(FAR struct net_driver_s *dev, int type,
                    FAR const struct nlroute_sendto_request_s *req)
 {
   FAR struct getlink_recvfrom_rsplist_s *alloc;
   FAR struct getlink_recvfrom_response_s *resp;
-  int up = IFF_IS_UP(dev->d_flags);
 
   /* Allocate the response buffer */
 
@@ -345,7 +452,7 @@ netlink_get_device(FAR struct net_driver_s *dev,
   resp                   = &alloc->payload;
 
   resp->hdr.nlmsg_len    = sizeof(struct getlink_recvfrom_response_s);
-  resp->hdr.nlmsg_type   = up ? RTM_NEWLINK : RTM_DELLINK;
+  resp->hdr.nlmsg_type   = type;
   resp->hdr.nlmsg_flags  = req ? req->hdr.nlmsg_flags : 0;
   resp->hdr.nlmsg_seq    = req ? req->hdr.nlmsg_seq : 0;
   resp->hdr.nlmsg_pid    = req ? req->hdr.nlmsg_pid : 0;
@@ -485,7 +592,9 @@ static int netlink_device_callback(FAR struct net_driver_s *dev,
   FAR struct nlroute_info_s *info = arg;
   FAR struct netlink_response_s * resp;
 
-  resp = netlink_get_device(dev, info->req);
+  /* A RTM_GETLINK dump always reports RTM_NEWLINK */
+
+  resp = netlink_get_device(dev, RTM_NEWLINK, info->req);
   if (resp == NULL)
     {
       return -ENOMEM;
@@ -729,18 +838,56 @@ netlink_get_neighbor(FAR const void *neigh, int domain, int type,
   return (FAR struct netlink_response_s *)alloc;
 }
 
-static int netlink_get_neighborlist(NETLINK_HANDLE handle, int domain,
-                              FAR const struct nlroute_sendto_request_s *req)
+static int netlink_get_neighborlist(NETLINK_HANDLE handle,
+                                    FAR const struct nlroute_sendto_request_s
+                                    *req)
 {
   FAR struct netlink_response_s *resp;
+  int family = req->gen.rtgen_family;
+  bool match = false;
+  bool found = false;
 
-  resp = netlink_get_neighbor(NULL, domain, RTM_GETNEIGH, req);
-  if (resp == NULL)
+  /* As in Linux, AF_UNSPEC dumps the tables of all families */
+
+#ifdef CONFIG_NET_ARP
+  if (family == AF_INET || family == AF_UNSPEC)
+    {
+      match = true;
+      resp  = netlink_get_neighbor(NULL, AF_INET, RTM_GETNEIGH, req);
+      if (resp != NULL)
+        {
+          netlink_add_response(handle, resp);
+          found = true;
+        }
+    }
+#endif
+
+#ifdef CONFIG_NET_IPv6
+  if (family == AF_INET6 || family == AF_UNSPEC)
+    {
+      match = true;
+      resp  = netlink_get_neighbor(NULL, AF_INET6, RTM_GETNEIGH, req);
+      if (resp != NULL)
+        {
+          netlink_add_response(handle, resp);
+          found = true;
+        }
+    }
+#endif
+
+  if (!match)
+    {
+      return -EAFNOSUPPORT;
+    }
+
+  /* The empty table of one family is an error.  The dump of all families
+   * ends with NLMSG_DONE also when all tables are empty, as in Linux.
+   */
+
+  if (!found && family != AF_UNSPEC)
     {
       return -ENOENT;
     }
-
-  netlink_add_response(handle, resp);
 
   return netlink_add_terminator(handle, &req->hdr, 0);
 }
@@ -843,22 +990,13 @@ static int netlink_list_ipv4_route(NETLINK_HANDLE handle,
                               FAR const struct nlroute_sendto_request_s *req)
 {
   struct nlroute_info_s info;
-  int ret;
 
   /* Visit each routing table entry */
 
   info.handle = handle;
   info.req    = req;
 
-  ret = net_foreachroute_ipv4(netlink_ipv4route_callback, &info);
-  if (ret < 0)
-    {
-      return ret;
-    }
-
-  /* Terminate the routing table */
-
-  return netlink_add_terminator(handle, &req->hdr, 0);
+  return net_foreachroute_ipv4(netlink_ipv4route_callback, &info);
 }
 #endif
 
@@ -963,14 +1101,54 @@ static int netlink_list_ipv6_route(NETLINK_HANDLE handle,
                               FAR const struct nlroute_sendto_request_s *req)
 {
   struct nlroute_info_s info;
-  int ret;
 
   /* Visit each routing table entry */
 
   info.handle = handle;
   info.req    = req;
 
-  ret = net_foreachroute_ipv6(netlink_ipv6route_callback, &info);
+  return net_foreachroute_ipv6(netlink_ipv6route_callback, &info);
+}
+#endif
+
+/****************************************************************************
+ * Name: netlink_list_route
+ *
+ * Description:
+ *   Dump the routing table of the family of the request.  As in Linux,
+ *   AF_UNSPEC dumps the tables of all families.
+ *
+ ****************************************************************************/
+
+#ifndef CONFIG_NETLINK_DISABLE_GETROUTE
+static int netlink_list_route(NETLINK_HANDLE handle,
+                              FAR const struct nlroute_sendto_request_s *req)
+{
+  int family = req->gen.rtgen_family;
+  int ret = -EAFNOSUPPORT;
+
+#ifdef CONFIG_NET_IPv4
+  if (family == AF_INET || family == AF_UNSPEC)
+    {
+      ret = netlink_list_ipv4_route(handle, req);
+      if (ret < 0)
+        {
+          return ret;
+        }
+    }
+#endif
+
+#ifdef CONFIG_NET_IPv6
+  if (family == AF_INET6 || family == AF_UNSPEC)
+    {
+      ret = netlink_list_ipv6_route(handle, req);
+      if (ret < 0)
+        {
+          return ret;
+        }
+    }
+#endif
+
   if (ret < 0)
     {
       return ret;
@@ -1220,11 +1398,13 @@ static int netlink_ipv6_addr_callback(FAR struct net_driver_s *dev,
 static int netlink_addr_callback(FAR struct net_driver_s *dev, FAR void *arg)
 {
   FAR struct nlroute_info_s *info = arg;
-  FAR struct netlink_response_s *resp;
 
 #ifdef CONFIG_NET_IPv4
-  if (info->req->gen.rtgen_family == AF_INET)
+  if (info->req->gen.rtgen_family == AF_INET ||
+      info->req->gen.rtgen_family == AF_UNSPEC)
     {
+      FAR struct netlink_response_s *resp;
+
       resp = netlink_get_ifaddr(dev, AF_INET, RTM_NEWADDR, &dev->d_ipaddr,
                                 net_ipv4_mask2pref(dev->d_netmask),
                                 info->req);
@@ -1238,7 +1418,8 @@ static int netlink_addr_callback(FAR struct net_driver_s *dev, FAR void *arg)
 #endif
 
 #ifdef CONFIG_NET_IPv6
-  if (info->req->gen.rtgen_family == AF_INET6)
+  if (info->req->gen.rtgen_family == AF_INET6 ||
+      info->req->gen.rtgen_family == AF_UNSPEC)
     {
       return netdev_ipv6_foreach(dev, netlink_ipv6_addr_callback, arg);
     }
@@ -1252,6 +1433,23 @@ static int netlink_get_addr(NETLINK_HANDLE handle,
 {
   struct nlroute_info_s info;
   int ret;
+
+  /* As in Linux, AF_UNSPEC dumps the addresses of all families */
+
+  switch (req->gen.rtgen_family)
+    {
+      case AF_UNSPEC:
+#ifdef CONFIG_NET_IPv4
+      case AF_INET:
+#endif
+#ifdef CONFIG_NET_IPv6
+      case AF_INET6:
+#endif
+        break;
+
+      default:
+        return -EAFNOSUPPORT;
+    }
 
   /* Visit each device */
 
@@ -1320,9 +1518,504 @@ netlink_fill_ipv6prefix(FAR struct net_driver_s *dev, int type,
 }
 #endif
 
+#if !defined(CONFIG_NETLINK_DISABLE_NEWROUTE) && \
+    defined(CONFIG_NET_CANFORWARD)
+
+static int netlink_add_cangw_rule(FAR struct rtcanmsg *rt_msg,
+                                  FAR struct nlattr *tb[])
+{
+  FAR struct cangw_rule_s *cgw_rule;
+  FAR struct net_driver_s *src_dev;
+  uint32_t src_if;
+  uint32_t dst_if;
+  int ret;
+
+  /* Allocate and zero-initialize cangw_rule structure */
+
+  cgw_rule = kmm_zalloc(sizeof(struct cangw_rule_s));
+  if (cgw_rule == NULL)
+    {
+      nwarn("Failed to allocate cangw_rule structure\n");
+      ret = -ENOMEM;
+      goto errout;
+    }
+
+  cgw_rule->gwtype = rt_msg->gwtype;
+  cgw_rule->flags  = rt_msg->flags;
+
+  /* check for can_filter in attributes */
+
+  if (tb[CGW_FILTER])
+    {
+      nla_memcpy(&cgw_rule->gw.ccgw.filter, tb[CGW_FILTER],
+                  sizeof(struct can_filter));
+    }
+
+  ret = -ENODEV;
+
+  /* specifying two interfaces is mandatory */
+
+  if (!tb[CGW_SRC_IF] || !tb[CGW_DST_IF])
+    {
+      goto errout_with_rule;
+    }
+
+  src_if = *(FAR uint32_t *)nla_data(tb[CGW_SRC_IF]);
+  dst_if = *(FAR uint32_t *)nla_data(tb[CGW_DST_IF]);
+
+  src_dev = netdev_findbyindex(src_if);
+  cgw_rule->dest_dev = netdev_findbyindex(dst_if);
+
+  if (src_dev == NULL || cgw_rule->dest_dev == NULL)
+    {
+      goto errout_with_rule;
+    }
+
+  add_cangw_rule(src_dev, cgw_rule);
+  return OK;
+
+errout_with_rule:
+  if (cgw_rule != NULL)
+    {
+      kmm_free(cgw_rule);
+    }
+
+errout:
+  return ret;
+}
+
+static int netlink_new_can_route(FAR const struct nlmsghdr *nlmsg)
+{
+  FAR struct nlattr *tb[CGW_MAX + 1];
+  FAR struct rtcanmsg *rt_msg = nlmsg_data(nlmsg);
+  int ret;
+
+  /* nlmsg boundary check */
+
+  if (nlmsg->nlmsg_len < nlmsg_msg_size(sizeof(struct rtcanmsg)))
+    {
+      return -EINVAL;
+    }
+
+  /* parse nlmsg and acquire tb. */
+
+  ret = nlmsg_parse(nlmsg, sizeof(struct rtcanmsg), tb, CGW_MAX,
+                    g_cgw_policy, NULL);
+  if (ret < 0)
+    {
+      nwarn("nlmsg_parse failed: %d\n", ret);
+      return ret;
+    }
+
+  /* get r->gwtype and switch r->gwtype */
+
+  switch (rt_msg->gwtype)
+    {
+      case CGW_TYPE_CAN_CAN:
+        return netlink_add_cangw_rule(rt_msg, tb);
+
+      default:
+        return -EAFNOSUPPORT;
+    }
+}
+
+#endif /* CONFIG_NET_CANFORWARD && !CONFIG_NETLINK_DISABLE_NEWROUTE */
+
+#if !defined(CONFIG_NETLINK_DISABLE_DELROUTE) && \
+    defined(CONFIG_NET_CANFORWARD)
+
+static int netlink_remove_cangw_rule(FAR struct rtcanmsg *rt_msg,
+                                     FAR struct nlattr *tb[])
+{
+  FAR struct net_driver_s *src_dev;
+  uint32_t src_if;
+  int count;
+
+  /* CGW_SRC_IF is mandatory — we need to know which device to operate on */
+
+  if (!tb[CGW_SRC_IF])
+    {
+      return -EINVAL;
+    }
+
+  src_if = *(FAR uint32_t *)nla_data(tb[CGW_SRC_IF]);
+  src_dev = netdev_findbyindex(src_if);
+
+  if (src_dev == NULL)
+    {
+      nerr("src_dev is not found\n");
+      return -ENODEV;
+    }
+
+  /* If filter or destination attributes are present, build a match rule
+   * and remove only matching entries. Otherwise pass NULL to remove all
+   * rules on the source device.
+   */
+
+  if (tb[CGW_FILTER] || tb[CGW_DST_IF])
+    {
+      struct cangw_rule_s rule;
+
+      memset(&rule, 0, sizeof(rule));
+
+      /* Populate filter criteria if provided */
+
+      if (tb[CGW_FILTER])
+        {
+          nla_memcpy(&rule.gw.ccgw.filter, tb[CGW_FILTER],
+                     sizeof(struct can_filter));
+        }
+
+      /* Resolve destination device if specified; dst_if == 0 means
+       * match any destination.
+       */
+
+      if (tb[CGW_DST_IF])
+        {
+          uint32_t dst_if = *(FAR uint32_t *)nla_data(tb[CGW_DST_IF]);
+
+          if (dst_if != 0)
+            {
+              rule.dest_dev = netdev_findbyindex(dst_if);
+              if (rule.dest_dev == NULL)
+                {
+                  return -ENODEV;
+                }
+            }
+        }
+
+      /* Pass NULL for removed — let remove_cangw_rule free heap nodes
+       * directly instead of collecting them.
+       */
+
+      count = remove_cangw_rule(src_dev, &rule, NULL);
+      if (count == 0)
+        {
+          nwarn("rule not found\n");
+          return -ENOENT;
+        }
+    }
+  else
+    {
+      /* No filter/dst specified — flush all rules on this device */
+
+      count = remove_cangw_rule(src_dev, NULL, NULL);
+    }
+
+  return OK;
+}
+
+static int netlink_del_can_route(FAR const struct nlmsghdr *nlmsg)
+{
+  FAR struct nlattr *tb[CGW_MAX + 1];
+  FAR struct rtcanmsg *rt_msg = nlmsg_data(nlmsg);
+  int ret;
+
+  /* nlmsg boundary check */
+
+  if (nlmsg->nlmsg_len < nlmsg_msg_size(sizeof(struct rtcanmsg)))
+    {
+      return -EINVAL;
+    }
+
+  /* parse nlmsg and acquire tb. */
+
+  ret = nlmsg_parse(nlmsg, sizeof(struct rtcanmsg), tb,
+                    CGW_MAX, g_cgw_policy, NULL);
+  if (ret < 0)
+    {
+      nwarn("nlmsg_parse failed: %d\n", ret);
+      return ret;
+    }
+
+  /* get r->gwtype and switch r->gwtype */
+
+  switch (rt_msg->gwtype)
+    {
+      case CGW_TYPE_CAN_CAN:
+        return netlink_remove_cangw_rule(rt_msg, tb);
+
+      default:
+        return -EAFNOSUPPORT;
+    }
+}
+
+#endif /* CONFIG_NET_CANFORWARD && !CONFIG_NETLINK_DISABLE_DELROUTE */
+
+#if (!defined(CONFIG_NETLINK_DISABLE_NEWROUTE) || \
+     !defined(CONFIG_NETLINK_DISABLE_DELROUTE)) && \
+    defined(CONFIG_NET_CANFORWARD)
+
+static void netlink_can_ack(NETLINK_HANDLE handle,
+                            FAR const struct nlmsghdr *nlmsg,
+                            int err)
+{
+  FAR struct new_ccgw_rule_response_s *resp;
+  FAR struct new_ccgw_rule_resplist_s *alloc =
+             kmm_zalloc(sizeof(struct new_ccgw_rule_resplist_s));
+
+  if (alloc == NULL)
+    {
+      nerr("ERROR: Failed to allocate response buffer "
+           "about new ccgw rule.\n");
+      return;
+    }
+
+  resp = &alloc->payload;
+  resp->hdr.nlmsg_len   = sizeof(struct new_ccgw_rule_response_s);
+  resp->hdr.nlmsg_type  = NLMSG_ERROR;
+  resp->hdr.nlmsg_flags = nlmsg->nlmsg_flags;
+  resp->hdr.nlmsg_seq   = nlmsg->nlmsg_seq;
+  resp->hdr.nlmsg_pid   = nlmsg->nlmsg_pid;
+  resp->err.error       = err;
+  resp->err.msg         = *nlmsg;
+
+  /* Finally, add the response to the list of pending responses */
+
+  netlink_add_response(handle,
+                       (FAR struct netlink_response_s *)alloc);
+}
+
+#endif /* CONFIG_NET_CANFORWARD && !CONFIG_NETLINK_DISABLE_NEWROUTE/DELROUTE */
+
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
+
+/****************************************************************************
+ * Name: netlink_new_ipv4route
+ *
+ * Description:
+ *   Process IPv4 route addition request
+ *
+ ****************************************************************************/
+
+#if defined(CONFIG_NET_IPv4) && !defined(CONFIG_NETLINK_DISABLE_NEWROUTE)
+static int netlink_new_ipv4route(FAR const struct nlmsghdr *nlmsg)
+{
+  FAR struct nlattr *tb[RTA_MAX + 1];
+  FAR const struct rtmsg *rtm;
+  in_addr_t gateway = 0;
+  int oif_index = 0;
+  FAR struct net_driver_s *dev = NULL;
+  int ret;
+
+  memset(tb, 0, sizeof(tb));
+
+  if (nlmsg->nlmsg_len < NLMSG_LENGTH(sizeof(struct rtmsg)))
+    {
+      return -EINVAL;
+    }
+
+  ret = nlmsg_parse((FAR struct nlmsghdr *)nlmsg,
+                    sizeof(struct rtmsg),
+                    tb, RTA_MAX, NULL, NULL);
+  if (ret < 0)
+    {
+      nwarn("nlmsg_parse failed: %d\n", ret);
+      return ret;
+    }
+
+  rtm = NLMSG_DATA(nlmsg);
+
+  if (tb[RTA_GATEWAY])
+    {
+      /* Validate gateway attribute length */
+
+      if (nla_len(tb[RTA_GATEWAY]) >= sizeof(in_addr_t))
+        {
+          gateway = *(FAR in_addr_t *)nla_data(tb[RTA_GATEWAY]);
+        }
+      else
+        {
+          nwarn("netlink_new_ipv4route: Gateway address too short\n");
+          return -EINVAL;
+        }
+    }
+
+  if (tb[RTA_OIF])
+    {
+      /* Validate output interface index length */
+
+      if (nla_len(tb[RTA_OIF]) >= sizeof(uint32_t))
+        {
+          oif_index = *(FAR uint32_t *)nla_data(tb[RTA_OIF]);
+        }
+      else
+        {
+          nwarn("netlink_new_ipv4route: OIF index too short\n");
+          return -EINVAL;
+        }
+    }
+
+  dev = netdev_findbyindex(oif_index);
+  if (dev != NULL)
+    {
+#ifdef CONFIG_NET_ROUTE
+      struct net_route_ipv4_s route;
+      in_addr_t dst = 0;
+
+      /* Parse destination if present */
+
+      if (tb[RTA_DST])
+        {
+          if (nla_len(tb[RTA_DST]) >= sizeof(in_addr_t))
+            {
+              dst = *(FAR in_addr_t *)nla_data(tb[RTA_DST]);
+            }
+          else
+            {
+              nwarn("netlink_new_ipv4route: "
+                    "Destination address too short\n");
+              return -EINVAL;
+            }
+        }
+
+      memset(&route, 0, sizeof(route));
+      route.target  = dst;                         /* Destination network */
+      route.netmask = make_mask(rtm->rtm_dst_len); /* Netmask from prefix */
+      route.router  = gateway;                     /* Gateway */
+
+      /* Broadcast route change notification */
+
+      netlink_route_notify(&route, RTM_NEWROUTE, AF_INET);
+#endif
+
+      /* Update default router only when gateway is specified AND this
+       * route is a default route (prefix length == 0).
+       */
+
+      if (gateway != 0 && rtm->rtm_dst_len == 0)
+        {
+          netdev_lock(dev);
+          dev->d_draddr = gateway;
+          netdev_unlock(dev);
+        }
+
+      return OK;
+    }
+
+  return -ENODEV;
+}
+#endif /* CONFIG_NET_IPv4 && !CONFIG_NETLINK_DISABLE_NEWROUTE */
+
+/****************************************************************************
+ * Name: netlink_new_ipv6route
+ *
+ * Description:
+ *   Process IPv6 route addition request
+ *
+ ****************************************************************************/
+
+#if defined(CONFIG_NET_IPv6) && !defined(CONFIG_NETLINK_DISABLE_NEWROUTE)
+static int netlink_new_ipv6route(FAR const struct nlmsghdr *nlmsg)
+{
+  FAR struct nlattr *tb[RTA_MAX + 1];
+  FAR const struct rtmsg *rtm;
+  net_ipv6addr_t gateway;
+  net_ipv6addr_t dst;
+  int oif_index = 0;
+  FAR struct net_driver_s *dev = NULL;
+  int ret;
+
+  memset(tb, 0, sizeof(tb));
+
+  if (nlmsg->nlmsg_len < NLMSG_LENGTH(sizeof(struct rtmsg)))
+    {
+      return -EINVAL;
+    }
+
+  ret = nlmsg_parse((FAR struct nlmsghdr *)nlmsg,
+                    sizeof(struct rtmsg),
+                    tb, RTA_MAX, NULL, NULL);
+  if (ret < 0)
+    {
+      nwarn("nlmsg_parse failed: %d\n", ret);
+      return ret;
+    }
+
+  rtm = NLMSG_DATA(nlmsg);
+
+  if (tb[RTA_GATEWAY])
+    {
+      if (nla_len(tb[RTA_GATEWAY]) >= sizeof(net_ipv6addr_t))
+        {
+          memcpy(&gateway, nla_data(tb[RTA_GATEWAY]),
+                 sizeof(net_ipv6addr_t));
+        }
+      else
+        {
+          nwarn("netlink_new_ipv6route: Gateway address too short\n");
+          return -EINVAL;
+        }
+    }
+
+  /* Parse destination if present; default to :: (unspecified) */
+
+  memset(&dst, 0, sizeof(dst));
+  if (tb[RTA_DST])
+    {
+      if (nla_len(tb[RTA_DST]) >= sizeof(net_ipv6addr_t))
+        {
+          memcpy(&dst, nla_data(tb[RTA_DST]), sizeof(net_ipv6addr_t));
+        }
+      else
+        {
+          nwarn("netlink_new_ipv6route: Destination address too short\n");
+          return -EINVAL;
+        }
+    }
+
+  if (tb[RTA_OIF])
+    {
+      /* Validate output interface index length */
+
+      if (nla_len(tb[RTA_OIF]) >= sizeof(uint32_t))
+        {
+          oif_index = *(FAR uint32_t *)nla_data(tb[RTA_OIF]);
+        }
+      else
+        {
+          nwarn("netlink_new_ipv6route: OIF index too short\n");
+          return -EINVAL;
+        }
+    }
+
+  if (oif_index > 0)
+    {
+      dev = netdev_findbyindex(oif_index);
+    }
+
+  if (dev)
+    {
+#ifdef CONFIG_NET_ROUTE
+      struct net_route_ipv6_s route;
+
+      memset(&route, 0, sizeof(struct net_route_ipv6_s));
+      net_ipv6addr_copy(route.target, &dst);
+      net_ipv6_pref2mask(route.netmask, rtm->rtm_dst_len);
+      net_ipv6addr_copy(route.router, &gateway);
+      netlink_route_notify(&route, RTM_NEWROUTE, AF_INET6);
+#endif
+
+      /* Update default router only when gateway is specified AND this
+       * route is a default route (prefix length == 0).
+       */
+
+      if (!net_ipv6addr_cmp(&gateway, &g_ipv6_unspecaddr) &&
+          rtm->rtm_dst_len == 0)
+        {
+          netdev_lock(dev);
+          memcpy(&dev->d_ipv6draddr, &gateway, sizeof(net_ipv6addr_t));
+          netdev_unlock(dev);
+        }
+
+      return OK;
+    }
+
+  return -ENODEV;
+}
+#endif /* CONFIG_NET_IPv6 && !CONFIG_NETLINK_DISABLE_NEWROUTE */
 
 /****************************************************************************
  * Name: netlink_route_sendto()
@@ -1340,7 +2033,7 @@ ssize_t netlink_route_sendto(NETLINK_HANDLE handle,
 {
   FAR const struct nlroute_sendto_request_s *req =
     (FAR const struct nlroute_sendto_request_s *)nlmsg;
-  int ret;
+  int ret = 0;
 
   DEBUGASSERT(handle != NULL && nlmsg != NULL &&
               nlmsg->nlmsg_len >= sizeof(struct nlmsghdr) &&
@@ -1367,28 +2060,7 @@ ssize_t netlink_route_sendto(NETLINK_HANDLE handle,
       /* Retrieve ARP/Neighbor Tables */
 
       case RTM_GETNEIGH:
-#ifdef CONFIG_NET_ARP
-        /* Retrieve the ARP table in its entirety. */
-
-        if (req->gen.rtgen_family == AF_INET)
-          {
-            ret = netlink_get_neighborlist(handle, AF_INET, req);
-          }
-        else
-#endif
-
-#ifdef CONFIG_NET_IPv6
-        /* Retrieve the IPv6 neighbor table in its entirety. */
-
-        if (req->gen.rtgen_family == AF_INET6)
-          {
-            ret = netlink_get_neighborlist(handle, AF_INET6, req);
-          }
-        else
-#endif
-          {
-            ret = -EAFNOSUPPORT;
-          }
+        ret = netlink_get_neighborlist(handle, req);
         break;
 #endif /* !CONFIG_NETLINK_DISABLE_GETNEIGH */
 
@@ -1396,23 +2068,7 @@ ssize_t netlink_route_sendto(NETLINK_HANDLE handle,
       /* Retrieve the IPv4 or IPv6 routing table */
 
       case RTM_GETROUTE:
-#ifdef CONFIG_NET_IPv4
-        if (req->gen.rtgen_family == AF_INET)
-          {
-            ret = netlink_list_ipv4_route(handle, req);
-          }
-        else
-#endif
-#ifdef CONFIG_NET_IPv6
-        if (req->gen.rtgen_family == AF_INET6)
-          {
-            ret = netlink_list_ipv6_route(handle, req);
-          }
-        else
-#endif
-          {
-            ret = -EAFNOSUPPORT;
-          }
+        ret = netlink_list_route(handle, req);
         break;
 #endif
 
@@ -1468,17 +2124,56 @@ ssize_t netlink_route_sendto(NETLINK_HANDLE handle,
       /* Get the IPv4 or IPv6 address */
 
       case RTM_GETADDR:
+        ret = netlink_get_addr(handle, req);
+        break;
+#endif
+#ifndef CONFIG_NETLINK_DISABLE_NEWROUTE
+      /* Add a route or a CAN gateway rule */
+
+      case RTM_NEWROUTE:
 #ifdef CONFIG_NET_IPv4
         if (req->gen.rtgen_family == AF_INET)
           {
-            ret = netlink_get_addr(handle, req);
+            ret = netlink_new_ipv4route(nlmsg);
           }
         else
 #endif
 #ifdef CONFIG_NET_IPv6
         if (req->gen.rtgen_family == AF_INET6)
           {
-            ret = netlink_get_addr(handle, req);
+            ret = netlink_new_ipv6route(nlmsg);
+          }
+        else
+#endif
+#ifdef CONFIG_NET_CANFORWARD
+        if (req->gen.rtgen_family == AF_CAN)
+          {
+            ret = netlink_new_can_route(nlmsg);
+            if (nlmsg->nlmsg_flags & NLM_F_ACK)
+              {
+                netlink_can_ack(handle, nlmsg, ret);
+              }
+          }
+        else
+#endif
+          {
+            ret = -EAFNOSUPPORT;
+            nwarn("Unsupported address family %d\n",
+                  req->gen.rtgen_family);
+          }
+        break;
+#endif /* !CONFIG_NETLINK_DISABLE_NEWROUTE */
+
+#ifndef CONFIG_NETLINK_DISABLE_DELROUTE
+      case RTM_DELROUTE:
+#ifdef CONFIG_NET_CANFORWARD
+        if (req->gen.rtgen_family == AF_CAN)
+          {
+            ret = netlink_del_can_route(nlmsg);
+            if (nlmsg->nlmsg_flags & NLM_F_ACK)
+              {
+                netlink_can_ack(handle, nlmsg, ret);
+              }
           }
         else
 #endif
@@ -1486,7 +2181,7 @@ ssize_t netlink_route_sendto(NETLINK_HANDLE handle,
             ret = -EAFNOSUPPORT;
           }
         break;
-#endif
+#endif /* !CONFIG_NETLINK_DISABLE_DELROUTE */
 
       default:
         ret = -ENOSYS;
@@ -1518,7 +2213,13 @@ void netlink_device_notify(FAR struct net_driver_s *dev)
 
   DEBUGASSERT(dev != NULL);
 
-  resp = netlink_get_device(dev, NULL);
+  /* report the link event itself, RTM_NEWLINK when the device came up and
+   * RTM_DELLINK when it went down.
+   */
+
+  resp = netlink_get_device(dev, IFF_IS_UP(dev->d_flags) ? RTM_NEWLINK :
+                                                           RTM_DELLINK,
+                            NULL);
   if (resp != NULL)
     {
       netlink_add_broadcast(RTNLGRP_LINK, resp);

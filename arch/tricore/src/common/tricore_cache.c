@@ -50,7 +50,7 @@
 #define PCON1_INVALIDATE (1 << 0)
 #define DCON1_INVALIDATE (1 << 0)
 
-/* PCON2/DCON2 bits 15:0: cache size field. */
+/* PCON2/DCON2 bits 15:0: cache size in KB. */
 
 #define ICACHE_SIZE_MASK (0xffff << 0)
 #define DCACHE_SIZE_MASK (0xffff << 0)
@@ -110,7 +110,7 @@ size_t up_get_icache_linesize(void)
 
 size_t up_get_icache_size(void)
 {
-  return (tricore_mfcr(TRICORE_CPU_PCON2) & ICACHE_SIZE_MASK) * 1000;
+  return (tricore_mfcr(TRICORE_CPU_PCON2) & ICACHE_SIZE_MASK) * 1024;
 }
 
 /****************************************************************************
@@ -236,7 +236,7 @@ size_t up_get_dcache_linesize(void)
 
 size_t up_get_dcache_size(void)
 {
-  return (tricore_mfcr(TRICORE_CPU_DCON2) & DCACHE_SIZE_MASK) * 1000;
+  return (tricore_mfcr(TRICORE_CPU_DCON2) & DCACHE_SIZE_MASK) * 1024;
 }
 
 /****************************************************************************
@@ -414,12 +414,15 @@ void up_clean_dcache_all(void)
 {
   uintptr_t cache_addr = CONFIG_ARCH_DCACHE_ADDR;
   size_t line_size = up_get_dcache_linesize();
-  size_t line_cnt = up_get_dcache_size() / line_size;
+  size_t line_cnt = up_get_dcache_size() / line_size / 2;
   size_t i;
+
+  /* 2-way cache: bit 0 of the CACHEI address selects the way */
 
   for (i = 0; i < line_cnt; i++)
     {
       tc_clear_cache_byline(cache_addr);
+      tc_clear_cache_byline(cache_addr + 1);
       cache_addr += line_size;
     }
 
@@ -477,12 +480,15 @@ void up_flush_dcache_all(void)
 {
   uintptr_t cache_addr = CONFIG_ARCH_DCACHE_ADDR;
   size_t line_size = up_get_dcache_linesize();
-  size_t line_cnt = up_get_dcache_size() / line_size;
+  size_t line_cnt = up_get_dcache_size() / line_size / 2;
   size_t i;
+
+  /* 2-way cache: bit 0 of the CACHEI address selects the way */
 
   for (i = 0; i < line_cnt; i++)
     {
       tc_flush_cache_byline(cache_addr);
+      tc_flush_cache_byline(cache_addr + 1);
       cache_addr += line_size;
     }
 

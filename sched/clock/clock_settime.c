@@ -66,9 +66,10 @@ static void nxclock_set_realtime(FAR const struct timespec *tp)
   struct timespec bias;
   irqstate_t flags;
 #  ifdef CONFIG_CLOCK_ADJTIME
-  const struct timeval zerodelta = {
-    0, 0
-  };
+  const struct timeval zerodelta =
+    {
+      0, 0
+    };
 #  endif
 
   /* Interrupts are disabled here so that the in-memory time
@@ -145,7 +146,7 @@ int clock_settime(clockid_t clock_id, FAR const struct timespec *tp)
 {
   int ret = -EINVAL;
 
-  if (tp != NULL && tp->tv_nsec >= 0 && tp->tv_nsec < 1000000000)
+  if (tp != NULL && clock_timespec_validate(tp))
     {
       if (clock_id == CLOCK_REALTIME)
         {

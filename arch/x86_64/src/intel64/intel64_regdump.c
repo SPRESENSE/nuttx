@@ -61,45 +61,19 @@ void print_mem(void *sp, size_t size)
             }
         }
 
-    buf[8] = '\0';
-    _alert(" %016" PRIxPTR "\t%02x %02x %02x %02x %02x %02x %02x %02x\t%s\n",
-            (uintptr_t)(sp + i * 8),
-            *((uint8_t *)(sp + i * 8 + 0)),
-            *((uint8_t *)(sp + i * 8 + 1)),
-            *((uint8_t *)(sp + i * 8 + 2)),
-            *((uint8_t *)(sp + i * 8 + 3)),
-            *((uint8_t *)(sp + i * 8 + 4)),
-            *((uint8_t *)(sp + i * 8 + 5)),
-            *((uint8_t *)(sp + i * 8 + 6)),
-            *((uint8_t *)(sp + i * 8 + 7)),
-            buf);
-    }
-}
-
-void backtrace(uint64_t rbp)
-{
-  int i;
-
-  _alert("Frame Dump (64 bytes):\n");
-
-  for (i = 0; i < 16; i++)
-    {
-      if ((rbp < 0x200000) || (rbp > 0xfffffffff))
-        {
-          break;
-        }
-
-      _alert("  %016" PRIx64 "\t%016" PRIx64 "\n",
-             *((uint64_t *)(rbp)), *((uint64_t *)(rbp + 1 * 8)));
-
-      if ((rbp) && *((uint64_t *)(rbp + 1 * 8)))
-        {
-          rbp = *(uint64_t *)rbp;
-        }
-      else
-        {
-          break;
-        }
+      buf[8] = '\0';
+      _alert(" %016" PRIxPTR
+             "\t%02x %02x %02x %02x %02x %02x %02x %02x\t%s\n",
+             (uintptr_t)(sp + i * 8),
+             *((uint8_t *)(sp + i * 8 + 0)),
+             *((uint8_t *)(sp + i * 8 + 1)),
+             *((uint8_t *)(sp + i * 8 + 2)),
+             *((uint8_t *)(sp + i * 8 + 3)),
+             *((uint8_t *)(sp + i * 8 + 4)),
+             *((uint8_t *)(sp + i * 8 + 5)),
+             *((uint8_t *)(sp + i * 8 + 6)),
+             *((uint8_t *)(sp + i * 8 + 7)),
+             buf);
     }
 }
 

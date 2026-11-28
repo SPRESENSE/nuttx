@@ -158,7 +158,12 @@ int psock_connect(FAR struct socket *psock, FAR const struct sockaddr *addr,
       conn->s_flags |= _SF_CONNECTED;
     }
 
-  if (ret != -EINPROGRESS && (ret < 0 || !connstate))
+  /* EALREADY: an earlier connect() is still in progress.  EINTR: the
+   * connection goes on after the signal (POSIX).
+   */
+
+  if (ret != -EINPROGRESS && ret != -EALREADY && ret != -EINTR &&
+      (ret < 0 || !connstate))
     {
       conn->s_flags &= ~_SF_CONNECTING;
     }
